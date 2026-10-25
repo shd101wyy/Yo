@@ -37,8 +37,7 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 ```
 
 `alloc : .Some(a)` places the cell in the allocator `a`. The default, `.None`,
-places it in the current `with_allocator` scope, else the global allocator
-(see [Placing the cell](#placing-the-cell)).
+places it on the global allocator (see [Placing the cell](#placing-the-cell)).
 
 ## When to use `Arc`
 
@@ -78,11 +77,11 @@ same := Arc(i32)(i32(42));
 ### Placing the cell
 
 `arc(value, alloc : .Some(a))` allocates the cell from the allocator `a`. The last handle's drop frees the cell through `a`, on
-whichever thread drops it. Without `alloc`, a `with_allocator` scope places the
-cell, else the global allocator does ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
-Unlike `box`, `arc` makes `a` the current scope while the cell is allocated, so
-`a`'s own callbacks must not allocate through the scope (see "Writing your own
-allocator" there):
+whichever thread drops it. Without `alloc`, the cell is on the global allocator
+([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). Unlike `box`, `arc` makes `a`
+the thread's allocation scope while the cell is allocated, so `a`'s own callbacks
+must not create a reference-counted object without an `alloc` argument (see
+"Writing your own allocator" there):
 
 ```yo
 // `alloc_a` is any `Allocator` value, e.g. `Allocator.global()`.

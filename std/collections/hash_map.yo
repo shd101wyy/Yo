@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 // `outside-subset`), and the internals stay parked with the heap model
 // (the object/heap model is explicitly out of subset).
 pragma(Pragma.Verify);
-{ GlobalAllocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { ArrayList } :: import("./array_list.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
@@ -144,9 +144,8 @@ impl(
   HashMap(K, V),
   /// Allocate memory for HashMap with given capacity
   /// Initializes all control bytes to EMPTY
-  // The default constructors' tables: from the allocator `with_allocator`
-  // made current, or the global one.
-  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(current_allocator(), capacity)),
+  // The default constructors' tables: from the global allocator.
+  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(.None, capacity)),
   // Allocate both buffers from `alloc` (the global allocator when `.None`).
   _alloc_buf : (fn(alloc : Option(Allocator), bytes : usize) -> ?*void)(
     match(
@@ -247,24 +246,17 @@ impl(
   /// stay empty or tiny, and an eager 16-bucket table cost the compiler
   /// ~270 B per empty map, one per scope frame
   /// (plans/CODEGEN_MEMORY_REDUCTION.md §0.4). The first insert grows it to
-  /// `DEFAULT_CAPACITY` on the global allocator.
-  ///
-  /// Inside `with_allocator(a, ...)` it is `new_in(a)` instead: an empty map
-  /// records its allocator only in its buffers' owner prefix, so a lazy map
-  /// would grow on the global allocator.
+  /// `DEFAULT_CAPACITY` on the global allocator; `new_in(a)` places the
+  /// table in `a` instead.
   new : (fn() -> Self)(
-    match(
-      current_allocator(),
-      .Some(a) => Self.new_in(a),
-      .None => Self(
-        ctrl : .None,
-        data : .None,
-        capacity : usize(0),
-        size : usize(0),
-        _tombstones : usize(0),
-        k0 : DEFAULT_KEY_0,
-        k1 : DEFAULT_KEY_1
-      )
+    Self(
+      ctrl : .None,
+      data : .None,
+      capacity : usize(0),
+      size : usize(0),
+      _tombstones : usize(0),
+      k0 : DEFAULT_KEY_0,
+      k1 : DEFAULT_KEY_1
     )
   ),
   /// Empty map whose hashes are keyed by `k0`, `k1` (SipHash-1-3 keys).

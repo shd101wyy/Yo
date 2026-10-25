@@ -8531,10 +8531,11 @@ Fix: wrap the call:
             // A cell primitive's constructor takes the allocator after the
             // payload: `__yo_cell(V)(v, alloc)` with `alloc : Option(Allocator)`
             // (plans/VALUES_BY_DEFAULT.md §3.5). `.None` places the cell in
-            // the current `with_allocator` scope, else the global allocator;
-            // `.Some(a)` places it in `a` with no scope switch. The argument
-            // is a constructor parameter, not a field: it is checked here, and
-            // codegen reads it from the second runtime argument slot.
+            // the current scope if a live `alloc : .Some(a)` swap made one
+            // current, else the global allocator; `.Some(a)` places it in `a`
+            // with no scope switch. The argument is a constructor parameter,
+            // not a field: it is checked here, and codegen reads it from the
+            // second runtime argument slot.
             if(is_cell_primitive_type(&func_type), {
               fields_subst.push(
                 TypeField(

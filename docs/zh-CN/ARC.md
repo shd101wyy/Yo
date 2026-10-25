@@ -30,8 +30,8 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 );
 ```
 
-`alloc : .Some(a)` 把单元放在分配器 `a` 中。默认值 `.None` 把它放在当前
-`with_allocator` 作用域中，没有作用域时使用全局分配器（见[放置单元](#放置单元)）。
+`alloc : .Some(a)` 把单元放在分配器 `a` 中。默认值 `.None` 把它放在全局分配器上
+（见[放置单元](#放置单元)）。
 
 ## 什么时候使用 `Arc`
 
@@ -59,11 +59,10 @@ same := Arc(i32)(i32(42));
 ### 放置单元
 
 `arc(value, alloc : .Some(a))` 从分配器 `a` 分配单元。最后一个句柄
-被 drop 时，无论在哪个线程上，单元都通过 `a` 释放。不传 `alloc` 时，由
-`with_allocator` 作用域放置单元，没有作用域时使用全局分配器（见
-[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `box` 不同，`arc` 在分配单元时
-把 `a` 设为当前作用域，所以 `a` 自己的回调不能通过作用域分配（见该文档的“编写自己的
-分配器”）：
+被 drop 时，无论在哪个线程上，单元都通过 `a` 释放。不传 `alloc` 时，单元使用全局
+分配器（见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `box` 不同，`arc` 在
+分配单元时把 `a` 设为当前线程的分配作用域，所以 `a` 自己的回调不能创建不带 `alloc`
+参数的引用计数对象（见该文档的“编写自己的分配器”）：
 
 ```yo
 // `alloc_a` 是任意 `Allocator` 值，例如 `Allocator.global()`。

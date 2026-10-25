@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ GlobalAllocator, with_allocator } :: import("std/allocator");
+{ GlobalAllocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
 test("a cell holds its payload, and a copy shares it", {
   c := __yo_cell(i32)(i32(5), .None);
@@ -121,10 +121,7 @@ _COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc,
 _counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
 // An `Allocator` over `c`, which must outlive every block it hands out.
 _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
-// The live count of a counting allocator, read through the allocator value: a
-// closure that captured the `_Counts` itself would read its own copy.
-_live_of :: (fn(a : Allocator) -> usize)(unsafe((*_Counts)(a.ctx.unwrap()).*.live));
-test("alloc : .Some(a) places the cell in a, and .None follows the scope", {
+test("alloc : .Some(a) places the cell in a, and .None is global", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
@@ -132,39 +129,17 @@ test("alloc : .Some(a) places the cell in a, and .None follows the scope", {
     assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
     g := __yo_cell(i32)(i32(6), .None);
-    assert(counts.live == usize(1), "a .None cell outside any scope is on the global allocator");
-    s := with_allocator(heap, () => __yo_atomic_cell(i32)(i32(7), .None));
-    assert(counts.live == usize(2), "a .None cell inside with_allocator is placed by the scope");
+    assert(counts.live == usize(1), "a .None cell is on the global allocator");
+    s := __yo_atomic_cell(i32)(i32(7), .None);
+    assert(counts.live == usize(1), "a .None atomic cell is on the global allocator");
     assert(((a.* + g.*) + s.*) == i32(18), "the payloads");
   };
-  assert(counts.live == usize(0), "the last drops released both cells into the allocator");
+  assert(counts.live == usize(0), "the last drop released the placed cell into the allocator");
 });
-test("an explicit allocator inside another scope wins, and the outer scope survives", {
-  inner_counts := _counts();
-  inner := _counting(addr_of(inner_counts));
-  outer_counts := _counts();
-  outer := _counting(addr_of(outer_counts));
-  {
-    x := with_allocator(outer, () => {
-      placed := __yo_atomic_cell(i32)(i32(7), .Some(inner));
-      scoped := __yo_cell(i32)(i32(8), .None);
-      assert(_live_of(outer) == usize(1), `the .None cell after it still follows the scope: ${_live_of(outer)}`);
-      assert(scoped.* == i32(8), "the scoped payload");
-      placed
-    });
-    assert(inner_counts.live == usize(1), "the explicit allocator placed the cell");
-    assert(outer_counts.live == usize(0), "the scoped cell died with the closure");
-    assert(x.* == i32(7), "the placed payload");
-  };
-  assert(inner_counts.live == usize(0), "released into the explicit allocator");
-});
-// An allocator whose `alloc` itself allocates through the scope
+// An allocator whose `alloc` itself allocates
 // (issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md):
-// the cell calls `a`'s vtable with the caller's scope current, as `box` does,
-// so outside any `with_allocator` scope the callback's own `ArrayList` goes
-// to the global heap instead of recursing into `a`. Inside
-// `with_allocator(a, …)` it recurses, as `box(v, alloc : .Some(a))` does: a
-// callback must not allocate through the scope (option 1 of that question).
+// the cell calls `a`'s vtable directly, as `box` does, so the callback's own
+// `ArrayList` goes to the global heap instead of recursing into `a`.
 _ReentCounts :: struct(allocs : usize, frees : usize);
 _reent_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
   c := (*_ReentCounts)(ctx.unwrap());
@@ -179,7 +154,7 @@ _reent_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
   unsafe(c.*.frees = (c.*.frees + usize(1)));
   GlobalAllocator.free(ptr);
 });
-test("an allocator whose callback allocates through the scope does not recurse", {
+test("an allocator whose callback allocates does not recurse", {
   vt := AllocatorVTable(alloc : _reent_alloc, realloc : _reent_realloc, free : _reent_free);
   counts := _ReentCounts(allocs : usize(0), frees : usize(0));
   a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(vt));

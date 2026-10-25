@@ -131,9 +131,13 @@ instead of ending in it: a tail `match` is typed by the declared `Rc(V)`/`Arc(V)
 (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
 the evaluator gap is open as `issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
 Unlike `box`'s
-explicit path, it runs `a`'s callbacks with `a` current (as `with_allocator` does), so an
-allocator whose callbacks allocate through the scope recurses until the stack overflows
+explicit path, it runs `a`'s callbacks with `a` current, so an allocator whose callbacks
+create a reference-counted object without `alloc` (a `ref` constructor, `rc`/`arc`/`dyn` with
+no `alloc`) recurses until the stack overflows
 (`issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
+That swap is the ONLY setter of the thread scope left: `with_allocator`/`current_allocator`
+were deleted (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1), and B2b deletes the thread-local
+once V5 moves `rc`/`arc` onto the cell.
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
@@ -212,23 +216,27 @@ The guarantee is data-race freedom for every program that compiles without `prag
   value, never reference counted. Every block it hands out carries a 16-byte
   owner prefix (`{ctx, vtable}`) in front of the returned pointer, and every
   release routes through it, so a block always returns to its allocator, on
-  any thread. Codegen writes the same layout (`__yo_alloc_prefix_t`) for an RC
-  object placed by a scope and marks it with the top bit of `ref_count`
+  any thread. Codegen writes the same layout (`__yo_alloc_prefix_t`) for a
+  placed RC object and marks it with the top bit of `ref_count`
   (`__YO_RC_TAG`): mask every count TEST with `__YO_RC_COUNT`, never a write.
-- `with_allocator(a, f)` makes `a` current on this thread while `f` runs; the
-  six user-visible RC constructor sites consult it (`__yo_rc_alloc_scoped`),
-  the runtime's own blocks never do (`__yo_rc_alloc`). A task keeps the scope
-  it was created in across suspensions (its resume wrapper reinstates it); a
-  spawned thread starts on the global allocator.
-- The mutable containers' DEFAULT constructors follow the scope
+- **Global by default, placement by argument** (`plans/backlog/ALLOCATOR_PLACEMENT.md`,
+  maintainer decision 2026-10-24). A creation without an allocator argument is
+  global; `box`/`rc`/`arc` take `(alloc : Option(Allocator)) ?= .None`, the
+  containers `new_in(a)`/`with_capacity_in(a, n)` (B2 turns those into the same
+  `alloc :` parameter). There is no user-visible allocation scope:
+  `with_allocator`/`current_allocator` were deleted (B1). The thread-local
+  `__yo_current_allocator` survives only for `rc`/`arc`'s one-construction swap;
+  the RC constructor sites still read it (`__yo_rc_alloc_scoped`), the runtime's
+  own blocks never do (`__yo_rc_alloc`), and B2b deletes it.
+- The mutable containers' DEFAULT constructors are global
   (`ArrayList.new`/`with_capacity`, `HashMap.new`/`with_capacity`, `Deque.new`,
-  and `HashSet`/`StringBuilder`/`String` through them): they read
-  `current_allocator()` and behave as `new_in(a)` inside a scope, unchanged
-  outside one. A lazy constructor must not stay lazy under a scope — an empty
-  container records its allocator only in its buffer's prefix, so
-  `HashMap.new` is eager (`new_in(a)`) there. Because std is compiled into the
-  compiler by the seed, a std change that calls a new runtime hook is
-  seed-gated (P3c waited for v0.2.48).
+  and `HashSet`/`StringBuilder`/`String` through them), and so are `ref`
+  constructors, `dyn`'s cell, interpolated strings, closure environments and
+  task state machines. A user function that passes placement on declares
+  `(alloc : Option(Allocator)) ?= .None`: the raw-view parameter gate treats the
+  prelude's `Allocator` as an opaque handle (A2), so a safe file may.
+  Because std is compiled into the compiler by the seed, a std change that
+  calls a new runtime hook is seed-gated (P3c waited for v0.2.48).
 - Containers record their allocator in the top bit of a word they already
   have (ArrayList/Deque capacity, HashMap's tombstone count), never in a new
   field — the object size is measured and tuned. Read such a word through its

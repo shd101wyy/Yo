@@ -9,7 +9,7 @@ when they are freed.
 
 - [The model](#the-model)
 - [Quick start](#quick-start)
-- [The allocation scope: `with_allocator`](#the-allocation-scope-with_allocator)
+- [Placement: the `alloc` argument](#placement-the-alloc-argument)
 - [Containers](#containers)
 - [When to use an explicit allocator](#when-to-use-an-explicit-allocator)
 - [Threads and async tasks](#threads-and-async-tasks)
@@ -37,75 +37,49 @@ What Yo does not check is the allocator's own lifetime: its context and
 vtable must outlive every block it handed out (see
 [Writing your own allocator](#writing-your-own-allocator)).
 
-None of this needs new syntax. `Point(...)` is the same constructor call inside
-and outside an allocation scope; only where its bytes come from changes.
+**Global by default, placement by argument.** A creation with no allocator
+argument always goes to the global allocator. No caller can set an allocation scope:
+what a call such as `ArrayList(i32).new()` or `rc(v)` does never depends on
+its caller. Every placement in another allocator is visible at the creation
+site, as one argument.
 
 ## Quick start
 
 An `Allocator` is a value. `Allocator.global()` is the global allocator as
 such a value, and [Writing your own allocator](#writing-your-own-allocator)
-shows a counting one; the code below places the same way with either. (A
-function parameter of type `Allocator` needs `pragma(Pragma.AllowUnsafe);`
-today, because the value carries raw pointers.)
+shows a counting one; the code below places the same way with either.
 
 ```yo
 { println } :: import("std/fmt");
-{ with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 
-Point :: ref(struct(x : i32, y : i32));
+Point :: struct(x : i32, y : i32);
 
 main :: (fn() -> unit)({
   a := Allocator.global();
   {
-    // Every RC object and container buffer created in the scope comes from `a`.
-    p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
-    xs := with_allocator(a, () => {
-      ys := ArrayList(i32).new(); // follows the scope
-      ys.push(p.x);
-      ys
-    });
-    // Outside a scope, name the allocator explicitly.
-    zs := ArrayList(i32).new_in(a);
-    zs.push(p.y);
-    println(`${xs.len() + zs.len()}`); // 2
+    // One cell, placed in `a` by its `alloc` argument.
+    p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
+    // A list whose buffer, and every growth of it, lives in `a`.
+    xs := ArrayList(i32).new_in(a);
+    xs.push(p.x);
+    // No argument: the global allocator.
+    ys := ArrayList(i32).new();
+    ys.push(p.y);
+    println(`${xs.len() + ys.len()}`); // 2
   };
-  // `p`, `xs` and `zs` are gone, so their blocks went back to `a`.
+  // `p` and `xs` are gone, so their blocks went back to `a`.
 });
 export(main);
 ```
 
-## The allocation scope: `with_allocator`
+## Placement: the `alloc` argument
 
-`with_allocator(a, f)` (`std/allocator`) makes `a` the current allocator on
-this thread while `f` runs, including in everything `f` calls, and returns
-`f`'s result. The previous allocator is restored when `f` returns or unwinds, so scopes nest.
-
-Inside a scope, these come from `a`:
-
-- `ref` struct and `ref` enum constructors,
-- `rc` and `arc`,
-- `dyn` boxes,
-- the state machines of `io.async` tasks created there,
-- the buffers of the mutable containers created there (see
-  [Containers](#containers)).
-
-These stay on the global allocator:
-
-- the runtime's own bookkeeping (event-loop structures, thread pools),
-- objects created outside the scope, even if they are later used inside it.
-
-`current_allocator()` returns the allocator a scope made current, or `.None`
-when no scope is active (the global allocator).
-
-## Placing one cell: the `alloc` parameter
-
-`box`, `rc` and `arc` take an optional `alloc : Option(Allocator)`, so one cell can
-be placed without a scope. `.Some(a)` places the cell in `a`; the default,
-`.None`, follows the current scope, else the global allocator. The cell is
-freed through the allocator that placed it, on whichever thread drops the last
-handle. Yo does not wrap a value into an `Option`, so the caller writes
-`.Some(...)`:
+`box`, `rc` and `arc` take an optional `alloc : Option(Allocator)`. `.Some(a)`
+places the cell in `a`; the default, `.None`, places it on the global
+allocator. The cell is freed through the allocator that placed it, on
+whichever thread drops the last handle. Yo does not wrap a value into an
+`Option`, so the caller writes `.Some(...)`:
 
 ```yo
 // `a` is any `Allocator` value.
@@ -114,25 +88,44 @@ r := rc(i32(2), alloc : .Some(a));
 c := arc(i32(3), alloc : .Some(a));
 ```
 
-An explicit `alloc` wins over the current scope for that one cell, and the
-scope is unchanged afterwards. They differ in how they reach `a`: `box` calls
-`a`'s `alloc` directly, under the caller's scope, while `rc` and `arc` make `a`
-the current scope for the construction, as `with_allocator` does (until the
-cell primitive takes the allocator itself). So inside `a`'s callbacks
-`current_allocator()` is the caller's scope for `box` and `a` for `rc` and
-`arc`, and an allocator used with `rc` or `arc` must follow the callback rule in
-[Writing your own allocator](#writing-your-own-allocator).
+A function that lets its caller place what it creates declares the same
+defaulted parameter and passes it on. `Allocator`, `Option(Allocator)` and a
+struct holding one are opaque handles, so they are legal parameter types in a
+safe file (one without `pragma(Pragma.AllowUnsafe)`); using the handle's raw
+words, as `a.alloc(n)` does, still needs the pragma:
+
+```yo
+{ ArrayList } :: import("std/collections/array_list");
+
+Node :: struct(name : i32, kids : ArrayList(i32));
+make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
+  rc(Node(name : name, kids : ArrayList(i32).new()), alloc : alloc)
+);
+```
+
+Everything a program creates without such an argument is global:
+
+- `ref` struct and `ref` enum constructors (to place one, make it a value
+  struct and wrap it: `rc(v, alloc : .Some(a))`),
+- the cell `dyn` makes for a value (`dyn(rc(v, alloc : .Some(a)))` places the
+  `Dyn`'s data object: the `Rc` cell is used as it is, with no second cell),
+- interpolated strings (build a placed one with `StringBuilder.new_in(a)`),
+- closure environments,
+- the state machines of `io.async` tasks,
+- the runtime's own bookkeeping (event-loop structures, thread pools).
+
+`box` calls `a`'s `alloc` directly. `rc` and `arc` make `a` the thread's
+allocation scope for the one construction (until the cell primitive takes the
+allocator itself), so an allocator used with `rc` or `arc` must follow the
+callback rule in [Writing your own allocator](#writing-your-own-allocator).
 
 ## Containers
 
-The mutable containers follow the scope. `ArrayList.new()`,
+The mutable containers' default constructors, `ArrayList.new()`,
 `ArrayList.with_capacity(n)`, `HashMap.new()`, `HashMap.with_capacity(n)` and
-`Deque.new()` created inside `with_allocator(a, …)` keep their buffers in `a`,
-and so do the types built on them (`HashSet`, `StringBuilder`, `String`).
-Outside any scope they behave exactly as before.
-
-To choose an allocator explicitly, with or without a scope, use the `_in`
-constructors:
+`Deque.new()`, are global, and so are the types built on them (`HashSet`,
+`StringBuilder`, `String`). To place a container's buffer in an allocator, use
+the `_in` constructors:
 
 | Container       | Explicit constructors                                    |
 | --------------- | -------------------------------------------------------- |
@@ -143,12 +136,11 @@ constructors:
 | `StringBuilder` | `new_in(a)`, `with_capacity_in(a, n)`                    |
 
 A container remembers its allocator. Every growth, shrink and final release of
-its buffer goes back to the allocator it was created with, whichever scope is
-current at the time. `xs.allocator()` returns that allocator, or `.None` for a
-container on the global allocator. A `clone()` lands where its source lives:
-the clone of a list, map or `String` in an explicit allocator is in the same
-allocator, even when no scope is active. The clone of a global container follows the current
-scope, as `new()` does.
+its buffer goes back to the allocator it was created with. `xs.allocator()`
+returns that allocator, or `.None` for a container on the global allocator. A
+`clone()` lands where its source lives: the clone of a list, map or `String` in
+an explicit allocator is in the same allocator, and the clone of a global
+container is global.
 
 The container's own size does not change: the allocator is recorded in the
 owner prefix of its buffer, with one bit of an existing word marking it.
@@ -176,21 +168,20 @@ need as in [Writing your own allocator](#writing-your-own-allocator).
 
 ## Threads and async tasks
 
-**The scope is per thread.** A spawned thread starts on the global allocator,
-even if it was spawned inside a scope. To use an allocator in a thread, pass
-the `Allocator` value in and open a scope there:
+`Allocator` is two words and `Send`, so one allocator may serve several threads
+as long as its own callbacks are thread-safe. Pass the `Allocator` value into
+the thread and place there:
 
 ```yo
 { println } :: import("std/fmt");
-{ with_allocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
 
-Point :: ref(struct(x : i32, y : i32));
+Point :: struct(x : i32, y : i32);
 
 main :: (fn() -> unit)({
   a := Allocator.global(); // any `Allocator`: it is `Send`
   t := Thread(i32).spawn(io => {
-    p := with_allocator(a, () => Point(x : i32(1), y : i32(2)));
+    p := rc(Point(x : i32(1), y : i32(2)), alloc : .Some(a));
     p.x + p.y
   });
   println(`${t.join()}`);
@@ -198,13 +189,9 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`Allocator` is two words and `Send`, so one allocator may serve several threads
-as long as its own callbacks are thread-safe.
-
-**A task keeps its scope.** An `io.async` task created inside `with_allocator`
-resumes with the same scope after every suspension, whichever scope is current
-when the event loop resumes it. Work the task does after `with_allocator` has
-returned still lands in that allocator.
+**A task is always global.** The state machine of an `io.async` task lives on
+the global allocator. What the task creates is placed by its own creation
+sites, as anywhere else.
 
 ## Writing your own allocator
 
@@ -229,29 +216,28 @@ The contract:
   returned, keeping its first `min(old, new_size)` bytes. On `.None` the
   original block is untouched and still owned by the caller.
 - `free(ctx, ptr)` releases such a block. There is no size argument.
-- The callbacks must not allocate through the scope: no `ArrayList.new()`,
-  `String`, `box(...)` without `alloc`, or `ref` constructor inside them. They
-  can run with their own allocator as the current scope (under
-  `with_allocator(a, …)`, and for `rc(v, alloc : .Some(a))` and
-  `arc(v, alloc : .Some(a))`), so such an
+- The callbacks must not create a reference-counted object without an
+  `alloc` argument: no `ref` constructor, and no `rc`, `arc` or `dyn` without
+  `alloc`. For `rc(v, alloc : .Some(a))` and `arc(v, alloc : .Some(a))` they run
+  with their own allocator as the thread's allocation scope, so such an
   allocation calls back into `alloc` and recurses until the stack overflows.
-  Get memory from `GlobalAllocator` or from a buffer you own, as the example
-  below does.
+  Containers, `String` and `box(...)` are global and safe to use. Get memory
+  from `GlobalAllocator` or from a buffer you own, as the example below does.
 
 Your functions never see the 16-byte owner prefix: `std/allocator` asks your
 `alloc` for 16 bytes more than the caller wanted and manages the prefix
 itself. Implementing an allocator handles raw pointers, so the file needs
-`pragma(Pragma.AllowUnsafe);`. Using one, through `with_allocator` or `new_in`,
-does not.
+`pragma(Pragma.AllowUnsafe);`. Using one, through an `alloc` argument or
+`new_in`, does not.
 
 A counting allocator that forwards to the global allocator:
 
 ```yo
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
-{ GlobalAllocator, with_allocator } :: import("std/allocator");
+{ GlobalAllocator } :: import("std/allocator");
 
-Point :: ref(struct(x : i32, y : i32));
+Point :: struct(x : i32, y : i32);
 _Counts :: struct(allocs : usize, frees : usize);
 
 _count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
@@ -273,7 +259,7 @@ main :: (fn() -> unit)({
   counts := _Counts(allocs : usize(0), frees : usize(0));
   a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(_COUNT_VTABLE));
   {
-    p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
+    p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     println(`${p.x}`);
   };
   println(`allocs=${counts.allocs} frees=${counts.frees}`); // allocs=1 frees=1
@@ -319,11 +305,13 @@ one tells which subsystem a leaked block came from.
 
 ## Cost
 
-A program that never opens a scope pays one relaxed atomic load and a branch
-per allocation site that consults the scope: the compiler's own self-compile
-measured within noise (`plans/archive/EXPLICIT_ALLOCATORS.md`). Containers
-keep their size, because the allocator lives in the buffer's prefix rather
-than in a new field.
+A `ref` constructor, a `dyn` box and an `io.async` task still check the
+thread's allocation scope that `rc` and `arc` set for one construction: one
+relaxed atomic load and a branch, measured within noise on the compiler's own
+self-compile (`plans/archive/EXPLICIT_ALLOCATORS.md`). That check is removed
+once `rc` and `arc` place through the cell primitive
+(`plans/backlog/ALLOCATOR_PLACEMENT.md`, B2). Containers keep their size,
+because the allocator lives in the buffer's prefix rather than in a new field.
 
 ## Limits
 
@@ -331,9 +319,11 @@ than in a new field.
   [When to use an explicit allocator](#when-to-use-an-explicit-allocator).
 - **No over-aligned buffers.** Blocks are 16-aligned. Containers of types
   aligned more strictly than that are not supported, as before.
-- **Runtime only.** `with_allocator` has no effect at compile time; a
-  compile-time call is an extern call.
+- **No placed `ref` objects.** A `ref` constructor takes no `alloc`
+  argument. Make the type a value struct and place it with
+  `rc(v, alloc : .Some(a))`.
 
 The design record, with measurements and the phase-by-phase history, is
 `plans/archive/EXPLICIT_ALLOCATORS.md`. The landed decisions are summarized in
-`plans/reference/EXPLICIT_ALLOCATORS.md`.
+`plans/reference/EXPLICIT_ALLOCATORS.md`, and the placement rules ("global by
+default, placement by argument") in `plans/backlog/ALLOCATOR_PLACEMENT.md`.

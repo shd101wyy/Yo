@@ -1184,9 +1184,10 @@ static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
 }
 `
   );
-  // The allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5): the allocator
-  // `with_allocator` made current on this thread, `{ctx, NULL}` for the
-  // global one. Only the six user-visible constructor sites consult it
+  // The allocation scope (plans/backlog/ALLOCATOR_PLACEMENT.md): the allocator
+  // an `alloc : .Some(a)` argument made current on this thread while the cell
+  // is placed (`rc`/`arc`'s swap, std/prelude.yo), `{ctx, NULL}` for the
+  // global one. Only the user-visible constructor sites consult it
   // (`__yo_rc_alloc_scoped`); the runtime's own blocks keep `__yo_rc_alloc`.
   // `__yo_scopes_ever_entered` keeps the thread-local read (a
   // `_tlv_get_addr` call on Darwin) off every allocation of a program that
@@ -1218,9 +1219,10 @@ static inline __yo_alloc_scope_t __yo_scope_of_object(void* p) {
   __yo_alloc_scope_t none = { 0, 0 };
   return none;
 }
-${alloc_scoped_fn}// std/allocator.yo's hooks (extern "Yo"): with_allocator saves and restores
-// the scope through them, and the default container constructors ask
-// __yo_scope_vtable whether one is current (NULL: the global allocator).
+${alloc_scoped_fn}// std/prelude.yo's hooks (extern "Yo"): rc/arc's "alloc : .Some(a)" arm saves
+// and restores the scope through them, and a cell constructor's .None arm
+// still asks __yo_scope_vtable whether one is current (NULL: the global
+// allocator); the default container constructors are global since B1.
 static inline void* __yo_scope_ctx(void) { return __yo_scope_current().ctx; }
 static inline void* __yo_scope_vtable(void) { return (void*)__yo_scope_current().vtable; }
 static inline void __yo_scope_set(void* ctx, void* vtable) {

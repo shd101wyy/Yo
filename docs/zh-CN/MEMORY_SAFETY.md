@@ -136,24 +136,24 @@ main :: (fn() -> unit)({
 显式分配器决定一块内存**放在哪里**，引用计数仍然决定它**何时释放**。由显式分配器放置的对象和其他对象一样，最后一个引用消失时立即释放，释放会被路由回分配它的那个分配器：每个块在 16 字节前缀中记录自己的所有者，所以不可能被释放到错误的分配器。
 
 ```yo
-{ with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 
-Point :: ref(struct(x : i32, y : i32));
+Point :: struct(x : i32, y : i32);
 
 a := Allocator.global(); // 或任何其他 `Allocator` 值，比如你自己的分配器
-p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // 放在 `a` 里
+p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // 放在 `a` 里
 xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
+ys := ArrayList(i32).new(); // 没有参数：全局分配器
 ```
 
-- **放置跟随作用域。** `with_allocator(a, f)` 在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子，以及在其中创建的任务状态机。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
-- **任务保留自己的作用域。** 在 `with_allocator` 里创建的任务每次挂起后恢复时都使用同一个作用域，与事件循环恢复它时的当前作用域无关。新生成的线程从全局分配器开始；把 `Allocator` 值传进 spawn 体，并在那里调用 `with_allocator`。
+- **默认全局，放置靠参数。** 不带分配器参数的创建使用全局分配器，所以一个调用做什么从不取决于它的调用者。`box`、`rc` 和 `arc` 接受 `alloc : .Some(a)`，容器提供 `new_in` / `with_capacity_in`。缓冲区之后的每次增长都留在创建它的分配器里。`ref` 构造、`dyn` 盒子、插值字符串、闭包环境、任务状态机以及运行时自己的簿记都使用全局分配器。
+- **传递放置是安全代码。** `Allocator`、`Option(Allocator)` 以及持有它的结构体都是不透明句柄：安全文件可以声明 `(alloc : Option(Allocator)) ?= .None` 并把它传下去。使用句柄的裸字段（`a.alloc(n)`）仍然需要该 pragma。
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`，所以只要它自己的回调是线程安全的，一个分配器就可以服务多个线程。
 - **分配器必须比它的块活得更久。** Yo 不检查这一点：用户编写的分配器的上下文和 vtable 必须一直有效，直到它分配出去的每个块都被释放。
 
 std 不提供 arena：`std/arena` 已于 2026-10-24 删除，`FixedBufferAllocator` 和 `ArenaAllocator` 在计划中（`plans/backlog/ZIG_STYLE_ALLOCATORS.md`）。
 
-直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
+直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`alloc` 参数和 `_in` 构造函数不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
 
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 

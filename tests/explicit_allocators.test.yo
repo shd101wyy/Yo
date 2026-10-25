@@ -1,9 +1,11 @@
-//! Reference-counted objects placed by an explicit allocator
-//! (`plans/archive/EXPLICIT_ALLOCATORS.md` P3): `with_allocator(a, f)` makes `a` the
-//! thread's current allocator while `f` runs, every user-visible RC object
-//! created there comes from `a`, and its release is routed back to `a`. Also
-//! the `Allocator` vtable surface itself (P0): the owner prefix, the global
-//! allocator's value, and an `Allocator` value shared across threads.
+//! Objects placed by an explicit allocator: an `alloc : .Some(a)` argument at
+//! the creation site (`rc`, `box`, `arc`) or a container's `new_in(a)` places
+//! the block in `a`, and its release is routed back to `a`. A creation without
+//! one is global; there is no allocation scope
+//! (`plans/backlog/ALLOCATOR_PLACEMENT.md`). Also the `Allocator` vtable
+//! surface itself (`plans/archive/EXPLICIT_ALLOCATORS.md` P0): the owner
+//! prefix, the global allocator's value, and an `Allocator` value shared
+//! across threads.
 //!
 //! The counting allocator below is a user-written `Allocator` implementor: it
 //! forwards to the global allocator and keeps totals, which is what freezes
@@ -13,13 +15,13 @@ pragma(Pragma.SkipWasm32Wasi); // the threaded cases need pthreads
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ GlobalAllocator, with_allocator } :: import("std/allocator");
+{ GlobalAllocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
-{ yield } :: import("std/async");
-{ AtomicBool, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
+{ AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 Gc :: import("std/gc");
 { HashMap } :: import("std/collections/hash_map");
-{ String } :: import("std/string");
+{ Deque } :: import("std/collections/deque");
+{ String, StringBuilder } :: import("std/string");
 // --- the counting allocator -------------------------------------------------
 // `live` is the number of blocks it holds right now. Single-threaded: a test
 // that shares an allocator across threads uses `_SHARED_VTABLE` below.
@@ -58,72 +60,52 @@ _COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc,
 _counts :: (fn() -> _Counts)(_Counts(live : usize(0), allocs : usize(0), frees : usize(0), reallocs : usize(0), bytes : usize(0)));
 // An `Allocator` over `c`, which must outlive every block it hands out.
 _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
-_Point :: ref(struct(x : i32, y : i32));
-_Shape :: ref(enum(Circle(r : i32), Square(side : i32)));
-_Node :: ref(struct(value : i32, next : Option(Self)));
+_Point :: struct(x : i32, y : i32);
 _Speak :: trait(speak : (fn(self : &Self) -> i32));
 _Dog :: struct(volume : i32);
 derive(_Dog, Copy, Clone);
 impl(_Dog, _Speak(speak : (fn(self : Self) -> i32)(self.volume)));
-_make_speaker :: (fn() -> Dyn(_Speak))(dyn(_Dog(volume : i32(6))));
-test("A ref struct constructed in the scope comes from the scope's allocator", {
+test("An rc placed by its alloc argument comes from that allocator", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    p := with_allocator(heap, () => _Point(x : i32(3), y : i32(4)));
+    p := rc(_Point(x : i32(3), y : i32(4)), alloc : .Some(heap));
     assert(counts.live == usize(1), `one block: ${counts.live}`);
     assert((p.x + p.y) == i32(7), "fields");
     assert(ref_count(p) == usize(1), "ref_count() never reports the allocator tag");
     // A second OWNER (a local alias of `p` is a borrow and adds no count).
-    holder := ArrayList(_Point).new();
+    holder := ArrayList(Rc(_Point)).new();
     holder.push(p);
     assert(ref_count(p) == usize(2), "the count still counts");
   };
   assert(counts.live == usize(0), "the last drop released it into its allocator");
 });
-test("Objects created outside the scope stay on the global allocator", {
+test("A creation without an alloc argument stays on the global allocator", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    before := _Point(x : i32(1), y : i32(1));
-    inside := with_allocator(heap, () => _Point(x : i32(2), y : i32(2)));
-    after := _Point(x : i32(3), y : i32(3));
-    assert(counts.live == usize(1), "only the scoped object");
+    before := rc(_Point(x : i32(1), y : i32(1)));
+    placed := rc(_Point(x : i32(2), y : i32(2)), alloc : .Some(heap));
+    after := rc(_Point(x : i32(3), y : i32(3)));
+    assert(counts.live == usize(1), "only the placed cell");
   };
-  assert(counts.live == usize(0), `the scoped object went back: ${counts.live}`);
+  assert(counts.live == usize(0), `the placed cell went back: ${counts.live}`);
 });
-test("ref enum variants, box, arc and dyn boxes are placed by the scope", {
+test("box, arc and a dyn over a placed rc are placed by their alloc argument", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    s := with_allocator(heap, () => _Shape.Square(side : i32(5)));
-    assert(counts.live == usize(1), "enum variant");
-    b := with_allocator(heap, () => rc(i32(9)));
+    b := box(i32(9), alloc : .Some(heap));
     assert(b.* == i32(9), "box value");
-    assert(counts.live == usize(2), "box");
-    a := with_allocator(heap, () => arc(i32(11)));
-    assert(counts.live == usize(3), "arc (atomic RC)");
-    flag := with_allocator(heap, () => AtomicBool.new(true));
-    assert(flag.load(MemoryOrder.Acquire), "atomic value");
-    assert(counts.live == usize(4), "an atomic ref struct");
-    d := with_allocator(heap, () => _make_speaker());
+    assert(counts.live == usize(1), "box");
+    a := arc(i32(11), alloc : .Some(heap));
+    assert(a.* == i32(11), "arc value");
+    assert(counts.live == usize(2), "arc (atomic RC)");
+    (d : Dyn(_Speak)) = dyn(rc(_Dog(volume : i32(6)), alloc : .Some(heap)));
     assert(d.speak() == i32(6), "dyn dispatch");
-    assert(counts.live == usize(5), "dyn box");
+    assert(counts.live == usize(3), `the dyn's data object is the placed cell: ${counts.live}`);
   };
   assert(counts.live == usize(0), "every kind routed its release back");
-});
-_make_cycle :: (fn() -> unit)({
-  a := _Node(value : i32(1), next : .None);
-  b := _Node(value : i32(2), next : .Some(a));
-  a.next = .Some(b);
-});
-test("A cycle built in the scope is collected into its allocator", {
-  counts := _counts();
-  heap := _counting(addr_of(counts));
-  with_allocator(heap, () => _make_cycle());
-  assert(counts.live == usize(2), "the cycle keeps both nodes");
-  Gc.collect();
-  assert(counts.live == usize(0), `the collector freed them into its allocator: ${counts.live}`);
 });
 // An `Rc` cell placed by `rc`'s explicit `alloc` closes the cycle: the
 // collector, not a drop, releases it, and it goes back to the allocator.
@@ -145,155 +127,61 @@ test("A cycle closed through an Rc that rc's alloc placed is collected into its 
   Gc.collect();
   assert(counts.live == usize(0), `the collector freed it into its allocator: ${counts.live}`);
 });
-test("Nested scopes restore the outer allocator", {
-  outer_counts := _counts();
-  outer := _counting(addr_of(outer_counts));
-  inner_counts := _counts();
-  inner := _counting(addr_of(inner_counts));
-  {
-    pair := with_allocator(outer, () => {
-      a := _Point(x : i32(1), y : i32(0));
-      b := with_allocator(inner, () => _Point(x : i32(2), y : i32(0)));
-      c := _Point(x : i32(3), y : i32(0));
-      (a, b, c)
-    });
-    assert(outer_counts.live == usize(2), `outer holds a and c: ${outer_counts.live}`);
-    assert(inner_counts.live == usize(1), "inner holds b");
-    after := _Point(x : i32(4), y : i32(0));
-    assert(outer_counts.live == usize(2), "the scope ended with the call");
-  };
-  assert(outer_counts.live == usize(0), `a and c went back to outer: ${outer_counts.live}`);
-  assert(inner_counts.live == usize(0), `b went back to inner: ${inner_counts.live}`);
-});
-test("A spawned thread does not inherit the scope", {
-  counts := _counts();
-  heap := _counting(addr_of(counts));
-  with_allocator(heap, () => {
-    t := Thread(unit).spawn(io => {
-      p := _Point(x : i32(1), y : i32(2));
-      assert(p.x == i32(1), "value");
-    });
-    t.join();
-  });
-  assert(counts.live == usize(0), "the worker allocated on the global allocator");
-});
-test("A task keeps its scope across a suspension", {
+test("An alloc argument takes any Allocator value", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    task := with_allocator(
-      heap,
-      () => io.async((io : Io) => {
-        io.await(yield(io), io);
-        // Resumed from the event loop, after `with_allocator` has returned.
-        _Point(x : i32(8), y : i32(9))
-      })
-    );
-    outside := _Point(x : i32(0), y : i32(0));
-    assert(counts.live == usize(1), `the task's state machine: ${counts.live}`);
-    p := io.await(task, io);
-    assert(p.x == i32(8), "result");
-    // The point the task built after resuming is the allocator's; the runtime's
-    // own `yield` future is not (Rule 2). The task's state machine was the
-    // allocator's too, and the await released it: it consumed the task (§3.13 A1).
-    assert(counts.live == usize(1), `post-await point: ${counts.live}`);
-  };
-  assert(counts.live == usize(0), `the post-await point went back: ${counts.live}`);
-});
-// One state-machine type for both allocators: the per-type task pool
-// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7) is shared between them.
-_pooled_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) => {
-    io.await(yield(io), io);
-    i32(3)
-  })
-);
-test("A task an explicit allocator placed goes back to it, never to the task pool", {
-  counts := _counts();
-  heap := _counting(addr_of(counts));
-  r := {
-    task := with_allocator(heap, () => _pooled_task(io));
-    io.await(task, io)
-  };
-  assert(r == i32(3), "result");
-  assert(counts.live == usize(0), `the released task went back to the allocator: ${counts.live}`);
-});
-test("A task created in a scope never takes a pooled global block", {
-  counts := _counts();
-  heap := _counting(addr_of(counts));
-  // A global task of the same type, released: its block may now sit in the pool.
-  g := {
-    task := _pooled_task(io);
-    io.await(task, io)
-  };
-  {
-    task := with_allocator(heap, () => _pooled_task(io));
-    assert(counts.live == usize(1), `the scoped task is the allocator's: ${counts.live}`);
-    assert((io.await(task, io) + g) == i32(6), "results");
-  };
-  assert(counts.live == usize(0), `the awaited task went back to the allocator: ${counts.live}`);
-});
-test("An unwind handled inside the scope keeps the scope, and the scope ends with the call", {
-  counts := _counts();
-  heap := _counting(addr_of(counts));
-  Raise :: (ctl(code : i32) -> i32);
-  body :: (fn() -> i32)({
-    (raise : Raise) = (
-      code -> {
-        unwind(code * i32(10));
-      }
-    );
-    kept := _Point(x : i32(1), y : i32(1));
-    raise(i32(4))
-  });
-  n := with_allocator(heap, () => body());
-  assert(n == i32(40), "the handler's value");
-  after := _Point(x : i32(2), y : i32(2));
-  assert(counts.live == usize(0), `the body's objects died in the allocator and the scope ended: ${counts.live}`);
-});
-test("with_allocator takes any Allocator value", {
-  counts := _counts();
-  heap := _counting(addr_of(counts));
-  {
-    p := with_allocator(heap, () => _Point(x : i32(5), y : i32(6)));
+    p := rc(_Point(x : i32(5), y : i32(6)), alloc : .Some(heap));
     assert(counts.live == usize(1), "placed");
-    g := with_allocator(Allocator.global(), () => _Point(x : i32(7), y : i32(8)));
+    g := rc(_Point(x : i32(7), y : i32(8)), alloc : .Some(Allocator.global()));
     assert(counts.live == usize(1), "the global Allocator value places globally-routed blocks");
   };
   assert(counts.live == usize(0), `the placed point went back: ${counts.live}`);
 });
-// ===== P3c: the core containers' default constructors follow the scope =====
-test("A default ArrayList created in the scope keeps growing in its allocator after it", {
+// ===== The containers' default constructors are global (ALLOCATOR_PLACEMENT.md B1) =====
+test("ArrayList.new, HashMap.new, Deque.new and box(v) are on the global allocator", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  assert(list.allocator().is_none(), "ArrayList.new()");
+  sized := ArrayList(i32).with_capacity(usize(8));
+  assert(sized.allocator().is_none(), "ArrayList.with_capacity()");
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  assert(m.allocator().is_none(), "HashMap.new()");
+  q := Deque(i32).new();
+  q.push_back(i32(1));
+  assert(q.allocator().is_none(), "Deque.new()");
+  b := box(i32(2));
+  assert(Box.allocator(b).is_none(), "box(v)");
+});
+test("An ArrayList placed by new_in keeps growing in its allocator", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    list := with_allocator(heap, () => ArrayList(i32).new());
-    assert(list.allocator().is_some(), "new() inside the scope is new_in(scope)");
+    list := ArrayList(i32).new_in(heap);
     mut(i) := i32(0);
     while(i < i32(500), {
       list.push(i);
       i = (i + i32(1));
     });
-    assert(list.allocator().unwrap().same(heap), "growth outside the scope stays in the allocator");
-    outside := ArrayList(i32).new();
-    outside.push(i32(1));
-    assert(outside.allocator().is_none(), "a list created outside is global");
+    assert(list.allocator().unwrap().same(heap), "growth stays in the allocator");
   };
   assert(counts.live == usize(0), `released: ${counts.live}`);
 });
-test("A default HashMap and a String built in the scope are placed there", {
+test("A HashMap and a StringBuilder placed by new_in live there; an interpolated String is global", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    m := with_allocator(heap, () => {
-      acc := HashMap(i32, i32).new();
-      acc.insert(i32(1), i32(10));
-      acc
-    });
+    m := HashMap(i32, i32).new_in(heap);
+    m.insert(i32(1), i32(10));
     assert(m.allocator().is_some(), "the map's tables");
-    s := with_allocator(heap, () => `joined ${i32(7)} ${String.from("words")}`);
+    sb := StringBuilder.new_in(heap);
+    sb.write_str("placed");
+    placed := counts.live;
+    assert(placed >= usize(2), `the map's tables and the builder's bytes: ${placed}`);
+    s := `joined ${i32(7)} ${String.from("words")}`;
     assert(s == `joined 7 words`, "string contents");
-    assert(counts.live > usize(2), "the map object, its tables and the string's bytes");
+    assert(counts.live == placed, `an interpolation is a global temporary: ${counts.live}`);
   };
   assert(counts.live == usize(0), `released: ${counts.live}`);
 });

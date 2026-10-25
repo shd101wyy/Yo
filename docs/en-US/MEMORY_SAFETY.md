@@ -136,24 +136,24 @@ The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don
 An explicit allocator decides **where** a block lives. Reference counting still decides **when** it dies. An object placed by an explicit allocator is released the moment its last reference goes away, exactly like any other object, and the release is routed back to the allocator that made it: every block carries its owner in a 16-byte prefix, so there is no way to free it into the wrong allocator.
 
 ```yo
-{ with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 
-Point :: ref(struct(x : i32, y : i32));
+Point :: struct(x : i32, y : i32);
 
 a := Allocator.global(); // or any other `Allocator` value, such as your own
-p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // placed in `a`
+p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // placed in `a`
 xs := ArrayList(i32).new_in(a); // the buffer lives in `a`
+ys := ArrayList(i32).new(); // no argument: the global allocator
 ```
 
-- **Placement follows the scope.** `with_allocator(a, f)` makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes and the state machines of tasks created there. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.
-- **A task keeps its scope.** A task created inside `with_allocator` resumes with the same scope after every suspension, whichever scope is current when the event loop resumes it. A spawned thread starts on the global allocator; pass the `Allocator` value into the spawn body and call `with_allocator` there.
+- **Global by default, placement by argument.** A creation with no allocator argument goes to the global allocator, so what a call does never depends on its caller. `box`, `rc` and `arc` take `alloc : .Some(a)`, and the containers have `new_in` / `with_capacity_in`. Every growth of a buffer stays with the allocator it was created in. `ref` constructors, `dyn` boxes, interpolated strings, closure environments, task state machines and the runtime's own bookkeeping are global.
+- **Passing placement on is safe code.** `Allocator`, `Option(Allocator)` and a struct holding one are opaque handles: a safe file may declare `(alloc : Option(Allocator)) ?= .None` and pass it on. Using the handle's raw words (`a.alloc(n)`) still needs the pragma.
 - **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`, so one allocator may serve several threads as long as its own callbacks are thread-safe.
 - **The allocator must outlive its blocks.** Yo does not check this: a user-written allocator's context and vtable must stay valid until every block it handed out is released.
 
 std ships no arena: `std/arena` was deleted on 2026-10-24, and a `FixedBufferAllocator` and an `ArenaAllocator` are planned (`plans/backlog/ZIG_STYLE_ALLOCATORS.md`).
 
-Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `_in` constructors and the scope do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
+Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `alloc` argument and the `_in` constructors do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
 
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 

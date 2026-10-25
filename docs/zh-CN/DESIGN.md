@@ -1189,18 +1189,19 @@ s3 := s2; // RC = 3
 
 #### 显式分配器
 
-引用计数决定对象何时释放，显式分配器决定它放在哪里。`with_allocator(a, f)`（`std/allocator`）把 `f` 运行期间创建的每个引用语义对象放在分配器 `a` 中，包括在其中创建的容器的缓冲区；`new_in` 用于显式指定分配器：
+引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`box`、`rc` 和 `arc` 用 `alloc : .Some(a)`，容器用 `new_in(a)`：
 
 ```yo
-{ with_allocator } :: import("std/allocator");
-Point :: ref(struct(x : i32, y : i32));
+{ ArrayList } :: import("std/collections/array_list");
+Point :: struct(x : i32, y : i32);
 
 // `a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
-p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // 放在 `a` 里
-p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
+p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // 放在 `a` 里
+p2 := rc(Point(x : i32(1), y : i32(2))); // 没有参数：全局分配器
+xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
 ```
 
-不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
+不需要新关键字，也没有分配作用域：一个调用做什么从不取决于它的调用者。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 
 #### Copy
 
@@ -3255,8 +3256,8 @@ assert(sum(&t) == 3);
   时 `Box(T)` 才是。
 - **布局。** `Box` 值是一个指针，`Option(Box(T))` 也是一个指针（`NULL` 即
   `.None`）。单元在载荷前带有 16 字节的所有者前缀，记录放置它的分配器。
-- **分配器。** `box(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时由当前
-  `with_allocator` 作用域放置，没有作用域时使用全局分配器。单元通过其所有者释放，
+- **分配器。** `box(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时单元
+  使用全局分配器。单元通过其所有者释放，
   `Box.clone(b)` 落在 `b` 所在的位置（由显式分配器放置的 box 克隆到同一个分配器中）。
   `Box.allocator(b)` 读回所有者（全局分配器为 `.None`）。
 - **环。** `Box` 是其所有者的值的一部分：环收集器会原地追踪它的载荷，所以经由
@@ -3306,8 +3307,7 @@ rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .No
 ```
 
 `rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
-`alloc : .Some(a)` 把单元放到分配器 `a` 中；默认值 `.None` 把它放到当前
-`with_allocator` 作用域中，没有作用域时放到全局分配器
+`alloc : .Some(a)` 把单元放到分配器 `a` 中；默认值 `.None` 把它放到全局分配器
 （[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
 
 ### 使用示例
