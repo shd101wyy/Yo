@@ -116,11 +116,11 @@ _rotr64 :: (fn(x : u64, n : u64) -> u64)(
 );
 /// One 128-byte block: the 80-round compression over `h[0..8]`.
 _sha512_block :: (fn(block : *u8, h : *u64) -> unit)({
-  w := Array(u64, usize(80)).fill(u64(0));
-  (t : usize) = usize(0);
+  mut(w) := Array(u64, usize(80)).fill(u64(0));
+  (mut(t) : usize) = usize(0);
   while(t < usize(16), t = (t + usize(1)), {
-    (word : u64) = u64(0);
-    (bi : usize) = usize(0);
+    (mut(word) : u64) = u64(0);
+    (mut(bi) : usize) = usize(0);
     while(bi < usize(8), bi = (bi + usize(1)), {
       word = ((word << u64(8)) | u64((block.add((t * usize(8)) + bi)).*));
     });
@@ -132,15 +132,15 @@ _sha512_block :: (fn(block : *u8, h : *u64) -> unit)({
     // The schedule's adds wrap BY DESIGN (wrapping_add, safe mode D1).
     w(t) = w(t - usize(16)).wrapping_add(s0).wrapping_add(w(t - usize(7)).wrapping_add(s1));
   });
-  a := (h.add(usize(0))).*;
-  b := (h.add(usize(1))).*;
-  c := (h.add(usize(2))).*;
-  d := (h.add(usize(3))).*;
-  e := (h.add(usize(4))).*;
-  f := (h.add(usize(5))).*;
-  g := (h.add(usize(6))).*;
-  hh := (h.add(usize(7))).*;
-  (i : usize) = usize(0);
+  mut(a) := (h.add(usize(0))).*;
+  mut(b) := (h.add(usize(1))).*;
+  mut(c) := (h.add(usize(2))).*;
+  mut(d) := (h.add(usize(3))).*;
+  mut(e) := (h.add(usize(4))).*;
+  mut(f) := (h.add(usize(5))).*;
+  mut(g) := (h.add(usize(6))).*;
+  mut(hh) := (h.add(usize(7))).*;
+  (mut(i) : usize) = usize(0);
   while(i < usize(80), i = (i + usize(1)), {
     ep1 := (_rotr64(e, u64(14)) ^ _rotr64(e, u64(18)) ^ _rotr64(e, u64(41)));
     ch := ((e & f) ^ (~e & g));
@@ -199,7 +199,7 @@ impl(
   /// Buffers a partial 128-byte block internally, so how the input is
   /// split cannot change the digest.
   update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
       self._buflen = (self._buflen + usize(1));
@@ -243,7 +243,7 @@ impl(
       self._buf(self._buflen) = u8(0);
     });
     // 128-bit big-endian bit length: high word then low word.
-    (wi : usize) = usize(0);
+    (mut(wi) : usize) = usize(0);
     while(wi < usize(8), wi = (wi + usize(1)), {
       shift := (u64(56) - (u64(8) * u64(wi)));
       self._buf(usize(112) + wi) = u8(bit_len_high >> shift);
@@ -252,11 +252,11 @@ impl(
     buf_ptr := addr_of(self._buf(usize(0)));
     h_ptr := addr_of(self._h(usize(0)));
     _sha512_block(buf_ptr, h_ptr);
-    digest := Array(u8, usize(64)).fill(u8(0));
-    j := usize(0);
+    mut(digest) := Array(u8, usize(64)).fill(u8(0));
+    mut(j) := usize(0);
     while(j < usize(8), j = (j + usize(1)), {
       word := self._h(j);
-      (bi2 : usize) = usize(0);
+      (mut(bi2) : usize) = usize(0);
       while(bi2 < usize(8), bi2 = (bi2 + usize(1)), {
         shift2 := (u64(56) - (u64(8) * u64(bi2)));
         digest((j * usize(8)) + bi2) = u8(word >> shift2);
@@ -277,7 +277,7 @@ impl(
     finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
       d := self.finish();
       out := ArrayList(u8).with_capacity(usize(64));
-      (fbi : usize) = usize(0);
+      (mut(fbi) : usize) = usize(0);
       while(fbi < usize(64), fbi = (fbi + usize(1)), {
         out.push(d(fbi));
       });
@@ -300,7 +300,7 @@ sha512 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(64)))(
 sha512_hex :: (fn(data : &ArrayList(u8)) -> String)({
   digest := sha512(data);
   bytes := ArrayList(u8).with_capacity(usize(64));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(64), i = (i + usize(1)), {
     bytes.push(digest(i));
   });

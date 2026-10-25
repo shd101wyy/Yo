@@ -149,7 +149,7 @@ impl(
     self._group_names
   ),
   _lookup_group_name : (fn(self : &Self, name : &String) -> Option(usize))({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
       entry := self._group_names(i);
       cond(
@@ -196,8 +196,8 @@ impl(
       },
       true => ()
     );
-    result := usize(0);
-    i := start;
+    mut(result) := usize(0);
+    mut(i) := start;
     while(i < self._pos, i = (i + usize(1)), {
       d := self._bytes(i);
       result = ((result * usize(10)) + usize(d - u8(48)));
@@ -347,7 +347,7 @@ impl(
                       // Multi-range unwind like \d can't be range endpoint; treat dash as literal
                       ranges.push(CharRange(low : low, high : low));
                       ranges.push(CharRange(low : u32(45), high : u32(45)));
-                      j := usize(0);
+                      mut(j) := usize(0);
                       while(j < esc_ranges.len(), j = (j + usize(1)), {
                         ranges.push(esc_ranges(j));
                       });
@@ -403,7 +403,7 @@ impl(
               (low : u32) = esc_ranges(usize(0)).low;
               self._try_parse_char_range(ranges, low);
             }, {
-              j := usize(0);
+              mut(j) := usize(0);
               while(j < esc_ranges.len(), j = (j + usize(1)), {
                 ranges.push(esc_ranges(j));
               });
@@ -424,7 +424,7 @@ impl(
   }),
   _parse_char_class : (fn(self : &Self) -> Result(RegexNode, RegexError))({
     ranges := ArrayList(CharRange).new();
-    negated := false;
+    mut(negated) := false;
     // Check for negation '^'
     pk := self._peek();
     is_neg := match(
@@ -752,8 +752,8 @@ impl(
       true => ()
     );
     alts.push(seq);
-    result := self._make_sequence(&alts(usize(0)));
-    i := usize(1);
+    mut(result) := self._make_sequence(&alts(usize(0)));
+    mut(i) := usize(1);
     while(i < alts.len(), i = (i + usize(1)), {
       right := self._make_sequence(&alts(i));
       result = RegexNode.alternation(&result, &right);
@@ -778,13 +778,13 @@ impl(
   /// matches the empty string at every position.
   parse : (fn(self : &Self) -> Result(RegexNode, RegexError))({
     stack := ArrayList(ParseFrame).new();
-    cur_alts := ArrayList(ArrayList(RegexNode)).new();
-    cur_seq := ArrayList(RegexNode).new();
-    cur_non_cap := false;
-    cur_group_idx := usize(0);
-    cur_is_la := false;
-    cur_is_lb := false;
-    cur_is_pos := true;
+    mut(cur_alts) := ArrayList(ArrayList(RegexNode)).new();
+    mut(cur_seq) := ArrayList(RegexNode).new();
+    mut(cur_non_cap) := false;
+    mut(cur_group_idx) := usize(0);
+    mut(cur_is_la) := false;
+    mut(cur_is_lb) := false;
+    mut(cur_is_pos) := true;
     while(!self._at_end(), {
       pk := self._peek();
       b := match(
@@ -810,11 +810,11 @@ impl(
             )
           );
           // Detect group type: (?:  (?<name>  (?=  (?!  (?<=  (?<!
-          is_nc := false;
-          g_idx := usize(0);
-          is_la := false;
-          is_lb := false;
-          is_pos := true;
+          mut(is_nc) := false;
+          mut(g_idx) := usize(0);
+          mut(is_la) := false;
+          mut(is_lb) := false;
+          mut(is_pos) := true;
           pk2 := self._peek();
           is_question := match(
             pk2,

@@ -146,7 +146,7 @@ impl(
   _Transport,
   read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
-      (n : usize) = usize(0);
+      (mut(n) : usize) = usize(0);
       match(
         self,
         .Plain(stream) => {
@@ -161,7 +161,7 @@ impl(
   ),
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
-      (n : usize) = usize(0);
+      (mut(n) : usize) = usize(0);
       match(
         self,
         .Plain(stream) => {
@@ -324,7 +324,7 @@ impl(
   /// Connections currently carrying a request are unaffected; they are owned
   /// by their exchange and are closed or pooled when it finishes.
   close_idle : (fn(self : &Self) -> unit)({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < self._idle.len(), {
       entry := self._idle(i);
       entry.transport.close_sync();
@@ -339,8 +339,8 @@ impl(
   _take : (fn(self : &Self, key : &String) -> Option(_Idle))({
     limit := self.idle_timeout;
     limit_ms := limit.as_millis();
-    (found : Option(_Idle)) = Option(_Idle).None;
-    i := usize(0);
+    (mut(found) : Option(_Idle)) = Option(_Idle).None;
+    mut(i) := usize(0);
     while(i < self._idle.len(), {
       entry := self._idle(i);
       since := entry.since;
@@ -393,8 +393,8 @@ export(HttpClient, DEFAULT_MAX_IDLE_CONNECTIONS, DEFAULT_IDLE_TIMEOUT_SECS);
 // `Connection` is a `#token` list, so `keep-alive, Upgrade` lists both).
 _value_has_token :: (fn(value : &String, token : &String) -> bool)({
   parts := value.split(",");
-  i := usize(0);
-  (found : bool) = false;
+  mut(i) := usize(0);
+  (mut(found) : bool) = false;
   while(i < parts.len(), {
     trimmed := parts(i).trim();
     cond(
@@ -411,8 +411,8 @@ _value_has_token :: (fn(value : &String, token : &String) -> bool)({
 // `token`.
 _response_has_conn_token :: (fn(resp : &HttpResponse, token : &String) -> bool)({
   values := resp.headers.get_all(`Connection`);
-  i := usize(0);
-  (found : bool) = false;
+  mut(i) := usize(0);
+  (mut(found) : bool) = false;
   while(i < values.len(), {
     cond(
       _value_has_token(&values(i), token) => {
@@ -540,7 +540,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   default_port := cond(is_https => u16(443), true => u16(80));
   port := match(url.port(), .Some(p) => p, .None => default_port);
   // Build the request path (include query string if present)
-  req_path := url.path().clone();
+  mut(req_path) := url.path().clone();
   cond(
     req_path.is_empty() => {
       req_path = `/`;
@@ -562,8 +562,8 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   // `Connection: close` by hand gets what they asked for, and the pool has to
   // know about it.
   user_headers := opts.headers.entries();
-  hi := usize(0);
-  (user_close : bool) = false;
+  mut(hi) := usize(0);
+  (mut(user_close) : bool) = false;
   while(hi < user_headers.len(), {
     h := user_headers(hi);
     req.headers.append(&h.name, &h.value);
@@ -604,7 +604,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
 // Open a new connection to the prepared target.
 _connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))(
   io.async(e => {
-    (out : Option(_Transport)) = Option(_Transport).None;
+    (mut(out) : Option(_Transport)) = Option(_Transport).None;
     cond(
       prep.is_tls => {
         tls := e.io.await(TlsStream.connect(prep.host.clone(), prep.port, e.io), e);
@@ -660,18 +660,18 @@ _fetch_once :: (
   io.async(e => {
     prep := _prepare(url_str, opts, pool.is_some(), e.exn);
     idempotent := _is_idempotent(opts.method);
-    (out : Option(HttpResponse)) = Option(HttpResponse).None;
+    (mut(out) : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done`/`attempt` pair rather than break/continue: an awaiting loop is
     // a state machine (C24), and every await below sits at most ONE branch
     // under the `while` — deeper nesting is a shape the async lowering does
     // not support.
-    (attempt : usize) = usize(0);
-    (again : bool) = true;
+    (mut(attempt) : usize) = usize(0);
+    (mut(again) : bool) = true;
     while(again, {
       again = false;
       // The pool is consulted on the first attempt only: a retry exists
       // BECAUSE the pooled connection was dead.
-      (taken : Option(_Idle)) = Option(_Idle).None;
+      (mut(taken) : Option(_Idle)) = Option(_Idle).None;
       cond(
         (attempt == usize(0)) => {
           match(
@@ -687,8 +687,8 @@ _fetch_once :: (
       reused := taken.is_some();
       // One leftover-byte buffer per CONNECTION: a pooled connection brings
       // its own, a fresh one starts empty.
-      carry := rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
-      (conn_opt : Option(_Transport)) = Option(_Transport).None;
+      mut(carry) := rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
+      (mut(conn_opt) : Option(_Transport)) = Option(_Transport).None;
       match(
         taken,
         .Some(entry) => {
@@ -710,8 +710,8 @@ _fetch_once :: (
         read_http_message_buffered(&conn, opts.max_response_bytes, prep.kind, &carry, e.io),
         e
       );
-      (raw : String) = String.new();
-      (framing_err : Option(HttpError)) = Option(HttpError).None;
+      (mut(raw) : String) = String.new();
+      (mut(framing_err) : Option(HttpError)) = Option(HttpError).None;
       match(
         framed,
         .Ok(x) => {
@@ -752,7 +752,7 @@ _fetch_once :: (
         },
         true => ()
       );
-      (retire : bool) = false;
+      (mut(retire) : bool) = false;
       cond(
         !dead => {
           resp := match(
@@ -765,7 +765,7 @@ _fetch_once :: (
             }
           );
           keep := (!prep.sent_close && _response_keeps_alive(&resp, prep.kind));
-          (stored : bool) = false;
+          (mut(stored) : bool) = false;
           cond(
             keep => {
               match(
@@ -849,13 +849,13 @@ _fetch_follow :: (
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
-    current := url_str.clone();
-    hop_opts := opts;
-    hops := usize(0);
-    (result : Option(HttpResponse)) = Option(HttpResponse).None;
+    mut(current) := url_str.clone();
+    mut(hop_opts) := opts;
+    mut(hops) := usize(0);
+    (mut(result) : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done` flag rather than break/continue: the awaiting loop is a
     // state machine (C24).
-    done := false;
+    mut(done) := false;
     while(!done, {
       resp := e.io.await(_fetch_once(current.clone(), &hop_opts, pool, e.io), e);
       location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
@@ -907,7 +907,7 @@ _deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -
     unsafe(__yo_join_wait_add(&w, h.as_ptr()));
     unsafe(__yo_join_wait_add(&w, dh.as_ptr()));
     _w := io.await(w, io);
-    (elapsed : bool) = false;
+    (mut(elapsed) : bool) = false;
     cond(
       h.is_finished() => (),
       true => {
@@ -935,7 +935,7 @@ _fetch_deadline :: (
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
-    (result : HttpResponse) = HttpResponse.new(StatusCode.OK(), ``);
+    (mut(result) : HttpResponse) = HttpResponse.new(StatusCode.OK(), ``);
     match(
       opts.timeout,
       .None => {

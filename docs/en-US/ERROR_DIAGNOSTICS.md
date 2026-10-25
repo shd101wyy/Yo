@@ -235,8 +235,9 @@ of one is listed with its position, to rebind by hand (`mut(p_m) := p;`).
 Writes inside a `comptime_expect_error` argument are the error that case
 expects and are left alone. `YO_AUDIT_MUT_BINDINGS=1` prints every write of a
 binding below module level (`[mut-binding] how=… kind=… marked=yes|no`)
-without rejecting it. In this release E0917 for these bindings applies outside
-`std` and the compiler's own sources.
+without rejecting it. In this release E0917 for these bindings applies
+everywhere except the compiler's own sources (and the repository's scripts and
+build file); `std` is migrated and checked too.
 
 Run the two in phase order on code older than decision 42: in such code
 `mut(z) := x` is the deleted local-borrow spelling, so

@@ -142,13 +142,13 @@ _flush_wbio :: (fn(s : &TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
   io.async(e => {
     buf := ArrayList(u8).with_capacity(_PUMP_CAP());
     buf.resize_with_byte(_PUMP_CAP(), int(0));
-    (pending : usize) = unsafe(__yo_tls_bio_pending(wbio));
+    (mut(pending) : usize) = unsafe(__yo_tls_bio_pending(wbio));
     while(pending > usize(0), {
       n := unsafe(__yo_tls_bio_read(wbio, (*void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
       cond(
         (n > int(0)) => {
           // write_all over the raw chunk.
-          (sent : usize) = usize(0);
+          (mut(sent) : usize) = usize(0);
           (want : usize) = usize(n);
           while(sent < want, {
             w := e.io.await(tcp.write(buf.ptr().unwrap().add(sent), want - sent, e.io), e);
@@ -215,11 +215,11 @@ impl(
       // 3. Handshake pump. Awaits sit ONE branch under the while — deeper
       // nesting is an unsupported async shape (the closure FTTs to an abort
       // stub; see issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md).
-      (done : bool) = false;
+      (mut(done) : bool) = false;
       while(!done, {
         ret := unsafe(__yo_tls_handshake(ssl));
         e.io.await(_flush_wbio(&s, e.io), e);
-        (need_read : bool) = false;
+        (mut(need_read) : bool) = false;
         cond(
           (ret == int(1)) => {
             done = true;
@@ -254,11 +254,11 @@ impl(
   read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     ssl := self._ssl;
     io.async(e => {
-      (out : usize) = usize(0);
-      (settled : bool) = false;
+      (mut(out) : usize) = usize(0);
+      (mut(settled) : bool) = false;
       while(!settled, {
         ret := unsafe(__yo_tls_read(ssl, (*void)(buf), int(size)));
-        (act : int) = int(0);
+        (mut(act) : int) = int(0);
         cond(
           (ret > int(0)) => {
             out = usize(ret);
@@ -290,7 +290,7 @@ impl(
         // (act 1) flushes then feeds; WANT_WRITE (act 2) only flushes.
         if(act > int(0), {
           e.io.await(_flush_wbio(self, e.io), e);
-          (got : usize) = usize(1);
+          (mut(got) : usize) = usize(1);
           if(act == int(1), {
             got = e.io.await(_feed_rbio(self, e.io), e);
           });
@@ -311,12 +311,12 @@ impl(
   write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     ssl := self._ssl;
     io.async(e => {
-      (out : usize) = usize(0);
-      (settled : bool) = false;
+      (mut(out) : usize) = usize(0);
+      (mut(settled) : bool) = false;
       while(!settled, {
         ret := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
         e.io.await(_flush_wbio(self, e.io), e);
-        (need_read : bool) = false;
+        (mut(need_read) : bool) = false;
         cond(
           (ret > int(0)) => {
             out = usize(ret);

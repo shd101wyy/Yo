@@ -102,7 +102,7 @@ impl(
   /// Returns `true` when a permit was taken.
   try_acquire : (fn(self : &Self) -> bool)({
     self._mutex._raw_lock();
-    taken := false;
+    mut(taken) := false;
     cond(
       (self._permits > i32(0)) => {
         self._permits = (self._permits - i32(1));

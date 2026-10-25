@@ -77,7 +77,7 @@ Reader :: trait(
           // 4096 pushes) and copy every byte over with its own `push`: a 16 KiB
           // file cost five reads and ~20k contract-checked pushes.
           out := ArrayList(u8).with_capacity(usize(8192));
-          (done : bool) = false;
+          (mut(done) : bool) = false;
           while(!done, {
             if(out.len() == out.capacity(), {
               out.reserve(out.capacity());
@@ -126,7 +126,7 @@ Writer :: trait(
     (
       (self, buf, size, io) ->
         io.async(e => {
-          (written : usize) = usize(0);
+          (mut(written) : usize) = usize(0);
           while(written < size, {
             n := e.io.await(Self.write(self, buf.add(written), size - written, io), e);
             cond(
@@ -175,7 +175,7 @@ copy :: (
   io.async(e => {
     (total : u64) = u64(0);
     chunk := ArrayList(u8).with_capacity(usize(4096));
-    (ci : usize) = usize(0);
+    (mut(ci) : usize) = usize(0);
     while(ci < usize(4096), ci = (ci + usize(1)), {
       chunk.push(u8(0));
     });

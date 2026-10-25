@@ -35,7 +35,7 @@
 // the first position is a literal member, as in POSIX.
 _class_end :: (fn(pb : &ArrayList(u8), ci : usize) -> usize)({
   plen := pb.len();
-  (k : usize) = ci;
+  (mut(k) : usize) = ci;
   cond(
     ((k < plen) && (pb(k) == u8(93))) => {
       k = (k + usize(1));
@@ -48,7 +48,7 @@ _class_end :: (fn(pb : &ArrayList(u8), ci : usize) -> usize)({
 // Whether byte `t` is a member of the class body `pb(ci .. end)`: single
 // bytes and `lo-hi` ranges; a `-` first or last is literal.
 _class_matches :: (fn(pb : &ArrayList(u8), ci : usize, end : usize, t : u8) -> bool)({
-  (k : usize) = ci;
+  (mut(k) : usize) = ci;
   while(k < end, {
     lo := pb(k);
     cond(
@@ -96,13 +96,13 @@ _class_matches :: (fn(pb : &ArrayList(u8), ci : usize, end : usize, t : u8) -> b
 _glob_match_impl :: (fn(pb : &ArrayList(u8), pi0 : usize, tb : &ArrayList(u8), ti0 : usize) -> bool)({
   plen := pb.len();
   tlen := tb.len();
-  (pi : usize) = pi0;
-  (ti : usize) = ti0;
-  (has_star : bool) = false;
-  (star_p : usize) = usize(0);
-  (star_t : usize) = usize(0);
+  (mut(pi) : usize) = pi0;
+  (mut(ti) : usize) = ti0;
+  (mut(has_star) : bool) = false;
+  (mut(star_p) : usize) = usize(0);
+  (mut(star_t) : usize) = usize(0);
   while(true, {
-    (advanced : bool) = false;
+    (mut(advanced) : bool) = false;
     cond(
       (pi < plen) => {
         p := pb(pi);
@@ -110,14 +110,14 @@ _glob_match_impl :: (fn(pb : &ArrayList(u8), pi0 : usize, tb : &ArrayList(u8), t
           ((p == u8(42)) && ((pi + usize(1)) < plen) && (pb(pi + usize(1)) == u8(42))) => {
             // `**`, plus an optional `/` right after it: hand every resume
             // position to a fresh run.
-            (npi : usize) = (pi + usize(2));
+            (mut(npi) : usize) = (pi + usize(2));
             cond(
               ((npi < plen) && (pb(npi) == u8(47))) => {
                 npi = (npi + usize(1));
               },
               true => ()
             );
-            (k : usize) = ti;
+            (mut(k) : usize) = ti;
             while(k <= tlen, k = (k + usize(1)), {
               cond(
                 recur(pb, npi, tb, k) => {
@@ -149,8 +149,8 @@ _glob_match_impl :: (fn(pb : &ArrayList(u8), pi0 : usize, tb : &ArrayList(u8), t
                 );
               },
               (p == u8(91)) => {
-                (ci : usize) = (pi + usize(1));
-                (neg : bool) = false;
+                (mut(ci) : usize) = (pi + usize(1));
+                (mut(neg) : bool) = false;
                 cond(
                   ((ci < plen) && ((pb(ci) == u8(33)) || (pb(ci) == u8(94)))) => {
                     neg = true;

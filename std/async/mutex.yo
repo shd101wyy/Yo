@@ -121,7 +121,7 @@ impl(
   _hand_off : (fn(self : &Self) -> unit)({
     st := self._state();
     me := __yo_thread_self();
-    (handed : bool) = false;
+    (mut(handed) : bool) = false;
     while(!handed && (unsafe(st.*._waiters.len()) > usize(0)), {
       w := unsafe(st.*._waiters.remove(usize(0)));
       w._waker.wake();
@@ -170,7 +170,7 @@ impl(
       self._hand_off();
     }, {
       n := unsafe(st.*._waiters.len());
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         if(unsafe(st.*._waiters(i)._ticket) == ticket, {
           _gone := unsafe(st.*._waiters.remove(i));
@@ -281,7 +281,7 @@ impl(
   _acquire_or_park : (fn(self : &Self) -> Option(_Parked))({
     st := self._core.*._state();
     self._core.*._guard.lock();
-    (out : Option(_Parked)) = Option(_Parked).None;
+    (mut(out) : Option(_Parked)) = Option(_Parked).None;
     if(unsafe(st.*._locked), {
       p := Park.new();
       t := unsafe(st.*._next_ticket);
@@ -314,7 +314,7 @@ impl(
           // Until the lock is taken, dropping the claim (this future released
           // with its cancelled task) gives the place in line, or the handed
           // lock, back.
-          claim := _Claim(_core : self._core, _ticket : t);
+          mut(claim) := _Claim(_core : self._core, _ticket : t);
           io.await(p.wait(io), io);
           claim.take();
         }

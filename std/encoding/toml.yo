@@ -272,7 +272,7 @@ impl(
     match(
       self,
       .Table(keys, values) => {
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
@@ -302,7 +302,7 @@ impl(
     match(
       self,
       .Table(keys, values) => {
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
@@ -504,7 +504,7 @@ impl(
   /// Spaces and tabs only — never a newline, which is significant everywhere
   /// except inside brackets.
   skip_spaces : (fn(self : &Self) -> unit)({
-    (going : bool) = true;
+    (mut(going) : bool) = true;
     while(going, {
       b := self.cur_byte();
       cond(
@@ -523,7 +523,7 @@ impl(
     cond(
       (self.cur_byte() == _HASH) => {
         self.advance();
-        (going : bool) = true;
+        (mut(going) : bool) = true;
         while(going, {
           b := self.cur_byte();
           cond(
@@ -544,7 +544,7 @@ impl(
   /// Whitespace, newlines and comments — the "anything may appear here"
   /// skipper used between statements and inside array brackets.
   skip_ws_lines : (fn(self : &Self) -> Result(unit, TomlError))({
-    (going : bool) = true;
+    (mut(going) : bool) = true;
     while(going, {
       b := self.cur_byte();
       cond(
@@ -608,8 +608,8 @@ impl(
   /// created it — which for an EXISTING table means it came from an inline
   /// table value and is therefore closed.
   kind_of : (fn(self : &Self, path : &String) -> Option(_TableKind))({
-    (found : Option(_TableKind)) = Option(_TableKind).None;
-    i := usize(0);
+    (mut(found) : Option(_TableKind)) = Option(_TableKind).None;
+    mut(i) := usize(0);
     while(i < self.paths.len(), i = (i + usize(1)), {
       cond(
         (self.paths(i) == path) => {
@@ -621,8 +621,8 @@ impl(
     found
   }),
   set_kind : (fn(self : &Self, path : &String, kind : _TableKind) -> unit)({
-    (replaced : bool) = false;
-    i := usize(0);
+    (mut(replaced) : bool) = false;
+    mut(i) := usize(0);
     while(i < self.paths.len(), i = (i + usize(1)), {
       cond(
         (self.paths(i) == path) => {
@@ -650,8 +650,8 @@ impl(
 _read_hex_escape :: (
   fn(p : &_Parser, out : &mut ArrayList(u8), count : usize, esc_pos : usize) -> Result(unit, TomlError)
 )({
-  (code : u32) = u32(0);
-  i := usize(0);
+  (mut(code) : u32) = u32(0);
+  mut(i) := usize(0);
   while(i < count, i = (i + usize(1)), {
     cond(
       p.eof() => {
@@ -735,8 +735,8 @@ _read_escape :: (
     ((e == _SPACE) || (e == _TAB) || (e == _LF) || (e == _CR)) => {
       // A line-ending backslash: only in a multi-line string, and only when
       // the backslash is the last non-whitespace byte on its line.
-      (saw_newline : bool) = false;
-      (going : bool) = true;
+      (mut(saw_newline) : bool) = false;
+      (mut(going) : bool) = true;
       while(going, {
         c := p.cur_byte();
         cond(
@@ -763,7 +763,7 @@ _read_escape :: (
 });
 /// A run of `delim` bytes at the cursor, without consuming any.
 _quote_run :: (fn(p : &_Parser, delim : u8) -> usize)({
-  (run : usize) = usize(0);
+  (mut(run) : usize) = usize(0);
   while(p.at(run) == delim, {
     run = (run + usize(1));
   });
@@ -805,7 +805,7 @@ _parse_quoted_string :: (
     true => p.advance()
   );
   bytes := ArrayList(u8).new();
-  (closed : bool) = false;
+  (mut(closed) : bool) = false;
   while(!closed, {
     cond(
       p.eof() => {
@@ -828,18 +828,18 @@ _parse_quoted_string :: (
                   true => ()
                 );
                 extra := (run - usize(3));
-                j := usize(0);
+                mut(j) := usize(0);
                 while(j < extra, j = (j + usize(1)), {
                   bytes.push(delim);
                 });
-                k := usize(0);
+                mut(k) := usize(0);
                 while(k < run, k = (k + usize(1)), {
                   p.advance();
                 });
                 closed = true;
               },
               true => {
-                j2 := usize(0);
+                mut(j2) := usize(0);
                 while(j2 < run, j2 = (j2 + usize(1)), {
                   bytes.push(delim);
                   p.advance();
@@ -926,7 +926,7 @@ _parse_simple_key :: (fn(p : &_Parser) -> Result(String, TomlError))({
 /// containing dots.
 _parse_key_path :: (fn(p : &_Parser) -> Result(ArrayList(String), TomlError))({
   keys := ArrayList(String).new();
-  (going : bool) = true;
+  (mut(going) : bool) = true;
   while(going, {
     p.skip_spaces();
     k := match(
@@ -958,8 +958,8 @@ _rest_is :: (fn(b : &ArrayList(u8), at : usize, s : str) -> bool)({
     },
     true => ()
   );
-  (same : bool) = true;
-  i := usize(0);
+  (mut(same) : bool) = true;
+  mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     cond(
       (b(at + i) != s.bytes(i)) => {
@@ -989,14 +989,14 @@ _Decimal :: struct(
 /// `99999999999999999999` into a wrapped `Int`.
 _clean_decimal :: (fn(src : &ArrayList(u8), from : usize, to : usize) -> Option(_Decimal))({
   out := ArrayList(u8).new();
-  (k : usize) = from;
-  (bad : bool) = false;
-  (is_float : bool) = false;
+  (mut(k) : usize) = from;
+  (mut(bad) : bool) = false;
+  (mut(is_float) : bool) = false;
   // --- integer part
-  (int_count : usize) = usize(0);
-  (first_digit : u8) = u8(0);
-  (prev_us : bool) = false;
-  (going : bool) = true;
+  (mut(int_count) : usize) = usize(0);
+  (mut(first_digit) : u8) = u8(0);
+  (mut(prev_us) : bool) = false;
+  (mut(going) : bool) = true;
   while(going, {
     cond(
       (k >= to) => {
@@ -1049,9 +1049,9 @@ _clean_decimal :: (fn(src : &ArrayList(u8), from : usize, to : usize) -> Option(
       is_float = true;
       out.push(_DOT);
       k = (k + usize(1));
-      (frac_count : usize) = usize(0);
-      (prev_us2 : bool) = false;
-      (going2 : bool) = true;
+      (mut(frac_count) : usize) = usize(0);
+      (mut(prev_us2) : bool) = false;
+      (mut(going2) : bool) = true;
       while(going2, {
         cond(
           (k >= to) => {
@@ -1102,9 +1102,9 @@ _clean_decimal :: (fn(src : &ArrayList(u8), from : usize, to : usize) -> Option(
         },
         true => ()
       );
-      (exp_count : usize) = usize(0);
-      (prev_us3 : bool) = false;
-      (going3 : bool) = true;
+      (mut(exp_count) : usize) = usize(0);
+      (mut(prev_us3) : bool) = false;
+      (mut(going3) : bool) = true;
       while(going3, {
         cond(
           (k >= to) => {
@@ -1158,10 +1158,10 @@ _clean_decimal :: (fn(src : &ArrayList(u8), from : usize, to : usize) -> Option(
 /// radix, underscores only between digits. Returns the underscore-free text.
 _clean_radix :: (fn(src : &ArrayList(u8), from : usize, to : usize, radix : u32) -> Option(String))({
   out := ArrayList(u8).new();
-  (bad : bool) = false;
-  (count : usize) = usize(0);
-  (prev_us : bool) = false;
-  i := from;
+  (mut(bad) : bool) = false;
+  (mut(count) : usize) = usize(0);
+  (mut(prev_us) : bool) = false;
+  mut(i) := from;
   while(i < to, i = (i + usize(1)), {
     b := src(i);
     d := _hex_digit(b);
@@ -1217,9 +1217,9 @@ _classify_number :: (fn(tok : &String, start : usize) -> Result(TomlValue, TomlE
     },
     true => ()
   );
-  (i : usize) = usize(0);
-  (neg : bool) = false;
-  (signed : bool) = false;
+  (mut(i) : usize) = usize(0);
+  (mut(neg) : bool) = false;
+  (mut(signed) : bool) = false;
   c0 := b(usize(0));
   cond(
     (c0 == _PLUS) => {
@@ -1250,7 +1250,7 @@ _classify_number :: (fn(tok : &String, start : usize) -> Result(TomlValue, TomlE
     true => ()
   );
   // Prefixed integers.
-  (radix : u32) = u32(0);
+  (mut(radix) : u32) = u32(0);
   cond(
     (((n - i) > usize(2)) && (b(i) == _ZERO)) => {
       pfx := b(i + usize(1));
@@ -1329,8 +1329,8 @@ _looks_like_time :: (fn(p : &_Parser) -> bool)(
 );
 /// Exactly `count` digits, as a number. `.None` on any non-digit.
 _read_digits :: (fn(p : &_Parser, count : usize) -> Option(i64))({
-  (acc : i64) = i64(0);
-  i := usize(0);
+  (mut(acc) : i64) = i64(0);
+  mut(i) := usize(0);
   while(i < count, i = (i + usize(1)), {
     b := p.cur_byte();
     cond(
@@ -1436,13 +1436,13 @@ _read_time :: (fn(p : &_Parser, start : usize) -> Result(_TimeParts, TomlError))
       return(bad);
     }
   );
-  (nanos : i64) = i64(0);
+  (mut(nanos) : i64) = i64(0);
   cond(
     (p.cur_byte() == _DOT) => {
       p.advance();
-      (seen : usize) = usize(0);
-      (scale : i64) = i64(100000000);
-      (going : bool) = true;
+      (mut(seen) : usize) = usize(0);
+      (mut(scale) : i64) = i64(100000000);
+      (mut(going) : bool) = true;
       while(going, {
         b := p.cur_byte();
         cond(
@@ -1481,15 +1481,15 @@ _read_time :: (fn(p : &_Parser, start : usize) -> Result(_TimeParts, TomlError))
 _parse_datetime :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
   start := p.pos;
   bad := Result(TomlValue, TomlError).Err(TomlError.InvalidDatetime(pos : start));
-  (year : i64) = i64(1970);
-  (month : i64) = i64(1);
-  (day : i64) = i64(1);
-  (hour : i64) = i64(0);
-  (minute : i64) = i64(0);
-  (second : i64) = i64(0);
-  (nanos : i64) = i64(0);
-  (offset : i32) = i32(0);
-  (kind : TomlDateTimeKind) = TomlDateTimeKind.LocalTime;
+  (mut(year) : i64) = i64(1970);
+  (mut(month) : i64) = i64(1);
+  (mut(day) : i64) = i64(1);
+  (mut(hour) : i64) = i64(0);
+  (mut(minute) : i64) = i64(0);
+  (mut(second) : i64) = i64(0);
+  (mut(nanos) : i64) = i64(0);
+  (mut(offset) : i32) = i32(0);
+  (mut(kind) : TomlDateTimeKind) = TomlDateTimeKind.LocalTime;
   has_date := _looks_like_date(p);
   cond(
     has_date => {
@@ -1628,7 +1628,7 @@ _Slot :: enum(
 derive(_Slot, Copy, Clone);
 /// The position of `key` in a table's key list, or `.None`.
 _key_index :: (fn(keys : &ArrayList(String), key : &String) -> Option(usize))({
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < keys.len(), i = (i + usize(1)), {
     cond(
       (keys(i) == key) => {
@@ -1708,7 +1708,7 @@ _store_at :: (
             // Called by name, not `recur`: `recur(&mut child, …)` passes the
             // local by value in the emitted C
             // (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
-            child := values.swap_remove(j);
+            mut(child) := values.swap_remove(j);
             _store_at(&mut child, steps, si + usize(1), key, value);
             values.push(child);
             values.swap(j, values.len() - usize(1));
@@ -1720,7 +1720,7 @@ _store_at :: (
       .Elem(idx) => match(
         t,
         .Array(items) => {
-          child := items.swap_remove(idx);
+          mut(child) := items.swap_remove(idx);
           _store_at(&mut child, steps, si + usize(1), key, value);
           items.push(child);
           items.swap(idx, items.len() - usize(1));
@@ -1757,9 +1757,9 @@ _insert_inline :: (
   ) -> Result(unit, TomlError)
 )({
   steps := ArrayList(_Step).new();
-  (path : String) = String.new();
+  (mut(path) : String) = String.new();
   last := (keys.len() - usize(1));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < last, i = (i + usize(1)), {
     k := keys(i).clone();
     child_path := _path_key(&path, &k);
@@ -1770,8 +1770,8 @@ _insert_inline :: (
         dotted.push(child_path.clone());
       },
       .Table => {
-        (seen : bool) = false;
-        j := usize(0);
+        (mut(seen) : bool) = false;
+        mut(j) := usize(0);
         while(j < dotted.len(), j = (j + usize(1)), {
           cond(
             (dotted(j) == child_path) => {
@@ -1828,7 +1828,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       // not agree (TOML v1.0.0 dropped that restriction).
       p.advance();
       items := ArrayList(TomlValue).new();
-      (closed : bool) = false;
+      (mut(closed) : bool) = false;
       while(!closed, {
         _sk := match(
           p.skip_ws_lines(),
@@ -1887,10 +1887,10 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       // Inline table: one line only (TOML v1.0.0 admits no newline between
       // the braces) and no trailing comma.
       p.advance();
-      tbl := TomlValue.new_table();
+      mut(tbl) := TomlValue.new_table();
       dotted := ArrayList(String).new();
-      (closed : bool) = false;
-      (after_comma : bool) = false;
+      (mut(closed) : bool) = false;
+      (mut(after_comma) : bool) = false;
       while(!closed, {
         p.skip_spaces();
         cond(
@@ -2003,12 +2003,12 @@ _walk_header_path :: (
     pos : usize
   ) -> Result(String, TomlError)
 )({
-  (path : String) = String.new();
-  i := usize(0);
+  (mut(path) : String) = String.new();
+  mut(i) := usize(0);
   while(i < upto, i = (i + usize(1)), {
     k := keys(i).clone();
     child_path := _path_key(&path, &k);
-    (next_path : String) = child_path.clone();
+    (mut(next_path) : String) = child_path.clone();
     match(
       _probe_at(root, steps, usize(0), &k),
       .Missing => {
@@ -2202,9 +2202,9 @@ _insert_keyval :: (
   fn(p : &_Parser, root : &mut TomlValue, keys : &ArrayList(String), value : TomlValue, pos : usize) -> Result(unit, TomlError)
 )({
   steps := p.cur.clone();
-  (path : String) = p.cur_path.clone();
+  (mut(path) : String) = p.cur_path.clone();
   last := (keys.len() - usize(1));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < last, i = (i + usize(1)), {
     k := keys(i).clone();
     child_path := _path_key(&path, &k);
@@ -2279,8 +2279,8 @@ _parse_keyval :: (fn(p : &_Parser, root : &mut TomlValue) -> Result(unit, TomlEr
 /// newline. A line that is none of those is an error rather than skipped
 /// text.
 _parse_document :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
-  root := TomlValue.new_table();
-  (going : bool) = true;
+  mut(root) := TomlValue.new_table();
+  (mut(going) : bool) = true;
   while(going, {
     _sk := match(
       p.skip_ws_lines(),
@@ -2341,13 +2341,13 @@ export(parse);
 // ============================================================================
 _push_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   b := &s;
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     out.push(b.byte_at(i));
   });
 });
 _push_lit :: (fn(s : str, out : &mut ArrayList(u8)) -> unit)({
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     out.push(s.bytes(i));
   });
@@ -2372,7 +2372,7 @@ _write_u_escape :: (fn(b : u8, out : &mut ArrayList(u8)) -> unit)({
 _write_basic_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(_QUOTE);
   b := &s;
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     c := b.byte_at(i);
     cond(
@@ -2419,8 +2419,8 @@ _is_bare_key :: (fn(key : &String) -> bool)({
     },
     true => ()
   );
-  (ok : bool) = true;
-  i := usize(0);
+  (mut(ok) : bool) = true;
+  mut(i) := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     cond(
       !_is_bare_key_byte(b.byte_at(i)) => {
@@ -2462,9 +2462,9 @@ _write_f64 :: (fn(v : f64, out : &mut ArrayList(u8)) -> unit)({
     },
     true => ()
   );
-  (text : String) = String.new();
-  (found : bool) = false;
-  (p : i32) = i32(1);
+  (mut(text) : String) = String.new();
+  (mut(found) : bool) = false;
+  (mut(p) : i32) = i32(1);
   while((p <= i32(17)) && !found, p = (p + i32(1)), {
     buf := Array(u8, usize(48)).fill(u8(0));
     buf_ptr := addr_of(buf(usize(0)));
@@ -2485,8 +2485,8 @@ _write_f64 :: (fn(v : f64, out : &mut ArrayList(u8)) -> unit)({
     );
   });
   b := &text;
-  (needs_point : bool) = true;
-  i := usize(0);
+  (mut(needs_point) : bool) = true;
+  mut(i) := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     c := b.byte_at(i);
     cond(
@@ -2535,12 +2535,12 @@ _write_datetime :: (fn(d : TomlDateTime, out : &mut ArrayList(u8)) -> unit)({
           unsafe(snprintf((*char)(fptr), usize(16), "%09u", v.nanosecond));
           fs := String.from_cstr(fptr).unwrap();
           fb := fs;
-          (end : usize) = fb.len();
+          (mut(end) : usize) = fb.len();
           while((end > usize(1)) && (fb.byte_at(end - usize(1)) == _ZERO), {
             end = (end - usize(1));
           });
           out.push(_DOT);
-          i := usize(0);
+          mut(i) := usize(0);
           while(i < end, i = (i + usize(1)), {
             out.push(fb.byte_at(i));
           });
@@ -2594,7 +2594,7 @@ _write_inline :: (fn(value : &TomlValue, out : &mut ArrayList(u8)) -> unit)(
     .Datetime(d) => _write_datetime(d, out),
     .Array(items) => {
       out.push(_LBRACKET);
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < items.len(), i = (i + usize(1)), {
         cond(
           (i > usize(0)) => _push_lit(", ", out),
@@ -2606,7 +2606,7 @@ _write_inline :: (fn(value : &TomlValue, out : &mut ArrayList(u8)) -> unit)(
     },
     .Table(keys, values) => {
       out.push(_LBRACE);
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
         cond(
           (i > usize(0)) => _push_lit(", ", out),
@@ -2637,8 +2637,8 @@ _is_array_of_tables :: (fn(value : &TomlValue) -> bool)(
         },
         true => ()
       );
-      (all : bool) = true;
-      i := usize(0);
+      (mut(all) : bool) = true;
+      mut(i) := usize(0);
       while(i < items.len(), i = (i + usize(1)), {
         cond(
           !items(i).is_table() => {
@@ -2664,7 +2664,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
   match(
     table,
     .Table(keys, values) => {
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
         v := values(i);
         cond(
@@ -2677,7 +2677,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
           }
         );
       });
-      j := usize(0);
+      mut(j) := usize(0);
       while(j < keys.len(), j = (j + usize(1)), {
         v2 := values(j);
         key_text := _key_string(&keys(j));
@@ -2699,7 +2699,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
           },
           _is_array_of_tables(&v2) => {
             items := match(v2.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
-            k := usize(0);
+            mut(k) := usize(0);
             while(k < items.len(), k = (k + usize(1)), {
               cond(
                 (out.len() > usize(0)) => out.push(_LF),
@@ -2802,8 +2802,8 @@ _toml_eq :: (fn(lhs : &TomlValue, rhs : &TomlValue) -> bool)(
           },
           true => ()
         );
-        (same : bool) = true;
-        i := usize(0);
+        (mut(same) : bool) = true;
+        mut(i) := usize(0);
         while(i < a.len(), i = (i + usize(1)), {
           cond(
             !recur(&a(i), &b(i)) => {
@@ -2825,11 +2825,11 @@ _toml_eq :: (fn(lhs : &TomlValue, rhs : &TomlValue) -> bool)(
           },
           true => ()
         );
-        (same : bool) = true;
-        i := usize(0);
+        (mut(same) : bool) = true;
+        mut(i) := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          (found : bool) = false;
-          j := usize(0);
+          (mut(found) : bool) = false;
+          mut(j) := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {
             cond(
               (b_keys(j) == a_keys(i)) => {

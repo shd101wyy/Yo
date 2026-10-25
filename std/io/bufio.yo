@@ -75,7 +75,7 @@ BufWriter :: (fn(comptime(W) : Type) -> comptime(Type))(
 /// A `capacity`-long zeroed byte buffer (`ArrayList` used as fixed storage).
 _zeroed :: (fn(capacity : usize) -> ArrayList(u8))({
   b := ArrayList(u8).with_capacity(capacity);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < capacity, i = (i + usize(1)), {
     b.push(u8(0));
   });
@@ -190,14 +190,14 @@ impl(
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        (out : usize) = usize(0);
-        (done : bool) = false;
+        (mut(out) : usize) = usize(0);
+        (mut(done) : bool) = false;
         // Serve buffered bytes first.
         available := (self._filled - self._pos);
         cond(
           (available > usize(0)) => {
             to_copy := cond((available < size) => available, true => size);
-            (i : usize) = usize(0);
+            (mut(i) : usize) = usize(0);
             while(i < to_copy, i = (i + usize(1)), {
               (buf.add(i)).* = self._buf(self._pos + i);
             });
@@ -304,7 +304,7 @@ impl(
   Writer(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        (src_pos : usize) = usize(0);
+        (mut(src_pos) : usize) = usize(0);
         while(src_pos < size, {
           space := (self._capacity - self._buf.len());
           cond(
@@ -314,7 +314,7 @@ impl(
             true => {
               remaining := (size - src_pos);
               to_copy := cond((remaining < space) => remaining, true => space);
-              (i : usize) = usize(0);
+              (mut(i) : usize) = usize(0);
               while(i < to_copy, i = (i + usize(1)), {
                 self._buf.push((buf.add(src_pos + i)).*);
               });

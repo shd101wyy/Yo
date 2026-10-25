@@ -101,7 +101,7 @@ impl(
   ),
   // Ensure at least `min_cap` slots are available.
   _grow : (fn(self : &mut Self, min_cap : usize) -> unit)({
-    new_cap := cond(
+    mut(new_cap) := cond(
       (self._cap() == usize(0)) => usize(8),
       true => (self._cap() * usize(2))
     );
@@ -132,7 +132,7 @@ impl(
     // Linearise existing elements into the new buffer. Each element moves
     // bitwise, so the old buffer is freed below without dropping anything:
     // no count changes, and a move-only `T` moves too.
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < self._len, i = (i + usize(1)), {
       idx := ((self._head + i) % self._cap());
       buf := self._buf.unwrap();
@@ -250,7 +250,7 @@ impl(
         .Some(p) => {
           cond(
             Type.contains_rc_type(T) => {
-              i := usize(0);
+              mut(i) := usize(0);
               while(i < self._len, i = (i + usize(1)), {
                 idx := ((self._head + i) % self._cap());
                 ___drop((p.add(idx)).*);
@@ -453,7 +453,7 @@ impl(
       match(
         self._buf,
         .Some(base) => {
-          (k : usize) = usize(0);
+          (mut(k) : usize) = usize(0);
           while(k < self._len, {
             slot := ((self._head + k) % self._cap());
             tracer.visit(base.add(slot));

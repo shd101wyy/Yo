@@ -38,13 +38,13 @@ hmac :: (
 )({
   block := (D <: Digest).block_size();
   // K': hash an over-long key, then zero-pad to the block size.
-  (k : ArrayList(u8)) = key.clone();
+  (mut(k) : ArrayList(u8)) = key.clone();
   if(k.len() > block, {
     k = (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).new(), &k));
   });
   ikey := ArrayList(u8).with_capacity(block);
   okey := ArrayList(u8).with_capacity(block);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < block, i = (i + usize(1)), {
     kb := match(k.get(i), .Some(b) => b, .None => u8(0));
     ikey.push(kb ^ u8(0x36));
@@ -86,8 +86,8 @@ constant_time_eq :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> bool)({
   if(a.len() != b.len(), {
     return(false);
   });
-  (acc : u8) = u8(0);
-  (i : usize) = usize(0);
+  (mut(acc) : u8) = u8(0);
+  (mut(i) : usize) = usize(0);
   while(i < a.len(), i = (i + usize(1)), {
     av := match(a.get(i), .Some(x) => x, .None => u8(0));
     bv := match(b.get(i), .Some(x) => x, .None => u8(0));

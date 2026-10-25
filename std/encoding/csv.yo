@@ -114,13 +114,13 @@ parse_with :: (
   bytes := &input;
   n := bytes.len();
   records := ArrayList(ArrayList(String)).new();
-  record := ArrayList(String).new();
-  field := ArrayList(u8).new();
+  mut(record) := ArrayList(String).new();
+  mut(field) := ArrayList(u8).new();
   // Whether the current record has consumed at least one byte (so a
   // terminator right after another terminator still yields an empty record,
   // while the end of input after a terminator does not).
-  (in_record : bool) = false;
-  i := usize(0);
+  (mut(in_record) : bool) = false;
+  mut(i) := usize(0);
   while(i < n, {
     b := bytes.byte_at(i);
     cond(
@@ -129,7 +129,7 @@ parse_with :: (
         // `""` is one quote.
         start := i;
         i = (i + usize(1));
-        (closed : bool) = false;
+        (mut(closed) : bool) = false;
         while((i < n) && !closed, {
           c := bytes.byte_at(i);
           cond(
@@ -216,7 +216,7 @@ parse_strict :: (
     .Ok(records) => {
       if(records.len() > usize(0), {
         width := records(usize(0)).len();
-        r := usize(1);
+        mut(r) := usize(1);
         while(r < records.len(), r = (r + usize(1)), {
           found := records(r).len();
           if(found != width, {
@@ -232,7 +232,7 @@ parse_strict :: (
 /// a quote, CR or LF (an empty field is written bare).
 _needs_quotes :: (fn(field : &String, delimiter : u8) -> bool)({
   bytes := &field;
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
     b := bytes.byte_at(i);
     if((b == delimiter) || (b == _QUOTE) || (b == _CR) || (b == _LF), {
@@ -247,7 +247,7 @@ _write_field :: (fn(out : &mut String, field : &String, delimiter : u8) -> unit)
     _needs_quotes(field, delimiter) => {
       out.push_byte(_QUOTE);
       bytes := &field;
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < bytes.len(), i = (i + usize(1)), {
         b := bytes.byte_at(i);
         if(b == _QUOTE, {
@@ -264,10 +264,10 @@ _write_field :: (fn(out : &mut String, field : &String, delimiter : u8) -> unit)
 /// line ending, including the last (RFC 4180 allows either; a terminated
 /// last record concatenates cleanly).
 write_with :: (fn(records : &ArrayList(ArrayList(String)), opts : CsvOptions) -> String)({
-  out := String.new();
-  r := usize(0);
+  mut(out) := String.new();
+  mut(r) := usize(0);
   while(r < records.len(), r = (r + usize(1)), {
-    f := usize(0);
+    mut(f) := usize(0);
     while(f < records(r).len(), f = (f + usize(1)), {
       if(f > usize(0), {
         out.push_byte(opts.delimiter);

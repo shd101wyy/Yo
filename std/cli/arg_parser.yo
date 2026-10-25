@@ -144,9 +144,9 @@ impl(
     self._set_flags.contains(name)
   ),
   _lookup : (fn(self : &Self, names : &ArrayList(String), values : &ArrayList(String), name : &String) -> Option(String))({
-    i := usize(0);
+    mut(i) := usize(0);
     len := names.len();
-    (result : Option(String)) = .None;
+    (mut(result) : Option(String)) = .None;
     while(i < len, i = (i + usize(1)), {
       match(
         names.get(i),
@@ -232,9 +232,9 @@ impl(
   }),
   /// Looks up a subcommand parser by name.
   _find_subcommand : (fn(self : &Self, name : &String) -> Option(usize))({
-    i := usize(0);
+    mut(i) := usize(0);
     len := self._subcommand_names.len();
-    (result : Option(usize)) = .None;
+    (mut(result) : Option(usize)) = .None;
     while((i < len) && result.is_none(), i = (i + usize(1)), {
       match(
         self._subcommand_names.get(i),
@@ -327,9 +327,9 @@ impl(
     );
   }),
   _find_arg_index : (fn(self : &Self, name : &String) -> Option(usize))({
-    i := usize(0);
+    mut(i) := usize(0);
     len := self._args.len();
-    (result : Option(usize)) = .None;
+    (mut(result) : Option(usize)) = .None;
     while(i < len, i = (i + usize(1)), {
       match(
         self._args.get(i),
@@ -361,10 +361,10 @@ impl(
   /// carries the program name only — it does not synthesize a synopsis
   /// of the positionals the way `clap` does.
   help_text : (fn(self : &Self) -> String)({
-    text := `Usage: ${self._name}\n${self._description}\n\n`;
-    has_positionals := false;
-    has_flags_or_options := false;
-    i := usize(0);
+    mut(text) := `Usage: ${self._name}\n${self._description}\n\n`;
+    mut(has_positionals) := false;
+    mut(has_flags_or_options) := false;
+    mut(i) := usize(0);
     len := self._args.len();
     while(i < len, i = (i + usize(1)), {
       match(
@@ -389,7 +389,7 @@ impl(
     cond(
       has_positionals => {
         text = text.concat(`Arguments:\n`);
-        j := usize(0);
+        mut(j) := usize(0);
         while(j < len, j = (j + usize(1)), {
           match(
             self._args.get(j),
@@ -413,7 +413,7 @@ impl(
     cond(
       has_flags_or_options => {
         text = text.concat(`Options:\n`);
-        k := usize(0);
+        mut(k) := usize(0);
         while(k < len, k = (k + usize(1)), {
           match(
             self._args.get(k),
@@ -421,7 +421,7 @@ impl(
               match(
                 &arg_def._kind,
                 .Flag => {
-                  line := `  ${arg_def._long_name}`;
+                  mut(line) := `  ${arg_def._long_name}`;
                   cond(
                     !arg_def._short_name.is_empty() => {
                       line = line.concat(`, ${arg_def._short_name}`);
@@ -432,7 +432,7 @@ impl(
                   text = text.concat(&line);
                 },
                 .Opt => {
-                  line := `  ${arg_def._long_name}`;
+                  mut(line) := `  ${arg_def._long_name}`;
                   cond(
                     !arg_def._short_name.is_empty() => {
                       line = line.concat(`, ${arg_def._short_name}`);
@@ -463,7 +463,7 @@ impl(
     cond(
       (sub_count > usize(0)) => {
         text = text.concat(`\nSubcommands:\n`);
-        s := usize(0);
+        mut(s) := usize(0);
         while(s < sub_count, s = (s + usize(1)), {
           match(
             self._subcommand_names.get(s),
@@ -537,10 +537,10 @@ impl(
   parse : (fn(self : &Self, args : &ArrayList(String)) -> Result(ParsedArgs, String))({
     parsed := ParsedArgs.new();
     arg_defs_len := self._args.len();
-    idx := usize(1);
+    mut(idx) := usize(1);
     args_len := args.len();
-    positional_idx := usize(0);
-    (err_msg : Option(String)) = .None;
+    mut(positional_idx) := usize(0);
+    (mut(err_msg) : Option(String)) = .None;
     while((idx < args_len) && err_msg.is_none(), {
       match(
         args.get(idx),
@@ -594,7 +594,7 @@ impl(
             },
             true => {
               // Check if this is a subcommand (first non-flag positional only).
-              is_subcmd := false;
+              mut(is_subcmd) := false;
               cond(
                 (self._subcommand_names.len() > usize(0)) => {
                   match(
@@ -614,7 +614,7 @@ impl(
                               sub_args.push(self._name.clone());
                             }
                           );
-                          j := (idx + usize(1));
+                          mut(j) := (idx + usize(1));
                           while(j < args_len, j = (j + usize(1)), {
                             match(
                               args.get(j),
@@ -650,8 +650,8 @@ impl(
               cond(
                 !is_subcmd => {
                   parsed._positionals.push(current_arg);
-                  p_idx := usize(0);
-                  p_count := usize(0);
+                  mut(p_idx) := usize(0);
+                  mut(p_count) := usize(0);
                   while(p_idx < arg_defs_len, p_idx = (p_idx + usize(1)), {
                     match(
                       self._args.get(p_idx),
@@ -694,7 +694,7 @@ impl(
       .None => ()
     );
     // Apply defaults for options not explicitly set
-    def_i := usize(0);
+    mut(def_i) := usize(0);
     while(def_i < arg_defs_len, def_i = (def_i + usize(1)), {
       match(
         self._args.get(def_i),

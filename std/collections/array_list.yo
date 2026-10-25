@@ -192,7 +192,7 @@ impl(
   slice_copy : (fn(self : &Self, r : Range(usize)) -> Self)({
     e := cond((r.end > self.len()) => self.len(), true => r.end);
     out := Self.new();
-    i := r.start;
+    mut(i) := r.start;
     while(i < e, i = (i + usize(1)), {
       match(
         self.get(i),
@@ -208,7 +208,7 @@ impl(
   slice_copy_inclusive : (fn(self : &Self, r : RangeInclusive(usize)) -> Self)({
     last := cond((r.end >= self.len()) => self.len(), true => (r.end + usize(1)));
     out := Self.new();
-    i := r.start;
+    mut(i) := r.start;
     while(i < last, i = (i + usize(1)), {
       match(
         self.get(i),
@@ -512,7 +512,7 @@ impl(
     cond(
       Type.contains_rc_type(T) => {
         if(self._length > usize(0), {
-          i := usize(0);
+          mut(i) := usize(0);
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
             element_ptr := base_ptr.add(i);
@@ -554,7 +554,7 @@ impl(
             // Collect the drained elements FIRST: get dups each one, so the
             // shift below can drop the originals with balanced RCs. (ci, not
             // i: the shift arms below redeclare i in their own scopes.)
-            ci := usize(0);
+            mut(ci) := usize(0);
             while(ci < count, ci = (ci + usize(1)), {
               match(
                 self.get(r.start + ci),
@@ -576,14 +576,14 @@ impl(
                     // 1. Dup src.* (RC+1)
                     // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
                     // 3. Write to dst.*
-                    i := usize(0);
+                    mut(i) := usize(0);
                     while(i < elements_after, i = (i + usize(1)), {
                       dst := dst_ptr.add(i);
                       src := src_ptr.add(i);
                       dst.* = src.*;
                     });
                     // Drop the non-overlapping tail stale pointers
-                    j := usize(0);
+                    mut(j) := usize(0);
                     tail_start := (r.start + elements_after);
                     while(j < count, j = (j + usize(1)), {
                       tail_ptr := _ptr.add(tail_start + j);
@@ -609,7 +609,7 @@ impl(
                 // No elements to shift, just drop the drained elements
                 cond(
                   Type.contains_rc_type(T) => {
-                    i := usize(0);
+                    mut(i) := usize(0);
                     while(i < count, i = (i + usize(1)), {
                       element_ptr := _ptr.add(r.start + i);
                       ___drop(element_ptr.*);
@@ -644,7 +644,7 @@ impl(
     self.push(value);
     // Rotate the freshly appended element down into place. Uses `swap`, which
     // moves raw slots, so no element is dup'd or dropped on the way.
-    (k : usize) = (self._length - usize(1));
+    (mut(k) : usize) = (self._length - usize(1));
     while(k > idx, {
       self.swap(k, k - usize(1));
       k = (k - usize(1));
@@ -653,7 +653,7 @@ impl(
   /// Move every element of `other` onto the end of `self`, leaving `other`
   /// EMPTY — Rust's `append`. `extend` copies instead.
   append : (fn(self : &mut Self, other : &mut Self) -> unit)({
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     n := other.len();
     while(i < n, {
       match(other.get(i), .Some(v) => self.push(v), .None => ());
@@ -763,7 +763,7 @@ impl(
   }),
   /// Overwrite every element with `value`, keeping the length. Rust's `fill`.
   fill : (fn(self : &mut Self, value : &T) -> unit)({
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     n := self._length;
     while(i < n, i = (i + usize(1)), {
       self(i) = value;
@@ -844,7 +844,7 @@ impl(
                   .None => .Err(.AllocError(.OutOfMemory)),
                   .Some(dst_ptr) => {
                     // Copy elements
-                    i := usize(0);
+                    mut(i) := usize(0);
                     while(i < slice_length, i = (i + usize(1)), {
                       src := src_ptr.add(start + i);
                       dst := dst_ptr.add(i);
@@ -899,7 +899,7 @@ impl(
         new_capacity := cond(
           (self._cap() == usize(0)) => min_cap,
           true => {
-            cap := self._cap();
+            mut(cap) := self._cap();
             // `min_cap` is known not to overflow `sizeof(T) * min_cap`, but the
             // doubling itself can still leave the untagged range. Fall back to
             // `min_cap` in that one case; every reachable growth keeps the
@@ -1111,7 +1111,7 @@ impl(
       match(
         self._ptr,
         .Some(base) => {
-          (i : usize) = usize(0);
+          (mut(i) : usize) = usize(0);
           while(i < self._length, {
             tracer.visit(base.add(i));
             i = (i + usize(1));
@@ -1343,8 +1343,8 @@ impl(
     cond(
       (n > self._length) => false,
       true => {
-        (i : usize) = usize(0);
-        (same : bool) = true;
+        (mut(i) : usize) = usize(0);
+        (mut(same) : bool) = true;
         while((i < n) && same, {
           a := match(self.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
           b := match(prefix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
@@ -1364,8 +1364,8 @@ impl(
       (n > self._length) => false,
       true => {
         off := (self._length - n);
-        (i : usize) = usize(0);
-        (same : bool) = true;
+        (mut(i) : usize) = usize(0);
+        (mut(same) : bool) = true;
         while((i < n) && same, {
           a := match(self.get(off + i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
           b := match(suffix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
@@ -1381,11 +1381,11 @@ impl(
   /// Whether any element equals `value` — a linear scan, O(n), stopping at
   /// the first match. Rust's `Vec::contains`.
   contains : (fn(self : &Self, value : &T) -> bool)({
-    found := false;
+    mut(found) := false;
     match(
       self._ptr,
       .Some(_ptr) => {
-        i := usize(0);
+        mut(i) := usize(0);
         while((i < self._length) && !found, i = (i + usize(1)), {
           cond(
             ((_ptr.add(i)).* == value) => {
@@ -1439,8 +1439,8 @@ impl(
         match(
           self._ptr,
           .Some(_ptr) => {
-            i := usize(0);
-            j := (self._length - usize(1));
+            mut(i) := usize(0);
+            mut(j) := (self._length - usize(1));
             while(i < j, {
               i = (i + usize(1));
               j = (j - usize(1));
@@ -1466,11 +1466,11 @@ _heapsort_by :: (
   fn(generic(T : Type), ptr : &*T, n : usize, less : &Impl(Fn(a : &T, b : &T) -> bool)) -> unit
 )({
   // Phase 1: heapify (sift-down from the last parent to the root).
-  (i : usize) = (n / usize(2));
+  (mut(i) : usize) = (n / usize(2));
   while(i > usize(0), {
     i = (i - usize(1));
-    (root : usize) = i;
-    (going : bool) = true;
+    (mut(root) : usize) = i;
+    (mut(going) : bool) = true;
     while(going, {
       child := ((root * usize(2)) + usize(1));
       cond(
@@ -1478,7 +1478,7 @@ _heapsort_by :: (
           going = false;
         },
         true => {
-          (largest : usize) = child;
+          (mut(largest) : usize) = child;
           cond(
             (((child + usize(1)) < n) && less((ptr.add(child)).*, (ptr.add(child + usize(1))).*)) => {
               largest = (child + usize(1));
@@ -1501,14 +1501,14 @@ _heapsort_by :: (
     });
   });
   // Phase 2: pop the max to the tail, shrinking the heap.
-  (end : usize) = n;
+  (mut(end) : usize) = n;
   while(end > usize(1), {
     end = (end - usize(1));
     head := (ptr.add(usize(0))).*;
     (ptr.add(usize(0))).* = (ptr.add(end)).*;
     (ptr.add(end)).* = head;
-    (root : usize) = usize(0);
-    (going : bool) = true;
+    (mut(root) : usize) = usize(0);
+    (mut(going) : bool) = true;
     while(going, {
       child := ((root * usize(2)) + usize(1));
       cond(
@@ -1516,7 +1516,7 @@ _heapsort_by :: (
           going = false;
         },
         true => {
-          (largest : usize) = child;
+          (mut(largest) : usize) = child;
           cond(
             (((child + usize(1)) < end) && less((ptr.add(child)).*, (ptr.add(child + usize(1))).*)) => {
               largest = (child + usize(1));
@@ -1565,15 +1565,15 @@ _merge_sort_indices :: (
     less : &Impl(Fn(a : &T, b : &T) -> bool)
   ) -> unit
 )({
-  (width : usize) = usize(1);
+  (mut(width) : usize) = usize(1);
   while(width < n, {
-    (lo : usize) = usize(0);
+    (mut(lo) : usize) = usize(0);
     while(lo < n, {
       mid := cond(((lo + width) < n) => (lo + width), true => n);
       hi := cond(((mid + width) < n) => (mid + width), true => n);
-      (a : usize) = lo;
-      (b : usize) = mid;
-      (w : usize) = lo;
+      (mut(a) : usize) = lo;
+      (mut(b) : usize) = mid;
+      (mut(w) : usize) = lo;
       while(w < hi, {
         take_left := cond(
           (a >= mid) => false,
@@ -1596,7 +1596,7 @@ _merge_sort_indices :: (
       });
       lo = (lo + (width * usize(2)));
     });
-    (c : usize) = usize(0);
+    (mut(c) : usize) = usize(0);
     while(c < n, {
       order(c) = scratch(c);
       c = (c + usize(1));
@@ -1609,7 +1609,7 @@ _stable_sort_by :: (
 )({
   order := ArrayList(usize).new();
   scratch := ArrayList(usize).new();
-  (k : usize) = usize(0);
+  (mut(k) : usize) = usize(0);
   while(k < n, {
     order.push(k);
     scratch.push(k);
@@ -1622,14 +1622,14 @@ _stable_sort_by :: (
   // source indices sorts the wrong way round (`[A,B,C]` with `order=[2,0,1]`
   // yields `[B,C,A]`, not `[C,A,B]`). `scratch` is free now, so the inverse
   // costs no extra allocation.
-  (m : usize) = usize(0);
+  (mut(m) : usize) = usize(0);
   while(m < n, {
     scratch(order(m)) = m;
     m = (m + usize(1));
   });
   // Apply the permutation in place by following cycles: O(n) swaps, and the
   // only element movement in the whole routine.
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     while(scratch(i) != i, {
       j := scratch(i);
@@ -1690,8 +1690,8 @@ impl(
       cond(
         !(n == rhs.len()) => false,
         true => {
-          (i : usize) = usize(0);
-          (equal : bool) = true;
+          (mut(i) : usize) = usize(0);
+          (mut(equal) : bool) = true;
           while((i < n) && equal, {
             match(
               lhs.get(i),
@@ -1743,7 +1743,7 @@ impl(
       // Each element is cloned in place through the `&T` projection
       // `self(i)`; copying it out first (`self.get(i)`) is E0901 for a
       // move-only `T` (issues/fixed/arraylist-clone-copies-elements-out-through-get.md).
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < n, i = (i + usize(1)), {
         result.push(self(i).clone());
       });
@@ -1830,7 +1830,7 @@ impl(
   slice_copy : (fn(self : &Array(T, N), r : Range(usize)) -> ArrayList(T))({
     e := cond((r.end > N) => N, true => r.end);
     out := ArrayList(T).new();
-    i := r.start;
+    mut(i) := r.start;
     while(i < e, i = (i + usize(1)), {
       out.push(self(i));
     });
@@ -1840,7 +1840,7 @@ impl(
   slice_copy_inclusive : (fn(self : &Array(T, N), r : RangeInclusive(usize)) -> ArrayList(T))({
     last := cond((r.end >= N) => N, true => (r.end + usize(1)));
     out := ArrayList(T).new();
-    i := r.start;
+    mut(i) := r.start;
     while(i < last, i = (i + usize(1)), {
       out.push(self(i));
     });
@@ -1910,9 +1910,9 @@ impl(
   /// over `binary_search`. `.Ok(index)` of a match (any one of an equal run),
   /// or `.Err(insertion_index)`.
   binary_search_by : (fn(self : &Self, cmp : &Impl(Fn(v : &T) -> Ordering)) -> Result(usize, usize))({
-    (lo : usize) = usize(0);
-    (hi : usize) = self._length;
-    (found : Option(usize)) = Option(usize).None;
+    (mut(lo) : usize) = usize(0);
+    (mut(hi) : usize) = self._length;
+    (mut(found) : Option(usize)) = Option(usize).None;
     while((lo < hi) && found.is_none(), {
       mid := (lo + ((hi - lo) / usize(2)));
       match(
@@ -1979,7 +1979,7 @@ impl(
   retain : (fn(self : &mut Self, pred : &Impl(Fn(v : &T) -> bool)) -> unit)({
     n := self._length;
     kept := Self.with_capacity(n);
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < n, i = (i + usize(1)), {
       v := self(i);
       cond(
@@ -1994,7 +1994,7 @@ impl(
   }),
   /// Append a copy of every element of `other`.
   extend : (fn(self : &mut Self, other : &ArrayList(T)) -> unit)({
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     n := other.len();
     while(i < n, i = (i + usize(1)), {
       self.push(other(i));
@@ -2009,9 +2009,9 @@ impl(
   /// `.Ok(index)` of a matching element (any one of an equal run), or
   /// `.Err(insertion_index)` where the value would keep the order.
   binary_search : (fn(self : &Self, value : &T) -> Result(usize, usize))({
-    (lo : usize) = usize(0);
-    (hi : usize) = self.len();
-    (found : Option(usize)) = Option(usize).None;
+    (mut(lo) : usize) = usize(0);
+    (mut(hi) : usize) = self.len();
+    (mut(found) : Option(usize)) = Option(usize).None;
     while((lo < hi) && found.is_none(), {
       mid := (lo + ((hi - lo) / usize(2)));
       cur := self(mid);

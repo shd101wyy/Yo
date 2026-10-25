@@ -151,7 +151,7 @@ impl(
     match(
       self,
       .Object(keys, values) => {
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
@@ -214,7 +214,7 @@ impl(
       self,
       .Object(keys, values) => {
         result := ArrayList(JsonKV).new();
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           result.push(JsonKV(key : keys(i).clone(), value : values(i)));
         });
@@ -232,7 +232,7 @@ _is_rfc6901_index :: (fn(token : &String) -> bool)({
   if(b.len() == usize(0), {
     return(false);
   });
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     c := b.byte_at(i);
     if((c < u8(48)) || (c > u8(57)), {
@@ -340,7 +340,7 @@ impl(
     match(
       self,
       .Object(keys, values) => {
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           if(keys(i) == key, {
             old := values(i);
@@ -363,7 +363,7 @@ impl(
     match(
       self,
       .Object(keys, values) => {
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           if(keys(i) == key, {
             keys.remove(i);
@@ -400,8 +400,8 @@ impl(
     });
     // `"/a/b"`.split("/") is ["", "a", "b"] — drop the leading empty token.
     tokens := path.split(`/`);
-    (current : JsonValue) = self;
-    ti := usize(1);
+    (mut(current) : JsonValue) = self;
+    mut(ti) := usize(1);
     while(ti < tokens.len(), ti = (ti + usize(1)), {
       token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
       step := match(
@@ -440,7 +440,7 @@ impl(
       match(
         self,
         .Object(keys, values) => {
-          i := usize(0);
+          mut(i) := usize(0);
           while(i < keys.len(), i = (i + usize(1)), {
             if(keys(i) == key, {
               // SAFETY: `i` is bounded by `keys.len()` and the
@@ -466,7 +466,7 @@ impl(
       match(
         self,
         .Object(keys, values) => {
-          i := usize(0);
+          mut(i) := usize(0);
           while(i < keys.len(), i = (i + usize(1)), {
             if(keys(i) == key, {
               // SAFETY: `i` is bounded by `keys.len()` and the
@@ -624,8 +624,8 @@ impl(
   /// Four hex digits after `\u`, as a code unit. `.Err(.InvalidUnicode)`
   /// on a short read or a non-hex byte.
   parse_hex4 : (fn(self : &Self) -> Result(u32, JsonError))({
-    (cp : u32) = u32(0);
-    (i : usize) = usize(0);
+    (mut(cp) : u32) = u32(0);
+    (mut(i) : usize) = usize(0);
     while(i < usize(4), {
       match(
         self.peek(),
@@ -716,7 +716,7 @@ impl(
                       // surrogate must be followed by `\uDC00`-`\uDFFF`,
                       // and a lone low surrogate is invalid (JSON spec /
                       // RFC 8259 §7).
-                      (cp : u32) = match(
+                      (mut(cp) : u32) = match(
                         self.parse_hex4(),
                         .Ok(v) => v,
                         .Err(err) => {
@@ -939,7 +939,7 @@ impl(
     );
     num_len := (self.pos - start);
     num_buf := ArrayList(u8).with_capacity(num_len + usize(1));
-    j := usize(0);
+    mut(j) := usize(0);
     while(j < num_len, j = (j + usize(1)), {
       num_buf.push(self.src(start + j));
     });
@@ -950,8 +950,8 @@ impl(
     // Classified from the consumed slice rather than by re-parsing the double,
     // because `f64(i64)` is lossy above 2^53 and would misclassify exactly the
     // values this variant exists to preserve.
-    (integral : bool) = true;
-    (k : usize) = usize(0);
+    (mut(integral) : bool) = true;
+    (mut(k) : usize) = usize(0);
     while(k < num_len, {
       c2 := self.src(start + k);
       if((c2 == u8(46)) || (c2 == u8(101)) || (c2 == u8(69)), {
@@ -1191,7 +1191,7 @@ parse_bytes :: (fn(bytes : &ArrayList(u8)) -> Result(JsonValue, JsonError))({
 parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
   bytes := ArrayList(u8).new();
   n := s.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     bytes.push(s.bytes(i));
     i = (i + usize(1));
@@ -1231,7 +1231,7 @@ export(
 _write_str_escaped :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
   bytes := &s;
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
     b := bytes.byte_at(i);
     cond(
@@ -1313,7 +1313,7 @@ _stringify_into :: (fn(value : &JsonValue, out : &mut ArrayList(u8)) -> unit)({
       // exactness above 2^53 — the two things this variant exists to prevent.
       s3 := i.to_string();
       ib := s3;
-      bi := usize(0);
+      mut(bi) := usize(0);
       while(bi < ib.len(), bi = (bi + usize(1)), {
         out.push(ib.byte_at(bi));
       });
@@ -1324,7 +1324,7 @@ _stringify_into :: (fn(value : &JsonValue, out : &mut ArrayList(u8)) -> unit)({
       unsafe(snprintf((*char)(buf_ptr), usize(32), "%g", n));
       s2 := String.from_cstr(buf_ptr).unwrap();
       bytes := s2;
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < bytes.len(), i = (i + usize(1)), {
         out.push(bytes.byte_at(i));
       });
@@ -1334,7 +1334,7 @@ _stringify_into :: (fn(value : &JsonValue, out : &mut ArrayList(u8)) -> unit)({
     },
     .Array(items) => {
       out.push(u8(91)); // '['
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < items.len(), i = (i + usize(1)), {
         cond(
           (i > usize(0)) => {
@@ -1348,7 +1348,7 @@ _stringify_into :: (fn(value : &JsonValue, out : &mut ArrayList(u8)) -> unit)({
     },
     .Object(keys, values) => {
       out.push(u8(123)); // '{'
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
         cond(
           (i > usize(0)) => {
@@ -1372,7 +1372,7 @@ stringify :: (fn(value : &JsonValue) -> String)({
 });
 /// Write `n` spaces to `out`.
 _write_spaces :: (fn(n : usize, out : &mut ArrayList(u8)) -> unit)({
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < n, i = (i + usize(1)), {
     out.push(u8(32));
   });
@@ -1396,7 +1396,7 @@ _stringify_pretty_into :: (
       cond(
         (items.len() == usize(0)) => (),
         true => {
-          i := usize(0);
+          mut(i) := usize(0);
           while(i < items.len(), i = (i + usize(1)), {
             cond(
               (i > usize(0)) => {
@@ -1419,7 +1419,7 @@ _stringify_pretty_into :: (
       cond(
         (keys.len() == usize(0)) => (),
         true => {
-          i := usize(0);
+          mut(i) := usize(0);
           while(i < keys.len(), i = (i + usize(1)), {
             cond(
               (i > usize(0)) => {
@@ -1484,7 +1484,7 @@ _json_clone :: (fn(v : &JsonValue) -> JsonValue)(
     .Str(s) => JsonValue.Str(s.clone()),
     .Array(items) => {
       out := ArrayList(JsonValue).new();
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < items.len(), i = (i + usize(1)), {
         out.push(_json_clone(&items(i)));
       });
@@ -1493,7 +1493,7 @@ _json_clone :: (fn(v : &JsonValue) -> JsonValue)(
     .Object(keys, values) => {
       out_keys := ArrayList(String).new();
       out_values := ArrayList(JsonValue).new();
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
         out_keys.push(keys(i).clone());
         out_values.push(_json_clone(&values(i)));
@@ -1544,7 +1544,7 @@ _json_eq :: (fn(lhs : &JsonValue, rhs : &JsonValue) -> bool)(
         if(a.len() != b.len(), {
           return(false);
         });
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < a.len(), i = (i + usize(1)), {
           if(!_json_eq(&a(i), &b(i)), {
             return(false);
@@ -1560,10 +1560,10 @@ _json_eq :: (fn(lhs : &JsonValue, rhs : &JsonValue) -> bool)(
         if(a_keys.len() != b_keys.len(), {
           return(false);
         });
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          (found : bool) = false;
-          j := usize(0);
+          (mut(found) : bool) = false;
+          mut(j) := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {
             if(b_keys(j) == a_keys(i), {
               if(!_json_eq(&a_values(i), &b_values(j)), {
@@ -1808,7 +1808,7 @@ impl(
   ToJson(
     to_json : (fn(self : &Self) -> JsonValue)({
       items := ArrayList(JsonValue).new();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < self.len(), {
         match(
           self.get(i),
@@ -1833,7 +1833,7 @@ impl(
         v,
         .Array(items) => {
           out := Self.new();
-          (i : usize) = usize(0);
+          (mut(i) : usize) = usize(0);
           while(i < items.len(), {
             match(
               items.get(i),
@@ -1865,8 +1865,8 @@ impl(
     to_json : (fn(self : &Self) -> JsonValue)({
       keys := ArrayList(String).new();
       values := ArrayList(JsonValue).new();
-      it := self.keys();
-      (go : bool) = true;
+      mut(it) := self.keys();
+      (mut(go) : bool) = true;
       while(go, {
         match(
           it.next(),
@@ -1899,7 +1899,7 @@ impl(
         v,
         .Object(keys, values) => {
           out := Self.new();
-          (i : usize) = usize(0);
+          (mut(i) : usize) = usize(0);
           while(i < keys.len(), {
             k := match(keys.get(i), .Some(key_s) => key_s, .None => String.new());
             match(

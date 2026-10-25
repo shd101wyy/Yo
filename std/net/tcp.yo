@@ -105,8 +105,8 @@ sockaddr_to_socket_addr :: (fn(buf : *u8) -> SocketAddr)({
     (fam == u16(AF_INET6)) => {
       bytes := Array(u8, usize(16)).fill(u8(0));
       IO_tcp.get_addr_in6(buf, addr_of(bytes(usize(0))));
-      segs := Array(u16, usize(8)).fill(u16(0));
-      i := usize(0);
+      mut(segs) := Array(u16, usize(8)).fill(u16(0));
+      mut(i) := usize(0);
       while(i < usize(8), {
         hi := u16(bytes(i * usize(2)));
         lo := u16(bytes((i * usize(2)) + usize(1)));
@@ -216,7 +216,7 @@ impl(
       fn(self : &mut Self, io : Io) -> Impl(Future(Option(Result(TcpStream, NetError)), Io))
     )(
       io.async({ inc : self }(io : Io) => {
-        (out : Option(Result(TcpStream, NetError))) = Option(Result(TcpStream, NetError)).None;
+        (mut(out) : Option(Result(TcpStream, NetError))) = Option(Result(TcpStream, NetError)).None;
         if(!inc._listener._is_closed, {
           // The raw accept, not the throwing `accept` method: this stream
           // reports failure IN the item, and an `Exception` handler cannot be

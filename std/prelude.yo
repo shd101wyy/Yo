@@ -5417,7 +5417,7 @@ impl(
 */
 /// Population count over all 64 bits — SWAR, no per-word loop.
 _popcount_u64 :: (fn(x : u64) -> u32)({
-  (v : u64) = x;
+  (mut(v) : u64) = x;
   v = (v - ((v >> u64(1)) & u64(6148914691236517205)));
   v = ((v & u64(3689348814741910323)) + ((v >> u64(2)) & u64(3689348814741910323)));
   v = ((v + (v >> u64(4))) & u64(1085102592571150095));
@@ -5429,7 +5429,7 @@ _popcount_u64 :: (fn(x : u64) -> u32)({
 _leading_zeros_u64 :: (fn(x : u64) -> u32)({
   // Smear the highest set bit down, then count the ones: 64 - popcount gives
   // the leading-zero count without a branchy binary search.
-  (v : u64) = x;
+  (mut(v) : u64) = x;
   v = (v | (v >> u64(1)));
   v = (v | (v >> u64(2)));
   v = (v | (v >> u64(4)));
@@ -5449,7 +5449,7 @@ _trailing_zeros_u64 :: (fn(x : u64) -> u32)(
 );
 /// Reverse all 64 bits.
 _reverse_bits_u64 :: (fn(x : u64) -> u64)({
-  (v : u64) = x;
+  (mut(v) : u64) = x;
   v = (((v >> u64(1)) & u64(6148914691236517205)) | ((v & u64(6148914691236517205)) << u64(1)));
   v = (((v >> u64(2)) & u64(3689348814741910323)) | ((v & u64(3689348814741910323)) << u64(2)));
   v = (((v >> u64(4)) & u64(1085102592571150095)) | ((v & u64(1085102592571150095)) << u64(4)));
@@ -5459,7 +5459,7 @@ _reverse_bits_u64 :: (fn(x : u64) -> u64)({
 });
 /// Reverse the byte order of a 64-bit word.
 _swap_bytes_u64 :: (fn(x : u64) -> u64)({
-  (v : u64) = x;
+  (mut(v) : u64) = x;
   v = (((v >> u64(8)) & u64(71777214294589695)) | ((v & u64(71777214294589695)) << u64(8)));
   v = (((v >> u64(16)) & u64(281470681808895)) | ((v & u64(281470681808895)) << u64(16)));
   (v >> u64(32)) | (v << u64(32))
@@ -7181,10 +7181,10 @@ impl(
   // died with SIGTRAP before printing anything, where the comptime-only `fill`
   // it replaces had refused the same program at COMPILE time.
   fill : (fn(val : &T, where(T <: Comptime)) -> Self)({
-    mu := MaybeUninit(Self).new();
+    mut(mu) := MaybeUninit(Self).new();
     raw := mu.as_ptr();
     p := (*T)(raw);
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < U, {
       (p.add(i)).* = val;
       i = (i + usize(1));
@@ -7232,7 +7232,7 @@ impl(
   Array(T, U),
   Eq(Self)(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < U, {
         cond(
           (lhs(i) == rhs(i)) => (),
@@ -7254,7 +7254,7 @@ impl(
   Array(T, U),
   Ord(Self)(
     (<) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
@@ -7267,7 +7267,7 @@ impl(
       return(false);
     }),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
@@ -7280,7 +7280,7 @@ impl(
       return(true);
     }),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
@@ -7293,7 +7293,7 @@ impl(
       return(false);
     }),
     (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
@@ -7322,10 +7322,10 @@ impl(
   Array(T, U),
   Clone(
     clone : (fn(self : &Self) -> Self)({
-      mu := MaybeUninit(Self).new();
+      mut(mu) := MaybeUninit(Self).new();
       raw := mu.as_ptr();
       p := (*T)(raw);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < U, i = (i + usize(1)), {
         __yo_ptr_write(p.add(i), self(i).clone());
       });
@@ -7440,7 +7440,7 @@ impl(
   Array(T, U),
   Hash(
     hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < U, {
         self(i).hash(hasher);
         i = (i + usize(1));
@@ -7569,7 +7569,7 @@ impl(
         },
         true => ()
       );
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < lhs_len, i = (i + usize(1)), {
         cond(
           (lhs.bytes(i) != rhs.bytes(i)) => {
@@ -7592,7 +7592,7 @@ impl(
       lhs_len := lhs.len();
       rhs_len := rhs.len();
       min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < min_len, i = (i + usize(1)), {
         cond(
           (lhs.bytes(i) < rhs.bytes(i)) => {
@@ -11019,7 +11019,7 @@ impl(
   Iterator(
     Item : A,
     next : (fn(self : &mut Self) -> Option(A))({
-      (loop_result : Option(A)) = .None;
+      (mut(loop_result) : Option(A)) = .None;
       while(true, {
         candidate := self._inner.next();
         match(
@@ -11238,7 +11238,7 @@ impl(
   Iterator(
     Item : A,
     next : (fn(self : &mut Self) -> Option(A))({
-      (result : Option(A)) = .None;
+      (mut(result) : Option(A)) = .None;
       cond(
         self._done => (),
         true => {
@@ -12469,7 +12469,7 @@ impl(
       where(Self <: Iterator(Item := A), F <: (Fn(acc : &Acc, item : &A) -> Acc))
     ) -> Acc
   )({
-    acc := init;
+    mut(acc) := init;
     iter := self;
     while(true, {
       match(
@@ -12514,8 +12514,8 @@ impl(
       where(Self <: Iterator(Item := A))
     ) -> usize
   )({
-    n := usize(0);
-    iter := self;
+    mut(n) := usize(0);
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12538,7 +12538,7 @@ impl(
       where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> bool
   )({
-    result := false;
+    mut(result) := false;
     iter := self;
     while(true, {
       match(
@@ -12568,7 +12568,7 @@ impl(
       where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> bool
   )({
-    result := true;
+    mut(result) := true;
     iter := self;
     while(true, {
       match(
@@ -12598,7 +12598,7 @@ impl(
       where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> Option(A)
   )({
-    (found : Option(A)) = .None;
+    (mut(found) : Option(A)) = .None;
     iter := self;
     while(true, {
       match(
@@ -12628,8 +12628,8 @@ impl(
       where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> Option(usize)
   )({
-    (found : Option(usize)) = .None;
-    idx := usize(0);
+    (mut(found) : Option(usize)) = .None;
+    mut(idx) := usize(0);
     iter := self;
     while(true, {
       match(
@@ -12660,7 +12660,7 @@ impl(
       where(Self <: Iterator(Item := A))
     ) -> Option(A)
   )({
-    (latest : Option(A)) = .None;
+    (mut(latest) : Option(A)) = .None;
     iter := self;
     while(true, {
       match(
@@ -12684,9 +12684,9 @@ impl(
       where(Self <: Iterator(Item := A))
     ) -> Option(A)
   )({
-    (result : Option(A)) = .None;
-    remaining := n;
-    iter := self;
+    (mut(result) : Option(A)) = .None;
+    mut(remaining) := n;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12716,7 +12716,7 @@ impl(
       where(Self <: Iterator(Item := A), A <: (Add(A), Default))
     ) -> A
   )({
-    (acc : A) = (A <: Default).default();
+    (mut(acc) : A) = (A <: Default).default();
     iter := self;
     while(true, {
       match(
@@ -12866,7 +12866,7 @@ impl(
       where(C <: FromIterator)
     ) -> C
   )({
-    (out : C) = (C <: FromIterator).from_iter_new();
+    (mut(out) : C) = (C <: FromIterator).from_iter_new();
     iter := self;
     while(true, {
       match(

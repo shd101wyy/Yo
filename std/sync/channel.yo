@@ -377,7 +377,7 @@ impl(
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < current_len, {
         (idx : usize) = ((self._head + i) % self._capacity);
         // SAFETY: every slot of the live run `[_head, _head + len)` owns its

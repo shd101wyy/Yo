@@ -81,7 +81,7 @@ impl(
     self._data.push(val);
     // Sift up. Elements are compared in place and exchanged bitwise
     // (`swap`), so none is copied: a move-only `T` works.
-    i := (self._data.len() - usize(1));
+    mut(i) := (self._data.len() - usize(1));
     while(i > usize(0), {
       parent := ((i - usize(1)) / usize(2));
       cond(
@@ -111,11 +111,11 @@ impl(
         self._data.swap(usize(0), n - usize(1));
         top := self._data.pop();
         // Sift down
-        i := usize(0);
+        mut(i) := usize(0);
         while(true, {
           left := ((i * usize(2)) + usize(1));
           right := ((i * usize(2)) + usize(2));
-          largest := i;
+          mut(largest) := i;
           new_n := self._data.len();
           cond(
             ((left < new_n) && (self._data(left) > self._data(largest))) => {

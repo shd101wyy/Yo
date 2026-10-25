@@ -115,7 +115,7 @@ impl(
   /// A key's hash. The FIXED SipHash keys keep the index reproducible run to
   /// run, as `HashMap` does for its bucket order.
   _hash_key : (fn(self : &Self, key : &K) -> u64)({
-    h := DefaultHasher.new_with_keys(DEFAULT_KEY_0, DEFAULT_KEY_1);
+    mut(h) := DefaultHasher.new_with_keys(DEFAULT_KEY_0, DEFAULT_KEY_1);
     key.hash(&mut h);
     h.finish()
   }),
@@ -127,7 +127,7 @@ impl(
       self._index.get(&h),
       .Some(positions) => {
         (mut(found) : Option(usize)) = Option(usize).None;
-        i := usize(0);
+        mut(i) := usize(0);
         while((i < positions.len()) && found.is_none(), i = (i + usize(1)), {
           match(
             positions.get(i),

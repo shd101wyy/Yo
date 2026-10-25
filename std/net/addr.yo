@@ -72,13 +72,13 @@ impl(
   /// `1.2.3.`, `...` used to parse as 0-filled addresses).
   parse_v4 : (fn(s : &String, exn : Exception) -> IpAddr)({
     bytes := &s;
-    parts := Array(u8, usize(4)).fill(u8(0));
-    part_idx := usize(0);
-    val := u32(0);
+    mut(parts) := Array(u8, usize(4)).fill(u8(0));
+    mut(part_idx) := usize(0);
+    mut(val) := u32(0);
     // Digits seen in the CURRENT octet — an octet with none is a wrong value,
     // not a zero (issues/fixed/ipaddr-parse-v4-accepts-empty-and-wrapping-octets.md).
-    digits := usize(0);
-    i := usize(0);
+    mut(digits) := usize(0);
+    mut(i) := usize(0);
     while(i < bytes.len(), {
       ch := bytes.byte_at(i);
       cond(
@@ -159,18 +159,18 @@ impl(
       },
       true => ()
     );
-    segs := Array(u16, usize(8)).fill(u16(0));
+    mut(segs) := Array(u16, usize(8)).fill(u16(0));
     // Groups written BEFORE the `::` fill from the front; groups written after
     // it are collected separately and moved to the back once the total is
     // known, which is the only way to place them without a second pass.
-    tail := Array(u16, usize(8)).fill(u16(0));
-    (head_len : usize) = usize(0);
-    (tail_len : usize) = usize(0);
-    (seen_double : bool) = false;
+    mut(tail) := Array(u16, usize(8)).fill(u16(0));
+    (mut(head_len) : usize) = usize(0);
+    (mut(tail_len) : usize) = usize(0);
+    (mut(seen_double) : bool) = false;
     // Accumulator for the group being read.
-    (acc : u16) = u16(0);
-    (acc_digits : usize) = usize(0);
-    (i : usize) = usize(0);
+    (mut(acc) : u16) = u16(0);
+    (mut(acc_digits) : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     // Commit the accumulated group into head or tail depending on whether the
     // `::` has been passed. Written inline at each commit point because a
     // closure would have to capture six mutable locals.
@@ -399,7 +399,7 @@ impl(
       true => ()
     );
     // Move the post-`::` groups to the back; the gap between is already zero.
-    (t : usize) = usize(0);
+    (mut(t) : usize) = usize(0);
     while(t < tail_len, {
       segs((usize(8) - tail_len) + t) = tail(t);
       t = (t + usize(1));
@@ -424,7 +424,7 @@ impl(
   ),
   /// Return the IPv6 loopback address (::1).
   loopback_v6 : (fn() -> IpAddr)({
-    segs := Array(u16, usize(8)).fill(u16(0));
+    mut(segs) := Array(u16, usize(8)).fill(u16(0));
     segs(usize(7)) = u16(1);
     .V6(segs)
   }),
@@ -439,8 +439,8 @@ impl(
       .V4(a, _, _, _) => (a == u8(127)),
       .V6(segs) => {
         // ::1
-        all_zero := true;
-        i := usize(0);
+        mut(all_zero) := true;
+        mut(i) := usize(0);
         while(i < usize(7), {
           cond(
             (segs(i) != u16(0)) => {
@@ -489,7 +489,7 @@ impl(
         out.push(d);
       },
       .V6(segs) => {
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < usize(8), {
           // Network byte order: high octet of each group first.
           out.push(u8((segs(i) >> u16(8)) & u16(255)));
@@ -516,8 +516,8 @@ impl(
       self,
       .V4(a, b, c, d) => ((a == u8(0)) && (b == u8(0)) && (c == u8(0)) && (d == u8(0))),
       .V6(segs) => {
-        (all_zero : bool) = true;
-        (i : usize) = usize(0);
+        (mut(all_zero) : bool) = true;
+        (mut(i) : usize) = usize(0);
         while(i < usize(8), {
           cond(
             (segs(i) != u16(0)) => {
@@ -600,11 +600,11 @@ impl(
               // 4.2.1/4.2.3: compress the LONGEST run of consecutive all-zero
               // fields, and on a tie the FIRST run wins -- hence `>` rather
               // than `>=` when the best run is updated.
-              (best_start : usize) = usize(8);
-              (best_len : usize) = usize(0);
-              (cur_start : usize) = usize(8);
-              (cur_len : usize) = usize(0);
-              i := usize(0);
+              (mut(best_start) : usize) = usize(8);
+              (mut(best_len) : usize) = usize(0);
+              (mut(cur_start) : usize) = usize(8);
+              (mut(cur_len) : usize) = usize(0);
+              mut(i) := usize(0);
               while(i < usize(8), {
                 cond(
                   (segs(i) == u16(0)) => {
@@ -630,7 +630,7 @@ impl(
                 best_start = usize(8);
               });
               w := StringBuilder.new();
-              (j : usize) = usize(0);
+              (mut(j) : usize) = usize(0);
               while(j < usize(8), {
                 cond(
                   ((best_len > usize(0)) && (j == best_start)) => {
@@ -644,7 +644,7 @@ impl(
                     // A separator before every field except the first, and
                     // except immediately after the `::` that already supplied
                     // one.
-                    (need_sep : bool) = (j > usize(0));
+                    (mut(need_sep) : bool) = (j > usize(0));
                     if((best_len > usize(0)) && (j == (best_start + best_len)), {
                       need_sep = false;
                     });
@@ -675,7 +675,7 @@ impl(
 /// Two `V6` addresses compare segment by segment from the most significant,
 /// which IS the numeric order of the 128-bit value.
 _v6_cmp :: (fn(a : Array(u16, usize(8)), b : Array(u16, usize(8))) -> Ordering)({
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(8), i = (i + usize(1)), {
     x := a(i);
     y := b(i);
@@ -768,7 +768,7 @@ impl(
         },
         .V6(segs) => {
           u8(6).hash(hasher);
-          i := usize(0);
+          mut(i) := usize(0);
           while(i < usize(8), i = (i + usize(1)), {
             seg := segs(i);
             seg.hash(hasher);
@@ -793,8 +793,8 @@ _parse_port :: (fn(s : &String, exn : Exception) -> u16)({
     true => ()
   );
   bytes := &s;
-  (v : u32) = u32(0);
-  (i : usize) = usize(0);
+  (mut(v) : u32) = u32(0);
+  (mut(i) : usize) = usize(0);
   while(i < bytes.len(), {
     b := bytes.byte_at(i);
     cond(

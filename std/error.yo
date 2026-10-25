@@ -227,7 +227,7 @@ impl(
   Context,
   ToString(
     to_string : (fn(self : &Self) -> String)({
-      out := self.message.clone();
+      mut(out) := self.message.clone();
       out.push_str(": ");
       out.push_string(self.cause.to_string());
       out
@@ -282,8 +282,8 @@ export(ResumableException);
 /// (issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md). That
 /// is a separate open defect; this walk stays clear of it.
 root_cause :: (fn(err : &AnyError) -> AnyError)({
-  (cur : AnyError) = err;
-  (walking : bool) = true;
+  (mut(cur) : AnyError) = err;
+  (mut(walking) : bool) = true;
   while(walking, {
     match(
       cur.source(),

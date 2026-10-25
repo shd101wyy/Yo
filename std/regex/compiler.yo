@@ -424,7 +424,7 @@ impl(
           }
         ),
       .Sequence => {
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < node.children.len(), i = (i + usize(1)), {
           child := node.children(i);
           recur(self, &child);
@@ -450,8 +450,8 @@ impl(
         max_val := node.q_max;
         greedy := node.q_greedy;
         // Emit min required copies, tracking start of last copy for loop-back
-        (last_body_start : usize) = self._current_pc();
-        qi := usize(0);
+        (mut(last_body_start) : usize) = self._current_pc();
+        mut(qi) := usize(0);
         while(qi < min_val, qi = (qi + usize(1)), {
           last_body_start = self._current_pc();
           recur(self, &child);
@@ -490,7 +490,7 @@ impl(
           true => {
             // {min, max} — emit (max - min) optional copies
             remaining := (max_val - min_val);
-            qj := usize(0);
+            mut(qj) := usize(0);
             while(qj < remaining, qj = (qj + usize(1)), {
               split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
               body_start := self._current_pc();
@@ -554,9 +554,9 @@ impl(
   // Walks past Save/AssertStart instructions, then collects Char instructions.
   _extract_literal_prefix : (fn(self : &Self) -> unit)({
     prefix := ArrayList(u8).new();
-    pc := usize(0);
+    mut(pc) := usize(0);
     instrs := &self._program.instructions;
-    (done : bool) = false;
+    (mut(done) : bool) = false;
     while((pc < instrs.len()) && !done, {
       instr := instrs(pc);
       match(

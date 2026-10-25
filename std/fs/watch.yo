@@ -117,7 +117,7 @@ Watcher :: ref(
 _wake_waiters :: (fn(w : &Watcher) -> unit)({
   pending := w._waiters;
   w._waiters = ArrayList(Waker).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < pending.len(), i = (i + usize(1)), {
     pending(i).wake();
   });

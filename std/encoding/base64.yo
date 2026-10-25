@@ -52,7 +52,7 @@ _PAD :: u8(61); // '='
 _encode_with :: (fn(data : &ArrayList(u8), alpha : str, pad : bool) -> String)({
   n := data.len();
   out := ArrayList(u8).with_capacity(((n + usize(2)) / usize(3)) * usize(4));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < n, i = (i + usize(3)), {
     b0 := data(i);
     b1 := cond(((i + usize(1)) < n) => data(i + usize(1)), true => u8(0));
@@ -93,7 +93,7 @@ export(encode, encode_url);
 // Decoding
 // ============================================================================
 _decode_char_res :: (fn(c : u8, alpha : str, pos : usize) -> Result(u8, EncodingError))({
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(64), i = (i + usize(1)), {
     cond(
       (alpha.bytes(i) == c) => {
@@ -106,7 +106,7 @@ _decode_char_res :: (fn(c : u8, alpha : str, pos : usize) -> Result(u8, Encoding
 });
 _decode_with_res :: (fn(s : &String, alpha : str) -> Result(ArrayList(u8), EncodingError))({
   // Strip trailing padding
-  len := s.len();
+  mut(len) := s.len();
   while((len > usize(0)) && (s.byte_at(len - usize(1)) == _PAD), len = (len - usize(1)), ());
   // One leftover sextet encodes nothing: no encoder emits it, so it is an
   // error, not a zero byte (issues/fixed/base64-decode-accepted-impossible-lengths-and-trailing-bits.md).
@@ -117,7 +117,7 @@ _decode_with_res :: (fn(s : &String, alpha : str) -> Result(ArrayList(u8), Encod
     true => ()
   );
   out := ArrayList(u8).with_capacity((len * usize(3)) / usize(4));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < len, i = (i + usize(4)), {
     c0 := match(
       _decode_char_res(s.byte_at(i), alpha, i),

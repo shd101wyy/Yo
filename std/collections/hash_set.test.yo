@@ -27,12 +27,12 @@ test("HashSet.remove of an isolated element leaves no tombstone in the backing m
 });
 test("HashSet churn keeps the backing map's live + tombstones under the load threshold", {
   set := HashSet(i32).new();
-  (k : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
   while(k < i32(2000), k = (k + i32(1)), {
     set.insert(k);
   });
   cap0 := set._map.capacity;
-  (n : i32) = i32(0);
+  (mut(n) : i32) = i32(0);
   while(n < i32(20000), n = (n + i32(1)), {
     assert(set.remove(&n), "the oldest element is present");
     set.insert(i32(2000) + n);

@@ -205,7 +205,7 @@ getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen
 make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in_size();
   buf := (*u8)(malloc(size).unwrap());
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < size, {
     (buf.add(i)).* = u8(0);
     i = (i + usize(1));
@@ -222,7 +222,7 @@ make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
 make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in6_size();
   buf := (*u8)(malloc(size).unwrap());
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < size, {
     (buf.add(i)).* = u8(0);
     i = (i + usize(1));
@@ -239,7 +239,7 @@ make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
 make_sockaddr_in_any :: (fn(port : u16) -> SockAddr)({
   size := sockaddr_in_size();
   buf := (*u8)(malloc(size).unwrap());
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < size, {
     (buf.add(i)).* = u8(0);
     i = (i + usize(1));
@@ -255,7 +255,7 @@ make_sockaddr_in_any :: (fn(port : u16) -> SockAddr)({
 make_sockaddr_in_loopback :: (fn(port : u16) -> SockAddr)({
   size := sockaddr_in_size();
   buf := (*u8)(malloc(size).unwrap());
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < size, {
     (buf.add(i)).* = u8(0);
     i = (i + usize(1));

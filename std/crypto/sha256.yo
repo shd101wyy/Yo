@@ -106,9 +106,9 @@ _sg0 :: (fn(x : u32) -> u32)(_rotr32(x, u32(7)) ^ _rotr32(x, u32(18)) ^ (x >> u3
 _sg1 :: (fn(x : u32) -> u32)(_rotr32(x, u32(17)) ^ _rotr32(x, u32(19)) ^ (x >> u32(10)));
 // Process one 512-bit block. `block` must be 64 bytes. `h` is 8 u32 words.
 _sha256_block :: (fn(block : *u8, h : *u32) -> unit)({
-  w := Array(u32, usize(64)).fill(u32(0));
+  mut(w) := Array(u32, usize(64)).fill(u32(0));
   // Load message schedule
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(16), i = (i + usize(1)), {
     off := (i * usize(4));
     w(i) =
@@ -129,15 +129,15 @@ _sha256_block :: (fn(block : *u8, h : *u32) -> unit)({
     w(i) = s1.wrapping_add(w(i - usize(7))).wrapping_add(s0).wrapping_add(w(i - usize(16)));
   });
   // Compression
-  a := (h.add(usize(0))).*;
-  b := (h.add(usize(1))).*;
-  c := (h.add(usize(2))).*;
-  d := (h.add(usize(3))).*;
-  e := (h.add(usize(4))).*;
-  f := (h.add(usize(5))).*;
-  g := (h.add(usize(6))).*;
-  hh := (h.add(usize(7))).*;
-  i2 := usize(0);
+  mut(a) := (h.add(usize(0))).*;
+  mut(b) := (h.add(usize(1))).*;
+  mut(c) := (h.add(usize(2))).*;
+  mut(d) := (h.add(usize(3))).*;
+  mut(e) := (h.add(usize(4))).*;
+  mut(f) := (h.add(usize(5))).*;
+  mut(g) := (h.add(usize(6))).*;
+  mut(hh) := (h.add(usize(7))).*;
+  mut(i2) := usize(0);
   while(i2 < usize(64), i2 = (i2 + usize(1)), {
     t1 := hh.wrapping_add(_ep1(e)).wrapping_add(_ch(e, f, g)).wrapping_add(_K(i2)).wrapping_add(w(i2));
     t2 := _ep0(a).wrapping_add(_maj(a, b, c));
@@ -207,7 +207,7 @@ impl(
   /// hasher is mutated in place either way, so ignoring the result is
   /// equally correct.
   update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
       self._buflen = (self._buflen + usize(1));
@@ -266,8 +266,8 @@ impl(
     h_ptr := addr_of(self._h(usize(0)));
     _sha256_block(buf_ptr, h_ptr);
     // Extract digest
-    digest := Array(u8, usize(32)).fill(u8(0));
-    j := usize(0);
+    mut(digest) := Array(u8, usize(32)).fill(u8(0));
+    mut(j) := usize(0);
     while(j < usize(8), j = (j + usize(1)), {
       word := self._h(j);
       digest(j * usize(4)) = u8(word >> u32(24));
@@ -290,7 +290,7 @@ impl(
     finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
       d := self.finish();
       out := ArrayList(u8).with_capacity(usize(32));
-      (fbi : usize) = usize(0);
+      (mut(fbi) : usize) = usize(0);
       while(fbi < usize(32), fbi = (fbi + usize(1)), {
         out.push(d(fbi));
       });
@@ -320,7 +320,7 @@ sha256_hex :: (fn(data : &ArrayList(u8)) -> String)({
   digest := sha256(data);
   // Convert fixed array to ArrayList(u8) for hex.encode
   bytes := ArrayList(u8).with_capacity(usize(32));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(32), i = (i + usize(1)), {
     bytes.push(digest(i));
   });

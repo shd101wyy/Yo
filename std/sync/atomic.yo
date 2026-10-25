@@ -314,8 +314,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
-    (current : i8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -324,8 +324,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
-    (current : i8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -334,8 +334,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
-    (current : i8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -344,8 +344,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
-    (current : i8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -354,8 +354,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
-    (current : i8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -366,8 +366,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
-    (current : i8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -378,8 +378,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
-    (current : i8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -447,8 +447,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
-    (current : i16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -457,8 +457,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
-    (current : i16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -467,8 +467,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
-    (current : i16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -477,8 +477,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
-    (current : i16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -487,8 +487,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
-    (current : i16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -499,8 +499,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
-    (current : i16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -511,8 +511,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
-    (current : i16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -602,8 +602,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)({
     read := _read_order(order);
-    (current : i32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -614,8 +614,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)({
     read := _read_order(order);
-    (current : i32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -683,8 +683,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
-    (current : i64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -693,8 +693,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
-    (current : i64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -703,8 +703,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
-    (current : i64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -713,8 +713,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
-    (current : i64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -723,8 +723,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
-    (current : i64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -735,8 +735,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
-    (current : i64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -747,8 +747,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
-    (current : i64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : i64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -816,8 +816,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
-    (current : u8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -826,8 +826,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
-    (current : u8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -836,8 +836,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
-    (current : u8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -846,8 +846,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
-    (current : u8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -856,8 +856,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
-    (current : u8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -868,8 +868,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
-    (current : u8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -880,8 +880,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
-    (current : u8) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u8) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -949,8 +949,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
-    (current : u16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -959,8 +959,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
-    (current : u16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -969,8 +969,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
-    (current : u16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -979,8 +979,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
-    (current : u16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -989,8 +989,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
-    (current : u16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -1001,8 +1001,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
-    (current : u16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1013,8 +1013,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
-    (current : u16) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u16) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1082,8 +1082,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
-    (current : u32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -1092,8 +1092,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
-    (current : u32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -1102,8 +1102,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
-    (current : u32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -1112,8 +1112,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
-    (current : u32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -1122,8 +1122,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
-    (current : u32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -1134,8 +1134,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
-    (current : u32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1146,8 +1146,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
-    (current : u32) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u32) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1215,8 +1215,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
-    (current : u64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -1225,8 +1225,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
-    (current : u64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -1235,8 +1235,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
-    (current : u64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -1245,8 +1245,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
-    (current : u64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -1255,8 +1255,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
-    (current : u64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -1267,8 +1267,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
-    (current : u64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1279,8 +1279,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
-    (current : u64) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : u64) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1348,8 +1348,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
-    (current : usize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : usize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -1358,8 +1358,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
-    (current : usize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : usize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -1368,8 +1368,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
-    (current : usize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : usize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -1378,8 +1378,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
-    (current : usize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : usize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -1388,8 +1388,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
-    (current : usize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : usize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -1400,8 +1400,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
-    (current : usize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : usize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1412,8 +1412,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
-    (current : usize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : usize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1481,8 +1481,8 @@ impl(
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
-    (current : isize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : isize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_add(value), order, read);
     });
@@ -1491,8 +1491,8 @@ impl(
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
-    (current : isize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : isize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current.wrapping_sub(value), order, read);
     });
@@ -1501,8 +1501,8 @@ impl(
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
-    (current : isize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : isize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current & value, order, read);
     });
@@ -1511,8 +1511,8 @@ impl(
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
-    (current : isize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : isize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current | value, order, read);
     });
@@ -1521,8 +1521,8 @@ impl(
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
-    (current : isize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : isize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       swapped = self.compare_exchange(&mut current, current ^ value, order, read);
     });
@@ -1533,8 +1533,8 @@ impl(
   /// loop — lock-free, and it only costs a retry under contention.
   fetch_min : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
-    (current : isize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : isize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);
@@ -1545,8 +1545,8 @@ impl(
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
   fetch_max : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
-    (current : isize) = self.load(read);
-    (swapped : bool) = false;
+    (mut(current) : isize) = self.load(read);
+    (mut(swapped) : bool) = false;
     while(!swapped, {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(&mut current, chosen, order, read);

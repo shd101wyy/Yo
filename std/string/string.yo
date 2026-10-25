@@ -186,7 +186,7 @@ impl(
   /// (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
   to_cstr_checked : (fn(self : &Self) -> Result(ArrayList(u8), StringError))({
     n := self.len();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < n, {
       if(self.byte_at(i) == u8(0), {
         return(.Err(.InteriorNul(index : i)));
@@ -586,10 +586,10 @@ impl(
               .None => .None,
               .Some(sub_al) => {
                 (last_start : usize) = (self_bytes - sub_bytes);
-                byte_index := from_index;
+                mut(byte_index) := from_index;
                 while(byte_index <= last_start, byte_index = (byte_index + usize(1)), {
-                  matches := true;
-                  j := usize(0);
+                  mut(matches) := true;
+                  mut(j) := usize(0);
                   while(j < sub_bytes, j = (j + usize(1)), {
                     self_byte_opt := self_al.get(byte_index + j);
                     sub_byte_opt := sub_al.get(j);
@@ -667,7 +667,7 @@ impl(
           },
           .Some(al) => {
             total := al.len();
-            (pos : usize) = usize(0);
+            (mut(pos) : usize) = usize(0);
             while(pos < total, {
               (w : usize) = utf8.step_len(al(pos));
               result.push(self.substring(pos, pos + w));
@@ -696,13 +696,13 @@ impl(
           .Some(sep_al) => {
             self_bytes := self_al.len();
             sep_bytes := sep_al.len();
-            current_bytes := ArrayList(u8).new();
-            byte_index := usize(0);
+            mut(current_bytes) := ArrayList(u8).new();
+            mut(byte_index) := usize(0);
             while(byte_index < self_bytes, byte_index = (byte_index + usize(1)), {
-              matches := true;
+              mut(matches) := true;
               cond(
                 ((byte_index + sep_bytes) <= self_bytes) => {
-                  j := usize(0);
+                  mut(j) := usize(0);
                   while(j < sep_bytes, j = (j + usize(1)), {
                     self_byte_opt := self_al.get(byte_index + j);
                     sep_byte_opt := sep_al.get(j);
@@ -804,11 +804,11 @@ impl(
                 // Walk DOWN from the highest allowed start, so the first hit is
                 // the last occurrence. `cursor` is one past the candidate so
                 // that candidate 0 is still examined without underflowing.
-                cursor := (highest + usize(1));
+                mut(cursor) := (highest + usize(1));
                 while(cursor > usize(0), {
                   cursor = (cursor - usize(1));
-                  matches := true;
-                  j := usize(0);
+                  mut(matches) := true;
+                  mut(j) := usize(0);
                   while(j < sub_bytes, j = (j + usize(1)), {
                     self_byte_opt := self_al.get(cursor + j);
                     sub_byte_opt := sub_al.get(j);
@@ -886,8 +886,8 @@ impl(
           prefix._bytes,
           .None => true,
           .Some(prefix_al) => {
-            i := usize(0);
-            matches := true;
+            mut(i) := usize(0);
+            mut(matches) := true;
             while(i < prefix_bytes, i = (i + usize(1)), {
               self_byte_opt := self_al.get(position + i);
               prefix_byte_opt := prefix_al.get(i);
@@ -950,8 +950,8 @@ impl(
           .None => true,
           .Some(suffix_al) => {
             offset := (effective_end - suffix_bytes);
-            i := usize(0);
-            matches := true;
+            mut(i) := usize(0);
+            mut(matches) := true;
             while(i < suffix_bytes, i = (i + usize(1)), {
               self_byte_opt := self_al.get(offset + i);
               suffix_byte_opt := suffix_al.get(i);
@@ -1018,7 +1018,7 @@ impl(
       .Some(al) => {
         (total : usize) = al.len();
         new_bytes := ArrayList(u8).with_capacity(total);
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < total, i = (i + usize(1)), {
           byte_opt := al.get(i);
           match(
@@ -1046,7 +1046,7 @@ impl(
       .Some(al) => {
         (total : usize) = al.len();
         new_bytes := ArrayList(u8).with_capacity(total);
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < total, i = (i + usize(1)), {
           byte_opt := al.get(i);
           match(
@@ -1080,7 +1080,7 @@ impl(
         if(total_bytes == usize(0), {
           return(Self(_bytes : .None));
         });
-        (start_idx : usize) = usize(0);
+        (mut(start_idx) : usize) = usize(0);
         while(start_idx < total_bytes, {
           (b : u8) = al(start_idx);
           if(!Self._is_whitespace_byte(b), {
@@ -1088,7 +1088,7 @@ impl(
           });
           start_idx = (start_idx + usize(1));
         });
-        (end_idx : usize) = total_bytes;
+        (mut(end_idx) : usize) = total_bytes;
         while(end_idx > start_idx, {
           (b : u8) = al(end_idx - usize(1));
           if(!Self._is_whitespace_byte(b), {
@@ -1120,7 +1120,7 @@ impl(
         cond(
           (total_bytes == usize(0)) => Self(_bytes : .None),
           true => {
-            start_idx := usize(0);
+            mut(start_idx) := usize(0);
             while(start_idx < total_bytes, start_idx = (start_idx + usize(1)), {
               byte_opt := al.get(start_idx);
               match(
@@ -1163,7 +1163,7 @@ impl(
         cond(
           (total_bytes == usize(0)) => Self(_bytes : .None),
           true => {
-            end_idx := total_bytes;
+            mut(end_idx) := total_bytes;
             while(end_idx > usize(0), end_idx = (end_idx - usize(1)), {
               byte_opt := al.get(end_idx - usize(1));
               match(
@@ -1339,7 +1339,7 @@ impl(
       lhs_len := lhs.len();
       rhs_len := rhs.len();
       min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < min_len, i = (i + usize(1)), {
         cond(
           (lhs.byte_at(i) < rhs.byte_at(i)) => {
@@ -1479,7 +1479,7 @@ impl(
       (n : usize) = haystack.len();
       (eff : usize) = if(end_position > n, n, end_position);
       bytes := haystack._byte_list();
-      pos := usize(0);
+      mut(pos) := usize(0);
       while(pos < eff, {
         d := utf8.decode_lossy(&bytes, pos);
         cond(
@@ -1495,7 +1495,7 @@ impl(
     index_in : (fn(self : Self, haystack : &String, from_index : usize) -> Option(usize))({
       bytes := haystack._byte_list();
       n := bytes.len();
-      pos := from_index;
+      mut(pos) := from_index;
       // A mid-rune `from_index` answers .None, not a bogus hit: skip to the
       // next boundary before scanning.
       while((pos < n) && !haystack.is_char_boundary(pos), pos = (pos + usize(1)), ());
@@ -1522,8 +1522,8 @@ impl(
       bytes := haystack._byte_list();
       n := bytes.len();
       lim := if(from_index > n, n, from_index);
-      pos := usize(0);
-      (last : Option(usize)) = .None;
+      mut(pos) := usize(0);
+      (mut(last) : Option(usize)) = .None;
       while(pos < n, {
         d := utf8.decode_lossy(&bytes, pos);
         cond(
@@ -1555,8 +1555,8 @@ impl(
       parts := ArrayList(String).new();
       bytes := haystack._byte_list();
       n := bytes.len();
-      seg_start := usize(0);
-      pos := usize(0);
+      mut(seg_start) := usize(0);
+      mut(pos) := usize(0);
       while(pos < n, {
         d := utf8.decode_lossy(&bytes, pos);
         cond(
@@ -1616,9 +1616,9 @@ impl(
   split_whitespace : (fn(self : &Self) -> ArrayList(String))({
     out := ArrayList(String).new();
     n := self.len();
-    (i : usize) = usize(0);
-    (start : usize) = usize(0);
-    (in_word : bool) = false;
+    (mut(i) : usize) = usize(0);
+    (mut(start) : usize) = usize(0);
+    (mut(in_word) : bool) = false;
     while(i < n, {
       is_ws := Self._is_whitespace_byte(self.byte_at(i));
       cond(
@@ -1649,9 +1649,9 @@ impl(
     cond(
       (n == usize(0)) => out,
       true => {
-        (rest : String) = self.clone();
-        (made : usize) = usize(1);
-        (go : bool) = true;
+        (mut(rest) : String) = self.clone();
+        (mut(made) : usize) = usize(1);
+        (mut(go) : bool) = true;
         while(go && (made < n), {
           match(
             rest.index_of(separator),
@@ -1673,8 +1673,8 @@ impl(
   /// Whether every byte is ASCII (< 0x80) — Rust's `is_ascii`.
   is_ascii : (fn(self : &Self) -> bool)({
     n := self.len();
-    (i : usize) = usize(0);
-    (all_ascii : bool) = true;
+    (mut(i) : usize) = usize(0);
+    (mut(all_ascii) : bool) = true;
     while((i < n) && all_ascii, {
       if(self.byte_at(i) >= u8(128), {
         all_ascii = false;
@@ -1691,8 +1691,8 @@ impl(
     cond(
       (n != other.len()) => false,
       true => {
-        (i : usize) = usize(0);
-        (same : bool) = true;
+        (mut(i) : usize) = usize(0);
+        (mut(same) : bool) = true;
         while((i < n) && same, {
           a := self.byte_at(i);
           b := other.byte_at(i);
@@ -1737,7 +1737,7 @@ impl(
   /// A ZERO-WIDTH pattern (the empty string, a regex matching empty) strips
   /// nothing and terminates rather than spinning.
   trim_start_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
-    (out : Self) = self.substring(usize(0), self.len());
+    (mut(out) : Self) = self.substring(usize(0), self.len());
     while(true, {
       before := out.len();
       match(
@@ -1761,7 +1761,7 @@ impl(
   /// `self` with every trailing occurrence of `pat` removed — Rust's
   /// `trim_end_matches`. Repeats, and terminates on a zero-width pattern.
   trim_end_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
-    (out : Self) = self.substring(usize(0), self.len());
+    (mut(out) : Self) = self.substring(usize(0), self.len());
     while(true, {
       before := out.len();
       match(
@@ -1839,7 +1839,7 @@ impl(
   /// Insert one rune at BYTE index `idx` — Rust's `insert`. Same panics as
   /// `insert_str`.
   insert : (fn(self : &mut Self, idx : usize, r : rune) -> unit)({
-    one := Self.new();
+    mut(one) := Self.new();
     one.push_rune(r);
     self.insert_str(idx, &one);
   }),
@@ -1873,7 +1873,7 @@ impl(
     // `floor_char_boundary` does exactly this, but it lives in a LATER impl
     // block and a forward method reference across impl blocks is not resolved
     // yet, so the walk is inlined here.
-    (start : usize) = (self.len() - usize(1));
+    (mut(start) : usize) = (self.len() - usize(1));
     while((start > usize(0)) && !self.is_char_boundary(start), {
       start = (start - usize(1));
     });
@@ -1953,9 +1953,9 @@ impl(
     (n : usize) = self_bytes.len();
     out := ArrayList(u8).new();
     nv_bytes := new_value._byte_list();
-    (cut : usize) = usize(0);
-    (done : usize) = usize(0);
-    pos := usize(0);
+    (mut(cut) : usize) = usize(0);
+    (mut(done) : usize) = usize(0);
+    mut(pos) := usize(0);
     while(pos <= n, {
       cond(
         // Budget spent: leave the loop so the tail copy below runs. It
@@ -2102,7 +2102,7 @@ impl(
 /// walking back over continuation bytes finds the previous rune's first byte
 /// without any table.
 _prev_rune_start :: (fn(s : &String, at : usize) -> usize)({
-  (i : usize) = (at - usize(1));
+  (mut(i) : usize) = (at - usize(1));
   while((i > usize(0)) && !s.is_char_boundary(i), {
     i = (i - usize(1));
   });
@@ -2338,7 +2338,7 @@ impl(
         cond(
           (index >= n) => n,
           true => {
-            i := index;
+            mut(i) := index;
             while(i > usize(0), {
               b := al(i);
               if(utf8.is_boundary(b), {
@@ -2365,7 +2365,7 @@ impl(
         cond(
           (index >= n) => n,
           true => {
-            i := index;
+            mut(i) := index;
             while(i < n, {
               b := al(i);
               if(utf8.is_boundary(b), {
@@ -2435,7 +2435,7 @@ StringLines :: struct(
 /// a reader that forgot to would silently compare unequal against every
 /// literal. Only one `\r` goes: `"a\r\r\n"` really does end with a `\r`.
 _line_slice :: (fn(al : &ArrayList(u8), start : usize, stop : usize) -> String)({
-  (cut : usize) = stop;
+  (mut(cut) : usize) = stop;
   cond(
     (cut > start) => match(
       al.get(cut - usize(1)),
@@ -2453,7 +2453,7 @@ _line_slice :: (fn(al : &ArrayList(u8), start : usize, stop : usize) -> String)(
     (cut <= start) => String(_bytes : .None),
     true => {
       buf := ArrayList(u8).with_capacity(cut - start);
-      (j : usize) = start;
+      (mut(j) : usize) = start;
       while(j < cut, j = (j + usize(1)), {
         match(
           al.get(j),
@@ -2481,7 +2481,7 @@ impl(
             (self._byte_index >= stop) => .None,
             true => {
               start := self._byte_index;
-              i := start;
+              mut(i) := start;
               while(i < stop, i = (i + usize(1)), {
                 byte_opt := al.get(i);
                 match(
@@ -2525,7 +2525,7 @@ impl(
         .Some(al) => cond(
           (self._end <= self._byte_index) => Option(String).None,
           true => {
-            (stop : usize) = self._end;
+            (mut(stop) : usize) = self._end;
             cond(
               match(al.get(stop - usize(1)), .Some(b) => (b == u8(10)), .None => false) => {
                 stop = (stop - usize(1));
@@ -2534,8 +2534,8 @@ impl(
             );
             // Scan back for the newline that ends the PREVIOUS line; the line
             // we are yielding starts just after it.
-            (line_start : usize) = self._byte_index;
-            (k : usize) = stop;
+            (mut(line_start) : usize) = self._byte_index;
+            (mut(k) : usize) = stop;
             while(k > self._byte_index, {
               k = (k - usize(1));
               cond(
@@ -2589,12 +2589,12 @@ impl(
         self_byte_len := self.len();
         total := (self_byte_len * n);
         buf := ArrayList(u8).with_capacity(total);
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < n, i = (i + usize(1)), {
           match(
             self._bytes,
             .Some(al) => {
-              j := usize(0);
+              mut(j) := usize(0);
               while(j < self_byte_len, j = (j + usize(1)), {
                 byte_opt := al.get(j);
                 match(
@@ -2631,8 +2631,8 @@ impl(
       (count == usize(0)) => Self(_bytes : .None),
       true => {
         sep_byte_len := self.len();
-        total_bytes := usize(0);
-        k := usize(0);
+        mut(total_bytes) := usize(0);
+        mut(k) := usize(0);
         while(k < count, k = (k + usize(1)), {
           item_opt := items.get(k);
           match(
@@ -2650,7 +2650,7 @@ impl(
           true => ()
         );
         buf := ArrayList(u8).with_capacity(total_bytes);
-        m := usize(0);
+        mut(m) := usize(0);
         while(m < count, m = (m + usize(1)), {
           item_opt := items.get(m);
           match(
@@ -2659,7 +2659,7 @@ impl(
               match(
                 item._bytes,
                 .Some(al) => {
-                  p := usize(0);
+                  mut(p) := usize(0);
                   while(p < al.len(), p = (p + usize(1)), {
                     byte_opt := al.get(p);
                     match(
@@ -2678,7 +2678,7 @@ impl(
                   match(
                     self._bytes,
                     .Some(sep_al) => {
-                      q := usize(0);
+                      mut(q) := usize(0);
                       while(q < sep_byte_len, q = (q + usize(1)), {
                         byte_opt := sep_al.get(q);
                         match(
@@ -2776,7 +2776,7 @@ _f64_grammar_ok :: (fn(bytes : &ArrayList(u8)) -> bool)({
   if(n == usize(0), {
     return(false);
   });
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   (b0 : u8) = bytes(usize(0));
   if((b0 == u8(0x2B)) || (b0 == u8(0x2D)), {
     i = usize(1);
@@ -2802,8 +2802,8 @@ _f64_grammar_ok :: (fn(bytes : &ArrayList(u8)) -> bool)({
     },
     (rest == usize(8)) => {
       // "infinity": i n f i n i t y
-      (ok : bool) = true;
-      (k : usize) = usize(0);
+      (mut(ok) : bool) = true;
+      (mut(k) : usize) = usize(0);
       while(k < usize(8), k = (k + usize(1)), {
         lc := _lc_ascii(bytes(i + k));
         (want : u8) = cond(
@@ -2822,8 +2822,8 @@ _f64_grammar_ok :: (fn(bytes : &ArrayList(u8)) -> bool)({
     true => ()
   );
   // significand: digits with at most one '.'
-  (ndig : usize) = usize(0);
-  (seen_dot : bool) = false;
+  (mut(ndig) : usize) = usize(0);
+  (mut(seen_dot) : bool) = false;
   while(i < n, {
     (b : u8) = bytes(i);
     cond(
@@ -2854,7 +2854,7 @@ _f64_grammar_ok :: (fn(bytes : &ArrayList(u8)) -> bool)({
           i = (i + usize(1));
         });
       });
-      (edig : usize) = usize(0);
+      (mut(edig) : usize) = usize(0);
       while(i < n, {
         (d : u8) = bytes(i);
         cond(
@@ -2974,8 +2974,8 @@ _radix_magnitude_res :: (
   if(start >= n, {
     return(.Err(ParseIntError.Empty));
   });
-  (mag : u64) = u64(0);
-  i := start;
+  (mut(mag) : u64) = u64(0);
+  mut(i) := start;
   while(i < n, {
     d := match(
       _radix_digit(bytes(i), radix),
@@ -3009,8 +3009,8 @@ _parse_i64_radix_res :: (
   if(n == usize(0), {
     return(.Err(ParseIntError.Empty));
   });
-  (neg : bool) = false;
-  (start : usize) = usize(0);
+  (mut(neg) : bool) = false;
+  (mut(start) : usize) = usize(0);
   (b0 : u8) = bytes(usize(0));
   if((b0 == u8(0x2B)) || (b0 == u8(0x2D)), {
     neg = (b0 == u8(0x2D));
@@ -3057,7 +3057,7 @@ _parse_u64_radix_res :: (
   if(n == usize(0), {
     return(.Err(ParseIntError.Empty));
   });
-  (start : usize) = usize(0);
+  (mut(start) : usize) = usize(0);
   (b0 : u8) = bytes(usize(0));
   if(b0 == u8(0x2B), {
     start = usize(1);
@@ -3454,8 +3454,9 @@ impl(
       String.new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &Self.Elem) -> Self)({
-      acc.push_string(item);
-      acc
+      mut(acc_m) := acc;
+      acc_m.push_string(item);
+      acc_m
     })
   )
 );
