@@ -706,7 +706,8 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
   )
 );
 /// Deferred-dup handling for an atom return value.
-handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : &String, indent : &String, context : &FunctionGenerationContext) -> String)(
+handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : &String, indent : &String, context : &FunctionGenerationContext) -> String)({
+  (owned_atom_code : String) = atom_code.clone();
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -718,13 +719,14 @@ handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : &String, indent : &
         // retains the elements in place and its temp is the last ELEMENT, so
         // the source value is returned then — `emit_deferred_dup_or_code`'s
         // rule (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
-        match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => if(type_key(&dei.ty) == type_key(&ei.ty), get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env)), atom_code), .None => atom_code), .None => atom_code), atom_code), .None => atom_code)
-      }, atom_code),
-      .None => atom_code
+        match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => if(type_key(&dei.ty) == type_key(&ei.ty), get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env)), owned_atom_code), .None => owned_atom_code), .None => owned_atom_code), owned_atom_code), .None => owned_atom_code)
+      }, owned_atom_code),
+      .None => owned_atom_code
     ),
-    .None => atom_code
+    .None => owned_atom_code
   )
-);
+});
+
 /// Deferred-dup handling for a function-call return value.
 handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(_call_generate_expr(expr, indent.clone(), context)));
@@ -812,7 +814,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
 /// Generate a `return` statement.
 generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
   match(
     args.get(usize(0)),
@@ -1225,7 +1227,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         match(
           context.base.get_expr_info(&arg),
           .Some(aei) => {
-            name := ast_expr_token(&arg).value;
+            name := ast_expr_token(&arg).value.clone();
             vars := scope_variables(ast_expr_id(&arg), &aei.env, name.clone());
             if(
               vars.len() == usize(0),
@@ -1449,7 +1451,7 @@ _current_result_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
 _current_c_result_type :: (fn(rt : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     context.override_return_type_str,
-    .Some(s) => s,
+    .Some(s) => s.clone(),
     .None => {
       base := get_type_string(rt, &context.base);
       if(_current_result_is_ref(context), {
@@ -1606,7 +1608,7 @@ generate_call_deferred_drops :: (fn(expr : &AstExpr, indent : &String, context :
 /// Record whose unwind is in flight: the handler being generated. The frame
 /// that installed it (`unwind_catches_of_body`) is the one that catches it.
 _emit_unwind_target :: (fn(indent : &String, context : &FunctionGenerationContext) -> unit)({
-  origin := match(context.current_unwind_origin, .Some(o) => o, .None => String.from("0"));
+  origin := match(context.current_unwind_origin, .Some(o) => o.clone(), .None => String.from("0"));
   em := context.base.emitter;
   em.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
 });

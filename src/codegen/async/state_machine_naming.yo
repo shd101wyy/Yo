@@ -103,7 +103,7 @@ export(
 /// (a capture) is not a slot, and the local then has storage of its own.
 sm_storage_id :: (fn(v : &Variable, smv : &HashMap(String, CapturedVariable), remap : &Option(HashMap(String, String))) -> String)({
   canon := (fn(id : &String, remap : &Option(HashMap(String, String))) -> String)(
-    match(remap, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id)
+    match(remap, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m.clone(), .None => id.clone()), .None => id.clone())
   );
   own := canon(v.id.to_string(), remap);
   match(
