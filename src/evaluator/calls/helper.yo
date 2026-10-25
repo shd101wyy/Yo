@@ -153,7 +153,8 @@ pragma(Pragma.AllowUnsafe);
   force_pending_impls_for_type_name,
   note_borrowing_argument,
   type_head_name_for_impl_forcing,
-  call_function_value_marker
+  call_function_value_marker,
+  sync_counted_handle_std_generic
 } :: import("../context.yo");
 {
   PathCollection,
@@ -3669,9 +3670,11 @@ create_specialized_function_inline :: (
               specialized_return_type : spec_ret_ty.clone(),
               original_func_value : original_func_val,
               impl_bindings_sig : push_bindings_sig,
-              is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys)
+              is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys),
+              in_std : is_std_module_path(&ast_expr_token(&body).module_path.*, ctx.std_path.clone())
             )
           );
+          sync_counted_handle_std_generic(ctx);
           // Build a function-body evaluation context so explicit `return(...)`
           // statements inside the specialized body are legal — begin.yo gates
           // `return` on `is_evaluating_function_body_or_async_block` and throws
@@ -4498,6 +4501,7 @@ create_specialized_function_inline :: (
           ctx.captured_variables = prev_caps;
           ctx.is_evaluating_function_body_or_async_block = prev_fb;
           ctx.currently_specializing_function = prev_spec;
+          sync_counted_handle_std_generic(ctx);
           // Pop this specialization off the full stack (pushed at the set site above).
           spec_stack_r := match(
             ctx.currently_specializing_function_stack,
@@ -5482,6 +5486,7 @@ create_specialization_at_call :: (
     trapped,
     .Some(err) => {
       ctx.currently_specializing_function = prev_spec;
+      sync_counted_handle_std_generic(ctx);
       // Taken out and stored back: a `match` binding is a copy of the stack
       // once collections are values.
       match(

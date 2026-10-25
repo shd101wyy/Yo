@@ -3247,7 +3247,7 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// token is the `.`), where the rewrite finds it in the source, and the
 /// declaration keys of its source and destination variables (`_ic_decl_key`,
 /// empty when there is none).
-ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool, src_dying : String, capture_label : String, (capture_names : String) ?= String.new());
+ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool, src_dying : String, capture_label : String, capture_names : String);
 /// How `yo fix --migrate rc-clone` spells the copy of a value of `ty`
 /// (`ExplicitCopySite.spelling`): `Rc`/`Arc` for a handle, `clone` for a
 /// `Clone` value holding one, `derive` for one that is not `Clone`.
@@ -3836,7 +3836,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env, ctx), in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&ei.ty)), src_dying : _ic_dying_temp_source(rhs, ctx), capture_label : match(copy_capture_label, .Some(cl) => cl, .None => String.new())))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env, ctx), in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&ei.ty)), src_dying : _ic_dying_temp_source(rhs, ctx), capture_label : match(copy_capture_label, .Some(cl) => cl, .None => String.new()), capture_names : String.new()))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);

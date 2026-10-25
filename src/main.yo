@@ -3629,33 +3629,32 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
       );
       // The entries: every runtime capture, sorted, the copied ones cloned.
       (derive_needed : bool) = false;
-      entries := String.new();
+      (entries : String) = String.new();
       names := st.capture_names.split(",");
+      parts := copied.split("|");
       (ni : usize) = usize(0);
       while(ni < names.len(), ni = (ni + usize(1)), {
         n := names(ni);
         if(n.is_empty(), {
           continue;
         });
-        if(!entries.is_empty(), {
-          entries.push_str(", ");
-        });
         (spelling : String) = String.new();
-        parts := copied.split("|");
         (pi : usize) = usize(0);
         while(pi < parts.len(), pi = (pi + usize(1)), {
           if(parts(pi).starts_with(`${n}=`), {
             spelling = parts(pi).substring(n.len() + usize(1), parts(pi).len());
           });
         });
-        cond(
-          spelling.is_empty() => entries.push_string(&n),
+        entry := cond(
+          spelling.is_empty() => n.clone(),
           (spelling == "derive") => {
             derive_needed = true;
+            n.clone()
           },
-          (spelling == "clone") => entries.push_str(`${n} : ${n}.clone()`),
-          true => entries.push_str(`${n} : ${spelling}.clone(${n})`)
+          (spelling == "clone") => `${n} : ${n}.clone()`,
+          true => `${n} : ${spelling}.clone(${n})`
         );
+        entries = if(entries.is_empty(), entry, `${entries}, ${entry}`);
       });
       cond(
         (!is_arrow || p_start.is_none() || has_list) => {

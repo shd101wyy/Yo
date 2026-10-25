@@ -39,7 +39,8 @@ pragma(Pragma.AllowUnsafe);
   ArgValues,
   VarArgEntry,
   set_promote_index_places_fn,
-  set_is_index_place_fn
+  set_is_index_place_fn,
+  sync_counted_handle_std_generic
 } :: import("../context.yo");
 {
   ExprInfo,
@@ -1161,6 +1162,7 @@ _specialize_index_method :: (
   ctx.self_type = saved_self;
   ctx.enclosing_function_return_type = saved_enclosing;
   ctx.currently_specializing_function = saved_spec;
+  sync_counted_handle_std_generic(ctx);
   match(
     ctx.currently_specializing_function_stack,
     .Some(st) => {
