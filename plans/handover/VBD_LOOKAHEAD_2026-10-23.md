@@ -214,6 +214,7 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
 
   - **Written-after and raw-pointer sites fell from 746 to 123 (−623).** That is more than double the 250–300 estimated. Before the review fix the drop was 664: 276 stayed listed under the hot-path reason (in `src/evaluator`, `lexer.yo`, `env.yo`) and 388 outside the hot paths became insertions, now 385. The 388 were spread over `main.yo` 54, `codegen/` 53, `types/` 51, `expr_info.yo` 39, `build_runner.yo` 31, `doc/` 21 and others. The raw-pointer reason the table above attributed to `main.yo`'s argv (17) and `diagnostics_registry` was the collision too. Those `argv`s are `&ArrayList(String)` parameters. Only `verifier/z3.yo:170` remains: `b := contents`, whose copy has `b.ptr()` taken.
   - **std** (`yo fix ./std --migrate explicit-copy --dry-run`): base 0 inserted and 33 listed, B4-0a 8 inserted and 25 listed.
+  - **On the final base,** develop `cff2cfa60`'s tree, the same src run gives 387 inserted and 1,585 listed (10:25 wall, 1.55 GB max RSS), and std gives 8 inserted and 24 listed. Develop moved between the two bases (P3, B7a, the LinkedList removal), so these numbers are not comparable with the table above.
   - The B4 directory PRs re-run the dry run restricted to their directory on their own base, as planned. Their insertions now include these 385.
 
 #### B4-0b: D1 for the B5 capture copies
