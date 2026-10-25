@@ -4234,6 +4234,23 @@ create_specialized_function_inline :: (
                 }),
                 .None => ()
               );
+              // A closure parameter typed `FnOnce(...)` re-binds OWNING: its
+              // single call inside the specialized body consumes it
+              // (decision 37), and `consume_called_fnonce_closure` needs an
+              // owner — a generic `sink(f) : Impl(FnOnce(...))` (an impl
+              // method's `RefCell.with_mut`) had only the non-owning shadow
+              // and the one call was a false E0901 "it is a borrowed
+              // parameter"
+              // (issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md).
+              // The call consumes the binding, so the parameters-frame
+              // scope-end pass skips its release; one the body never calls
+              // releases exactly as a concrete (non-generic) sink parameter
+              // already does at definition time.
+              fnonce_closure_param := match(
+                extract_fn_trait_from_type(&bind_pt_cl),
+                .Some(Rc(.FnTraitT(base_name : rcb))) => (rcb == "FnOnce"),
+                _ => false
+              );
               _rbc := bind_parameter(
                 callee_env,
                 &p_label,
@@ -4241,7 +4258,7 @@ create_specialized_function_inline :: (
                 Option(EvalValue).Some(create_unknown_val(&bind_pt_cl)),
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
-                false,
+                fnonce_closure_param,
                 synthetic_token(&p_label, &callee_env.module_path.*)
               );
             }, if(cur_is_folded_const, {

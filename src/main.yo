@@ -3122,7 +3122,12 @@ _clone_impl_body_at :: (fn(bodies : &ArrayList(CloneImplBody), st : &ExplicitCop
 /// usually a move, so nothing is inserted; it is checked first. A `match`
 /// binding of a temporary (`m.get(k)`'s result) is judged with liveness
 /// instead, at the end of its arm: a copy read again is cloned, the last use
-/// is a move and is neither rewritten nor listed. A copy in a file under
+/// is a move and is neither rewritten nor listed. So is a copy of a capture
+/// inside an `FnOnce(...)` closure body (an explicit capture list: the body
+/// OWNS its by-value captures, decision 37), judged at the body's end the
+/// same way — `RefCell.with_mut`'s `sink(body) : Impl(FnOnce(...))` makes
+/// `{ k, v }(m) => m.insert(k, v)` a move of `k` and `v`, not a copy. A copy
+/// in a file under
 /// one of `hot_paths` (`--hot-path`, repeatable; B1 passes `src/evaluator`)
 /// is listed for a hand edit instead of rewritten: there a per-operation deep
 /// copy compounds (the parked B1 sweep measured ~80x on the evaluator), and
