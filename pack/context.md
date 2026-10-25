@@ -282,7 +282,7 @@ read :: (fn(p : Path, io : Io) -> String)({
   `cond`/`match` arm — and suspends at that point in source order. An
   `io.await` inside a function the task calls BLOCKS instead of suspending.
   Async iteration over a `Stream` is the written-out loop: `mut(s) := stream;`
-  then `while(runtime(true), …)` around `io.await(s.next(io), io)` and a
+  then `while(true, …)` around `io.await(s.next(io), io)` and a
   `match` whose `.None` arm breaks.
 - Effects: a handler's `return(expr)` RESUMES the awaited continuation;
   `unwind(expr)` DISCARDS it and exits the enclosing fn. An unwound async

@@ -554,7 +554,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     buf_size := usize(4096);
     buf := (*u8)(malloc(buf_size).unwrap());
     out := ArrayList(u8).new();
-    while(runtime(true), {
+    while(true, {
       n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)), e.io);
       cond(
         (n < i32(0)) => {

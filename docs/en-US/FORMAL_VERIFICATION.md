@@ -712,7 +712,7 @@ runtime assert).
 | `while` with `invariant(...)` (the havoc rule) | ✅ verified (V4) |
 | `decreases(M)` — loop statement variant + recursion measure | ✅ verified (V4) |
 | assignments inside `cond` arms (the phi merge); `continue` as the loop body's final statement | ✅ verified (V4.1) |
-| `break` (exit-path disjunction); `continue` at any statement (proved at the site); `while(runtime(true), ...)` | ✅ verified (V4.2) |
+| `break` (exit-path disjunction); `continue` at any statement (proved at the site); `while(true, ...)` | ✅ verified (V4.2) |
 | an early `return(...)` (the returning path is not modeled; `issues/fixed/2026-10-23-the-verifier-walk-ignores-an-early-return.md`) | outside the subset |
 | `for` over an `ArrayList` variable, with `produced(xs)` in a leading `invariant(...)` (§Verified `for` loops); `for` over other collections | ✅ verified (R2); others later phases |
 | `forall`/`exists`/`==>` in contracts (ghost-only; SMT quantifiers, MBQI instantiation) | ✅ verified (V5) |
@@ -757,9 +757,11 @@ A `break` adds its own exit disjunct: a fresh boolean selects the state
 snapshot taken at the break site (its full path condition included),
 and everything after the loop is proved under the disjunction. A
 `continue` anywhere in the body proves the invariant (and the measure
-step) at the statement itself. `runtime(e)` is the identity marker —
-`while(runtime(true), { invariant(...); ...; if(done, { break; }) })`
-is the verifiable form of "loop until done".
+step) at the statement itself. A `while` condition is always a
+runtime expression, so
+`while(true, { invariant(...); ...; if(done, { break; }) })`
+is the verifiable form of "loop until done"; `runtime(e)` is the
+identity marker (a condition spelled `runtime(c)` walks like `c`).
 `forall((k : T), P)`/`exists((k : T), P)` lower to SMT
 quantifiers over the annotated binders (z3's model-based instantiation
 discharges them in these small goals; explicit `:pattern` triggers are

@@ -1496,7 +1496,7 @@ scope_release_report :: (fn() -> unit)(
     (n_logged_unreleased : usize) = g_scope_logged_unreleased;
     eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.with(m => m.len()).to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.with(m => m.len()).to_string()} inner=${g_scope_inner.with(m => m.len()).to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.with(m => m.len()).to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
     kit := g_scope_mm_kinds.with(m => m.into_iter());
-    while(runtime(true), {
+    while(true, {
       match(kit.next(), .Some(kv) => eprintln(`[scope-release-kind] ${kv.value.to_string()} ${kv.key}`), .None => break);
     });
     (i : usize) = usize(0);

@@ -9,7 +9,7 @@
 //    try to drop `var` (declared from the match's result and not
 //    yet initialized at that point).
 //
-// 2. while runtime(true), match(opt,
+// 2. while true, match(opt,
 //      .Some(v) => { if(_, { break; }); X := ... ; ... }
 //    )
 //    The `break` inside the .Some arm must NOT try to drop `X`
@@ -36,11 +36,11 @@ parse_one :: (fn(present : bool, exn : Exception) -> ParseResult)({
   );
   ParseResult(label : tok.name.clone(), index : usize(0))
 });
-// Pattern 2 — break inside a match arm in `while runtime(true)`,
+// Pattern 2 — break inside a match arm in `while(true, …)`,
 // with an RC-typed binding declared after the break.
 collect_one :: (fn(present : bool, exn : Exception) -> ParseResult)({
   (mut(final_label) : String) = `default`;
-  while(runtime(true), {
+  while(true, {
     match(
       get_opt_token(present),
       .None => {

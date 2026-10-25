@@ -498,6 +498,7 @@ for(list.into_iter().map(x => (x + i32(1))), y => println(&y));
 
 - A `::` function recurses by calling its own name (mutual recursion works too); `recur(...)` names the enclosing function literal, for anonymous functions
 - `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
+- **A `while` condition is always a runtime expression: write `while(true, …)` for an infinite loop; `runtime(...)` is never needed there.**
 - `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
 - **A compile-time function body declares its locals with compile-time forms** (E1104, 2026-10-01): in the body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) write `x :: v`, `(comptime(x) : T) = v`, `comptime(x) := v` or `comptime(x) : T`, never `x := v`, `(x : T) = v`, `x : T` or `y := &mut x`. Compile-time locals are still mutable (`x = (x + 1)` in a `while(comptime(...), ...)` loop). A runtime fn literal nested in such a body (a method of the struct a `-> comptime(Type)` fn returns, a closure) and a runtime fn evaluated at compile time (`comptime_fn(f)`) keep their runtime locals. `yo fix` applies the rewrite.

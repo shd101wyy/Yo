@@ -152,6 +152,9 @@ still broken there, so `flat_map` should be LAST).
 > same reason. Same reasoning as `plans/backlog/MACRO_AND_ISO_REMOVAL.md` B3's
 > deletion of the collection literals.
 
+The quoted loop predates the maintainer's directive of the same day that a
+`while` condition is always runtime: today the loop head is `while(true, {`.
+
 `for(iter, body)` desugars to `next()` + `match` in a loop. The async form
 needs the loop body to `io.await` each `next()`, which means it must expand
 inside an `io.async` body. Two options:
