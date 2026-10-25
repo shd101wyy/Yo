@@ -340,7 +340,8 @@ a capture list naming every value it captures, the handle as
 `h : Rc.clone(h)` (a capture list is exhaustive). `Rc.clone` is the count bump
 the implicit copy made, so none of the sharing guards above apply. Left as
 written and listed: a value holding a handle whose type is not `Clone` (give
-it `derive(T, Clone)`), its copy in a generic body, a position copied at two
+it `derive(T, Clone)`), a copy in a generic body (where the copied value may
+be a type parameter), a position copied at two
 spellings, a site whose source text does not print as the evaluated
 expression, a closure whose parameter list is not found, and a `test(...)`
 body that does not evaluate. A copy inside a generic body where the handle is

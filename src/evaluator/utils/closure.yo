@@ -91,7 +91,7 @@
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, migrate_rc_clone_on, ICMigrateCtx, _ic_decl_key } :: import("../utils.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, migrate_rc_clone_on, ICMigrateCtx, _ic_decl_key, _ic_in_generic } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1461,7 +1461,7 @@ generate_captured_variable_dup_expressions :: (
                           src_decl : match(get_variables_from_env(env, var_name.clone()).last(), .Some(cv) => _ic_decl_key(&cv.token), .None => String.new()),
                           dst_decl : String.new(),
                           src_borrow : String.new(),
-                          in_generic : false,
+                          in_generic : _ic_in_generic(ctx, &ci.ty),
                           src_dying : String.new(),
                           capture_label : String.new(),
                           capture_names : rc_capture_names.clone()

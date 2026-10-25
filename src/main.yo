@@ -3377,8 +3377,10 @@ _run_migrate_explicit_copy :: (
 /// `Rc.clone` is a count bump, exactly the implicit copy it replaces, so none
 /// of `--migrate explicit-copy`'s sharing guards apply. Listed and left as
 /// written: a value holding a handle whose type is not `Clone` (give it
-/// `derive(T, Clone)`), a `.clone()` of such a value in a generic body (it
-/// would demand `Clone` of every instantiation), a position copied at two
+/// `derive(T, Clone)`), a copy in a generic body (a function with
+/// `generic`/`comptime` parameters, a generic impl's method, or a closure
+/// specialized in one: the copied value may be a type parameter there, and
+/// one spelling serves one instantiation), a position copied at two
 /// spellings, a site whose source text no longer prints as the evaluated
 /// expression (a macro's), a closure whose parameter list cannot be found,
 /// and a `test(...)` body that does not evaluate.
@@ -3503,9 +3505,9 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
         println(`fix: ${at}: \`${st.expect}\` holds a counted handle and its type \`${st.ty}\` is not \`Clone\`; give the type \`derive(..., Clone)\` and spell \`.clone()\` by hand`);
         continue;
       });
-      if((st.spelling == "clone") && st.in_generic, {
+      if(st.in_generic, {
         n_skipped = (n_skipped + usize(1));
-        println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where \`.clone()\` would demand \`Clone\` of every instantiation; left as written`);
+        println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where the copied value may be a type parameter (\`${st.spelling}.clone(...)\` or \`.clone()\` serves one instantiation, not every one); left as written`);
         continue;
       });
       start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(ls + st.col), .None => Option(usize).None);

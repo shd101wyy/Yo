@@ -1110,6 +1110,7 @@ set_counted_handle_rule :: (fn(on : bool) -> unit)({
 set_counted_handle_std_generic :: (fn(on : bool) -> unit)({
   g_counted_handle_std_generic = on;
 });
+counted_handle_std_generic_on :: (fn() -> bool)(g_counted_handle_std_generic);
 type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || type_holds_counted_handle(ty)));
 /// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc`/`Arc` needs
 /// `.clone()`, as in Rust. A new handle is a new owner, so sharing is visible
@@ -3756,7 +3757,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, set_counted_handle_std_generic, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, set_counted_handle_std_generic, counted_handle_std_generic_on, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, buffer_element_types, value_acyclic_obligations, value_type_owns_buffer, value_type_owns_buffer_outright, _type_refs_back_to_cyclic);
 export(type_requires_inference);

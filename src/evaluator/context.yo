@@ -205,7 +205,12 @@ SpecializingFunctionInfo :: ref(
     (is_concrete : bool) ?= false,
     /// The specialized function is defined in std: decision 17 does not judge
     /// its body's handle copies (`set_counted_handle_std_generic`).
-    (in_std : bool) ?= false
+    (in_std : bool) ?= false,
+    /// The body is generic: the function has `generic`/`comptime` parameters,
+    /// is a generic impl's method, or is a closure specialized inside such a
+    /// body. `yo fix --migrate rc-clone` lists a copy made there, which one
+    /// run sees at one instantiation of many.
+    (is_generic_body : bool) ?= false
   )
 );
 /// Point decision 17's std-generic exemption at the specialization `ctx` is
