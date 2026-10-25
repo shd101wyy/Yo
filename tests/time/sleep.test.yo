@@ -149,7 +149,7 @@ test("interval bursts to catch up after an overrun", {
   before_overrun := t.next_tick();
   io.await(sleep(Duration.from_millis(i64(100)), io), io);
   (mut(n) : i64) = i64(0);
-  while(runtime(n < i64(3)), {
+  while(n < i64(3), {
     io.await(t.tick(io), io);
     n = (n + i64(1));
   });
@@ -172,7 +172,7 @@ test("sub-tick sleeps honor their deadline on Windows (1 ms wait resolution)", {
   // this test measures the Windows fix, not sleep's general contract.
   (mut(total_ms) : i64) = i64(0);
   (mut(i) : i64) = i64(0);
-  while(runtime(i < i64(30)), {
+  while(i < i64(30), {
     t := Instant.now();
     io.await(sleep(Duration.from_millis(i64(4)), io), io);
     total_ms = (total_ms + t.elapsed().as_millis());

@@ -226,7 +226,7 @@ impl(
   // Acquire a read lock. Blocks while a writer holds the lock.
   _raw_read_lock : (fn(self : &Self) -> unit)({
     self._mutex._raw_lock();
-    while(runtime(self._writer), {
+    while(self._writer, {
       self._read_cv.wait_with(&self._mutex);
     });
     self._readers = (self._readers + i32(1));
@@ -275,7 +275,7 @@ impl(
   // Acquire a write lock. Blocks while readers or a writer hold the lock.
   _raw_write_lock : (fn(self : &Self) -> unit)({
     self._mutex._raw_lock();
-    while(runtime(self._writer || (self._readers > i32(0))), {
+    while(self._writer || (self._readers > i32(0)), {
       self._write_cv.wait_with(&self._mutex);
     });
     self._writer = true;

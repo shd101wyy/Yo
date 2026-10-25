@@ -325,7 +325,7 @@ impl(
   /// by their exchange and are closed or pooled when it finishes.
   close_idle : (fn(self : &Self) -> unit)({
     i := usize(0);
-    while(runtime(i < self._idle.len()), {
+    while(i < self._idle.len(), {
       entry := self._idle(i);
       entry.transport.close_sync();
       i = (i + usize(1));
@@ -341,7 +341,7 @@ impl(
     limit_ms := limit.as_millis();
     (found : Option(_Idle)) = Option(_Idle).None;
     i := usize(0);
-    while(runtime(i < self._idle.len()), {
+    while(i < self._idle.len(), {
       entry := self._idle(i);
       since := entry.since;
       age := since.elapsed();
@@ -395,7 +395,7 @@ _value_has_token :: (fn(value : &String, token : &String) -> bool)({
   parts := value.split(",");
   i := usize(0);
   (found : bool) = false;
-  while(runtime(i < parts.len()), {
+  while(i < parts.len(), {
     trimmed := parts(i).trim();
     cond(
       (trimmed.to_lowercase() == token) => {
@@ -413,7 +413,7 @@ _response_has_conn_token :: (fn(resp : &HttpResponse, token : &String) -> bool)(
   values := resp.headers.get_all(`Connection`);
   i := usize(0);
   (found : bool) = false;
-  while(runtime(i < values.len()), {
+  while(i < values.len(), {
     cond(
       _value_has_token(&values(i), token) => {
         found = true;
@@ -564,7 +564,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   user_headers := opts.headers.entries();
   hi := usize(0);
   (user_close : bool) = false;
-  while(runtime(hi < user_headers.len()), {
+  while(hi < user_headers.len(), {
     h := user_headers(hi);
     req.headers.append(&h.name, &h.value);
     cond(
@@ -667,7 +667,7 @@ _fetch_once :: (
     // not support.
     (attempt : usize) = usize(0);
     (again : bool) = true;
-    while(runtime(again), {
+    while(again, {
       again = false;
       // The pool is consulted on the first attempt only: a retry exists
       // BECAUSE the pooled connection was dead.
@@ -856,7 +856,7 @@ _fetch_follow :: (
     // A `done` flag rather than break/continue: the awaiting loop is a
     // state machine (C24).
     done := false;
-    while(runtime(!done), {
+    while(!done, {
       resp := e.io.await(_fetch_once(current.clone(), &hop_opts, pool, e.io), e);
       location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
       // `max_redirects == 0` means "do not follow": the first 3xx comes back

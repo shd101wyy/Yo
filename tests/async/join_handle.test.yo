@@ -98,7 +98,7 @@ test("Test abort after completion is a no-op", {
   // body exited before the ready queue drained (macos-26-intel lost the same
   // race stochastically on slow VMs).
   (mut(spins) : usize) = usize(0);
-  while(runtime(!h.is_finished() && (spins < usize(2000))), {
+  while(!h.is_finished() && (spins < usize(2000)), {
     io.await(sleep(u64(1)), io);
     spins = (spins + usize(1));
   });

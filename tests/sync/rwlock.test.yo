@@ -55,7 +55,7 @@ test("RwLock with_read propagates the return value", {
 test("RwLock repeated read acquisitions release each time", {
   lock := RwLock(i32).new(i32(1));
   mut(i) := i32(0);
-  while(runtime(i < i32(5)), {
+  while(i < i32(5), {
     assert(lock.with_read(v => v) == i32(1), "every read acquisition succeeds");
     i = (i + i32(1));
   });
@@ -63,7 +63,7 @@ test("RwLock repeated read acquisitions release each time", {
 test("RwLock alternating read and write acquisitions", {
   lock := RwLock(i32).new(i32(0));
   mut(i) := i32(0);
-  while(runtime(i < i32(5)), {
+  while(i < i32(5), {
     seen := lock.with_read(v => v);
     assert(seen == i, "the reader sees the previous writer's value");
     lock.with_write(v => {
@@ -117,7 +117,7 @@ test("RwLock with_read admits several readers at the same time", {
       lock.with_read(v => {
         entered.fetch_add(i32(1), MemoryOrder.AcqRel);
         mut(spins) := i32(0);
-        while(runtime((entered.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(2000))), {
+        while((entered.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(2000)), {
           sleep_blocking(Duration.from_millis(i64(1)));
           spins = (spins + i32(1));
         });
@@ -157,7 +157,7 @@ test("RwLock two writer threads increment the protected counter", {
   (bump : Impl(Fn() -> unit)) = (
     () => {
       mut(i) := i32(0);
-      while(runtime(i < i32(100)), {
+      while(i < i32(100), {
         lock.with_write(v => {
           v = (v + i32(1));
           v
@@ -199,7 +199,7 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
   (writer : Impl(Fn() -> unit)) = (
     () => {
       mut(i) := i32(0);
-      while(runtime(i < ITERATIONS), {
+      while(i < ITERATIONS, {
         lock.with_write(v => {
           other_writers := active_writers.fetch_add(i32(1), MemoryOrder.AcqRel);
           readers_inside := active_readers.load(MemoryOrder.Acquire);
@@ -222,7 +222,7 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
   (reader : Impl(Fn() -> unit)) = (
     () => {
       mut(i) := i32(0);
-      while(runtime(i < ITERATIONS), {
+      while(i < ITERATIONS, {
         seen := lock.with_read(v => {
           active_readers.fetch_add(i32(1), MemoryOrder.AcqRel);
           writers_inside := active_writers.load(MemoryOrder.Acquire);
@@ -280,7 +280,7 @@ test("RwLock readers blocked behind a held writer are woken on release", {
       v = i32(99);
       writer_inside.store(i32(1), MemoryOrder.Release);
       mut(spins) := i32(0);
-      while(runtime((arrived.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(5000))), {
+      while((arrived.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(5000)), {
         sleep_blocking(Duration.from_millis(i64(1)));
         spins = (spins + i32(1));
       });
@@ -290,7 +290,7 @@ test("RwLock readers blocked behind a held writer are woken on release", {
     });
   });
   // Wait until the writer really holds the lock before releasing the readers.
-  while(runtime(writer_inside.load(MemoryOrder.Acquire) == i32(0)), {
+  while(writer_inside.load(MemoryOrder.Acquire) == i32(0), {
     sleep_blocking(Duration.from_millis(i64(1)));
   });
   (reader : Impl(Fn() -> unit)) = (
@@ -472,7 +472,7 @@ test("a failed try_with_read leaves the reader count untouched", {
   writing.recv();
   // Fail a few times while the writer holds it.
   (mut(i) : i64) = i64(0);
-  while(runtime(i < i64(5)), {
+  while(i < i64(5), {
     assert(lock.try_with_read(v => v).is_none(), "each attempt fails");
     i = (i + i64(1));
   });

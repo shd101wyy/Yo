@@ -74,7 +74,7 @@ _run_pingpong :: (fn(io : Io) -> unit)({
     io.await(s.set_nodelay(true, io), e);
     rbuf := (*u8)(malloc(usize(64)).unwrap());
     (running : bool) = true;
-    while(runtime(running), {
+    while(running, {
       n := io.await(s.read(rbuf, usize(64), io), e);
       cond(
         (n == usize(0)) => {
@@ -103,7 +103,7 @@ _run_pingpong :: (fn(io : Io) -> unit)({
     io.await(c.write(rbuf, usize(1), io), e);
     t0 := Instant.now();
     (rtt : i64) = i64(0);
-    while(runtime(rtt < count), {
+    while(rtt < count, {
       n := io.await(c.read(rbuf, usize(64), io), e);
       cond(
         (n == usize(0)) => {
@@ -151,11 +151,11 @@ _run_timers :: (fn(io : Io) -> unit)({
   t0 := Instant.now();
   done := Channel(unit).new(usize(ktimers));
   (fi : i64) = i64(0);
-  while(runtime(fi < ktimers), {
+  while(fi < ktimers, {
     (left_i : i64) = per;
     task := io.async((io : Io) => {
       (left : i64) = left_i;
-      while(runtime(left > i64(0)), {
+      while(left > i64(0), {
         io.await(sleep(u64(1)), io);
         left = (left - i64(1));
       });
@@ -173,7 +173,7 @@ _run_timers :: (fn(io : Io) -> unit)({
   );
   e := IoExn(io : io, exn : exn);
   (ri : i64) = i64(0);
-  while(runtime(ri < ktimers), {
+  while(ri < ktimers, {
     io.await(done.recv(io), e);
     ri = (ri + i64(1));
   });
@@ -209,7 +209,7 @@ _run_multi :: (fn(io : Io) -> unit)({
   );
   listeners := ArrayList(TcpListener).new();
   (li : i64) = i64(0);
-  while(runtime(li < npair), {
+  while(li < npair, {
     l := io.await(
       TcpListener.bind(SocketAddr.loopback(u16(0)), io),
       IoExn(io : io, exn : bind_exn)
@@ -224,7 +224,7 @@ _run_multi :: (fn(io : Io) -> unit)({
   // never awaited") — noise the first version of this bench printed.
   servers := ArrayList(JoinHandle(unit)).new();
   (pi : i64) = i64(0);
-  while(runtime(pi < npair), {
+  while(pi < npair, {
     lst := match(
       listeners.get(usize(pi)),
       .Some(l) => l,
@@ -246,7 +246,7 @@ _run_multi :: (fn(io : Io) -> unit)({
       io.await(s.set_nodelay(true, io), e);
       rbuf := (*u8)(malloc(usize(64)).unwrap());
       (running : bool) = true;
-      while(runtime(running), {
+      while(running, {
         n := io.await(s.read(rbuf, usize(64), io), e);
         cond(
           (n == usize(0)) => {
@@ -274,7 +274,7 @@ _run_multi :: (fn(io : Io) -> unit)({
       rbuf := (*u8)(malloc(usize(64)).unwrap());
       io.await(c.write(rbuf, usize(1), io), e);
       (rtt : i64) = i64(0);
-      while(runtime(rtt < per), {
+      while(rtt < per, {
         n := io.await(c.read(rbuf, usize(64), io), e);
         cond(
           (n == usize(0)) => {
@@ -304,7 +304,7 @@ _run_multi :: (fn(io : Io) -> unit)({
   );
   e2 := IoExn(io : io, exn : exn2);
   (ri : i64) = i64(0);
-  while(runtime(ri < npair), {
+  while(ri < npair, {
     io.await(done.recv(io), e2);
     ri = (ri + i64(1));
   });
@@ -320,7 +320,7 @@ _run_multi :: (fn(io : Io) -> unit)({
     )
   );
   (ci : i64) = i64(0);
-  while(runtime(ci < npair), {
+  while(ci < npair, {
     l := match(
       listeners.get(usize(ci)),
       .Some(x) => x,

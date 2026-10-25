@@ -66,7 +66,7 @@ test("walk lists all entries recursively", {
   // Should have: sub, deep (dirs) + a.txt, b.txt, c.txt, d.txt (files) = 6
   // Default include_dirs = true
   mut(i) := usize(0);
-  while(runtime(i < entries.len()), {
+  while(i < entries.len(), {
     e := entries(i);
     unsafe(printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap()));
     i = (i + usize(1));
@@ -99,7 +99,7 @@ test("walk_with max_depth limits traversal", {
   unsafe(printf("  entries at depth 0 = %lld\n", i64(entries.len())));
   // At depth 0: a.txt, b.txt, sub (dir) = 3
   mut(i) := usize(0);
-  while(runtime(i < entries.len()), {
+  while(i < entries.len(), {
     e := entries(i);
     unsafe(printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap()));
     i = (i + usize(1));
@@ -132,7 +132,7 @@ test("walk_with include_dirs false excludes directories", {
   unsafe(printf("  file-only entries = %lld\n", i64(entries.len())));
   // Only files: a.txt, b.txt, c.txt, d.txt = 4
   mut(i) := usize(0);
-  while(runtime(i < entries.len()), {
+  while(i < entries.len(), {
     e := entries(i);
     unsafe(printf("  %s\n", e.name.to_cstr().ptr().unwrap()));
     is_file := match(e.file_type, .File => true, _ => false);
@@ -241,7 +241,7 @@ test("walk_with follow_symlinks descends through directory symlinks", {
       entries := io.await(fs_walker.walk_with(Path.new(&root), &opts, io), IoExn(io : io, exn : exn));
       mut(found_via_link) := false;
       mut(i) := usize(0);
-      while(runtime(i < entries.len()), {
+      while(i < entries.len(), {
         p := entries(i).path.to_string();
         unsafe(printf("  entry: %s\n", p.to_cstr().ptr().unwrap()));
         cond(

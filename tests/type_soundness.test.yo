@@ -1139,7 +1139,7 @@ test("soundness: a loop may move an outer value on its only way out", {
 _P5Holder :: struct(s : String);
 _p5_clobber :: (fn(a : &mut _P5Holder, b : &_P5Holder) -> usize)({
   (mut(i) : i32) = i32(0);
-  while(runtime(i < i32(3)), {
+  while(i < i32(3), {
     a = _P5Holder(s : `fresh-value-${i}-xxxxxxxxxxxxxxxxxxxxxxxx`);
     i = (i + i32(1));
   });
@@ -1166,7 +1166,7 @@ test("soundness: a `&mut` argument overlapping a `&` one on a value root is E091
 // (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
 _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> usize)({
   (mut(i) : i32) = i32(0);
-  while(runtime(i < i32(3)), {
+  while(i < i32(3), {
     a = ArrayList(_P5Box).new();
     a.push(_P5Box(tag : i));
     i = (i + i32(1));

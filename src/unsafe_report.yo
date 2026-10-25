@@ -517,7 +517,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     root_prefix_len := walk_root.len();
     collected := ArrayList(String).new();
     (i : usize) = usize(0);
-    while(runtime(i < entries.len()), {
+    while(i < entries.len(), {
       entry := entries(i);
       keep := match(entry.file_type, .Directory => false, _ => true);
       p := entry.path.to_string();
@@ -528,7 +528,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
         segs := rel.split(`/`);
         (ok : bool) = true;
         (si : usize) = usize(0);
-        while(runtime((si + usize(1)) < segs.len()), {
+        while((si + usize(1)) < segs.len(), {
           seg := segs(si).clone();
           skip := ((seg == "node_modules") || (seg == ".git") || (seg == "dist") || (seg == "yo-out") || (seg == "build") || seg.starts_with(`.`));
           if(skip, {
@@ -780,7 +780,7 @@ format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
   (s : String) = out.to_string();
   // The report joins with \n and never ends with a newline; strip the
   // trailing ones the per-line writes above accumulate.
-  while(runtime(s.ends_with(`\n`)), {
+  while(s.ends_with(`\n`), {
     s = s.substring(usize(0), s.len() - usize(1));
   });
   s
@@ -792,7 +792,7 @@ _json_str :: (fn(text : &String) -> String)({
   bytes := text;
   n := bytes.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(34)) => out.push_str("\\\""),
@@ -823,7 +823,7 @@ unsafe_report_to_json :: (fn(report : &UnsafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("{\n  \"privilegedFiles\": [");
   (i : usize) = usize(0);
-  while(runtime(i < report.privileged_files.len()), {
+  while(i < report.privileged_files.len(), {
     if(i > usize(0), {
       out.write_str(",");
     });
@@ -835,7 +835,7 @@ unsafe_report_to_json :: (fn(report : &UnsafeReport) -> String)({
   });
   out.write_str("],\n  \"findings\": [");
   (fi : usize) = usize(0);
-  while(runtime(fi < report.findings.len()), {
+  while(fi < report.findings.len(), {
     f := report.findings(fi);
     if(fi > usize(0), {
       out.write_str(",");
@@ -878,7 +878,7 @@ unsafe_report_to_json :: (fn(report : &UnsafeReport) -> String)({
   out.write_string(`    "externSites": ${report.totals.extern_sites}\n`);
   out.write_str("  },\n  \"topExternCallees\": [");
   (ti : usize) = usize(0);
-  while(runtime(ti < report.top_extern_callees.len()), {
+  while(ti < report.top_extern_callees.len(), {
     entry := report.top_extern_callees(ti);
     if(ti > usize(0), {
       out.write_str(",");

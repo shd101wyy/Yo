@@ -228,7 +228,7 @@ impl(
     /// object across the suspension is E0909 (§3.13 A2).
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
       io.async({ w : self }(io : Io) => {
-        while(runtime((w._head >= w._queue.len()) && w._active), {
+        while((w._head >= w._queue.len()) && w._active, {
           p := Park.new();
           w._waiters.push(p.waker());
           io.await(p.wait(io), io);

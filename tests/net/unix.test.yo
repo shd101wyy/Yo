@@ -209,12 +209,12 @@ _reads_exactly :: (fn(s : &UnixStream, want : usize, io : Io) -> Impl(Future(Arr
     got := ArrayList(u8).new();
     buf := ArrayList(u8).new();
     mut(i) := usize(0);
-    while(runtime(i < want), {
+    while(i < want, {
       buf.push(u8(0));
       i = (i + usize(1));
     });
     mut(eof) := false;
-    while(runtime(!eof && (got.len() < want)), {
+    while(!eof && (got.len() < want), {
       n := e.io.await(s.read(buf.ptr().unwrap(), want - got.len(), e.io), e);
       cond(
         (n == usize(0)) => {
@@ -222,7 +222,7 @@ _reads_exactly :: (fn(s : &UnixStream, want : usize, io : Io) -> Impl(Future(Arr
         },
         true => {
           mut(j) := usize(0);
-          while(runtime(j < n), {
+          while(j < n, {
             got.push(buf(j));
             j = (j + usize(1));
           });

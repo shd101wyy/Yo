@@ -68,7 +68,7 @@ test("ThreadPool join_all waits for every submitted task", {
   pool := ThreadPool.new(usize(4));
   counter := AtomicI32(i32(0));
   mut(i) := i32(0);
-  while(runtime(i < i32(32)), {
+  while(i < i32(32), {
     spawn(&pool, io => {
       counter.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
@@ -83,9 +83,9 @@ test("ThreadPool join_all is reusable across batches", {
   pool := ThreadPool.new(usize(4));
   counter := AtomicI32(i32(0));
   mut(round) := i32(0);
-  while(runtime(round < i32(3)), {
+  while(round < i32(3), {
     mut(i) := i32(0);
-    while(runtime(i < i32(8)), {
+    while(i < i32(8), {
       spawn(&pool, io => {
         counter.fetch_add(i32(1), MemoryOrder.AcqRel);
         ()
@@ -113,7 +113,7 @@ test("ThreadPool shared with another OS thread that submits into it", {
   counter := AtomicI32(i32(0));
   // Submit from the main thread...
   mut(i) := i32(0);
-  while(runtime(i < i32(4)), {
+  while(i < i32(4), {
     spawn(&pool, io => {
       counter.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
@@ -123,7 +123,7 @@ test("ThreadPool shared with another OS thread that submits into it", {
   // ...and from a dedicated OS thread sharing the same pool object.
   submitter := Thread(unit).spawn(io => {
     mut(j) := i32(0);
-    while(runtime(j < i32(4)), {
+    while(j < i32(4), {
       spawn(&pool, io => {
         counter.fetch_add(i32(1), MemoryOrder.AcqRel);
         ()
@@ -143,7 +143,7 @@ test("ThreadPool shutdown drains outstanding work", {
   pool := ThreadPool.new(usize(4));
   counter := AtomicI32(i32(0));
   mut(i) := i32(0);
-  while(runtime(i < i32(16)), {
+  while(i < i32(16), {
     spawn(&pool, io => {
       counter.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
@@ -199,7 +199,7 @@ test("ThreadPool tasks of several async shapes in one program", {
   spawn(&pool, io => {
     task := io.async((io : Io) => {
       mut(counter) := 0;
-      while(runtime(counter < i32(3)), {
+      while(counter < i32(3), {
         counter = (counter + 1);
         io.await(yield(io), io);
       });
@@ -222,7 +222,7 @@ test("ThreadPool tasks return values over a Channel", {
   pool := ThreadPool.new(usize(4));
   out := Channel(i32).new(usize(8));
   mut(i) := i32(0);
-  while(runtime(i < i32(8)), {
+  while(i < i32(8), {
     spawn(&pool, io => {
       _ := out.send(i32(11));
       ()
@@ -232,7 +232,7 @@ test("ThreadPool tasks return values over a Channel", {
   pool.join_all();
   mut(sum) := i32(0);
   mut(j) := i32(0);
-  while(runtime(j < i32(8)), {
+  while(j < i32(8), {
     sum = (sum + out.recv().unwrap());
     j = (j + i32(1));
   });
@@ -273,7 +273,7 @@ test("a second pool submitting concurrently cannot make join_all return early", 
   b := ThreadPool.new(usize(2));
   hits := AtomicI32(i32(0));
   (mut(i) : i32) = i32(0);
-  while(runtime(i < i32(4)), {
+  while(i < i32(4), {
     spawn(&a, io => {
       sleep_blocking(Duration.from_millis(i64(20)));
       hits.fetch_add(i32(1), MemoryOrder.SeqCst);
@@ -283,7 +283,7 @@ test("a second pool submitting concurrently cannot make join_all return early", 
   });
   spammer := Thread(unit).spawn(io => {
     (mut(k) : i32) = i32(0);
-    while(runtime(k < i32(400)), {
+    while(k < i32(400), {
       spawn(&b, io => ());
       k = (k + i32(1));
     });

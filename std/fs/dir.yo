@@ -162,7 +162,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
               },
               true => ()
             );
-            while(runtime(i < bytes.len()), {
+            while(i < bytes.len(), {
               b := bytes.byte_at(i);
               cond(
                 ((b == u8(47)) || (b == u8(92))) => {
@@ -407,7 +407,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
         },
         true => {
           offset := usize(0);
-          while(runtime(offset < usize(n)), {
+          while(offset < usize(n), {
             entry_ptr := buf.add(offset);
             name_ptr := IO_dir.dirent_name(entry_ptr);
             name := String.from_cstr(name_ptr).unwrap();
@@ -432,7 +432,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
     // Pass 2 — `d_type` to `FileType`.
     entries := ArrayList(DirEntry).new();
     (i : usize) = usize(0);
-    while(runtime(i < raw.len()), {
+    while(i < raw.len(), {
       // The entry's fields are read where they live in `raw`; only the name
       // is copied out, once, into the owned `DirEntry`.
       dt := raw(i).dt;

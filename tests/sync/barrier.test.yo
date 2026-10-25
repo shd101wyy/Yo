@@ -58,7 +58,7 @@ test("Barrier holds every party until the last one arrives", {
     b.wait();
     passed.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
-  while(runtime(arrived.load(MemoryOrder.Acquire) < i32(3)), {
+  while(arrived.load(MemoryOrder.Acquire) < i32(3), {
     sleep_blocking(Duration.from_millis(i64(1)));
   });
   // `arrived` only says the three threads reached the fetch_add; wait for the
@@ -68,7 +68,7 @@ test("Barrier holds every party until the last one arrives", {
   // resets `_count` before it is ever observed at 3) failing on the assertions
   // instead of hanging here.
   mut(settle) := i32(0);
-  while(runtime((b.waiting() < i32(3)) && (settle < i32(5000))), {
+  while((b.waiting() < i32(3)) && (settle < i32(5000)), {
     sleep_blocking(Duration.from_millis(i64(1)));
     settle = (settle + i32(1));
   });
@@ -105,7 +105,7 @@ test("Barrier reused across generations releases exactly one leader per round", 
   early := AtomicI32(i32(0));
   t1 := Thread(unit).spawn(io => {
     mut(r) := i32(0);
-    while(runtime(r < i32(5)), {
+    while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
         b.wait() => {
@@ -124,7 +124,7 @@ test("Barrier reused across generations releases exactly one leader per round", 
   });
   t2 := Thread(unit).spawn(io => {
     mut(r) := i32(0);
-    while(runtime(r < i32(5)), {
+    while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
         b.wait() => {
@@ -143,7 +143,7 @@ test("Barrier reused across generations releases exactly one leader per round", 
   });
   t3 := Thread(unit).spawn(io => {
     mut(r) := i32(0);
-    while(runtime(r < i32(5)), {
+    while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
         b.wait() => {
@@ -162,7 +162,7 @@ test("Barrier reused across generations releases exactly one leader per round", 
   });
   t4 := Thread(unit).spawn(io => {
     mut(r) := i32(0);
-    while(runtime(r < i32(5)), {
+    while(r < i32(5), {
       arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
       cond(
         b.wait() => {
@@ -207,7 +207,7 @@ test("Barrier survives a party re-entering before its partner leaves", {
   rounds := AtomicI32(i32(0));
   t := Thread(unit).spawn(io => {
     mut(i) := i32(0);
-    while(runtime(i < i32(500)), {
+    while(i < i32(500), {
       cond(
         b.wait() => {
           leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -219,7 +219,7 @@ test("Barrier survives a party re-entering before its partner leaves", {
     });
   });
   mut(i) := i32(0);
-  while(runtime(i < i32(500)), {
+  while(i < i32(500), {
     cond(
       b.wait() => {
         leaders.fetch_add(i32(1), MemoryOrder.AcqRel);

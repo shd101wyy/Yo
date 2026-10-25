@@ -710,7 +710,7 @@ test("Bare discard-statement fn body compiles and drops the discarded value", {
 AliasWrap :: ref(struct(b : Rc(i32)));
 alias_poke_loop :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> unit)({
   (mut(i) : i32) = i32(0);
-  while(runtime(i < i32(2)), {
+  while(i < i32(2), {
     w.b = rc(i32(100) + i);
     i = (i + i32(1));
   });
@@ -822,7 +822,7 @@ test("arrays of RC elements build at runtime, constructor and literal alike", {
 Stage0Arr :: ref(struct(a : Array(Rc(i32), 2)));
 stage0_poke_index :: (fn(h : &Stage0Arr, borrowed : &Rc(i32)) -> i32)({
   (mut(i) : i32) = i32(0);
-  while(runtime(i < i32(2)), {
+  while(i < i32(2), {
     h.a(0) = rc(i32(100) + i);
     i = (i + i32(1));
   });

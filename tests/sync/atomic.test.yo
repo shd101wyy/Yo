@@ -97,13 +97,13 @@ test("AtomicI32 cross-thread counter", {
   iterations := i32(1000);
   t := Thread(unit).spawn(io => {
     (mut(i) : i32) = i32(0);
-    while(runtime(i < iterations), {
+    while(i < iterations, {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
       i = (i + i32(1));
     });
   });
   (mut(j) : i32) = i32(0);
-  while(runtime(j < iterations), {
+  while(j < iterations, {
     counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     j = (j + i32(1));
   });
@@ -628,7 +628,7 @@ test("AtomicI64 fetch_add under four-thread contention", {
   iterations := i64(5000);
   spin :: (fn(c : &AtomicI64, n : i64) -> unit)({
     (mut(i) : i64) = i64(0);
-    while(runtime(i < n), {
+    while(i < n, {
       c.fetch_add(i64(1), MemoryOrder.Relaxed);
       i = (i + i64(1));
     });
@@ -648,7 +648,7 @@ test("AtomicU64 fetch_sub under four-thread contention", {
   counter := AtomicU64(iterations * u64(4));
   drain :: (fn(c : &AtomicU64, n : u64) -> unit)({
     (mut(i) : u64) = u64(0);
-    while(runtime(i < n), {
+    while(i < n, {
       c.fetch_sub(u64(1), MemoryOrder.Relaxed);
       i = (i + u64(1));
     });
@@ -668,7 +668,7 @@ test("AtomicUsize fetch_add under four-thread contention", {
   iterations := usize(5000);
   spin :: (fn(c : &AtomicUsize, n : usize) -> unit)({
     (mut(i) : usize) = usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       c.fetch_add(usize(1), MemoryOrder.Relaxed);
       i = (i + usize(1));
     });
@@ -706,7 +706,7 @@ test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
     fn(c : &AtomicU32, report : &AtomicU32, bit : u32, keep : u32, n : u32) -> unit
   )({
     (mut(i) : u32) = u32(0);
-    while(runtime(i < n), {
+    while(i < n, {
       prev := c.fetch_or(bit, MemoryOrder.AcqRel);
       if((prev & bit) != u32(0), {
         report.store(u32(1), MemoryOrder.Release);
@@ -737,7 +737,7 @@ test("AtomicU16 fetch_xor under four-thread contention", {
   iterations := u16(5000);
   flip :: (fn(c : &AtomicU16, mask : u16, n : u16) -> unit)({
     (mut(i) : u16) = u16(0);
-    while(runtime(i < n), {
+    while(i < n, {
       c.fetch_xor(mask, MemoryOrder.AcqRel);
       i = (i + u16(1));
     });
@@ -772,7 +772,7 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
     fn(lo : &AtomicI32, hi : &AtomicI32, report : &AtomicI32, base : i32, n : i32) -> unit
   )({
     (mut(i) : i32) = i32(0);
-    while(runtime(i < n), {
+    while(i < n, {
       v := (base + i);
       lo.fetch_min(v, MemoryOrder.AcqRel);
       if(lo.load(MemoryOrder.Acquire) > v, {
@@ -825,7 +825,7 @@ test("fence publishes a relaxed store across threads", {
     fence(MemoryOrder.Release);
     ready.store(true, MemoryOrder.Relaxed);
   });
-  while(runtime(!ready.load(MemoryOrder.Relaxed)), {
+  while(!ready.load(MemoryOrder.Relaxed), {
     ();
   });
   fence(MemoryOrder.Acquire);

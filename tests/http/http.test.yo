@@ -230,7 +230,7 @@ _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
     mut(eof) := false;
-    while(runtime(!eof && !_ends_headers(&bytes)), {
+    while(!eof && !_ends_headers(&bytes), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
       cond(
         (n == usize(0)) => {
@@ -238,7 +238,7 @@ _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)
         },
         true => {
           mut(i) := usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             bytes.push((buf.add(i)).*);
             i = (i + usize(1));
           });
@@ -260,7 +260,7 @@ _serve_scripted :: (
 )(
   io.async(e => {
     mut(k) := usize(0);
-    while(runtime(k < responses.len()), {
+    while(k < responses.len(), {
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_read_request(&s, e.io), e);
       seen.with_mut(xs => xs.push(req.clone()));
@@ -364,7 +364,7 @@ test("fetch throws ResponseTooLarge past max_response_bytes", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   mut(body) := String.new();
   mut(i) := usize(0);
-  while(runtime(i < usize(300)), {
+  while(i < usize(300), {
     body.push_str("x");
     i = (i + usize(1));
   });
@@ -1054,7 +1054,7 @@ _ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : &_KaStats, io : Io) -> 
     // the end of this request and the start of the next.
     carry := rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
     mut(open) := true;
-    while(runtime(open), {
+    while(open, {
       framed := e.io.await(
         _wire.read_http_message_buffered(stream, usize(0), _wire.MessageKind.Request, &carry, e.io),
         e
@@ -1120,7 +1120,7 @@ _ka_serve :: (
   io.async(e => {
     held := ArrayList(TcpStream).new();
     mut(n) := usize(0);
-    while(runtime(n < max_conns), {
+    while(n < max_conns, {
       stream := e.io.await(listener.accept(e.io), e);
       stats.accepts = (stats.accepts + usize(1));
       n = (n + usize(1));
@@ -1136,7 +1136,7 @@ _ka_serve :: (
       e.io.await(_ka_conn(&stream, mode, stats, e.io), e);
     });
     mut(i) := usize(0);
-    while(runtime(i < held.len()), {
+    while(i < held.len(), {
       s := held(i);
       e.io.await(s.close(e.io), e);
       i = (i + usize(1));
@@ -1588,7 +1588,7 @@ impl(
       // file has to build under an older seed as well.
       room := size;
       mut(n) := usize(0);
-      while(runtime((n < room) && (self.pos < self.data.len())), {
+      while((n < room) && (self.pos < self.data.len()), {
         consume((buf.add(n)).* = self.data(self.pos));
         self.pos = (self.pos + usize(1));
         n = (n + usize(1));

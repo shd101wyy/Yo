@@ -52,7 +52,7 @@ find_header_end :: (fn(data : &ArrayList(u8)) -> usize)({
   );
   i := usize(0);
   limit := (len - usize(3));
-  while(runtime(i < limit), {
+  while(i < limit, {
     cond(
       (
         (data(i) == u8(13)) &&
@@ -99,13 +99,13 @@ _header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String)
   klen := key.len();
   line_start := usize(0);
   on_start_line := true;
-  while(runtime(line_start < header_end), {
+  while(line_start < header_end, {
     // The line runs to the next LF; a CR right before it is the CRLF
     // terminator, not content. The LAST header line has neither inside the
     // section — `header_end` is the index of the CR opening the terminating
     // CRLFCRLF — so the scan also has to stop at `header_end` itself.
     lf := line_start;
-    while(runtime((lf < header_end) && (data(lf) != u8(10))), {
+    while((lf < header_end) && (data(lf) != u8(10)), {
       lf = (lf + usize(1));
     });
     line_end := lf;
@@ -122,7 +122,7 @@ _header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String)
       (((line_start + klen) < line_end) && (data(line_start + klen) == u8(58))) => {
         matched := true;
         k := usize(0);
-        while(runtime(matched && (k < klen)), {
+        while(matched && (k < klen), {
           cond(
             (_ascii_lower(data(line_start + k)) != key.byte_at(k)) => {
               matched = false;
@@ -134,16 +134,16 @@ _header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String)
         cond(
           matched => {
             value_start := (line_start + klen + usize(1));
-            while(runtime((value_start < line_end) && _is_ows(data(value_start))), {
+            while((value_start < line_end) && _is_ows(data(value_start)), {
               value_start = (value_start + usize(1));
             });
             value_end := line_end;
-            while(runtime((value_end > value_start) && _is_ows(data(value_end - usize(1)))), {
+            while((value_end > value_start) && _is_ows(data(value_end - usize(1))), {
               value_end = (value_end - usize(1));
             });
             value_bytes := ArrayList(u8).new();
             j := value_start;
-            while(runtime(j < value_end), {
+            while(j < value_end, {
               value_bytes.push(data(j));
               j = (j + usize(1));
             });
@@ -190,7 +190,7 @@ _parse_content_length :: (fn(value : &String) -> Option(usize))({
   );
   n := usize(0);
   i := usize(0);
-  while(runtime(i < bytes.len()), {
+  while(i < bytes.len(), {
     d := bytes.byte_at(i);
     cond(
       ((d < u8(48)) || (d > u8(57))) => {
@@ -230,7 +230,7 @@ find_content_length :: (fn(data : &ArrayList(u8), header_end : usize) -> Content
   // (RFC 9110 §5.2); for Content-Length that is only legal when every copy
   // says the same thing, and a disagreement is the classic smuggling shape.
   i := usize(1);
-  while(runtime(i < values.len()), {
+  while(i < values.len(), {
     match(
       _parse_content_length(&values(i)),
       .Some(n) => {
@@ -310,7 +310,7 @@ dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
     // chunk-size: at least one hex digit, then optional ";ext" up to CRLF.
     size := usize(0);
     digits := usize(0);
-    while(runtime((i < n) && (_hex_digit(body(i)) >= i32(0))), {
+    while((i < n) && (_hex_digit(body(i)) >= i32(0)), {
       cond(
         (size > usize(0x0FFFFFFF)) => {
           return(Dechunk.Malformed(`chunk size overflows`));
@@ -331,7 +331,7 @@ dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
       true => ()
     );
     // Skip a chunk extension: everything up to CRLF.
-    while(runtime((i < n) && (body(i) != u8(13))), {
+    while((i < n) && (body(i) != u8(13)), {
       i = (i + usize(1));
     });
     cond(
@@ -359,7 +359,7 @@ dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
             true => ()
           );
           // skip one trailer line
-          while(runtime((i < n) && (body(i) != u8(10))), {
+          while((i < n) && (body(i) != u8(10)), {
             i = (i + usize(1));
           });
           cond(
@@ -377,7 +377,7 @@ dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
       true => ()
     );
     k := usize(0);
-    while(runtime(k < size), {
+    while(k < size, {
       out.push(body(i + k));
       k = (k + usize(1));
     });
@@ -411,7 +411,7 @@ _split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &mut Ar
   carry.clear();
   if(limit < data.len(), {
     i := limit;
-    while(runtime(i < data.len()), {
+    while(i < data.len(), {
       carry.push(data(i));
       i = (i + usize(1));
     });
@@ -459,7 +459,7 @@ derive(MessageKind, Copy, Clone);
 // reports; the framing decision just falls back to the header rules.
 _status_code :: (fn(data : &ArrayList(u8), header_end : usize) -> Option(u16))({
   sp := usize(0);
-  while(runtime((sp < header_end) && (data(sp) != u8(0x20))), {
+  while((sp < header_end) && (data(sp) != u8(0x20)), {
     sp = (sp + usize(1));
   });
   start := (sp + usize(1));
@@ -471,7 +471,7 @@ _status_code :: (fn(data : &ArrayList(u8), header_end : usize) -> Option(u16))({
   );
   code := u16(0);
   i := usize(0);
-  while(runtime(i < usize(3)), {
+  while(i < usize(3), {
     d := data(start + i);
     cond(
       ((d < u8(48)) || (d > u8(57))) => {
@@ -661,7 +661,7 @@ read_http_message_buffered :: (
       },
       .NeedMore => ()
     );
-    while(runtime(!done), {
+    while(!done, {
       // The pointer is re-read from the OWNER at every read, so `buf_store`
       // is live across this suspension and the state machine keeps it (see
       // the comment at its declaration).
@@ -687,7 +687,7 @@ read_http_message_buffered :: (
           // (the list never grows, so it never reallocates).
           buf := _read_buf_ptr(&buf_store);
           i := usize(0);
-          while(runtime(!done && (i < n)), {
+          while(!done && (i < n), {
             result.push((buf.add(i)).*);
             i = (i + usize(1));
           });
@@ -740,19 +740,19 @@ read_http_message_buffered :: (
             // DECODED rewrite, not a prefix of `result`.
             rest := ArrayList(u8).new();
             k := end;
-            while(runtime(k < result.len()), {
+            while(k < result.len(), {
               rest.push(result(k));
               k = (k + usize(1));
             });
             _carry_set(carry, &rest);
             decoded := ArrayList(u8).with_capacity(body_start + data.len());
             j := usize(0);
-            while(runtime(j < body_start), {
+            while(j < body_start, {
               decoded.push(result(j));
               j = (j + usize(1));
             });
             j = usize(0);
-            while(runtime(j < data.len()), {
+            while(j < data.len(), {
               decoded.push(data(j));
               j = (j + usize(1));
             });

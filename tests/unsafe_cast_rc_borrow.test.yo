@@ -90,7 +90,7 @@ test("two threads reading through an atomic object's Index impl at once", {
   t := Thread(i32).spawn((io : Io) => {
     (mut(s) : i32) = i32(0);
     (mut(i) : i32) = i32(0);
-    while(runtime(i < i32(10000)), {
+    while(i < i32(10000), {
       s = (s + _read_through(&mut c(usize(0))));
       i = (i + i32(1));
     });
@@ -98,7 +98,7 @@ test("two threads reading through an atomic object's Index impl at once", {
   });
   (mut(m) : i32) = i32(0);
   (mut(j) : i32) = i32(0);
-  while(runtime(j < i32(10000)), {
+  while(j < i32(10000), {
     m = (m + _read_through(&mut c(usize(1))));
     j = (j + i32(1));
   });

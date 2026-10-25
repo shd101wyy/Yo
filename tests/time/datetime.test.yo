@@ -154,7 +154,7 @@ test("DateTime.day_of_week is in range for every year, including negative", {
   // Sweeping across the era boundary exercises the floored-division path that
   // a truncating divide gets wrong.
   mut(y) := i32(-500);
-  while(runtime(y <= i32(500)), {
+  while(y <= i32(500), {
     dt := _jan1(y);
     dow := dt.day_of_week();
     assert(dow <= u8(6), "day_of_week must be 0..=6 for every year");
@@ -177,7 +177,7 @@ test("DateTime.day_of_week advances one day at a time across boundaries", {
   );
   base := dt.to_unix();
   mut(i) := i64(0);
-  while(runtime(i < i64(5)), {
+  while(i < i64(5), {
     a := DateTime.from_unix(base + (i * i64(86400)), i64(0));
     b := DateTime.from_unix(base + (i * i64(86400)) + i64(86400), i64(0));
     expected := u8((i64(a.day_of_week()) + i64(1)) % i64(7));

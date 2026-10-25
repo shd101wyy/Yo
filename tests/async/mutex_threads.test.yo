@@ -26,7 +26,7 @@ test("Test a task on another thread's loop contends for the same mutex", {
   });
   // The worker parks on the lock from its own loop; main's unlock wakes it
   // across threads.
-  while(runtime(m.*.waiter_count() == usize(0)), {
+  while(m.*.waiter_count() == usize(0), {
     io.await(sleep(u64(1)), io);
   });
   m.*.set(i64(1));
@@ -54,7 +54,7 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
     mf.*.unlock();
     v
   });
-  while(runtime(m.*.waiter_count() == usize(0)), {
+  while(m.*.waiter_count() == usize(0), {
     io.await(sleep(u64(1)), io);
   });
   ms := m;
@@ -68,7 +68,7 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
     }),
     io
   );
-  while(runtime(m.*.waiter_count() < usize(2)), {
+  while(m.*.waiter_count() < usize(2), {
     io.await(sleep(u64(1)), io);
   });
   m.*.unlock();

@@ -459,7 +459,7 @@ _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoE
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
     mut(eof) := false;
-    while(runtime(!eof && !_d6_ends_headers(&bytes)), {
+    while(!eof && !_d6_ends_headers(&bytes), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
       cond(
         (n == usize(0)) => {
@@ -467,7 +467,7 @@ _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoE
         },
         true => {
           mut(i) := usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             bytes.push((buf.add(i)).*);
             i = (i + usize(1));
           });
@@ -483,7 +483,7 @@ _d6_scripted_server :: (
 )(
   io.async(e => {
     mut(k) := usize(0);
-    while(runtime(k < rounds), {
+    while(k < rounds, {
       eprintln(`  server: accept ${k} pending`);
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_d6_read_headers(&s, e.io), e);

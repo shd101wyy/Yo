@@ -265,7 +265,7 @@ derive(_SortRec, Copy, Clone);
 test("sort_by is stable: equal keys keep their input order", {
   xs := ArrayList(_SortRec).new();
   mut(i) := i32(0);
-  while(runtime(i < i32(8)), {
+  while(i < i32(8), {
     xs.push(_SortRec(key : (i % i32(2)), tag : i));
     i = (i + i32(1));
   });
@@ -281,7 +281,7 @@ test("sort_by is stable: equal keys keep their input order", {
   expect_tags.push(i32(5));
   expect_tags.push(i32(7));
   mut(j) := usize(0);
-  while(runtime(j < xs.len()), {
+  while(j < xs.len(), {
     assert(xs(j).tag == expect_tags(j), `stable order at ${j}: got tag ${xs(j).tag}, want ${expect_tags(j)}`);
     j = (j + usize(1));
   });
@@ -333,14 +333,14 @@ test("sort of an empty or single-element list is a no-op", {
 test("sort is stable across a larger run with many ties", {
   xs := ArrayList(_SortRec).new();
   mut(i) := i32(0);
-  while(runtime(i < i32(64)), {
+  while(i < i32(64), {
     xs.push(_SortRec(key : (i % i32(4)), tag : i));
     i = (i + i32(1));
   });
   xs.sort_by((a, b) => (a.key < b.key));
   mut(ok) := true;
   mut(j) := usize(1);
-  while(runtime(j < xs.len()), {
+  while(j < xs.len(), {
     prev := xs(j - usize(1));
     cur := xs(j);
     // ascending by key, and ties strictly increasing by original tag

@@ -50,7 +50,7 @@ _named_future_in_loop :: (fn(n : i64, io : Io) -> Impl(Future(i64, Io)))(
   io.async((io : Io) => {
     (mut(acc) : i64) = i64(0);
     (mut(i) : i64) = i64(0);
-    while(runtime(i < n), {
+    while(i < n, {
       f := _leaf(i32(2), io);
       v := io.await(f, io);
       acc = (acc + i64(v));
@@ -100,7 +100,7 @@ test("an aborted task drops its Option and value-struct locals", {
   // The aborted task's queued resume runs its aborted-entry guard, which
   // releases it: give the loop the turns that takes.
   (mut(spins) : i32) = i32(0);
-  while(runtime((g_disposed < (before + i32(2))) && (spins < i32(100))), {
+  while((g_disposed < (before + i32(2))) && (spins < i32(100)), {
     io.await(yield(io), io);
     spins = (spins + i32(1));
   });
@@ -173,7 +173,7 @@ _classify_cond :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(total) : i32) = i32(0);
     (mut(i) : i32) = i32(0);
-    while(runtime(i < n), {
+    while(i < n, {
       v := cond(
         (i == i32(0)) => i32(1),
         (i == i32(2)) => e.await(_leaf(i32(100), e), e),
@@ -189,7 +189,7 @@ _classify_match :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(total) : i32) = i32(0);
     (mut(i) : i32) = i32(0);
-    while(runtime(i < n), {
+    while(i < n, {
       v := match(
         i,
         0 => i32(1),
@@ -247,7 +247,7 @@ test("an aborted task drops a pattern binding's scrutinee once", {
     assert(r.is_none(), "the task was aborted");
   };
   (mut(spins) : i32) = i32(0);
-  while(runtime((g_disposed < (before + i32(1))) && (spins < i32(100))), {
+  while((g_disposed < (before + i32(1))) && (spins < i32(100)), {
     io.await(yield(io), io);
     spins = (spins + i32(1));
   });
@@ -512,7 +512,7 @@ _continue_slot_local :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(k) : i32) = i32(0);
     (mut(sum) : i32) = i32(0);
-    while(runtime(k < i32(6)), {
+    while(k < i32(6), {
       k = (k + i32(1));
       t := Thing(n : k);
       e.await(yield(e), e);
@@ -883,7 +883,7 @@ test("a state machine returning an implicit capture retains it for the result", 
   assert(g_disposed == (before + i32(1)), "disposed once, by the awaiter's scope");
   out := ArrayList(String).new();
   (mut(i) : i32) = i32(0);
-  while(runtime(i < i32(3)), {
+  while(i < i32(3), {
     out.push(io.await(_give_back_string(`s${i}`, io), io));
     i = (i + i32(1));
   });
@@ -896,7 +896,7 @@ test("a state machine returning an implicit capture retains it for the result", 
     alive := (g_disposed == before2);
     strs := ArrayList(String).new();
     (mut(j) : i32) = i32(0);
-    while(runtime(j < i32(3)), {
+    while(j < i32(3), {
       strs.push(io.await(_give_back_string(`t${j}`, io), io));
       _churn := ArrayList(String).with_capacity(usize(4));
       j = (j + i32(1));
@@ -951,7 +951,7 @@ test("a fused await keeps a named local passed by value alive", {
     (mut(total) : i32) = i32(0);
     (mut(i) : i32) = i32(0);
     (mut(early) : i32) = i32(0);
-    while(runtime(i < i32(3)), {
+    while(i < i32(3), {
       th := Thing(n : i);
       at := g_disposed;
       total = (total + io.await(_n_later(th, io), io));

@@ -31,7 +31,7 @@ test("an Error.source() result re-erases as AnyError, so a chain can be walked",
   // The assignment `cur = next` is what failed to type-check: `source()` is
   // declared to return `Option(Dyn(SelfTrait))` and this stores it back.
   (mut(walking) : bool) = true;
-  while(runtime(walking), {
+  while(walking, {
     match(
       cur.source(),
       .Some(next) => {
@@ -114,7 +114,7 @@ test("error_chain yields every link, outermost first", {
   (mut(links) : usize) = usize(0);
   (mut(last) : String) = String.new();
   (mut(going) : bool) = true;
-  while(runtime(going), {
+  while(going, {
     match(
       it.next(),
       .Some(link) => {
@@ -133,7 +133,7 @@ test("error_chain of a lone error yields exactly one link", {
   it := error_chain(dyn(_Inner.Boom));
   (mut(links) : usize) = usize(0);
   (mut(going) : bool) = true;
-  while(runtime(going), {
+  while(going, {
     match(
       it.next(),
       .Some(_) => {

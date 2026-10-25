@@ -222,7 +222,7 @@ sm_arg_collect :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
     raw := ArrayList(struct(p : SmArgProbe, k : i32)).new();
     (mut(i) : i32) = i32(0);
-    while(runtime(i < i32(3)), {
+    while(i < i32(3), {
       nxt := e.io.await(sm_arg_step(i, e.io), e);
       p := SmArgProbe(n : i);
       raw.push({ p : p, k : nxt });

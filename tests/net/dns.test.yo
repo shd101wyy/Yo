@@ -30,7 +30,7 @@ test("lookup_host localhost returns loopback", {
   // Check that at least one address is loopback
   mut(found_loopback) := false;
   mut(i) := usize(0);
-  while(runtime(i < addrs.len()), {
+  while(i < addrs.len(), {
     addr := addrs(i);
     unsafe(printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap()));
     cond(
@@ -69,7 +69,7 @@ test("resolve localhost returns socket addresses", {
   unsafe(printf("  addrs.len = %zu\n", addrs.len()));
   assert(addrs.len() > usize(0), "should resolve at least one address");
   mut(i) := usize(0);
-  while(runtime(i < addrs.len()), {
+  while(i < addrs.len(), {
     addr := addrs(i);
     unsafe(printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap()));
     // Verify port is 8080
@@ -97,7 +97,7 @@ test("lookup_host returns IPv6 results (was: AAAA records dropped)", {
   assert(addrs.len() > usize(0), "the ::1 literal must yield at least one address");
   mut(found_v6) := false;
   mut(i) := usize(0);
-  while(runtime(i < addrs.len()), {
+  while(i < addrs.len(), {
     addr := addrs(i);
     unsafe(printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap()));
     cond(

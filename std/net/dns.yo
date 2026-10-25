@@ -110,7 +110,7 @@ lookup_host :: (fn(host : &String, io : Io) -> Impl(Future(ArrayList(IpAddr), Io
               // sockaddr_in6: family(2) + port(2) + flowinfo(4) + addr(16)
               segs := Array(u16, usize(8)).fill(u16(0));
               k := usize(0);
-              while(runtime(k < usize(8)), {
+              while(k < usize(8), {
                 hi := u16((addr_ptr.add(usize(8) + (k * usize(2)))).*);
                 lo := u16((addr_ptr.add(usize(8) + (k * usize(2)) + usize(1))).*);
                 segs(k) = ((hi << u16(8)) | lo);
@@ -147,7 +147,7 @@ resolve :: (fn(host : &String, port : u16, io : Io) -> Impl(Future(ArrayList(Soc
     addrs := e.io.await(lookup_host(host, io), e);
     result := ArrayList(SocketAddr).new();
     i := usize(0);
-    while(runtime(i < addrs.len()), {
+    while(i < addrs.len(), {
       ip := addrs(i);
       result.push(SocketAddr.new(ip, port));
       i = (i + usize(1));
