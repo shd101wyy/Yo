@@ -60,7 +60,11 @@ A first version listed every copy made above its type's `Clone`, an `impl`
 included. On develop `f1cfa553d`'s tree that was 8 std sites and 1 src site.
 The 8 std sites (`String.split` pushing `self`, and seven `JsonValue` and
 `ArrayList(JsonValue)` copies in `std/encoding/json.yo` above its
-`impl(JsonValue, Clone)`) have impls below them, and are cloned. The src
+`impl(JsonValue, Clone)`) have impls below them. On develop `cff2cfa60`'s
+tree the final version clones six std copies above those impls (`json.yo`
+158, 207, 219, 396 and 403, `string.yo` 693), and a copy of std migrated
+that way checks clean; two more `JsonValue` copies are listed by the
+written-after and `&mut`-return guards. The src
 site, `src/diagnostics.yo:88`, copies a `Diagnostic` about 280 lines above
 `derive(Diagnostic, Clone)`, and stays listed. A second version forced the
 pending impls at the copy instead of asking where `Clone` came from; forcing

@@ -500,16 +500,19 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
 
 - **The change as specified was a no-op for the listing.** `StringBuilder` and `HeaderMap` joined `_IC_COLLECTIONS`, but neither has `Clone` before B11. `_ic_migrate_site` dropped every copy of a type without `Clone`, so their copies would still have gone unreported. That drop was the open S3 `issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`, and P8 fixes it.
 - **How a copy without `Clone` is handled now.** The site is kept with its type (`ExplicitCopySite.ty_value`). The listing asks for `Clone` once the run is evaluated and lists such a copy as "`T` has no `Clone`". The check comes after the generic-body checks, because a generic body's type usually lacks `Clone` only because a parameter is open.
-- **A copy above its type's `Clone` in the same module.** The record-time answer was order-dependent, and it silently dropped these copies (`issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md`). They are now listed, not cloned: a `.clone()` above a `derive(T, Clone)` is E0610 (`issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`, S2, open).
-- **Dry runs** on develop `f1cfa553d`, B4-0a's binary against P8's, both rebased on `39c8723fe`:
+- **A copy above its type's `Clone` in the same module.** The record-time answer was order-dependent, and it silently dropped these copies (`issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md`). They are now handled by where the `Clone` comes from:
+  - **An `impl(T, Clone(…))` below the copy:** the copy is cloned. A `.clone()` lookup that misses forces the type's pending `impl`s, so the inserted call resolves. This covers std's `JsonValue` and `String` copies.
+  - **A `derive(T, Clone)` below the copy:** the copy is listed. A `derive` is not forced, so `.clone()` above it is E0610 (`issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`, S2, open). The evaluator records each type a `derive` gives `Clone` (`record_clone_derive`), and the listing asks `ic_clone_comes_from_derive`.
+  - A first version forced the type's impls from the migration's own lookup during evaluation instead. It made `std/encoding/toml.yo` fail to evaluate under the migration, so it was replaced before review.
+- **Dry runs** on develop `cff2cfa60`'s tree, B4-0a's binary against P8's, both on the final heads:
 
   | | src inserted / listed | std inserted / listed |
   | --- | ---: | ---: |
-  | B4-0a | 388 / 1,575 | 8 / 25 |
-  | P8 | 388 / 1,951 | 8 / 107 |
+  | B4-0a | 387 / 1,585 | 8 / 24 |
+  | P8 | 387 / 1,961 | 14 / 84 |
 
-  - **src +376:** 373 copies without `Clone` and 1 above its `Clone` (`src/diagnostics.yo:88`). The other 2 are temporaries without `Clone` that die after the copy. Top types: `ArrayList(Self)` 28, `ArrayList(Variable)` 24, `ContextIndexEntry` 16, `ArrayList(DocFunction)` 16, `ArrayList(CapturedVariable)` 11. By directory: `evaluator/` 122, `doc/` 61, `codegen/` 52, `context_command.yo` 31. `HashSet(String)` has no `Clone` in std at all, which B9's `where(T <: Clone)` derive adds.
-  - **std +82:** 40 copies without `Clone` (`TomlValue` 20, `ArrayList(…)` 13, `GroupNameEntry` 2, `HeaderMap` 1, …), 8 above `JsonValue`'s and `String`'s `Clone`, and 34 generic-body copies that the drop had hidden.
+  - **src +376:** 373 copies without `Clone`, 1 above a derived `Clone` (`src/diagnostics.yo:88`, `Diagnostic`), and 2 temporaries without `Clone` that die after the copy. Top types: `ArrayList(Self)` 28, `ArrayList(Variable)` 24, `ContextIndexEntry` 16, `ArrayList(DocFunction)` 16, `ArrayList(CapturedVariable)` 11. By directory: `evaluator/` 122, `doc/` 61, `codegen/` 52, `context_command.yo` 31, `main.yo` 26. `HashSet(String)` has no `Clone` in std at all, which B9's `where(T <: Clone)` derive adds.
+  - **std +6 inserted, +60 listed.** The 6 insertions are copies above `JsonValue`'s and `String`'s `Clone` impls (`json.yo` 158, 207, 219, 396, 403; `string.yo` 693). Applying the migration to a copy of std and checking that copy passes, so each inserted `.clone()` resolves. The 60 listed: 24 copies without `Clone` (regex node lists 7, `TomlValue` 4, `GroupNameEntry` 5, `HeaderMap` 1, …), 34 generic-body copies that the drop had hidden, and 2 more `JsonValue` copies caught by the written-after and `&mut`-return guards. P3 (#1585) had already removed most of the `TomlValue` copies that an earlier run of this branch listed.
   - No `StringBuilder` copy is listed in src or std: none of src's 48 `:= StringBuilder` locals is copied while its source is still live. The one `HeaderMap` site is `std/http/client.yo:834`.
 
 ### 4.5 The flips (all std-only; the v0.2.69 seed is stage 1)
