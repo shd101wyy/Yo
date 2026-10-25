@@ -1,0 +1,25 @@
+//! `yo fix --migrate explicit-copy` inside an `FnOnce(...)` closure body: the
+//! body owns its by-value captures (decision 37), so a capture used at its
+//! last use is a MOVE — nothing is inserted and nothing is listed — while a
+//! capture the body reads again after the copy is cloned. `RefCell.with_mut`
+//! takes `sink(body) : Impl(FnOnce(v : &mut T) -> R)`.
+{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  k := String.from("k");
+  v := String.from("v");
+  again := String.from("again");
+  h := RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+  // `k` and `v` move: each has exactly one use in the body, the `insert` call.
+  _ := h.with_mut({ k, v }(m) => m.insert(k, v));
+  // `again` is read again after its first use, so the first use is a copy.
+  _ := h.with_mut({ again }(m) => {
+    r := m.insert(String.from("a"), again);
+    println(again);
+    r
+  });
+  println(h.with(m => m.len()).to_string());
+});
+export(main);
