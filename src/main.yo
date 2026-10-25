@@ -2910,7 +2910,7 @@ _copy_when :: (
     if(!st.dst_decl.is_empty(), {
       dests.push(st.dst_decl.clone());
     });
-    match(tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => dests.extend(&tds), .None => ());
+    match(tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => dests.extend(tds), .None => ());
     seen := HashSet(String).new();
     (di : usize) = usize(0);
     while(di < dests.len(), di = (di + usize(1)), {
@@ -3394,7 +3394,7 @@ _run_migrate_explicit_copy :: (
       when := _copy_when(&st, &loops_by_module, &flows_by_src, &tail_dests);
       copy_side := ArrayList(String).new();
       copy_side.push(st.dst_decl.clone());
-      match(tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => copy_side.extend(&tds), .None => ());
+      match(tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => copy_side.extend(tds), .None => ());
       src_side := ArrayList(String).new();
       src_side.push(st.src_decl.clone());
       written := cond(
