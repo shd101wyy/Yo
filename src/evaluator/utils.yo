@@ -3584,6 +3584,30 @@ audit_record_implicit_copy :: (
               pending_id = Option(usize).Some(r.root_id);
             },
             true => {
+              // A binding of a `match` over a MODULE-LEVEL place borrows it
+              // (`module_root`): `Rc.clone` of such a binding lends the place
+              // (E0911), so the migration leaves the copy as written.
+              module_borrowed := match(
+                local_borrow_info_of_variable(&v),
+                .Some(lbi) => {
+                  (mbi : usize) = usize(0);
+                  found := false;
+                  while((mbi < lbi.places.len()) && !found, mbi = (mbi + usize(1)), {
+                    match(
+                      lbi.places.get(mbi),
+                      .Some(pl) => if(pl.module_root, {
+                        found = true;
+                      }),
+                      .None => ()
+                    );
+                  });
+                  found
+                },
+                .None => false
+              );
+              if(module_borrowed, {
+                return(());
+              });
               kind = String.from("match-place");
             }
           ),
@@ -3713,6 +3737,30 @@ audit_record_copy_trait :: (
                 pending_id = Option(usize).Some(r.root_id);
               },
               true => {
+                // A binding of a `match` over a MODULE-LEVEL place borrows
+                // it (`module_root`): `Rc.clone` of such a binding lends the
+                // place (E0911), so the migration leaves the copy as written.
+                module_borrowed := match(
+                  local_borrow_info_of_variable(&v),
+                  .Some(lbi) => {
+                    (mpi : usize) = usize(0);
+                    found := false;
+                    while((mpi < lbi.places.len()) && !found, mpi = (mpi + usize(1)), {
+                      match(
+                        lbi.places.get(mpi),
+                        .Some(pl) => if(pl.module_root, {
+                          found = true;
+                        }),
+                        .None => ()
+                      );
+                    });
+                    found
+                  },
+                  .None => false
+                );
+                if(module_borrowed, {
+                  return(());
+                });
                 kind = String.from("match-place");
               }
             ),
