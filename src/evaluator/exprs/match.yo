@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies } :: import("./begin.yo");
@@ -653,6 +653,15 @@ _decide_match_mode :: (
     // `yo fix --migrate rc-clone` (the rule suspended): a place the rule
     // could not move gets the `&` its E0901 asks for.
     if(migrate_rc_clone_on(), {
+      arm_mention := if(
+        is_atom,
+        match(
+          root,
+          .Some(rv) => (type_holds_counted_handle_ignoring_migration(&ty) && _scrutinee_mentioned_in_arms(whole, rv.name.clone())),
+          .None => false
+        ),
+        false
+      );
       unmovable := if(
         is_atom,
         match(
@@ -664,7 +673,7 @@ _decide_match_mode :: (
             // moved value, a write inside a loop leaves the next iteration
             // reading one (`types/guards.yo`'s `pointer_type`) — borrows:
             // `match(&pointer_type, …)`.
-            (type_holds_counted_handle_ignoring_migration(&ty) && _scrutinee_mentioned_in_arms(whole, rv.name.clone())) => true,
+            arm_mention => true,
             true => false
           ),
           .None => false
@@ -673,6 +682,30 @@ _decide_match_mode :: (
       );
       if(unmovable, {
         migrate_rc_clone_borrow_scrutinee(&scr, &ty);
+      });
+      // A plain local the rule would consume: the branch below runs only
+      // with the rule on, so the block's epilogue judges the pending borrow
+      // instead (`_migrate_judge_scrutinee_borrows`, exprs/begin.yo): a
+      // later read of the scrutinee in its declaring block borrows.
+      plain_local := if(
+        is_atom,
+        match(
+          root,
+          .Some(rv) => (
+            !rv.is_module_level && !rv.is_compile_time_only
+            && !match_scrutinee_is_capture(&rv, env, ctx)
+            && type_holds_counted_handle_ignoring_migration(&ty)
+          ),
+          .None => false
+        ),
+        false
+      );
+      if((!unmovable && plain_local), {
+        match(
+          root,
+          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty),
+          .None => ()
+        );
       });
     });
     return(MATCH_MODE_BORROW);

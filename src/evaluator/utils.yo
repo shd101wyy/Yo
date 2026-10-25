@@ -3325,6 +3325,24 @@ _ic_migrate_site :: (
 /// scrutinee's type holds a counted handle) on a place it cannot move (a
 /// field, a module-level binding, a closure's capture) is recorded for the
 /// `&` borrow its E0901 asks for (decision 26), spelled `borrow`.
+/// A `match` scrutinee whose consumption `yo fix --migrate rc-clone` may
+/// have to rewrite to a borrow, judged against the declaring block's later
+/// reads at its epilogue (`_migrate_judge_scrutinee_borrows`,
+/// exprs/begin.yo): the scrutinee node (for the rewrite) and its type.
+PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue);
+(g_pending_scrutinee_borrows : RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow)))) = RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow))).new(HashMap(usize, ArrayList(PendingScrutineeBorrow)).new());
+record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue) -> unit)({
+  g_pending_scrutinee_borrows.with_mut(m => {
+    xs := match(m.get(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new());
+    xs.push(PendingScrutineeBorrow(scr : scr, ty : Rc.clone(ty)));
+    m.insert(var_id, xs);
+  });
+});
+/// Remove and return the pending scrutinee borrows of `var_id` (an empty
+/// list when it has none): the caller judges them once.
+take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScrutineeBorrow))(
+  g_pending_scrutinee_borrows.with_mut(m => match(m.remove(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new()))
+);
 migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue) -> unit)({
   if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
@@ -7353,7 +7371,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   out
 });
 export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args);
-export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
+export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
   LocalBorrowInfo,
