@@ -129,15 +129,16 @@ test("borrowed for: a read-only user method with a typed local, through an alias
 // The invalidation assert is decided PER PARAMETER from where each mutated
 // value's storage lives (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §9, third pass):
 // a method that mutates only storage it allocated itself (`clone` pushing into
-// its result), or an iterator's own cursor while walking the collection, does
-// not mutate the collection and carries no assert. A method that makes fresh
+// its result), or a read walk of the collection (`for(&self.items, …)`, which
+// B7b's migration spells for the value form `for(self.items, …)` of a borrowed
+// field), does not mutate the collection and carries no assert. A method that makes fresh
 // storage reachable from `self` and then mutates it does — pinned by
 // tests/cli-cases/inout-for-store-fresh-into-self-panics.
 impl(
   Bag,
-  sum_by_value_for : (fn(self : &Self) -> i32)({
+  sum_read_walk : (fn(self : &Self) -> i32)({
     mut(total) := i32(0);
-    for(self.items, x => {
+    for(&self.items, x => {
       total = (total + x);
     });
     total
@@ -161,7 +162,7 @@ test("borrowed for: user methods iterating the collection or mutating a fresh co
   other := bag;
   mut(seen) := i32(0);
   for(&mut bag, x => {
-    seen = (seen + other.sum_by_value_for());
+    seen = (seen + other.sum_read_walk());
     d := other.doubled_copy();
     seen = (seen + i32(d.len()));
   });
