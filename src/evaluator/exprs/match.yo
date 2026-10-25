@@ -93,7 +93,8 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc } :: import("../utils.yo");
+{ throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
@@ -1090,6 +1091,11 @@ evaluate_match :: (
     true => Option(LocalBorrowPlace).None
   );
   if(mut_places, {
+    // The arms may write the lent place: a place in an atomic object is D3,
+    // and one in a shared cell's payload E0919, as for `m := &mut place`.
+    mut_scr_place := ast_expr_strip_borrow_marker(&evaluated_scrutinee);
+    throw_if_mut_lend_through_atomic_object(&mut_scr_place, &env, String.from("lend `&mut` (a `&mut` match scrutinee) a place in"), ctx, exn);
+    reject_write_through_rc(&mut_scr_place, "mut-borrow", Option(TypeValue).None, ctx, exn);
     mut_root = _scrutinee_root_variable(&scrutinee_expr, &env);
     mut_place = local_borrow_place_of(&scrutinee_expr, &env, ctx);
     match(

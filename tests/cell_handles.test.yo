@@ -1,0 +1,294 @@
+pragma(Pragma.SkipWasm32Wasi); // the atomic handle's thread test needs pthreads
+//! Cell handles (plans/VALUES_BY_DEFAULT.md §3.5, "V5's seed predicates"):
+//! a newtype whose one field `_cell` is `__yo_cell(V)` or
+//! `__yo_atomic_cell(V)` is the shape V5 gives `Rc` and `Arc`. The compiler
+//! treats it as those cells by structure, so the wrappers of
+//! tests/fixtures/cell_handles.yo stand in for them here. This file is SAFE:
+//! E0919 and D3 must fire where user code runs.
+{ TRc, TArc, trc, tarc, treset, TLocked, tlocked, tmisnamed } :: import("./fixtures/cell_handles.yo");
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
+{ Thread } :: import("std/thread");
+_P :: struct(x : i32, items : ArrayList(i32));
+_p :: (fn(x : i32) -> _P)(_P(x : x, items : ArrayList(i32).new()));
+impl(
+  _P,
+  doubled : (fn(self : &Self) -> i32)(self.x * i32(2)),
+  bump : (fn(self : &mut Self) -> unit)({
+    self.x = (self.x + i32(1));
+  })
+);
+_read_p :: (fn(p : &_P) -> i32)(p.x);
+_bump_p :: (fn(p : &mut _P) -> unit)({
+  p.x = (p.x + i32(1));
+});
+test("S17/S18: .* reads the payload of a cell handle", {
+  h := trc(i32(5));
+  assert(h.* == i32(5), "the payload through the handle");
+  p := trc(_p(i32(3)));
+  assert(p.*.x == i32(3), "a field of the payload");
+  assert(_read_p(&p.*) == i32(3), "the payload lent &");
+  q := p;
+  assert(q.*.x == i32(3), "a copy reads the same payload");
+  a := tarc(i32(9));
+  assert(a.* == i32(9), "the payload through an atomic handle");
+});
+test("S17 with D2: a cell handle auto-dereferences to its payload's fields and methods", {
+  p := trc(_p(i32(4)));
+  assert(p.x == i32(4), "p.x is p.*.x");
+  assert(p.doubled() == i32(8), "p.doubled() is p.*.doubled()");
+  a := tarc(_p(i32(6)));
+  assert(a.x == i32(6), "through the atomic handle");
+  assert(a.doubled() == i32(12), "a method through the atomic handle");
+});
+test("S1/S9/S10: a write through a cell handle is E0919", {
+  h := trc(_p(i32(1)));
+  comptime_expect_error(h.*.x = i32(2), "read-only through the handle");
+  comptime_expect_error(h.* = _p(i32(2)), "read-only through the handle");
+  comptime_expect_error(_bump_p(&mut h.*), "read-only through the handle");
+  comptime_expect_error(h.*.bump(), "read-only through the handle");
+  comptime_expect_error(h.bump(), "read-only through the handle");
+  comptime_expect_error(h.x = i32(3), "read-only through the handle");
+  // Spelled through auto-dereference, as the S13 test below explains.
+  comptime_expect_error({
+    m := &mut h.x;
+    ()
+  }, "read-only through the handle");
+  assert(h.*.x == i32(1), "nothing wrote the payload");
+});
+test("the handle's own field is not behind it: replacing the cell is no write through the handle", {
+  mut(h) := trc(i32(1));
+  g := h;
+  treset(&mut h, i32(5));
+  assert(h.* == i32(5), "the new cell");
+  assert(g.* == i32(1), "the old cell lives on in the other handle");
+  assert((ref_count(g) == usize(1)) && (ref_count(h) == usize(1)), "each cell has one handle");
+});
+_HoldsArc :: struct(a : TArc(_P));
+test("a `&mut` match scrutinee through a cell handle is E0919 / D3: the arms may write it", {
+  h := trc(_p(i32(1)));
+  comptime_expect_error(
+    match(
+      &mut h.*,
+      p => {
+        p.x = i32(5);
+      }
+    ),
+    "read-only through the handle"
+  );
+  comptime_expect_error(match(&mut h.items, l => l.push(i32(5))), "read-only through the handle");
+  comptime_expect_error(
+    match(
+      &mut h.x,
+      x => {
+        x = i32(5);
+      }
+    ),
+    "read-only through the handle"
+  );
+  a := tarc(_p(i32(1)));
+  comptime_expect_error(
+    match(
+      &mut a.*,
+      p => {
+        p.x = i32(5);
+      }
+    ),
+    "atomic object"
+  );
+  comptime_expect_error({
+    m := &mut a.x;
+    ()
+  }, "atomic object");
+  assert((h.*.x == i32(1)) && (a.*.x == i32(1)) && (h.*.items.len() == usize(0)), "nothing wrote the payloads");
+});
+test("S11/S12: a write through an atomic cell handle is D3 in safe code", {
+  a := tarc(_p(i32(1)));
+  comptime_expect_error(a.*.x = i32(2), "atomic object");
+  comptime_expect_error(_bump_p(&mut a.*), "atomic object");
+  s := _HoldsArc(a : a);
+  comptime_expect_error(s.a.*.x = i32(3), "atomic object");
+  assert(a.*.x == i32(1), "nothing wrote the payload");
+});
+// A copy taken out of an array element is a second handle beside the
+// element, as for an `Rc` (tests/rc.test.yo, "tmp and y(0) should share
+// RC=2"); a copy whose source lives on in the same scope shares its count
+// instead (the next test).
+test("S19: ref_count counts the handles, not the constant 1", {
+  h := trc(i32(1));
+  assert(ref_count(h) == usize(1), "one handle");
+  hs := [h,];
+  g := hs(usize(0));
+  assert(ref_count(g) == usize(2), `two handles: ${ref_count(g)}`);
+  assert(g.* == i32(1), "the copy reads the payload");
+  a := tarc(i32(2));
+  xs := [a,];
+  b := xs(usize(0));
+  assert(ref_count(b) == usize(2), `two atomic handles: ${ref_count(b)}`);
+  assert(b.* == i32(2), "the copy");
+});
+// A copy whose source lives on shares the source's count when the dup/drop
+// pair optimizer cancels the pair, as for an `Rc` (`_optimize_dup_drop_pairs`):
+// a handle is one cell pointer in C, not a value with counted fields.
+test("a handle's dup/drop pair cancels as an Rc's does", {
+  g := trc(i32(1));
+  g2 := g;
+  r := rc(i32(1));
+  r2 := r;
+  assert(ref_count(g) == ref_count(r), `the handle counts as the Rc does: ${ref_count(g)} vs ${ref_count(r)}`);
+  assert((g.* + g2.*) == (r.* + r2.*), "both copies are used after");
+  a := tarc(i32(2));
+  a2 := a;
+  b := arc(i32(2));
+  b2 := b;
+  assert(ref_count(a) == ref_count(b), `the atomic handle counts as the Arc does: ${ref_count(a)} vs ${ref_count(b)}`);
+  assert((a.* + a2.*) == (b.* + b2.*), "both atomic copies are used after");
+});
+test("an atomic cell handle is shared with another thread", {
+  a := tarc(_Sq(s : i32(7)));
+  t := Thread(i32).spawn(io => a.s);
+  assert(t.join() == i32(7), "the worker read the payload");
+  assert(ref_count(a) == usize(1), `the worker's handle was released: ${ref_count(a)}`);
+});
+test("D3: a struct over an atomic cell is not a handle", {
+  l := tlocked(i32(1));
+  m := l;
+  assert(ref_count(l) == usize(1), "a value struct is not counted, whatever it holds");
+  comptime_expect_error(l.*, "No field");
+});
+test("S3: Option of a cell handle keeps the one-pointer niche; of an atomic one, the tag", {
+  assert(size_of(TRc(i32)) == size_of(usize), "a handle is one pointer");
+  assert(size_of(Option(TRc(i32))) == size_of(TRc(i32)), "niche");
+  assert(size_of(Option(TArc(i32))) > size_of(TArc(i32)), "tagged");
+  (none : Option(TRc(i32))) = .None;
+  assert(none.is_none(), "NULL is .None");
+  some := Option(TRc(i32)).Some(trc(i32(7)));
+  assert(match(some, .Some(h) => (h.* == i32(7)), .None => false), "the payload through the folded Option");
+});
+// A safe file spells the borrow through auto-dereference: a written `*` hop
+// in a local borrow is rejected there for every handle
+// (issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md).
+test("S13: a borrow of a place in a handle's payload pins the cell", {
+  h := trc(_p(i32(2)));
+  {
+    x := &h.x;
+    assert(ref_count(h) == usize(2), `the borrow's pin holds the cell: ${ref_count(h)}`);
+    assert(x == i32(2), "read through the borrow");
+  };
+  assert(ref_count(h) == usize(1), "the pin was released at the borrow's scope end");
+});
+_Area :: trait(area : (fn(self : &Self) -> i32));
+_Sq :: struct(s : i32);
+impl(_Sq, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
+test("S20-S22: dyn of a cell handle dispatches to its payload", {
+  (d : Dyn(_Area)) = dyn(trc(_Sq(s : i32(2))));
+  assert(d.area() == i32(4), "dispatched to _Sq through the handle");
+  match(downcast(d, _Sq), .Some(sq) => assert(sq.s == i32(2), "the payload"), .None => assert(false, "a _Sq"));
+  (e : Dyn(_Area, Send)) = dyn(tarc(_Sq(s : i32(3))));
+  assert(e.area() == i32(9), "an atomic handle in a Send Dyn");
+  t := Thread(i32).spawn(io => e.area());
+  assert(t.join() == i32(9), "dispatched on another thread");
+  comptime_expect_error({
+    (f : Dyn(_Area, Send)) = dyn(trc(_Sq(s : i32(1))));
+    f
+  }, "must be atomically reference counted");
+});
+// An atomic `ref` enum is no object of its own for the box rule, as with
+// `Arc`: `dyn` of an atomic handle over one boxes it for a `Send` `Dyn`.
+_AE :: atomic(ref(enum(A(n : i32), B)));
+impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n, .B => i32(0)))));
+test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an Arc of one is", {
+  (d : Dyn(_Area, Send)) = dyn(tarc(_AE.A(n : i32(7))));
+  assert(d.area() == i32(7), "dispatched through the atomic handle");
+  (e : Dyn(_Area, Send)) = dyn(arc(_AE.A(n : i32(8))));
+  assert(e.area() == i32(8), "and through the Arc");
+});
+test("D2: a handle auto-dereferences to its payload whatever Target its Deref impl names", {
+  m := tmisnamed(i32(3));
+  assert(m.x == i32(3), "m.x is m.*.x");
+});
+_count_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ &items }(io : Io) => {
+    io.await(yield(io), io);
+    items.len()
+  })
+);
+_push_later :: (fn(items : &mut ArrayList(i32), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut items }(io : Io) => items.push(i32(1)))
+);
+test("S14: a future may hold a & place lent through a cell handle, not a &mut one", {
+  p := _p(i32(0));
+  p.items.push(i32(1));
+  h := trc(p);
+  assert(io.await(_count_later(&h.*.items, io), io) == usize(1), "a & lend through the handle crosses the await");
+  comptime_expect_error(io.await(_push_later(&mut h.*.items, io), io), "read-only through the handle");
+});
+_Node :: struct(v : i32, next : Option(TRc(Self)));
+_sum_nodes :: (fn(n : &_Node) -> i32)(
+  match(n.next, .Some(h) => (n.v + _sum_nodes(&h.*)), .None => n.v)
+);
+test("a recursive type through a cell handle", {
+  tail := trc(_Node(v : i32(3), next : .None));
+  mid := trc(_Node(v : i32(2), next : .Some(tail)));
+  head := _Node(v : i32(1), next : .Some(mid));
+  assert(_sum_nodes(&head) == i32(6), "built and walked");
+  assert(size_of(Option(TRc(_Node))) == size_of(usize), "the link is one pointer");
+});
+test("S5: a pattern does not look through a cell handle implicitly", {
+  h := trc(_p(i32(1)));
+  comptime_expect_error(
+    match(h, _P(x : x, items : _) => x, _ => i32(0)),
+    "does not look through a cell implicitly"
+  );
+  n := match(h, g => g.*.x);
+  assert(n == i32(1), "a binding binds the handle");
+});
+// A receiver or `&` argument reached through a cell handle keeps the handle
+// alive for its call, as through an `Rc` (#1573): the caller's share is taken
+// on the handle, so a closure argument that drops every other handle leaves
+// the cell alive until the call returns. The payload has a destructor, so no
+// copy of it could keep it; `peek` returns how many payloads were destroyed
+// while its closure ran.
+mut(_hd_drops) := i32(0);
+_HdCell :: struct(n : i32);
+impl(
+  _HdCell,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _hd_drops = (_hd_drops + i32(1));
+    })
+  )
+);
+impl(
+  _HdCell,
+  peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> i32)({
+    act();
+    _hd_drops + (self.n - self.n)
+  })
+);
+_hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
+  act();
+  _hd_drops + (c.n - c.n)
+});
+test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
+  _hd_drops = i32(0);
+  hs := ArrayList(TRc(_HdCell)).new();
+  hs.push(trc(_HdCell(n : i32(1))));
+  hs2 := hs;
+  assert(
+    hs(usize(0)).peek(() => {
+      hs2.clear();
+    }) == i32(0),
+    "auto-dereferenced receiver: the cell outlives the call"
+  );
+  assert(_hd_drops == i32(1), "and is destroyed once, after it");
+  hs.push(trc(_HdCell(n : i32(2))));
+  assert(
+    _hd_peek(&hs(usize(0)).*, () => {
+      hs2.clear();
+    }) == i32(1),
+    "a `&` argument through the handle"
+  );
+  assert(_hd_drops == i32(2), "destroyed once");
+});

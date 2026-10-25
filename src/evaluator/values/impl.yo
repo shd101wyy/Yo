@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, cell_handle_view } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -1970,8 +1970,15 @@ _impl_site_string :: (fn(tok : &Token) -> String)(
 /// error, so every auto-dereference forwards through one of the known cells
 /// and never through a user wrapper. Checked on the RESOLVED trait — its
 /// nominal key against the prelude `Deref`'s — so an alias is caught too.
-_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+/// One more cell may implement it: a cell handle (`cell_handle_view`, the
+/// shape V5 gives `Rc` and `Arc`) in a `pragma(Pragma.AllowUnsafe)` file,
+/// the only kind of file that can spell one (V5 decision D2). Its payload is
+/// the cell's, as the prelude cells' is.
+_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), receiver_ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.*.clone()), ctx.std_path.clone()), {
+    return(());
+  });
+  if(cell_handle_view(receiver_ty).is_some() && is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     return(());
   });
   is_deref := match(
@@ -5087,7 +5094,7 @@ evaluate_module_value :: (
           .Atom(_, _) => make_err_expr()
         );
         g_trait_ty_opt := _try_lookup_trait_type(&trait_fn_expr2, &forall_env, ctx, exn);
-        _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
+        _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, &receiver_type_pattern, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
         g_trait_ty := match(g_trait_ty_opt, .Some(t) => t, .None => t_unit());
         // `Drop`/`Trace` only on the receivers they accept, as
         // Case 3 checks through `g_check_self_constraints_fn`; a blanket
@@ -5613,7 +5620,7 @@ evaluate_module_value :: (
             .Atom(_, _) => make_err_expr()
           );
           current_trait_ty = _try_lookup_trait_type(&trait_fn_expr, &local_env, ctx, exn);
-          _throw_if_deref_impl_outside_prelude(&current_trait_ty, ast_expr_token(&field_expr), &local_env, ctx, exn);
+          _throw_if_deref_impl_outside_prelude(&current_trait_ty, &receiver_ty, ast_expr_token(&field_expr), &local_env, ctx, exn);
           // Record that this type implements the trait (by its base id) in the
           // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
           // trait-checking step 4 — the impl'd trait is pushed onto the

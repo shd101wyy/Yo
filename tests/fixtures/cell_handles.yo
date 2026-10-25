@@ -1,0 +1,42 @@
+//! Cell handles: newtypes over the private cell primitives, the shape V5
+//! gives `Rc` and `Arc` (plans/VALUES_BY_DEFAULT.md §3.5, "V5's seed
+//! predicates"). The compiler recognizes the shape by structure
+//! (`cell_handle_view`, decision D1), so these test-local wrappers get the
+//! prelude cells' semantics without std: `h.*`, `ref_count`, the `Option`
+//! niche, the read-only payload (E0919, D3), `dyn` and auto-dereference.
+//! Only an unsafe-capable file can spell the field type; a safe file names
+//! the wrappers (tests/cell_handles.test.yo).
+pragma(Pragma.AllowUnsafe);
+TRc :: (fn(comptime(V) : Type) -> comptime(Type))(
+  newtype(_cell : __yo_cell(V))
+);
+TArc :: (fn(comptime(V) : Type) -> comptime(Type))(
+  newtype(_cell : __yo_atomic_cell(V))
+);
+trc :: (fn(generic(V : Type), sink(v) : V) -> TRc(V))(TRc(V)(__yo_cell(V)(v, .None)));
+tarc :: (fn(generic(V : Type), sink(v) : V) -> TArc(V))(TArc(V)(__yo_atomic_cell(V)(v, .None)));
+// Decision D2: a cell handle in an unsafe-capable file may implement
+// `Deref`, as the prelude's cells do.
+impl(generic(T : Type), TRc(T), Deref(Target : T));
+impl(generic(T : Type), TArc(T), Deref(Target : T));
+/// Replaces the handle's cell: a write to the handle's own field `_cell`, not
+/// through the handle (V5's `make_mut` writes it), so it is not E0919, and
+/// the method-entry borrow assert reads the cell behind `h`.
+treset :: (fn(generic(V : Type), h : &mut TRc(V), sink(v) : V) -> unit)({
+  h._cell = __yo_cell(V)(v, .None);
+});
+/// A plain struct over an atomic cell is not a handle (decision D3: the
+/// non-handle atomic types are `struct`s, so their state is not a read-only
+/// payload).
+TLocked :: (fn(comptime(V) : Type) -> comptime(Type))(
+  struct(_cell : __yo_atomic_cell(V))
+);
+tlocked :: (fn(generic(V : Type), sink(v) : V) -> TLocked(V))(TLocked(V)(_cell : __yo_atomic_cell(V)(v, .None)));
+/// A handle whose `Deref` impl names a `Target` other than its payload:
+/// auto-dereference forwards to the payload `h.*` reads, as for every handle
+/// (decision D2).
+TPt :: struct(x : i32);
+TMisnamed :: newtype(_cell : __yo_cell(TPt));
+impl(TMisnamed, Deref(Target : bool));
+tmisnamed :: (fn(x : i32) -> TMisnamed)(TMisnamed(__yo_cell(TPt)(TPt(x : x), .None)));
+export(TRc, TArc, trc, tarc, treset, TLocked, tlocked, TPt, TMisnamed, tmisnamed);

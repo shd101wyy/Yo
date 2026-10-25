@@ -691,22 +691,108 @@ cannot be copied.
     `pragma(Pragma.AllowUnsafe)`, so V5's prelude wrappers may use the cell.
     The error carries no code, like the other unsafe-capability gates (the
     raw-pointer, union-read and destroying-builtin rejections).
-  - **Left to V5.** The cell is the storage V5's wrappers hold, not the
-    wrappers' semantics. Today the compiler identifies `Rc`, `Arc` and `Box`
-    by their stamped names plus their current shapes (`is_box_type`,
-    `handle_payload_is_read_only`, `unique_box_payload_type`), and
-    auto-dereference and E0919 key on those. A wrapper whose only field is
-    `_cell : __yo_cell(V)` is not one of those shapes. V5 Generation A
-    therefore needs those predicates to learn the new shape, and std may use
-    the new shape only on a seed that carries them. Either that compiler
-    half lands in a release before V5's std half, or the predicates are
-    taught both shapes ahead of time. Teaching them is V5's compiler half
-    (`.*` and auto-dereference through `_cell`, `ref_count`, E0919, the
-    `dyn` cell), not a rider on the primitive, so this PR does not. Open for
-    the schedule (2026-10-24): `plans/handover/VBD_RELEASE_SCHEDULE.md`'s
-    v0.2.71 row names `__yo_cell` as V5's only seed prerequisite, which
-    understates it; either that compiler half joins the v0.2.71 cut, or V5's
-    std half moves one release after it.
+  - **Left to V5, then taught to the seed (v0.2.71, `feat/v5-seed-predicates`).**
+    The cell is the storage V5's wrappers hold, not the wrappers' semantics.
+    The compiler identified `Rc`, `Arc` and `Box` by their stamped names plus
+    their shapes (`is_box_type`, `handle_payload_is_read_only`,
+    `unique_box_payload_type`), and a wrapper whose only field is
+    `_cell : __yo_cell(V)` is none of those shapes. V5 Generation A
+    (v0.2.72) rewrites the wrappers as follows, so the seed it builds on must
+    already lower that shape (`Box` does not change; it is not a cell):
+
+    ```yo ignore
+    Rc :: (fn(comptime(V) : Type) -> comptime(Type))(newtype(_cell : __yo_cell(V)));
+    Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(newtype(_cell : __yo_atomic_cell(V)));
+    ```
+
+    The compiler half is a Generation A of its own in the v0.2.71 cut,
+    compiler only: nothing in std or src uses the shape, so every new arm is
+    dead in the tree and the emitted C of `src/main.yo` is byte-identical.
+    - **The view.** `cell_handle_view(t)` (`src/types/guards.yo`) answers a
+      `CellHandleView(cell, payload, is_atomic)` for a newtype (not a `ref`)
+      whose one field is labelled `_cell` and is a cell primitive.
+      `is_counted_handle_type` (a `ref` object, an atomic object or a view)
+      and `is_atomic_counted_handle_type` (an atomic object or an atomic
+      view) replace the "is this a handle" idiom.
+    - **D1, name-free.** The recognition does not read the name. Only an
+      unsafe-capable file can spell the field type, so any newtype over a
+      cell is a shared, counted handle and giving it `Rc`/`Arc` semantics is
+      sound. A user's `pragma(Pragma.AllowUnsafe)` newtype over a cell is
+      therefore a read-only handle too. The wrapper patterns `Rc(p)`/`Arc(p)`
+      stay name-gated (`_is_wrapper_ctor_name`).
+    - **D2, `Deref` on a view.** A view in an unsafe-capable file may
+      implement `Deref` (`_throw_if_deref_impl_outside_prelude`), so
+      auto-dereference is testable before std moves. Auto-dereference of a
+      view forwards to its cell's payload, the place `h.*` reads, whatever
+      `Target` the impl names (`deref_target_type`): the impl's `Target` is
+      not compared with the payload, so a misnamed one cannot send
+      auto-dereference to a type the handle does not hold.
+    - **D3, the non-handle atomic types are `struct`s.** `Mutex`, `RwLock`,
+      the `Atomic*` types and the rest become `struct(_cell :
+      __yo_atomic_cell(State))` at V5, not newtypes: a newtype would make
+      `m.*` a read-only view of the state.
+    - **What each predicate learned.** Each one is "old shape or view":
+      - `h.*` has the payload's type, is a run-time place and needs no
+        `unsafe` (`evaluate_property_access`), and lowers to the cell's `*`
+        field behind the handle's C value, the cell pointer
+        (`generate_field_access`);
+      - `ref_count(h)` reads the cell's header, atomically for an atomic
+        view (it folded to the constant `1`); `is_rc_type` is not widened,
+        because its dup/drop users would change the C;
+      - the dup/drop pair optimizer cancels a view's pairs as an `Rc`'s
+        (`value_type_with_rc` in `src/evaluator/exprs/begin.yo` excludes a
+        view as it excludes a `ref` object): a view is one cell pointer in
+        C, so an aliasing copy shares the source's count and `ref_count`
+        after `g2 := g` agrees with `Rc`'s (`tests/cell_handles.test.yo`
+        compares the two);
+      - `Option` of a non-atomic view keeps the one-pointer niche and of an
+        atomic one the tag (`_is_nullable_payload_type`);
+      - the payload is read-only through the handle: E0919 for both kinds
+        (`is_box_type` for the non-atomic one, `handle_payload_is_read_only`
+        for both), and D3 for the atomic one, rooted
+        (`get_atomic_object_root_type`) or through a hop (`place_cell_hops`);
+        the handle's own field `h._cell` is a field of a value, not a step
+        through the handle; a `&mut` local lend (a borrow binding or a
+        `&mut` match scrutinee) of a place behind any handle is E0919 or D3
+        as the write itself would be
+        (`issues/fixed/2026-10-24-a-mut-match-scrutinee-writes-through-an-rc-or-an-atomic-object.md`,
+        which the old shapes had too);
+      - a borrow of `h.*` pins the handle (the local-borrow pin), a future
+        may hold a `&` place through it, the global-lend and `ref` argument
+        checks and the method-entry borrow asserts treat it as a handle,
+        the local-borrow place model leaves at it (`_lb_is_cell_type`), and
+        decision 47's walks (`place_root_binding`, `_place_root_variable`)
+        count `h.*` as a step through the handle, not a write of the
+        binding;
+      - `dyn(h)` dispatches to the payload and is not boxed a second time; a
+        `Dyn(…, Send)` takes only the atomic view, and an atomic view is a
+        box unless its payload is a `ref` struct or another view, as an
+        `Arc` is (`is_boxed_type`: an `Arc` of an atomic `ref` enum is boxed
+        too); the wrappers, the
+        vtable's retain/release and `downcast` read the cell behind the
+        handle;
+      - the pattern helpers look through a view (`box_inner_type`,
+        `is_pattern_cell_type`, the witness's `Rc`/`Arc`), and a
+        look-through hop reads the cell's `*` field;
+      - the explicit-copy audit and the `rc`-write report name a view `Rc`
+        or `Arc`.
+    - **Tests.** `tests/fixtures/cell_handles.yo` (unsafe) declares test-local
+      handles over both cells, `tests/cell_handles.test.yo` (safe) uses them,
+      one test per predicate, and `tests/internal/types_guards.test.yo`
+      covers the predicates on hand-built types. A test file cannot declare
+      its own `Rc` (a prelude name cannot be shadowed), which is why the
+      recognition is by shape. A safe file spells a local borrow of the
+      payload through auto-dereference (`&h.x`): a written `*` hop there is
+      rejected for every handle
+      (`issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
+    - **The private `_cell` shadows a payload field of the same name:**
+      `w._cell` names the wrapper's field before auto-dereference runs. This
+      is already true for `Box`, and E0405 rejects the access outside the
+      declaring module.
+    - **Generation B (v0.2.74, with V5's).** Delete the old-shape arms (the
+      `*`-label and `Rc(`-name arms of `is_box_type`, `is_boxed_type`, the
+      pattern helpers and `handle_payload_is_read_only`, and its `Arc(` arm),
+      keeping only `cell_handle_view`.
 - **`Box` and buffers are plain allocations, not cells.** `Box`, `String`
   and collection buffers are owned by their value: no header, no count.
 - **A cell is a cycle-collector node; a value is not.**

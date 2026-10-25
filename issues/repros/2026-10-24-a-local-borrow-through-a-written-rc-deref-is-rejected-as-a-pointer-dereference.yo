@@ -1,0 +1,13 @@
+// issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md
+// Safe file. `a` (the auto-dereference spelling) is accepted; `b`, the same
+// place spelled with `.*`, is rejected as "a pointer dereference".
+{ assert } :: import("std/assert");
+_P :: struct(x : i32);
+main :: (fn() -> unit)({
+  h := rc(_P(x : i32(2)));
+  a := &h.x;
+  assert(a == i32(2), "auto-deref spelling");
+  b := &h.*.x;
+  assert(b == i32(2), "explicit spelling");
+});
+export(main);
