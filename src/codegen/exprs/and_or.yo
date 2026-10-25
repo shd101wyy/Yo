@@ -27,7 +27,7 @@ _mark_sc_target_emitted :: (fn(target : &String, context : &FunctionGenerationCo
   // Taken out and stored back: a `match` binding is a copy of the set once
   // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   em_set := match(context.short_circuit_emitted_drop_targets.take(), .Some(s) => s, .None => HashSet(String).new());
-  em_set.insert(target);
+  em_set.insert(target.clone());
   context.short_circuit_emitted_drop_targets = Option(HashSet(String)).Some(em_set);
 });
 /// `base` followed by `n` levels of two-space indent.

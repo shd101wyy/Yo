@@ -105,7 +105,7 @@ _insert_attr_before_first_decl :: (
             out.push(match(hay.get_byte(ci), .Some(cb) => cb, .None => u8(0)));
             ci = (ci + usize(1));
           });
-          ab := attr_line;
+          ab := attr_line.clone();
           (ai : usize) = usize(0);
           while(ai < ab.len(), {
             out.push(match(ab.get_byte(ai), .Some(cb) => cb, .None => u8(0)));
@@ -790,7 +790,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       prev_name := context.base.current_function_name;
       prev_type := context.current_function_type;
       prev_override := context.override_return_type_str;
-      context.base.current_function_name = c_function_name;
+      context.base.current_function_name = c_function_name.clone();
       context.current_function_type = Option(TypeValue).Some(function_type);
       // Thread the async return-type override into `return` statements (return.yo
       // reads context.override_return_type_str) so the returned future is cast to

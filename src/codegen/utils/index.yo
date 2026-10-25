@@ -391,7 +391,7 @@ impl(
       emitter : emitter,
       info_table : info_table,
       target_info : target_info,
-      allocator : allocator,
+      allocator : allocator.clone(),
       heap_size : heap_size,
       debug_heap : debug_heap,
       current_function_name : String.from(""),
@@ -523,14 +523,14 @@ impl(
   register_type : (
     fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
-    self.types.insert(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
+    self.types.insert(id.clone(), CodegenTypeEntry(ty : ty, c_name : c_name.clone(), c_include : c_include.clone()));
     ()
   }),
   /// Alias an EVOLVED type_key render to an already-registered key (the
   /// stable-identity dedup in collect_type). One level only — the target is
   /// always a PRIMARY registered key.
   register_type_alias : (fn(self : &Self, alias_id : &String, target_id : &String) -> unit)({
-    self.type_key_aliases.insert(alias_id, target_id);
+    self.type_key_aliases.insert(alias_id.clone(), target_id.clone());
     ()
   }),
   /// Look up a registered type entry by id (following one alias level).
@@ -598,7 +598,7 @@ impl(
       .FuncVal(fvd, _) => ast_expr_token(&fvd.*.body).module_path.*.clone(),
       _ => String.new()
     );
-    self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : final_name, def_module : def_mod));
+    self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : value, c_name : final_name, def_module : def_mod));
     ()
   }),
   /// True if a function with this func_id is already registered.
@@ -639,12 +639,12 @@ impl(
   }),
   /// Record an exported function's label → func_id mapping (stable C name).
   set_exported_function_label : (fn(self : &Self, func_id : &String, label : &String) -> unit)({
-    self.exported_function_labels.insert(func_id, label);
+    self.exported_function_labels.insert(func_id.clone(), label.clone());
     ()
   }),
   /// Register a dyn() usage (idempotent on key).
   register_dyn_impl : (fn(self : &Self, key : &String, entry : &DynImplEntry) -> unit)({
-    self.dyn_impls.insert(key, entry);
+    self.dyn_impls.insert(key.clone(), entry);
     ()
   }),
   /// Record one `upcast(src, tgt)` (idempotent per target).
@@ -671,14 +671,14 @@ impl(
   register_extern_function : (
     fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
-    self.extern_functions.insert(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
+    self.extern_functions.insert(id.clone(), CodegenExternFnEntry(ty : ty, c_name : c_name.clone(), c_include : c_include.clone()));
     ()
   }),
   /// Register an array struct type (idempotent).
   register_array_struct_type : (
     fn(self : &Self, c_name : &String, child_type : &String, length : i64) -> unit
   )({
-    self.array_struct_types.insert(c_name, ArrayStructInfo(child_type : child_type, length : length));
+    self.array_struct_types.insert(c_name.clone(), ArrayStructInfo(child_type : child_type.clone(), length : length));
     ()
   }),
   /// True if an array struct type with this C name is registered.
@@ -687,7 +687,7 @@ impl(
   ),
   /// Add a C include header.
   add_c_include : (fn(self : &Self, include : &String) -> unit)({
-    self.c_includes.insert(include);
+    self.c_includes.insert(include.clone());
     ()
   })
 );
@@ -1946,14 +1946,14 @@ get_variable_type_string :: (
 /// (`Emitter.declared_ref`) and writes it too.
 declare_c_var_name :: (fn(context : &CodeGenContext, c_name : &String) -> unit)(
   context.declared_c_var_names.with_mut(names => {
-    names.insert(c_name);
+    names.insert(c_name.clone());
   })
 );
 /// Push `c_name` onto the current function's block-scope stack
 /// (`declared_scopes`), which the emitter shares the same way
 /// (`Emitter.scope_ref`).
 push_declared_scope :: (fn(context : &CodeGenContext, c_name : &String) -> unit)(
-  context.declared_scopes.with_mut(scopes => scopes.push(c_name))
+  context.declared_scopes.with_mut(scopes => scopes.push(c_name.clone()))
 );
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
 /// upper-cased).

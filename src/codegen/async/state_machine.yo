@@ -156,8 +156,8 @@ _lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64,
   if(!w.vars.contains_key(id.clone()), {
     w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
     ids := match(w.names.get(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
-    ids.push(id);
-    w.names.insert(name, ids);
+    ids.push(id.clone());
+    w.names.insert(name.clone(), ids);
   });
 });
 /// Record a use of `id` at `at`: a local defined before an enclosing loop is
@@ -558,7 +558,7 @@ compute_cross_boundary_variables :: (
     module_path : body_tok.module_path.*.clone(),
     foreign : false,
     vars : HashMap(String, _LiveVar).new(),
-    remap : analysis.variable_id_remapping,
+    remap : analysis.variable_id_remapping.clone(),
     loop_starts : ArrayList(u64).new(),
     loop_ends : ArrayList(u64).new(),
     span_ends : HashMap(usize, u64).new(),
@@ -1925,7 +1925,7 @@ generate_async_block_resume_function_inline :: (
   p_pdd := context.pending_deferred_drops;
   context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
   context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
-  context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
   pdd := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
