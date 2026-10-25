@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_flowable_expr, flow_options_default, FlowOptions }
+{ is_flowable_expr, flow_options_default, FlowOptions, raise_flow_violation }
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type } :: import("../../types/utils.yo");
@@ -110,6 +110,9 @@ pragma(Pragma.AllowUnsafe);
   ImplicitCopyPending,
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
+  take_dyn_copy_pending,
+  dyn_copy_pending_exists,
+  dyn_copy_used_again_error,
   audit_report_implicit_copy,
   reject_second_class_return,
   reject_second_class_result_outliving,
@@ -1810,34 +1813,39 @@ _ICScan :: ref(
     reads : usize,
     /// A read after the site: the copy is a real copy.
     later : bool,
-    /// The path through the site has left the function (`return`, `unwind`,
-    /// `panic`), so nothing after it reads the variable.
-    done : bool
+    /// Every path through the site has ended within the scanned region: it
+    /// left the function (`return`, `unwind`, `panic`), left or restarted the
+    /// innermost loop (`break`, `continue`), or (`stop_at_write`) wrote the
+    /// variable, so nothing after it in the region reads the copied value.
+    done : bool,
+    /// A path through the site reached a `break` of the innermost loop, so
+    /// the code after that loop is on it whatever the rest of the loop does.
+    broke : bool,
+    /// A path through the site reached a `continue` of the innermost loop,
+    /// so the next iteration is on it whatever the rest of the body does.
+    continued : bool,
+    /// The scan starts after the site (the next iteration of a loop that
+    /// holds it): every read is later, and every write or exit is on a path
+    /// through the site.
+    post_site : bool,
+    /// The first read after the site, when `later` came from one (a loop that
+    /// runs the site again sets `later` with none).
+    later_tok : Option(Token),
+    /// An assignment to the variable after the site (or around it, `v =
+    /// f(v)`) ends the scan: what follows reads the new value. The unique
+    /// `Dyn` rule (`judge_dyn_copies`) sets it; the audit counts such reads.
+    stop_at_write : bool
   )
 );
 _ic_new_scan :: (fn() -> _ICScan)(
-  _ICScan(site_seen : false, reads : usize(0), later : false, done : false)
+  _ICScan(site_seen : false, reads : usize(0), later : false, done : false, broke : false, continued : false, post_site : false, later_tok : Option(Token).None, stop_at_write : false)
 );
-/// `e` ends by leaving the function: its last statement is `return`,
-/// `unwind` or `panic` (`break`/`continue` stay in the function).
-_ic_exits_function :: (fn(e : &AstExpr) -> bool)(
-  match(
-    e,
-    .Atom(_, _) => false,
-    .FnCall(_, _, args, _, _) => cond(
-      (ast_expr_is_fn_call_of(e, BK_RETURN, .None) || ast_expr_is_fn_call_of(e, BF_UNWIND, .None) || ast_expr_is_fn_call_of(e, "panic", .None)) => true,
-      ast_expr_is_fn_call_of(e, BK_BEGIN, .None) => {
-        (k : usize) = args.len();
-        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
-          k = (k - usize(1));
-        });
-        (k > usize(0)) && _ic_exits_function(&args(k - usize(1)))
-      },
-      true => false
-    )
-  )
+/// A nested scan that keeps `acc`'s mode.
+_ic_sub_scan :: (fn(acc : &_ICScan) -> _ICScan)(
+  _ICScan(site_seen : false, reads : usize(0), later : false, done : false, broke : false, continued : false, post_site : acc.post_site, later_tok : Option(Token).None, stop_at_write : acc.stop_at_write)
 );
-/// Fold a nested scan into `acc`.
+/// Fold a nested scan's reads into `acc` (whether its end ends `acc`'s path
+/// is the caller's call).
 _ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
   acc.reads = (acc.reads + sub.reads);
   if(sub.site_seen, {
@@ -1845,24 +1853,99 @@ _ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
   });
   if(sub.later, {
     acc.later = true;
+    if(acc.later_tok.is_none(), {
+      acc.later_tok = sub.later_tok;
+    });
   });
-  if(sub.done, {
+});
+/// Fold a nested scan's jumps out of the innermost loop into `acc`: a path
+/// that reached one is a path of `acc`'s region too.
+_ic_merge_jumps :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
+  if(sub.broke, {
+    acc.broke = true;
+  });
+  if(sub.continued, {
+    acc.continued = true;
+  });
+});
+/// `tok` lies after the site on a path through it: the scan starts past the
+/// site, or `tok` follows it in the source.
+_ic_after_site :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> bool)(
+  acc.post_site || ((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset))
+);
+_ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
+  acc.reads = (acc.reads + usize(1));
+  if(_ic_after_site(tok, site, acc), {
+    acc.later = true;
+    if(acc.later_tok.is_none(), {
+      acc.later_tok = Option(Token).Some(tok.clone());
+    });
+  });
+});
+/// A `break` or `continue` at `tok` (`is_break`: which): a path through the
+/// site that reaches it leaves the rest of the loop body.
+_ic_jump :: (fn(is_break : bool, tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
+  if(acc.site_seen || _ic_after_site(tok, site, acc), {
+    if(is_break, {
+      acc.broke = true;
+    }, {
+      acc.continued = true;
+    });
     acc.done = true;
   });
 });
-_ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
-  acc.reads = (acc.reads + usize(1));
-  if((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset), {
-    acc.later = true;
+/// `e` is a `break` or `continue` (an atom, or a call with no label).
+_ic_jump_kind :: (fn(e : &AstExpr) -> Option(bool))(
+  cond(
+    (ast_expr_is_atom_of(e, BK_BREAK) || ast_expr_is_fn_call_of(e, BK_BREAK, Option(usize).None)) => Option(bool).Some(true),
+    (ast_expr_is_atom_of(e, "continue") || ast_expr_is_fn_call_of(e, "continue", Option(usize).None)) => Option(bool).Some(false),
+    true => Option(bool).None
+  )
+);
+/// A `while` whose condition is `true` (or `runtime(true)`) runs its body at
+/// least once.
+_ic_while_runs_body :: (fn(args : &ArrayList(AstExpr)) -> bool)(
+  match(
+    args.get(usize(0)),
+    .Some(c) => (ast_expr_is_atom_of(&c, "true") || (ast_expr_is_fn_call_of(&c, "runtime", Option(usize).Some(usize(1))) && match(c, .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(c0) => ast_expr_is_atom_of(&c0, "true"), .None => false), .Atom(_, _) => false))),
+    .None => false
+  )
+);
+/// The next iteration of the `while` (`args`) that holds the site, scanned
+/// from its start in `post_site` mode (step, condition, body): true when it
+/// reads the variable before a write or an exit ends every path, which
+/// includes reaching the site itself again.
+_ic_next_iteration_reads :: (fn(args : &ArrayList(AstExpr), v : &Variable, site : &ImplicitCopyPending, acc : &_ICScan, ctx : &EvalContext) -> bool)({
+  next := _ic_sub_scan(acc);
+  next.post_site = true;
+  order := ArrayList(AstExpr).new();
+  cond(
+    (args.len() == usize(3)) => {
+      order.push(args(usize(1)));
+      order.push(args(usize(0)));
+      order.push(args(usize(2)));
+    },
+    true => {
+      (oi : usize) = usize(0);
+      while(oi < args.len(), oi = (oi + usize(1)), {
+        order.push(args(oi));
+      });
+    }
+  );
+  (ni : usize) = usize(0);
+  while((ni < order.len()) && !(next.later || next.done), ni = (ni + usize(1)), {
+    _ic_scan(&order(ni), v, site, &next, ctx);
   });
+  next.later
 });
 /// Walk `e` in the declaring block for reads of `v` after `site`. A read is
 /// an atom resolving to `v` (by id, so a shadowing binding is not one), or a
 /// closure literal capturing `v` (its body is another function, so only its
 /// position counts). The left side of `v = …`, a field name after `.` and a
-/// label before `:` are not reads. A `while` that contains the site and reads
-/// `v` runs the site again, so the copy is live unless the loop reassigns
-/// `v`. Follows `macro_expansion` as the dup collector does.
+/// label before `:` are not reads. A `while` that holds the site runs it
+/// again when a path through the site reaches the next iteration (`!done`, or
+/// a `continue`) and that iteration reads `v` before writing it. Follows
+/// `macro_expansion` as the dup collector does.
 _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : &_ICScan, ctx : &EvalContext) -> unit)({
   if(acc.later || acc.done, {
     return(());
@@ -1907,6 +1990,14 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
     .None => ()
   );
   match(
+    _ic_jump_kind(e),
+    .Some(is_break) => {
+      _ic_jump(is_break, &tok, site, acc);
+      return(());
+    },
+    .None => ()
+  );
+  match(
     e,
     .Atom(_, atok) => if(atok.value == v.name, {
       match(
@@ -1937,28 +2028,45 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       });
       if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(&first) && (ast_expr_token(&first).value == v.name), {
         recur(&second, v, site, acc, ctx);
+        if(acc.stop_at_write && (acc.site_seen || _ic_after_site(&tok, site, acc)), {
+          acc.done = true;
+        });
         return(());
       });
       // A branch: an arm whose BODY holds the site excludes the arms after
-      // it, and one that leaves the function ends the path.
+      // it, and its end is the end of the path. An arm that does not hold the
+      // site ends only its own path: the branch ends every path when each arm
+      // does and the branch is exhaustive (a `match`, or a `cond` with a
+      // `true` arm, which `if` desugars to).
       if(ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+        (exhaustive : bool) = ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None);
+        (n_arms : usize) = usize(0);
+        (n_done : usize) = usize(0);
+        (taken : bool) = false;
         (bi : usize) = usize(0);
-        while((bi < args.len()) && !(acc.later || acc.done), {
+        while((bi < args.len()) && !(acc.later || acc.done || taken), bi = (bi + usize(1)), {
           arm := match(args.get(bi), .Some(a) => a, .None => make_err_expr());
-          (taken : bool) = false;
           if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
             match(
               arm,
               .FnCall(_, _, arm_args, _, _) => {
                 arm_head := match(arm_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
                 arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+                if(ast_expr_is_atom_of(&arm_head, "true"), {
+                  exhaustive = true;
+                });
                 recur(&arm_head, v, site, acc, ctx);
-                body_scan := _ic_new_scan();
+                body_scan := _ic_sub_scan(acc);
                 recur(&arm_body, v, site, &body_scan, ctx);
                 _ic_merge(acc, &body_scan);
+                _ic_merge_jumps(acc, &body_scan);
+                n_arms = (n_arms + usize(1));
+                if(body_scan.done, {
+                  n_done = (n_done + usize(1));
+                });
                 if(body_scan.site_seen, {
                   taken = true;
-                  if(_ic_exits_function(&arm_body), {
+                  if(body_scan.done, {
                     acc.done = true;
                   });
                 });
@@ -1968,14 +2076,17 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
           }, {
             recur(&arm, v, site, acc, ctx);
           });
-          bi = cond(taken => args.len(), true => (bi + usize(1)));
+        });
+        if(!taken && exhaustive && (n_arms > usize(0)) && (n_done == n_arms), {
+          acc.done = true;
         });
         return(());
       });
-      // Leaving the function: nothing after a `return` holding the site runs.
-      is_exit := (ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None));
-      is_while := ast_expr_is_fn_call_of(e, "while", Option(usize).None);
-      scan := cond((is_while || is_exit) => _ic_new_scan(), true => acc);
+      // Leaving the function: nothing after a `return` on a path through
+      // the site runs.
+      is_exit := (ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None) || ast_expr_is_fn_call_of(e, "panic", Option(usize).None));
+      is_while := ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None);
+      scan := cond((is_while || is_exit) => _ic_sub_scan(acc), true => acc);
       recur(&f, v, site, &scan, ctx);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !(scan.later || scan.done), {
@@ -1984,17 +2095,31 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       });
       if(is_exit, {
         _ic_merge(acc, &scan);
-        if(scan.site_seen, {
+        _ic_merge_jumps(acc, &scan);
+        if(scan.site_seen || acc.site_seen || _ic_after_site(&tok, site, acc), {
           acc.done = true;
         });
       });
       if(is_while, {
-        // The loop runs the site again unless that path left the function
-        // or the loop reassigns the variable.
-        repeats := (scan.site_seen && !scan.done && (scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx));
+        // The loop runs the site again when a path through it reaches the
+        // next iteration and that iteration reads the variable first. The
+        // audit keeps its coarser test: the loop reads the variable and
+        // assigns it nowhere.
+        reaches_next := (scan.site_seen && !scan.later && (!scan.done || scan.continued));
+        repeats := cond(
+          !reaches_next => false,
+          acc.stop_at_write => _ic_next_iteration_reads(&args, v, site, acc, ctx),
+          true => ((scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx))
+        );
         _ic_merge(acc, &scan);
         if(repeats, {
           acc.later = true;
+        });
+        // The loop's own `break`/`continue` stay inside it. Every path
+        // through the site ended in the loop unless one broke out of it; a
+        // loop that may run zero times ends no path that did not enter it.
+        if(scan.done && !scan.broke && (scan.site_seen || _ic_while_runs_body(&args)), {
+          acc.done = true;
         });
       });
     }
@@ -2040,6 +2165,63 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
     i = (i + usize(1));
   });
 });
+/// The unique `Dyn`, Generation A (plans/VALUES_BY_DEFAULT.md decision 7):
+/// judge the pending `Dyn` copies of `frame`'s variables (`check_dyn_copy`,
+/// evaluator/utils.yo) against `scanned`, the block or arm body that declares
+/// them. A copy whose variable is read again after it is E0901, at the first
+/// such read (Generation B moves the variable at the copy); one with no later
+/// read is the last use, a move. An assignment to the variable after the copy
+/// ends the scan, since later reads see the new value.
+judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), i = (i + usize(1)), {
+    match(
+      fvars.get(i),
+      .Some(v) => match(
+        take_dyn_copy_pending(v.id),
+        .Some(sites) => {
+          (si : usize) = usize(0);
+          while(si < sites.len(), si = (si + usize(1)), {
+            match(
+              sites.get(si),
+              .Some(p) => {
+                acc := _ic_new_scan();
+                acc.stop_at_write = true;
+                (ci : usize) = usize(0);
+                while((ci < scanned.len()) && !acc.later && !acc.done, ci = (ci + usize(1)), {
+                  match(scanned.get(ci), .Some(c) => _ic_scan(&c, &v, &p.site, &acc, ctx), .None => ());
+                });
+                if(acc.later, {
+                  raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok), ctx, exn);
+                });
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
+/// Drop, unjudged, the pending `Dyn` copies of `frame`'s variables: a copy a
+/// `match` guard makes is judged by no body (`judge_dyn_copies`), and the rule
+/// rejects only a copy it can see read again.
+discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), i = (i + usize(1)), {
+    match(
+      fvars.get(i),
+      .Some(v) => {
+        _ := take_dyn_copy_pending(v.id);
+      },
+      .None => ()
+    );
+  });
+});
 /// Judge, at the end of a `match` arm, the pending copies of the arm's
 /// pattern bindings (`frame`) against the arm's body (`scanned`): a binding
 /// of an owned temporary holds its copies pending for `yo fix --migrate
@@ -2072,7 +2254,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
-export(audit_judge_arm_copies, audit_commit_arm_copies);
+export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
@@ -3476,6 +3658,14 @@ _evaluate_begin_expression_impl :: (
     match(current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr, &begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
       match(env.frames.get(env.frames.len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(&audit_pfr, &begin_args, ctx), .None => ());
+    });
+  });
+  // The unique `Dyn`, Generation A: judge the pending `Dyn` copies of this
+  // block's locals and, for a function body, of its parameters.
+  if(dyn_copy_pending_exists(), {
+    match(current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr, &begin_args, ctx, exn), .None => ());
+    if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+      match(env.frames.get(env.frames.len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
     });
   });
   // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate
