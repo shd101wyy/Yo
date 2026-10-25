@@ -591,6 +591,20 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
   sets (the ONLY setter; `new_in(a)` instead hands the `Allocator` value
   straight to the container's own buffer allocation). The runtime's OWN
   blocks keep `__yo_rc_alloc` and are never placed.
+- **Two allocator interface versions, one switch.** `CodeGenContext.alloc_abi_v2`
+  is read off the shape of std's `AllocatorVTable` (`std_allocator_abi_is_v2`,
+  never a flag). std's struct is the one whose id was minted by a module under
+  the std path (`stable_id_module_path`), not an id prefix: an id keeps only two
+  path segments. Any other shape, two disagreeing std copies, or a
+  version-2-shaped vtable not declared in std is an internal compiler error,
+  never a silent version 1. Version 1 is `alloc(ctx, size)`/`realloc(ctx, p, n)`/`free(ctx, p)`
+  with the 16-byte prefix; version 2 is `alloc(ctx, size, align)`,
+  `realloc(ctx, p, old, new, align)`, `free(ctx, p, size, align)`, and a placed
+  RC block's prefix is `max(32, align)` bytes, the owner in the last 16 (where
+  version 1 keeps it) and the extent `{size, align}` in the 16 before. Spell a
+  placed allocation through `CodeGenContext.rc_alloc_scoped_call`, never a
+  literal `__yo_rc_alloc_scoped(...)`: it adds `_Alignof(T)` under version 2.
+  Version 1's emitted C must stay byte-identical until std moves (Generation B).
 
 ## Memory leak detection
 

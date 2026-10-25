@@ -1066,8 +1066,58 @@ typedef __yo_ref_header_t __yo_rc_prefix_t;`
   // the count masks with __YO_RC_COUNT; writers (`++`, `--`, fetch_add/sub)
   // keep the bit arithmetically. Emitted beside the header typedefs so every
   // translation unit sees `__yo_rc_free` before any release site.
+  //
+  // Allocator interface version 2 (`context.alloc_abi_v2`, read off the shape
+  // of std's `AllocatorVTable`, plans/handover/VBD_LOOKAHEAD_2026-10-23.md
+  // D30): the vtable takes an alignment and `free` is told the block's size
+  // and alignment (plans/VALUES_BY_DEFAULT.md "After V2b: the allocator
+  // interface, version 2"). The release path is generic over the object's
+  // type, so an allocator-placed RC block records its extent `{size, align}`
+  // in the 16 bytes before the owner: a 32-byte prefix, or `max(32, align)`
+  // (lookahead D14). The owner stays in the 16 bytes before the object, where
+  // version 1 keeps it, so `__yo_scope_of_object` reads one place.
   em.emit_declaration_string_line(
-    `
+    cond(
+      context.alloc_abi_v2 => `
+#define __YO_RC_TAG 0x80000000u
+#define __YO_RC_COUNT 0x7fffffffu
+#define __YO_ALLOC_PREFIX_SIZE 16
+#define __YO_RC_CELL_PREFIX_SIZE 32
+#define __YO_ALLOC_MIN_ALIGN 16
+typedef struct { void* ctx; const void* vtable; } __yo_alloc_prefix_t;
+typedef struct { size_t size; size_t align; } __yo_alloc_extent_t;
+typedef struct {
+  void* (*alloc)(void* ctx, size_t size, size_t align);
+  void* (*realloc)(void* ctx, void* ptr, size_t old_size, size_t new_size, size_t align);
+  void (*free)(void* ctx, void* ptr, size_t size, size_t align);
+} __yo_alloc_vtable_t;
+_Static_assert(sizeof(__yo_alloc_prefix_t) <= __YO_ALLOC_PREFIX_SIZE, "the owner prefix fits its 16 bytes");
+_Static_assert(sizeof(__yo_alloc_extent_t) <= __YO_RC_CELL_PREFIX_SIZE - __YO_ALLOC_PREFIX_SIZE, "the extent fits the 16 bytes before the owner");
+// The bytes in front of an allocator-placed RC object of alignment \`align\`:
+// the raw block starts this far before the object.
+static inline size_t __yo_rc_cell_prefix_span(size_t align) {
+  return align > __YO_RC_CELL_PREFIX_SIZE ? align : __YO_RC_CELL_PREFIX_SIZE;
+}
+// The alignment such a raw block is requested with.
+static inline size_t __yo_rc_cell_block_align(size_t align) {
+  return align > __YO_ALLOC_MIN_ALIGN ? align : __YO_ALLOC_MIN_ALIGN;
+}
+// Release an RC block to whoever allocated it: the global allocator, or the
+// explicit allocator recorded in its owner prefix, told the size and the
+// alignment its \`alloc\` was asked for.
+static inline void __yo_rc_free(void* ptr) {
+  if (((__yo_rc_prefix_t*)ptr)->ref_count & __YO_RC_TAG) {
+    const __yo_alloc_prefix_t* pre = (const __yo_alloc_prefix_t*)((char*)ptr - __YO_ALLOC_PREFIX_SIZE);
+    const __yo_alloc_extent_t* ext = (const __yo_alloc_extent_t*)((char*)ptr - __YO_RC_CELL_PREFIX_SIZE);
+    size_t span = __yo_rc_cell_prefix_span(ext->align);
+    size_t block_size = span + ext->size;
+    size_t block_align = __yo_rc_cell_block_align(ext->align);
+    ((const __yo_alloc_vtable_t*)pre->vtable)->free(pre->ctx, (char*)ptr - span, block_size, block_align);
+  } else {
+    __yo_free(ptr);
+  }
+}`,
+      true => `
 #define __YO_RC_TAG 0x80000000u
 #define __YO_RC_COUNT 0x7fffffffu
 #define __YO_ALLOC_PREFIX_SIZE 16
@@ -1089,6 +1139,50 @@ static inline void __yo_rc_free(void* ptr) {
     __yo_free(ptr);
   }
 }`
+    )
+  );
+  // `__yo_rc_alloc_scoped` in the interface version the vtable speaks.
+  alloc_scoped_fn := cond(
+    context.alloc_abi_v2 => `// A user-visible RC block of alignment \`align\`: from the scope's allocator
+// (with the extent and the owner in front, \`max(32, align)\` bytes), or from
+// __yo_rc_alloc when no scope is current. Allocate-or-abort either way.
+static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size, size_t align) {
+  if (s.vtable == NULL) return __yo_rc_alloc(size);
+  size_t span = __yo_rc_cell_prefix_span(align);
+  if (size > SIZE_MAX - span) __yo_alloc_fail(size);
+  char* raw = (char*)((const __yo_alloc_vtable_t*)s.vtable)->alloc(s.ctx, span + size, __yo_rc_cell_block_align(align));
+  if (raw == NULL) __yo_alloc_fail(size);
+  char* obj = raw + span;
+  __yo_alloc_extent_t* ext = (__yo_alloc_extent_t*)(obj - __YO_RC_CELL_PREFIX_SIZE);
+  ext->size = size;
+  ext->align = align;
+  __yo_alloc_prefix_t* pre = (__yo_alloc_prefix_t*)(obj - __YO_ALLOC_PREFIX_SIZE);
+  pre->ctx = s.ctx;
+  pre->vtable = s.vtable;
+  void* p = obj;
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(__wasm__)
+  __asm__ volatile("" : "+r"(p));  // same tcache barrier as __yo_rc_alloc
+#endif
+  return p;
+}
+`,
+    true => `// A user-visible RC block: from the scope's allocator (with the owner prefix
+// in front, the layout std/allocator.yo's Allocator.alloc writes), or from
+// __yo_rc_alloc when no scope is current. Allocate-or-abort either way.
+static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
+  if (s.vtable == NULL) return __yo_rc_alloc(size);
+  if (size > SIZE_MAX - __YO_ALLOC_PREFIX_SIZE) __yo_alloc_fail(size);
+  char* raw = (char*)((const __yo_alloc_vtable_t*)s.vtable)->alloc(s.ctx, size + __YO_ALLOC_PREFIX_SIZE);
+  if (raw == NULL) __yo_alloc_fail(size);
+  ((__yo_alloc_prefix_t*)raw)->ctx = s.ctx;
+  ((__yo_alloc_prefix_t*)raw)->vtable = s.vtable;
+  void* p = raw + __YO_ALLOC_PREFIX_SIZE;
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(__wasm__)
+  __asm__ volatile("" : "+r"(p));  // same tcache barrier as __yo_rc_alloc
+#endif
+  return p;
+}
+`
   );
   // The allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5): the allocator
   // `with_allocator` made current on this thread, `{ctx, NULL}` for the
@@ -1124,23 +1218,7 @@ static inline __yo_alloc_scope_t __yo_scope_of_object(void* p) {
   __yo_alloc_scope_t none = { 0, 0 };
   return none;
 }
-// A user-visible RC block: from the scope's allocator (with the owner prefix
-// in front, the layout std/allocator.yo's Allocator.alloc writes), or from
-// __yo_rc_alloc when no scope is current. Allocate-or-abort either way.
-static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
-  if (s.vtable == NULL) return __yo_rc_alloc(size);
-  if (size > SIZE_MAX - __YO_ALLOC_PREFIX_SIZE) __yo_alloc_fail(size);
-  char* raw = (char*)((const __yo_alloc_vtable_t*)s.vtable)->alloc(s.ctx, size + __YO_ALLOC_PREFIX_SIZE);
-  if (raw == NULL) __yo_alloc_fail(size);
-  ((__yo_alloc_prefix_t*)raw)->ctx = s.ctx;
-  ((__yo_alloc_prefix_t*)raw)->vtable = s.vtable;
-  void* p = raw + __YO_ALLOC_PREFIX_SIZE;
-#if (defined(__GNUC__) || defined(__clang__)) && !defined(__wasm__)
-  __asm__ volatile("" : "+r"(p));  // same tcache barrier as __yo_rc_alloc
-#endif
-  return p;
-}
-// std/allocator.yo's hooks (extern "Yo"): with_allocator saves and restores
+${alloc_scoped_fn}// std/allocator.yo's hooks (extern "Yo"): with_allocator saves and restores
 // the scope through them, and the default container constructors ask
 // __yo_scope_vtable whether one is current (NULL: the global allocator).
 static inline void* __yo_scope_ctx(void) { return __yo_scope_current().ctx; }
