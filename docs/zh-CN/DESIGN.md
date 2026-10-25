@@ -1844,7 +1844,7 @@ for(iter_expr, variable => {
 });
 ```
 
-`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(&mut coll, x => body)`，或索引循环 + 索引写：
+`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。`into_iter` 按值接收集合，所以值形式会**消耗** `coll`：迭代器拥有它。循环之后还要读取的集合，用下文的 `for(&coll, x => body)` 就地遍历，或迭代一份副本 `for(coll.clone(), x => body)`。其他持有源的迭代器同理：`String` 的 `chars()`、`bytes()`、`char_indices()` 与 `lines()`，映射的 `keys()` 与 `values()`，列表的 `chunks(n)` 与 `windows(n)`。在 `String` 与各集合仍是共享句柄期间，按值传递只是共享，因此之后的使用仍能编译，直到该类型变为值类型（`plans/VALUES_BY_DEFAULT.md` V2b）。集合的 `iter()` 产出指向其存储的裸指针，持有的是存储而非集合本身：它只用于 `pragma(Pragma.AllowUnsafe)` 代码，且集合必须比遍历活得更久。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(&mut coll, x => body)`，或索引循环 + 索引写：
 
 ```yo
 // 值形式 — 每个 `x` 按值产出。

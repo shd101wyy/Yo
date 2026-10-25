@@ -192,7 +192,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : PriorityQueueIter(T),
-    into_iter : (fn(self : &Self) -> PriorityQueueIter(T))(
+    into_iter : (fn(self : Self) -> PriorityQueueIter(T))(
       PriorityQueueIter(T)(_data : self._data, _index : usize(0))
     )
   )
@@ -202,11 +202,14 @@ impl(
 /// (D14), so nothing is dup'd.
 ///
 /// Writing through a yielded pointer can BREAK the heap invariant: nothing
-/// re-sifts afterwards. A `push` that grows the array invalidates pointers
-/// already yielded.
+/// re-sifts afterwards. A raw view (decision 39, B7b): it holds the heap
+/// array's buffer pointer and the length `iter()` saw, NOT the queue, so the
+/// queue must outlive the walk, and a `push` or `pop` during it invalidates
+/// pointers already yielded.
 PriorityQueueIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _data : ArrayList(T),
+    _ptr : ?*T,
+    _len : usize,
     _index : usize
   )
 );
@@ -217,10 +220,10 @@ impl(
     Item : *T,
     next : (fn(self : &mut Self) -> Option(*T))(
       cond(
-        (self._index >= self._data.len()) => .None,
+        (self._index >= self._len) => .None,
         true =>
           match(
-            self._data._ptr,
+            self._ptr,
             .Some(ptr) => {
               element_ptr := ptr.add(self._index);
               self._index = (self._index + usize(1));
@@ -238,7 +241,7 @@ impl(
   /// Borrowing walk over the heap array, in unsorted order (D14) — see
   /// `PriorityQueueIterPtr` for the invariant this can break.
   iter : (fn(self : &mut Self) -> PriorityQueueIterPtr(T))(
-    PriorityQueueIterPtr(T)(_data : self._data, _index : usize(0))
+    PriorityQueueIterPtr(T)(_ptr : self._data._ptr, _len : self._data.len(), _index : usize(0))
   )
 );
 /// The read walk `for(&pq, x => …)` (decision 39, plans/VALUES_BY_DEFAULT.md

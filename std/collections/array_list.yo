@@ -1156,9 +1156,11 @@ impl(
 /// dups a refcounted `T`. This is what `into_iter()` (and therefore
 /// `for(list, ...)`) returns; `iter()` yields pointers instead (D14).
 ///
-/// It holds the list by handle and re-reads `_length` on every `next`, so a
-/// `push` during a forward walk extends the walk. Double-ended: `next_back`
-/// takes from the far end.
+/// It OWNS the list: `into_iter` takes it by value (B7b). Until `ArrayList`
+/// is a value type that is a shared handle, so the elements are still copied
+/// out rather than moved (lookahead D21), and `_length` is re-read on every
+/// `next`: a `push` through another handle during a forward walk extends the
+/// walk. Double-ended: `next_back` takes from the far end.
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _list : ArrayList(T),
@@ -1209,7 +1211,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : ArrayListIter(T),
-    into_iter : (fn(self : &Self) -> ArrayListIter(T))(
+    into_iter : (fn(self : Self) -> ArrayListIter(T))(
       ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
     )
   )
@@ -1222,16 +1224,18 @@ impl(
 /// costs no refcount traffic and writing through the pointer mutates the list
 /// in place. `HashMapIterPtr` established the shape.
 ///
-/// The pointers alias the buffer, so any operation that REALLOCATES it
-/// (`push` past capacity, `reserve`, `shrink_to_fit`) invalidates every
-/// pointer already yielded. Live-length semantics are otherwise the same as
-/// `ArrayListIter`'s: `_length` is re-read on each `next`.
+/// A raw view (decision 39, B7b): it holds the buffer pointer and the length
+/// `iter()` saw, NOT the list, so it keeps nothing alive and is meant for
+/// `pragma(Pragma.AllowUnsafe)` code. The list must outlive the walk and keep
+/// its length: any operation that REALLOCATES the buffer (`push` past
+/// capacity, `reserve`, `shrink_to_fit`) invalidates every pointer, and a
+/// shrink leaves the walk reading past the live elements.
 ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _list : ArrayList(T),
+    _ptr : ?*T,
+    _len : usize,
     _index : usize,
-    /// See ArrayListIter._back_taken — a COUNTER, so the forward guard keeps
-    /// reading `_list._length` live.
+    /// See ArrayListIter._back_taken — a COUNTER off the end of `_len`.
     _back_taken : usize
   )
 );
@@ -1242,11 +1246,11 @@ impl(
     Item : *T,
     next : (fn(self : &mut Self) -> Option(*T))(
       cond(
-        ((self._index + self._back_taken) >= self._list._length) => .None,
+        ((self._index + self._back_taken) >= self._len) => .None,
         true => {
-          // The guard above proves `_length > _index >= 0`, so the buffer is
+          // The guard above proves `_len > _index >= 0`, so the buffer was
           // allocated and `_ptr` is `.Some`.
-          base := self._list._ptr.unwrap();
+          base := self._ptr.unwrap();
           p := base.add(self._index);
           self._index = (self._index + usize(1));
           .Some(p)
@@ -1262,11 +1266,11 @@ impl(
     Item : *T,
     next_back : (fn(self : &mut Self) -> Option(*T))(
       cond(
-        ((self._index + self._back_taken) >= self._list._length) => .None,
+        ((self._index + self._back_taken) >= self._len) => .None,
         true => {
-          base := self._list._ptr.unwrap();
+          base := self._ptr.unwrap();
           self._back_taken = (self._back_taken + usize(1));
-          .Some(base.add(self._list._length - self._back_taken))
+          .Some(base.add(self._len - self._back_taken))
         }
       )
     )
@@ -1275,17 +1279,19 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
-  /// Borrowing walk over a shared handle: yields a `*(T)` into the list's
-  /// buffer and leaves the list intact — `for(list.iter(), ptr => ...)`,
-  /// where `into_iter` would move the list and yield values (D14; the
-  /// `iter` / `into_iter` split every other std collection already had).
+  /// Raw walk over the buffer: yields a `*(T)` into the list's buffer and
+  /// leaves the list intact — `for(list.iter(), ptr => ...)`, where
+  /// `into_iter` consumes the list and yields values (D14; the `iter` /
+  /// `into_iter` split every other std collection already had). Safe code
+  /// reads elements with `for(&list, x => ...)`; this is the
+  /// `pragma(Pragma.AllowUnsafe)` form (decision 39).
   ///
-  /// The receiver arrives RC-dup'd at the method boundary, so moving it into
-  /// the iterator is balanced and the buffer outlives the walk. Do not grow
-  /// the list mid-walk: a reallocation invalidates the pointers already
+  /// The iterator holds the buffer pointer and the current length, not the
+  /// list (B7b), so the list must outlive the walk, and must not grow or
+  /// shrink during it: a reallocation invalidates the pointers already
   /// yielded.
   iter : (fn(self : &Self) -> ArrayListIterPtr(T))(
-    ArrayListIterPtr(T)(_list : self, _index : usize(0), _back_taken : usize(0))
+    ArrayListIterPtr(T)(_ptr : self._ptr, _len : self._length, _index : usize(0), _back_taken : usize(0))
   ),
   /// The positions `0 .. len()`, a `Range(usize)` that holds no handle to the
   /// list: the index cursor of decision 39 (plans/VALUES_BY_DEFAULT.md).
@@ -1785,6 +1791,8 @@ impl(
 /// Yo has no slice type, so each chunk is a freshly allocated `ArrayList(T)`
 /// COPY rather than a borrowed view — the honest rendering of Rust's `chunks`,
 /// whose item is a `&[T]`. Mutating a yielded chunk does not touch the source.
+/// The iterator owns its source: `chunks` takes the list by value (lookahead
+/// D20), so `xs.clone().chunks(n)` walks a list that is read again later.
 ArrayListChunks :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _src : ArrayList(T),
@@ -1967,7 +1975,8 @@ impl(
   /// chunk is SHORT when the length is not a multiple of `size`.
   ///
   /// PANICS on `size == 0`, as Rust does.
-  chunks : (fn(self : &Self, size : usize) -> ArrayListChunks(T))({
+  /// Consumes the list (D20).
+  chunks : (fn(self : Self, size : usize) -> ArrayListChunks(T))({
     if(size == usize(0), {
       __yo_panic("ArrayList.chunks: size must be non-zero");
     });
@@ -1977,7 +1986,8 @@ impl(
   /// Rust's `windows`. Yields nothing when the list is shorter than `size`.
   ///
   /// PANICS on `size == 0`, as Rust does.
-  windows : (fn(self : &Self, size : usize) -> ArrayListWindows(T))({
+  /// Consumes the list (D20).
+  windows : (fn(self : Self, size : usize) -> ArrayListWindows(T))({
     if(size == usize(0), {
       __yo_panic("ArrayList.windows: size must be non-zero");
     });

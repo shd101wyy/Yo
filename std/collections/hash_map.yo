@@ -1230,7 +1230,7 @@ impl(
   IntoIterator(
     Item : MapEntry(K, V),
     IntoIter : HashMapIter(K, V),
-    into_iter : (fn(self : &Self) -> HashMapIter(K, V))(
+    into_iter : (fn(self : Self) -> HashMapIter(K, V))(
       HashMapIter(K, V)(_map : self, _index : usize(0))
     )
   )
@@ -1238,12 +1238,17 @@ impl(
 /// Pointer iterator over a HashMap — yields `*(MapEntry(K, V))` into the
 /// map's own bucket array. This is what `iter()` returns (D14).
 ///
-/// A yielded pointer stays valid only while the table is not rehashed: an
-/// `insert` that grows the map, a `remove` or a `clear` during the walk
-/// leaves it dangling.
+/// A raw view (decision 39, B7b): it holds the control and bucket arrays and
+/// the capacity `iter()` saw, NOT the map, so it keeps nothing alive and is
+/// meant for `pragma(Pragma.AllowUnsafe)` code. The map must outlive the
+/// walk, and a yielded pointer stays valid only while the table is not
+/// rehashed: an `insert` that grows the map, a `remove` or a `clear` during
+/// the walk leaves it dangling.
 HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _map : HashMap(K, V),
+    _ctrl : ?*u8,
+    _data : ?*MapEntry(K, V),
+    _capacity : usize,
     _index : usize
   )
 );
@@ -1255,12 +1260,12 @@ impl(
     Item : *MapEntry(K, V),
     next : (fn(self : &mut Self) -> Option(*MapEntry(K, V)))(
       cond(
-        (self._map.capacity == usize(0)) => .None,
+        (self._capacity == usize(0)) => .None,
         true => {
-          ctrl_ptr := self._map.ctrl.unwrap();
-          data_ptr := self._map.data.unwrap();
+          ctrl_ptr := self._ctrl.unwrap();
+          data_ptr := self._data.unwrap();
           mut(result) := Option(*MapEntry(K, V)).None;
-          while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
+          while((self._index < self._capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
@@ -1279,16 +1284,19 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Borrowing walk over the occupied buckets: yields a
-  /// `*(MapEntry(K, V))` into the map's own bucket array (D14), so nothing is
-  /// dup'd and `p.*.value` can be written in place. `into_iter()` — what
-  /// `for(map, ...)` uses — yields entries by value instead.
+  /// Raw walk over the occupied buckets: yields a `*(MapEntry(K, V))` into
+  /// the map's own bucket array (D14), so nothing is dup'd and `p.*.value`
+  /// can be written in place. `into_iter()` — what `for(map, ...)` uses —
+  /// consumes the map and yields entries by value instead; safe code reads
+  /// entries in place with `for(&map, (k, v) => ...)`.
   ///
   /// Order follows the bucket array, so it is arbitrary but reproducible for
-  /// a map built with `new()`'s fixed keys. Do not insert or remove during
-  /// the walk: a rehash invalidates every pointer already yielded.
+  /// a map built with `new()`'s fixed keys. The iterator holds the bucket
+  /// arrays, not the map (decision 39, B7b), so the map must outlive the
+  /// walk. Do not insert or remove during it: a rehash invalidates every
+  /// pointer already yielded.
   iter : (fn(self : &Self) -> HashMapIterPtr(K, V))(
-    HashMapIterPtr(K, V)(_map : self, _index : usize(0))
+    HashMapIterPtr(K, V)(_ctrl : self.ctrl, _data : self.data, _capacity : self.capacity, _index : usize(0))
   ),
   /// The first occupied bucket at or after `i`, or `capacity` when there is
   /// none: the borrowed `for`'s cursor step.
@@ -1392,7 +1400,10 @@ impl(
   HashMap(K, V),
   /// Walk the keys, in bucket order — Rust's `keys`. Yields them by value;
   /// `iter()` is the way to see keys without dup'ing them.
-  keys : (fn(self : &Self) -> HashMapKeys(K, V))(
+  ///
+  /// Consumes the map (lookahead D20): `m.clone().keys()` walks a map that is
+  /// read again later.
+  keys : (fn(self : Self) -> HashMapKeys(K, V))(
     HashMapKeys(K, V)(_map : self, _index : usize(0))
   )
 );
@@ -1441,7 +1452,9 @@ impl(
   /// Walk the values, in bucket order — Rust's `values`. Yields them by
   /// value; `iter()` hands out entry pointers instead, which is the cheaper
   /// way to read a refcounted `V`.
-  values : (fn(self : &Self) -> HashMapValues(K, V))(
+  ///
+  /// Consumes the map (lookahead D20).
+  values : (fn(self : Self) -> HashMapValues(K, V))(
     HashMapValues(K, V)(_map : self, _index : usize(0))
   )
 );

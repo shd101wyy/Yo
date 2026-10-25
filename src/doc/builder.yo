@@ -2207,9 +2207,8 @@ build_doc_module_from_tokens :: (
   // entry: their methods carry docs that must not vanish. Sorted, so the
   // emission order does not depend on the HashMap's iteration order.
   orphan_receivers := ArrayList(String).new();
-  // `for(map, ...)` hands out owned entries (into_iter); `iter()` would need
-  // raw pointers (same route as lsp/server.yo's workspace/symbols).
-  for(impl_info_map, entry => {
+  // The read walk borrows each entry in place; the map is read again below.
+  for(&impl_info_map, entry => {
     receiver := entry.key.clone();
     if(!type_index.contains_key(receiver.clone()) && structure.exported.contains(receiver.clone()), {
       orphan_receivers.push(receiver.clone());

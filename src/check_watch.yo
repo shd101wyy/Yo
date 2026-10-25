@@ -158,17 +158,8 @@ watch_round :: (
                   );
                   ei = (ei + usize(1));
                 });
-                kit := removed.iter();
-                kopt := kit.next();
-                while(kopt.is_some(), {
-                  match(
-                    kopt,
-                    .Some(rk) => {
-                      _ := excluded.insert(unsafe(rk.*).clone());
-                    },
-                    .None => ()
-                  );
-                  kopt = kit.next();
+                for(&removed, rk => {
+                  _ := excluded.insert(rk.clone());
                 });
                 outcome := mm_revalidate_apply(&pl, &excluded);
                 // Aliased-export fallbacks surface only during apply — drop

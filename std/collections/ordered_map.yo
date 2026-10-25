@@ -491,9 +491,13 @@ impl(
 ///
 /// Each `next` yields a `*(MapEntry(K, V))` straight into the entry list's
 /// buffer, so entries are borrowed rather than rebuilt by value, and writing
-/// `p.*.value` updates the map in place. Any insertion that grows the buffer
-/// reallocates it, and a `remove`/`swap_remove` shifts entries, so both
-/// invalidate or reorder pointers already yielded.
+/// `p.*.value` updates the map in place. A raw view (decision 39, B7b): it
+/// holds the entry list's buffer pointer and the length `iter()` saw, NOT the
+/// map, so it keeps nothing alive and is meant for
+/// `pragma(Pragma.AllowUnsafe)` code. The map must outlive the walk; any
+/// insertion that grows the buffer reallocates it, and a
+/// `remove`/`swap_remove` shifts entries, so both invalidate or reorder
+/// pointers already yielded.
 OrderedMapIterPtr :: (
   fn(
     comptime(K) : Type,
@@ -503,7 +507,8 @@ OrderedMapIterPtr :: (
 )(
   ref(
     struct(
-      _map : OrderedMap(K, V),
+      _ptr : ?*MapEntry(K, V),
+      _len : usize,
       _index : usize
     )
   )
@@ -516,13 +521,13 @@ impl(
     Item : *MapEntry(K, V),
     next : (fn(self : &mut Self) -> Option(*MapEntry(K, V)))({
       cond(
-        (self._index >= self._map._entries.len()) => {
+        (self._index >= self._len) => {
           return(Option(*MapEntry(K, V)).None);
         },
         true => ()
       );
       match(
-        self._map._entries.ptr(),
+        self._ptr,
         .Some(base) => {
           p := base.add(self._index);
           self._index = (self._index + usize(1));
@@ -544,7 +549,7 @@ impl(
     IntoIter : OrderedMapIter(K, V),
     /// Iterate `(key, value)` pairs BY VALUE in insertion order — the shape
     /// `iter()` had before D14, and what `for(map, ...)` expands to.
-    into_iter : (fn(self : &Self) -> OrderedMapIter(K, V))(
+    into_iter : (fn(self : Self) -> OrderedMapIter(K, V))(
       OrderedMapIter(K, V)(_map : self, _index : usize(0))
     )
   )
@@ -553,19 +558,23 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMap(K, V),
-  /// Iterator over keys in insertion order.
-  keys : (fn(self : &Self) -> OrderedMapKeys(K, V))(
+  /// Iterator over keys in insertion order. Consumes the map (lookahead
+  /// D20).
+  keys : (fn(self : Self) -> OrderedMapKeys(K, V))(
     OrderedMapKeys(K, V)(_map : self, _index : usize(0))
   ),
-  /// Iterator over values in insertion order.
-  values : (fn(self : &Self) -> OrderedMapValues(K, V))(
+  /// Iterator over values in insertion order. Consumes the map (lookahead
+  /// D20).
+  values : (fn(self : Self) -> OrderedMapValues(K, V))(
     OrderedMapValues(K, V)(_map : self, _index : usize(0))
   ),
   /// Iterator over `(key, value)` pairs in insertion order, yielding a
-  /// `*(MapEntry(K, V))` into the map's own storage (D14). Use `into_iter()`
-  /// for the by-value form.
+  /// `*(MapEntry(K, V))` into the map's own storage (D14): the
+  /// `pragma(Pragma.AllowUnsafe)` form, whose iterator holds the entry
+  /// buffer, not the map (B7b). Use `into_iter()` for the consuming by-value
+  /// form and `for(&map, (k, v) => ...)` to read in place.
   iter : (fn(self : &Self) -> OrderedMapIterPtr(K, V))(
-    OrderedMapIterPtr(K, V)(_map : self, _index : usize(0))
+    OrderedMapIterPtr(K, V)(_ptr : self._entries.ptr(), _len : self._entries.len(), _index : usize(0))
   )
 );
 /// The borrowed `for`'s cursor (decision 39, plans/VALUES_BY_DEFAULT.md): a
