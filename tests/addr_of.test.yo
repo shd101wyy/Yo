@@ -138,6 +138,30 @@ test("addr_of of a &T parameter is E0921: small Copy T, large T, self, generic T
     _ao_capture_where(&s);
   }, "a `&T` parameter has no stable address");
 });
+// The same rule through the places the first test does not spell: a tuple
+// element, a fixed-array element, and an `io.async` body capturing the
+// parameter (the state machine would store the callee's copy).
+_AoPair :: struct(t : Tuple(usize, usize));
+_AoFixed :: struct(a : [usize ; 3]);
+test("E0921 also covers a tuple element, a fixed-array element, and an async body's capture", {
+  p := _AoPair(t : (usize(1), usize(2)));
+  comptime_expect_error({
+    _ao_tuple_where :: (fn(x : &_AoPair) -> *usize)(addr_of(x.t.0));
+    _ao_tuple_where(&p);
+  }, "takes the address of a place inside `x`");
+  f := _AoFixed(a : [usize ; 3](usize(4), usize(5), usize(6)));
+  comptime_expect_error({
+    _ao_array_where :: (fn(x : &_AoFixed) -> *usize)(addr_of(x.a(1)));
+    _ao_array_where(&f);
+  }, "takes the address of a place inside `x`");
+  s := _AoSmall(n : usize(7));
+  comptime_expect_error({
+    _ao_async_where :: (fn(x : &_AoSmall, io : Io) -> Impl(Future(*_AoSmall, Io)))(
+      io.async((e : Io) => addr_of(x))
+    );
+    io.await(_ao_async_where(&s, io), io);
+  }, "a `&T` parameter has no stable address");
+});
 _ao_ptr_param :: (fn(x : *_AoBig) -> *_AoBig)(x);
 _ao_mut_param :: (fn(x : &mut _AoBig) -> *_AoBig)(addr_of(x));
 _ao_mut_field :: (fn(x : &mut _AoBig) -> *usize)(addr_of(x.c));

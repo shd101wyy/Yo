@@ -45,6 +45,14 @@ the lowering depends on the instantiated type.
     `addr_of(self.f)` on an `atomic(ref(struct))` (std's atomics, `Once`,
     `Mutex`, `Cond`), a `ref(struct)` handle's field (the crypto hashers'
     `addr_of(self._buf(0))`), an `Index` element of a collection.
+- **Laundering is not fully closed (2026-10-25 review).** The projection path
+  (`addr_of(s.first_n())` on a `-> &T` method of the parameter) is blocked only
+  incidentally, by E0908 (`addr_of` writes its operand, and a read projection
+  is not writable); if raw-pointer operands are ever reclassified as read
+  positions, that path reopens the dangling pointer. A local borrow is worse:
+  `r := &s; addr_of(r)` inside a `&S`-param fn is SILENT today and dangles —
+  `issues/2026-10-25-a-local-borrow-laundered-into-addr-of-dangles-and-escapes-e0921.md`
+  (S3, needs the decision-43 borrow-root machinery, not this rule).
 
 ## Inventory (2026-10-25)
 
