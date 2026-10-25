@@ -1317,9 +1317,11 @@ _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize
 /// The allocation scope (`__yo_alloc_scope_t`) of a cell primitive's
 /// constructor call from its `Option(Allocator)` argument `alloc_arg`
 /// (plans/VALUES_BY_DEFAULT.md §3.5): `.Some(a)` is `{a.ctx, a.vtable}`, so the
-/// cell is allocated through `a`'s vtable with no scope switch, and `.None` is
-/// the current `with_allocator` scope, else the global allocator. The
-/// argument is evaluated once, into a temp named after the call `call`.
+/// cell is allocated through `a`'s vtable with no scope switch, and `.None`
+/// is the current scope if a live `alloc : .Some(a)` swap made one current
+/// (rc/arc's window), else the global allocator — `box`'s `.None` is
+/// hard-global instead (B1). The argument is evaluated once, into a temp
+/// named after the call `call`.
 _cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   opt_ty := match(context.base.get_expr_info(alloc_arg), .Some(ai) => ai.ty, .None => rc(TypeValueNode.Unit));
   alloc_ty := match(

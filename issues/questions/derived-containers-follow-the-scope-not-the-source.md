@@ -12,7 +12,11 @@ container placed by an explicit allocator", and `arena.scoped(...)` as
 **Note (2026-10-25, B1 landed):** there is no scope any more: `new()` and
 `with_capacity()` are global. "Follows the current scope" below now reads "is
 global", and reading 2's escape hatch (run the call inside a scope) is gone,
-which strengthens the case for reading 1.
+which strengthens the case for reading 1. The two `.None` defaults now
+disagree: a `dyn(...)`/`__yo_cell` `.None` still reads the thread-local inside
+`rc`/`arc`'s `alloc : .Some(a)` swap window (`_cell_alloc_scope`,
+`src/codegen/exprs/other_fn_call.yo`), so it lands in `a`, while `box`'s
+`.None` is hard-global.
 
 ## What happens today
 
