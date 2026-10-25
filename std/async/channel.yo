@@ -286,7 +286,7 @@ impl(
   _wake_one_receiver : (fn(self : &Self) -> unit)({
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
-    (woken : bool) = false;
+    (mut(woken) : bool) = false;
     while(!woken && (self._st.with(s => s._recv_waiters.len()) > usize(0)), {
       w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
@@ -297,7 +297,7 @@ impl(
   _wake_one_sender : (fn(self : &Self) -> unit)({
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
-    (woken : bool) = false;
+    (mut(woken) : bool) = false;
     while(!woken && (self._st.with(s => s._send_waiters.len()) > usize(0)), {
       w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();

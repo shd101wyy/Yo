@@ -1311,7 +1311,7 @@ impl(
       (self._length <= usize(1)) => (),
       true => {
         kept := ArrayList(T).new();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < self._length, {
           cur := match(self.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.dedup: get failed"));
           is_dup := cond(
@@ -1329,7 +1329,7 @@ impl(
           i = (i + usize(1));
         });
         self.clear();
-        (j : usize) = usize(0);
+        (mut(j) : usize) = usize(0);
         while(j < kept.len(), {
           match(kept.get(j), .Some(v) => self.push(v), .None => ());
           j = (j + usize(1));
@@ -1403,12 +1403,12 @@ impl(
   /// scan, O(n). Rust spells this `iter().position(...)`; on a sorted list
   /// reach for `binary_search` instead.
   index_of : (fn(self : &Self, value : &T) -> Option(usize))({
-    (result : Option(usize)) = .None;
-    found := false;
+    (mut(result) : Option(usize)) = .None;
+    mut(found) := false;
     match(
       self._ptr,
       .Some(_ptr) => {
-        i := usize(0);
+        mut(i) := usize(0);
         while((i < self._length) && !found, i = (i + usize(1)), {
           cond(
             ((_ptr.add(i)).* == value) => {

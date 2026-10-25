@@ -489,11 +489,11 @@ select :: (
     // Spawned under `unsafe` as in `timeout`: `_Scoped` keeps either task
     // from outliving this future.
     (ha : JoinHandle(A)) = unsafe(io.spawn(first, io));
-    a := _scope(ha);
+    mut(a) := _scope(ha);
     (hb : JoinHandle(B)) = unsafe(io.spawn(second, io));
-    b := _scope(hb);
+    mut(b) := _scope(hb);
     // 0: undecided, 1: the first completed, 2: the second, 3: both aborted.
-    (decided : u8) = u8(0);
+    (mut(decided) : u8) = u8(0);
     while(decided == u8(0), {
       sa := _scoped_state(&a);
       sb := _scoped_state(&b);

@@ -224,7 +224,7 @@ impl(
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(B), Io)))(
       io.async({ &mut self }(io : Io) => {
         (mut(out) : Option(B)) = Option(B).None;
-        (searching : bool) = true;
+        (mut(searching) : bool) = true;
         while(searching, {
           nx := io.await(self._inner.next(io), io);
           match(
@@ -402,9 +402,12 @@ impl(
     ) -> Impl(Future(unit, Io))
   )(
     io.async({ self, f }(io : Io) => {
+      // A capture-list entry is immutable (decision 47): rebind the stream
+      // to the mutable local `next` advances.
+      mut(st) := self;
       (mut(draining) : bool) = true;
       while(draining, {
-        nx := io.await(self.next(io), io);
+        nx := io.await(st.next(io), io);
         match(
           nx,
           .Some(item) => {
@@ -429,10 +432,11 @@ impl(
     ) -> Impl(Future(ArrayList(A), Io))
   )(
     io.async({ self }(io : Io) => {
+      mut(st) := self;
       out := ArrayList(A).new();
-      (draining : bool) = true;
+      (mut(draining) : bool) = true;
       while(draining, {
-        nx := io.await(self.next(io), io);
+        nx := io.await(st.next(io), io);
         match(
           nx,
           .Some(item) => {

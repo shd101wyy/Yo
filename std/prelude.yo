@@ -4998,9 +4998,9 @@ impl(
   ),
   /// `self` raised to `exp`, or `.None` if any step would overflow.
   checked_pow : (fn(self : &T, exp : u32) -> Option(T))({
-    (acc : T) = T(1);
-    (i : u32) = u32(0);
-    (overflowed : bool) = false;
+    (mut(acc) : T) = T(1);
+    (mut(i) : u32) = u32(0);
+    (mut(overflowed) : bool) = false;
     while((i < exp) && !overflowed, {
       match(
         acc.checked_mul(self),
@@ -5121,8 +5121,8 @@ impl(
       (self < T(2)) => self,
       (self < T(4)) => T(1),
       true => {
-        (r : T) = self;
-        (next : T) = (self / T(2));
+        (mut(r) : T) = self;
+        (mut(next) : T) = (self / T(2));
         while(next < r, {
           r = next;
           next = ((r + (self / r)) / T(2));
@@ -5136,9 +5136,9 @@ impl(
   /// intermediate can leave the type (signed overflow is undefined behaviour
   /// in C, so the product must never be formed unchecked).
   wrapping_pow : (fn(self : T, exp : u32) -> T)({
-    (acc : T) = T(1);
-    (base : T) = self;
-    (e : u32) = exp;
+    (mut(acc) : T) = T(1);
+    (mut(base) : T) = self;
+    (mut(e) : u32) = exp;
     while(e > u32(0), {
       cond(
         ((e & u32(1)) == u32(1)) => {
@@ -5235,8 +5235,8 @@ impl(
     cond(
       (self <= T(0)) => __yo_panic("ilog2: the receiver must be positive"),
       true => {
-        (v : T) = self;
-        (n : u32) = u32(0);
+        (mut(v) : T) = self;
+        (mut(n) : u32) = u32(0);
         while(v > T(1), {
           v = (v / T(2));
           n = (n + u32(1));
@@ -5250,8 +5250,8 @@ impl(
     cond(
       (self <= T(0)) => __yo_panic("ilog10: the receiver must be positive"),
       true => {
-        (v : T) = self;
-        (n : u32) = u32(0);
+        (mut(v) : T) = self;
+        (mut(n) : u32) = u32(0);
         while(v > T(9), {
           v = (v / T(10));
           n = (n + u32(1));
@@ -5268,8 +5268,8 @@ impl(
       (self <= T(0)) => __yo_panic("ilog: the receiver must be positive"),
       (base < T(2)) => __yo_panic("ilog: the base must be at least 2"),
       true => {
-        (v : T) = self;
-        (n : u32) = u32(0);
+        (mut(v) : T) = self;
+        (mut(n) : u32) = u32(0);
         while(v >= base, {
           v = (v / base);
           n = (n + u32(1));
@@ -5617,9 +5617,9 @@ impl(
   T,
   /// The big-endian byte representation — most significant byte first.
   to_be_bytes : (fn(self : &T) -> Array(u8, T.BYTES))({
-    (out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
+    (mut(out) : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
     u := T.Unsigned(self);
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       sh := ((T.BYTES - usize(1) - i) * usize(8));
       out(i) = u8((u >> T.Unsigned(sh)) & T.Unsigned(255));
@@ -5628,9 +5628,9 @@ impl(
   }),
   /// The little-endian byte representation — least significant byte first.
   to_le_bytes : (fn(self : &T) -> Array(u8, T.BYTES))({
-    (out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
+    (mut(out) : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
     u := T.Unsigned(self);
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       sh := (i * usize(8));
       out(i) = u8((u >> T.Unsigned(sh)) & T.Unsigned(255));
@@ -5639,8 +5639,8 @@ impl(
   }),
   /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
   from_be_bytes : (fn(bs : Array(u8, T.BYTES)) -> T)({
-    (acc : T.Unsigned) = T.Unsigned(0);
-    (i : usize) = usize(0);
+    (mut(acc) : T.Unsigned) = T.Unsigned(0);
+    (mut(i) : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       // The shift is skipped on the first byte: `acc << 8` on a WIDTH-8
       // type (u8/i8, BYTES = 1) is a shift count out of range, and even for
@@ -5659,8 +5659,8 @@ impl(
   }),
   /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
   from_le_bytes : (fn(bs : Array(u8, T.BYTES)) -> T)({
-    (acc : T.Unsigned) = T.Unsigned(0);
-    (i : usize) = usize(0);
+    (mut(acc) : T.Unsigned) = T.Unsigned(0);
+    (mut(i) : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       j := (T.BYTES - usize(1) - i);
       cond(
@@ -10789,7 +10789,7 @@ for :: (
                 guard_var :: gensym("for_guard");
                 cur_var :: gensym("for_cur");
                 src_is_place :: __for_source_is_place(coll);
-                src_stmt :: cond(src_is_place => quote(()), true => quote(unquote(src_var) := unquote(coll)));
+                src_stmt :: cond(src_is_place => quote(()), true => quote(mut(unquote(src_var)) := unquote(coll)));
                 src_place :: cond(src_is_place => coll, true => src_var);
                 borrow_stmt :: cond(
                   is_imm_form => quote(unquote(c_var) := &unquote(src_place)),
@@ -10842,7 +10842,7 @@ for :: (
                 cur_var :: gensym("for_cur");
                 entry_var :: gensym("for_entry");
                 src_is_place :: __for_source_is_place(coll);
-                src_stmt :: cond(src_is_place => quote(()), true => quote(unquote(src_var) := unquote(coll)));
+                src_stmt :: cond(src_is_place => quote(()), true => quote(mut(unquote(src_var)) := unquote(coll)));
                 src_place :: cond(src_is_place => coll, true => src_var);
                 borrow_stmt :: cond(
                   is_map_imm_form => quote(unquote(c_var) := &unquote(src_place)),
@@ -10894,7 +10894,7 @@ for :: (
                     inv_stmt :: body.get_args().car();
                     rest_stmts :: body.get_args().cdr();
                     quote({
-                      unquote(iter_var) := unquote(coll).into_iter();
+                      mut(unquote(iter_var)) := unquote(coll).into_iter();
                       while(true, {
                         unquote(inv_stmt);
                         unquote(temp_var) := unquote(iter_var).next();
@@ -10911,7 +10911,7 @@ for :: (
                     })
                   },
                   true => quote({
-                    unquote(iter_var) := unquote(coll).into_iter();
+                    mut(unquote(iter_var)) := unquote(coll).into_iter();
                     while(true, {
                       unquote(temp_var) := unquote(iter_var).next();
                       match(
@@ -11194,7 +11194,7 @@ impl(
   Iterator(
     Item : A,
     next : (fn(self : &mut Self) -> Option(A))({
-      (result : Option(A)) = .None;
+      (mut(result) : Option(A)) = .None;
       cond(
         !self._first_done => {
           match(
@@ -11283,7 +11283,7 @@ impl(
   Iterator(
     Item : A,
     next : (fn(self : &mut Self) -> Option(A))({
-      (result : Option(A)) = .None;
+      (mut(result) : Option(A)) = .None;
       while(true, {
         match(
           self._inner.next(),
@@ -11326,7 +11326,7 @@ impl(
   Iterator(
     Item : B,
     next : (fn(self : &mut Self) -> Option(B))({
-      (result : Option(B)) = .None;
+      (mut(result) : Option(B)) = .None;
       while(true, {
         match(
           self._inner.next(),
@@ -12470,7 +12470,7 @@ impl(
     ) -> Acc
   )({
     mut(acc) := init;
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12493,7 +12493,7 @@ impl(
       where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> unit))
     ) -> unit
   )({
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12539,7 +12539,7 @@ impl(
     ) -> bool
   )({
     mut(result) := false;
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12569,7 +12569,7 @@ impl(
     ) -> bool
   )({
     mut(result) := true;
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12599,7 +12599,7 @@ impl(
     ) -> Option(A)
   )({
     (mut(found) : Option(A)) = .None;
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12630,7 +12630,7 @@ impl(
   )({
     (mut(found) : Option(usize)) = .None;
     mut(idx) := usize(0);
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12661,7 +12661,7 @@ impl(
     ) -> Option(A)
   )({
     (mut(latest) : Option(A)) = .None;
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12717,7 +12717,7 @@ impl(
     ) -> A
   )({
     (mut(acc) : A) = (A <: Default).default();
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12739,8 +12739,8 @@ impl(
       where(Self <: Iterator(Item := A), A <: Ord(A))
     ) -> Option(A)
   )({
-    (best : Option(A)) = .None;
-    iter := self;
+    (mut(best) : Option(A)) = .None;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12769,8 +12769,8 @@ impl(
       where(Self <: Iterator(Item := A), A <: Ord(A))
     ) -> Option(A)
   )({
-    (best : Option(A)) = .None;
-    iter := self;
+    (mut(best) : Option(A)) = .None;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),
@@ -12867,7 +12867,7 @@ impl(
     ) -> C
   )({
     (mut(out) : C) = (C <: FromIterator).from_iter_new();
-    iter := self;
+    mut(iter) := self;
     while(true, {
       match(
         iter.next(),

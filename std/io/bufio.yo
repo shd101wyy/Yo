@@ -116,12 +116,12 @@ impl(
   read_line : (fn(self : &Self, io : Io) -> Impl(Future(Option(String), IoExn)))(
     io.async(e => {
       line_bytes := ArrayList(u8).new();
-      (found_newline : bool) = false;
-      (hit_eof : bool) = false;
+      (mut(found_newline) : bool) = false;
+      (mut(hit_eof) : bool) = false;
       while(!found_newline && !hit_eof, {
         cond(
           (self._pos < self._filled) => {
-            scan := self._pos;
+            mut(scan) := self._pos;
             while((scan < self._filled) && !found_newline, {
               b := self._buf(scan);
               cond(
@@ -159,7 +159,7 @@ impl(
   read_exact : (fn(self : &Self, n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn)))(
     io.async(e => {
       result := ArrayList(u8).new();
-      (hit_eof : bool) = false;
+      (mut(hit_eof) : bool) = false;
       while((result.len() < n) && !hit_eof, {
         cond(
           (self._pos < self._filled) => {
@@ -220,7 +220,7 @@ impl(
           !done => {
             got := e.io.await(Self._fill(self, io), e);
             to_copy := cond((got < size) => got, true => size);
-            (j : usize) = usize(0);
+            (mut(j) : usize) = usize(0);
             while(j < to_copy, j = (j + usize(1)), {
               (buf.add(j)).* = self._buf(j);
             });
