@@ -40,3 +40,19 @@ Define the body where it is needed (std puts `read`/`write` directly in the `Rea
 ## Fix
 
 At a call whose result is a borrowing future, re-root each borrow whose root is a callee parameter at the place the caller lent to that parameter (the mapping `_check_future_call_lends` already computes), so the caller's return check, freeze and overlap rules see the caller's places. Regression test: the reproducer as an accepted program, plus a `comptime_expect_error` case where the delegated borrow is rooted at a local (still E0909).
+
+**Assessment 2026-10-25, after develop #1602** (the callee lend replaces the
+E0910 stopgap): PARTIALLY fixed on this branch's tree binary. A return whose
+callee borrows a VALUE place compiles — `(fn(f : File, io : Io) -> Impl(Future(unit, IoExn)))(f.set_len(i64(0), io))`,
+and the same shape for `TcpStream.read`, `UdpSocket.recv`,
+`UnixStream.write_str`, `TcpListener.accept` and `ChildStdout.read`, all
+evaluate clean, and so does a borrowing future returned from a begin block
+over a local (verified with probes). The V3 regression rows in
+`tests/fs/file.test.yo`, `tests/net/{tcp,udp,unix}.test.yo` and
+`tests/process/command.test.yo` were unwrapped from `comptime_expect_error`
+to bare definitions accordingly. What still fails is this doc's reproducer:
+the callee's future borrows a place that is itself the RETURNING function's
+`&` parameter (`d(s : &Self)` → `self.m(io)`, `m` capturing `{ &self }`) — a
+borrow-of-a-borrow the re-rooting does not flatten; still E0909 with the same
+message (re-verified on the tree binary of head `6813beda2`). The issue stays
+open for that shape.

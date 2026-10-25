@@ -356,11 +356,11 @@ impl(
 _tls_read :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
   ssl := t._ssl;
   io.async(e => {
-    (out : usize) = usize(0);
-    (settled : bool) = false;
+    (mut(out) : usize) = usize(0);
+    (mut(settled) : bool) = false;
     while(!settled, {
       ret := unsafe(__yo_tls_read(ssl, (*void)(buf), int(size)));
-      (act : int) = int(0);
+      (mut(act) : int) = int(0);
       cond(
         (ret > int(0)) => {
           out = usize(ret);
@@ -392,7 +392,7 @@ _tls_read :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(us
       // (act 1) flushes then feeds; WANT_WRITE (act 2) only flushes.
       if(act > int(0), {
         e.io.await(_flush_wbio(t, e.io), e);
-        (got : usize) = usize(1);
+        (mut(got) : usize) = usize(1);
         if(act == int(1), {
           got = e.io.await(_feed_rbio(t, e.io), e);
         });
@@ -412,12 +412,12 @@ _tls_read :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(us
 _tls_write :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
   ssl := t._ssl;
   io.async(e => {
-    (out : usize) = usize(0);
-    (settled : bool) = false;
+    (mut(out) : usize) = usize(0);
+    (mut(settled) : bool) = false;
     while(!settled, {
       ret := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
       e.io.await(_flush_wbio(t, e.io), e);
-      (need_read : bool) = false;
+      (mut(need_read) : bool) = false;
       cond(
         (ret > int(0)) => {
           out = usize(ret);

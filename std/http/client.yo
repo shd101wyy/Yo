@@ -193,7 +193,7 @@ impl(
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async({ &self, buf, size }(e : IoExn) => {
-        (n : usize) = usize(0);
+        (mut(n) : usize) = usize(0);
         match(
           self,
           .Plain(stream) => {
@@ -918,12 +918,12 @@ _deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -
   io.async({ h, ms }(io : Io) => {
     // Scoped before the first suspension: the future is awaited where it is
     // made, so nothing can drop it between the spawn and this line.
-    child := _scope(h);
+    mut(child) := _scope(h);
     deadline_fut := io.async((io : Io) => {
       io.await(IO_timer.sleep(ms.*), io);
       return(());
     });
-    deadline := _scope(io.spawn(deadline_fut, io));
+    mut(deadline) := _scope(io.spawn(deadline_fut, io));
     w := unsafe(__yo_join_wait_new());
     _scoped_wait_on(&child, &w);
     _scoped_wait_on(&deadline, &w);

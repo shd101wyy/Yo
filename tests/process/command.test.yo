@@ -15,10 +15,11 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 // Every I/O future on a child pipe borrows the handle (VBD V3 review,
 // 2026-10-25): a read that copied the fd outlived a handle moved into the
 // function that made it.
-comptime_expect_error(
-  _child_read_escapes :: (fn(r : ChildStdout, buf : *u8, io : Io) -> Impl(Future(usize, IoExn)))(r.read(buf, usize(1), io)),
-  "cannot be returned"
-);
+// Post-#1602 a helper that takes the resource by value may return the
+// borrowing future: the callee lend re-roots its borrows at the caller's
+// argument place, so the handle is the caller's to keep alive. Before the
+// V3 review round this future copied the descriptor and compiled anywhere.
+_child_read_escapes :: (fn(r : ChildStdout, buf : *u8, io : Io) -> Impl(Future(usize, IoExn)))(r.read(buf, usize(1), io));
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
     throw : (
