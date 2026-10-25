@@ -30,6 +30,7 @@ pragma(Pragma.AllowUnsafe);
   is_reference_struct_type,
   is_reference_enum_type,
   is_primitive_type,
+  is_counted_handle_type,
   unique_box_payload_type,
   cell_handle_view
 } :: import("../types/guards.yo");
@@ -942,7 +943,12 @@ _type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
 /// `Box`'s payload. A hand-written `Clone` outside std anywhere inside
 /// (`type_has_user_clone_impl`) runs user code, which can reach the global
 /// while the clone holds it; so does a `Dyn` or a closure, whose clone is not
-/// known here.
+/// known here. A counted handle (`Rc(V)`, `Arc(V)`, a cell handle) stops the
+/// walk: its `Clone` is the prelude's count bump, which never touches the
+/// payload, so a hand-written `Clone` inside `V` cannot run — judging the
+/// payload kept `env.yo`'s `g_synthetic_token_last.clone()`
+/// (`Option(Rc(_SyntheticTokenModule))`, whose payload reaches `Token`'s
+/// hand-written `Clone`) an E0916 lend.
 type_clone_runs_no_user_code :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from("Clone")),
@@ -975,6 +981,12 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
   visited.insert(key, true);
   if(type_has_user_clone_impl(&ty, clone_tt), {
     return(false);
+  });
+  // A counted handle clones as a count bump (the prelude's `Clone`,
+  // decision 17): the payload is never touched, so the walk stops here
+  // instead of judging the handle's storage field.
+  if(is_counted_handle_type(&ty), {
+    return(true);
   });
   match(
     unique_box_payload_type(&ty),
