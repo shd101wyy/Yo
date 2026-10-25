@@ -3280,6 +3280,9 @@ _ic_migrate_site :: (
     // A std generic body's copies are not judged by the rule (B6 gives them
     // their spelling), so the migration does not spell them either.
     (g_migrate_rc_clone && counted_handle_std_generic_on()) => Option(ExplicitCopySite).None,
+    // A copy inside a `comptime_expect_error` argument is the error the
+    // program expects.
+    (g_migrate_rc_clone && propagate_def_time_errors()) => Option(ExplicitCopySite).None,
     (!g_migrate_rc_clone && !_ic_category_is_unique_buffer(category)) => Option(ExplicitCopySite).None,
     (copy_path == "binding(macro)") => Option(ExplicitCopySite).None,
     ((copy_path == "capture") && !g_migrate_rc_clone) => Option(ExplicitCopySite).None,

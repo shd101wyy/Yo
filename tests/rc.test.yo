@@ -49,6 +49,7 @@ _live_of :: (fn(a : Allocator) -> usize)(unsafe((*_Counts)(a.ctx.unwrap()).*.liv
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
+derive(Wrapper, Clone);
 test("Test 'ref_count' function", {
   // Value type
   {
@@ -1748,6 +1749,8 @@ test("a borrowed value is changed through an owned copy", {
 // a value-with-RC pair ("both copies need their own drop"), unlike the
 // reference-type alias above that legitimately shares one count.
 _CowLike :: struct(b : Rc(i32), n : i32);
+// Decision 17: a value holding an `Rc` is copied explicitly, by its `Clone`.
+derive(_CowLike, Clone);
 _cow_task :: (fn(w : &_CowLike, io : Io) -> Impl(Future(usize, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
@@ -3743,10 +3746,10 @@ test("a value holding a handle copies with .clone(), which clones each handle", 
 });
 test("a closure takes a second handle in its capture list", {
   a := rc(i32(6));
-  f := ({ a : Rc.clone(a) }() => a.*);
+  (f : Impl(Fn() -> i32)) = ({ a : Rc.clone(a) }() => a.*);
   assert(f() == a.*, "the closure and the caller each hold a handle");
   assert(ref_count(a) == usize(2), "the capture is a second handle");
-  g := (() => a.*);
+  (g : Impl(Fn() -> i32)) = (() => a.*);
   assert(g() == i32(6), "an implicit capture moves the handle in");
   comptime_expect_error(a.*, "use of moved value");
 });
