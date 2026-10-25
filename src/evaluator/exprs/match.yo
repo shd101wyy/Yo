@@ -390,6 +390,49 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
     true => Option(Variable).None
   )
 });
+/// `yo fix --migrate rc-clone`: every `match(name, …)` inside a RUNTIME
+/// loop whose `name` is a plain local declared OUTSIDE the loop borrows: the
+/// rule consumes it, and the next iteration reads it again — an arm that
+/// rebinds covers only its own path (`types/utils.yo`'s `rb_base` in
+/// `type_implements_runtime_builtin`), so E0901's loop rule rejects the move.
+/// Called once per `while` (evaluator/exprs/while.yo) with the loop's whole
+/// node, condition and body.
+_record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, entry_frames : usize, ctx : &EvalContext) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, _, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+        match(
+          args.get(usize(0)),
+          .Some(loop_scr_raw) => {
+            loop_scr := ast_expr_strip_borrow_marker(&loop_scr_raw);
+            if(ast_expr_is_atom(&loop_scr) && (ast_expr_token(&loop_scr).kind == TokenKind.Identifier), {
+              match(
+                get_variables_from_env(env, ast_expr_token(&loop_scr).value.clone()).last(),
+                .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level && !rv.is_compile_time_only
+                && !match_scrutinee_is_capture(&rv, env, ctx)
+                && type_holds_counted_handle_ignoring_migration(&rv.ty), {
+                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty);
+                }),
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+      });
+      (li : usize) = usize(0);
+      while(li < args.len(), li = (li + usize(1)), {
+        match(
+          args.get(li),
+          .Some(a) => _record_loop_handle_scrutinee_borrows(&a, env, entry_frames, ctx),
+          .None => ()
+        );
+      });
+    }
+  )
+);
 /// `yo fix --migrate rc-clone`: does any arm of the `match` node `whole`
 /// mention `name`, the scrutinee's variable (scope-aware, via `_lb_mentions`:
 /// a shadowing binding in an arm is not a mention)? The rule consumes a plain
@@ -2485,4 +2528,4 @@ evaluate_match :: (
   });
   expr
 });
-export(evaluate_match);
+export(evaluate_match, _record_loop_handle_scrutinee_borrows);

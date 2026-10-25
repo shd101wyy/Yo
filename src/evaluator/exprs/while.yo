@@ -29,8 +29,9 @@
   expr_info_set_comptime_unrolled_bodies,
   branch_init_log_len
 } :: import("../../expr_info.yo");
-{ check_loop_flow } :: import("../utils.yo");
+{ check_loop_flow, migrate_rc_clone_on } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
+{ _record_loop_handle_scrutinee_borrows } :: import("./match.yo");
 { Environment, snapshot_env, env_adopt } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind, LoopFlowSnapshot } :: import("../context.yo");
@@ -440,6 +441,14 @@ evaluate_while :: (
   ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(loop_ctx);
   evaluated_body := evaluate_begin_expression(&body_expr, &env, ctx, ArrayList(Variable).new(), false, exn);
   ctx.is_evaluating_loop_body = old_loop_body;
+  // `yo fix --migrate rc-clone`: a match on a plain local declared outside a
+  // RUNTIME loop borrows (the rule consumes it and the next iteration reads
+  // it again), so the migration records the `&` for every such scrutinee in
+  // the condition and the body.
+  if(migrate_rc_clone_on() && effective_condition_value.is_none(), {
+    _record_loop_handle_scrutinee_borrows(&inner_cond_expr, &env, loop_ctx.entry_frame_count, ctx);
+    _record_loop_handle_scrutinee_borrows(&body_expr, &env, loop_ctx.entry_frame_count, ctx);
+  });
   // A RUNTIME loop's move-state rules (`check_loop_flow`, evaluator/utils.yo):
   // a compile-time loop is unrolled, so each iteration's reads already see
   // the previous iteration's moves. The loop can end without a `break` unless
