@@ -10,8 +10,8 @@
 { take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
 { Emitter } :: import("../../emitter.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ _looks_like_minted_temp } :: import("./drop_dup.yo");
-{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
+{ _looks_like_minted_temp, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
+{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, fresh_local_name } :: import("../utils/index.yo");
 { is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
 { expr_info_consumed_variable_drop_expressions, expr_info_comptime_unrolled_bodies } :: import("../../expr_info.yo");
 /// Emit `<indent><text>` + newline.
@@ -28,9 +28,10 @@ _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _strip_comptime :: (fn(e : &AstExpr) -> AstExpr)(
   if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get(usize(0)), .Some(inner) => inner, .None => e), e)
 );
-/// Generate the step expression of a 3-arg while: `lhs = rhs` (single), a
-/// block, or a plain expression. The code returned is a C expression
-/// statement, or empty when the step emitted itself.
+/// Generate the step expression of a 3-arg while: a block, or any other
+/// expression (an `lhs = rhs` step included) through its own generator. The
+/// code returned is a C expression statement, or empty when the step emitted
+/// itself.
 ///
 /// A block step (`{ t := f(i); i = t; }`) is emitted as a real C block at
 /// `indent`: its declarations, statements and scope-end drops are the begin
@@ -38,6 +39,15 @@ _strip_comptime :: (fn(e : &AstExpr) -> AstExpr)(
 /// statements, comma-joined, dropped every other statement, and a later
 /// `i = t` then read a `t` that was never declared
 /// (issues/fixed/a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md).
+///
+/// An assignment step goes through the assignment generator like a statement:
+/// it dups an RC right side into its place, saves and releases the replaced
+/// value, and materializes a place that runs a call once. The hand-built
+/// `lhs = rhs` this replaces was a bitwise move — `s = mk(i).s` in a step
+/// moved the String into `s` with no dup, skipped the old value's release,
+/// and the step frame's drop then freed the field under its new owner
+/// (a use-after-free found by the new step test in
+/// tests/continue_rc_cleanup.test.yo).
 generate_step_expression :: (fn(step_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   cond(
     ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
@@ -50,15 +60,18 @@ generate_step_expression :: (fn(step_expr : &AstExpr, indent : &String, context 
       String.from("")
     },
     ast_expr_is_fn_call_of(step_expr, BK_ASSIGN, .Some(usize(2))) => {
-      aargs := _args(step_expr);
-      lhs := match(aargs.get(usize(0)), .Some(l) => l, .None => step_expr);
-      rhs := match(aargs.get(usize(1)), .Some(r) => r, .None => step_expr);
-      out := _call_generate_expr(&lhs, String.from(""), context);
-      out.push_str(" = ");
-      out.push_string(_call_generate_expr(&rhs, String.from(""), context));
-      out
+      // Statement position: the assignment generator emits the statement
+      // itself, and its RETURN value (the old-value save's name,
+      // generate_assignment's last line) is an expression result, not a
+      // statement. Emitting `<save>;` was a dead but legal statement in sync
+      // code (the save is a C local); inside a state machine the save lives
+      // in an `sm->var_<name>_<id>` slot, so the bare name is an undeclared
+      // identifier (found by review: an RC-place assignment step of a
+      // three-argument `while` inside `io.async`). Discard the return.
+      _call_generate_expr(step_expr, indent.clone(), context);
+      String.from("")
     },
-    true => _call_generate_expr(step_expr, String.from(""), context)
+    true => _call_generate_expr(step_expr, indent.clone(), context)
   )
 );
 /// Concatenate `current` then `prev` (cloned) into a fresh drop list.
@@ -239,6 +252,35 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     }
   )
 );
+/// Emit `if (!(<cond>)) { break; }` at the loop head. The evaluator gives the
+/// condition its own begin frame (`evaluate_begin_expression`), and that
+/// frame's scope-end drops ride the condition node, which shares its id with
+/// the condition's tail. A call tail flushes them after the call, but a field
+/// read or an operator tail (`RI(v : j).v < 3`) flushes nothing, so each
+/// evaluation leaked its temporaries. When such a drop is still pending after
+/// the condition renders, materialize the condition into a bool, flush the
+/// drops, then branch, so they run once per evaluation on the exit edge and on
+/// the body edge (and so on `continue`, `break` and `return`, which leave after
+/// the head). The condition's drops are also pending while it renders, for an
+/// early exit inside it. Same shape as `cond.yo`'s `_emit_cond_if_head`
+/// (issues/fixed/2026-10-24-a-temporary-object-built-in-a-while-condition-leaks-once-per-iteration.md).
+_emit_while_cond_break :: (fn(cond_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  cnd_drops := match(context.base.get_expr_info(cond_expr), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+  cnd_prev := context.pending_deferred_drops;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
+  cc := _call_generate_expr(cond_expr, indent.clone(), context);
+  context.pending_deferred_drops = cnd_prev;
+  test := if(has_pending_emittable_drop(cond_expr, context), {
+    cv := fresh_local_name(String.from("__yo_while_"), &context.base.current_function_name);
+    _emit_line(&em, indent.clone(), `bool ${cv.clone()} = ${cc};`);
+    generate_deferred_drop_expressions(cond_expr, indent.clone(), context);
+    cv
+  }, cc);
+  _emit_line(&em, indent.clone(), `if (!(${test})) {`);
+  _emit_line(&em, indent.clone(), String.from("  break;"));
+  _emit_line(&em, indent.clone(), String.from("}"));
+});
 /// Generate C for a while-loop expression.
 generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
@@ -276,15 +318,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
       _emit_line(&em, indent.clone(), String.from("while (true) {"));
-      cond_code := _call_generate_expr(&cond_expr, body_indent.clone(), context);
-      _emit_line(&em, body_indent.clone(), {
-        s := String.from("if (!(");
-        s.push_string(&cond_code);
-        s.push_str(")) {");
-        s
-      });
-      _emit_line(&em, body_indent.clone(), String.from("  break;"));
-      _emit_line(&em, body_indent.clone(), String.from("}"));
+      _emit_while_cond_break(&cond_expr, body_indent.clone(), context);
       generate_loop_body(&body_expr, body_indent.clone(), context);
       _emit_line(&em, indent.clone(), String.from("}"));
       _emit_line(&em, indent.clone(), {
@@ -311,28 +345,35 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
       _emit_line(&em, indent.clone(), String.from("while (true) {"));
-      cond_code := _call_generate_expr(&cond_expr, body_indent.clone(), context);
-      _emit_line(&em, body_indent.clone(), {
-        s := String.from("if (!(");
-        s.push_string(&cond_code);
-        s.push_str(")) {");
-        s
-      });
-      _emit_line(&em, body_indent.clone(), String.from("  break;"));
-      _emit_line(&em, body_indent.clone(), String.from("}"));
+      _emit_while_cond_break(&cond_expr, body_indent.clone(), context);
       generate_loop_body(&body_expr, body_indent.clone(), context);
       _emit_line(&em, indent.clone(), {
         s := continue_label.clone();
         s.push_str(":;");
         s
       });
+      // A non-block step is a one-expression block in the evaluator (its own
+      // frame, like the condition): its drops ride the step node and run right
+      // after the step, inside the C block that declares its temps; they are
+      // pending while it renders, for an early exit inside it. A block step's
+      // drops are its own begin generator's.
+      step_is_block := ast_expr_is_fn_call_of(&step_expr, BK_BEGIN, .None);
+      step_prev := context.pending_deferred_drops;
+      if(!step_is_block, {
+        step_drops := match(context.base.get_expr_info(&step_expr), .Some(st_ei) => st_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&step_drops, &step_prev));
+      });
       step_code := generate_step_expression(&step_expr, body_indent.clone(), context);
+      context.pending_deferred_drops = step_prev;
       if(step_code.len() > usize(0), {
         _emit_line(&em, body_indent.clone(), {
           s := step_code;
           s.push_str(";");
           s
         });
+      });
+      if(!step_is_block, {
+        generate_deferred_drop_expressions(&step_expr, body_indent.clone(), context);
       });
       _emit_line(&em, indent.clone(), String.from("}"));
       _emit_line(&em, indent.clone(), {

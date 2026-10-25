@@ -23,7 +23,7 @@
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { _looks_like_minted_temp, arm_value_with_dups } :: import("./drop_dup.yo");
-{ declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, scope_stack_contains } :: import("../utils/index.yo");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -107,7 +107,25 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
                 },
                 .None => false
               );
-              if(!skip_capture && !undeclared_temp, {
+              // Skip a drop whose target temp's C DECLARATION sits in a block
+              // that has since closed: `declared_c_var_names` is monotonic,
+              // so a temp declared inside a loop body keeps its name in the
+              // set after the loop's C block closed, and emitting the drop at
+              // this scope's end is an undeclared-identifier error. Ground
+              // truth is the emitter's block-scope stack (`declared_scopes`),
+              // the same signal atom.yo's loop-exit emitter uses. The value
+              // was released inside that block (a three-argument while's
+              // assignment step saves and releases its replaced value inside
+              // the loop, src/codegen/exprs/while_loop.yo) or died with it.
+              closed_scope_temp := match(
+                get_deferred_drop_target_atom_name(&drop_expr),
+                .Some(nm2) => {
+                  cn2 := sanitize_for_c_identifier(&nm2, false);
+                  (is_temp_variable_name(&ei.env.module_path.*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn2))
+                },
+                .None => false
+              );
+              if(!skip_capture && !undeclared_temp && !closed_scope_temp, {
                 sc_skip := match(get_deferred_drop_target_atom_name(&drop_expr), .Some(target) => take_short_circuit_handled(context, &target), .None => false);
                 if(!sc_skip, {
                   drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
