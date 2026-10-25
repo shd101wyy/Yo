@@ -10,8 +10,8 @@
 //! vtable (`alloc`, `realloc`, `free`, context first) and the 16-byte owner
 //! prefix are frozen: codegen writes the same prefix for every RC object a
 //! scope places (`plans/archive/EXPLICIT_ALLOCATORS.md`). Implementors: the global
-//! allocator, `std/arena.yo`'s `Arena`, and a counting allocator in
-//! `tests/arena.test.yo`.
+//! allocator and the counting allocators in `tests/explicit_allocators.test.yo`
+//! and the collection tests.
 //!
 //! ## Explicit allocators and the owner prefix
 //!
@@ -301,8 +301,8 @@ impl(
 /// Runtime only: a compile-time call is an extern call.
 ///
 /// ```yo
-/// arena := Arena.new(usize(1) << usize(20));
-/// p := with_allocator(arena.allocator(), () => Point(x : i32(3), y : i32(4)));
+/// a := Allocator.global(); // or any other `Allocator` value
+/// p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
 /// ```
 with_allocator :: (fn(generic(T : Type), alloc : Allocator, f : &Impl(Fn() -> T)) -> T)({
   _guard := _ScopeGuard(_ctx : __yo_scope_ctx(), _vtable : __yo_scope_vtable());

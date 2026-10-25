@@ -100,7 +100,8 @@ clearing its back edge; §2's "gain the ArcWeak one" moves to W4, since
     as a no-op and `Gc.tracked_count()` as 0, so std/gc is unchanged apart
     from its doc.
   - The runtime declares `__yo_cycle_collector_off()`, beside
-    `__yo_debug_heap_on()`. It returns the FLAG, not the runtime selected
+    `__yo_debug_alloc_on()` (`__yo_debug_heap_on()` went with `std/arena`,
+    2026-10-24). It returns the FLAG, not the runtime selected
     from it, so `tests/cycle_collector.test.yo` reads its mode through an
     `extern "Yo"` and flips its expectations: tracked counts become 0, and
     `Drop` counters stay put for every garbage cycle. A broken `Off` that

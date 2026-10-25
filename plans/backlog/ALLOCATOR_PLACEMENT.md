@@ -14,6 +14,11 @@
 > `dyn(Rc.new(f, alloc : .Some(a)))` after static-argument inference. Today `dyn` wraps a payload that is already
 > an `Rc`/`Arc` without a second cell (§2.4), so V2b B13 gains nothing for placement. V5 Generation A must keep
 > that true once `Rc`/`Arc` stop being `ref` structs (§2.4, §7).
+>
+> **Amended 2026-10-24 (maintainer decision: `std/arena` deleted).** std ships no arena until
+> `ZIG_STYLE_ALLOCATORS.md` A1/A3 land. The examples below use any `Allocator` value `a` instead of an `Arena`;
+> §4's arena rows describe the deleted `std/arena` and apply to A3's `ArenaAllocator` when it lands; §5's
+> `Arena.scoped` line went with the module; §7's arena tests use a counting allocator defined in the test file.
 
 ## 0. The verdict
 
@@ -24,7 +29,7 @@ footguns:
 
 - an allocator callback that allocates re-enters itself
   (`issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`);
-- a task carries an arena scope across a suspension (`tests/explicit_allocators.test.yo:122`).
+- a task carries an allocator scope across a suspension (`tests/explicit_allocators.test.yo:173`).
 
 Owner-prefix routing makes where a block lives independent of when it dies. An allocator is therefore never needed
 for correctness, only for placement. Placement is one argument at the creation site.
@@ -48,16 +53,15 @@ for correctness, only for placement. Placement is one argument at the creation s
 
 ## 2. Examples
 
-### 2.1 Today (v0.2.69; compiled and run 2026-10-24)
+### 2.1 Today (v0.2.69; compiled and run 2026-10-24, over an `Arena` then, over any `Allocator` value since its deletion)
 
 ```yo
-{ Arena } :: import("std/arena");
 { ArrayList } :: import("std/collections/array_list");
 { StringBuilder } :: import("std/string");
+import("std/allocator");
 
 main :: (fn() -> unit)({
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator();
+  a := Allocator.global(); // or any other `Allocator` value
   n := rc(i32(7), alloc : .Some(a));
   xs := ArrayList(i32).with_capacity_in(a, usize(8));
   xs.push(n.*);
@@ -69,7 +73,8 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`arena.live_blocks()` is 3 before the locals die, and the arena's own drop then succeeds. `g` is global.
+Three blocks live in `a` before the locals die (a counting allocator in place of `Allocator.global()` counts
+them, as `tests/explicit_allocators.test.yo` does), and all three go back to `a` when they do. `g` is global.
 
 ### 2.2 After A2 and B2 (v0.2.72): one spelling
 
@@ -87,14 +92,13 @@ make_node :: (fn(name : String, (alloc : Option(Allocator)) ?= .None) -> Rc(Node
   rc(Node(name : name, kids : ArrayList(Rc(Node)).new(alloc : alloc)), alloc : alloc)
 );
 
-// An arena subcomputation: every placement is visible at its site.
-count_nodes :: (fn(tokens : &ArrayList(Token)) -> usize)({
-  arena := Arena.new(usize(1) << usize(20));
-  a := Option(Allocator).Some(arena.allocator());
-  mut(nodes) := ArrayList(Rc(Node)).new(alloc : a);
-  for(&tokens, t => nodes.push(make_node(t.text.clone_in(arena.allocator()), alloc : a)));
+// A placed subcomputation: every placement is visible at its site.
+count_nodes :: (fn(tokens : &ArrayList(Token), a : Allocator) -> usize)({
+  placed := Option(Allocator).Some(a);
+  mut(nodes) := ArrayList(Rc(Node)).new(alloc : placed);
+  for(&tokens, t => nodes.push(make_node(t.text.clone_in(a), alloc : placed)));
   nodes.len()
-}); // `nodes` dies before `arena`; a node stored anywhere longer-lived makes the arena's drop panic
+}); // `nodes` and its nodes die here, and every block goes back to `a`
 ```
 
 After static-argument inference's Generation B (v0.2.73), `rc(…, alloc : alloc)` is spelled
@@ -119,8 +123,8 @@ t := io.async(() => work(io));                     // a task: always the global 
 (`src/evaluator/values/dyn.yo:1141`, non-executing path, and `:1234`, executing path). Both tests go through
 `is_reference_struct_type`, which reads `is_reference_semantics` (`src/types/guards.yo:318-319`). While `Rc(V)` is
 `ref(struct((*) : V))` (`std/prelude.yo:9737`), an `Rc`/`Arc` payload is used as the `Dyn`'s data object
-directly. Probe (2026-10-24, v0.2.69): `r := rc(Sq(side : i32(3)), alloc : .Some(arena.allocator()))`, then
-`(d : Dyn(Probe)) = dyn(r)`. `arena.live_blocks()` stays 1, and a call through `d` returns 9. The probe cannot
+directly. Probe (2026-10-24, v0.2.69, over the since-deleted `std/arena`): `r := rc(Sq(side : i32(3)), alloc :
+.Some(arena.allocator()))`, then `(d : Dyn(Probe)) = dyn(r)`. `arena.live_blocks()` stays 1, and a call through `d` returns 9. The probe cannot
 see a second cell on the global heap; the code path above is the evidence that none is made.
 
 **After V5 Generation A** (v0.2.72) `Rc`/`Arc` are value wrappers around `_cell : __yo_cell(V)`
@@ -155,11 +159,11 @@ closure with a type first.
 | Free through the wrong allocator | UB: the caller must pass the same allocator | impossible: frees route by owner prefix |
 | Double free | UB (`DebugAllocator` detects it) | impossible in safe code; a raw `AllowUnsafe` double free aborts under `--allocator debug` (Z11, #1580) |
 | Size or alignment mismatch on free | UB (`DebugAllocator` detects it) | impossible once allocator v2's sized free takes both from the type |
-| Arena deinit with a live block | UB (use after free) | a defined panic (`std/arena.yo:477-487`); its message names `std/assert.yo:39`, not the caller (`issues/2026-10-24-arena-deinit-panic-reports-the-assert-site-not-the-callers.md`, S3); a compile error once the real arena exists (`ZIG_STYLE_ALLOCATORS.md` §4, origins N2) |
-| A stale allocator after its arena died | UB | a panic: arena states are generation-stamped (`std/arena.yo:63-71`; panics at `:177`, `:204`, `:232`) |
+| Arena deinit with a live block | UB (use after free) | no arena in std since 2026-10-24; the deleted `std/arena` panicked (`std/arena.yo:477-487` at `82671f612`), and A3's `ArenaAllocator` keeps that rule; its message named `std/assert.yo:39`, not the caller (`issues/2026-10-24-a-std-panic-reports-the-assert-site-not-the-callers.md`, S3); a compile error once the real arena exists (`ZIG_STYLE_ALLOCATORS.md` §4, origins N2) |
+| A stale allocator after its arena died | UB | no arena in std since 2026-10-24; the deleted `std/arena` panicked (generation-stamped states, `std/arena.yo:63-71` at `82671f612`); A1/A3 decide their rule |
 | Raw alloc/free misuse under `AllowUnsafe` | UB | still raw; checked under the debug allocator |
 | An allocator callback allocating "through the scope" | not applicable | today a stack overflow (the retired question's measurement); after B2 impossible, because there is no scope |
-| A task placed in an arena and suspended across `deinit` | not applicable | today possible (a task keeps its scope); after B1 tasks are always global |
+| A task placed in an explicit allocator and suspended past that allocator's end | not applicable | today possible (a task keeps its scope); after B1 tasks are always global |
 | A cross-thread free into a thread-unsafe allocator | UB | unchanged and documented (VBD "allocator interface, version 2", "Documented, not changed") |
 | A forgotten `alloc :` | not applicable: the call does not compile without an allocator | the block lands on the global heap; a performance issue, not a safety one |
 
@@ -169,7 +173,8 @@ closure with a type first.
 
 - `std/allocator.yo`: `_ScopeGuard` (`:274-285`), `with_allocator` (`:286-311`), `current_allocator` (`:312-321`),
   their exports (`:329-330`) and the comment on the scope hooks (`:61-65`).
-- `std/arena.yo:441-445`, `Arena.scoped`, and its import of `with_allocator` (`:40`).
+- ~~`std/arena.yo:441-445`, `Arena.scoped`, and its import of `with_allocator` (`:40`).~~ Gone with `std/arena`
+  (deleted 2026-10-24).
 - The scope readers in std: `ArrayList.new`/`with_capacity` (`std/collections/array_list.yo:171-176`, `:254-256`),
   `Deque.new` (`std/collections/deque.yo:57-60`), and `HashMap.new` and `_alloc_with_capacity`
   (`std/collections/hash_map.yo:147-149`, `:252-257`). Each `.None` becomes the global allocator.
@@ -338,15 +343,15 @@ be verified in the PR.
 ## 7. Tests
 
 - **A2.** A safe test file (no pragma) declares `make_node(…, (alloc : Option(Allocator)) ?= .None)` and
-  places an `Rc` in an arena; `arena.live_blocks()` counts it. In the same file, `a.alloc(n)` still fails with the
+  places an `Rc` in a counting allocator defined in the test file, whose count sees it. In the same file, `a.alloc(n)` still fails with the
   raw-pointer error.
 - **V5 Generation A (the `dyn` obligation, §2.4).** `dyn(rc(Sq(…), alloc : .Some(a)))` makes no global
   allocation: the test counts global allocations under the debug allocator, or reads the emitted C for a single
   cell constructor.
 - **B1.** Every surviving placement test uses `alloc :`. `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and
   `box(v)` report `allocator().is_none()`.
-- **B2a.** `ArrayList(T).new(alloc : .Some(a))` grows inside `a`. `v.clone_in(Allocator.global())` of an arena list
-  lets `arena.deinit()` succeed while the source is dropped.
+- **B2a.** `ArrayList(T).new(alloc : .Some(a))` grows inside `a`. `v.clone_in(Allocator.global())` of a list in a
+  counting allocator leaves that allocator's count at zero once the source is dropped.
 - **B2b.**
   - The retired question's re-entrant allocator runs `rc(v, alloc : .Some(a))` and `arc(…)` without recursing
     (today rc 139).

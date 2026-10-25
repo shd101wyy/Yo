@@ -1,6 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ Arena } :: import("std/arena");
+{ GlobalAllocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 // ===== Construction Tests =====
@@ -1381,13 +1381,67 @@ test("windows at or beyond the length", {
   assert(_drain_lens(xs.windows(usize(1))).len() == usize(3), "windows of one yield one per element");
 });
 // ===== Explicit allocators (plans/archive/EXPLICIT_ALLOCATORS.md P1) =====
-test("ArrayList.new_in keeps its buffer in the arena through growth", {
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator();
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`) and the alloc/realloc requests it served.
+// A request larger than `limit` bytes fails, as from an exhausted region.
+_Counts :: struct(live : usize, requests : usize, limit : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  p := cond(
+    (size > unsafe(c.*.limit)) => Option(*void).None,
+    true => GlobalAllocator.malloc(size)
+  );
+  cond(
+    p.is_some() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+      unsafe(c.*.requests = (c.*.requests + usize(1)));
+    },
+    true => ()
+  );
+  p
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  q := cond(
+    (new_size > unsafe(c.*.limit)) => Option(*void).None,
+    true => GlobalAllocator.realloc(ptr, new_size)
+  );
+  cond(
+    q.is_some() => {
+      unsafe(c.*.requests = (c.*.requests + usize(1)));
+    },
+    true => ()
+  );
+  cond(
+    (ptr.is_none() && q.is_some()) => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  q
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+_counts_capped :: (fn(limit : usize) -> _Counts)(_Counts(live : usize(0), requests : usize(0), limit : limit));
+_counts :: (fn() -> _Counts)(_counts_capped(usize(1) << usize(30)));
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
+test("ArrayList.new_in keeps its buffer in its allocator through growth", {
+  counts := _counts();
+  a := _counting(addr_of(counts));
   {
     list := ArrayList(i32).new_in(a);
     // The owner prefix is the one allocation `new_in` makes up front.
-    assert(arena.live_blocks() == usize(1), "new_in allocates the owner prefix");
+    assert(counts.live == usize(1), "new_in allocates the owner prefix");
     assert(list.capacity() == usize(0), "and no element storage");
     mut(i) := i32(0);
     while(runtime(i < i32(1000)), {
@@ -1398,58 +1452,70 @@ test("ArrayList.new_in keeps its buffer in the arena through growth", {
     assert(list(999) == i32(999), "last element");
     assert(list.capacity() >= usize(1000), "capacity() never reports the tag bit");
     assert(list.capacity() < usize(1000000), "and stays a real count");
-    assert(list.allocator().unwrap().same(a), "the buffer is the arena's");
-    assert(arena.live_blocks() == usize(1), "growth reallocates the one block");
+    assert(list.allocator().unwrap().same(a), "the buffer is the allocator's");
+    assert(counts.live == usize(1), "growth reallocates the one block");
   };
-  assert(arena.live_blocks() == usize(0), "dispose released the buffer into the arena");
+  assert(counts.live == usize(0), "dispose released the buffer into its allocator");
 });
-test("ArrayList.with_capacity_in reserves inside the arena", {
-  arena := Arena.new(usize(1) << usize(16));
-  list := ArrayList(u64).with_capacity_in(arena.allocator(), usize(64));
-  assert(list.capacity() == usize(64), "capacity");
-  before := arena.used_bytes();
-  mut(k) := usize(0);
-  while(runtime(k < usize(64)), {
-    list.push(u64(k));
-    k = (k + usize(1));
-  });
-  assert(arena.used_bytes() == before, "no growth within the reservation");
+test("ArrayList.with_capacity_in reserves inside its allocator", {
+  counts := _counts();
+  {
+    list := ArrayList(u64).with_capacity_in(_counting(addr_of(counts)), usize(64));
+    assert(list.capacity() == usize(64), "capacity");
+    before := counts.requests;
+    mut(k) := usize(0);
+    while(runtime(k < usize(64)), {
+      list.push(u64(k));
+      k = (k + usize(1));
+    });
+    assert(counts.requests == before, "no growth within the reservation");
+  };
+  assert(counts.live == usize(0), `dispose released the reservation: ${counts.live}`);
 });
-test("A cloned arena list lives in the arena; a plain list stays global", {
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator();
-  list := ArrayList(String).new_in(a);
-  list.push(String.from("one"));
-  list.push(String.from("two"));
-  c := list.clone();
-  assert(c.allocator().unwrap().same(a), "clone keeps the allocator");
-  assert(c(1) == String.from("two"), "clone copies the elements");
-  plain := ArrayList(i32).new();
-  plain.push(i32(1));
-  assert(plain.allocator().is_none(), "the default constructor stays on the global allocator");
+test("A cloned list lives in its source's allocator; a plain list stays global", {
+  counts := _counts();
+  a := _counting(addr_of(counts));
+  {
+    list := ArrayList(String).new_in(a);
+    list.push(String.from("one"));
+    list.push(String.from("two"));
+    c := list.clone();
+    assert(c.allocator().unwrap().same(a), "clone keeps the allocator");
+    assert(c(1) == String.from("two"), "clone copies the elements");
+    plain := ArrayList(i32).new();
+    plain.push(i32(1));
+    assert(plain.allocator().is_none(), "the default constructor stays on the global allocator");
+  };
+  assert(counts.live == usize(0), `the source and the clone released into their allocator: ${counts.live}`);
 });
-test("shrink_to_fit on an empty arena list keeps its allocator", {
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator();
-  list := ArrayList(i32).new_in(a);
-  list.push(i32(1));
-  list.clear();
-  assert(list.shrink_to_fit().is_ok(), "shrink");
-  assert(list.allocator().is_some(), "still in the arena");
-  list.push(i32(2));
-  assert(list.allocator().unwrap().same(a), "growth after the shrink stays in the arena");
+test("shrink_to_fit on an empty list keeps its explicit allocator", {
+  counts := _counts();
+  a := _counting(addr_of(counts));
+  {
+    list := ArrayList(i32).new_in(a);
+    list.push(i32(1));
+    list.clear();
+    assert(list.shrink_to_fit().is_ok(), "shrink");
+    assert(list.allocator().is_some(), "still in the explicit allocator");
+    list.push(i32(2));
+    assert(list.allocator().unwrap().same(a), "growth after the shrink stays in the explicit allocator");
+  };
+  assert(counts.live == usize(0), `the regrown buffer released into its allocator: ${counts.live}`);
 });
-test("try_push reports an exhausted arena as OutOfMemory", {
-  arena := Arena.new(usize(256));
-  list := ArrayList(u64).new_in(arena.allocator());
-  (mut(full) : bool) = false;
-  mut(k) := usize(0);
-  while(runtime(!full && (k < usize(1000))), {
-    full = list.try_push(u64(k)).is_err();
-    k = (k + usize(1));
-  });
-  assert(full, "the arena runs out");
-  assert(list.len() < usize(1000), "the elements pushed so far survive");
+test("try_push reports an exhausted allocator as OutOfMemory", {
+  counts := _counts_capped(usize(256));
+  {
+    list := ArrayList(u64).new_in(_counting(addr_of(counts)));
+    (mut(full) : bool) = false;
+    mut(k) := usize(0);
+    while(runtime(!full && (k < usize(1000))), {
+      full = list.try_push(u64(k)).is_err();
+      k = (k + usize(1));
+    });
+    assert(full, "the allocator runs out");
+    assert(list.len() < usize(1000), "the elements pushed so far survive");
+  };
+  assert(counts.live == usize(0), `the buffer that hit the cap released into its allocator: ${counts.live}`);
 });
 // `reserve` on an empty zero-sized-element list takes the one anchor buffer.
 // It copied the anchor out of a temporary `_zst_anchor()` list whose dispose
@@ -1472,13 +1538,16 @@ test("reserve on an empty zero-sized-element list takes the anchor and drops it 
   ys.resize_with_byte(usize(3), int(0));
   assert(ys.len() == usize(3), "resize_with_byte goes through the same arm");
 });
-test("A zero-sized element list in an arena", {
-  arena := Arena.new(usize(1024));
-  list := ArrayList(unit).new_in(arena.allocator());
-  list.push(());
-  list.push(());
-  assert(list.len() == usize(2), "len");
-  assert(list.capacity() == ArrayList(unit).new().capacity(), "the same capacity a global ZST list reports");
+test("A zero-sized element list in an explicit allocator", {
+  counts := _counts();
+  {
+    list := ArrayList(unit).new_in(_counting(addr_of(counts)));
+    list.push(());
+    list.push(());
+    assert(list.len() == usize(2), "len");
+    assert(list.capacity() == ArrayList(unit).new().capacity(), "the same capacity a global ZST list reports");
+  };
+  assert(counts.live == usize(0), `the anchor released into its allocator: ${counts.live}`);
 });
 // `clone` allocates from its source's allocator, through the allocator vtable.
 // The mutation analysis read that call as "mutates everything", so a clone
@@ -1486,10 +1555,10 @@ test("A zero-sized element list in an arena", {
 // issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md
 // The body cannot name the borrowed list (E0911, plans/VALUES_BY_DEFAULT.md
 // decision 39), so the clone goes through a second handle of it.
-test("clone inside a borrowed for does not trip the flag, for an arena-backed list too", {
-  arena := Arena.new(usize(4096));
+test("clone inside a borrowed for does not trip the flag, for a list in an explicit allocator too", {
+  counts := _counts();
   {
-    xs := ArrayList(i32).new_in(arena.allocator());
+    xs := ArrayList(i32).new_in(_counting(addr_of(counts)));
     xs.push(i32(1));
     xs.push(i32(2));
     ys := xs;
@@ -1502,7 +1571,7 @@ test("clone inside a borrowed for does not trip the flag, for an arena-backed li
     assert(total == usize(4), "each clone saw both elements");
     assert(xs(usize(0)) == i32(11), "the loop still writes its elements");
   };
-  assert(arena.live_blocks() == usize(0), "every clone released into the arena");
+  assert(counts.live == usize(0), "every clone released into its allocator");
 });
 // The std mutators' length contracts (`ensures(... old(self.len()) ...)`) are
 // runtime asserts in this build, so these edge calls check them

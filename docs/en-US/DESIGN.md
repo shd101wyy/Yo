@@ -1231,15 +1231,15 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 RC decides when an object dies; an explicit allocator decides where it lives. `with_allocator(a, f)` (`std/allocator`) places every reference-semantics object created while `f` runs in allocator `a`, including the buffers of containers built there; `new_in` names an allocator explicitly:
 
 ```yo
-{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
 Point :: ref(struct(x : i32, y : i32));
 
-arena := Arena.new(usize(4096));
-p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
+// `a` is any `Allocator` value, e.g. `Allocator.global()`.
+p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // placed in `a`
 p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
 ```
 
-No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The safety rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas); the full guide is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
+No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. The safety rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators); the full guide is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
 #### Copy
 
@@ -3417,7 +3417,7 @@ assert(sum(&t) == 3);
 - **Allocators.** `box(v, alloc : .Some(a))` places the cell in `a`;
   without `alloc`, the current `with_allocator` scope places it, else the
   global allocator. The cell is freed through its owner, and `Box.clone(b)`
-  lands where `b` lives (an arena box's clone stays in the arena).
+  lands where `b` lives (a box placed by an explicit allocator clones into that allocator).
   `Box.allocator(b)` reads the owner back (`.None` for the global allocator).
 - **Cycles.** A `Box` is part of its owner's value: the cycle collector
   traces its payload in place, so an `Rc` cycle closed through a `Box` is

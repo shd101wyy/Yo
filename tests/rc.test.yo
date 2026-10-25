@@ -6,10 +6,46 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { yield } :: import("std/async");
-{ Arena } :: import("std/arena");
-{ with_allocator } :: import("std/allocator");
+{ GlobalAllocator, with_allocator } :: import("std/allocator");
 { hash_one } :: import("std/hash");
 { RefCell } :: import("std/sync/refcell");
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`) and the alloc/realloc requests it served.
+_Counts :: struct(live : usize, requests : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  cond(
+    ptr.is_none() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+_counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
+// The live count of a counting allocator, read through the allocator value: a
+// closure that captured the `_Counts` itself would read its own copy.
+_live_of :: (fn(a : Allocator) -> usize)(unsafe((*_Counts)(a.ctx.unwrap()).*.live));
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
@@ -2252,19 +2288,20 @@ test("unique Box: Option(Box(T)) is one pointer", {
   assert(n.is_none(), "None is NULL");
 });
 test("unique Box: alloc places the cell, and a clone stays where its source lives", {
-  arena := Arena.new(usize(4096));
+  counts := _counts();
+  heap := _counting(addr_of(counts));
   {
-    a := box(i32(7), alloc : .Some(arena.allocator()));
-    assert(Allocator.owner_of((*void)(addr_of(a.*))).same(arena.allocator()), "the cell's owner prefix names the arena");
-    match(Box.allocator(a), .Some(o) => assert(o.same(arena.allocator()), "Box.allocator reads it back"), .None => assert(false, "placed"));
+    a := box(i32(7), alloc : .Some(heap));
+    assert(Allocator.owner_of((*void)(addr_of(a.*))).same(heap), "the cell's owner prefix names the allocator");
+    match(Box.allocator(a), .Some(o) => assert(o.same(heap), "Box.allocator reads it back"), .None => assert(false, "placed"));
     c := Box.clone(a);
-    match(Box.allocator(c), .Some(o) => assert(o.same(arena.allocator()), "the clone is in the arena too"), .None => assert(false, "the clone is placed"));
+    match(Box.allocator(c), .Some(o) => assert(o.same(heap), "the clone is in the allocator too"), .None => assert(false, "the clone is placed"));
     g := box(i32(1));
     assert(Box.allocator(g).is_none(), "a default box is on the global allocator");
-    s := with_allocator(arena.allocator(), () => box(i32(2)));
-    assert(match(Box.allocator(s), .Some(o) => o.same(arena.allocator()), .None => false), "the with_allocator scope places a default box");
+    s := with_allocator(heap, () => box(i32(2)));
+    assert(match(Box.allocator(s), .Some(o) => o.same(heap), .None => false), "the with_allocator scope places a default box");
   };
-  arena.deinit();
+  assert(counts.live == usize(0), `every placed box went back to the allocator: ${counts.live}`);
 });
 UBoxProbeTree :: enum(
   Leaf(p : UBoxProbe),
@@ -2764,52 +2801,52 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
 });
 // --- The `alloc` parameter (plans/VALUES_BY_DEFAULT.md §3.2; `arc`'s twin in tests/arc.test.yo) ---
 test("rc alloc : .Some(a) places the cell in a, and the default does not", {
-  arena := Arena.new(usize(1) << usize(16));
+  counts := _counts();
+  heap := _counting(addr_of(counts));
   {
-    a := rc(i32(5), alloc : .Some(arena.allocator()));
-    assert(arena.live_blocks() == usize(1), `the cell is in the arena: ${arena.live_blocks()}`);
+    a := rc(i32(5), alloc : .Some(heap));
+    assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
     g := rc(i32(6));
-    assert(arena.live_blocks() == usize(1), "the scope was restored: a default rc is on the global allocator");
+    assert(counts.live == usize(1), "the scope was restored: a default rc is on the global allocator");
     assert((a.* + g.*) == i32(11), "the payloads");
   };
-  assert(arena.live_blocks() == usize(0), "the last drop released the cell into the arena");
-  arena.deinit();
+  assert(counts.live == usize(0), "the last drop released the cell into the allocator");
 });
 test("rc alloc : .Some(a) inside another scope wins, and the outer scope survives", {
-  inner := Arena.new(usize(1) << usize(16));
-  outer := Arena.new(usize(1) << usize(16));
+  inner_counts := _counts();
+  inner := _counting(addr_of(inner_counts));
+  outer_counts := _counts();
+  outer := _counting(addr_of(outer_counts));
   {
-    x := with_allocator(outer.allocator(), () => {
-      placed := rc(i32(7), alloc : .Some(inner.allocator()));
+    x := with_allocator(outer, () => {
+      placed := rc(i32(7), alloc : .Some(inner));
       scoped := rc(i32(8));
-      assert(outer.live_blocks() == usize(1), `the default rc after it still follows the scope: ${outer.live_blocks()}`);
+      assert(_live_of(outer) == usize(1), `the default rc after it still follows the scope: ${_live_of(outer)}`);
       assert(scoped.* == i32(8), "the scoped payload");
       placed
     });
-    assert(inner.live_blocks() == usize(1), "the explicit allocator placed the cell");
-    assert(outer.live_blocks() == usize(0), "the scoped rc died with the closure");
+    assert(inner_counts.live == usize(1), "the explicit allocator placed the cell");
+    assert(outer_counts.live == usize(0), "the scoped rc died with the closure");
     assert(x.* == i32(7), "the placed payload");
   };
-  assert(inner.live_blocks() == usize(0), "released into the explicit allocator");
-  inner.deinit();
-  outer.deinit();
+  assert(inner_counts.live == usize(0), "released into the explicit allocator");
 });
 test("rc alloc : .Some(a) shared by several handles is released into a once, and try_unwrap frees it there", {
-  arena := Arena.new(usize(1) << usize(16));
+  counts := _counts();
+  heap := _counting(addr_of(counts));
   {
-    shared := rc(i32(42), alloc : .Some(arena.allocator()));
+    shared := rc(i32(42), alloc : .Some(heap));
     holder := ArrayList(Rc(i32)).new();
     holder.push(shared);
     assert(ref_count(shared) == usize(2), "two handles, one cell");
-    assert(arena.live_blocks() == usize(1), "one cell, two handles");
+    assert(counts.live == usize(1), "one cell, two handles");
     assert(holder.get(usize(0)).unwrap().* == i32(42), "the held handle reads the placed cell");
   };
-  assert(arena.live_blocks() == usize(0), "the last handle released the cell into the arena");
-  n := match(Rc.try_unwrap(rc(i32(4), alloc : .Some(arena.allocator()))), .Ok(v) => v, .Err(_) => i32(0));
+  assert(counts.live == usize(0), "the last handle released the cell into the allocator");
+  n := match(Rc.try_unwrap(rc(i32(4), alloc : .Some(heap))), .Ok(v) => v, .Err(_) => i32(0));
   assert(n == i32(4), "try_unwrap moves the payload out of a placed cell");
-  assert(arena.live_blocks() == usize(0), "and frees the cell into the arena");
-  arena.deinit();
+  assert(counts.live == usize(0), "and frees the cell into the allocator");
 });
 // `rc`'s twin of tests/arc.test.yo's Send case: a `dyn(...)` closure that
 // captures a parameter of a generic (`Impl(Fn)`) function is boxed by a

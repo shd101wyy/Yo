@@ -7,6 +7,10 @@ references are `&(T, p)` over declared place sets); the RC-free arena is now
 [`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) §4, phased at origins
 N2. Options A, B and E, and the analysis of why the dynamic forms cannot
 drop reference counting, stand.**
+**Amended 2026-10-24: the `std/arena` that the explicit-allocator work
+shipped from this research (`plans/reference/EXPLICIT_ALLOCATORS.md`) is
+deleted by maintainer decision; its successors are `ZIG_STYLE_ALLOCATORS.md`'s
+`FixedBufferAllocator` (A1) and `ArenaAllocator` (A3).**
 Written alongside `../EVALUATOR_MEMORY_REDUCTION.md`, which measured why the
 compiler is large. This document answers a different question: can Yo — whose
 heap objects are `ref(struct(...))` / `ref(enum(...))` handles with

@@ -149,7 +149,7 @@ test("a generic T bound by a closure that returns an io.async future", {
   (annotated : Impl(Future(i32, Io))) = _call_it(() => io.async((io : Io) => i32(9)));
   assert(io.await(annotated, io) == i32(9), "an annotated binding");
 });
-// A generic caller that FORWARDS the closure (`arena.scoped(f)` calling
+// A generic caller that FORWARDS the closure (a generic wrapper calling
 // `with_allocator(a, f)`): inside the caller's specialization the inner call's
 // `T` is bound to the caller's `T`, which is bound to the future.
 _forward_it :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)(_call_it(f));

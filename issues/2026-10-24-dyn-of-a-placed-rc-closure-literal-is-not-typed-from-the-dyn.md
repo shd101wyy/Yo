@@ -43,5 +43,6 @@ static-argument inference A3, which changes what `dyn`'s auto-box synthesizes
 ## Test
 
 Add a case to `tests/rc_cell.test.yo`'s "dyn over an rc-wrapped closure types the closure from the Dyn": the same
-three closures with `alloc : .Some(arena.allocator())`. Each call returns the same value, and
-`arena.live_blocks()` counts one block per `Dyn`. The case fails to compile today.
+three closures with `alloc : .Some(a)`, `a` a counting allocator defined in the test file (`std/arena`, which
+the first draft of this test used, was deleted 2026-10-24). Each call returns the same value, and the counter
+sees one block per `Dyn`. The case fails to compile today.

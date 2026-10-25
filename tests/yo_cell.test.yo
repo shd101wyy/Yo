@@ -9,7 +9,6 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ Arena } :: import("std/arena");
 { GlobalAllocator, with_allocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
 test("a cell holds its payload, and a copy shares it", {
@@ -88,39 +87,76 @@ test("an atomic cell is counted atomically and shared across a thread", {
   assert(ref_count(shared) == usize(1), "the worker's handle was released");
 });
 // --- The allocator argument ---
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`) and the alloc/realloc requests it served.
+_Counts :: struct(live : usize, requests : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  cond(
+    ptr.is_none() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+_counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
+// The live count of a counting allocator, read through the allocator value: a
+// closure that captured the `_Counts` itself would read its own copy.
+_live_of :: (fn(a : Allocator) -> usize)(unsafe((*_Counts)(a.ctx.unwrap()).*.live));
 test("alloc : .Some(a) places the cell in a, and .None follows the scope", {
-  arena := Arena.new(usize(1) << usize(16));
+  counts := _counts();
+  heap := _counting(addr_of(counts));
   {
-    a := __yo_cell(i32)(i32(5), .Some(arena.allocator()));
-    assert(arena.live_blocks() == usize(1), `the cell is in the arena: ${arena.live_blocks()}`);
+    a := __yo_cell(i32)(i32(5), .Some(heap));
+    assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
     g := __yo_cell(i32)(i32(6), .None);
-    assert(arena.live_blocks() == usize(1), "a .None cell outside any scope is on the global allocator");
-    s := with_allocator(arena.allocator(), () => __yo_atomic_cell(i32)(i32(7), .None));
-    assert(arena.live_blocks() == usize(2), "a .None cell inside with_allocator is placed by the scope");
+    assert(counts.live == usize(1), "a .None cell outside any scope is on the global allocator");
+    s := with_allocator(heap, () => __yo_atomic_cell(i32)(i32(7), .None));
+    assert(counts.live == usize(2), "a .None cell inside with_allocator is placed by the scope");
     assert(((a.* + g.*) + s.*) == i32(18), "the payloads");
   };
-  assert(arena.live_blocks() == usize(0), "the last drops released both cells into the arena");
-  arena.deinit();
+  assert(counts.live == usize(0), "the last drops released both cells into the allocator");
 });
 test("an explicit allocator inside another scope wins, and the outer scope survives", {
-  inner := Arena.new(usize(1) << usize(16));
-  outer := Arena.new(usize(1) << usize(16));
+  inner_counts := _counts();
+  inner := _counting(addr_of(inner_counts));
+  outer_counts := _counts();
+  outer := _counting(addr_of(outer_counts));
   {
-    x := with_allocator(outer.allocator(), () => {
-      placed := __yo_atomic_cell(i32)(i32(7), .Some(inner.allocator()));
+    x := with_allocator(outer, () => {
+      placed := __yo_atomic_cell(i32)(i32(7), .Some(inner));
       scoped := __yo_cell(i32)(i32(8), .None);
-      assert(outer.live_blocks() == usize(1), `the .None cell after it still follows the scope: ${outer.live_blocks()}`);
+      assert(_live_of(outer) == usize(1), `the .None cell after it still follows the scope: ${_live_of(outer)}`);
       assert(scoped.* == i32(8), "the scoped payload");
       placed
     });
-    assert(inner.live_blocks() == usize(1), "the explicit allocator placed the cell");
-    assert(outer.live_blocks() == usize(0), "the scoped cell died with the closure");
+    assert(inner_counts.live == usize(1), "the explicit allocator placed the cell");
+    assert(outer_counts.live == usize(0), "the scoped cell died with the closure");
     assert(x.* == i32(7), "the placed payload");
   };
-  assert(inner.live_blocks() == usize(0), "released into the explicit allocator");
-  inner.deinit();
-  outer.deinit();
+  assert(inner_counts.live == usize(0), "released into the explicit allocator");
 });
 // An allocator whose `alloc` itself allocates through the scope
 // (issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md):
@@ -165,18 +201,18 @@ _wrap_rc :: (fn(generic(V : Type), value : V, (alloc : Option(Allocator)) ?= .No
   _WrapRc(V)(_cell : __yo_cell(V)(value, alloc))
 );
 test("a wrapper over the cell: generic construction with the allocator, copy, count", {
-  arena := Arena.new(usize(1) << usize(16));
+  counts := _counts();
+  heap := _counting(addr_of(counts));
   {
-    w := _wrap_rc(i32(11), alloc : .Some(arena.allocator()));
-    assert(arena.live_blocks() == usize(1), "the wrapper's cell is in the arena");
+    w := _wrap_rc(i32(11), alloc : .Some(heap));
+    assert(counts.live == usize(1), "the wrapper's cell is in the allocator");
     v := w;
     assert(v._cell.* == i32(11), "the payload through the copy");
     assert(ref_count(w._cell) == usize(2), `the copy shares the cell: ${ref_count(w._cell)}`);
     s := _wrap_rc(String.from("text"));
     assert(s._cell.* == String.from("text"), "a String payload on the global allocator");
   };
-  assert(arena.live_blocks() == usize(0), "the wrapper's cell was released into the arena");
-  arena.deinit();
+  assert(counts.live == usize(0), "the wrapper's cell was released into the allocator");
 });
 test("the payload moves out of the only handle (V5's try_unwrap)", {
   drops := usize(0);

@@ -169,7 +169,7 @@ patterns the porting guide should teach as moves, not concessions:
 | --- | --- | --- | --- |
 | IV1 | **Split by root** — one struct per lifetime parameter | `Ctx<'a, 'b>` with fields lent from different callers | §14 row 1 |
 | IV2 | **Two-phase: build with ids, then freeze** — construct the graph over indices, close it, never store a borrow | incremental borrows during construction (`&mut Vec` juggling) | rustc's own HIR pattern |
-| IV3 | **Arena-per-phase** — a bump arena plus ids; *placement, not lifetime* (`std/arena.yo`) | `'arena` region threading | §4.6 |
+| IV3 | **Arena-per-phase** — a bump arena plus ids; *placement, not lifetime* (`std/arena.yo` was deleted 2026-10-24; `ZIG_STYLE_ALLOCATORS.md` A3's `ArenaAllocator` is the planned bump arena) | `'arena` region threading | §4.6 |
 | IV4 | **Collect-then-apply** — gather mutations, apply them after the borrow ends | re-entrant `&mut` under iteration | §7.2 |
 | IV5 | **Own-the-sink / return-the-value** — `ToString` returns `String`; no `Formatter<'a>` to borrow | sink borrows threaded down a call tree | §3.5 |
 | IV6 | **Store inputs, re-derive views** — `word_ranges()` returns `Copy` offsets; views are never stored | `Vec<&'a str>` kept as data | §2.2 |
@@ -219,8 +219,9 @@ at compile time, plus the one shape with no answer:
 ## 7. Tooling gaps the patterns expose
 
 - **A generational index arena in std** — slotmap-shaped `Arena(T)` with
-  `Id(T)` handles, generation-protected the way `std/arena.yo` already
-  protects its own allocator handles ("a stale copy can be caught").
+  `Id(T)` handles, generation-protected the way the deleted (2026-10-24)
+  `std/arena.yo` protected its own allocator handles ("a stale copy can be
+  caught").
   Closes boundary item 2 by construction and promotes II3 from a
   hand-rolled idiom to a first-class citizen. Candidate beside Z12–Z15 in
   [`ZIG_ADOPTION_CANDIDATES.md`](ZIG_ADOPTION_CANDIDATES.md); the

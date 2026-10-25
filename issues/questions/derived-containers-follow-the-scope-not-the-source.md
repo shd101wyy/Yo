@@ -3,6 +3,12 @@
 **Kind:** design question: an open decision, not a defect. Filed 2026-10-13
 from the std allocator hand-off audit (`fix/allocator-tag-handoffs`).
 
+**Note (2026-10-24):** `std/arena` is deleted (maintainer decision). The
+question stands for any explicit allocator: read "arena" below as "a
+container placed by an explicit allocator", and `arena.scoped(...)` as
+`with_allocator(a, ...)` (itself deleted by
+`plans/backlog/ALLOCATOR_PLACEMENT.md` B1).
+
 ## What happens today
 
 Decision 12 (`plans/VALUES_BY_DEFAULT.md` §3.11) settles one case: an explicit

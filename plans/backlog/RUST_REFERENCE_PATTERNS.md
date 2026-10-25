@@ -532,15 +532,16 @@ let n: &Node = arena.alloc(Node { .. });   // a borrow with the arena's lifetime
 reference. Rust's *bump* arena is a different thing — a placement
 decision — and in Yo it is the explicit allocator of
 [`EXPLICIT_ALLOCATORS.md`](../reference/EXPLICIT_ALLOCATORS.md) and
-VALUES_BY_DEFAULT §3.11:
+VALUES_BY_DEFAULT §3.11. (`std/arena`'s one-region `Arena` was deleted
+2026-10-24; the bump arena is re-planned as
+[`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) A3's `ArenaAllocator`.
+Below, `a` is any `Allocator` value.)
 
 ```yo
-a := Arena.new();
-with_allocator(a.allocator(), () => {
+with_allocator(a, () => {
   xs := ArrayList(Node).new(); // its buffer, and every cell it creates, lives in `a`
   ...
   });
-a.deinit(); // panics while any block is live
 ```
 
 - The value built in the arena is an **ordinary value** (`xs`, `Rc(Node)`,

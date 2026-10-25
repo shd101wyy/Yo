@@ -131,30 +131,29 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
-## Explicit Allocators and Arenas
+## Explicit Allocators
 
-An explicit allocator decides **where** a block lives. Reference counting still decides **when** it dies. An object placed in an arena is released the moment its last reference goes away, exactly like any other object, and the release is routed back to the allocator that made it. A block cannot outlive its bookkeeping, and there is no way to free it into the wrong allocator.
+An explicit allocator decides **where** a block lives. Reference counting still decides **when** it dies. An object placed by an explicit allocator is released the moment its last reference goes away, exactly like any other object, and the release is routed back to the allocator that made it: every block carries its owner in a 16-byte prefix, so there is no way to free it into the wrong allocator.
 
 ```yo
-{ Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 
 Point :: ref(struct(x : i32, y : i32));
 
-arena := Arena.new(usize(1) << usize(20)); // one 1 MiB region
-p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
-xs := ArrayList(i32).new_in(arena.allocator()); // the buffer lives in the arena
+a := Allocator.global(); // or any other `Allocator` value, such as your own
+p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // placed in `a`
+xs := ArrayList(i32).new_in(a); // the buffer lives in `a`
 ```
 
-- **Placement follows the scope.** `with_allocator(a, f)` (and `arena.scoped(f)`, the same call) makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes and the state machines of tasks created there. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.
-- **A task keeps its scope.** A task created inside `with_allocator` resumes with the same scope after every suspension, whichever scope is current when the event loop resumes it. A spawned thread starts on the global allocator; pass `arena.allocator()` into the spawn body and call `with_allocator` there.
-- **An arena cannot die under a live block.** `Arena.deinit()` (also run when the last `Arena` handle goes away) **panics** while any block is still live: `Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`. In Zig this is a use-after-free; in Yo it is a defined, loud failure. An allocation from a deinit arena through a stale `Allocator` copy panics too, even after a later `Arena.new` reused the dead arena's bookkeeping. The bookkeeping is never freed and every handle and `Allocator` value records which arena it was made for, so a stale one reaches a state it no longer matches, never freed memory or the next arena.
-- **Process-lifetime arenas call `abandon()`.** It stops tracking and never releases the region, and `deinit` becomes a no-op. Use it for startup tables and interners.
-- **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`; every arena operation takes the arena's own lock, so one arena may serve several threads. The `Arena` handle itself is reference counted and not `Send`.
-- **The leak oracle sees arenas.** Under `--allocator fixed --debug-heap`, the exit report lists every arena that was never deinit and every abandoned one, with its live blocks and bytes in use.
+- **Placement follows the scope.** `with_allocator(a, f)` makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes and the state machines of tasks created there. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.
+- **A task keeps its scope.** A task created inside `with_allocator` resumes with the same scope after every suspension, whichever scope is current when the event loop resumes it. A spawned thread starts on the global allocator; pass the `Allocator` value into the spawn body and call `with_allocator` there.
+- **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`, so one allocator may serve several threads as long as its own callbacks are thread-safe.
+- **The allocator must outlive its blocks.** Yo does not check this: a user-written allocator's context and vtable must stay valid until every block it handed out is released.
 
-Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `_in` constructors and the scope do not. The full guide (the `Arena` API, writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
+std ships no arena: `std/arena` was deleted on 2026-10-24, and a `FixedBufferAllocator` and an `ArenaAllocator` are planned (`plans/backlog/ZIG_STYLE_ALLOCATORS.md`).
+
+Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `_in` constructors and the scope do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
 
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 
@@ -298,7 +297,7 @@ The unsafe surface can still free a block twice, free a pointer it never allocat
 - **Some exits list the live blocks without judging them.** An `exit()` from inside the program skips every drop. A thread the program started (`Thread.spawn` or a pool worker) that is still running owns blocks only its stack reaches, which the scan cannot see: the report first waits up to one second for the program's threads to finish (by then the pool has told its idle workers to stop), and if one is still running it says so and does not judge. `YO_DEBUG_ALLOC_VERDICT=0` turns the verdict off.
 - **`yo test --allocator debug` fails a test that leaks.** Each test runs in its own process, so a test whose body returns with a block still live fails as `Memory leak detected`. `YO_TEST_LEAK_VERDICT=0` stages this verdict off too (the runner passes it to the test binary as `YO_DEBUG_ALLOC_VERDICT=0`), and a `pragma(Pragma.NeedsLeakVerdict)` file runs under `--allocator debug` even where no AddressSanitizer binary is built.
 
-A block is named by its allocation number; set `YO_DEBUG_ALLOC_TRAP=<n>` and the program aborts at allocation `n`, so a debugger shows where it came from (single-threaded programs number their allocations deterministically). The allocator does not yet check that a free names the block's size (that needs the sized `free` of the allocator interface's next version), and it records neither allocation sites nor type names. It does not name arenas either: an `Arena` that is never `deinit`ed shows up as anonymous leaked blocks, while `--allocator fixed --debug-heap` lists it by name.
+A block is named by its allocation number; set `YO_DEBUG_ALLOC_TRAP=<n>` and the program aborts at allocation `n`, so a debugger shows where it came from (single-threaded programs number their allocations deterministically). The allocator does not yet check that a free names the block's size (that needs the sized `free` of the allocator interface's next version), and it records neither allocation sites nor type names.
 
 ## FFI
 

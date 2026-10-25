@@ -58,7 +58,7 @@ same := Arc(i32)(i32(42));
 
 ### 放置单元
 
-`arc(value, alloc : .Some(a))` 从分配器 `a`（例如一个 arena）分配单元。最后一个句柄
+`arc(value, alloc : .Some(a))` 从分配器 `a` 分配单元。最后一个句柄
 被 drop 时，无论在哪个线程上，单元都通过 `a` 释放。不传 `alloc` 时，由
 `with_allocator` 作用域放置单元，没有作用域时使用全局分配器（见
 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `box` 不同，`arc` 在分配单元时
@@ -66,15 +66,8 @@ same := Arc(i32)(i32(42));
 分配器”）：
 
 ```yo
-{ Arena } :: import("std/arena");
-
-arena := Arena.new(usize(1) << usize(16));
-{
-  a := arc(i32(42), alloc : .Some(arena.allocator()));
-  assert(arena.live_blocks() == usize(1), "the cell is in the arena");
-};
-assert(arena.live_blocks() == usize(0), "the last handle freed it into the arena");
-arena.deinit();
+// `alloc_a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
+shared := arc(i32(42), alloc : .Some(alloc_a));
 ```
 
 ### 解引用
