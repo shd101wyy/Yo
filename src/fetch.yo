@@ -163,7 +163,7 @@ _push_str_bytes :: (fn(buf : &mut ArrayList(u8), s : str) -> unit)({
 });
 /// Push a String's bytes into an ArrayList(u8).
 _push_string_bytes :: (fn(buf : &mut ArrayList(u8), s : &String) -> unit)({
-  bytes := s;
+  bytes := s.clone();
   n := bytes.len();
   k := usize(0);
   while(k < n, {
@@ -212,7 +212,7 @@ compute_content_hash :: (
           {
             stack.push(
               _HashWorkItem(
-                abs_path : dir_path,
+                abs_path : dir_path.clone(),
                 rel_path : de.name.clone(),
                 is_dir : is_dir
               )
@@ -762,7 +762,7 @@ record_project :: (
     if(_contains_string(&projects, project_dir.clone()), {
       return(());
     });
-    projects.push(project_dir);
+    projects.push(project_dir.clone());
     e.io.await(_write_projects(cache_root, &projects, e.io, e.exn), e);
   })
 );

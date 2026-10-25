@@ -301,7 +301,7 @@ _classify :: (fn(lines : &ArrayList(String)) -> Result(ArrayList(_Line), String)
   st := _Scan(ml : u8(0), depth : i32(0));
   (li : usize) = usize(0);
   while(li < lines.len(), {
-    line := lines(li);
+    line := lines(li).clone();
     if((st.ml != u8(0)) || (st.depth != i32(0)), {
       // Continuation of the previous entry's value.
       _ := _scan_line(&line, usize(0), &st);
@@ -477,7 +477,7 @@ _delete_ranges :: (fn(lines : &ArrayList(String), ranges : &ArrayList(_Range)) -
         r = (r + usize(1));
       },
       true => {
-        out.push(lines(i));
+        out.push(lines(i).clone());
         i = (i + usize(1));
       }
     );

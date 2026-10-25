@@ -229,7 +229,7 @@ _USAGE :: "yo context [<module> [<name>] | <name>] [--list] [--search <query>] [
 /// handler; an empty one prints nothing (the JSON path already wrote its
 /// error object to stdout).
 _fail :: (fn(code : i32, message : &String, exn : Exception) -> unit)({
-  exn.throw(dyn(ExitWith(code : code, message : message)));
+  exn.throw(dyn(ExitWith(code : code, message : message.clone())));
 });
 /// A usage error (exit 2), with the grammar appended.
 _usage_error :: (fn(en : &String, zh : &String, exn : Exception) -> unit)({
@@ -286,7 +286,7 @@ _parse_context_query :: (
   );
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     (step : usize) = usize(1);
     (value : String) = String.new();
     // `--flag value` and `--flag=value` for the three valued flags.
@@ -297,7 +297,7 @@ _parse_context_query :: (
       if((ai + usize(1)) >= argv.len(), {
         _usage_error(`${a} needs an argument`, `${a} 需要一个参数`, exn);
       });
-      value = argv(ai + usize(1));
+      value = argv(ai + usize(1)).clone();
       step = usize(2);
     }, {
       match(
@@ -578,7 +578,7 @@ _sort_modules :: (fn(xs : &mut ArrayList(ContextIndexModule)) -> unit)({
 // ---------------------------------------------------------------------------
 // JSON — every document goes through std's JsonValue + json.stringify.
 // ---------------------------------------------------------------------------
-_jstr :: (fn(s : &String) -> JsonValue)(JsonValue.Str(s));
+_jstr :: (fn(s : &String) -> JsonValue)(JsonValue.Str(s.clone()));
 /// One entry as a JSON object. The field set is STABLE (D4): `origin` is
 /// `""` for an item its module defines.
 _entry_json :: (fn(e : &ContextIndexEntry) -> JsonValue)({
@@ -666,7 +666,7 @@ _did_you_mean :: (
   dists := ArrayList(usize).new();
   (i : usize) = usize(0);
   while(i < names.len(), {
-    nm := names(i);
+    nm := names(i).clone();
     i = (i + usize(1));
     if(!cands.contains(&nm), {
       low_n := nm.to_lowercase();
@@ -919,7 +919,7 @@ _sections_of :: (
     .Some(s) => s,
     .None => {
       s := _page_sections(_module_page(mods, module.clone(), io, exn));
-      cache.insert(module, s);
+      cache.insert(module.clone(), s);
       s
     }
   )

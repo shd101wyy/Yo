@@ -1901,7 +1901,7 @@ _bsm_skip_ws :: (fn(lines : &ArrayList(String), row : usize, col : usize) -> Opt
   Option(_BsmPos).None
 });
 _bsm_edit :: (fn(row : usize, col : usize, old : &String, new : &String) -> _PendingFix)(
-  _PendingFix(row : row, col : col, len : _bsm_rune_len(old), replacement : new, description : old)
+  _PendingFix(row : row, col : col, len : _bsm_rune_len(old), replacement : new.clone(), description : old.clone())
 );
 /// Unwrap the mode call `m` (`imm(x)`, `mut(x)`, `inout(x)`): its head
 /// `word(` becomes `head_repl` and its closing `)` goes. The callee token is
@@ -3842,7 +3842,7 @@ run_fix :: (
   hot_paths := ArrayList(String).new();
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     cond(
       (a == "--dry-run") => {
         dry_run = true;
@@ -3853,7 +3853,7 @@ run_fix :: (
         if(next_t >= argv.len(), {
           exn.throw(dyn(`fix: --target takes a target triple, e.g. x86_64-pc-windows-msvc`));
         });
-        target_triple = argv(next_t);
+        target_triple = argv(next_t).clone();
         ai = (ai + usize(2));
       },
       (a == "--migrate") => {
@@ -3861,13 +3861,13 @@ run_fix :: (
         if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy")), {
           exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings or explicit-copy`));
         });
-        migrate = argv(next_m);
+        migrate = argv(next_m).clone();
         ai = (ai + usize(2));
       },
       (a == "--exclude") => {
         next_i := (ai + usize(1));
         if(next_i < argv.len(), {
-          excludes.push(argv(next_i));
+          excludes.push(argv(next_i).clone());
           ai = (ai + usize(2));
         }, {
           ai = (ai + usize(1));
@@ -3878,7 +3878,7 @@ run_fix :: (
         if(next_h >= argv.len(), {
           exn.throw(dyn(`fix: --hot-path takes a file or directory whose copies --migrate explicit-copy lists instead of rewriting`));
         });
-        hot_paths.push(argv(next_h));
+        hot_paths.push(argv(next_h).clone());
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
@@ -4272,12 +4272,12 @@ run_check :: (
   (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     cond(
       (a == "--exclude") => {
         next_i := (ai + usize(1));
         if(next_i < argv.len(), {
-          excludes.push(argv(next_i));
+          excludes.push(argv(next_i).clone());
           ai = (ai + usize(2));
         }, {
           ai = (ai + usize(1));
@@ -4421,7 +4421,7 @@ run_verify_cmd :: (
   (strict : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     (a_name : String) = a.clone();
     (a_val : Option(String)) = Option(String).None;
     if(a.starts_with("--"), {
@@ -5607,7 +5607,7 @@ impl(
     Self(recorded : ArrayList(String).new())
   ),
   arg : (fn(self : &mut Self, a : &String) -> unit)({
-    self.recorded.push(a);
+    self.recorded.push(a.clone());
     ()
   })
 );
@@ -5642,7 +5642,7 @@ _print_cc_argv :: (fn(program : &String, argv : &ArrayList(String)) -> unit)(
 /// generated compile script must never let them reach the shell unquoted.
 _sh_quote :: (fn(s : &String) -> String)({
   out := String.from("'");
-  b := s;
+  b := s.clone();
   (i : usize) = usize(0);
   while(i < b.len(), {
     ch := match(b.get_byte(i), .Some(x) => x, .None => u8(0));
@@ -5830,7 +5830,7 @@ _fmt_profile_ms :: (fn(ns : i64) -> String)({
 /// Minimal JSON string escaping: backslash, double quote, and control bytes
 /// as \u00XX. Module paths are the only strings that flow through here.
 _json_escape :: (fn(s : &String) -> String)({
-  bytes := s;
+  bytes := s.clone();
   out := ArrayList(u8).new();
   hexdigits := String.from("0123456789abcdef");
   (i : usize) = usize(0);
@@ -6201,9 +6201,9 @@ _CC_PLAN_STATIC_LIB :: u8(2);
 _new_cc_plan :: (fn(mode : u8, cc : &String, c_path : &String, output : &String) -> CcPlan)(
   CcPlan(
     mode : mode,
-    cc : cc,
-    c_path : c_path,
-    output : output,
+    cc : cc.clone(),
+    c_path : c_path.clone(),
+    output : output.clone(),
     argv : ArrayList(String).new(),
     chunk_flags : ArrayList(String).new(),
     chunk_files : ArrayList(String).new(),
@@ -6581,7 +6581,7 @@ _parse_cc_diagnostic_line :: (fn(line : &String) -> Option(Diagnostic))({
 /// gave the C compiler), everything unparseable is printed verbatim first so
 /// no compiler output is lost.
 _report_captured_cc_stderr :: (fn(captured_err : &ArrayList(u8)) -> unit)({
-  text := String.from_bytes(captured_err);
+  text := String.from_bytes(captured_err.clone());
   if(text.len() == usize(0), {
     return(());
   });
@@ -6616,7 +6616,7 @@ _report_captured_cc_stderr :: (fn(captured_err : &ArrayList(u8)) -> unit)({
 /// Run a plan: the C-compiler half of `run_compile`, unchanged in behaviour
 /// wherever it runs.
 _run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : Exception) -> unit)({
-  cc := plan.cc;
+  cc := plan.cc.clone();
   if(plan.mode == _CC_PLAN_STATIC_LIB, {
     if(plan.verbose, {
       _print_cc_argv(cc.clone(), &plan.argv);
@@ -6898,7 +6898,7 @@ run_compile :: (
   externs := ArrayList(String).new(); // --extern
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     // `--flag=value` normalization: split at the FIRST '=' (values may
     // themselves contain '=', e.g. `--cflags=-march=native`), matching the
     // doc/build subcommands' own precedent.
@@ -6994,7 +6994,7 @@ run_compile :: (
         defines.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
         ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
-          defines.push(argv(ai));
+          defines.push(argv(ai).clone());
           ai = (ai + usize(1));
         });
       },
@@ -7002,7 +7002,7 @@ run_compile :: (
         include_paths.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
         ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
-          include_paths.push(argv(ai));
+          include_paths.push(argv(ai).clone());
           ai = (ai + usize(1));
         });
       },
@@ -7010,7 +7010,7 @@ run_compile :: (
         library_paths.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
         ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
-          library_paths.push(argv(ai));
+          library_paths.push(argv(ai).clone());
           ai = (ai + usize(1));
         });
       },
@@ -7018,7 +7018,7 @@ run_compile :: (
         libraries.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
         ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
-          libraries.push(argv(ai));
+          libraries.push(argv(ai).clone());
           ai = (ai + usize(1));
         });
       },
@@ -7026,7 +7026,7 @@ run_compile :: (
         externs.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
         ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
-          externs.push(argv(ai));
+          externs.push(argv(ai).clone());
           ai = (ai + usize(1));
         });
       },
@@ -9106,7 +9106,7 @@ run_test :: (
   (test_in_process : bool) = proc_env.get(`YO_TEST_IN_PROCESS`).is_some();
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     cond(
       ((a == "--bail") || (a == "-b")) => {
         bail = true;
@@ -9857,7 +9857,7 @@ run_test :: (
         // state. That disease is what §7 steps 1–2 cured (the warm_compile_
         // gate's byte-identical two-pass battery); the batch loop now runs
         // on the same machinery.
-        self_exe := argv(usize(0));
+        self_exe := argv(usize(0)).clone();
         // §7 step 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): with
         // YO_TEST_IN_PROCESS=1 the batch compiles IN PROCESS against the
         // runner's resident evaluator — prelude + std evaluate once, later
@@ -10450,7 +10450,7 @@ run_effects :: (
   excludes := ArrayList(String).new();
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     cond(
       (a == "--json") => {
         as_json = true;
@@ -10703,7 +10703,7 @@ _push_unique :: (fn(xs : &mut ArrayList(String), x : &String) -> unit)({
     });
     i = (i + usize(1));
   });
-  xs.push(x);
+  xs.push(x.clone());
 });
 _join_strings :: (fn(xs : &ArrayList(String), sep : str) -> String)({
   out := String.new();
@@ -10756,13 +10756,13 @@ run_init :: (
   (install_skills : bool) = true;
   (ai : usize) = usize(2); // skip program name + "init"
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       (arg == "--name") => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("init: --name requires a value")));
         });
-        name = Option(String).Some(argv(ai + usize(1)));
+        name = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--name=")) => {
@@ -10805,7 +10805,7 @@ run_fmt :: (
   (check_mode : bool) = false;
   (ai : usize) = usize(2); // skip program name + "fmt"
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       (arg == "--check") => {
         check_mode = true;
@@ -10882,7 +10882,7 @@ run_cache :: (
   if(argv.len() < usize(3), {
     exn.throw(dyn(`cache: missing action. ${usage}`));
   });
-  action := argv(usize(2));
+  action := argv(usize(2)).clone();
   if(argv.len() > usize(3), {
     exn.throw(dyn(`cache: unexpected extra argument '${argv(usize(3))}'. ${usage}`));
   });
@@ -10988,14 +10988,14 @@ run_add_cmd :: (
   (verbose : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     needs_value := ((arg == "--path") || (arg == "--name") || (arg == "--branch") || (arg == "--rev"));
     cond(
       needs_value => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(`add: ${arg} requires a value. ${usage}`));
         });
-        value := argv(ai + usize(1));
+        value := argv(ai + usize(1)).clone();
         cond(
           (arg == "--path") => {
             subdir = Option(String).Some(value);
@@ -11068,7 +11068,7 @@ run_remove_cmd :: (
   (verbose : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
@@ -11108,7 +11108,7 @@ run_install_cmd :: (
   (offline : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
@@ -11159,7 +11159,7 @@ run_update_cmd :: (
   (offline : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
@@ -11273,34 +11273,34 @@ run_build_cmd :: (
   (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       ((arg == "--cc") || (arg == "--c-compiler")) => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --cc requires a value")));
         });
-        c_compiler = Option(String).Some(argv(ai + usize(1)));
+        c_compiler = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       ((arg == "-t") || (arg == "--target")) => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --target requires a value")));
         });
-        target_triple = Option(String).Some(argv(ai + usize(1)));
+        target_triple = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       (arg == "--sysroot") => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --sysroot requires a value")));
         });
-        sysroot = Option(String).Some(argv(ai + usize(1)));
+        sysroot = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       (arg == "--build-file") => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --build-file requires a value")));
         });
-        build_file = argv(ai + usize(1));
+        build_file = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--build-file=")) => {
@@ -11351,7 +11351,7 @@ run_build_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: -p requires a workspace member name")));
         });
-        package = Option(String).Some(argv(ai + usize(1)));
+        package = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--package=")) => {
@@ -11531,7 +11531,7 @@ run_unsafe_report_cmd :: (
   (as_json : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       (arg == "--json") => {
         as_json = true;
@@ -11569,7 +11569,7 @@ run_public_safe_report_cmd :: (
   (as_json : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       (arg == "--json") => {
         as_json = true;
@@ -11617,13 +11617,13 @@ run_doc_cmd :: (
   (saw_input : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       ((arg == "-o") || (arg == "--output")) => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --output requires a value")));
         });
-        output_dir = argv(ai + usize(1));
+        output_dir = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--output=")) => {
@@ -11633,7 +11633,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --title requires a value")));
         });
-        title = argv(ai + usize(1));
+        title = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--title=")) => {
@@ -11649,7 +11649,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --format requires a value")));
         });
-        format = argv(ai + usize(1));
+        format = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--format=")) => {
@@ -11659,7 +11659,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --version requires a value")));
         });
-        version = argv(ai + usize(1));
+        version = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--version=")) => {
@@ -11669,7 +11669,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --logo requires a value")));
         });
-        logo = argv(ai + usize(1));
+        logo = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--logo=")) => {
@@ -11679,7 +11679,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --favicon requires a value")));
         });
-        favicon = argv(ai + usize(1));
+        favicon = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--favicon=")) => {
@@ -11737,7 +11737,7 @@ run_version_cmd :: (
   (remote : bool) = false;
   (vi : usize) = usize(2);
   while(vi < argv.len(), {
-    a := argv(vi);
+    a := argv(vi).clone();
     cond(
       (a == "--remote") => {
         remote = true;
@@ -12130,7 +12130,7 @@ run_explain :: (
   (target : String) = String.new();
   (ai : usize) = usize(1);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     if(a == "--list", {
       show_list = true;
       ai = (ai + usize(1));

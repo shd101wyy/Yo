@@ -74,7 +74,7 @@ derive(TokenAndWarning, Clone);
 /// token's MIDDLE; it now underlines the whole token from its start).
 _span_of_token :: (fn(token : &Token) -> Span)(
   Span(
-    path : token.module_path.*,
+    path : token.module_path.*.clone(),
     row : usize(token.row),
     col : usize(token.column),
     len : token.value.chars().count()
@@ -329,7 +329,7 @@ impl(ExitWith, Error());
 /// Wrap one diagnostic as a single-entry `YoError`.
 _yo_error_of :: (fn(entry : &Diagnostic) -> YoError)({
   entries := ArrayList(Diagnostic).new();
-  entries.push(entry);
+  entries.push(entry.clone());
   YoError(diagnostics : entries)
 });
 /// Create a `YoError` from a single token and error message.
@@ -358,7 +358,7 @@ format_error_message_with_repair :: (
     d.help = Option(String).Some(match(help, .Some(hh) => hh, .None => String.new()));
   });
   d.repair = Option(Repair).Some(
-    Repair(span : _span_of_token(token), replacement : replacement, description : repair_description)
+    Repair(span : _span_of_token(token), replacement : replacement.clone(), description : repair_description.clone())
   );
   _yo_error_of(&d)
 });
@@ -381,7 +381,7 @@ format_error_message_with_repair_at :: (
     d.help = Option(String).Some(match(help, .Some(hh) => hh, .None => String.new()));
   });
   d.repair = Option(Repair).Some(
-    Repair(span : span, replacement : replacement, description : repair_description)
+    Repair(span : span.clone(), replacement : replacement.clone(), description : repair_description.clone())
   );
   _yo_error_of(&d)
 });
@@ -407,7 +407,7 @@ format_raw_error :: (fn(module_path : &String, error_message : &String) -> YoErr
       code : _classify_message(error_message),
       severity : Severity.Error,
       message : error_message.trim(),
-      span : Span(path : module_path, row : usize(0), col : usize(0), len : usize(0)),
+      span : Span(path : module_path.clone(), row : usize(0), col : usize(0), len : usize(0)),
       source_line : String.new()
     )
   )
@@ -424,7 +424,7 @@ format_coded_error :: (fn(code : str, message : &String) -> YoError)(
     Diagnostic(
       code : _coded(code),
       severity : Severity.Error,
-      message : message,
+      message : message.clone(),
       span : Span(path : String.new(), row : usize(0), col : usize(0), len : usize(0)),
       source_line : String.new()
     )
@@ -465,7 +465,7 @@ format_error_messages_with_help :: (
       // the help never reaches the diagnostic (and the old help would be
       // released twice).
       primary := first;
-      primary.help = help;
+      primary.help = help.clone();
       err.diagnostics(usize(0)) = primary;
     },
     .None => ()
@@ -496,7 +496,7 @@ format_lexer_error :: (
       code : _classify_message(message),
       severity : Severity.Error,
       message : message.trim(),
-      span : Span(path : module_path, row : row, col : column, len : usize(1)),
+      span : Span(path : module_path.clone(), row : row, col : column, len : usize(1)),
       source_line : line
     )
   )
@@ -652,7 +652,7 @@ stash_error_diagnostics :: (fn(err : &AnyError) -> unit)({
 /// (issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md);
 /// this is the typed path back.
 yo_error_from_diagnostics :: (fn(entries : &ArrayList(Diagnostic)) -> YoError)(
-  YoError(diagnostics : entries)
+  YoError(diagnostics : entries.clone())
 );
 take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
   taken := g_last_error_diagnostics.clone();
@@ -782,7 +782,7 @@ reanchor_primary_at :: (fn(err : &YoError, tok : &Token, note : &String) -> YoEr
 warning_diagnostic_of_token :: (fn(token : &Token, message : &String, help : &Option(String)) -> Diagnostic)({
   d := _diagnostic_of_token(token, Severity.Warning, message);
   d.code = Option(String).None;
-  d.help = help;
+  d.help = help.clone();
   d
 });
 /// A Note-severity diagnostic anchored at a token (the import-chain note).

@@ -23,7 +23,7 @@ json :: import("std/encoding/json");
 /// `render_diagnostics_for_mode` so the choice is global and consistent.
 (mut(g_error_format) : String) = String.from("human");
 set_error_format :: (fn(mode : &String) -> unit)({
-  g_error_format = mode;
+  g_error_format = mode.clone();
 });
 error_format :: (fn() -> String)(g_error_format);
 /// Print already-rendered diagnostic text on the right stream: JSON Lines
@@ -420,7 +420,7 @@ _severity_ansi :: (fn(sev : Severity) -> str)(
 /// scheme and any trailing separator, so the same resolver output spelled
 /// either way compares equal.
 _normalize_path_prefix :: (fn(p : &String) -> String)({
-  out := p;
+  out := p.clone();
   if(out.starts_with(String.from("file://")), {
     out = out.substring(usize(7), out.len());
   });
@@ -574,8 +574,8 @@ edit_distance :: (fn(a : &String, b : &String) -> usize)({
 (g_std_export_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (g_std_export_modules : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 register_std_export :: (fn(name : &String, module_spec : &String) -> unit)({
-  g_std_export_names.with_mut(xs => xs.push(name));
-  g_std_export_modules.with_mut(xs => xs.push(module_spec));
+  g_std_export_names.with_mut(xs => xs.push(name.clone()));
+  g_std_export_modules.with_mut(xs => xs.push(module_spec.clone()));
 });
 std_export_index_size :: (fn() -> usize)(g_std_export_names.with(xs => xs.len()));
 /// Every std module spec exporting `name`, in registration (sorted-walk) order.

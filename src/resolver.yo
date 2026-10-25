@@ -160,7 +160,7 @@ parse_semver :: (fn(tag : &String) -> Option(SemVer))({
   major := match(major_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
   minor := match(minor_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
   patch := match(patch_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
-  Option(SemVer).Some(SemVer(tag : tag, major : major, minor : minor, patch : patch, pre : pre))
+  Option(SemVer).Some(SemVer(tag : tag.clone(), major : major, minor : minor, patch : patch, pre : pre))
 });
 /// semver §11: identifiers of digits compare numerically, others
 /// lexically; numeric < alphanumeric; a shorter list is smaller when the
@@ -454,7 +454,7 @@ parse_version_req :: (fn(text : &String) -> Result(VersionReq, String))({
   Result(VersionReq, String).Ok(VersionReq(text : trimmed, comparators : comparators))
 });
 _ver :: (fn(major : i32, minor : i32, patch : i32, pre : &String) -> SemVer)(
-  SemVer(tag : String.new(), major : major, minor : minor, patch : patch, pre : pre)
+  SemVer(tag : String.new(), major : major, minor : minor, patch : patch, pre : pre.clone())
 );
 /// The comparator's version with missing components as 0.
 _comparator_base :: (fn(c : &_Comparator) -> SemVer)(
@@ -1034,12 +1034,12 @@ _add_requirement :: (
         });
         i = (i + usize(1));
       });
-      kept.push(Requirement(requirer : requirer, requirement : requirement));
+      kept.push(Requirement(requirer : requirer.clone(), requirement : requirement));
       existing.requirements = kept;
     },
     .None => {
       reqs := ArrayList(Requirement).new();
-      reqs.push(Requirement(requirer : requirer, requirement : requirement));
+      reqs.push(Requirement(requirer : requirer.clone(), requirement : requirement));
       state.packages.push(
         _Package(
           name : dep.name.clone(),
@@ -1116,7 +1116,7 @@ _expand_package :: (
 /// (a tag that is not a version, a commit, or a branch name whose commit the
 /// lock pins).
 _locked_choice :: (fn(ref : &String) -> ChosenRef)(
-  match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref))
+  match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref.clone()))
 );
 /// Is `name` one `yo update` re-resolves?
 _refresh_requested :: (fn(state : &_State, name : &String) -> bool)(
@@ -1141,7 +1141,7 @@ _cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key 
   (i : usize) = usize(0);
   while(i < keys.len(), {
     if(keys(i) == key, {
-      return(Option(String).Some(values(i)));
+      return(Option(String).Some(values(i).clone()));
     });
     i = (i + usize(1));
   });

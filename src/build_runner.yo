@@ -427,7 +427,7 @@ resolve_build_import_roots :: (
     manifest := manifest_opt.unwrap();
     (ri : usize) = usize(0);
     while(ri < registry.referenced_dependencies.len(), {
-      dep_name := registry.referenced_dependencies(ri);
+      dep_name := registry.referenced_dependencies(ri).clone();
       if(manifest.find_dependency(dep_name.clone()).is_none(), {
         e.exn.throw(dyn(`Error: build.dependency("${dep_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
       });
@@ -574,8 +574,8 @@ _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(St
     });
     i = (i + usize(1));
   });
-  g_dep_import_dirs.with_mut(xs => xs.push(package_dir));
-  g_dep_import_texts.with_mut(xs => xs.push(lines));
+  g_dep_import_dirs.with_mut(xs => xs.push(package_dir.clone()));
+  g_dep_import_texts.with_mut(xs => xs.push(lines.clone()));
 });
 /// The `-D` options a dependency sees: the consumer's `-D<dep>.<name>=<value>`
 /// with the prefix stripped. A dependency never reads the parent's own
@@ -947,7 +947,7 @@ _walk_dag :: (
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
-  visited.insert(name, true);
+  visited.insert(name.clone(), true);
   match(
     registry.resolve_dependency(name.clone()),
     .None => {
@@ -970,22 +970,22 @@ _walk_dag :: (
           recur(registry, nodes, visited, &linked, missing);
           i = (i + usize(1));
         });
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Artifact, depends_on : deps));
       },
       .Test(_t) => {
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
       },
       .Run(run_step) => {
         deps := ArrayList(String).new();
         deps.push(run_step.artifact_name.clone());
         recur(registry, nodes, visited, &run_step.artifact_name, missing);
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Run, depends_on : deps));
       },
       .Doc(_d) => {
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
       },
       .Verify(_v) => {
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Verify, depends_on : ArrayList(String).new()));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Verify, depends_on : ArrayList(String).new()));
       },
       .Step(step) => {
         deps := ArrayList(String).new();
@@ -997,7 +997,7 @@ _walk_dag :: (
           recur(registry, nodes, visited, &dep_name, missing);
           i = (i + usize(1));
         });
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Step, depends_on : deps));
       }
     )
   );
@@ -1051,11 +1051,11 @@ _dfs_cycle :: (
     name : &String
   ) -> Option(String)
 )({
-  color.insert(name, _COLOR_GRAY);
+  color.insert(name.clone(), _COLOR_GRAY);
   match(
     node_map.get(name),
     .None => {
-      color.insert(name, _COLOR_BLACK);
+      color.insert(name.clone(), _COLOR_BLACK);
       return(Option(String).None);
     },
     .Some(node) => {
@@ -1087,7 +1087,7 @@ _dfs_cycle :: (
       });
     }
   );
-  color.insert(name, _COLOR_BLACK);
+  color.insert(name.clone(), _COLOR_BLACK);
   Option(String).None
 });
 /// Detect cycles in a DAG via DFS. Returns the cycle node name if found.
@@ -1103,12 +1103,12 @@ detect_cycle :: (fn(dag : &ArrayList(DAGNode)) -> Option(String))({
   color := HashMap(String, i32).new();
   i = usize(0);
   while(i < n, {
-    color.insert(dag(i).name, _COLOR_WHITE);
+    color.insert(dag(i).name.clone(), _COLOR_WHITE);
     i = (i + usize(1));
   });
   i = usize(0);
   while(i < n, {
-    node_name := dag(i).name;
+    node_name := dag(i).name.clone();
     if(color.get(&node_name).unwrap_or(_COLOR_WHITE) == _COLOR_WHITE, {
       result := _dfs_cycle(&node_map, &mut color, &node_name);
       match(
@@ -1203,7 +1203,7 @@ expand_workspace_members :: (
 )(
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
-    patterns := manifest.workspace_members;
+    patterns := manifest.workspace_members.clone();
     (pi : usize) = usize(0);
     while(pi < patterns.len(), {
       pattern := patterns(pi).clone();
@@ -1338,7 +1338,7 @@ _push_unique_string :: (fn(out : &mut ArrayList(String), v : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  out.push(v);
+  out.push(v.clone());
 });
 /// Every `.yo` file under `dir`. The async body returns the list rather
 /// than pushing into a caller's: a collection it captured is its own copy
@@ -1428,7 +1428,7 @@ _cache_read_file :: (
 /// rather than a local closure, so the io.async body using it stays a plain
 /// statement sequence.
 _stamp_push_str :: (fn(dst : &mut ArrayList(u8), s2 : &String) -> unit)({
-  b := s2;
+  b := s2.clone();
   (bi : usize) = usize(0);
   while(bi < b.len(), {
     dst.push(b.byte_at(bi));
@@ -1448,7 +1448,7 @@ _stamp_push_str :: (fn(dst : &mut ArrayList(u8), s2 : &String) -> unit)({
 (mut(g_compiler_identity) : Option(String)) = Option(String).None;
 /// Pin the identity instead of hashing the executable (tests).
 set_compiler_identity :: (fn(id : &String) -> unit)({
-  g_compiler_identity = Option(String).Some(id);
+  g_compiler_identity = Option(String).Some(id.clone());
 });
 _compiler_identity :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
@@ -2652,7 +2652,7 @@ execute_node :: (
       }
     );
     StepResult(
-      name : node.name,
+      name : node.name.clone(),
       kind : node.kind,
       success : success,
       duration_ms : i64(0),
@@ -2922,7 +2922,7 @@ _print_summary_node :: (
   nd := node.depends_on.len();
   i := usize(0);
   while(i < nd, {
-    dep_name := node.depends_on(i);
+    dep_name := node.depends_on(i).clone();
     match(
       node_map.get(&dep_name),
       .None => (),
@@ -3244,7 +3244,7 @@ evaluate_build_file :: (
     // of its declared default. The manifest's `[package]` table goes in the
     // same way — `build.manifest.name` reads it during evaluation.
     reg := get_build_registry();
-    reg.cli_options = defines;
+    reg.cli_options = defines.clone();
     reg.manifest_fields = _manifest_fields(manifest_opt);
     outcome := mm_load_yo_file(build_file, e.io, e.exn);
     load_error := _take_load_error();

@@ -194,7 +194,7 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
 /// `compile` processes — agrees with it.
 (mut(g_std_path_override) : Option(String)) = Option(String).None;
 set_std_path_override :: (fn(path : &String) -> unit)({
-  g_std_path_override = Option(String).Some(path);
+  g_std_path_override = Option(String).Some(path.clone());
 });
 /// The stashed `--std-path` override, if any. `build_runner.yo` forwards it
 /// to child `compile`/`test` processes.
@@ -423,7 +423,7 @@ prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
 // ---------------------------------------------------------------------------
 /// Stash the std-path the demand loader will use for nested imports.
 mm_set_loader_context :: (fn(std_path : &String) -> unit)({
-  g_loader_std_path = Option(String).Some(std_path);
+  g_loader_std_path = Option(String).Some(std_path.clone());
 });
 mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
 mm_has_prelude_env :: (fn() -> bool)(match(g_cached_prelude_env, .Some(_) => true, .None => false));
@@ -519,12 +519,12 @@ mm_set_open_document :: (fn(fs_path : &String, text : &String) -> unit)({
     _open_doc_index(fs_path.clone()),
     .Some(i) => {
       g_open_doc_texts.with_mut(xs => {
-        xs(i) = text;
+        xs(i) = text.clone();
       });
     },
     .None => {
-      g_open_doc_paths.with_mut(xs => xs.push(fs_path));
-      g_open_doc_texts.with_mut(xs => xs.push(text));
+      g_open_doc_paths.with_mut(xs => xs.push(fs_path.clone()));
+      g_open_doc_texts.with_mut(xs => xs.push(text.clone()));
     }
   );
 });
@@ -2008,7 +2008,7 @@ mm_reset :: (fn() -> unit)({
 (mut(g_imports_file_override) : Option(String)) = Option(String).None;
 (mut(g_imports_file_loaded) : bool) = false;
 set_imports_file_override :: (fn(path : &String) -> unit)({
-  g_imports_file_override = Option(String).Some(path);
+  g_imports_file_override = Option(String).Some(path.clone());
   g_imports_file_loaded = false;
 });
 get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override);
@@ -2134,7 +2134,7 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
 // The demand loader
 // ---------------------------------------------------------------------------
 _stash_load_error :: (fn(msg : &String) -> unit)({
-  g_load_module_error = Option(String).Some(msg);
+  g_load_module_error = Option(String).Some(msg.clone());
 });
 _take_load_error :: (fn() -> Option(String))({
   r := g_load_module_error.clone();
