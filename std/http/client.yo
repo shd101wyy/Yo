@@ -371,7 +371,7 @@ impl(
     cond(
       (self._idle.len() >= self.max_idle) => false,
       true => {
-        self._idle.push(_Idle(key : key.clone(), transport : transport, carry : carry, since : Instant.now()));
+        self._idle.push(_Idle(key : key.clone(), transport : transport, carry : Rc.clone(carry), since : Instant.now()));
         true
       }
     )
@@ -693,7 +693,7 @@ _fetch_once :: (
         taken,
         .Some(entry) => {
           conn_opt = Option(_Transport).Some(entry.transport);
-          carry = entry.carry;
+          carry = Rc.clone(entry.carry);
         },
         .None => ()
       );

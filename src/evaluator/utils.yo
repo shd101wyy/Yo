@@ -3047,7 +3047,7 @@ take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
   g_clone_impl_body_keys.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -3309,6 +3309,36 @@ _ic_migrate_site :: (
     )
   )
 );
+/// `yo fix --migrate rc-clone`: a `match` the rule makes consuming (its
+/// scrutinee's type holds a counted handle) on a place it cannot move (a
+/// field, a module-level binding, a closure's capture) is recorded for the
+/// `&` borrow its E0901 asks for (decision 26), spelled `borrow`.
+migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue) -> unit)({
+  if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
+    return(());
+  });
+  lt := _ic_leftmost_token(scr);
+  record_explicit_copy_site(
+    ExplicitCopySite(
+      path : lt.module_path.*.clone(),
+      row : usize(lt.row),
+      col : usize(lt.column),
+      expect : ast_expr_to_string(scr),
+      ty : type_to_string(ty),
+      copy_path : String.from("match-scrutinee"),
+      src_decl : String.new(),
+      dst_decl : String.new(),
+      at_module : canonical_module_path(&lt.module_path.*),
+      at_offset : lt.byte_offset,
+      src_borrow : String.new(),
+      in_generic : false,
+      src_dying : String.new(),
+      capture_label : String.new(),
+      spelling : String.from("borrow"),
+      capture_names : String.new()
+    )
+  );
+});
 _IC_COLLECTIONS :: "ArrayList|HashMap|HashSet|BTreeMap|Deque|OrderedMap|PriorityQueue";
 /// The std collection a struct type name denotes (`ArrayList` or
 /// `ArrayList(String)` → `ArrayList`), or none.

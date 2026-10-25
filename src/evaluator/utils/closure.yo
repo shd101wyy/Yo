@@ -87,7 +87,7 @@
   register_capture_field_decl_site
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow } :: import("../../types/utils.yo");
+{ type_contains_rc_type, type_requires_explicit_copy, type_holds_counted_handle_ignoring_migration, counted_handle_std_generic_on, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow } :: import("../../types/utils.yo");
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -1319,7 +1319,10 @@ _captures_require_explicit_copy :: (fn(cvwv_opt : &Option(HashMap(String, FuncCa
       while(more && !found, {
         match(
           it.next(),
-          .Some(ci) => if(type_requires_explicit_copy(&ci.ty), {
+          // `yo fix --migrate rc-clone` suspends decision 17's rule but
+          // must decide as the rule will: a borrowing closure that captures
+          // a counted handle borrows it, so it gets no capture list.
+          .Some(ci) => if(type_requires_explicit_copy(&ci.ty) || (migrate_rc_clone_on() && !counted_handle_std_generic_on() && type_holds_counted_handle_ignoring_migration(&ci.ty)), {
             found = true;
           }),
           .None => {
