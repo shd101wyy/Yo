@@ -63,13 +63,59 @@ _throw_net_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
 // ============================================================================
 // UdpSocket
 // ============================================================================
-/// A UDP socket for sending and receiving datagrams.
-UdpSocket :: ref(
-  struct(
-    _fd : i32,
-    _local_addr : SocketAddr,
-    _is_closed : bool
+/// The socket and its address behind a `UdpSocket`'s `Box`. Its `Drop`
+/// closes the socket unless `close` already did.
+_UdpSocketState :: struct(
+  _fd : i32,
+  _local_addr : SocketAddr,
+  _is_closed : bool
+);
+impl(
+  _UdpSocketState,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        !self._is_closed => {
+          { close_sync } :: import("../sys/file");
+          close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
   )
+);
+/// A UDP socket for sending and receiving datagrams.
+///
+/// A move-only value (its state is a `Box`): one owner closes the socket, and
+/// a copy is E0901. Lend it with `&sock`, or share it as `Rc(UdpSocket)`.
+/// `close` marks the socket closed inside the box, so it is never `Sync`.
+UdpSocket :: struct(_cell : Box(_UdpSocketState));
+impl(UdpSocket, !Sync());
+/// `recvfrom` on `fd`: the byte count and the sender's address.
+_recv_from :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(Tuple(usize, SocketAddr), IoExn)))(
+  io.async(e => {
+    // `sockaddr_storage` is 128 bytes on both POSIX platforms this targets,
+    // which is what `accept` and the `bind` read-back also use.
+    sa_buf := (*u8)(malloc(usize(128)).unwrap());
+    sa_len := (*u32)(malloc(usize(4)).unwrap());
+    sa_len.* = u32(128);
+    r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), sa_buf, sa_len), e.io);
+    // Decode BEFORE the throw check would abandon the buffers: on an error
+    // there is nothing to decode, so free and let `check` throw.
+    cond(
+      (r < i32(0)) => {
+        free(.Some((*void)(sa_buf)));
+        free(.Some((*void)(sa_len)));
+        NetError.check(r, e.exn);
+      },
+      true => ()
+    );
+    from := sockaddr_to_socket_addr(sa_buf);
+    free(.Some((*void)(sa_buf)));
+    free(.Some((*void)(sa_len)));
+    (usize(r), from)
+  })
 );
 impl(
   UdpSocket,
@@ -106,16 +152,16 @@ impl(
       );
       free(.Some((*void)(la_buf)));
       free(.Some((*void)(la_len)));
-      return(UdpSocket(_fd : fd, _local_addr : local, _is_closed : false));
+      return(UdpSocket(_cell : box(_UdpSocketState(_fd : fd, _local_addr : local, _is_closed : false))));
     })
   ),
   /// Set the default destination for `send` and filter `recv` to datagrams
   /// from `addr` — `connect(2)` on a UDP socket. Rust: `UdpSocket::connect`.
   /// `send`/`recv` documented "requires prior connect" for as long as they
   /// existed while no `connect` did, so they could only fail with ENOTCONN.
-  connect : (fn(self : &Self, addr : SocketAddr, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  connect : (fn(self : &Self, addr : SocketAddr, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, addr }(e : IoExn) => {
+      fd := self._cell._fd;
       saddr := make_sockaddr(addr);
       r := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
@@ -127,27 +173,27 @@ impl(
       );
       return(());
     })
-  }),
+  ),
   /// Send a datagram to a specific address.
   /// Returns the number of bytes sent.
-  send_to : (fn(self : &Self, data : &ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  send_to : (fn(self : &Self, data : &ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data, addr }(e : IoExn) => {
+      fd := self._cell._fd;
       saddr := make_sockaddr(addr);
       r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       usize(NetError.check(r, e.exn))
     })
-  }),
+  ),
   /// Receive a datagram into the provided buffer.
   /// Returns the number of bytes received.
-  recv : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  recv : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, buf, size }(e : IoExn) => {
+      fd := self._cell._fd;
       r := e.io.await(IO_udp.recv(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
-  }),
+  ),
   /// Receive a datagram into `buf`, resolving to the byte count AND the
   /// sender's address — Rust's `UdpSocket::recv_from`.
   ///
@@ -155,31 +201,9 @@ impl(
   /// OUT-PARAMS (`src_addr : *u8, src_addr_len : *u32`) that every caller had
   /// to `malloc`, pre-set to 128, pass in, decode and free — a C signature in
   /// a Yo API, and the address was handed back undecoded.
-  recv_from : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(Tuple(usize, SocketAddr), IoExn)))({
-    fd := self._fd;
-    io.async(e => {
-      // `sockaddr_storage` is 128 bytes on both POSIX platforms this targets,
-      // which is what `accept` and the `bind` read-back also use.
-      sa_buf := (*u8)(malloc(usize(128)).unwrap());
-      sa_len := (*u32)(malloc(usize(4)).unwrap());
-      sa_len.* = u32(128);
-      r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), sa_buf, sa_len), e.io);
-      // Decode BEFORE the throw check would abandon the buffers: on an error
-      // there is nothing to decode, so free and let `check` throw.
-      cond(
-        (r < i32(0)) => {
-          free(.Some((*void)(sa_buf)));
-          free(.Some((*void)(sa_len)));
-          NetError.check(r, e.exn);
-        },
-        true => ()
-      );
-      from := sockaddr_to_socket_addr(sa_buf);
-      free(.Some((*void)(sa_buf)));
-      free(.Some((*void)(sa_len)));
-      (usize(r), from)
-    })
-  }),
+  recv_from : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(Tuple(usize, SocketAddr), IoExn)))(
+    io.async({ &self, buf, size, io }(e : IoExn) => e.io.await(_recv_from(self._cell._fd, buf, size, io), e))
+  ),
   /// Receive a datagram as bytes, resolving to at most `max` of them.
   ///
   /// The pointer-free counterpart of `recv`. `send_to`/`send` already take an
@@ -190,9 +214,9 @@ impl(
   /// A datagram longer than `max` is TRUNCATED, and the excess is discarded by
   /// the kernel — that is `recvfrom`'s behaviour, not a choice made here, so
   /// size `max` for the largest message the protocol allows.
-  recv_bytes : (fn(self : &Self, max : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  recv_bytes : (fn(self : &Self, max : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+    io.async({ &self, max }(e : IoExn) => {
+      fd := self._cell._fd;
       out := ArrayList(u8).with_capacity(max);
       (mut(i) : usize) = usize(0);
       while(i < max, i = (i + usize(1)), {
@@ -204,40 +228,44 @@ impl(
       out.truncate(n);
       out
     })
-  }),
+  ),
   /// Receive a datagram as bytes together with the sender's address — the
   /// pointer-free counterpart of `recv_from`. Truncates at `max`, as
   /// `recv_bytes` does.
   recv_from_bytes : (fn(self : &Self, max : usize, io : Io) -> Impl(Future(Tuple(ArrayList(u8), SocketAddr), IoExn)))(
-    io.async(e => {
+    io.async({ &self, max, io }(e : IoExn) => {
+      fd := self._cell._fd;
       out := ArrayList(u8).with_capacity(max);
       (mut(i) : usize) = usize(0);
       while(i < max, i = (i + usize(1)), {
         out.push(u8(0));
       });
       p := match(out.ptr(), .Some(q) => q, .None => (*u8)(""));
-      got := e.io.await(self.recv_from(p, max, io), e);
+      got := e.io.await(_recv_from(fd, p, max, io), e);
       out.truncate(got.0);
       (out, got.1)
     })
   ),
   /// Send data to the peer set by `connect`. Returns the number of bytes sent.
-  send : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  send : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data }(e : IoExn) => {
+      fd := self._cell._fd;
       r := e.io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
-  }),
+  ),
   /// Close the socket.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
       cond(
-        self._is_closed => (),
+        self._cell._is_closed => (),
         true => {
-          r := e.io.await(IO_udp.close(fd), e.io);
-          self._is_closed = true;
+          st := addr_of(self._cell.*);
+          // Marked closed BEFORE the await: a task aborted while the close is
+          // in flight must not let the state's `Drop` close the (possibly
+          // reused) descriptor again.
+          unsafe(consume(st.*._is_closed = true));
+          r := e.io.await(IO_udp.close(self._cell._fd), e.io);
           cond(
             (r < i32(0)) => {
               _throw_net_io(i32(0) - r, e.exn);
@@ -247,11 +275,11 @@ impl(
         }
       );
     })
-  }),
+  ),
   /// Enable or disable SO_BROADCAST on the socket.
-  set_broadcast : (fn(self : &Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  set_broadcast : (fn(self : &Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, enabled }(e : IoExn) => {
+      fd := self._cell._fd;
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := addr_of(val);
       r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (*u8)(val_ptr), u32(4)), e.io);
@@ -262,29 +290,14 @@ impl(
         true => ()
       );
     })
-  }),
+  ),
   /// Get the local address this socket is bound to.
   local_addr : (fn(self : &Self) -> SocketAddr)(
-    self._local_addr
+    self._cell._local_addr
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._fd
-  )
-);
-impl(
-  UdpSocket,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        !self._is_closed => {
-          { close_sync } :: import("../sys/file");
-          close_sync(self._fd);
-          self._is_closed = true;
-        },
-        true => ()
-      );
-    })
+    self._cell._fd
   )
 );
 export(UdpSocket);

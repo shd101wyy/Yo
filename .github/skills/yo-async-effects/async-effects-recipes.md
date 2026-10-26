@@ -259,6 +259,20 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   on the closure. A `(fn(x : T) -> R)(...)` literal in the same position works,
   and so does the same call outside the body
   (`issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`).
+- **A std resource's future borrows the resource** (`File`, the sockets,
+  `TlsStream`, `HttpClient`, `Child` and its pipes, `Watcher`,
+  `BufReader`/`BufWriter` over them; plans/VALUES_BY_DEFAULT.md V3). Every
+  I/O future on one does — `f.read_to_string(io)`, `s.read(buf, n, io)`,
+  `listener.accept(io)`, every `close`, `child.wait(io)`,
+  `client.fetch(…)`, `io.copy(&r, &w, io)` — and must be awaited where they are made (binding, spawning or
+  returning one is E0909), and the bundle must be a place: write
+  `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)` (an
+  inline `IoExn(...)` there is E0910). Inside your own `io.async` body, list
+  the borrow: `io.async({ &f }(e : IoExn) => e.io.await(f.close(e.io), e))`.
+  To serve a socket from a spawned task, move the socket into the task. A
+  function cannot return another call's borrowing future yet: wrap it,
+  `io.async({ &s, io }(e : IoExn) => e.io.await(s.read(buf, n, io), e))`
+  (`issues/2026-10-25-a-borrowing-future-returned-through-a-delegating-call-is-rejected.md`).
 - **Do not bind a captured value to a local and then call a SUSPENDING method
   on the local** inside an async body: `local := captured_stream;` followed by
   `io.await(local.next(io), io)` emits invalid C (a state-machine field
@@ -279,9 +293,11 @@ io.await(conns.for_each(c => serve(c), io), io);
 - The future's effect bundle is **`Io`, not `IoExn`** — a stream never throws.
   A fallible stream carries the failure in the ITEM (`Item = Result(T, E)`,
   e.g. `incoming`'s `Result(TcpStream, NetError)`).
-- `next` takes `self : Self` (not `self : &mut Self`), so every source is a
-  `ref(struct(...))` — a future cannot hold a `&mut` borrow across a
-  suspension.
+- `next` takes `self : &mut Self`, so a stream you call `next` on is bound
+  `mut(conns) := …`. The combinators and consumers take the stream
+  `sink(self)`, and `TcpListener.incoming()` consumes the listener (the
+  listener and its `Incoming` are move-only; `Incoming.listener()` lends it
+  back).
 - Implementors: `TcpListener.incoming()`, `Watcher`, `Channel(T)`.
   Combinators: `map`, `filter`, `filter_map`, `take`, `skip`; consumers:
   `for_each`, `collect`.

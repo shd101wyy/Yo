@@ -1,0 +1,18 @@
+{ IoExn } :: import("std/error");
+S :: struct(x : Box(i32));
+impl(
+  S,
+  m : (fn(self : &Self, io : Io) -> Impl(Future(i32, IoExn)))(
+    io.async({ &self }(e : IoExn) => self.x.*)
+  ),
+  // Rejected: E0909 "borrows `self` (the capture `self : &self` at 6:17) ...
+  // cannot be returned". The result borrows only what this `self` lends.
+  d : (fn(self : &Self, io : Io) -> Impl(Future(i32, IoExn)))(
+    self.m(io)
+  )
+);
+// Rejected the same way, from a free function.
+d2 :: (fn(s : &S, io : Io) -> Impl(Future(i32, IoExn)))(
+  s.m(io)
+);
+export(S, d2);

@@ -302,13 +302,15 @@ run_watch_once :: (
 )({
   changed := ArrayList(String).new();
   rd := BufReader(Stdin).new(stdin());
+  // `read_line`'s future borrows `rd`, so its bundle must be a place (E0910).
+  b := IoExn(io : io, exn : exn);
   (eof : bool) = false;
   while(!eof, {
     // The generic BufReader throws through IoExn instead of returning a
     // Result, so a read error propagates rather than silently ending the list
     // of changed files (D5: plans/archive/STD_API_AUDIT.md).
     match(
-      io.await(rd.read_line(io), IoExn(io : io, exn : exn)),
+      io.await(rd.read_line(io), b),
       .Some(line) => {
         t := line.trim();
         if(t.len() > usize(0), {

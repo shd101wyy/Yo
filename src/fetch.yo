@@ -414,8 +414,9 @@ resolve_git_ref :: (
 // The store lock
 // ---------------------------------------------------------------------------
 /// The exclusive `flock` on `<cache>/store.lock`, held across a store or
-/// mirror mutation so two installs never extract into one name at once.
-StoreLock :: ref(struct(file : File));
+/// mirror mutation so two installs never extract into one name at once. A
+/// move-only value, as its `File` is.
+StoreLock :: struct(file : File);
 /// Take the store lock (blocking — another `yo install` holds it for the
 /// length of one fetch). The lock file is created on first use.
 acquire_store_lock :: (
@@ -443,7 +444,7 @@ release_store_lock :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &lock }(e : IoExn) => {
     _ := flock(lock.file.fd(), LOCK_UN);
     e.io.await(lock.file.close(e.io), e);
   })

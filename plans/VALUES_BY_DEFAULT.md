@@ -5459,6 +5459,45 @@ lands after V1 step 2, because its resource cells are the unique `Box`
   `WaitGroup`, `Once`, `OnceCell`, `ThreadPool`, the `std/sync`
   `Channel`/`Sender`/`Receiver`, the `Atomic*` types) rides V5 Generation A
   onto `__yo_atomic_cell`, so it is rewritten once.
+  - **As built (2026-10-23, branch `feat/v3-std-cell-free-resources`):**
+    each resource is `struct(_cell : Box(_XState))`, the state carrying the
+    `Drop` and marked `!Sync()` (writes go through `addr_of(self._cell.*)`,
+    the async `Mutex` precedent). Methods take `&Self`; a future that needs
+    the state across a suspension borrows the handle through a capture list
+    (A2). Riding along: `Stdin`/`Stdout`/`Stderr` are `Copy`
+    value structs; `BufReader`/`BufWriter` own their inner value (`sink`) with
+    a `Box`ed buffer; the `Stream` combinators and `TcpListener.incoming` take
+    `sink(self)`; `HttpServer` (still a `ref`) holds an `Rc(TcpListener)`;
+    `UnixStream`/`UnixListener` gained the close-on-drop they lacked.
+    `Box`'s `Drop` is a no-op on a zeroed box, which an aborted state machine
+    relies on (`issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md`).
+    Open: a user `Drop` on a never-stored task slot
+    (`issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`),
+    `Option.unwrap` of a move-only payload
+    (`issues/questions/2026-10-23-option-unwrap-cannot-move-a-move-only-payload.md`)
+    and the loss of `Dyn(Reader)`/`Dyn(Writer)`
+    (`issues/questions/2026-10-23-a-move-only-file-cannot-be-a-dyn-reader.md`).
+    Completed 2026-10-24 on the same branch: a borrowing method future on a
+    `ref` receiver is accepted (it was E0909, so a user `ref` reader could not
+    call the now-borrowing `Reader` defaults;
+    `issues/fixed/2026-10-24-a-borrowing-method-future-on-a-ref-receiver-is-rejected-as-a-cell-lend.md`).
+    `Thread(V).join()` on a move-only `V` works through the boxed state since
+    P1 (#1584). Also open: an aborted task's by-value captures, which now
+    include resources moved into a task
+    (`issues/2026-10-24-an-aborted-task-never-drops-its-by-value-captures.md`).
+    Review round (2026-10-25): every I/O future borrows its handle (a future
+    that copied the descriptor ran on a closed, possibly reused one once the
+    handle moved and dropped), so `read`/`write` live in the `Reader`/`Writer`
+    impls (a function cannot yet return another call's borrowing future,
+    `issues/2026-10-25-a-borrowing-future-returned-through-a-delegating-call-is-rejected.md`);
+    the HTTP deadline's exchange is a scoped child; `Child` closes its pipe
+    ends on drop; close paths mark the state closed before the close is
+    submitted; `BufReader.into_inner` and `BufWriter.into_parts` give the
+    inner value back. `File`, the temporaries, `UnixListener`, `Watcher`,
+    `TlsStream` and `HttpClient` are not `Send` (a `String`/`Path`, raw
+    session pointers or the pool); `File`, the temporaries and
+    `UnixListener` hold `String` paths and follow `String` to `Send` with
+    V2b.
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
