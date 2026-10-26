@@ -422,7 +422,7 @@ already computes (`other_fn_call.yo:665` "value exprs in runtime-field order").
   `IR/ExpandResetReuse` (reset/reuse instructions) is the other shipped
   implementation.
 - `plans/reference/RC_OWNERSHIP_IMPLEMENTATION.md` (ownership model,
-  Phase 1.5 pair cancellation), `plans/backlog/RC_POLICY_MECHANISM_SPLIT.md`
+  Phase 1.5 pair cancellation), `plans/archive/RC_POLICY_MECHANISM_SPLIT.md`
   (why the pairing decision belongs to the evaluator and the emission to
   codegen), `issues/fixed/where-constraints-arraylist-96b-leak.md` and
   `issues/fixed/spawn-closure-captures-never-dropped-leak.md` (the optimizer

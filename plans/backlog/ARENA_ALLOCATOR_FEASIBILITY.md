@@ -398,7 +398,7 @@ that allocates per token and copies out counts; a request loop that builds a
 - `plans/reference/RC_OWNERSHIP_IMPLEMENTATION.md`, `REF_REFERENCE_SEMANTICS.md`,
   `docs/en-US/CYCLE_COLLECTION.md`, `docs/en-US/THREAD_SAFETY.md`,
   `docs/en-US/ISOLATED.md`, `docs/en-US/ARC.md`, `docs/en-US/MEMORY_SAFETY.md`.
-- `plans/backlog/RC_HEADER_SPLIT.md` (header layout; tracked/untracked split;
+- `plans/archive/RC_HEADER_SPLIT.md` (header layout; tracked/untracked split;
   the census that shows 1.5 B gross constructions vs 120 M live).
 - Prior art: Zig `std.mem.Allocator` / `FixedBufferAllocator`; Odin
   `context.temp_allocator`; Apple autorelease pools (scoped RC release);

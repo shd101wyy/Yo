@@ -1,5 +1,18 @@
 # RC dup/drop: enforce the policy/mechanism split
 
+> **ARCHIVED 2026-10-26 — retired by the VBD campaign (decision 17,
+> V2c/V5).** Its whole subject is the implicit dup/drop seam —
+> evaluator-planned `___dup` marks, deferred drop expressions, the
+> pair-cancellation optimizer — and once V5 lands "the dup/drop pair
+> optimizer has no implicit copy left to cancel"
+> ([`../VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) V2c): implicit
+> `Rc`/`Arc` copies become E0901 with explicit `.clone()`, so there is no
+> policy left to split. The doc also predates the TypeScript compiler's
+> retirement (2026-08-20) — its inventory cites `begin.ts`, `helper.ts`
+> and `drop-dup.ts`, files that no longer exist. The surviving principle
+> — codegen never makes a policy decision — transfers to whatever
+> guarantees in-place construction after V5.
+
 **Status: BACKLOG (decided 2026-08-06).** Not scheduled — deliberately
 deferred until PR 76 (`feat/bootstrap-codegen`) merges, because every
 migration below touches the dup/drop seam that PR stabilized and each

@@ -58,17 +58,17 @@ is not where the 19 GB is.
 
 Every number below is from a plan that measured it (file cited). "footprint"
 is macOS phys_footprint; "tracked live" is the allocator-boundary instrument of
-`backlog/RC_HEADER_SPLIT.md` (sum of `malloc_size` over live blocks).
+`archive/RC_HEADER_SPLIT.md` (sum of `malloc_size` over live blocks).
 
 | date       | job                                  | result                                                       | source                                     |
 | ---------- | ------------------------------------ | ------------------------------------------------------------ | ------------------------------------------ |
 | 2026-08-05 | self-emit (TS vs yo-self r16)        | 6.05 GB vs 9.08 GB footprint; yo-self retires 31% FEWER instructions — it stores more, not computes more | `backlog/YO_SELF_ENV_SHARING.md` |
 | 2026-08-05 | ExprInfo env prune (REJECTED)        | released 3.08 M envs, −1.13 GB only, +80% wall, emitted C changed | `archive/YO_SELF_EXPRINFO_PRUNE.md`    |
 | 2026-08-17 | def-time env sharing                 | 14.55 → 12.21 GB footprint, 678 → 232-283 s                  | `backlog/YO_SELF_ENV_SHARING.md` §3        |
-| 2026-08-17 | RC header split (16 B small header)  | 12.21 → 11.53 GB footprint; tracked live ~19 GB before/after — the metric hid a real −2.6 GB of zero-heavy bytes | `backlog/RC_HEADER_SPLIT.md` |
+| 2026-08-17 | RC header split (16 B small header)  | 12.21 → 11.53 GB footprint; tracked live ~19 GB before/after — the metric hid a real −2.6 GB of zero-heavy bytes | `archive/RC_HEADER_SPLIT.md` |
 | 2026-08-17 | **`check` closure vs emit**          | **1.89 GB vs 12.2 GB — "~85% of footprint is emission-phase specialization structures"** | `backlog/YO_SELF_ENV_SHARING.md` §3 |
-| 2026-08-18 | `_inject_forall_captures` memo       | tracked live 19.07 → 14.94 GB (−4.1 GB), wall −35%           | `backlog/RC_HEADER_SPLIT.md`               |
-| 2026-08-18 | ExprInfo accessor diet (REFUTED)     | diet binary −1.8 GB on same input, diet SOURCE +3.9 GB to compile (~10 MB retained per new call site) | `backlog/RC_HEADER_SPLIT.md` |
+| 2026-08-18 | `_inject_forall_captures` memo       | tracked live 19.07 → 14.94 GB (−4.1 GB), wall −35%           | `archive/RC_HEADER_SPLIT.md`               |
+| 2026-08-18 | ExprInfo accessor diet (REFUTED)     | diet binary −1.8 GB on same input, diet SOURCE +3.9 GB to compile (~10 MB retained per new call site) | `archive/RC_HEADER_SPLIT.md` |
 | 2026-08-23 | FuncVal env sharing (steps 2+3)      | 17.19 → 16.08 GB footprint (self-emit, seed compile)         | `backlog/FUNCVAL_ENV_SHARING.md`           |
 | 2026-08-24 | one 5-line debug probe               | seed compile 17.5 → 29.1 GB, +2.9× wall, probe never fires   | `issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md` |
 | 2026-09-20 | `check src/main.yo`                  | **19.33 GB** (this document)                                  | §0.1                                       |
@@ -587,11 +587,11 @@ problem is what stays, not what is allocated.
 | idea                                                         | where refuted                                  | why                                                                                        |
 | ------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | Prune `ExprInfo.env` per module with a mark walk             | `archive/YO_SELF_EXPRINFO_PRUNE.md`            | −1.13 GB only, +80% wall, and it changed the emitted C (missed roots)                     |
-| Accessor-based `ExprInfoRare` diet of 15 fields              | `backlog/RC_HEADER_SPLIT.md`                   | binary wins 1.8 GB, source loses 3.9 GB (F8); reopen only after F8 is fixed               |
+| Accessor-based `ExprInfoRare` diet of 15 fields              | `archive/RC_HEADER_SPLIT.md`                   | binary wins 1.8 GB, source loses 3.9 GB (F8); reopen only after F8 is fixed               |
 | Memoize `capture_env_for` rebuilds (by source / by content)  | `backlog/YO_SELF_ENV_SHARING.md` §3 second site | 37 / 587 hits per self-emit; +2.1 GB retention                                             |
 | Freeze multi-frame def envs per definition                   | `backlog/FUNCVAL_ENV_SHARING.md` header        | broke Call-tuple dispatch; thrashed `g_frame_indexes` (24 s → 9 min)                      |
 | Intern at storage points (`type_of_eval_value`, `Variable.ty`) | `backlog/TYPEVALUE_HASH_CONSING.md` §7       | 99.9% hit rate on already-canonical types = pure overhead; intern PRE-canonical only       |
-| Tighter `YO_GC_FULL_PCT`                                     | `backlog/RC_HEADER_SPLIT.md`                   | 130 vs 200 moved nothing — the tracked set is live                                          |
+| Tighter `YO_GC_FULL_PCT`                                     | `archive/RC_HEADER_SPLIT.md`                   | 130 vs 200 moved nothing — the tracked set is live                                          |
 | Share live `Frame` handles into def-time envs                | `issues/fixed/env-sharing-live-frame-membership-leak.md` | frames append in place → membership leaks → statements silently dropped from the C      |
 | `Frame.where_clause_constraints` eager HashMap               | `backlog/YO_SELF_ENV_SHARING.md` §4            | 157 k frames × 496 B ≈ 78 MB, not GB                                                       |
 | An arena / bump allocator for the compiler                   | `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`       | the footprint is retention; a no-free region turns 1.5 B gross constructions into ~150 GB  |

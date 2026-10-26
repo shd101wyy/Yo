@@ -1,5 +1,18 @@
 # RC-header split: the measured path from 12.2 GB to sub-7 GB self-emit
 
+> **ARCHIVED 2026-10-26 — a landed measurement record, and its premise is
+> retired by decision 48.** Phase 1 (the 16 B small header beside the
+> 56 B tracked header) landed 2026-08-17; the numbers below are the
+> frozen record. The tracked/untracked split existed FOR the cycle
+> collector, which decision 48 deletes — the end state is "one 16-byte
+> header everywhere" ([`../VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md)
+> decision 48, designed in
+> [`../backlog/WEAK_AND_UNCOLLECTED_RC.md`](../backlog/WEAK_AND_UNCOLLECTED_RC.md))
+> — so steps 2 and beyond (shrinking the 56 B tracked header) are moot.
+> Successor memory levers live in
+> [`../EVALUATOR_MEMORY_REDUCTION.md`](../EVALUATOR_MEMORY_REDUCTION.md)
+> and [`../backlog/TYPEVALUE_HASH_CONSING.md`](../backlog/TYPEVALUE_HASH_CONSING.md).
+
 **Status: PHASE 1 LANDED 2026-08-17** (branch `perf/rc-header-split`,
 user-directed to start before retirement — implemented in BOTH compilers).
 **Measured result: −0.7 GB footprint (12.21 → 11.53 GB), wall 227 s** — which

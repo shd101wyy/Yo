@@ -1,5 +1,17 @@
 # Multi-Closure Rc Capture Codegen Bug
 
+> **ARCHIVED 2026-10-26 — a TypeScript-era bug record, and the bug class
+> is retired by decision 17.** The mitigation (`Send` enforcement on
+> spawned closures) is long landed; the fix cites
+> `src/evaluator/values/anonymous-function.ts` and
+> `src/evaluator/calls/closure-type.ts` — files of the TypeScript
+> compiler deleted 2026-08-20 — and the failure mode (implicit RC
+> increments when one value is captured by several closures) disappears
+> with V2c's explicit clones: a capture is spelled `{ h : Rc.clone(h) }`
+> at the closure literal ([`../VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md)
+> decisions 17, 35). If the pattern ever re-manifests with explicit
+> clones, it gets a fresh `issues/` entry.
+
 ## Status: Mitigated (Send trait now enforced)
 
 ## Summary
