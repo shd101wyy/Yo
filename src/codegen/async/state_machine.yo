@@ -4,7 +4,6 @@
 //! emitters (they consume `state_code_gen.yo` + `async_completion.yo`
 //! and the `g_some_resolved_concrete` side-table).
 { String } :: import("std/string");
-{ replace, swap } :: import("std/mem");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -220,7 +219,7 @@ _lv_mark_scope :: (fn(e : &AstExpr, w : &_LiveWalk, context : &FunctionGeneratio
 _lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
   entries := match(
     lhs,
-    .FnCall(_, cl_callee, _, _, _) => match(cl_callee, .FnCall(_, _, ents, _, _) => ents.clone(), .Atom(_, _) => return(())),
+    .FnCall(_, cl_callee, _, _, _) => match(cl_callee, .FnCall(_, _, ents, _, _) => ents, .Atom(_, _) => return(())),
     .Atom(_, _) => return(())
   );
   (ei : usize) = usize(0);
@@ -281,7 +280,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
       .Some(ci) => match(
         ci.ty,
         Rc(.Func({ result : _ })) => fn_abi_param_is_ptr(&ci.ty),
-        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, cprf, _))) => cprf.items.clone(), _ => ArrayList(bool).new())
+        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, cprf, _))) => cprf.items, _ => ArrayList(bool).new())
       ),
       .None => ArrayList(bool).new()
     )
@@ -298,7 +297,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
 _lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
   runtime_args := match(
     context.base.get_expr_info(call),
-    .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(())),
+    .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => return(())),
     .None => return(())
   );
   if(runtime_args.len() == usize(0), return(()));
@@ -386,7 +385,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           recur(rhs.clone(), stmt_end, block_end, w, context);
           lhs := match(args.get(usize(0)), .Some(l) => l, .None => return(()));
           name_atom := match(lhs.clone(), .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs.clone()), .Atom(_, _) => lhs.clone());
-          name := ast_expr_token(&name_atom).value.clone();
+          name := ast_expr_token(&name_atom).value;
           match(
             _lv_resolve_keyed(ast_expr_id(name_atom.clone()), e.clone(), &name, w, context),
             .Some(v) => _lv_declare(_lv_id(&v, w), name.clone(), _lv_span_end(rhs.clone(), w), block_end, w),
@@ -1001,7 +1000,7 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
   if(!(is_some_type(future_type) && type_implements_future(future_type)), {
     return(false);
   });
-  fid := match(future_type, Rc(.SomeT({ id })) => id.clone(), _ => String.from(""));
+  fid := match(future_type, Rc(.SomeT({ id })) => id, _ => String.from(""));
   if(context.base.types.contains_key(fid.clone()), {
     return(false);
   });
@@ -1213,7 +1212,7 @@ find_bundle_field_name :: (
               smvar := b.value;
               is_outer := match(smvar.kind, .Outer => true, .Local => false);
               if(!is_outer, {
-                svid := match(smvar.base.ty, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
+                svid := match(smvar.base.ty, Rc(.Struct({ id })) => id, _ => String.from(""));
                 if(svid == target_id, {
                   aliased := match(state_machine_field_aliases, .Some(al) => al.get(smvar.base.id.to_string()), .None => Option(String).None);
                   match(
@@ -1858,7 +1857,7 @@ _store_await_result_into_temp_slot :: (fn(expr : &AstExpr, out : &String, indent
     return(());
   });
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(()));
-  vn := match(ei.variable_name, .Some(v) => v.clone(), .None => return(()));
+  vn := match(ei.variable_name, .Some(v) => v, .None => return(()));
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(()));
   match(
     sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
@@ -1921,13 +1920,16 @@ generate_async_block_resume_function_inline :: (
   );
   p_low := context.sm_inline_lowering;
   p_in := context.in_async_state_machine;
-  mut(p_smv) := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type)));
-  mut(p_vr) := replace(&mut context.variable_id_remapping, Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone()));
+  p_smv := context.state_machine_variables;
+  p_vr := context.variable_id_remapping;
+  p_pdd := context.pending_deferred_drops;
   context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
   context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
   pdd := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
-  mut(p_pdd) := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).Some(pdd));
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
     single := ArrayList(AstExpr).new();
     single.push(body_expr);
@@ -1995,9 +1997,9 @@ generate_async_block_resume_function_inline :: (
   });
   context.sm_inline_lowering = p_low;
   context.in_async_state_machine = p_in;
-  swap(&mut context.state_machine_variables, &mut p_smv);
-  swap(&mut context.variable_id_remapping, &mut p_vr);
-  swap(&mut context.pending_deferred_drops, &mut p_pdd);
+  context.state_machine_variables = p_smv;
+  context.variable_id_remapping = p_vr;
+  context.pending_deferred_drops = p_pdd;
   em.emit_string_line(`  return;`);
   em.emit_string_line(`__yo_dispatch:`);
   em.emit_string_line(`  switch (sm->state) {`);

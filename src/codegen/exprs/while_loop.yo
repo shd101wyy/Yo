@@ -22,7 +22,7 @@ _emit_line :: (fn(em : &Emitter, indent : &String, text : &String) -> unit)({
 });
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip a `comptime(x)` wrapper (evaluator-only) down to `x`.
 _strip_comptime :: (fn(e : &AstExpr) -> AstExpr)(
@@ -111,8 +111,8 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
       ei_opt := context.base.get_expr_info(body_expr);
       current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
       current_consumed := match(ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
-      prev_pending := context.pending_deferred_drops.clone();
-      prev_consumed := context.consumed_var_pending_drops.clone();
+      prev_pending := context.pending_deferred_drops;
+      prev_consumed := context.consumed_var_pending_drops;
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_drops, &prev_pending));
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_consumed, &prev_consumed));
       em := context.base.emitter;
@@ -221,8 +221,8 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
       bei_opt := context.base.get_expr_info(body_expr);
       body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
       body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
-      prev_pending := context.pending_deferred_drops.clone();
-      prev_consumed := context.consumed_var_pending_drops.clone();
+      prev_pending := context.pending_deferred_drops;
+      prev_consumed := context.consumed_var_pending_drops;
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_drops, &prev_pending));
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_consumed, &prev_consumed));
       em := context.base.emitter;
@@ -268,7 +268,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     (args.len() == usize(2)) => {
       cond_expr := _strip_comptime(match(args.get(usize(0)), .Some(c) => c, .None => expr));
       body_expr := match(args.get(usize(1)), .Some(b) => b, .None => expr);
-      saved_loop := context.base.current_loop_label.clone();
+      saved_loop := context.base.current_loop_label;
       loop_tok := ast_expr_token(expr);
       loop_label := stable_label_id(String.from("loop_"), &loop_tok.module_path.*, usize(loop_tok.row), usize(loop_tok.column));
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
@@ -300,8 +300,8 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       cond_expr := _strip_comptime(match(args.get(usize(0)), .Some(c) => c, .None => expr));
       step_expr := match(args.get(usize(1)), .Some(s) => s, .None => expr);
       body_expr := match(args.get(usize(2)), .Some(b) => b, .None => expr);
-      saved_loop := context.base.current_loop_label.clone();
-      saved_continue := context.base.current_continue_label.clone();
+      saved_loop := context.base.current_loop_label;
+      saved_continue := context.base.current_continue_label;
       loop3_tok := ast_expr_token(expr);
       loop_label := stable_label_id(String.from("loop_"), &loop3_tok.module_path.*, usize(loop3_tok.row), usize(loop3_tok.column));
       continue_label := stable_label_id(String.from("continue_"), &loop3_tok.module_path.*, usize(loop3_tok.row), usize(loop3_tok.column));

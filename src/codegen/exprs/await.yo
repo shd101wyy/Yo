@@ -441,7 +441,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // variable name, fall back to the call's unique expr id so multiple `io.await`
   // calls in one function don't collide on the fixed `__sync_future` /
   // `__pre_await_state` defaults (C "redefinition" errors).
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => ast_expr_id(expr).to_string());
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => ast_expr_id(expr).to_string());
   sync_future_var := if(name_suffix.len() > usize(0), `__sync_future_${name_suffix.clone()}`, String.from("__sync_future"));
   pre_await_state_var := if(name_suffix.len() > usize(0), `__pre_await_state_${name_suffix.clone()}`, String.from("__pre_await_state"));
   em.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
@@ -477,7 +477,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // already-aborted future, and for every abort of a bundle-less one.
   {
     // Drop in-scope locals (excluding the not-yet-declared await result var).
-    saved_drops := context.pending_deferred_drops.clone();
+    saved_drops := context.pending_deferred_drops;
     match(
       saved_drops,
       .Some(drops) => {
@@ -589,7 +589,7 @@ generate_state :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   em := context.base.emitter;
   future_code := _call_generate_expr(&future_arg, indent.clone(), context);
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from(""));
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
   result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
@@ -679,7 +679,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .${c_variant_member_name(String.from("Some"))} = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
   some_close := if(jh_nullable, String.new(), String.from(" } } }"));
   none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
-  unique_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from("jh"));
+  unique_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
   result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));

@@ -837,22 +837,22 @@ _is_kept_move_site :: (fn(v : &Variable, tok : &Token) -> bool)({
 /// a use-after-free once the new owner freed it. Any other read renders the
 /// slot itself.
 _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, context : &FunctionGenerationContext) -> String)({
-  low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code.clone()));
+  low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code));
   if(low.rc_operand || !sm_code.starts_with("sm->"), {
-    return(sm_code.clone());
+    return(sm_code);
   });
   eid := ast_expr_id(expr);
   match(low.moved_reads.get(&eid), .Some(t) => return(t), .None => ());
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code.clone()));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code));
   vs := scope_variables(eid, &ei.env, name);
-  v := match(vs.last(), .Some(x) => x, .None => return(sm_code.clone()));
+  v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
   // A move in a branch arm, or on a loop's `break` path, is not the
   // variable's `consumed_at_token`: the join marks the value moved where the
   // branch or the loop ends, and the flow log keeps the move itself.
   is_move := (match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false) || _is_kept_move_site(&v, &tok));
   if(!is_move || !type_contains_rc_cell_or_move_only(&ei.ty), {
-    return(sm_code.clone());
+    return(sm_code);
   });
   // The value leaves the slot where the line holding this read runs (the
   // consuming call, binding or store), not here: a later argument of the same

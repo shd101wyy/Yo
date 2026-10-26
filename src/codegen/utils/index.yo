@@ -1189,7 +1189,7 @@ _avoid_c_reserved_word :: (fn(sanitized : &String) -> String)({
     prefixed.push_string(sanitized);
     return(prefixed);
   });
-  sanitized.clone()
+  sanitized
 });
 /// The C member name of field `label` of the struct type `owner`. A struct
 /// ADOPTED by a `c_include` (`Point : Type` naming a Yo struct) is laid out
@@ -1300,8 +1300,8 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
   )
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
-  args := match(call, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => return(false));
-  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params.clone(), _ => return(false));
+  args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(false));
+  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params, _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
   // remain to line up with the parameters in order.
@@ -1385,7 +1385,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value.clone()), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value.clone()), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1410,7 +1410,7 @@ arm_params :: (fn(case_value : &AstExpr) -> ArrayList(AstExpr))(
         });
         out
       },
-      .FnCall(_, _, _, _, _) => args.clone()
+      .FnCall(_, _, _, _, _) => args
     ),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
@@ -2101,7 +2101,7 @@ _element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
     e,
     .FnCall(_, _, args, _, _) => if(
       ast_expr_is_fn_call_of(e, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None),
-      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_token(&a0).value.clone()), Option(String).None), .None => Option(String).None),
+      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_token(&a0).value), Option(String).None), .None => Option(String).None),
       Option(String).None
     ),
     .Atom(_, _) => Option(String).None
@@ -2435,12 +2435,12 @@ _idx_c_string_literal :: (fn(path : &String) -> String)({
 _checked_index_expr :: (fn(index_code : &String, length_code : &String, expr : &AstExpr) -> String)({
   // 5b: the verifier proved this subscript in bounds (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
   if(guard_site_is_proved(expr, "index-in-bounds"), {
-    return(index_code.clone());
+    return(index_code);
   });
   tok := ast_expr_token(expr);
   if(_is_decimal_literal(index_code.clone()) && _is_decimal_literal(length_code.clone()), {
     if(_parse_decimal(index_code.clone()) < _parse_decimal(length_code.clone()), {
-      return(index_code.clone());
+      return(index_code);
     });
   });
   file_lit := _idx_c_string_literal(&tok.module_path.*);
@@ -2461,7 +2461,7 @@ _fixed_array_len_literal :: (fn(array_type : &TypeValue) -> String)(
 _checked_fixed_array_subscript :: (fn(index_code : &String, array_type : &TypeValue, expr : &AstExpr) -> String)({
   len_code := _fixed_array_len_literal(array_type);
   if(len_code.len() == usize(0), {
-    return(index_code.clone());
+    return(index_code);
   });
   _checked_index_expr(index_code, &len_code, expr)
 });

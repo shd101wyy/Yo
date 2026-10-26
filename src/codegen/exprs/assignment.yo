@@ -123,7 +123,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   if(match(expr_info_is_compile_time_only_assignment(&ei), .Some(b) => b, .None => false), {
     return(String.from(""));
   });
-  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs0 := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing lhs"))));
   rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing rhs"))));
   // `(lhs : T) = rhs` is an initialization; unwrap to the real lhs variable.
@@ -343,7 +343,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   // and its own scope drop covers it; dropping both double-freed the old value
   // (the round-4 `rhs = evaluate(rhs)` escape UAF; the escape list drops only
   // the local, never the not-yet-defined temp). Save/restore for nesting.
-  prev_save_temp := context.current_assignment_save_temp.clone();
+  prev_save_temp := context.current_assignment_save_temp;
   match(
     ei.variable_name,
     .Some(stn) => {

@@ -11,7 +11,6 @@
 //! (__yo_incr_rc/__yo_decr_rc/__yo_malloc/…), object + closure constructor
 //! functions.
 { String } :: import("std/string");
-{ replace, swap } :: import("std/mem");
 { ArrayList } :: import("std/collections/array_list");
 { read_file_sync } :: import("../../manifest.yo");
 { panic } :: import("std/assert");
@@ -788,23 +787,25 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       stub_mark_b := em.code.len();
       em.emit_string_line(&open);
       _maybe_emit_method_entry_borrow_assert(&function_type, func_id.clone(), &body_box, &em, context);
-      prev_name := context.base.current_function_name.clone();
-      context.base.current_function_name = c_function_name.clone();
+      prev_name := context.base.current_function_name;
       prev_type := context.current_function_type;
-      prev_override := context.override_return_type_str.clone();
-      context.override_return_type_str = async_override;
+      prev_override := context.override_return_type_str;
+      context.base.current_function_name = c_function_name.clone();
       context.current_function_type = Option(TypeValue).Some(function_type);
       // Thread the async return-type override into `return` statements (return.yo
       // reads context.override_return_type_str) so the returned future is cast to
       // the SM struct, matching the (overridden) signature. Restored after body.
+      context.override_return_type_str = async_override;
       // Track effect-record-member (ctl handler) functions so `unwind(v)` stashes
       // the unwound value into __yo_unwind_value (for retrieval at the install
       // site) rather than returning it directly.
       prev_is_erm := context.is_effect_record_member_function;
       // Unwind identity: what this function's own `unwind`s target (its body's
       // origin), and which unwinds it catches (the handlers written in it).
-      mut(prev_unwind_origin) := replace(&mut context.current_unwind_origin, Option(String).Some(unwind_origin_id(&body_box)));
-      mut(prev_unwind_catches) := replace(&mut context.unwind_catches, Option(ArrayList(String)).Some(unwind_catches_of_body(&body_box)));
+      prev_unwind_origin := context.current_unwind_origin;
+      prev_unwind_catches := context.unwind_catches;
+      context.current_unwind_origin = Option(String).Some(unwind_origin_id(&body_box));
+      context.unwind_catches = Option(ArrayList(String)).Some(unwind_catches_of_body(&body_box));
       if(is_effect_record_member(func_id.clone()), {
         context.is_effect_record_member_function = true;
       });
@@ -812,9 +813,9 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // struct C name + captured field names + defining frame level so the atom
       // emitter rewrites captured vars (e.g. `base`) to
       // `((<cap>*)closure_context)->base`. Restored after the body.
-      prev_caps := context.current_closure_captures.clone();
+      prev_caps := context.current_closure_captures;
       prev_cap_level := context.current_closure_capture_frame_level;
-      prev_cap_cname := context.current_closure_capture_type_c_name.clone();
+      prev_cap_cname := context.current_closure_capture_type_c_name;
       (owned_capture_labels : ArrayList(String)) = ArrayList(String).new();
       if(is_closure_fn(func_id.clone()), {
         match(
@@ -824,7 +825,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
             if(is_fnonce_closure_fn(func_id.clone()), {
               owned_capture_labels = cap_labels.items.clone();
             });
-            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items.clone());
+            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items);
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
             context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(&ci.capture_type, &context.base));
           },
@@ -927,7 +928,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // exact.
       (stub_found_ftt : bool) = false;
       {
-        (sb : &String) = &em.code;
+        sb := em.code;
         total_b := sb.len();
         needle := String.from("// Failed to transpile");
         nb := needle;
@@ -1056,7 +1057,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
         // Truncate at the marker, in place. stub_mark_b is a byte offset taken
         // at an emission point (a char boundary), so this is byte-exact with
         // the former `substring(0, stub_mark)` and copies nothing.
-        (pb : &String) = &em.code;
+        pb := em.code;
         if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
           // The rewrite below TRUNCATES the body at the marker, destroying the
           // evidence of WHICH expression failed — print a window AROUND the
@@ -1469,8 +1470,10 @@ emit_thread_local_accessors :: (
   });
   // Same deferred-drop reset as the module-init helper: the initializer's
   // result is MOVED into the thread-local storage, never dropped.
-  mut(saved_pending) := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()));
-  mut(saved_consumed) := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()));
+  saved_pending := context.pending_deferred_drops;
+  saved_consumed := context.consumed_var_pending_drops;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
   em.emit_string(String.from("\n// Thread-local lazy accessors (one first touch per thread).\n"));
   (ai : usize) = usize(0);
   while(ai < module_vars.len(), {
@@ -1506,8 +1509,8 @@ emit_thread_local_accessors :: (
     );
     ai = (ai + usize(1));
   });
-  swap(&mut context.pending_deferred_drops, &mut saved_pending);
-  swap(&mut context.consumed_var_pending_drops, &mut saved_consumed);
+  context.pending_deferred_drops = saved_pending;
+  context.consumed_var_pending_drops = saved_consumed;
 });
 /// Generate the C `main()` wrapper that calls `__yo_user_main`. On POSIX the
 /// program body runs on a large-stack (1 GiB, YO_MAIN_STACK_MB-overridable)
@@ -1635,8 +1638,10 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
   // fresh empty list so the initializer's result is MOVED into the global (never
   // dropped — module globals outlive the program body).
   if(has_module_vars, {
-    mut(saved_pending) := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()));
-    mut(saved_consumed) := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()));
+    saved_pending := context.pending_deferred_drops;
+    saved_consumed := context.consumed_var_pending_drops;
+    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+    context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     em.emit_string(
       String.from("\n// Module-level mutable variable initialization (runs first).\nstatic void __yo_main_module_init(void) {\n")
     );
@@ -1669,8 +1674,8 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
       mvi = (mvi + usize(1));
     });
     em.emit_string_line(String.from("}"));
-    swap(&mut context.pending_deferred_drops, &mut saved_pending);
-    swap(&mut context.consumed_var_pending_drops, &mut saved_consumed);
+    context.pending_deferred_drops = saved_pending;
+    context.consumed_var_pending_drops = saved_consumed;
   });
   if(is_target_posix(&context.base.target_info), {
     // The escape check after module init: an

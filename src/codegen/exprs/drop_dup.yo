@@ -164,7 +164,7 @@ resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValu
     return(value_type);
   });
   ft := match(context.current_function_type, .Some(t) => t, .None => return(value_type));
-  var_name := ast_expr_token(value_arg).value.clone();
+  var_name := ast_expr_token(value_arg).value;
   match(
     ft,
     Rc(.Func({ param_types : pts, meta : __fm1 })) => {
@@ -1339,10 +1339,10 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
             match(dup_result_name, .Some(n) => n, .None => fallback_code_2)
           }
         )
-      }, fallback_code.clone()),
-      .None => fallback_code.clone()
+      }, fallback_code),
+      .None => fallback_code
     ),
-    .None => fallback_code.clone()
+    .None => fallback_code
   )
 );
 /// Arm-value deferred-dup rewrite: when `e`
@@ -1373,7 +1373,7 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &Fu
   // NOT-YET-DECLARED name — and the `btv != raw_code` declaration below is
   // skipped. Same phantom-temp class as the stage-2 fixpoint blocker in
   // cond.yo; see issues/fixed/stage2-match-if-else-value-phantom-temp.md.
-  saved_arm_vn := bei.variable_name.clone();
+  saved_arm_vn := bei.variable_name;
   bei.variable_name = Option(String).None;
   raw_code := _call_generate_expr(body_expr, indent.clone(), context);
   bei.variable_name = saved_arm_vn;
