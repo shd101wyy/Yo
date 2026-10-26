@@ -715,7 +715,14 @@ _dispatch_arg_code :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, 
 ///   reads through it, and decision 28's E0910 rejects a later operand that
 ///   writes or frees a lent place;
 /// - a settled code (`_operand_code_is_settled`): a literal, a compile-time
-///   value or binding, a temp the operand declared;
+///   value or binding, a temp the operand declared, and a compile-time
+///   constant enum construction with no runtime payload operands
+///   (`_operand_is_constant_enum_ctor`: `Option(*u32).None`) — it reads
+///   nothing, and keeping its bare `NULL` inline also keeps it a null
+///   pointer constant, which every parameter accepts; a spilled temp is
+///   typed by the option's payload, which a header parameter spelling can
+///   reject (`LPDWORD` vs `uint32_t*` on Windows)
+///   (issues/fixed/2026-10-25-an-option-none-operand-is-spilled-into-a-wrong-typed-temp.md);
 /// - inside a state machine, an operand a later operand's `await` separates
 ///   from its use: a C local does not survive the suspension
 ///   (issues/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md);
@@ -729,7 +736,7 @@ sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(Ast
     return(code);
   });
   ei := match(context.base.get_expr_info(arg), .Some(e) => e, .None => return(code));
-  if(_operand_code_is_settled(arg, &code, &ei), {
+  if(_operand_code_is_settled(arg, &code, &ei) || _operand_is_constant_enum_ctor(arg, &ei, context), {
     return(code);
   });
   root := _operand_local_root(arg, &code, context);
@@ -816,6 +823,81 @@ _operand_code_is_settled :: (fn(arg : &AstExpr, code : &String, ei : &ExprInfo) 
     );
   });
   _is_c_identifier(code) && (_looks_like_minted_temp(code) || is_any_temp_variable_name(code) || code.starts_with("__yo_seq_"))
+});
+/// Whether `arg` constructs a compile-time-constant enum value with no
+/// runtime payload operands, so its rendering reads nothing a later sibling
+/// could change: a bare `NULL` (a nullable-pointer option's `.None`, emitted
+/// by `property_access.yo`), a tag constant, or an all-constant initializer.
+/// Two shapes: a qualified fieldless-variant constant (`Option(*u32).None`,
+/// a BF_DOT whose base is a type expression) and a variant constructor call
+/// whose callee resolves to the enum type (`.Baz()`). An enum-typed local or
+/// field READ (an atom, `s.opt`) is not a construction; a payload-carrying
+/// `.Some(x)` still reads `x` — neither is settled here. Settling these also
+/// keeps the `NULL` inline: `sequence_operand` types a spilled temp by
+/// `expr_info_converted_runtime_type`, the option's PAYLOAD, and a
+/// header-declared parameter spelling can reject it (Windows `LPDWORD` is
+/// `unsigned long*`, not `uint32_t*`)
+/// (issues/fixed/2026-10-25-an-option-none-operand-is-spilled-into-a-wrong-typed-temp.md).
+_operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : &FunctionGenerationContext) -> bool)({
+  if(!is_enum_type(&ei.ty), {
+    return(false);
+  });
+  rt_empty := match(ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() == usize(0)), .None => true);
+  if(!rt_empty, {
+    return(false);
+  });
+  match(
+    arg,
+    .FnCall(_, f, pargs, _, _) => {
+      n := pargs.len();
+      // A variant constructor call with no arguments: the callee resolves to
+      // the enum type (`.Some` → Option), the discriminator used by the
+      // runtime-construction branch below.
+      callee_is_ctor := match(
+        context.base.get_expr_info(&f),
+        .Some(fei) => match(fei.value, .Some(.TypeVal(ewb)) => is_enum_type(&ewb), _ => false),
+        .None => false
+      );
+      if((n == usize(0)) && callee_is_ctor, {
+        return(true);
+      });
+      // A qualified fieldless-variant constant: `Option(*u32).None` is a
+      // BF_DOT over a TYPE-expression base, and the field names a variant
+      // of `ei.ty` with no payload fields.
+      if((n == usize(2)) && ast_expr_is_fn_call_of(arg, BF_DOT, Option(usize).Some(usize(2))), {
+        base := match(pargs.get(usize(0)), .Some(b) => b, .None => return(false));
+        ftok := match(pargs.get(usize(1)), .Some(.Atom(_, t)) => t, _ => return(false));
+        base_is_type := match(
+          context.base.get_expr_info(&base),
+          .Some(bei) => match(bei.value, .Some(.TypeVal(_)) => true, _ => false),
+          .None => false
+        );
+        if(!base_is_type, {
+          return(false);
+        });
+        match(
+          ei.ty,
+          Rc(.EnumT({ variant_names : vnames, variant_fields : vfields })) => {
+            nv := vnames.len();
+            (vi : usize) = usize(0);
+            while(vi < nv, {
+              match(
+                vnames.get(vi),
+                .Some(vn) => if(vn == ftok.value, {
+                  return(match(vfields.get(vi), .Some(fs) => (fs.len() == usize(0)), .None => true));
+                }),
+                .None => ()
+              );
+              vi = (vi + usize(1));
+            });
+            false
+          },
+          _ => false
+        )
+      }, false)
+    },
+    _ => false
+  )
 });
 /// Whether `s` is a plain C identifier.
 _is_c_identifier :: (fn(s : &String) -> bool)({
