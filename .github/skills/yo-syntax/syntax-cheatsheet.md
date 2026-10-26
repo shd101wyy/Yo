@@ -474,10 +474,12 @@ while(comptime(i < 10), {
 });
 
 // for loop — 2-arg prelude macro iterating BY VALUE (implicit
-// .into_iter()). ref(struct(...)) elements are handles: mutating
-// them in the body mutates the element in place. A value element
-// (String, struct, ...) is borrowed: writing its RC data is E0908.
-for(list, x => {
+// .into_iter(), which CONSUMES the collection). ref(struct(...))
+// elements are handles: mutating them in the body mutates the element
+// in place. A value element (String, struct, ...) is borrowed: writing
+// its RC data is E0908. A collection used after the loop is read with
+// the read walk for(&list, x => …).
+for(&list, x => {
   process(x);
 });
 for(&mut names, s => {
@@ -504,7 +506,7 @@ for(list.into_iter().map(x => (x + i32(1))), y => println(&y));
 - **A compile-time function body declares its locals with compile-time forms** (E1104, 2026-10-01): in the body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) write `x :: v`, `(comptime(x) : T) = v`, `comptime(x) := v` or `comptime(x) : T`, never `x := v`, `(x : T) = v`, `x : T` or `y := &mut x`. Compile-time locals are still mutable (`x = (x + 1)` in a `while(comptime(...), ...)` loop). A runtime fn literal nested in such a body (a method of the struct a `-> comptime(Type)` fn returns, a closure) and a runtime fn evaluated at compile time (`comptime_fn(f)`) keep their runtime locals. `yo fix` applies the rewrite.
 - **Bindings are immutable unless declared `mut(name)`** (decision 47, Rust's `let mut`; enforced everywhere except `src/` until v0.2.72): `mut(x) := v`, `(mut(x) : T) = v`, `mut(x) :: v` / `comptime(mut(x)) := v` (block scope only), `.Some(mut(v))` in a pattern, `{ a, mut(b) }` in a destructuring; module level `mut(G) := v`. Reassigning, writing a field or `Array` element, lending `&mut x` (argument, `y := &mut x`, `match(&mut x, …)`, capture) or calling a `&mut self` method on an unmarked binding is E0917. A `ref` handle (today's collections) is written through without `mut`; `String` is a value and needs it. Parameters take no `mut` (rebind: `mut(p_m) := p;`); `mut(x) : T` on a parameter is E0009. `yo fix <path> --migrate mut-bindings` inserts the markers.
 - **Runtime code cannot assign a `::` binding** (E0918, 2026-10-15): a runtime function, closure or test body that writes a module-level `::` (`G = v`, `G.x = v`) or a `::` of an enclosing function, or writes a runtime value to its own `::` local, is rejected; every use of the constant was folded while compiling. Declare a binding the program writes with `:=` (`mut(G) := i32(1);` at module level: a written global needs `mut`, decision 47). Compile-time writes stay legal: module level, `-> comptime(...)`/`-> Type` bodies, CTFE, a `while(comptime(...))` counter, and a body's own `mut(a) :: 1; a = 2;` (decision 47: an unmarked `a :: 1` is not reassignable, E0917).
-- **`for(coll, (x) => body)`** — value form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for reference-semantics element types).
+- **`for(coll, (x) => body)`** — value form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for reference-semantics element types). `into_iter(self : Self)` CONSUMES `coll` (B7b), as do `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/`chunks`/`windows`: a collection read again after the loop takes the read walk `for(&coll, …)` or `coll.clone()`. Until the collections become value types (V2b B8–B11) the by-value receiver shares, so a later use still compiles. `iter()` yields raw pointers and holds the storage, not the collection: unsafe code only.
 - **`for(&mut coll, x => body)` / `for(&mut map, (k, v) => body)`** — BORROWED form (plans/VALUES_BY_DEFAULT.md decision 39; the sigil goes on the source, `for(&coll, x => body)` is the read walk below): the loop holds a local borrow `c := &mut coll` and walks a `BorrowedWalk` cursor; `x` is a `&mut` local borrow into the element's storage (in-place struct writes, no per-element dup, `bump(x)` OK; `return(x)` is E0912, write `v := x; return(v)`). The body may NOT name `coll` — `coll.push(x)`, `coll.len()`, a nested loop over `coll` — E0911; to read or grow a list while walking it use `for(xs.indices(), i => …)` with `xs(i)`. Growing/shrinking/removing through ANOTHER handle (alias, global) PANICS (runtime borrow flag); `break`/`continue`/`return`/`unwind` release. Sources implement `BorrowedWalk` + `BorrowedWalkMut` (ArrayList, Deque, HashMap, OrderedMap, BTreeMap; HashSet/PriorityQueue have only the read walk); `String` (walk `s.chars()`), `Array(T, N)` and chains take the value form.
 - **`for(&coll, x => body)` / `for(&map, (k, v) => body)`** — READ WALK (B7a): the same cursor over `c := &coll`, each element a `&` local borrow through `walk_ref`; nothing is copied. `x = …` / `x.f = …` is E0908; the body MAY read `coll` (`coll.len()`, a nested read walk) but not write it (E0911); every std collection is a source. `src/`/`std/` write it only once `SEED_VERSION` carries B7a (an older seed reads it as the value form).
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/fixed/eval-for-loop-3arg-vs-2arg.md`)
@@ -567,9 +569,11 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
-// Value form — implicit .into_iter(). The borrowed `for(&mut list, x => …)` form is below.
-for(list, value => {
-  println(&value);
+// Read walk — each element borrowed in place; `list` stays usable. The value
+// form `for(list, value => …)` (implicit .into_iter()) consumes `list`; the
+// borrowed `for(&mut list, x => …)` form is below.
+for(&list, value => {
+  println(value);
 });
 
 // In-place element mutation: index writes (struct/scalar elements) or
@@ -581,7 +585,7 @@ while(i < list.len(), {
 });
 ```
 
-- `for(coll, (x) => body)` — macro expands to `coll.into_iter()` and yields elements by value (a handle for reference-semantics element types — mutating it mutates the element in place).
+- `for(coll, (x) => body)` — macro expands to `coll.into_iter()`, which consumes `coll`, and yields elements by value (a handle for reference-semantics element types — mutating it mutates the element in place). `for(&coll, x => body)` reads in place and leaves `coll` usable.
 - `for(&mut coll, x => body)` — borrowed form: `x` names the element's storage (struct fields write in place, RC elements not dup'd); the loop holds `c := &mut coll`, so naming `coll` in the body is E0911 (walk `coll.indices()` to read or grow it), and growing it through another handle panics. Maps: `for(&mut map, (k, v) => body)`.
 - Combinator chains (`coll.into_iter().map(f).filter(g)`) work as the first arg with `(x) => body`.
 

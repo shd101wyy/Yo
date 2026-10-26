@@ -1705,32 +1705,24 @@ mm_revalidate_apply :: (
                       )
                     ),
                     .Some(deps) => {
-                      dit := deps.iter();
-                      dopt := dit.next();
-                      while(dopt.is_some() && !blocked, {
-                        match(
-                          dopt,
-                          .Some(dp) => {
-                            dep_mod := def_key_module(unsafe(dp.*).clone());
-                            (involved : bool) = false;
-                            (xi : usize) = usize(0);
-                            while((xi < modules.len()) && !involved, {
-                              match(
-                                modules.get(xi),
-                                .Some(x) => if((x == dep_mod) && !settled.contains(&dep_mod), {
-                                  involved = true;
-                                }),
-                                .None => ()
-                              );
-                              xi = (xi + usize(1));
-                            });
-                            if(involved, {
-                              blocked = true;
-                            });
-                          },
-                          .None => ()
-                        );
-                        dopt = dit.next();
+                      for(&deps, dp => {
+                        dep_mod := def_key_module(dp);
+                        (involved : bool) = false;
+                        (xi : usize) = usize(0);
+                        while((xi < modules.len()) && !involved, {
+                          match(
+                            modules.get(xi),
+                            .Some(x) => if((x == dep_mod) && !settled.contains(&dep_mod), {
+                              involved = true;
+                            }),
+                            .None => ()
+                          );
+                          xi = (xi + usize(1));
+                        });
+                        if(involved, {
+                          blocked = true;
+                          break;
+                        });
                       });
                     },
                     .None => ()

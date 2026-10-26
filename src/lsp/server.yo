@@ -871,9 +871,8 @@ _handle_message :: (
         .Some(params) => {
           query := _jfield_str(&params, "query");
           ws_docs := ArrayList(WorkspaceDoc).new();
-          // `for(map, ...)` hands out owned entries (into_iter); `iter()`
-          // would need raw pointers.
-          for(docs, entry => {
+          // The read walk borrows each entry in place: no copy of the map.
+          for(&docs, entry => {
             ws_docs.push(
               WorkspaceDoc(
                 uri : entry.key.clone(),
@@ -1239,7 +1238,7 @@ _handle_message :: (
                   changed_fs := uri_to_fs_path(_jfield_str(&ch, "uri"));
                   if(changed_fs.len() > usize(0), {
                     is_open := false;
-                    for(docs, entry => {
+                    for(&docs, entry => {
                       if(entry.value.entry_abs == changed_fs, {
                         is_open = true;
                       });
@@ -1257,7 +1256,7 @@ _handle_message :: (
             // the open buffer's own text stays authoritative for its file.
             open_uris := ArrayList(String).new();
             open_texts := ArrayList(String).new();
-            for(docs, entry => {
+            for(&docs, entry => {
               open_uris.push(entry.key.clone());
             });
             (oi : usize) = usize(0);

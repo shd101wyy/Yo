@@ -515,9 +515,9 @@ list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 
-// Value form — implicit .into_iter().
-for(list, value => {
-  println(&value);
+// Read walk — each element borrowed in place; `list` stays usable.
+for(&list, value => {
+  println(value);
 });
 
 // Borrowed form — `x` is a `&mut` local borrow into the element's storage.
@@ -535,14 +535,15 @@ while(i < list.len(), {
 
 | Form                          | Expansion                                 | When to use                                                                 |
 | ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
-| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; `ref` elements are handles and mutate in place; a value element (`String`, …) is borrowed, so writing it is E0908 |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | Consumes `coll` (`into_iter(self : Self)`): the last use of a collection, a temporary, an iterator chain; `ref` elements are handles and mutate in place; a value element (`String`, …) is borrowed, so writing it is E0908 |
+| `for(&coll, x => …)`          | borrows each element read-only            | Read a collection that is used again afterwards; nothing is copied; writing `x` is E0908 |
 | `for(&mut coll, x => …)`      | borrows each element's storage            | In-place element mutation (`s.push_str(…)` on a `String` element); naming `coll` in the body is E0911 (walk `coll.indices()` instead) |
 | index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
 | `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 
 - The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/archive/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
 - `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.
-- `IntoIterator` trait — defines `into_iter() -> IntoIter`. Collections impl this so `for(coll, ...)` works.
+- `IntoIterator` trait — defines `into_iter(self : Self) -> IntoIter`, which consumes the collection. Collections impl this so `for(coll, ...)` works. `chars`/`bytes`/`lines`/`keys`/`values`/`chunks`/`windows` consume their receiver too; `iter()` yields raw pointers (unsafe code only).
 
 ## Module-level mutable variables
 

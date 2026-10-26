@@ -910,7 +910,7 @@ Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level
 
 ## `for` loop macro — correct form
 
-The `for` macro is a 2-argument prelude macro. The value form iterates BY VALUE (it expands to `coll.into_iter()`); the BORROWED form `for(&mut coll, x => body)` / `for(&mut map, (k, v) => body)` binds each element as a `&mut` local borrow into the collection's storage, and the READ WALK `for(&coll, x => body)` / `for(&map, (k, v) => body)` as a `&` local borrow (a `BorrowedWalk` cursor over a local borrow `c := &mut coll` / `c := &coll` under the hood):
+The `for` macro is a 2-argument prelude macro. The value form iterates BY VALUE (it expands to `coll.into_iter()`, and `IntoIterator.into_iter` takes `self : Self`, so the loop CONSUMES `coll`: a collection read again afterwards takes the read walk below or `coll.clone()`; `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/`chunks`/`windows` consume their receiver the same way, and until each collection's V2b flip the by-value receiver shares, so a later use still compiles. `iter()` yields raw pointers and holds the storage, not the collection: `pragma(Pragma.AllowUnsafe)` code only, B7b); the BORROWED form `for(&mut coll, x => body)` / `for(&mut map, (k, v) => body)` binds each element as a `&mut` local borrow into the collection's storage, and the READ WALK `for(&coll, x => body)` / `for(&map, (k, v) => body)` as a `&` local borrow (a `BorrowedWalk` cursor over a local borrow `c := &mut coll` / `c := &coll` under the hood):
 
 ```yo
 for(list, x => {

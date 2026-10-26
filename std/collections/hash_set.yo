@@ -415,7 +415,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : HashSetIter(T),
-    into_iter : (fn(self : &Self) -> HashSetIter(T))(
+    into_iter : (fn(self : Self) -> HashSetIter(T))(
       HashSetIter(T)(_inner : self._map.into_iter())
     )
   )
@@ -426,7 +426,9 @@ impl(
 ///
 /// The pointers alias the map's storage: any insert that rehashes, any
 /// `remove`, or `clear` invalidates pointers already yielded. The element is
-/// the entry's KEY, addressed rather than assumed to sit at offset 0.
+/// the entry's KEY, addressed rather than assumed to sit at offset 0. Like
+/// `HashMapIterPtr`, it holds the bucket arrays, not the set (decision 39,
+/// B7b): the set must outlive the walk.
 HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _inner : HashMapIterPtr(T, unit)
@@ -449,7 +451,9 @@ impl(
   generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSet(T),
-  /// Non-consuming iteration, yielding a `*(T)` into the backing storage.
+  /// Non-consuming raw iteration, yielding a `*(T)` into the backing
+  /// storage — the `pragma(Pragma.AllowUnsafe)` form; safe code reads
+  /// elements with `for(&set, x => ...)`.
   iter : (fn(self : &Self) -> HashSetIterPtr(T))(
     HashSetIterPtr(T)(_inner : self._map.iter())
   )

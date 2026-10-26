@@ -10323,12 +10323,20 @@ DoubleEndedIterator :: trait(
     )
 );
 export(DoubleEndedIterator);
-/// IntoIterator trait — convert a collection into an iterator.
+/// IntoIterator trait — convert a collection into an iterator that OWNS it.
+///
+/// `into_iter` takes its receiver by value (plans/VALUES_BY_DEFAULT.md
+/// decision 39, V2b B7b): the iterator holds the collection, and the value
+/// form `for(coll, x => body)` consumes `coll`. While a collection is still a
+/// `ref` type, passing it by value shares it (a count bump), so a later use of
+/// `coll` keeps working until that collection's flip; read a collection in
+/// place with `for(&coll, x => body)`, or iterate a copy,
+/// `coll.clone().into_iter()`.
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
   into_iter :
-    (fn(self : &Self) -> Self.IntoIter),
+    (fn(self : Self) -> Self.IntoIter),
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);
@@ -10475,7 +10483,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : _ArrayIter(T, N),
-    into_iter : (fn(self : &Self) -> _ArrayIter(T, N))(
+    into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
       _ArrayIter(T, N)(_arr : self, _index : usize(0), _back_taken : usize(0))
     )
   )
@@ -10611,9 +10619,13 @@ __for_source_is_place :: (fn(comptime(e) : Expr) -> comptime(bool))(
 /// `for` macro — iterate over a collection.
 ///
 ///   `for(coll, x => body)` — calls `coll.into_iter()` and binds `x`
-///     to each yielded value. The collection is moved into the
-///     iterator; object elements are handles, so mutating `x` in the
-///     body mutates the element in place.
+///     to each yielded value. `into_iter` takes the collection by value
+///     (B7b), so the loop consumes `coll`: a collection read again
+///     afterwards is walked with `for(&coll, x => body)` instead (or
+///     iterated as `coll.clone()`). While collections are `ref` types the
+///     value form shares the collection rather than moving it, and object
+///     elements are handles, so mutating `x` in the body mutates the
+///     element in place.
 ///
 ///   `for(&mut coll, x => body)` — the borrowed form
 ///     (plans/VALUES_BY_DEFAULT.md decision 39): the loop takes a local

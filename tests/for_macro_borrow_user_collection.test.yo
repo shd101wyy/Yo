@@ -129,15 +129,16 @@ test("borrowed for: a read-only user method with a typed local, through an alias
 // The invalidation assert is decided PER PARAMETER from where each mutated
 // value's storage lives (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §9, third pass):
 // a method that mutates only storage it allocated itself (`clone` pushing into
-// its result), or an iterator's own cursor while walking the collection, does
-// not mutate the collection and carries no assert. A method that makes fresh
+// its result), or a read walk of the collection (`for(&self.items, …)`, which
+// B7b's migration spells for the value form `for(self.items, …)` of a borrowed
+// field), does not mutate the collection and carries no assert. A method that makes fresh
 // storage reachable from `self` and then mutates it does — pinned by
 // tests/cli-cases/inout-for-store-fresh-into-self-panics.
 impl(
   Bag,
-  sum_by_value_for : (fn(self : &Self) -> i32)({
+  sum_read_walk : (fn(self : &Self) -> i32)({
     mut(total) := i32(0);
-    for(self.items, x => {
+    for(&self.items, x => {
       total = (total + x);
     });
     total
@@ -161,7 +162,7 @@ test("borrowed for: user methods iterating the collection or mutating a fresh co
   other := bag;
   mut(seen) := i32(0);
   for(&mut bag, x => {
-    seen = (seen + other.sum_by_value_for());
+    seen = (seen + other.sum_read_walk());
     d := other.doubled_copy();
     seen = (seen + i32(d.len()));
   });
@@ -211,8 +212,9 @@ test("borrowed for over a ref collection forwarding the inner projection: no ass
   bag.items.push(i32(3));
   assert(bag.items.len() == usize(3), "the guard released the flag at loop end: later container calls do not panic");
 });
-// A read-only method iterating a VALUE field by value, `for(self.c, …)`, runs
-// the field's `into_iter`, whose iterator owns a copy of the field, and then
+// A read-only method iterating a copy of a VALUE field, `for(self.c.clone(),
+// …)`, runs the field's `into_iter`, which consumes the copy (B7b; before it,
+// `for(self.c, …)` lent the field to an `into_iter` that copied it), and then
 // advances that iterator's own cursor. Neither touches `self`, so the method
 // carries no entry assert. Two PARAM-STORAGE mistakes used to give it one
 // (issues/fixed/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md):
@@ -247,17 +249,18 @@ impl(
   IntoIterator(
     Item : usize,
     IntoIter : CIter,
-    into_iter : (fn(self : &Self) -> CIter)(CIter(src : self.clone(), i : usize(0)))
+    into_iter : (fn(self : Self) -> CIter)(CIter(src : self.clone(), i : usize(0)))
   )
 );
 // The iterator is bound to a local, then returned.
 CountLocal :: struct(c : Counter);
+derive(CountLocal, Clone);
 impl(
   CountLocal,
   IntoIterator(
     Item : usize,
     IntoIter : CIter,
-    into_iter : (fn(self : &Self) -> CIter)({
+    into_iter : (fn(self : Self) -> CIter)({
       it := CIter(src : self.c.clone(), i : usize(0));
       it
     })
@@ -265,22 +268,24 @@ impl(
 );
 // A fully constant iterator: its value is folded, it roots nothing.
 CountConst :: struct(c : Counter);
+derive(CountConst, Clone);
 impl(
   CountConst,
   IntoIterator(
     Item : usize,
     IntoIter : CIter,
-    into_iter : (fn(self : &Self) -> CIter)(CIter(src : Counter(n : usize(3)), i : usize(0)))
+    into_iter : (fn(self : Self) -> CIter)(CIter(src : Counter(n : usize(3)), i : usize(0)))
   )
 );
 // The copy passes through a chain of locals.
 CountChain :: struct(c : Counter);
+derive(CountChain, Clone);
 impl(
   CountChain,
   IntoIterator(
     Item : usize,
     IntoIter : CIter,
-    into_iter : (fn(self : &Self) -> CIter)({
+    into_iter : (fn(self : Self) -> CIter)({
       a := self.c.clone();
       b := a;
       CIter(src : b, i : usize(0))
@@ -312,7 +317,7 @@ impl(
   IntoIterator(
     Item : usize,
     IntoIter : HIter,
-    into_iter : (fn(self : &Self) -> HIter)(HIter(src : self.clone(), i : usize(0)))
+    into_iter : (fn(self : Self) -> HIter)(HIter(src : self.clone(), i : usize(0)))
   )
 );
 // A `Copy` source.
@@ -340,7 +345,7 @@ impl(
   IntoIterator(
     Item : usize,
     IntoIter : PIter,
-    into_iter : (fn(self : &Self) -> PIter)(PIter(src : self.clone(), i : usize(0)))
+    into_iter : (fn(self : Self) -> PIter)(PIter(src : self.clone(), i : usize(0)))
   )
 );
 VBag :: ref(
@@ -375,35 +380,35 @@ impl(
   VBag,
   sum_clone : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.c, x => {
+    for(self.c.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_local : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.local, x => {
+    for(self.local.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_const : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.konst, x => {
+    for(self.konst.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_chain : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.chain, x => {
+    for(self.chain.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_hand : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.h, x => {
+    for(self.h.clone(), x => {
       t = (t + x);
     });
     t

@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, borrow each one with `for(&mut coll, item => …)`, where an assignment to `item` writes the element in place, or write back with index assignment (`coll(i) = v`).
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood, which consumes the collection; read one in place with `for(&coll, item => …)`). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, borrow each one with `for(&mut coll, item => …)`, where an assignment to `item` writes the element in place, or write back with index assignment (`coll(i) = v`).
 
 ## What Safe Code Cannot Do
 

@@ -111,3 +111,19 @@ The design is written out in `plans/VALUES_BY_DEFAULT.md`, decision 39,
      check the live length.
    - What is left is the same test against the new `iter()`, which
      Generation B replaces with the walks above.
+
+## Status 2026-10-25: B7b landed the consuming iterators
+
+- `IntoIterator.into_iter` takes `self : Self` (`std/prelude.yo`), and so do
+  its impls on every std collection, `String` and `Array(T, N)`, and the
+  receiver-holding iterators `chars`, `bytes`, `char_indices`, `lines`,
+  `keys`, `values`, `chunks` and `windows`. The iterator owns what it walks;
+  while a collection is `ref`, the by-value receiver is a share, and the
+  iterators still copy their elements out until each flip (lookahead D21).
+  `tests/iterator_combinators.test.yo` ("B7b: …") pins a move-only source
+  moving into its iterator and being dropped once.
+- The seven `*Ptr` iterators hold the buffer pointer and the length that
+  `iter()` saw, not the container, so `iter()` stores no copy of its
+  receiver. They are raw views for `pragma(Pragma.AllowUnsafe)` code.
+- What keeps this doc open: B7c, `HashMapEntry`'s `with` shape (it still
+  holds the map).

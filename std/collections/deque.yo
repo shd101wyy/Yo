@@ -392,20 +392,26 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : DequeIter(T),
-    into_iter : (fn(self : &Self) -> DequeIter(T))(
-      DequeIter(T)(_deque : self, _pos : usize(0), _remaining : self._len)
-    )
+    into_iter : (fn(self : Self) -> DequeIter(T))({
+      n := self._len;
+      DequeIter(T)(_deque : self, _pos : usize(0), _remaining : n)
+    })
   )
 );
 /// Pointer iterator over a Deque — yields `*(T)` into the ring itself, in
 /// logical order. This is what `iter()` returns (D14): nothing is dup'd and
 /// writing through the pointer updates the element in place.
 ///
-/// A yielded pointer dies with the buffer, so a push that grows the ring (or
-/// a `dispose`) during the walk leaves it dangling.
+/// A raw view (decision 39, B7b): it holds the ring's buffer pointer, its
+/// capacity and the head and length `iter()` saw, NOT the deque, so it keeps
+/// nothing alive and is meant for `pragma(Pragma.AllowUnsafe)` code. A
+/// yielded pointer dies with the buffer, so the deque must outlive the walk,
+/// and a push, pop or growth during it leaves the walk reading stale slots.
 DequeIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _deque : Deque(T),
+    _buf : ?*T,
+    _head : usize,
+    _cap : usize,
     _pos : usize,
     _remaining : usize
   )
@@ -419,8 +425,8 @@ impl(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
-          idx := ((self._deque._head + self._pos) % self._deque._cap());
-          buf := self._deque._buf.unwrap();
+          idx := ((self._head + self._pos) % self._cap);
+          buf := self._buf.unwrap();
           element_ptr := buf.add(idx);
           self._pos = (self._pos + usize(1));
           self._remaining = (self._remaining - usize(1));
@@ -433,10 +439,12 @@ impl(
 impl(
   generic(T : Type),
   Deque(T),
-  /// Borrowing walk from the front: yields a `*(T)` into the ring and
-  /// leaves the deque intact (D14).
+  /// Raw walk from the front: yields a `*(T)` into the ring and leaves the
+  /// deque intact (D14). Safe code reads elements with `for(&dq, x => ...)`;
+  /// this is the `pragma(Pragma.AllowUnsafe)` form, whose iterator holds the
+  /// buffer, not the deque (decision 39, B7b).
   iter : (fn(self : &Self) -> DequeIterPtr(T))(
-    DequeIterPtr(T)(_deque : self, _pos : usize(0), _remaining : self._len)
+    DequeIterPtr(T)(_buf : self._buf, _head : self._head, _cap : self._cap(), _pos : usize(0), _remaining : self._len)
   ),
   /// The logical positions `0 .. len()` (front first), a `Range(usize)` that
   /// holds no handle to the deque: decision 39's index cursor

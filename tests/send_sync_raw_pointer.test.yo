@@ -8,6 +8,11 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 // it; the safe-code rules are in tests/send_sync.test.yo.
 { Thread } :: import("std/thread");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+// The raw *Ptr iterator views (VBD B7b, decision 39) hold raw buffer pointers,
+// so they are neither Send nor Sync. Nothing else pins that directly — their
+// fields only derive the absence — so pin it here.
+{ ArrayListIterPtr } :: import("std/collections/array_list");
+{ HashMapIterPtr } :: import("std/collections/hash_map");
 SrpHolder :: struct(p : *i32);
 derive(SrpHolder, Copy, Clone);
 SrpOptIn :: struct(p : *i32);
@@ -55,4 +60,8 @@ _spawn_opt_in :: (fn() -> i32)({
 });
 test("an opted-in raw-pointer struct crosses Thread.spawn", {
   assert(_spawn_opt_in() == i32(41), "the thread read through the pointer");
+});
+test("the raw *Ptr iterator views are not Send", {
+  comptime_assert(!Type.impls(ArrayListIterPtr(i32), Send), "ArrayListIterPtr holds a raw buffer pointer");
+  comptime_assert(!Type.impls(HashMapIterPtr(i32, i32), Send), "HashMapIterPtr holds raw control and bucket pointers");
 });

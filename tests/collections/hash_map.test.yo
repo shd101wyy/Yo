@@ -560,13 +560,15 @@ test("HashMap for (b) => body iterates occupied buckets by value", {
   });
   assert(val_sum == i32(30));
 });
-test("HashMap value-form bucket is a copy — writes do not reach the map", {
-  // The value form yields `MapEntry(K, V)` STRUCT COPIES; in-place value
-  // mutation goes through `insert` (or `iter` in privileged code).
+test("HashMap bucket rebound in a read walk is a copy — writes do not reach the map", {
+  // The read walk borrows each `MapEntry(K, V)` in place; rebinding it copies
+  // the entry. In-place value mutation goes through `for(&mut map, …)`,
+  // `insert` (or `iter` in privileged code). The value form `for(map, …)`
+  // would consume the map (B7b), which is read again below.
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   // A `for` element takes no `mut` (decision 47): the body rebinds it.
-  for(map, b => {
+  for(&map, b => {
     mut(bc) := b;
     bc.value = (bc.value * i32(10));
   });

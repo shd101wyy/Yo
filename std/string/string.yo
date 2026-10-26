@@ -2281,18 +2281,25 @@ impl(
 );
 impl(
   String,
-  /// Returns a rune iterator over the string's Unicode characters
-  chars : (fn(self : &Self) -> StringChars)(
-    StringChars(_string : self, _byte_index : usize(0), _end : self.len())
-  ),
-  /// Returns a byte iterator over the string's raw UTF-8 bytes
-  bytes : (fn(self : &Self) -> StringBytes)(
-    StringBytes(_string : self, _index : usize(0), _end : self.len())
-  ),
+  /// Returns a rune iterator over the string's Unicode characters. The
+  /// iterator owns the string: `chars` takes it by value (lookahead D20), so
+  /// a string read again afterwards is walked as `s.clone().chars()` once
+  /// `String` is a value type; until then the by-value receiver shares it.
+  chars : (fn(self : Self) -> StringChars)({
+    n := self.len();
+    StringChars(_string : self, _byte_index : usize(0), _end : n)
+  }),
+  /// Returns a byte iterator over the string's raw UTF-8 bytes. Consumes the
+  /// string, as `chars` does.
+  bytes : (fn(self : Self) -> StringBytes)({
+    n := self.len();
+    StringBytes(_string : self, _index : usize(0), _end : n)
+  }),
   /// Consume the string and return a rune iterator (default iteration)
-  into_iter : (fn(self : &Self) -> StringChars)(
-    StringChars(_string : self, _byte_index : usize(0), _end : self.len())
-  )
+  into_iter : (fn(self : Self) -> StringChars)({
+    n := self.len();
+    StringChars(_string : self, _byte_index : usize(0), _end : n)
+  })
 );
 /// === Rune-aware indexing (D4 vocabulary) ===
 ///
@@ -2321,9 +2328,12 @@ impl(
   /// `_0` is the byte offset the rune starts at, `_1` is the rune. This is
   /// the replacement for the `while(i < s.len()) { s.at(i) }` shape, which
   /// now visits continuation bytes and hands back `.None` at each of them.
-  char_indices : (fn(self : &Self) -> StringCharIndices)(
-    StringCharIndices(_string : self, _byte_index : usize(0), _end : self.len())
-  ),
+  ///
+  /// Consumes the string, as `chars` does (lookahead D20).
+  char_indices : (fn(self : Self) -> StringCharIndices)({
+    n := self.len();
+    StringCharIndices(_string : self, _byte_index : usize(0), _end : n)
+  }),
   /// The largest byte offset `<= index` that sits on a rune boundary.
   ///
   /// `index` is clamped to `len()` first, so the answer is always a
@@ -2570,9 +2580,12 @@ impl(
   /// assert(iter.next() == .Some(`world`), "second line");
   /// assert(iter.next() == .None, "done");
   /// ```
-  lines : (fn(self : &Self) -> StringLines)(
-    StringLines(_string : self, _byte_index : usize(0), _end : self.len())
-  ),
+  ///
+  /// Consumes the string, as `chars` does (lookahead D20).
+  lines : (fn(self : Self) -> StringLines)({
+    n := self.len();
+    StringLines(_string : self, _byte_index : usize(0), _end : n)
+  }),
   /// Returns a new string containing `n` copies of `self`.
   /// Returns an empty string when `n == 0` or `self` is empty.
   ///
