@@ -222,7 +222,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, _future_lend_param_flags, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
   is_control_fn,
@@ -8434,6 +8434,11 @@ try_to_call_function_with_arguments :: (
         Rc(.Func({ meta : __fm11 })) => __fm11.*.param_is_owning,
         _ => no_flags()
       );
+      // §3.13 A2: arguments lent to parameters the callee's borrowing
+      // future captures are judged by the future-lend check after
+      // evaluation, not by the sibling-reachability rule inside
+      // `require_valid_ref_argument_places`.
+      vrf_future_lend := _future_lend_param_flags(func_type, &vrf_param_labels.items, &vrf_param_is_ref.items);
       require_ref_own_argument_exclusivity(
         &vrf_param_labels.items,
         &vrf_param_is_ref.items,
@@ -8443,7 +8448,7 @@ try_to_call_function_with_arguments :: (
         ctx,
         exn
       );
-      require_valid_ref_argument_places(&vrf_param_is_ref.items, &adjusted_args, &caller_env_m, ctx, exn);
+      require_valid_ref_argument_places(&vrf_param_is_ref.items, &vrf_future_lend, &adjusted_args, &caller_env_m, ctx, exn);
       // A closure value's call lends the closure itself (its receiver,
       // decision 38 B): it joins the overlap test.
       require_capture_borrow_exclusivity(&vrf_param_is_ref.items, &vrf_param_is_owning.items, &adjusted_args, match(func_type, Rc(.Func({ result : _ })) => Option(AstExpr).None, _ => Option(AstExpr).Some(callee_expr)), &caller_env_m, ctx, exn);

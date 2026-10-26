@@ -50,7 +50,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
 { RefCell } :: import("std/sync/refcell");
-{ type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy }
+{ type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, collect_type_borrows, CaptureBorrow, is_future_value_type }
 :: import("./utils.yo");
 /// A 1-element mutable box holding the error thrown during a swallowed
 /// def-time body eval when it is a deliberate REJECTION (a flow-soundness
@@ -944,6 +944,12 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
 /// `xs : ArrayList(String)` and `v : String` is fine, since no `String`
 /// holds an `ArrayList(String)`
 /// (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
+/// Rule (b) is SKIPPED for `a2_owns_lend`: an argument lent to a parameter
+/// the callee's borrowing future captures is judged by §3.13 A2
+/// (`_check_future_lend_hops`, after evaluation), which owns both the
+/// rejection (its cell diagnostic names the async hazard) and the
+/// deliberate acceptance (a shared borrow through a read-only handle)
+/// (`_future_lend_param_flags`).
 /// `kind` is "index" or "object-hop".
 _reject_if_container_reachable :: (
   fn(
@@ -955,7 +961,8 @@ _reject_if_container_reachable :: (
     n : usize,
     env : &Environment,
     ctx : &EvalContext,
-    exn : Exception
+    exn : Exception,
+    a2_owns_lend : bool
   ) -> unit
 )({
   // The synthetic call an index-method specialization trial replays (args =
@@ -1034,75 +1041,143 @@ _reject_if_container_reachable :: (
   // (b) element-only: any OTHER argument that could hold a handle to the
   // container — a closure, or a value whose type can hold one of the types
   // the place hangs from — could grow/free it. Without the path's types, any
-  // non-`Copy` value or pointer-carrier counts.
-  holder_types := _ref_place_holder_types(ref_arg, kind, &cvar, ctx);
-  (j : usize) = usize(0);
-  while(j < n, {
-    if(!(j == ref_arg_index), {
-      other := match(args.get(j), .Some(a) => a, .None => make_err_expr());
-      could_reach := match(
-        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&other)),
-        .Some(oi) => {
-          // The anonymous-fn eval does NOT set closure_function_value (documented
-          // convention in anonymous_function.yo — downstream must fall
-          // back); capture_type and closure_function_value are stamped
-          // under the SAME closure-creation gate, so on an anon-fn ExprInfo
-          // capture_type-is-set is the equivalent signal.
-          is_closure := match(
-            expr_info_closure_function_value(&oi),
-            .Some(_) => true,
-            .None => (
-              match(expr_info_is_anonymous_function_definition(&oi), .Some(b) => b, .None => false) &&
-                expr_info_capture_type(&oi).is_some()
+  // non-`Copy` value or pointer-carrier counts. Skipped for an A2-owned
+  // lend: every async call carries the `io` sibling beside the borrow, and
+  // `Io` is a struct of four plain `fn` fields — harmless by representation,
+  // but the walk conservatively answers yes for a function value, so this
+  // rule would reject even the shared-through-`Rc` lend §3.13 A2 accepts,
+  // and would displace A2's cell diagnostic with the grow/realloc one
+  // everywhere else.
+  if(!a2_owns_lend, {
+    holder_types := _ref_place_holder_types(ref_arg, kind, &cvar, ctx);
+    (j : usize) = usize(0);
+    while(j < n, {
+      if(!(j == ref_arg_index), {
+        other := match(args.get(j), .Some(a) => a, .None => make_err_expr());
+        could_reach := match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&other)),
+          .Some(oi) => {
+            // The anonymous-fn eval does NOT set closure_function_value (documented
+            // convention in anonymous_function.yo — downstream must fall
+            // back); capture_type and closure_function_value are stamped
+            // under the SAME closure-creation gate, so on an anon-fn ExprInfo
+            // capture_type-is-set is the equivalent signal.
+            is_closure := match(
+              expr_info_closure_function_value(&oi),
+              .Some(_) => true,
+              .None => (
+                match(expr_info_is_anonymous_function_definition(&oi), .Some(b) => b, .None => false) &&
+                  expr_info_capture_type(&oi).is_some()
+              )
+            );
+            is_closure || match(
+              holder_types,
+              .Some(targets) => {
+                // F1: a function-typed sibling is NOT given to the walk — the
+                // walk answers yes for every `Func`/`Fn` trait type, which
+                // would reject a plain `fn` reference too. Its TYPE alone
+                // still cannot tell a closure from a plain `fn` by shape, but
+                // the two representation formulas CAN: a bare `Func` holds no
+                // counted handle and no raw pointer, while a closure's
+                // recorded type carries its capture struct (anonymous_function
+                // stamps an `Impl(Fn(...))` wrapper with the capture struct as
+                // its resolved concrete), so an `Rc`-holding capture — the
+                // container among them — shows up in the representation. That
+                // is exactly the pre-B6-a rule's pair, so every function-typed
+                // sibling keeps the verdict the old rule gave it; only the
+                // non-function siblings gain the target-precise walk above.
+                (is_fn : bool) = _is_fn_typed(&oi.ty);
+                if(is_fn, {
+                  fn_may_reach := (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty));
+                  fn_may_reach
+                }, {
+                  seen := HashSet(String).new();
+                  _type_may_reach_any_of(&oi.ty, &targets, &mut seen)
+                })
+              },
+              .None => (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty))
+            )
+          },
+          .None => false
+        );
+        if(could_reach, {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(ref_arg),
+                `A 'ref' argument ("${ast_expr_to_string(ref_arg)}") borrows into the container "${cname}", but argument ${(j + usize(1)).to_string()} of the same call could hold a handle to "${cname}" and grow it, reallocating the buffer the reference points into. ${fix}`
+              )
             )
           );
-          is_closure || match(
-            holder_types,
-            .Some(targets) => {
-              // F1: a function-typed sibling is NOT given to the walk — the
-              // walk answers yes for every `Func`/`Fn` trait type, which
-              // would reject a plain `fn` reference too. Its TYPE alone
-              // still cannot tell a closure from a plain `fn` by shape, but
-              // the two representation formulas CAN: a bare `Func` holds no
-              // counted handle and no raw pointer, while a closure's
-              // recorded type carries its capture struct (anonymous_function
-              // stamps an `Impl(Fn(...))` wrapper with the capture struct as
-              // its resolved concrete), so an `Rc`-holding capture — the
-              // container among them — shows up in the representation. That
-              // is exactly the pre-B6-a rule's pair, so every function-typed
-              // sibling keeps the verdict the old rule gave it; only the
-              // non-function siblings gain the target-precise walk above.
-              (is_fn : bool) = _is_fn_typed(&oi.ty);
-              if(is_fn, {
-                fn_may_reach := (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty));
-                fn_may_reach
-              }, {
-                seen := HashSet(String).new();
-                _type_may_reach_any_of(&oi.ty, &targets, &mut seen)
-              })
-            },
-            .None => (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty))
-          )
-        },
-        .None => false
-      );
-      if(could_reach, {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(ref_arg),
-              `A 'ref' argument ("${ast_expr_to_string(ref_arg)}") borrows into the container "${cname}", but argument ${(j + usize(1)).to_string()} of the same call could hold a handle to "${cname}" and grow it, reallocating the buffer the reference points into. ${fix}`
-            )
-          )
-        );
+        });
       });
+      j = (j + usize(1));
     });
-    j = (j + usize(1));
   });
+});
+/// The parameters, aligned with `param_labels`/`param_is_ref`, whose lent
+/// places a BORROWING-future callee captures across its suspension (§3.13
+/// A2, decision 38 D): the callee's result is a future type whose registered
+/// capture borrows name the parameter (`root_name` — the same match
+/// `_check_future_call_lends` makes through `_borrows_root_named`). Those
+/// arguments' places are A2's to judge, in both directions: rejection with
+/// the async-specific cell diagnostic, and the deliberate acceptance of a
+/// shared borrow through a read-only handle's payload. `Io` itself never
+/// reaches this list — the callee is a future PRODUCER, not a sibling — so
+/// the `io` argument every async call carries beside the borrow keeps this
+/// file's sibling rule away from A2-owned lends.
+_future_lend_param_flags :: (
+  fn(callee_ty : &TypeValue, param_labels : &ArrayList(String), param_is_ref : &ArrayList(bool)) -> ArrayList(bool)
+)({
+  fbs := ArrayList(CaptureBorrow).new();
+  match(
+    callee_ty,
+    Rc(.Func({ result : fr })) => {
+      if(is_future_value_type(&fr), {
+        collect_type_borrows(&fr, &mut fbs);
+      });
+    },
+    _ => ()
+  );
+  out := ArrayList(bool).new();
+  (i : usize) = usize(0);
+  while(i < param_is_ref.len(), {
+    (lent : bool) = false;
+    if((fbs.len() > usize(0)) && match(param_is_ref.get(i), .Some(b) => b, .None => false), {
+      // A callee typed without labels (a method value): A2 checks every
+      // lent argument there (`!labels_known`), so every ref argument is
+      // A2's. With labels, only the parameters the captures name are.
+      lent = match(
+        param_labels.get(i),
+        .Some(l) => {
+          (found : bool) = false;
+          (bi : usize) = usize(0);
+          while(bi < fbs.len(), {
+            match(
+              fbs.get(bi),
+              .Some(b) => {
+                if(b.root_name == l, {
+                  found = true;
+                });
+              },
+              .None => ()
+            );
+            bi = (bi + usize(1));
+          });
+          found
+        },
+        .None => (param_labels.len() == usize(0))
+      );
+    });
+    out.push(lent);
+    i = (i + usize(1));
+  });
+  out
 });
 require_valid_ref_argument_places :: (
   fn(
     param_is_ref : &ArrayList(bool),
+    future_lend : &ArrayList(bool),
     args : &ArrayList(AstExpr),
     env : &Environment,
     ctx : &EvalContext,
@@ -1117,6 +1192,11 @@ require_valid_ref_argument_places :: (
   while(i < n, {
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
     if(p_ref, {
+      // §3.13 A2 owns this argument's place when the callee's borrowing
+      // future captures it (`_future_lend_param_flags`): the sibling rule
+      // below stands down and the future-lend check speaks after
+      // evaluation.
+      a2_lend := match(future_lend.get(i), .Some(b) => b, .None => false);
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_tok := ast_expr_token(&arg);
       if(!arg_tok.module_path.*.starts_with(String.from("auto-generated://")), {
@@ -1135,7 +1215,7 @@ require_valid_ref_argument_places :: (
           );
           match(
             container_atom,
-            .Some(catom) => _reject_if_container_reachable(&catom, &arg, i, "index", args, n, env, ctx, exn),
+            .Some(catom) => _reject_if_container_reachable(&catom, &arg, i, "index", args, n, env, ctx, exn, a2_lend),
             .None => ()
           );
         }, {
@@ -1184,7 +1264,7 @@ require_valid_ref_argument_places :: (
                 h = (h + usize(1));
               });
               if(has_object_hop && ast_expr_is_atom(&cur), {
-                _reject_if_container_reachable(&cur, &arg, i, "object-hop", args, n, env, ctx, exn);
+                _reject_if_container_reachable(&cur, &arg, i, "object-hop", args, n, env, ctx, exn, a2_lend);
               });
               // A field of a MODULE-LEVEL root is unsafe when overwriting
               // it through the ref could free heap storage: OBJECT roots
@@ -1272,6 +1352,7 @@ export(
   alias_group_root,
   require_ref_own_argument_exclusivity,
   require_valid_ref_argument_places,
+  _future_lend_param_flags,
   set_propagate_def_time_errors,
   propagate_def_time_errors,
   set_cee_observed_error,

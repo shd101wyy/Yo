@@ -176,7 +176,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help } :: import("../../error.yo");
 { E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, _future_lend_param_flags, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
@@ -10561,7 +10561,13 @@ Fix: wrap the call:
           ctx,
           exn
         );
-        require_valid_ref_argument_places(&fv_param_is_ref.items, &fv_args, env, ctx, exn);
+        // §3.13 A2: arguments lent to parameters the callee's borrowing
+        // future captures are judged by the future-lend check after
+        // evaluation (`_note_future_producing_call`), not by the
+        // sibling-reachability rule inside `require_valid_ref_argument_places`.
+        fv_future_callee_ty := match(callee_info_opt, .Some(ci) => ci.ty, .None => rc(TypeValueNode.Unit));
+        fv_future_lend := _future_lend_param_flags(&fv_future_callee_ty, &fv_param_labels.items, &fv_param_is_ref.items);
+        require_valid_ref_argument_places(&fv_param_is_ref.items, &fv_future_lend, &fv_args, env, ctx, exn);
         require_capture_borrow_exclusivity(&fv_param_is_ref.items, &fv_param_is_owning.items, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
         fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
         require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels.items, &fv_param_is_ref.items, &fv_args, fv_returns_place, env, ctx);
