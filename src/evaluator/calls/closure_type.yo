@@ -300,13 +300,13 @@ try_to_implement_closure_by_fn_module_type :: (
   env.pop_frame();
   // Capture variable enrichment. The snapshot is read in place through a
   // borrow of the dying `eval_ctx` — no Option copy out of the context.
-  match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
+  match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps, ctx), .None => ());
   captured_vars_with_values_opt := match(
     &eval_ctx.captured_variables,
     .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
     .Some(cv) =>
       if(cv.len() > usize(0), {
-        enriched := enrich_captured_variables(cv, caller_env);
+        enriched := enrich_captured_variables(&cv, caller_env);
         Option(HashMap(String, FuncCapturedVarInfo)).Some(enriched)
       }, Option(HashMap(String, FuncCapturedVarInfo)).None)
   );
