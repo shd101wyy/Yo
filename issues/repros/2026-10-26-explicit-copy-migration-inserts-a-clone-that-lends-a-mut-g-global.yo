@@ -1,0 +1,19 @@
+{ ArrayList } :: import("std/collections/array_list.yo");
+{ String } :: import("std/string/string.yo");
+Node :: struct(name : String);
+impl(
+  Node,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(Node(name : self.name.clone()))
+  )
+);
+(mut(g_xs) : ArrayList(Node)) = ArrayList(Node).new();
+fill :: (fn() -> unit)({
+  g_xs = ArrayList(Node).new();
+});
+read_all :: (fn() -> usize)({
+  xs := g_xs;
+  xs.len()
+});
+fill();
+export(read_all);

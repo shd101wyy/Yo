@@ -270,10 +270,10 @@ _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> boo
 /// struct, it would be `Send` whatever its code reaches.
 (g_closure_fids_by_capture : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 _some_id_of :: (fn(ty : &TypeValue) -> String)(
-  match(ty, Rc(.SomeT(sid, _, _, _, _, _, _, _, _, _)) => sid, _ => String.new())
+  match(ty, Rc(.SomeT(sid, _, _, _, _, _, _, _, _, _)) => sid.clone(), _ => String.new())
 );
 _capture_id_of :: (fn(ty : &TypeValue) -> String)(
-  if(is_closure_capture_struct(ty), match(ty, Rc(.Struct({ id : cid })) => cid, _ => String.new()), String.new())
+  if(is_closure_capture_struct(ty), match(ty, Rc(.Struct({ id : cid })) => cid.clone(), _ => String.new()), String.new())
 );
 _note_fid_for_some_id :: (fn(sid : &String, fid : &String) -> unit)(g_closure_fids_by_some.with_mut(m => _note_fid_in(m, sid, fid)));
 _note_fid_in :: (fn(registry : &mut HashMap(String, ArrayList(String)), sid : &String, fid : &String) -> unit)({
@@ -295,14 +295,14 @@ _note_fid_in :: (fn(registry : &mut HashMap(String, ArrayList(String)), sid : &S
         // Stored back: a `get` copy is not the stored list once collections
         // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
         grown := fids;
-        grown.push(fid);
-        registry.insert(sid, grown);
+        grown.push(fid.clone());
+        registry.insert(sid.clone(), grown);
       });
     },
     .None => {
       fids := ArrayList(String).new();
-      fids.push(fid);
-      registry.insert(sid, fids);
+      fids.push(fid.clone());
+      registry.insert(sid.clone(), fids);
     }
   );
 });
@@ -410,7 +410,7 @@ record_closure_capture_verdicts :: (
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
             verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(&cv, &mt, env, ctx));
-            g_closure_capture_offense.with_mut(m => m.insert(`${fid}|${mn}`, verdict));
+            g_closure_capture_offense.with_mut(m => m.insert(`${fid}|${mn}`, verdict.clone()));
           },
           .None => ()
         );
@@ -1294,7 +1294,7 @@ create_capture_type_and_value :: (
         Option(EvalValue).Some(
           EvalValue.StructVal(
             struct_id.clone(),
-            field_labels_s.items,
+            field_labels_s.items.clone(),
             concrete_vals
           )
         )
@@ -1547,7 +1547,7 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
       out := new_expr_info(&gen_info.env, &gen_info.ty);
       out.value = gen_info.value;
       out.control_flow = gen_info.control_flow;
-      out.variable_name = gen_info.variable_name;
+      out.variable_name = gen_info.variable_name.clone();
       record_macro_expansion(ast_expr_id(expr), generated.clone());
       expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);

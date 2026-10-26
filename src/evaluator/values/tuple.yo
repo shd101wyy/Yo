@@ -276,7 +276,7 @@ evaluate_tuple_value :: (
   });
   result := evaluate_tuple_elements_value(&args, env, ctx, exn);
   // Build the resulting tuple type and (if all elements known) tuple value.
-  tuple_ty := rc(TypeValueNode.Tuple(shared_list(result.field_labels), shared_list(result.field_types)));
+  tuple_ty := rc(TypeValueNode.Tuple(shared_list(result.field_labels.clone()), shared_list(result.field_types.clone())));
   (all_known : bool) = true;
   (k : usize) = usize(0);
   while((k < result.values.len()) && all_known, {
@@ -322,7 +322,7 @@ evaluate_tuple_value :: (
   });
   info := new_expr_info(&result.env, &tuple_ty);
   info.value = tuple_value_opt;
-  info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order);
+  info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order.clone());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   // A RUNTIME tuple literal needs a temp to materialize into, exactly as the
   // array-literal path does (values/array.yo) — the former no-op stub here is

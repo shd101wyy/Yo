@@ -147,11 +147,11 @@ _is_excluded_label :: (fn(excluded : &ArrayList(String), label : &String) -> boo
 // ---------------------------------------------------------------------------
 (mut(g_force_failure) : Option(String)) = Option(String).None;
 _flag_force_failure :: (fn(msg : &String) -> unit)({
-  g_force_failure = Option(String).Some(msg);
+  g_force_failure = Option(String).Some(msg.clone());
   ()
 });
 _take_force_failure :: (fn() -> Option(String))({
-  r := g_force_failure;
+  r := g_force_failure.clone();
   g_force_failure = Option(String).None;
   r
 });
@@ -390,7 +390,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Extract the source-namespace StructVal if available
                       ext_mod_val_opt := match(
                         ext_info.value,
-                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn, ns, vs)),
+                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn.clone(), ns.clone(), vs)),
                         .Some(_) => Option(EvalValue).None,
                         .None => Option(EvalValue).None
                       );
@@ -787,7 +787,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             //                         sizeof() fold then fails.
             if(ast_expr_is_fn_call(&evaluated), {
               if(ast_expr_is_fn_call_of(&evaluated, ":=", Option(usize).Some(usize(2))), {
-                init_args := match(evaluated, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                init_args := match(evaluated, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                 init_lhs := match(init_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                 if(ast_expr_is_atom(&init_lhs), {
                   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&init_lhs));
@@ -802,7 +802,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                 });
               }, {
                 if(ast_expr_is_fn_call_of(&evaluated, "=", Option(usize).Some(usize(2))), {
-                  assign_args := match(evaluated, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                  assign_args := match(evaluated, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                   assign_lhs := match(assign_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                   // A `(x : T) = v` binding at module-begin scope is a module-level
                   // runtime global by construction — the LHS is a `:` binding.
