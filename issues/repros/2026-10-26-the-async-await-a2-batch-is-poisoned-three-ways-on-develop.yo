@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
+_a2_bump_i32 :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    io.await(yield(io), io);
+    c = (c + i32(1));
+  })
+);
+_A2Cells :: struct(cells : Array(i32, 2));
+test("an element of a fixed-size array is part of the local's own storage", {
+  mut(a) := _A2Cells(cells : Array(i32, 2)(i32(4), i32(5)));
+  io.await(_a2_bump_i32(&mut a.cells(usize(1)), io), io);
+  assert(a.cells(usize(1)) == i32(6), "an element of a fixed-size array is part of the local's own storage");
+});
