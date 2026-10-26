@@ -202,8 +202,8 @@ _inside_c_string_literal :: (fn(s : &String, idx : usize) -> bool)({
 /// scanned C code contains multibyte string literals (see other_fn_call.yo's
 /// splitter fix).
 _byte_index_of :: (fn(s : &String, word : &String, from : usize) -> Option(usize))({
-  sb := s;
-  wb := word;
+  sb := s.clone();
+  wb := word.clone();
   n := sb.len();
   m := wb.len();
   if((m == usize(0)) || (n < m), {
@@ -904,7 +904,7 @@ _bind_pattern_name :: (fn(context : &FunctionGenerationContext, indent : &String
         match(
           context.sm_inline_lowering,
           .Some(low) => {
-            low.binding_sources.insert(`sm->${field}`, source);
+            low.binding_sources.insert(`sm->${field}`, source.clone());
           },
           .None => ()
         );
@@ -919,18 +919,18 @@ _shadow_slot_set :: (fn(context : &FunctionGenerationContext, name : &String, fi
   // Taken out and stored back: a `match` binding is a copy of the map once
   // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   slots := match(context.shadow_slots.take(), .Some(m) => m, .None => HashMap(String, String).new());
-  slots.insert(name, field);
+  slots.insert(name.clone(), field.clone());
   context.shadow_slots = Option(HashMap(String, String)).Some(slots);
 });
 /// Record that the shadowed name `name` is a `mut` place binding.
 _place_add :: (fn(context : &FunctionGenerationContext, name : &String) -> unit)({
   places := match(context.place_bindings.take(), .Some(s) => s, .None => HashSet(String).new());
-  places.insert(name);
+  places.insert(name.clone());
   context.place_bindings = Option(HashSet(String)).Some(places);
 });
 _shadow_add :: (fn(context : &FunctionGenerationContext, name : &String) -> unit)({
   shadowed := match(context.local_shadowed_variables.take(), .Some(s) => s, .None => HashSet(String).new());
-  shadowed.insert(name);
+  shadowed.insert(name.clone());
   context.local_shadowed_variables = Option(HashSet(String)).Some(shadowed);
 });
 /// Remove a name from the local-shadowed-variables set (after an arm body, so

@@ -373,7 +373,7 @@ export(resolve_var_name_in_context);
 /// Record `name` in `declared_temp_vars`, creating the set on first use.
 record_declared_temp_var :: (fn(context : &FunctionGenerationContext, name : &String) -> unit)({
   names := match(context.declared_temp_vars.take(), .Some(s) => s, .None => HashSet(String).new());
-  names.insert(name);
+  names.insert(name.clone());
   context.declared_temp_vars = Option(HashSet(String)).Some(names);
 });
 /// Record `name` in `short_circuit_handled_drop_var_names` when that set is
@@ -383,7 +383,7 @@ note_short_circuit_handled :: (fn(context : &FunctionGenerationContext, name : &
     context.short_circuit_handled_drop_var_names.take(),
     .Some(s) => {
       names := s;
-      names.insert(name);
+      names.insert(name.clone());
       context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(names);
     },
     .None => ()
@@ -409,7 +409,7 @@ note_state_machine_binding_id :: (fn(context : &FunctionGenerationContext, id : 
     context.state_machine_binding_ids.take(),
     .Some(s) => {
       ids := s;
-      ids.insert(id);
+      ids.insert(id.clone());
       context.state_machine_binding_ids = Option(HashSet(String)).Some(ids);
     },
     .None => ()

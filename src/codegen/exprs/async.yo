@@ -162,7 +162,7 @@ _add_mapping :: (fn(mappings : &mut ArrayList(EffectFieldMapping), label : &Stri
     i = (i + usize(1));
   });
   if(!exists, {
-    mappings.push(EffectFieldMapping(effect_label : label, access_path : path));
+    mappings.push(EffectFieldMapping(effect_label : label.clone(), access_path : path.clone()));
   });
 });
 /// The capture-struct field label matching an effect/bundle field: exact label,
@@ -769,9 +769,9 @@ _add_deferred_dep :: (
       // once collections are values.
       ds := ds0;
       ds.insert(b_struct_name.clone());
-      dependents.insert(dep_struct_name, ds);
+      dependents.insert(dep_struct_name.clone(), ds);
       cur := match(indegree.get(b_struct_name.clone()), .Some(n) => n, .None => usize(0));
-      indegree.insert(b_struct_name, cur + usize(1));
+      indegree.insert(b_struct_name.clone(), cur + usize(1));
     },
     .None => ()
   );
@@ -3017,8 +3017,8 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
 _make_sm_captured_variable :: (fn(id : &String, name : &String, ty : &TypeValue, kind : CapturedVariableKind) -> CapturedVariable)(
   CapturedVariable(
     base : SuspensionCapturedVariable(
-      id : id,
-      name : name,
+      id : id.clone(),
+      name : name.clone(),
       ty : ty,
       is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
       decl_site : String.from("")
@@ -3207,7 +3207,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
     await_points : block.analysis.await_points,
     captured_variables : filtered,
     has_awaits : block.analysis.has_awaits,
-    variable_id_remapping : block.analysis.variable_id_remapping
+    variable_id_remapping : block.analysis.variable_id_remapping.clone()
   );
   // SM var map: filtered vars + capture-struct fields (as outer vars).
   sm_var_map := HashMap(String, CapturedVariable).new();
@@ -3383,7 +3383,7 @@ _set_async_sm_struct_name :: (fn(expr : &AstExpr, struct_name : &String, context
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => {
-      expr_info_set_async_state_machine_struct_name(&ei, Option(String).Some(struct_name));
+      expr_info_set_async_state_machine_struct_name(&ei, Option(String).Some(struct_name.clone()));
       expr_info_table_set(&context.base.info_table, ast_expr_id(expr), &ei);
     },
     .None => ()
