@@ -194,21 +194,30 @@ try_to_call_type_with_arguments :: (
       match(
         found_idx,
         .Some(idx) => {
-          found_field := match(type_fields.get(idx), .Some(f) => f, .None => member_element);
-          // Cannot label an already-assigned field.
-          if(found_field.assigned_value.is_some(), {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(&value_sub),
-                  `Cannot use label "${found_field.label}" for already assigned value:\n${found_field.label}: ${type_to_string(&found_field.ty)}`
-                )
-              )
-            );
-          });
-          member_element_position_index = idx;
-          member_element = found_field;
-          actual_arg_expr = value_sub;
+          // The work lives inside the `.Some` arm: `type_fields.get(idx)`
+          // cannot be `.None` here (idx was just found in that list), and the
+          // old `.None => member_element` fallback copied the loop-carried
+          // TypeField out of a previous iteration.
+          match(
+            type_fields.get(idx),
+            .Some(found_field) => {
+              // Cannot label an already-assigned field.
+              if(found_field.assigned_value.is_some(), {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(&value_sub),
+                      `Cannot use label "${found_field.label}" for already assigned value:\n${found_field.label}: ${type_to_string(&found_field.ty)}`
+                    )
+                  )
+                );
+              });
+              member_element_position_index = idx;
+              member_element = found_field;
+              actual_arg_expr = value_sub;
+            },
+            .None => ()
+          );
         },
         .None => {
           exn.throw(

@@ -92,26 +92,28 @@ try_to_implement_closure_by_fn_module_type :: (
   ) -> Option(AstExpr)
 )({
   tok := ast_expr_token(expr);
-  arg_list := match(
+  // D6: the argument list is read where it is bound (inside each arm) — the
+  // ArrayList handle never escapes the match as a copy.
+  arg_len := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    .FnCall(_, _, args, _, _) => args.len(),
+    .Atom(_, _) => usize(0)
   );
   // Validate: FnTrait types expect exactly 1 argument (the closure body).
-  if(arg_list.len() != usize(1), {
+  if(arg_len != usize(1), {
     exn.throw(
       dyn(
         format_error_message(
           &tok,
-          `Fn module type expects exactly 1 argument (the closure body), got ${arg_list.len()}`
+          `Fn module type expects exactly 1 argument (the closure body), got ${arg_len.to_string()}`
         )
       )
     );
   });
   closure_body_expr := match(
-    arg_list.get(usize(0)),
-    .Some(a) => a,
-    .None => make_err_expr()
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
   );
   // Clone the body so we can use it twice (once in FuncVal box, once for evaluation).
   closure_body_for_eval := closure_body_expr.clone();
@@ -228,7 +230,7 @@ try_to_implement_closure_by_fn_module_type :: (
     rc(
       FuncValData(
         forall_names : ArrayList(String).new(),
-        params : param_labels.items,
+        params : param_labels.items.clone(),
         param_type_names : ArrayList(String).new(),
         // filled below
         evidence_params : ArrayList(String).new(),
@@ -296,15 +298,15 @@ try_to_implement_closure_by_fn_module_type :: (
   });
   // Pop the env frame.
   env.pop_frame();
-  // Capture variable enrichment.
-  captured_vars_opt := eval_ctx.captured_variables;
-  match(captured_vars_opt, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps, ctx), .None => ());
+  // Capture variable enrichment. The snapshot is read in place through a
+  // borrow of the dying `eval_ctx` — no Option copy out of the context.
+  match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
   captured_vars_with_values_opt := match(
-    captured_vars_opt,
+    &eval_ctx.captured_variables,
     .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
     .Some(cv) =>
       if(cv.len() > usize(0), {
-        enriched := enrich_captured_variables(&cv, caller_env);
+        enriched := enrich_captured_variables(cv, caller_env);
         Option(HashMap(String, FuncCapturedVarInfo)).Some(enriched)
       }, Option(HashMap(String, FuncCapturedVarInfo)).None)
   );

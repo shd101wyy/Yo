@@ -65,7 +65,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
   );
   sns_ty_id := match(
     module_type,
-    Rc(.Struct({ id : sid })) => sid,
+    Rc(.Struct({ id : sid })) => sid.clone(),
     _ => String.from("")
   );
   n_fields := field_labels.len();
@@ -249,7 +249,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     );
     k = (k + usize(1));
   });
-  module_val := EvalValue.StructVal(sns_ty_id.clone(), result_names, result_values);
+  module_val := EvalValue.StructVal(sns_ty_id, result_names, result_values);
   ModuleTypeCallResult(module_value : module_val, caller_env : caller_env)
 });
 export(try_to_implement_module_with_arguments_by_module_type);

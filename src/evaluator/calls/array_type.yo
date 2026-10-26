@@ -70,16 +70,18 @@ try_to_implement_array_by_array_type :: (
   // A non-empty `length_var` means the length is an UNRESOLVED inference
   // variable (`Array(i32, _)` or a generic-impl `Array(T, U)`): the
   // constructor's element count IS the length. Skip the arity check and
-  // resolve the result type to the concrete count below.
-  arr_len_var := match(
-    array_type,
-    Rc(.Array(_, _, lv)) => lv,
-    _ => String.from("")
+  // resolve the result type to the concrete count below. Matched through a
+  // borrow (`&array_type.*`), so the `lv` field is read in place and no
+  // String copy leaves the type node.
+  len_var_present := match(
+    &array_type.*,
+    .Array(_, _, lv) => (lv.len() > usize(0)),
+    _ => false
   );
   // Validate argument count matches array length.
   n_args := arg_exprs.len();
-  (eff_len : usize) = cond((arr_len_var.len() > usize(0)) => n_args, true => expected_len);
-  if((n_args != expected_len) && (arr_len_var.len() == usize(0)), {
+  (eff_len : usize) = cond(len_var_present => n_args, true => expected_len);
+  if((n_args != expected_len) && !len_var_present, {
     func_tok := match(
       expr,
       .FnCall(_, func_box, _, _, _) => ast_expr_token(&func_box),
