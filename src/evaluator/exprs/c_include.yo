@@ -133,7 +133,7 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   if(!ast_expr_is_fn_call_of(&rhs, "c_type", .None), {
     return(Option(String).None);
   });
-  cargs := match(rhs, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  cargs := match(rhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get(usize(0)), .Some(a) => a, .None => rhs);
   raw := ast_expr_token(&spelling_atom).value.clone();
   rn := raw.len();

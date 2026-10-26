@@ -492,7 +492,7 @@ _evaluate_inout_local_binding :: (
     pin_expr,
     .Some(pp) => {
       pp_tok := ast_expr_token(&pp);
-      pin_name := generate_new_temp_variable_name(&env.module_path.*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path.*.clone()));
+      pin_name := generate_new_temp_variable_name(&env.module_path.*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path.*));
       pin_var = add_variable_to_env(env, &pin_name, &pin_type, Option(EvalValue).None, false, false, true, false, &name_tok);
     },
     .None => ()
@@ -524,7 +524,7 @@ _evaluate_inout_local_binding :: (
       range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
       (step_pin : Option(Variable)) = Option(Variable).None;
       if(range.has_repoint, {
-        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
+        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*));
         step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
         match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
       });
@@ -675,7 +675,7 @@ _bind_projection_result :: (
   range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
   (step_pin : Option(Variable)) = Option(Variable).None;
   if(range.has_repoint, {
-    sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
+    sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*));
     step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
     match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
   });
@@ -722,7 +722,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   lhs_tok := ast_expr_token(&lhs);
   is_mut := ast_expr_is_inout_mode_call(&lhs, .None);
   sig := if(is_mut, String.from("&mut "), String.from("&"));
-  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(&name_expr), {
     exn.throw(dyn(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`)));
@@ -1646,7 +1646,7 @@ ${rhs_str}`
     actual_lhs_tok := ast_expr_token(&actual_lhs);
     (var_name : String) = cond(
       (actual_lhs_tok.value == "_") =>
-        generate_new_temp_variable_name(&env.module_path.*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path.*.clone())),
+        generate_new_temp_variable_name(&env.module_path.*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path.*)),
       true =>
         actual_lhs_tok.value.clone()
     );

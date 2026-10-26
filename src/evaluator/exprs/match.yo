@@ -642,7 +642,7 @@ _ArmOwnership :: ref(
 );
 _ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := own.tok;
-  name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
+  name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*));
   own.counter = (own.counter + usize(1));
   atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : tok.module_path, input : tok.input);
   BindInfo(name : name, ty : ty, value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
@@ -1249,7 +1249,7 @@ evaluate_match :: (
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(&pattern_ast, "&&", .Some(usize(2))), {
-      gargs := match(pattern_ast, .FnCall(_, _, ga, _, _) => ga.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+      gargs := match(pattern_ast, .FnCall(_, _, ga, _, _) => ga, .Atom(_, _) => ArrayList(AstExpr).new());
       guard_ast = gargs.get(usize(1));
       pattern_ast = match(gargs.get(usize(0)), .Some(a) => a, .None => pattern_ast);
     });

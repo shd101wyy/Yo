@@ -226,7 +226,7 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // Variable lookup
   // ------------------------------------------------------------------
-  identifier_string := token.value.clone();
+  identifier_string := token.value;
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
     eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
@@ -389,7 +389,7 @@ evaluate_identifier_and_operator :: (
                     &token,
                     `Variable "${identifier_string}" not found.`,
                     &not_found_help,
-                    Span(path : token.module_path.*.clone(), row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
+                    Span(path : token.module_path.*, row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
                     `${line}\n`,
                     `add ${line}`
                   ),
