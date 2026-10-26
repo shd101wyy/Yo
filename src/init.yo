@@ -48,7 +48,7 @@ _is_valid_name_byte :: (fn(b : u8) -> bool)(
 /// Replace characters that are not `[a-zA-Z0-9_-]` with `-`.
 sanitize_project_name :: (fn(raw : &String) -> String)({
   result := String.new();
-  bytes := raw;
+  bytes := raw.clone();
   i := usize(0);
   while(i < bytes.len(), {
     b_opt := bytes.get_byte(i);
@@ -342,7 +342,7 @@ init_project :: (
     // Derive project name
     raw_name := match(
       options.name,
-      .Some(n) => n,
+      .Some(n) => n.clone(),
       .None => match(
         project_dir.file_name(),
         .Some(s) => s,

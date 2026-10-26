@@ -100,7 +100,7 @@ impl(
         .Variant(name, idx, field_idx, subs, enum_ty, through_ptr, arity) => Pattern.Variant(
           name : name.clone(),
           idx : idx,
-          field_idx : field_idx,
+          field_idx : field_idx.clone(),
           subs : clone_patterns(&subs),
           enum_ty : enum_ty,
           through_ptr : through_ptr,
@@ -109,8 +109,8 @@ impl(
         .Or(alts) => Pattern.Or(alts : clone_patterns(&alts)),
         .At(name, token, atom, sub) => Pattern.At(name : name.clone(), token : token, atom : atom, sub : Box.clone(sub)),
         .ThroughBox(box_ty, inner_ty, sub) => Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : Box.clone(sub)),
-        .Tuple(subs, elem_tys) => Pattern.Tuple(subs : clone_patterns(&subs), elem_tys : elem_tys),
-        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : struct_ty, field_idx : field_idx, subs : clone_patterns(&subs), arity : arity)
+        .Tuple(subs, elem_tys) => Pattern.Tuple(subs : clone_patterns(&subs), elem_tys : elem_tys.clone()),
+        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : struct_ty, field_idx : field_idx.clone(), subs : clone_patterns(&subs), arity : arity)
       )
     )
   )
@@ -224,7 +224,7 @@ register_arm_entry_drops :: (fn(arm_id : usize, drops : &ArrayList(AstExpr)) -> 
   if(!codegen_tables_enabled(), {
     return(());
   });
-  _old := g_arm_entry_drops.with_mut(m => m.insert(arm_id, drops));
+  _old := g_arm_entry_drops.with_mut(m => m.insert(arm_id, drops.clone()));
   record_owned_expr_id(arm_id);
 });
 lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_arm_entry_drops.with(m => m.get(&arm_id)));
@@ -448,7 +448,7 @@ _enum_variant_names :: (fn(enum_ty : &TypeValue) -> SharedList(String))(
   match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns, _ => no_labels())
 );
 _enum_id :: (fn(enum_ty : &TypeValue) -> String)(
-  match(enum_ty, Rc(.EnumT({ id : eid })) => eid, _ => String.new())
+  match(enum_ty, Rc(.EnumT({ id : eid })) => eid.clone(), _ => String.new())
 );
 // ---------------------------------------------------------------------------
 // Walkers
@@ -797,7 +797,7 @@ _expand_row_head :: (fn(head : &Pattern, row : &ArrayList(Pattern), out : &mut A
       });
     },
     _ => {
-      out.push(row);
+      out.push(row.clone());
     }
   )
 );
@@ -958,7 +958,7 @@ _default_matrix :: (fn(rows : &ArrayList(ArrayList(Pattern))) -> ArrayList(Array
 /// `[head] ++ rest` for witness vectors.
 _cons_str :: (fn(head : &String, rest : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
-  out.push(head);
+  out.push(head.clone());
   (i : usize) = usize(0);
   while(i < rest.len(), {
     match(
@@ -1871,7 +1871,7 @@ variant_group_covers :: (
     i = (i + usize(1));
   });
   q := Pattern.Variant(
-    name : name,
+    name : name.clone(),
     idx : idx,
     field_idx : fidx,
     subs : qsubs,

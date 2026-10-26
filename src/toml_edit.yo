@@ -82,7 +82,7 @@ toml_key :: (fn(k : &String) -> String)({
     });
     i = (i + usize(1));
   });
-  k
+  k.clone()
 });
 // ---------------------------------------------------------------------------
 // Scanning
@@ -301,7 +301,7 @@ _classify :: (fn(lines : &ArrayList(String)) -> Result(ArrayList(_Line), String)
   st := _Scan(ml : u8(0), depth : i32(0));
   (li : usize) = usize(0);
   while(li < lines.len(), {
-    line := lines(li);
+    line := lines(li).clone();
     if((st.ml != u8(0)) || (st.depth != i32(0)), {
       // Continuation of the previous entry's value.
       _ := _scan_line(&line, usize(0), &st);
@@ -373,7 +373,7 @@ _find_table_header :: (fn(kinds : &ArrayList(_Line), table : &String) -> Option(
   (i : usize) = usize(0);
   while(i < kinds.len(), {
     match(
-      kinds(i).kind,
+      &kinds(i).kind,
       .Header(path, array) => {
         if(!array && ((path.len() == usize(1)) && (path(usize(0)) == table)), {
           return(Option(usize).Some(i));
@@ -390,7 +390,7 @@ _section_end :: (fn(kinds : &ArrayList(_Line), from : usize) -> usize)({
   (i : usize) = from;
   while(i < kinds.len(), {
     match(
-      kinds(i).kind,
+      &kinds(i).kind,
       .Header(_, _) => {
         return(i);
       },
@@ -426,7 +426,7 @@ _entry_ranges :: (
       (i : usize) = (h + usize(1));
       while(i < end, {
         match(
-          kinds(i).kind,
+          &kinds(i).kind,
           .Entry(path) => {
             if((path.len() >= usize(1)) && (path(usize(0)) == key), {
               ranges.push(_Range(start : i, end : (kinds(i).end + usize(1))));
@@ -441,7 +441,7 @@ _entry_ranges :: (
   (j : usize) = usize(0);
   while(j < kinds.len(), {
     match(
-      kinds(j).kind,
+      &kinds(j).kind,
       .Header(path, _) => {
         if((path.len() >= usize(2)) && (path(usize(0)) == table) && (path(usize(1)) == key), {
           ranges.push(_Range(start : j, end : _section_end(kinds, j + usize(1))));
@@ -477,7 +477,7 @@ _delete_ranges :: (fn(lines : &ArrayList(String), ranges : &ArrayList(_Range)) -
         r = (r + usize(1));
       },
       true => {
-        out.push(lines(i));
+        out.push(lines(i).clone());
         i = (i + usize(1));
       }
     );
@@ -604,7 +604,7 @@ set_entry :: (
           (i : usize) = (h + usize(1));
           while(i < end, {
             match(
-              pruned_kinds(i).kind,
+              &pruned_kinds(i).kind,
               .Entry(_) => {
                 insert_at = (pruned_kinds(i).end + usize(1));
               },

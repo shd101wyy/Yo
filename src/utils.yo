@@ -169,7 +169,7 @@ surrogate_escape_error_message :: (fn() -> String)(
 /// The shared content-hash behind the stable id/name schemes.
 fnv1a64 :: (fn(s : &String) -> u64)({
   (state : u64) = u64(14695981039346656037);
-  bytes := s;
+  bytes := s.clone();
   (i : usize) = usize(0);
   while(i < bytes.len(), {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
@@ -315,6 +315,7 @@ stable_occurrence_key :: (fn(key : &String) -> usize)({
 /// `P :: struct(...)`), `impl_<receiver>` for an impl, and for an unnamed
 /// statement the previous label plus a count (`P_s1`).
 TopLevelAnchor :: struct(row : usize, column : usize, label : String);
+derive(TopLevelAnchor, Clone);
 /// Anchors per module, keyed by the CANONICAL module path, ordered by
 /// position. Written by the module walk before it evaluates anything
 /// (`register_top_level_anchors`); a re-walk of the same module (an LSP edit,
@@ -323,7 +324,7 @@ TopLevelAnchor :: struct(row : usize, column : usize, label : String);
 (g_top_level_anchors : RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor))))) = RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor)))).new(HashMap(String, Rc(ArrayList(TopLevelAnchor))).new());
 register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
   owner := _stable_type_id_owner_key(module_path);
-  g_top_level_anchors.with_mut(m => m.insert(owner.*.clone(), rc(anchors)));
+  g_top_level_anchors.with_mut(m => m.insert(owner.*.clone(), rc(anchors.clone())));
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -447,7 +448,7 @@ _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(module_path));
-      g_stable_type_id_owner_memo.with_mut(m => m.insert(module_path, c));
+      g_stable_type_id_owner_memo.with_mut(m => m.insert(module_path.clone(), c));
       c
     }
   )
@@ -619,7 +620,7 @@ export(
 str_lit_unquote_bytes :: (fn(raw : &String) -> String)({
   n := raw.len();
   if((n >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34)), {
-    bytes := raw;
+    bytes := raw.clone();
     inner := ArrayList(u8).new();
     (i : usize) = usize(1);
     while(i < (n - usize(1)), {
@@ -695,7 +696,7 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   while(i < g_prof_phase_names.with(xs => xs.len()), {
     // A copy: an element of a handle global that is pushed to elsewhere is
     // not lent to a call (rule A, decision 47).
-    phase := g_prof_phase_names.with(xs => xs(i));
+    phase := g_prof_phase_names.with(xs => xs(i).clone());
     if(phase == name, {
       g_prof_phase_nanos.with_mut(xs => {
         xs(i) = (xs(i) + nanos);
@@ -749,7 +750,7 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
   });
   (i : usize) = usize(0);
   while(i < g_prof_mod_paths.with(xs => xs.len()), {
-    mod_path := g_prof_mod_paths.with(xs => xs(i));
+    mod_path := g_prof_mod_paths.with(xs => xs(i).clone());
     if(mod_path == path, {
       g_prof_mod_parse_ns.with_mut(xs => {
         xs(i) = (xs(i) + parse_ns);
@@ -828,7 +829,7 @@ profile_reset :: (fn() -> unit)({
 /// modules' temps from colliding.
 generate_temp_variable_name_prefix :: (fn(module_path : &String) -> String)({
   result := String.new();
-  bytes := module_path;
+  bytes := module_path.clone();
   n := bytes.len();
   i := usize(0);
   taken := usize(0);
@@ -866,8 +867,8 @@ generate_new_temp_variable_name :: (
     (anchor_module_opt : &Option(String)) ?= .None
   ) -> String
 )({
-  slot := match(slot_opt, .Some(s) => s, .None => String.new());
-  anchor_module := match(anchor_module_opt, .Some(a) => a, .None => String.new());
+  slot := match(slot_opt, .Some(s) => s.clone(), .None => String.new());
+  anchor_module := match(anchor_module_opt, .Some(a) => a.clone(), .None => String.new());
   prefix := generate_temp_variable_name_prefix(module_path);
   // The digit tail is a HASH of the mint site's identity (prefix + position
   // + slot) with this key's occurrence index appended — digits only, keeping
@@ -897,7 +898,7 @@ generate_new_temp_variable_name :: (
   pos_key := cond(
     (anchor_module.len() > usize(0)) => {
       (k0, _k1) := _anchored_position(&anchor_module, row, column);
-      k0
+      k0.clone()
     },
     true => `${row.to_string()}:${column.to_string()}`
   );
@@ -929,7 +930,7 @@ _is_temp_prefix_byte :: (fn(b : u8) -> bool)(
 /// std path while their tokens carry the `file://` spelling
 /// (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
 is_any_temp_variable_name :: (fn(var_name : &String) -> bool)({
-  bytes := var_name;
+  bytes := var_name.clone();
   n := bytes.len();
   // `_` + `_temp_` + one digit is the shortest possible spelling (an empty
   // module path yields the prefix `__temp_`).
@@ -992,7 +993,7 @@ debug_knob :: (fn(name : &String) -> Option(String))(
     .Some(cached) => cached,
     .None => {
       fresh := env.get(name);
-      _prev := g_debug_knobs.with_mut(m => m.insert(name, fresh.clone()));
+      _prev := g_debug_knobs.with_mut(m => m.insert(name.clone(), fresh.clone()));
       fresh
     }
   )
@@ -1003,9 +1004,9 @@ debug_knob :: (fn(name : &String) -> Option(String))(
 /// owner-tag their registries without importing the evaluator.
 (mut(g_current_owner) : String) = String.new();
 set_current_owner :: (fn(owner : &String) -> unit)({
-  g_current_owner = owner;
+  g_current_owner = owner.clone();
 });
-current_owner :: (fn() -> String)(g_current_owner);
+current_owner :: (fn() -> String)(g_current_owner.clone());
 /// Whether the owner logs (`OwnedKeys` and the owned expr/func-id logs) are
 /// recorded at all. They exist only so `mm_invalidate_document`
 /// can purge an edited module's entries, which `yo lsp`, `check --watch`,
@@ -1058,7 +1059,7 @@ owned_keys_record :: (fn(log : &OwnedKeys, key : &String) -> unit)({
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   keys := match(log.by_owner.remove(cur_owner.clone()), .Some(k) => k, .None => ArrayList(String).new());
-  keys.push(key);
+  keys.push(key.clone());
   log.by_owner.insert(cur_owner.clone(), keys);
 });
 /// Remove and return the keys recorded under `owner`.

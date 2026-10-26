@@ -121,7 +121,7 @@ parse_semver :: (fn(tag : &String) -> Option(SemVer))({
   stripped := if(
     (first_char == rune(u32('v'))) || (first_char == rune(u32('V'))),
     tag.substring(usize(1), n),
-    tag
+    tag.clone()
   );
   // Drop build metadata, split off the pre-release.
   without_build := match(
@@ -160,7 +160,7 @@ parse_semver :: (fn(tag : &String) -> Option(SemVer))({
   major := match(major_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
   minor := match(minor_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
   patch := match(patch_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
-  Option(SemVer).Some(SemVer(tag : tag, major : major, minor : minor, patch : patch, pre : pre))
+  Option(SemVer).Some(SemVer(tag : tag.clone(), major : major, minor : minor, patch : patch, pre : pre))
 });
 /// semver §11: identifiers of digits compare numerically, others
 /// lexically; numeric < alphanumeric; a shorter list is smaller when the
@@ -454,7 +454,7 @@ parse_version_req :: (fn(text : &String) -> Result(VersionReq, String))({
   Result(VersionReq, String).Ok(VersionReq(text : trimmed, comparators : comparators))
 });
 _ver :: (fn(major : i32, minor : i32, patch : i32, pre : &String) -> SemVer)(
-  SemVer(tag : String.new(), major : major, minor : minor, patch : patch, pre : pre)
+  SemVer(tag : String.new(), major : major, minor : minor, patch : patch, pre : pre.clone())
 );
 /// The comparator's version with missing components as 0.
 _comparator_base :: (fn(c : &_Comparator) -> SemVer)(
@@ -714,8 +714,8 @@ impl(
     match(
       self,
       .Tag(sv) => sv.tag.clone(),
-      .Exact(r) => r,
-      .Branch(b) => b,
+      .Exact(r) => r.clone(),
+      .Branch(b) => b.clone(),
       .DefaultBranch => String.new()
     )
   ),
@@ -755,7 +755,7 @@ _satisfies_all_ranges :: (fn(sv : &SemVer, reqs : &ArrayList(Requirement)) -> Re
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     match(
-      reqs(i).requirement,
+      &reqs(i).requirement,
       .Version(text) => match(
         parse_version_req(text.clone()),
         .Ok(req) => if(!version_req_matches(&req, sv), {
@@ -791,7 +791,7 @@ choose_ref :: (
   (has_range : bool) = false;
   (i : usize) = usize(0);
   while(i < reqs.len(), {
-    r := reqs(i).requirement;
+    r := reqs(i).requirement.clone();
     is_range := match(r, .Version(_) => true, _ => false);
     if(is_range, {
       has_range = true;
@@ -874,7 +874,7 @@ locked_entry_satisfies :: (fn(entry : &LockEntry, url : &String, reqs : &ArrayLi
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     fits := match(
-      reqs(i).requirement,
+      &reqs(i).requirement,
       .Version(text) => match(
         parse_version_req(text.clone()),
         .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(&req, &sv), .None => false),
@@ -903,6 +903,7 @@ ResolveMode :: enum(
   /// Re-resolve every package.
   UpdateAll
 );
+derive(ResolveMode, Clone);
 ResolveOptions :: ref(
   struct(
     mode : ResolveMode,
@@ -974,7 +975,7 @@ _find_package :: (fn(state : &_State, name : &String) -> Option(_Package))({
 _source_text :: (fn(dep : &ManifestDependency) -> String)(
   match(
     dep.source,
-    .Git(url, _, subdir) => if(subdir.len() > usize(0), `${url} (path ${subdir})`, url),
+    .Git(url, _, subdir) => if(subdir.len() > usize(0), `${url} (path ${subdir})`, url.clone()),
     .Path(p) => `path ${p}`
   )
 );
@@ -1008,7 +1009,7 @@ _add_requirement :: (
     },
     .Git(u, r, s) => {
       url = u.clone();
-      requirement = r;
+      requirement = r.clone();
       subdir = s.clone();
     }
   );
@@ -1034,12 +1035,12 @@ _add_requirement :: (
         });
         i = (i + usize(1));
       });
-      kept.push(Requirement(requirer : requirer, requirement : requirement));
+      kept.push(Requirement(requirer : requirer.clone(), requirement : requirement));
       existing.requirements = kept;
     },
     .None => {
       reqs := ArrayList(Requirement).new();
-      reqs.push(Requirement(requirer : requirer, requirement : requirement));
+      reqs.push(Requirement(requirer : requirer.clone(), requirement : requirement));
       state.packages.push(
         _Package(
           name : dep.name.clone(),
@@ -1116,7 +1117,7 @@ _expand_package :: (
 /// (a tag that is not a version, a commit, or a branch name whose commit the
 /// lock pins).
 _locked_choice :: (fn(ref : &String) -> ChosenRef)(
-  match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref))
+  match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref.clone()))
 );
 /// Is `name` one `yo update` re-resolves?
 _refresh_requested :: (fn(state : &_State, name : &String) -> bool)(
@@ -1141,7 +1142,7 @@ _cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key 
   (i : usize) = usize(0);
   while(i < keys.len(), {
     if(keys(i) == key, {
-      return(Option(String).Some(values(i)));
+      return(Option(String).Some(values(i).clone()));
     });
     i = (i + usize(1));
   });
@@ -1204,7 +1205,7 @@ _resolve_package :: (
     (ri : usize) = usize(0);
     while(ri < pkg.requirements.len(), {
       match(
-        pkg.requirements(ri).requirement,
+        &pkg.requirements(ri).requirement,
         .Version(_) => {
           needs_tags = true;
         },

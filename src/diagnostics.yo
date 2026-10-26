@@ -23,9 +23,9 @@ json :: import("std/encoding/json");
 /// `render_diagnostics_for_mode` so the choice is global and consistent.
 (mut(g_error_format) : String) = String.from("human");
 set_error_format :: (fn(mode : &String) -> unit)({
-  g_error_format = mode;
+  g_error_format = mode.clone();
 });
-error_format :: (fn() -> String)(g_error_format);
+error_format :: (fn() -> String)(g_error_format.clone());
 /// Print already-rendered diagnostic text on the right stream: JSON Lines
 /// are DATA (stdout); human/short go to stderr like every compiler's
 /// diagnostics.
@@ -62,6 +62,10 @@ warnings_enabled :: (fn() -> bool)(g_warnings_enabled);
 /// walked twice (a re-evaluated generic body) warns once. Linear scan —
 /// per-scope emission keeps N small.
 (g_pending_warnings : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
+derive(Severity, Clone, Copy);
+derive(Span, Clone);
+derive(Repair, Clone);
+derive(Diagnostic, Clone);
 emit_warning :: (fn(d : &Diagnostic) -> unit)({
   if(g_warnings_enabled, {
     // A `seen` flag and a loop-condition exit, NOT a `return` from inside
@@ -85,7 +89,7 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
       pi = (pi + usize(1));
     });
     if(!seen, {
-      g_pending_warnings.with_mut(xs => xs.push(d));
+      g_pending_warnings.with_mut(xs => xs.push(d.clone()));
     });
   });
 });
@@ -338,7 +342,6 @@ E_NO_MATCHING_VERSION :: "E1505";
 /// the primary (`Error`, or `Warning` once a warnings channel exists);
 /// secondary entries ("value moved here", "Defined here:") are `Note`s.
 Severity :: enum(Error, Warning, Note, Help);
-derive(Severity, Clone, Copy);
 /// A source location: file, 0-based row, 0-based RUNE column, and the
 /// span's rune length (how many `^` the underline draws).
 Span :: struct(
@@ -347,7 +350,6 @@ Span :: struct(
   col : usize,
   len : usize
 );
-derive(Span, Clone);
 /// A secondary location attached to a diagnostic. P1 carries secondary
 /// locations as follow-on `Note` entries instead; labels are the P2/P3
 /// channel (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §3).
@@ -371,8 +373,6 @@ Repair :: struct(
   replacement : String,
   description : String
 );
-derive(Repair, Clone);
-derive(Diagnostic, Clone);
 
 /// ── Color (P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md — D14) ──────────────────
 /// Whether the human renderer wraps its output in ANSI SGR sequences. The
@@ -395,7 +395,7 @@ color_enabled :: (fn() -> bool)(g_color_enabled);
 _colorize :: (fn(text : &String, code : str, color : bool) -> String)(
   cond(
     color => `\u{1b}[${code}m${text}\u{1b}[0m`,
-    true => text
+    true => text.clone()
   )
 );
 /// SGR codes: the severity header and its carets carry the severity color;
@@ -420,7 +420,7 @@ _severity_ansi :: (fn(sev : Severity) -> str)(
 /// scheme and any trailing separator, so the same resolver output spelled
 /// either way compares equal.
 _normalize_path_prefix :: (fn(p : &String) -> String)({
-  out := p;
+  out := p.clone();
   if(out.starts_with(String.from("file://")), {
     out = out.substring(usize(7), out.len());
   });
@@ -574,8 +574,8 @@ edit_distance :: (fn(a : &String, b : &String) -> usize)({
 (g_std_export_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (g_std_export_modules : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 register_std_export :: (fn(name : &String, module_spec : &String) -> unit)({
-  g_std_export_names.with_mut(xs => xs.push(name));
-  g_std_export_modules.with_mut(xs => xs.push(module_spec));
+  g_std_export_names.with_mut(xs => xs.push(name.clone()));
+  g_std_export_modules.with_mut(xs => xs.push(module_spec.clone()));
 });
 std_export_index_size :: (fn() -> usize)(g_std_export_names.with(xs => xs.len()));
 /// Every std module spec exporting `name`, in registration (sorted-walk) order.
@@ -706,7 +706,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   if(d.help.is_some(), {
     h := match(
       d.help,
-      .Some(hh) => hh,
+      .Some(hh) => hh.clone(),
       .None => String.new()
     );
     out.push(`${_colorize(`help:`, _ANSI_HELP, color)} ${h}`);
@@ -714,7 +714,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   if(d.code.is_some(), {
     c := match(
       d.code,
-      .Some(cc) => cc,
+      .Some(cc) => cc.clone(),
       .None => String.new()
     );
     out.push(`${_colorize(`help:`, _ANSI_HELP, color)} run \`yo explain ${c}\` for more information`);

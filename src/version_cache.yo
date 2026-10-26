@@ -727,8 +727,7 @@ download_version :: (
     entries := e.io.await(read_dir(Path.new(&tmp_path_str), e.io), e);
     (ei : usize) = usize(0);
     while((ei < entries.len()) && (found_root == false), {
-      entry := entries(ei);
-      cand := `${tmp_path_str}/${entry.name}`;
+      cand := `${tmp_path_str}/${entries(ei).name}`;
       cand_bin := e.io.await(exists(Path.new(`${cand}/bin`), e.io), e.io);
       cand_std := e.io.await(exists(Path.new(`${cand}/std`), e.io), e.io);
       if(cand_bin && cand_std, {

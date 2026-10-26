@@ -1031,7 +1031,7 @@ export(eval_value_eq);
 (g_enum_cfids : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_enum_cfid :: (fn(enum_id : &String, func_id : &String) -> unit)({
   if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)) && !g_enum_cfids.with(m => m.contains_key(enum_id)), {
-    _prev := g_enum_cfids.with_mut(m => m.insert(enum_id, func_id));
+    _prev := g_enum_cfids.with_mut(m => m.insert(enum_id.clone(), func_id.clone()));
   });
 });
 lookup_enum_cfid :: (fn(enum_id : &String) -> String)(
@@ -1049,7 +1049,7 @@ export(register_enum_cfid, lookup_enum_cfid);
 (g_type_ctor_values : RefCell(HashMap(String, EvalValue))) = RefCell(HashMap(String, EvalValue)).new(HashMap(String, EvalValue).new());
 register_type_ctor_value :: (fn(func_id : &String, v : &EvalValue) -> unit)({
   if((func_id.len() > usize(0)) && !g_type_ctor_values.with(m => m.contains_key(func_id)), {
-    _prev := g_type_ctor_values.with_mut(m => m.insert(func_id, v));
+    _prev := g_type_ctor_values.with_mut(m => m.insert(func_id.clone(), v));
   });
 });
 lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with(m => m.get(func_id)));

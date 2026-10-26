@@ -141,6 +141,7 @@ GitRequirement :: enum(
   /// `{ git = "…", rev = "<sha>" }` — one exact commit.
   Rev(rev : String)
 );
+derive(GitRequirement, Clone);
 /// Where a dependency's sources come from.
 DependencySource :: enum(
   /// A git repository; `subdir` is the package's directory inside it ("" =
@@ -320,7 +321,7 @@ _parse_dependency :: (
     });
     return(
       Result(ManifestDependency, String).Ok(
-        ManifestDependency(name : name, source : DependencySource.Path(path), dev : dev)
+        ManifestDependency(name : name.clone(), source : DependencySource.Path(path), dev : dev)
       )
     );
   });
@@ -349,7 +350,7 @@ _parse_dependency :: (
   );
   Result(ManifestDependency, String).Ok(
     ManifestDependency(
-      name : name,
+      name : name.clone(),
       source : DependencySource.Git(git, requirement, path),
       dev : dev
     )
@@ -538,7 +539,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
   );
   Result(Manifest, String).Ok(
     Manifest(
-      path : path,
+      path : path.clone(),
       dir : dir,
       name : name,
       version : version,
@@ -614,7 +615,7 @@ ImportRoots :: ref(
 /// integrity hash (`<cache>/store/sha256/<hash>/<subdir>`) — dependencies'
 /// own git dependencies are recorded in the root lock too.
 _unavailable :: (fn(name : &String, reason : &String, fetchable : bool) -> UnavailableImport)(
-  UnavailableImport(name : name, reason : reason, fetchable : fetchable)
+  UnavailableImport(name : name.clone(), reason : reason.clone(), fetchable : fetchable)
 );
 dependency_dir :: (
   fn(
@@ -700,7 +701,7 @@ _add_root :: (
     });
     i = (i + usize(1));
   });
-  roots.push(ImportRoot(name : name, root : root));
+  roots.push(ImportRoot(name : name.clone(), root : root.clone()));
   Result(unit, String).Ok(())
 });
 /// The import roots of ONE package: its default module under `entry.name`

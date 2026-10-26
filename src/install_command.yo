@@ -231,7 +231,7 @@ install_dependencies :: (
   ) -> Impl(Future(LockFile, IoExn))
 )(
   io.async((e : IoExn) => {
-    options := ResolveOptions(mode : mode, locked : locked, offline : offline, verbose : verbose);
+    options := ResolveOptions(mode : mode.clone(), locked : locked, offline : offline, verbose : verbose);
     lock := e.io.await(resolve_and_fetch(manifest, &options, e.io, e.exn), e);
     (i : usize) = usize(0);
     while(i < lock.packages.len(), {
@@ -303,7 +303,7 @@ run_add :: (
         if(options.branch.is_some() || options.rev.is_some() || options.subdir.is_some(), {
           e.exn.throw(dyn(String.from("Error: --branch, --rev and --path apply to git dependencies only")));
         });
-        dep_name = match(options.name, .Some(n) => n, .None => p_name.clone());
+        dep_name = match(options.name, .Some(n) => n.clone(), .None => p_name.clone());
         // Stored relative to the manifest's directory, however it was typed.
         abs := if(
           Path.new(p_rel_path.clone()).is_absolute(),
@@ -316,9 +316,9 @@ run_add :: (
         git_url = abs.to_string();
       },
       .Git(g_name, g_url, g_requirement) => {
-        dep_name = match(options.name, .Some(n) => n, .None => g_name.clone());
+        dep_name = match(options.name, .Some(n) => n.clone(), .None => g_name.clone());
         git_url = g_url.clone();
-        git_subdir = match(options.subdir, .Some(s) => s, .None => String.new());
+        git_subdir = match(options.subdir, .Some(s) => s.clone(), .None => String.new());
         requirement := match(
           options.rev,
           .Some(r) => {
@@ -335,7 +335,7 @@ run_add :: (
               });
               Option(GitRequirement).Some(GitRequirement.Branch(b.clone()))
             },
-            .None => g_requirement
+            .None => g_requirement.clone()
           )
         );
         match(
@@ -556,7 +556,7 @@ _bump_ranges_to_latest :: (
         .Git(u, r, sd) => {
           url = u.clone();
           subdir = sd.clone();
-          range_text = match(r, .Version(v) => v, _ => String.new());
+          range_text = match(r, .Version(v) => v.clone(), _ => String.new());
         },
         .Path(_) => ()
       );

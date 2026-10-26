@@ -125,7 +125,7 @@ normalize_line_endings :: (fn(bytes : &ArrayList(u8)) -> ArrayList(u8))({
     );
     i = (i + usize(1));
   });
-  if(!has_cr, bytes, {
+  if(!has_cr, bytes.clone(), {
     out := ArrayList(u8).with_capacity(bytes.len());
     j := usize(0);
     while(j < bytes.len(), {
@@ -163,7 +163,7 @@ _push_str_bytes :: (fn(buf : &mut ArrayList(u8), s : str) -> unit)({
 });
 /// Push a String's bytes into an ArrayList(u8).
 _push_string_bytes :: (fn(buf : &mut ArrayList(u8), s : &String) -> unit)({
-  bytes := s;
+  bytes := s.clone();
   n := bytes.len();
   k := usize(0);
   while(k < n, {
@@ -212,7 +212,7 @@ compute_content_hash :: (
           {
             stack.push(
               _HashWorkItem(
-                abs_path : dir_path,
+                abs_path : dir_path.clone(),
                 rel_path : de.name.clone(),
                 is_dir : is_dir
               )
@@ -397,7 +397,7 @@ resolve_git_ref :: (
     text := String.from_bytes(out.stdout.clone()).trim();
     if(text.len() == usize(0), {
       // Assume ref is already a commit SHA
-      return(ref);
+      return(ref.clone());
     });
     sha := match(
       commit_from_ls_remote(&text),
@@ -762,7 +762,7 @@ record_project :: (
     if(_contains_string(&projects, project_dir.clone()), {
       return(());
     });
-    projects.push(project_dir);
+    projects.push(project_dir.clone());
     e.io.await(_write_projects(cache_root, &projects, e.io, e.exn), e);
   })
 );
@@ -791,7 +791,7 @@ is_local_git_path :: (fn(url : &String) -> bool)(
 /// The URL git is given for a manifest `git` value: a local path is made
 /// absolute against the manifest's directory, anything else is as written.
 git_remote_url :: (fn(project_dir : &String, url : &String) -> String)(
-  if(is_local_git_path(url.clone()), abs_under(project_dir, url), url)
+  if(is_local_git_path(url.clone()), abs_under(project_dir, url), url.clone())
 );
 /// Fetch ONE git package into the store
 /// (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.4): decide its commit —
@@ -991,12 +991,12 @@ _sweep_dir :: (
     (removed : usize) = usize(0);
     (i : usize) = usize(0);
     while(i < entries.len(), {
-      entry := entries(i);
+      name := entries(i).name.clone();
       i = (i + usize(1));
-      base := if((strip.len() > usize(0)) && entry.name.ends_with(strip.clone()), entry.name.substring(usize(0), entry.name.len() - strip.len()), entry.name.clone());
+      base := if((strip.len() > usize(0)) && name.ends_with(strip.clone()), name.substring(usize(0), name.len() - strip.len()), name.clone());
       keep_it := _contains_string(keep, &base);
-      full := `${dir}/${entry.name}`;
-      is_dir := match(entry.file_type, .Directory => true, _ => false);
+      full := `${dir}/${name}`;
+      is_dir := match(entries(i).file_type, .Directory => true, _ => false);
       if(!keep_it && is_dir, {
         e.io.await(remove_dir_all(Path.new(full.clone()), e.io), e);
       });

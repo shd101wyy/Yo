@@ -281,7 +281,7 @@ get_artifact_output_file_name :: (
   );
   effective_str := match(
     target_triple_opt,
-    .Some(t) => t,
+    .Some(t) => t.clone(),
     .None => artifact_target.clone()
   );
   parsed_result := parse_target(&effective_str);
@@ -427,7 +427,7 @@ resolve_build_import_roots :: (
     manifest := manifest_opt.unwrap();
     (ri : usize) = usize(0);
     while(ri < registry.referenced_dependencies.len(), {
-      dep_name := registry.referenced_dependencies(ri);
+      dep_name := registry.referenced_dependencies(ri).clone();
       if(manifest.find_dependency(dep_name.clone()).is_none(), {
         e.exn.throw(dyn(`Error: build.dependency("${dep_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
       });
@@ -549,10 +549,10 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
   });
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.with(xs => xs.len()), {
-    dir := g_dep_import_dirs.with(xs => xs(i));
+    dir := g_dep_import_dirs.with(xs => xs(i).clone());
     if(dir == package_dir, {
       out := ArrayList(String).new();
-      lines := g_dep_import_texts.with(xs => xs(i));
+      lines := g_dep_import_texts.with(xs => xs(i).clone());
       (j : usize) = usize(0);
       while(j < lines.len(), {
         out.push(lines(j).clone());
@@ -568,14 +568,14 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
 _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.with(xs => xs.len()), {
-    dir := g_dep_import_dirs.with(xs => xs(i));
+    dir := g_dep_import_dirs.with(xs => xs(i).clone());
     if(dir == package_dir, {
       return(());
     });
     i = (i + usize(1));
   });
-  g_dep_import_dirs.with_mut(xs => xs.push(package_dir));
-  g_dep_import_texts.with_mut(xs => xs.push(lines));
+  g_dep_import_dirs.with_mut(xs => xs.push(package_dir.clone()));
+  g_dep_import_texts.with_mut(xs => xs.push(lines.clone()));
 });
 /// The `-D` options a dependency sees: the consumer's `-D<dep>.<name>=<value>`
 /// with the prefix stripped. A dependency never reads the parent's own
@@ -659,14 +659,13 @@ _evaluate_dependency_builds :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    refs := registry.dependency_artifacts;
-    if(refs.len() == usize(0), {
+    if(registry.dependency_artifacts.len() == usize(0), {
       return(());
     });
     lock_text := read_lock_text(manifest, e.exn);
     (i : usize) = usize(0);
-    while(i < refs.len(), {
-      r := refs(i);
+    while(i < registry.dependency_artifacts.len(), {
+      r := registry.dependency_artifacts(i);
       i = (i + usize(1));
       dep := match(
         manifest.find_dependency(r.dependency_name.clone()),
@@ -947,7 +946,7 @@ _walk_dag :: (
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
-  visited.insert(name, true);
+  visited.insert(name.clone(), true);
   match(
     registry.resolve_dependency(name.clone()),
     .None => {
@@ -970,22 +969,22 @@ _walk_dag :: (
           recur(registry, nodes, visited, &linked, missing);
           i = (i + usize(1));
         });
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Artifact, depends_on : deps));
       },
       .Test(_t) => {
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
       },
       .Run(run_step) => {
         deps := ArrayList(String).new();
         deps.push(run_step.artifact_name.clone());
         recur(registry, nodes, visited, &run_step.artifact_name, missing);
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Run, depends_on : deps));
       },
       .Doc(_d) => {
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
       },
       .Verify(_v) => {
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Verify, depends_on : ArrayList(String).new()));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Verify, depends_on : ArrayList(String).new()));
       },
       .Step(step) => {
         deps := ArrayList(String).new();
@@ -997,7 +996,7 @@ _walk_dag :: (
           recur(registry, nodes, visited, &dep_name, missing);
           i = (i + usize(1));
         });
-        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
+        nodes.insert(name.clone(), DAGNode(name : name.clone(), kind : DAGNodeKind.Step, depends_on : deps));
       }
     )
   );
@@ -1051,11 +1050,11 @@ _dfs_cycle :: (
     name : &String
   ) -> Option(String)
 )({
-  color.insert(name, _COLOR_GRAY);
+  color.insert(name.clone(), _COLOR_GRAY);
   match(
     node_map.get(name),
     .None => {
-      color.insert(name, _COLOR_BLACK);
+      color.insert(name.clone(), _COLOR_BLACK);
       return(Option(String).None);
     },
     .Some(node) => {
@@ -1087,7 +1086,7 @@ _dfs_cycle :: (
       });
     }
   );
-  color.insert(name, _COLOR_BLACK);
+  color.insert(name.clone(), _COLOR_BLACK);
   Option(String).None
 });
 /// Detect cycles in a DAG via DFS. Returns the cycle node name if found.
@@ -1103,12 +1102,12 @@ detect_cycle :: (fn(dag : &ArrayList(DAGNode)) -> Option(String))({
   color := HashMap(String, i32).new();
   i = usize(0);
   while(i < n, {
-    color.insert(dag(i).name, _COLOR_WHITE);
+    color.insert(dag(i).name.clone(), _COLOR_WHITE);
     i = (i + usize(1));
   });
   i = usize(0);
   while(i < n, {
-    node_name := dag(i).name;
+    node_name := dag(i).name.clone();
     if(color.get(&node_name).unwrap_or(_COLOR_WHITE) == _COLOR_WHITE, {
       result := _dfs_cycle(&node_map, &mut color, &node_name);
       match(
@@ -1161,9 +1160,8 @@ _read_dir_task :: (fn(dir : &String, io : Io) -> Impl(Future(ArrayList(DirEntry)
 _entry_is_dir :: (fn(entries : &ArrayList(DirEntry), name : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    en := entries(i);
-    if(en.name == name, {
-      return(match(en.file_type, .Directory => true, _ => false));
+    if(entries(i).name == name, {
+      return(match(entries(i).file_type, .Directory => true, _ => false));
     });
     i = (i + usize(1));
   });
@@ -1203,7 +1201,7 @@ expand_workspace_members :: (
 )(
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
-    patterns := manifest.workspace_members;
+    patterns := manifest.workspace_members.clone();
     (pi : usize) = usize(0);
     while(pi < patterns.len(), {
       pattern := patterns(pi).clone();
@@ -1227,9 +1225,8 @@ expand_workspace_members :: (
         names := ArrayList(String).new();
         (ei : usize) = usize(0);
         while(ei < entries.len(), {
-          en := entries(ei);
-          if(match(en.file_type, .Directory => true, _ => false) && glob_match(leaf.clone(), en.name.clone()), {
-            names.push(en.name.clone());
+          if(match(entries(ei).file_type, .Directory => true, _ => false) && glob_match(leaf.clone(), entries(ei).name.clone()), {
+            names.push(entries(ei).name.clone());
           });
           ei = (ei + usize(1));
         });
@@ -1271,11 +1268,11 @@ _resolve_workspace_member :: (
   fn(package : &Option(String), io : Io, exn : Exception) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    name := match(package, .Some(n) => n, .None => return(Option(String).None));
+    name := match(package, .Some(n) => n.clone(), .None => return(Option(String).None));
     cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
     root_manifest_path := match(
       find_manifest(cwd_str.clone()),
-      .Some(p) => p,
+      .Some(p) => p.clone(),
       .None => {
         e.exn.throw(dyn(`-p ${name}: no ${MANIFEST_FILENAME} here or above, so there is no workspace to take a member from`));
         String.new()
@@ -1338,7 +1335,7 @@ _push_unique_string :: (fn(out : &mut ArrayList(String), v : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  out.push(v);
+  out.push(v.clone());
 });
 /// Every `.yo` file under `dir`. The async body returns the list rather
 /// than pushing into a caller's: a collection it captured is its own copy
@@ -1428,7 +1425,7 @@ _cache_read_file :: (
 /// rather than a local closure, so the io.async body using it stays a plain
 /// statement sequence.
 _stamp_push_str :: (fn(dst : &mut ArrayList(u8), s2 : &String) -> unit)({
-  b := s2;
+  b := s2.clone();
   (bi : usize) = usize(0);
   while(bi < b.len(), {
     dst.push(b.byte_at(bi));
@@ -1448,14 +1445,14 @@ _stamp_push_str :: (fn(dst : &mut ArrayList(u8), s2 : &String) -> unit)({
 (mut(g_compiler_identity) : Option(String)) = Option(String).None;
 /// Pin the identity instead of hashing the executable (tests).
 set_compiler_identity :: (fn(id : &String) -> unit)({
-  g_compiler_identity = Option(String).Some(id);
+  g_compiler_identity = Option(String).Some(id.clone());
 });
 _compiler_identity :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     match(
       g_compiler_identity,
       .Some(known) => {
-        return(known);
+        return(known.clone());
       },
       .None => ()
     );
@@ -1776,8 +1773,8 @@ compile_artifact :: (
   io.async((e : IoExn) => {
     effective_target := match(
       ctx.target_triple,
-      .Some(t) => t,
-      .None => artifact.target
+      .Some(t) => t.clone(),
+      .None => artifact.target.clone()
     );
     is_lib := match(
       artifact.kind,
@@ -1816,7 +1813,7 @@ compile_artifact :: (
     project_name := cond(
       (artifact.package_name.len() > usize(0)) => artifact.package_name.clone(),
       (ctx.project_name.len() > usize(0)) => ctx.project_name.clone(),
-      (ctx.registry.modules.len() > usize(0)) => ctx.registry.modules(usize(0)).name,
+      (ctx.registry.modules.len() > usize(0)) => ctx.registry.modules(usize(0)).name.clone(),
       true => artifact.name.clone()
     );
     git_v := e.io.await(_git_version(package_dir.clone(), e.io, e.exn), e);
@@ -2303,8 +2300,8 @@ run_executable :: (
   io.async((e : IoExn) => {
     effective_target := match(
       ctx.target_triple,
-      .Some(t) => t,
-      .None => artifact.target
+      .Some(t) => t.clone(),
+      .None => artifact.target.clone()
     );
     output_dir := _get_target_output_dir(ctx.project_dir.clone(), effective_target.clone(), "bin");
     exe_name := get_artifact_output_file_name(
@@ -2652,7 +2649,7 @@ execute_node :: (
       }
     );
     StepResult(
-      name : node.name,
+      name : node.name.clone(),
       kind : node.kind,
       success : success,
       duration_ms : i64(0),
@@ -2904,7 +2901,7 @@ _print_summary_node :: (
   );
   desc := match(
     results.get(&node.name),
-    .None => node.name,
+    .None => node.name.clone(),
     .Some(r) => r.description.clone()
   );
   // The duration is part of what the summary promises; a node that never ran
@@ -2922,7 +2919,7 @@ _print_summary_node :: (
   nd := node.depends_on.len();
   i := usize(0);
   while(i < nd, {
-    dep_name := node.depends_on(i);
+    dep_name := node.depends_on(i).clone();
     match(
       node_map.get(&dep_name),
       .None => (),
@@ -3176,8 +3173,7 @@ undeclared_options :: (fn(registry : &BuildRegistry) -> ArrayList(String))({
   out
 });
 print_steps :: (fn(registry : &BuildRegistry) -> unit)({
-  steps := registry.steps;
-  n := steps.len();
+  n := registry.steps.len();
   if(n == usize(0), {
     println("No build steps defined.");
     return(());
@@ -3185,9 +3181,8 @@ print_steps :: (fn(registry : &BuildRegistry) -> unit)({
   println("Available steps:");
   i := usize(0);
   while(i < n, {
-    step := steps(i);
-    is_default := if(step.name == "install", " (default)", "");
-    println(`  ${step.name}${is_default}\t${step.description}`);
+    is_default := if(registry.steps(i).name == "install", " (default)", "");
+    println(`  ${registry.steps(i).name}${is_default}\t${registry.steps(i).description}`);
     i = (i + usize(1));
   });
 });
@@ -3244,7 +3239,7 @@ evaluate_build_file :: (
     // of its declared default. The manifest's `[package]` table goes in the
     // same way — `build.manifest.name` reads it during evaluation.
     reg := get_build_registry();
-    reg.cli_options = defines;
+    reg.cli_options = defines.clone();
     reg.manifest_fields = _manifest_fields(manifest_opt);
     outcome := mm_load_yo_file(build_file, e.io, e.exn);
     load_error := _take_load_error();
@@ -3301,7 +3296,7 @@ run_build :: (
     );
     c_compiler := match(
       options.c_compiler,
-      .Some(cc) => cc,
+      .Some(cc) => cc.clone(),
       .None => String.from("clang")
     );
     // The project's manifest (yo.toml): its `[package]` table is what
@@ -3402,7 +3397,7 @@ run_build :: (
               sl_i = (sl_i + usize(1));
             });
             if(linked.len() > usize(0), {
-              eff_target := match(options.target_triple, .Some(t) => t, .None => art.target.clone());
+              eff_target := match(options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
               eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
               if(is_target_wasm(&eff_ti), {
                 (wl_i : usize) = usize(0);
@@ -3449,12 +3444,12 @@ run_build :: (
       project_dir : project_dir,
       project_name : project_name,
       c_compiler : c_compiler,
-      target_triple : options.target_triple,
-      sysroot : options.sysroot,
+      target_triple : options.target_triple.clone(),
+      sysroot : options.sysroot.clone(),
       verbose : options.verbose,
       dry_run : options.dry_run,
       summary : options.summary,
-      run_args : options.run_args,
+      run_args : options.run_args.clone(),
       jobs : options.jobs,
       in_process_compile_slot : g_in_process_compile_slot,
       watch_round : options.watch_in_process
@@ -3463,7 +3458,7 @@ run_build :: (
       defaults := ArrayList(String).new();
       defaults.push(String.from("install"));
       defaults
-    }, options.steps);
+    }, options.steps.clone());
     i := usize(0);
     n := requested.len();
     while(i < n, {

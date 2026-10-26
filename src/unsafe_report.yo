@@ -87,7 +87,7 @@ _is_ws_byte :: (fn(b : u8) -> bool)(
 /// with the original (escapes become two spaces), so a byte index in the
 /// stripped line IS the original byte index.
 _strip_comments_and_strings :: (fn(line : &String) -> ArrayList(u8))({
-  bytes := line;
+  bytes := line.clone();
   out := ArrayList(u8).new();
   (in_str : u8) = u8(0);
   (i : usize) = usize(0);
@@ -789,7 +789,7 @@ format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
 /// duplicated because unsafe_report is a leaf CLI module).
 _json_str :: (fn(text : &String) -> String)({
   out := String.from("\"");
-  bytes := text;
+  bytes := text.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
