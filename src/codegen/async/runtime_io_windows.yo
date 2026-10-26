@@ -2372,6 +2372,16 @@ typedef struct {
   int32_t accept_errno;
   HANDLE accept_port;
   void* next_accept;
+  // Socket-operation bookkeeping (send/recv/sendto/recvfrom, AcceptEx,
+  // ConnectEx). sock_abandoned marks an op whose future was CANCELLED: IOCP
+  // cannot unpost, so CancelIoEx only recalls the kernel's access to the
+  // caller's buffer — the packet still arrives (ERROR_OPERATION_ABORTED) and
+  // the completion path must drop it without waking the released future.
+  // next_sock links the per-loop list of socket ops still pending, which is
+  // what the cancel hook scans; submits and cancels both run on the loop
+  // thread, so the list needs no lock.
+  bool sock_abandoned;
+  void* next_sock;
 } __yo_win_overlapped_t;
 
 // One FIFO of writes per pipe handle: the head is on a worker, the rest wait
@@ -2392,6 +2402,10 @@ static __declspec(thread) size_t __yo_win_pipe_writes_inflight = 0;
 // too: the worker posts to it when its accept() returns, which may be never.
 static __declspec(thread) void* __yo_win_blocking_accepts = NULL;
 static __declspec(thread) size_t __yo_win_blocking_accepts_inflight = 0;
+// Socket operations still pending on this loop, linked through next_sock.
+// Loop-thread state like the accept list above: submits and cancels both run
+// on the loop.
+static __declspec(thread) void* __yo_win_sock_ops = NULL;
 
 // AcceptEx / GetAcceptExSockaddrs are Microsoft extensions fetched through
 // WSAIoctl at run time (no mswsock import library needed). Thread-local like
@@ -2763,6 +2777,10 @@ static void __yo_io_cleanup(void) {
       ov->future = NULL;
     }
     __yo_win_blocking_accepts = NULL;
+    // Socket ops still pending die with the port above (their packets were
+    // never delivered and never will be): drop the list so a re-initialized
+    // loop does not walk stale pointers.
+    __yo_win_sock_ops = NULL;
     __yo_win_blocking_accepts_inflight = 0;
   }
   if (__yo_win_assoc_handles) {
@@ -2801,6 +2819,50 @@ static bool __yo_win_associate_handle(HANDLE handle) {
 }
 
 static int __yo_poll_and_fs_event_tick(void);
+
+static void __yo_win_sock_unlink(__yo_win_overlapped_t* ov) {
+  if (!ov) return;
+  void** link = &__yo_win_sock_ops;
+  while (*link) {
+    if (*link == (void*)ov) {
+      *link = ((__yo_win_overlapped_t*)*link)->next_sock;
+      ov->next_sock = NULL;
+      return;
+    }
+    link = &((__yo_win_overlapped_t*)*link)->next_sock;
+  }
+}
+
+// Cancel a pending socket operation (send/recv/sendto/recvfrom, AcceptEx,
+// ConnectEx): the abort path for a task parked in socket I/O. epoll and
+// kqueue deregister the interest and hand the caller the future; IOCP cannot
+// unpost, so the operation is ABANDONED — the blocking-accept cancel's
+// pattern: CancelIoEx recalls the kernel's hold on the caller's buffer, the
+// future is released here (nothing can resume through it any more), and the
+// packet that still arrives finds sock_abandoned and only recycles the
+// overlapped. Without this hook an aborted task's state machine — and
+// everything it captured, a TcpStream and its socket included — stayed alive
+// until the operation completed on its own, so aborting an HttpClient
+// exchange parked in a read left the connection open
+// (issues/fixed/2026-10-26-aborting-a-task-parked-in-socket-io-leaks-it-on-windows.md).
+static bool __yo_win_sock_cancel(__yo_io_future_t* future) {
+  for (__yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_win_sock_ops; ov;
+       ov = (__yo_win_overlapped_t*)ov->next_sock) {
+    if (ov->future == future && !ov->sock_abandoned) {
+      ov->sock_abandoned = true;
+      // ERROR_NOT_FOUND means the op already completed and its packet is on
+      // the port: the abandoned guard in __yo_win_process_completion drops
+      // it either way.
+      CancelIoEx((HANDLE)ov->sock, &ov->overlapped);
+      __yo_win_sock_unlink(ov);
+      ov->future = NULL;
+      __yo_pending_io_count--;
+      __yo_decr_rc((void*)future);
+      return true;
+    }
+  }
+  return false;
+}
 
 static inline bool __yo_has_pending_io(void) {
   return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
@@ -2957,6 +3019,19 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
     __yo_win_blocking_accept_done(ov);
     return;
   }
+  if (ov->sock_abandoned) {
+    // A cancelled socket operation's late packet (the __yo_win_sock_cancel
+    // hook): its future is already released and its pending count already
+    // taken there, so deliver nothing. An abandoned AcceptEx still owns its
+    // pre-created socket — close it, exactly as an abandoned blocking accept
+    // does.
+    if (ov->is_accept && ov->accept_sock != INVALID_SOCKET) {
+      closesocket(ov->accept_sock);
+      ov->accept_sock = INVALID_SOCKET;
+    }
+    __yo_win_free_overlapped(ov);
+    return;
+  }
   if (ov->is_fs_event) {
     __yo_pending_io_count--;   // the arm this packet completes
     if (ov->stop_pending || !ov->fse) {
@@ -2972,6 +3047,7 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
   if (ov->is_accept) {
     __yo_win_finish_accept(ov, ((NTSTATUS)ov->overlapped.Internal) == 0);
     __yo_io_wake_continuation(ov->future);
+    __yo_win_sock_unlink(ov);
     __yo_win_free_overlapped(ov);
     return;
   }
@@ -3024,6 +3100,7 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
   }
 
   __yo_io_wake_continuation(ov->future);
+  if (ov->is_socket) __yo_win_sock_unlink(ov);
   __yo_win_free_overlapped(ov);
 }
 
@@ -4341,6 +4418,9 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
     if (err == ERROR_IO_PENDING || err == WSA_IO_PENDING) {
       atomic_init(&future->state, 0);
       __yo_pending_io_count++;
+      future->cancel_fn = __yo_win_sock_cancel;
+      ov->next_sock = __yo_win_sock_ops;
+      __yo_win_sock_ops = ov;
       return future;
     }
     closesocket(as);
@@ -4440,6 +4520,9 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
     if (err == ERROR_IO_PENDING || err == WSA_IO_PENDING) {
       atomic_init(&future->state, 0);
       __yo_pending_io_count++;
+      future->cancel_fn = __yo_win_sock_cancel;
+      ov->next_sock = __yo_win_sock_ops;
+      __yo_win_sock_ops = ov;
       return future;
     }
     future->result = -(int32_t)__yo_wsa_to_errno(err);
@@ -4500,6 +4583,9 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
     __yo_pending_io_count++;
+    future->cancel_fn = __yo_win_sock_cancel;
+    ov->next_sock = __yo_win_sock_ops;
+    __yo_win_sock_ops = ov;
     return future;
   }
 
@@ -4548,6 +4634,9 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
     __yo_pending_io_count++;
+    future->cancel_fn = __yo_win_sock_cancel;
+    ov->next_sock = __yo_win_sock_ops;
+    __yo_win_sock_ops = ov;
     return future;
   }
 
@@ -4600,6 +4689,9 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
     __yo_pending_io_count++;
+    future->cancel_fn = __yo_win_sock_cancel;
+    ov->next_sock = __yo_win_sock_ops;
+    __yo_win_sock_ops = ov;
     return future;
   }
 
@@ -4659,6 +4751,9 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
     __yo_pending_io_count++;
+    future->cancel_fn = __yo_win_sock_cancel;
+    ov->next_sock = __yo_win_sock_ops;
+    __yo_win_sock_ops = ov;
     return future;
   }
 
