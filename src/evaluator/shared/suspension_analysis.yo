@@ -480,12 +480,12 @@ walk_expr_ :: (
     // -----------------------------------------------------------------------
     .Atom(_, tok) => {
       if(tok.kind == TokenKind.Identifier, {
-        var_name := tok.value;
+        var_name := tok.value.clone();
         match(
           get_info(expr_cloned.clone()),
           .None => (),
           .Some(info) => {
-            _capture_env_variable(ast_expr_id(&expr_cloned), var_name.clone(), &info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(&expr_cloned), &var_name, &info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           }
         );
       });
@@ -843,7 +843,7 @@ walk_expr_ :: (
                           match(
                             p3.cond_branch_suspension_exprs,
                             .Some(nested) => {
-                              nested_in_while := match(p3.cond_branch_suspension_in_while, .Some(l) => l, .None => ArrayList(bool).new());
+                              nested_in_while := match(p3.cond_branch_suspension_in_while, .Some(l) => l.clone(), .None => ArrayList(bool).new());
                               (ni : usize) = usize(0);
                               while(ni < nested.len(), {
                                 match(

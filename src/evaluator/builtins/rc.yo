@@ -31,17 +31,16 @@ evaluate_ref_count :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_ast := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );

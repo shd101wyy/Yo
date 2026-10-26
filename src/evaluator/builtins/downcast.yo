@@ -61,18 +61,17 @@ evaluate_downcast :: (
 )({
   (cur_env : Environment) = env;
   expect_expr_to_be_fn_call_of(expr, BF_DOWNCAST, Option(usize).Some(usize(2)), exn);
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   // First argument: the dyn value (runtime).
   dyn_expr := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -103,9 +102,15 @@ evaluate_downcast :: (
   });
   // Second argument: the target type T (comptime).
   type_expr := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -175,17 +180,16 @@ evaluate_upcast :: (
 )({
   (cur_env : Environment) = env;
   expect_expr_to_be_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2)), exn);
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   dyn_expr := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -218,9 +222,15 @@ evaluate_upcast :: (
     );
   });
   type_expr := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );

@@ -226,17 +226,16 @@ evaluate_address_call :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  arg_e := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
-      return(expr);
-    }
-  );
-  arg_expr := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
       return(expr);
     }
   );

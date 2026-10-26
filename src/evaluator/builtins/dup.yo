@@ -33,17 +33,16 @@ evaluate_dup :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_expr := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, a, _, _) => match(
+      a.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -102,7 +101,7 @@ evaluate_dup :: (
   // lowered directly in codegen, see evaluator/types/struct.yo) — structs
   // keep the simple path below.
   if(type_contains_rc_type(&concrete_type), {
-    dup_var_name := match(arg_info.variable_name, .Some(n) => n, .None => String.new());
+    dup_var_name := match(arg_info.variable_name, .Some(n) => n.clone(), .None => String.new());
     if(dup_var_name.len() > usize(0), {
       (dup_calls : ArrayList(String)) = ArrayList(String).new();
       if(is_tuple_type(&concrete_type), {

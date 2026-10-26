@@ -88,8 +88,11 @@ _eval_arg :: (
     exn : Exception
   ) -> ExprInfo
 )({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-  arg_expr := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
+  arg_expr := match(
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(fargs.get(arg_idx), .Some(x) => x, .None => make_err_expr()),
+    _ => make_err_expr()
+  );
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
@@ -115,8 +118,11 @@ _require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn :
   tok := ast_expr_token(expr);
   if(!is_destroying_builtin_call_capable(Option(String).Some(tok.module_path.*.clone())), {
     name := String.from(builtin);
-    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    place := match(args.get(usize(0)), .Some(a) => ast_expr_to_string(&a), .None => String.new());
+    place := match(
+      expr,
+      .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_to_string(&x), .None => String.new()),
+      _ => String.new()
+    );
     exn.throw(dyn(format_error_message(&tok, destroying_builtin_error_message(&name, &place))));
   });
 });
@@ -308,9 +314,12 @@ evaluate_yo_dup_array_element :: (
   info1 := _eval_arg("evaluate_yo_dup_array_element", expr, &info0.env, ctx, usize(1), exn);
   info1;
   array_type := info0.ty;
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(!is_array_type(&array_type), {
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
+    tok := match(
+      expr,
+      .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+      _ => ast_expr_token(expr)
+    );
     exn.throw(
       dyn(
         format_error_message(
@@ -337,9 +346,12 @@ evaluate_yo_dup_tuple_element :: (
   info0 := _eval_arg("evaluate_yo_dup_tuple_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_dup_tuple_element", expr, &info0.env, ctx, usize(1), exn);
   tuple_type := info0.ty;
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(!is_tuple_type(&tuple_type), {
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
+    tok := match(
+      expr,
+      .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+      _ => ast_expr_token(expr)
+    );
     exn.throw(
       dyn(
         format_error_message(
@@ -361,7 +373,11 @@ evaluate_yo_dup_tuple_element :: (
     field_types.get(index_usize),
     .Some(ft) => ft,
     .None => {
-      tok := match(args.get(usize(1)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
+      tok := match(
+        expr,
+        .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(1)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+        _ => ast_expr_token(expr)
+      );
       exn.throw(
         dyn(
           format_error_message(

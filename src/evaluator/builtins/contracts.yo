@@ -283,74 +283,73 @@ BF_SET_CONTAINS :: "set_contains";
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
 /// transparent no-op marker.
 evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
-  args0 := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _) => ArrayList(AstExpr).new()
-  );
   {
     match(
-      args0.get(usize(0)),
-      .Some(first) => {
-        if(ast_expr_is_fn_call_of(&first, ":=", Option(usize).Some(usize(2))), {
-          ba := match(
-            first,
-            .FnCall(_, _, a2, _, _) => a2,
-            .Atom(_, _) => ArrayList(AstExpr).new()
-          );
-          nm := match(
-            ba.get(usize(0)),
-            .Some(n0) => ast_expr_token(&n0).value,
-            .None => String.new()
-          );
-          rhs := match(
-            ba.get(usize(1)),
-            .Some(r0) => r0,
-            .None => make_err_expr()
-          );
-          // The RHS is ghost code (quantifiers are legal in it).
-          prev_ghost := ctx.is_ghost_context;
-          ctx.is_ghost_context = true;
-          evaluated := evaluate_expression_raw(&rhs, env, ctx, exn);
-          ctx.is_ghost_context = prev_ghost;
-          r_info := match(
-            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
-            .Some(ri) => ri,
-            .None => new_expr_info(env, t_unit())
-          );
-          ghost_var := add_variable_to_env(
-            env,
-            nm.clone(),
-            &r_info.ty,
-            &r_info.value,
-            false,
-            false,
-            false,
-            false,
-            ast_expr_token(&first)
-          );
-          // Mark the RESOLVED Variable itself as the spec-only binding —
-          // the escape gate (identifer_and_operator.yo) reads this flag,
-          // NOT a process-global name set. A global name set rejected an
-          // unrelated binding that merely shares the name in another
-          // module (or another function of the same module): loading a
-          // fixture with `ghost(v := ...)` poisoned every later module's
-          // plain local `v` for the rest of the process
-          // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
-          match(
-            ghost_var,
-            .Some(gv) => {
-              gv.is_ghost_binding = true;
-            },
-            .None => ()
-          );
-          out_info := new_expr_info(&r_info.env, t_unit());
-          out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-          return(expr);
-        });
-      },
-      .None => ()
+      expr,
+      .FnCall(_, _, fargs, _, _) => match(
+        fargs.get(usize(0)),
+        .Some(first) => {
+          if(ast_expr_is_fn_call_of(&first, ":=", Option(usize).Some(usize(2))), {
+            ba := match(
+              first,
+              .FnCall(_, _, a2, _, _) => a2,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            );
+            nm := match(
+              ba.get(usize(0)),
+              .Some(n0) => ast_expr_token(&n0).value,
+              .None => String.new()
+            );
+            rhs := match(
+              ba.get(usize(1)),
+              .Some(r0) => r0,
+              .None => make_err_expr()
+            );
+            // The RHS is ghost code (quantifiers are legal in it).
+            prev_ghost := ctx.is_ghost_context;
+            ctx.is_ghost_context = true;
+            evaluated := evaluate_expression_raw(&rhs, env, ctx, exn);
+            ctx.is_ghost_context = prev_ghost;
+            r_info := match(
+              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+              .Some(ri) => ri,
+              .None => new_expr_info(env, t_unit())
+            );
+            ghost_var := add_variable_to_env(
+              env,
+              nm.clone(),
+              &r_info.ty,
+              &r_info.value,
+              false,
+              false,
+              false,
+              false,
+              ast_expr_token(&first)
+            );
+            // Mark the RESOLVED Variable itself as the spec-only binding —
+            // the escape gate (identifer_and_operator.yo) reads this flag,
+            // NOT a process-global name set. A global name set rejected an
+            // unrelated binding that merely shares the name in another
+            // module (or another function of the same module): loading a
+            // fixture with `ghost(v := ...)` poisoned every later module's
+            // plain local `v` for the rest of the process
+            // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
+            match(
+              ghost_var,
+              .Some(gv) => {
+                gv.is_ghost_binding = true;
+              },
+              .None => ()
+            );
+            out_info := new_expr_info(&r_info.env, t_unit());
+            out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+            return(expr);
+          });
+        },
+        .None => ()
+      ),
+      .Atom(_, _) => ()
     );
   };
   _evaluate_contract_marker(expr, env, ctx, exn)
@@ -1950,10 +1949,10 @@ _callsite_method_receiver :: (
   if(!first_is_self, {
     return(Option(AstExpr).None);
   });
-  dot_args := match(
+  recv := match(
     f,
     .FnCall(_, cf, fa, _, _) => cond(
-      ((ast_expr_token(&cf).value == ".") && (fa.len() == usize(2))) => fa,
+      ((ast_expr_token(&cf).value == ".") && (fa.len() == usize(2))) => match(fa.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
       true => {
         return(Option(AstExpr).None);
       }
@@ -1962,7 +1961,6 @@ _callsite_method_receiver :: (
       return(Option(AstExpr).None);
     }
   );
-  recv := match(dot_args.get(usize(0)), .Some(r) => r, .None => make_err_expr());
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
     .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
@@ -2850,7 +2848,7 @@ wrap_function_body_with_contracts :: (
     });
     sei = (sei + usize(1));
   });
-  (splice_requires : ArrayList(AstExpr)) = requires_exprs;
+  (splice_requires : ArrayList(AstExpr)) = requires_exprs.clone();
   // Whether the requires-only splice may flatten a block body into its own
   // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
   // node and needs its ExprInfo, which a flattened body never gets (its
@@ -2905,7 +2903,7 @@ wrap_function_body_with_contracts :: (
   // under — the user's label when present, else the unspeakable internal name.
   ret_name := match(
     return_label,
-    .Some(label) => label,
+    .Some(label) => label.clone(),
     .None => String.from(__YO_CONTRACT_RESULT)
   );
   // requires asserts. `clone_expr_fresh_ids` gives each spliced predicate its

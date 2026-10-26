@@ -80,17 +80,16 @@ evaluate_comptime_expect_error :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_expr := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -457,7 +456,7 @@ evaluate_comptime_expect_error :: (
           match(
             msg_info.value,
             .Some(v) => {
-              err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(&v));
+              err_msg := match(v, .StrLit(raw) => raw.clone(), _ => value_to_string(&v));
               exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
             },
             .None => ()
