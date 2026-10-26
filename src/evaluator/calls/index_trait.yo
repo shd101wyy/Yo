@@ -95,7 +95,7 @@ _str_unquote :: (fn(raw : &String) -> String)({
 });
 /// Add surrounding `"..."` around a string value.
 _str_quote :: (fn(s : &String) -> String)(
-  String.from("\"") + s + String.from("\"")
+  String.from("\"") + s.clone() + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // _check_range_type
@@ -1623,7 +1623,7 @@ try_to_call_with_index_trait :: (
   );
   string_raw_opt := match(
     self_value,
-    .Some(.StrLit(r)) => Option(String).Some(r),
+    .Some(.StrLit(r)) => Option(String).Some(r.clone()),
     .Some(_) => Option(String).None,
     .None => Option(String).None
   );

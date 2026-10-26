@@ -263,7 +263,7 @@ PendingDefEval :: ref(
 (g_trial_swallow_diags : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
 _flag_trial_swallow :: (fn(msg : &String) -> unit)({
   g_trial_swallow_msg.with_mut(xs => xs.clear());
-  g_trial_swallow_msg.with_mut(xs => xs.push(msg));
+  g_trial_swallow_msg.with_mut(xs => xs.push(msg.clone()));
 });
 /// Record the swallowed error's diagnostics. A non-`YoError` (a plain string
 /// thrown by some other layer) carries none, and then every site below
@@ -275,7 +275,7 @@ _flag_trial_swallow_diags :: (fn(err : &AnyError) -> unit)({
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.with_mut(xs => xs.push(d)), .None => ());
+        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.with_mut(xs => xs.push(d.clone())), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -289,7 +289,7 @@ _clear_trial_swallow :: (fn() -> unit)({
 _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.with(xs => xs.len()) > usize(0));
 /// The swallowed error's code, carried onto a re-raise built from its text.
 _trial_swallow_code :: (fn() -> Option(String))(
-  match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.code, .None => Option(String).None)
+  match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.code.clone(), .None => Option(String).None)
 );
 /// The code as census text (`-` for an uncoded error).
 _trial_swallow_code_text :: (fn() -> String)(
@@ -866,7 +866,7 @@ _build_def_time_body_env :: (
                 .None => match(
                   rv_bty,
                   .Some(_) => {
-                    rk_names.push(rv.name);
+                    rk_names.push(rv.name.clone());
                     rk_tys.push(rv_bty);
                     rk_reassign.push(rv.is_reassignable);
                     rk_module_level.push(rv.is_module_level);
@@ -1745,7 +1745,7 @@ Result type: ${type_to_string(&result_box)}`
               ),
               return_label : get_func_return_label(fn_val_id.clone()),
               table : ctx.expr_info_table,
-              mode : vmode,
+              mode : vmode.clone(),
               func_val : func_val,
               // V6 task 5: an `assumed()` body is not walked, but its
               // predicates were evaluated above all the same, so a caller
@@ -1978,7 +1978,7 @@ Result type: ${type_to_string(&result_box)}`
                   param_types : param_types.items,
                   param_is_ref : param_is_ref.items,
                   param_is_owning : param_is_owning.items,
-                  param_is_comptime : def_ct_flags,
+                  param_is_comptime : def_ct_flags.clone(),
                   result_ty : result_box,
                   where_entries : def_where_entries,
                   function_type : function_type,
