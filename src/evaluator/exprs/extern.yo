@@ -95,7 +95,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       lang_info.value,
       .Some(v) => match(
         v,
-        .StrLit(s) => s,
+        .StrLit(s) => s.clone(),
         _ => {
           exn.throw(
             dyn(
@@ -178,7 +178,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(
-          match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
+          match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
           .Some(fe) => ast_expr_token(&fe),
           .None => ast_expr_token(&arg)
         ),

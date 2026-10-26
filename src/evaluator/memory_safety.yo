@@ -70,7 +70,7 @@ file_has_pragma :: (fn(module_path : &Option(String), kind : Pragma) -> bool)(
 register_file_pragma :: (fn(module_path : &String, kind : Pragma) -> unit)({
   canonical := canonical_module_path(module_path);
   if(!file_has_pragma(Option(String).Some(canonical.clone()), kind), {
-    g_privileged_files.with_mut(xs => xs.push(PragmaEntry(module_path : canonical, kind : kind)));
+    g_privileged_files.with_mut(xs => xs.push(PragmaEntry(module_path : canonical.clone(), kind : kind)));
   });
 });
 /// Reset the registry. Used between independent `check` runs.
@@ -229,7 +229,7 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
     .Some(b) => b,
     .None => {
       b := _is_std_module_path(mp.clone(), std_path);
-      g_std_path_memo.with_mut(m => m.insert(mp, b));
+      g_std_path_memo.with_mut(m => m.insert(mp.clone(), b));
       b
     }
   )

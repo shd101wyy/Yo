@@ -72,8 +72,8 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
     set_import_closure_fn(import_closure_of);
     g_import_closure_installed = true;
   });
-  g_loading_key_by_canonical.with_mut(m => m.insert(_canonical(path).*, path.clone()));
-  g_loading_keys.with_mut(xs => xs.push(path));
+  g_loading_key_by_canonical.with_mut(m => m.insert(_canonical(path).*.clone(), path.clone()));
+  g_loading_keys.with_mut(xs => xs.push(path.clone()));
   g_loading_envs.with_mut(xs => xs.push(env));
   _sync_registration_owner();
 });
@@ -147,7 +147,7 @@ _canonical :: (fn(p : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(p));
-      _canonical_memo.with_mut(m => m.insert(p, c));
+      _canonical_memo.with_mut(m => m.insert(p.clone(), c));
       c
     }
   )
@@ -164,7 +164,7 @@ _clear_import_closure_memo :: (fn() -> unit)({
 /// (stamped by mm_load_prelude_file, which also calls this so every prelude
 /// load path gets both) but which is implicitly in scope everywhere.
 mark_owner_always_visible :: (fn(module : &String) -> unit)({
-  g_always_visible_owners.with_mut(xs => xs.push(_canonical(module).*));
+  g_always_visible_owners.with_mut(xs => xs.push(_canonical(module).*.clone()));
   _clear_import_closure_memo();
 });
 /// Every module reachable from `module` through import edges, `module`
@@ -180,7 +180,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
     .None => ()
   );
   seen := HashSet(String).new();
-  _ := seen.insert(start.*);
+  _ := seen.insert(start.*.clone());
   (ai : usize) = usize(0);
   while(ai < g_always_visible_owners.with(xs => xs.len()), {
     match(
@@ -193,7 +193,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
     ai = (ai + usize(1));
   });
   work := ArrayList(String).new();
-  work.push(start.*);
+  work.push(start.*.clone());
   while(work.len() > usize(0), {
     p := match(work.pop(), .Some(x) => x, .None => String.new());
     n := g_import_edge_importers.with(xs => xs.len());
@@ -205,8 +205,8 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
           g_import_edge_imports.with(xs => xs.get(i)),
           .Some(t) => {
             tc := _canonical(&t);
-            if(seen.insert(tc.*), {
-              work.push(tc.*);
+            if(seen.insert(tc.*.clone()), {
+              work.push(tc.*.clone());
             });
           },
           .None => ()
@@ -216,7 +216,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
     });
   });
   closure := rc(seen);
-  g_import_closure_memo.with_mut(m => m.insert(start.*, closure));
+  g_import_closure_memo.with_mut(m => m.insert(start.*.clone(), closure));
   closure
 });
 /// Record that `importer` imports `imported`. Exact-pair duplicates are
@@ -234,8 +234,8 @@ record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
     });
     i = (i + usize(1));
   });
-  g_import_edge_importers.with_mut(xs => xs.push(importer));
-  g_import_edge_imports.with_mut(xs => xs.push(imported));
+  g_import_edge_importers.with_mut(xs => xs.push(importer.clone()));
+  g_import_edge_imports.with_mut(xs => xs.push(imported.clone()));
   _clear_import_closure_memo();
 });
 /// Drop every outgoing edge of `importer`. Called when a module is
@@ -297,7 +297,7 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
     eprintln(`[warmcache] register ${path.clone()}`);
   });
   if(!module_cache_has(path.clone()), {
-    g_module_cache_keys.with_mut(xs => xs.push(path));
+    g_module_cache_keys.with_mut(xs => xs.push(path.clone()));
     g_module_cache_vals.with_mut(xs => xs.push(module_value));
     g_module_cache_types.with_mut(xs => xs.push(module_type));
   });
@@ -351,14 +351,14 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
         found => Option(TypeValue).Some(
           rc(
             TypeValueNode.Struct(
-              id : sid,
-              name : sname,
+              id : sid.clone(),
+              name : sname.clone(),
               field_labels : tlabels,
               field_types : shared_list(new_types),
               is_reference_semantics : sref,
               is_atomic_rc : satomic,
               is_newtype : snt,
-              constructor_func_id : scfid,
+              constructor_func_id : scfid.clone(),
               type_arguments : stas,
               is_source_namespace : ssns
             )
@@ -466,7 +466,7 @@ remove_module :: (fn(path : &String) -> unit)({
 invalidate_module :: (fn(path : &String) -> ArrayList(String))({
   removed := ArrayList(String).new();
   worklist := ArrayList(String).new();
-  worklist.push(path);
+  worklist.push(path.clone());
   while(worklist.len() > usize(0), {
     p := match(
       worklist.pop(),

@@ -81,14 +81,14 @@ record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
         // Stored back: a `get` copy is not the stored list once collections
         // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
         grown := list;
-        grown.push(header);
-        g_extern_c_includes.with_mut(m => m.insert(name, grown));
+        grown.push(header.clone());
+        g_extern_c_includes.with_mut(m => m.insert(name.clone(), grown));
       });
     },
     .None => {
       list := ArrayList(String).new();
-      list.push(header);
-      g_extern_c_includes.with_mut(m => m.insert(name, list));
+      list.push(header.clone());
+      g_extern_c_includes.with_mut(m => m.insert(name.clone(), list));
     }
   );
 });
@@ -219,7 +219,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     hdr_info.value,
     .Some(v) => match(
       v,
-      .StrLit(s) => s,
+      .StrLit(s) => s.clone(),
       _ => {
         exn.throw(
           dyn(
@@ -310,7 +310,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(
-          match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
+          match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
           .Some(fe) => ast_expr_token(&fe),
           .None => ast_expr_token(&arg)
         ),

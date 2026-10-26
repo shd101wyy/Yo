@@ -77,14 +77,14 @@ _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
 /// root file (absolute path). A name mapped twice resolves to the FIRST
 /// mapping — the resolver rejects duplicate import names before this point.
 set_import_root :: (fn(name : &String, root_file : &String) -> unit)({
-  g_import_root_names.with_mut(xs => xs.push(name));
-  g_import_root_paths.with_mut(xs => xs.push(root_file));
+  g_import_root_names.with_mut(xs => xs.push(name.clone()));
+  g_import_root_paths.with_mut(xs => xs.push(root_file.clone()));
 });
 /// Record that `name` is declared by the manifest but cannot be imported,
 /// with the reason the diagnostic will carry.
 set_import_unavailable :: (fn(name : &String, reason : &String) -> unit)({
-  g_import_unavailable_names.with_mut(xs => xs.push(name));
-  g_import_unavailable_reasons.with_mut(xs => xs.push(reason));
+  g_import_unavailable_names.with_mut(xs => xs.push(name.clone()));
+  g_import_unavailable_reasons.with_mut(xs => xs.push(reason.clone()));
 });
 clear_import_roots :: (fn() -> unit)({
   g_import_root_names.with_mut(xs => xs.clear());
@@ -399,7 +399,7 @@ evaluate_import :: (
   // Strip the leading and trailing quote character to get the raw path.
   raw_with_quotes := match(
     arg_info.value,
-    .Some(.StrLit(s)) => s,
+    .Some(.StrLit(s)) => s.clone(),
     .Some(_) => {
       exn.throw(
         dyn(
