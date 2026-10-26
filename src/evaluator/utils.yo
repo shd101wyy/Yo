@@ -552,7 +552,7 @@ expect_expr_to_have_been_evaluated :: (
     .None => {
       entries := ArrayList(TokenAndError).new();
       msg := cond(
-        (error_message.len() > usize(0)) => error_message,
+        (error_message.len() > usize(0)) => error_message.clone(),
         true => `Expected expression to have been evaluated, but it has not been evaluated yet:\n${ast_expr_to_string(expr)}`
       );
       entries.push(
@@ -3282,7 +3282,7 @@ _ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalCo
 /// none for anything else (a named variable, a plain value, no ExprInfo).
 _ic_owning_temp :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(bool))({
   info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => i, .None => return(Option(bool).None));
-  name := match(info.variable_name, .Some(n) => n, .None => return(Option(bool).None));
+  name := match(info.variable_name, .Some(n) => n.clone(), .None => return(Option(bool).None));
   if(!is_any_temp_variable_name(name.clone()), {
     return(Option(bool).None);
   });
@@ -3559,7 +3559,7 @@ _implicit_copy_via :: (fn(inner : &Option(String)) -> String)(
   match(
     inner,
     .Some(c) => cond(
-      c.starts_with("via:") => c,
+      c.starts_with("via:") => c.clone(),
       true => `via:${c}`
     ),
     .None => String.from("aggregate")
@@ -3751,7 +3751,7 @@ audit_record_implicit_copy :: (
   );
   text := cond(
     (source_text.len() > usize(60)) => `${source_text.substring(usize(0), usize(57))}...`,
-    true => source_text
+    true => source_text.clone()
   );
   category := implicit_copy_category(ty);
   line := `${display_module_path(&site_tok.module_path.*)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [implicit-copy] ${category} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} \`${text.replace("\n", String.from(" "))}\``;
@@ -5590,7 +5590,7 @@ merge_and_check_envs :: (
         (var_j : usize) = usize(0);
         while(var_j < frame.variables.len(), {
           base_var := match(frame.variables.get(var_j), .Some(v) => v, .None => make_err_variable(env));
-          var_name := base_var.name;
+          var_name := base_var.name.clone();
           // Collect per-case values for this variable.
           initialized_at_tokens.clear();
           consumed_at_tokens.clear();
@@ -7440,7 +7440,11 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) 
   (repoint : bool) = false;
   if(g_lb_lookahead_armed && (g_lb_lookahead_id == ast_expr_id(binding)), {
     g_lb_lookahead_armed = false;
-    stmts := g_lb_lookahead_stmts.clone();
+    // Staged through a local: `.clone()` directly on the `mut(G)` global is
+    // E0916 (the receiver lend), while reading it by name is decision 47's
+    // reassignment case (issues/2026-10-26-explicit-copy-migration-inserts-a-clone-that-lends-a-mut-g-global.md).
+    (cur_lb_stmts : ArrayList(AstExpr)) = g_lb_lookahead_stmts;
+    stmts := cur_lb_stmts.clone();
     (j : usize) = stmts.len();
     (found : bool) = false;
     while((j > (g_lb_lookahead_index + usize(1))) && !found, {

@@ -261,10 +261,10 @@ _is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
 _get_anon_op :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    .Atom(_, t) => t.value,
+    .Atom(_, t) => t.value.clone(),
     .FnCall(_, fb, _, _, _) => match(
       fb,
-      .Atom(_, t) => t.value,
+      .Atom(_, t) => t.value.clone(),
       .FnCall(_, _, _, _, _) => String.from("<unknown>")
     )
   )
@@ -312,7 +312,7 @@ _reject_old_closure_params :: (fn(decl : &AstExpr, exn : Exception) -> unit)(
 _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> String)(
   match(
     param_expr,
-    .Atom(_, ptok) => ptok.value,
+    .Atom(_, ptok) => ptok.value.clone(),
     .FnCall(_, fb, args, _, _) => match(
       fb,
       .Atom(_, fbtok) => cond(
@@ -1138,8 +1138,8 @@ evaluate_anonymous_function_implementation :: (
     match(
       param_decl,
       .FnCall(_, cl_callee, cl_params, _, _) => {
-        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, .FnCall(_, _, cl_entries, _, _) => cl_entries, .Atom(_, _) => ArrayList(AstExpr).new()));
-        cap_list_params = cl_params;
+        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, .FnCall(_, _, cl_entries, _, _) => cl_entries.clone(), .Atom(_, _) => ArrayList(AstExpr).new()));
+        cap_list_params = cl_params.clone();
       },
       .Atom(_, _) => ()
     );
@@ -1928,10 +1928,10 @@ evaluate_anonymous_function_implementation :: (
   func_val := EvalValue.FuncVal(
     rc(
       FuncValData(
-        forall_names : forall_labels.items,
-        params : actual_param_labels,
+        forall_names : forall_labels.items.clone(),
+        params : actual_param_labels.clone(),
         param_type_names : param_type_names,
-        evidence_params : implicit_labels.items,
+        evidence_params : implicit_labels.items.clone(),
         body : body_expr,
         cap_names : ArrayList(String).new(),
         cap_tys : ArrayList(TypeValue).new(),

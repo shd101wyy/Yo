@@ -412,9 +412,9 @@ unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &Stri
 get_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
   match(
     trait_ty,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
-    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name,
-    Rc(.FutureTraitT(base_name, _, _, _)) => base_name,
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name.clone(),
+    Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
   )
 );
@@ -431,7 +431,7 @@ get_base_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
     Rc(.TraitT(_, _, _, _, gb_id, _, _, _, _, _)) => match(
       lookup_trait_ctor_fid(&gb_id),
       .Some(gb_fid) => gb_fid,
-      .None => gb_id
+      .None => gb_id.clone()
     ),
     _ => get_trait_key(trait_ty)
   )
@@ -785,7 +785,7 @@ register_negative_impl :: (fn(type_id : &String, trait_id : &String) -> unit)({
 _pre_where_or_resolve :: (
   fn(forall_somes : &ArrayList(TypeValue), pre_where : &ArrayList(Option(TypeValue)), env : &Environment, fa_some : &TypeValue, fa_name : &String, min_frame : usize) -> Option(TypeValue)
 )({
-  fa_id := match(fa_some, Rc(.SomeT({ id : fid })) => fid, _ => String.from(""));
+  fa_id := match(fa_some, Rc(.SomeT({ id : fid })) => fid.clone(), _ => String.from(""));
   (pi : usize) = usize(0);
   while(pi < forall_somes.len(), {
     match(
@@ -827,7 +827,7 @@ _resolve_one_forall_binding :: (
   // SomeT here made the call degrade to unit and the def-time trial
   // swallow the whole body (root #3 of
   // issues/fixed/def-eval-swallow-remaining-roots.md).
-  fa_some_id := match(fa_some, Rc(.SomeT({ id : __fsi })) => __fsi, _ => String.from(""));
+  fa_some_id := match(fa_some, Rc(.SomeT({ id : __fsi })) => __fsi.clone(), _ => String.from(""));
   bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
   if(!is_some_type(&bound_type), {
     if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
@@ -912,7 +912,7 @@ _resolve_one_forall_binding :: (
 _resolve_one_forall_binding_from :: (
   fn(expected_env : &Environment, fa_some : &TypeValue, fa_name : &String, min_frame : usize) -> Option(TypeValue)
 )({
-  fa_some_id := match(fa_some, Rc(.SomeT({ id : __fsi2 })) => __fsi2, _ => String.from(""));
+  fa_some_id := match(fa_some, Rc(.SomeT({ id : __fsi2 })) => __fsi2.clone(), _ => String.from(""));
   n_frames := expected_env.frames.len();
   (fi : usize) = n_frames;
   while(fi > min_frame, {
@@ -923,7 +923,7 @@ _resolve_one_forall_binding_from :: (
     match(
       expected_env.frames.get(fi),
       .Some(frame) => {
-        vars := frame.variables;
+        vars := &frame.variables;
         // LAST binding of fa_name inside THIS frame.
         (vi : usize) = vars.len();
         while(vi > usize(0), {
@@ -1012,8 +1012,8 @@ _root_shape_class :: (fn(t : &TypeValue) -> i32)(
 _root_shape_name :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.Struct({ name })) => name,
-    Rc(.EnumT(_, en_name, _, _, _, _, _, _, _, _)) => en_name,
+    Rc(.Struct({ name })) => name.clone(),
+    Rc(.EnumT(_, en_name, _, _, _, _, _, _, _, _)) => en_name.clone(),
     _ => String.from("")
   )
 );
@@ -1023,7 +1023,7 @@ _root_shape_base_name :: (fn(name : &String) -> String)(
   match(
     name.index_of(`(`),
     .Some(pidx) => name.substring(usize(0), pidx),
-    .None => name
+    .None => name.clone()
   )
 );
 _root_shapes_could_match :: (fn(pattern : &TypeValue, concrete : &TypeValue) -> bool)({
@@ -1087,7 +1087,7 @@ _root_shapes_could_match :: (fn(pattern : &TypeValue, concrete : &TypeValue) -> 
 _bind_forall_from_type_args :: (
   fn(pattern : &TypeValue, concrete : &TypeValue, fa_some : &TypeValue) -> Option(TypeValue)
 )({
-  fa_name := match(fa_some, Rc(.SomeT({ name })) => name, _ => return(Option(TypeValue).None));
+  fa_name := match(fa_some, Rc(.SomeT({ name })) => name.clone(), _ => return(Option(TypeValue).None));
   fa_lvl := match(fa_some, Rc(.SomeT({ frame_level })) => frame_level, _ => return(Option(TypeValue).None));
   pat_ta := match(pattern, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types());
   con_ta := match(concrete, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types());
@@ -1165,7 +1165,7 @@ _bind_forall_from_type_args :: (
           // type-args recovery was the only channel left).
           {
             ct_abs_id := match(ct, Rc(.SomeT({ id : __cai })) => __cai, _ => String.from(""));
-            fa_abs_id := match(fa_some, Rc(.SomeT({ id : __fai })) => __fai, _ => String.from(""));
+            fa_abs_id := match(fa_some, Rc(.SomeT({ id : __fai })) => __fai.clone(), _ => String.from(""));
             if(_abstract_bindings_ok() && (ct_abs_id.len() > usize(0)) && (ct_abs_id != fa_abs_id), {
               return(Option(TypeValue).Some(ct));
             });

@@ -85,17 +85,17 @@ _dyn_type_id :: (fn(rtt : &ArrayList(TypeValue), ntt : &ArrayList(TypeValue)) ->
 _dyn_member_key :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
     _ => type_key(t)
   )
 );
 type_id_or_empty :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.Struct({ id })) => id,
-    Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
-    Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id,
+    Rc(.Struct({ id })) => id.clone(),
+    Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
     // A union's `name` IS its unique id: evaluate_union_type mints
     // `union_<random_id>` and passes it as the name (evaluator/types/union.yo),
     // and the binding rename replaces it with the declared name consistently on
@@ -103,7 +103,7 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     // empty, so `impl(<union>, …)` registered NOTHING and every union method —
     // static or instance — was unresolvable (tests/basic.test.yo arm 14), while
     // the identical struct form worked.
-    Rc(.Union({ name : un_id })) => un_id,
+    Rc(.Union({ name : un_id })) => un_id.clone(),
     // Primitive types get stable synthetic ids so `impl(usize, ...)`,
     // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
     // in the trait-methods registry — without an id the registration
@@ -218,7 +218,7 @@ set_registration_owner :: (fn(owner : &String) -> unit)({
 (g_owned_func_ids : RefCell(HashMap(String, HashMap(String, bool)))) = RefCell(HashMap(String, HashMap(String, bool))).new(HashMap(String, HashMap(String, bool)).new());
 /// The current owner tag ("" outside any module evaluation). Read by this
 /// module's own registration and by impl.yo's generic-impl registry.
-registration_owner :: (fn() -> String)(_registration_owner);
+registration_owner :: (fn() -> String)(_registration_owner.clone());
 /// Expression ids by owner, for the ExprId-keyed side tables in
 /// `src/expr_info.yo` (method-callee values/types, macro expansions, arm
 /// init ranges, io-builtin calls). An id is recorded when a table is written
