@@ -43,7 +43,7 @@ invocations) keeps full verdicts.
   closure/effect captures are the prime remaining suspects (async_await
   still fails with only a subset passing — per-construct leaks beyond the
   top-level future).
-- `plans/backlog/RC_POLICY_MECHANISM_SPLIT.md` and the RC-completion
+- `plans/archive/RC_POLICY_MECHANISM_SPLIT.md` and the RC-completion
   priority notes are the architectural map; memory-note
   `empty-string-drop-fallback-class` records the drop-lowering fallback trap
   (audit every `true => ""` in drop/dup lowerings first — that class is

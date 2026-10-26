@@ -614,7 +614,7 @@ cannot be copied.
 
 - **The primitives.** `Rc` and `Arc` are implemented on one heap-cell
   primitive: one allocation with the count header (`__yo_ref_header_t`,
-  `plans/backlog/RC_HEADER_SPLIT.md`), which is today's `ref(struct(...))`
+  `plans/archive/RC_HEADER_SPLIT.md`), which is today's `ref(struct(...))`
   lowering. There are two variants, because codegen must know the count
   discipline statically:
   - `__yo_cell(V)`, with plain `++`/`--`, backs `Rc`;

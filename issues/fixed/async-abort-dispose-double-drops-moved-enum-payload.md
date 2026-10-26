@@ -74,7 +74,7 @@ drop set, so the same String drops twice: once via the dyn, once via the
 scrutinee slot.
 
 This is the RC policy/mechanism split family
-(plans/backlog/RC_POLICY_MECHANISM_SPLIT.md): the abort-dispose path
+(plans/archive/RC_POLICY_MECHANISM_SPLIT.md): the abort-dispose path
 replays declaration-time drops without seeing arm-level payload moves.
 
 ## Call-site patch (landed)

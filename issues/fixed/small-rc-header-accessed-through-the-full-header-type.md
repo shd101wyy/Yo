@@ -19,7 +19,7 @@ Line 50093 is `header->ref_count++` in `__yo_incr_rc`.
 
 ## Root cause
 
-The RC header split (`plans/backlog/RC_HEADER_SPLIT.md`) gives
+The RC header split (`plans/archive/RC_HEADER_SPLIT.md`) gives
 cycle-incapable, non-atomic types a 16-byte `__yo_ref_header_small_t`, which
 is a strict prefix of the 56-byte `__yo_ref_header_t`. The code that sees
 both layouts cast every object to `__yo_ref_header_t*` and, by design,

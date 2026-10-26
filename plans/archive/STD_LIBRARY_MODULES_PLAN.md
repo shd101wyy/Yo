@@ -793,7 +793,7 @@ Phase 12 (std/os)          ← LOW — OS utilities
 
 **Tests**: 15 tests passing — `tests/sync/channel.test.yo`
 
-**Note**: Thread/Worker integration tests were removed after fixing `Send` trait enforcement. `Channel(T)` is an `object` type (non-atomic RC) which does not implement `Send`, so it cannot be captured in thread closures. Cross-thread channel tests require either `Iso(Channel(T))` wrapping or making Channel use atomic RC. See `plans/backlog/MULTI_CLOSURE_RC_BUG.md` for details.
+**Note**: Thread/Worker integration tests were removed after fixing `Send` trait enforcement. `Channel(T)` is an `object` type (non-atomic RC) which does not implement `Send`, so it cannot be captured in thread closures. Cross-thread channel tests require either `Iso(Channel(T))` wrapping or making Channel use atomic RC. See `plans/archive/MULTI_CLOSURE_RC_BUG.md` for details.
 
 ### Design Decision: Sync (blocking) vs Async
 
