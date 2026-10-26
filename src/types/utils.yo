@@ -328,14 +328,14 @@ type_implements_runtime_builtin :: (fn(ty : &TypeValue) -> Option(bool))({
   // and decide from the base type's tag.
   (rb_base : TypeValue) = Rc.clone(ty);
   (rb_hops : usize) = usize(0);
-  while(match(rb_base, Rc(.Pointer(_)) => (rb_hops < usize(8)), _ => false), {
-    rb_base = match(rb_base, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(rb_base));
+  while(match(&rb_base, Rc(.Pointer(_)) => (rb_hops < usize(8)), _ => false), {
+    rb_base = match(&rb_base, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(rb_base));
     rb_hops = (rb_hops + usize(1));
   });
   if(rb_hops > usize(0), {
     return(
       match(
-        rb_base,
+        &rb_base,
         Rc(.Struct({ is_reference_semantics : rb2_ref, is_source_namespace : rb2_ns })) => cond(
           (rb2_ref && !rb2_ns) => Option(bool).Some(true),
           true => Option(bool).None
@@ -538,7 +538,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
   // future is a counted state machine, so this precedes the reference-type
   // stop below.
   match(
-    ty,
+    &ty,
     Rc(.SomeT({ id : st_id, resolution : f_res })) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
       match(
         g_capture_borrows.with(m => m.get(&st_id)),
@@ -623,9 +623,9 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
   match(
     ty,
     Rc(.Pointer(inner)) => {
-      return(if(type_is_second_class(&inner), Option(TypeValue).Some(inner), Option(TypeValue).None));
+      return(if(type_is_second_class(&inner), Option(TypeValue).Some(Rc.clone(inner)), Option(TypeValue).None));
     },
-    Rc(.Array(element : elem, length : _)) => comps.push(elem),
+    Rc(.Array(element : elem, length : _)) => comps.push(Rc.clone(elem)),
     Rc(.Tuple({ field_types : fields })) => {
       (i : usize) = usize(0);
       while(i < fields.len(), {
@@ -652,7 +652,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
         vi = (vi + usize(1));
       });
     },
-    Rc(.SomeT({ resolution : rc })) => match(rc, .Some(concrete) => comps.push(concrete), .None => ()),
+    Rc(.SomeT({ resolution : rc })) => match(rc, .Some(concrete) => comps.push(Rc.clone(concrete)), .None => ()),
     _ => ()
   );
   (ci : usize) = usize(0);
@@ -915,7 +915,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : 
     // exclusive borrow would alias.
     _capture_struct_declares_mut(&ty) => true,
     true => match(
-      ty,
+      &ty,
       Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
       Rc(.Tuple(field_labels : _, field_types : fields)) => match(
         _type_walk_enter(w, &ty, depth),
@@ -1157,7 +1157,7 @@ _holds_counted_handle_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth
     is_rc_type(&ty) => false,
     (is_bound_closure_identity(&ty) || is_closure_capture_struct(&ty)) => false,
     true => match(
-      ty,
+      &ty,
       Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
       Rc(.Tuple(field_labels : _, field_types : fields)) => match(
         _type_walk_enter(w, &ty, depth),
@@ -1221,7 +1221,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   labels := ArrayList(String).new();
   comps := ArrayList(TypeValue).new();
   match(
-    ty,
+    &ty,
     Rc(.Array(element : elem, length : _)) => {
       labels.push(String.from("elements"));
       comps.push(Rc.clone(elem));
@@ -1314,7 +1314,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u
     // structs and enums (a `ref` one is `is_rc_type` above).
     (flip && _nominal_lacks_copy(&ty)) => true,
     true => match(
-      ty,
+      &ty,
       // Array — recurse on element type
       Rc(.Array(element : elem, length : _)) =>
         recur(&elem, w, depth + u32(1), flip),
@@ -1513,7 +1513,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, de
     .None => ()
   );
   match(
-    ty,
+    &ty,
     Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => cond(
       (is_ref && !is_atomic) => true,
       is_ref => false,
@@ -1751,7 +1751,7 @@ buffer_element_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
               match(
                 vf.get(fi),
                 .Some(Rc(.Pointer(pointee))) => {
-                  result = Option(TypeValue).Some(pointee);
+                  result = Option(TypeValue).Some(Rc.clone(pointee));
                 },
                 .Some(_) => (),
                 .None => ()
@@ -1866,7 +1866,7 @@ _type_refs_back_to_cyclic :: (
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   // A declared-`Acyclic` type reaches no cycle, whatever its fields hold.
   !_declared_acyclic(&ty) && match(
-    ty,
+    &ty,
     Rc(.Struct({ id : sid, field_types : sfields, is_reference_semantics : sref })) => cond(
       // Direct self-reference back to the current root.
       (sid == original_id) => true,
@@ -2242,7 +2242,7 @@ _collect_some_types_into :: (
   // == sizeof(T) (the zero-runtime-cost rule).
   ty = t_refine_inner(&ty);
   match(
-    ty,
+    &ty,
     Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => {
       acc.push(ty);
     },
@@ -2492,7 +2492,7 @@ enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -
           if(field_somes.is_none(), {
             field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
           });
-          ta_id := match(ta, Rc(.SomeT({ id : x })) => x, _ => String.from(""));
+          ta_id := match(&ta, Rc(.SomeT({ id : x })) => x, _ => String.from(""));
           fs := field_somes.unwrap();
           (in_field : bool) = false;
           (j : usize) = usize(0);
@@ -2537,8 +2537,8 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
     // both-context; `*(Rc(i32))` is runtime-only — tests/basic arm 10's
     // SelfRecursive structs). Unwrap before classifying.
     (fo_hops : usize) = usize(0);
-    while(match(ft, Rc(.Pointer(_)) => (fo_hops < usize(8)), _ => false), {
-      ft = match(ft, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(ft));
+    while(match(&ft, Rc(.Pointer(_)) => (fo_hops < usize(8)), _ => false), {
+      ft = match(&ft, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(ft));
       fo_hops = (fo_hops + usize(1));
     });
     // A reference-semantics struct (object type) is runtime-only REGARDLESS
@@ -2546,7 +2546,7 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
     // SomeTs from the generic decl, so this must run BEFORE the generic
     // skip below).
     (rt_only : bool) = match(
-      ft,
+      &ft,
       Rc(.Struct({ is_reference_semantics : fo_ref, is_source_namespace : fo_ns })) => (fo_ref && !fo_ns),
       _ => false
     );
@@ -2626,7 +2626,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
     (terminal_concrete : bool) = false;
     while(walk, {
       match(
-        cur,
+        &cur,
         Rc(.SomeT(sarc_id, _, _, _, _, _, _, _, _, sarc_rc)) => {
           (revisit : bool) = false;
           (si : usize) = usize(0);
@@ -2647,7 +2647,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
             match(
               sarc_rc,
               .Some(nx) => {
-                cur = nx;
+                cur = Rc.clone(nx);
               },
               .None => {
                 walk = false;
@@ -2695,7 +2695,7 @@ resolution_chain_end :: (fn(t_in : &TypeValue) -> TypeValue)({
   (walk : bool) = true;
   while(walk, {
     match(
-      cur,
+      &cur,
       Rc(.SomeT(id : rcc_id, resolution : rcc_rc)) => {
         (revisit : bool) = false;
         (ri : usize) = usize(0);
@@ -2900,7 +2900,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       while(i <= fu_pt.len(), {
         fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit)), true => Rc.clone(fu_res));
         match(
-          fu_t,
+          &fu_t,
           Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
             return(Option(TypeValue).Some(fu_t));
           }),
@@ -3097,7 +3097,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
   // == sizeof(T) (the zero-runtime-cost rule).
   ty = t_refine_inner(&ty);
   match(
-    ty,
+    &ty,
     // comptime-only types have minimal alignment
     Rc(.Unit) => .Some(usize(1)),
     Rc(.ComptimeInt) => .Some(usize(1)),
@@ -3273,7 +3273,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
   // == sizeof(T) (the zero-runtime-cost rule).
   ty = t_refine_inner(&ty);
   match(
-    ty,
+    &ty,
     // `unit` is a TRUE zero-sized type, as in Rust (`size_of::<()>() == 0`):
     // the emitter lays out NOTHING for it. A `unit` struct/tuple field emits no
     // C member (`_emit_runtime_fields` / `generate_tuple_declaration`,
@@ -4013,7 +4013,7 @@ _is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
         });
       });
       uc_term := resolve_cell_chain(t);
-      match(uc_term, Rc(.Func({ result : _ })) => true, _ => is_closure_capture_struct(&uc_term))
+      match(&uc_term, Rc(.Func({ result : _ })) => true, _ => is_closure_capture_struct(&uc_term))
     },
     _ => is_closure_capture_struct(t)
   )

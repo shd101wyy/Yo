@@ -208,7 +208,7 @@ _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(u
   while(i < types.len(), {
     t := match(types.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
     somes := get_all_some_types(&t);
-    match(t, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => somes.push(t), _ => ());
+    match(&t, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => somes.push(t), _ => ());
     (j : usize) = usize(0);
     while(j < somes.len(), {
       match(
@@ -318,8 +318,8 @@ _resolved_or_self :: (fn(t : &TypeValue) -> TypeValue)(
 future_view_drops_a_bundle :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)({
   ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
   af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
-  e_types := match(ef, Rc(.FutureTraitT(effect_types : ets)) => ets, _ => no_types());
-  a_types := match(af, Rc(.FutureTraitT(effect_types : ats)) => ats, _ => no_types());
+  e_types := match(ef, Rc(.FutureTraitT(effect_types : ets)) => Rc.clone(ets), _ => no_types());
+  a_types := match(af, Rc(.FutureTraitT(effect_types : ats)) => Rc.clone(ats), _ => no_types());
   if((e_types.len() != usize(0)) || (a_types.len() == usize(0)), {
     return(false);
   });
@@ -937,7 +937,7 @@ _compat_impl :: (
               // VALUE binder's bookkeeping (recorded as `Type` in one era
               // and `unit` in another — tests/iterator_combinators
               // `__ii_sum`), never a payload type: skip the position.
-              pa_kind := (match(pat, Rc(.TypeUni(_)) => true, _ => false) || match(pet, Rc(.TypeUni(_)) => true, _ => false));
+              pa_kind := (match(&pat, Rc(.TypeUni(_)) => true, _ => false) || match(&pet, Rc(.TypeUni(_)) => true, _ => false));
               if(!pa_kind && !type_contains_some_type(&pat) && !type_contains_some_type(&pet), {
                 if(!recur(&pat, &pet, _CompatMode.Flow, visited), {
                   pay_differ = true;
@@ -1219,7 +1219,7 @@ _compat_impl :: (
             while((etai < a_eta.len()) && !eta_differ, {
               aet := match(a_eta.get(etai), .Some(v) => v, .None => rc(TypeValueNode.Unit));
               eet := match(e_eta.get(etai), .Some(v) => v, .None => rc(TypeValueNode.Unit));
-              eta_kind := (match(aet, Rc(.TypeUni(_)) => true, _ => false) || match(eet, Rc(.TypeUni(_)) => true, _ => false));
+              eta_kind := (match(&aet, Rc(.TypeUni(_)) => true, _ => false) || match(&eet, Rc(.TypeUni(_)) => true, _ => false));
               eta_open := ((get_all_some_types(&aet).len() > usize(0)) || (get_all_some_types(&eet).len() > usize(0)));
               if(!eta_kind && !eta_open && !recur(&aet, &eet, mode, visited), {
                 eta_differ = true;
@@ -1242,7 +1242,7 @@ _compat_impl :: (
                 while((vfi < vafl.len()) && !vp_differ, {
                   vat := match(vafl.get(vfi), .Some(v) => v, .None => rc(TypeValueNode.Unit));
                   vet := match(vefl.get(vfi), .Some(v) => v, .None => rc(TypeValueNode.Unit));
-                  va_kind := (match(vat, Rc(.TypeUni(_)) => true, _ => false) || match(vet, Rc(.TypeUni(_)) => true, _ => false));
+                  va_kind := (match(&vat, Rc(.TypeUni(_)) => true, _ => false) || match(&vet, Rc(.TypeUni(_)) => true, _ => false));
                   if(!va_kind && !type_contains_some_type(&vat) && !type_contains_some_type(&vet), {
                     if(!recur(&vat, &vet, _CompatMode.Flow, visited), {
                       vp_differ = true;
@@ -1694,7 +1694,7 @@ are_types_compatible :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)
   // (issues/fixed/the-extern-opaque-scalar-coercion-composes-into-compound-types.md).
   (a_top : TypeValue) = t_refine_inner(actual);
   (e_top : TypeValue) = t_refine_inner(expected);
-  if(match(e_top, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
+  if(match(&e_top, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
     if(is_numeric_type(&a_top) || is_bool_type(&a_top) || is_c_compatible_type(&a_top) || is_comptime_int_type(&a_top) || is_comptime_float_type(&a_top), {
       return(true);
     });

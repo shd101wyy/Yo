@@ -1059,7 +1059,7 @@ _synthesize_types_impl :: (
     exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
     exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``);
     exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts, _ => ArrayList(TypeValue).new());
-    if(is_some_type(&bound) && match(bound, Rc(.SomeT(bid, _, _, _, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
+    if(is_some_type(&bound) && match(&bound, Rc(.SomeT(bid, _, _, _, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
       // Unbound — bind to given_ty
       // Occurs check
       {
@@ -1327,8 +1327,8 @@ _synthesize_types_impl :: (
     // see resolve_enum_shell) before any guard looks at variants.
     exp_en_ty := resolve_enum_shell(expected_ty);
     giv_en_ty := resolve_enum_shell(given_ty);
-    exp_enum_id := match(exp_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
-    giv_enum_id := match(giv_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
+    exp_enum_id := match(&exp_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
+    giv_enum_id := match(&giv_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
     // Two instantiations of the same generic enum share a constructor_func_id
     // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
     // constructor → unify variant fields, like the struct same_constructor check.
@@ -1357,8 +1357,8 @@ _synthesize_types_impl :: (
     // mismatches), so a same-shaped-but-different enum pair cannot silently
     // unify beyond what field recursion admits.
     if((exp_enum_id != giv_enum_id) && !same_enum_ctor, {
-      exp_vn := match(exp_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => Rc.clone(vn), _ => no_labels());
-      giv_vn := match(giv_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => Rc.clone(vn), _ => no_labels());
+      exp_vn := match(&exp_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => Rc.clone(vn), _ => no_labels());
+      giv_vn := match(&giv_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => Rc.clone(vn), _ => no_labels());
       if(exp_vn.len() == giv_vn.len(), {
         (vni : usize) = usize(0);
         (vn_ok : bool) = (exp_vn.len() > usize(0));
@@ -1387,8 +1387,8 @@ _synthesize_types_impl :: (
         )
       );
     }, {
-      exp_vf := match(exp_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
-      giv_vf := match(giv_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
+      exp_vf := match(&exp_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
+      giv_vf := match(&giv_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
       n_v := exp_vf.len();
       (vi : usize) = usize(0);
       while(vi < n_v, {
@@ -1466,8 +1466,8 @@ _synthesize_types_impl :: (
       });
       ep_flags := enum_phantom_positions(&exp_enum_id);
       ep_res := _synthesize_phantom_type_args(
-        match(exp_en_ty, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types()),
-        match(giv_en_ty, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types()),
+        match(exp_en_ty, Rc(.EnumT({ type_arguments : ta })) => Rc.clone(ta), _ => no_types()),
+        match(giv_en_ty, Rc(.EnumT({ type_arguments : ta })) => Rc.clone(ta), _ => no_types()),
         if(ep_flags.len() > usize(0), ep_flags, enum_phantom_positions(&giv_enum_id)),
         &ee,
         &ge,
@@ -1593,10 +1593,10 @@ _synthesize_types_impl :: (
         gt := match(giv_dts.get(gj), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         gj = (gj + usize(1));
         same_kind := match(
-          et,
-          Rc(.FnTraitT(eb, _, _, _, _, _, _, _)) => match(gt, Rc(.FnTraitT(gb, _, _, _, _, _, _, _)) => (eb == gb), _ => false),
+          &et,
+          Rc(.FnTraitT(eb, _, _, _, _, _, _, _)) => match(&gt, Rc(.FnTraitT(gb, _, _, _, _, _, _, _)) => (eb == gb), _ => false),
           Rc(.FutureTraitT(_, _, _, _)) => is_future_trait_type(&gt),
-          Rc(.TraitT(_, _, _, _, eid, _, _, _, _, _)) => match(gt, Rc(.TraitT(_, _, _, _, gid, _, _, _, _, _)) => (eid == gid), _ => false),
+          Rc(.TraitT(_, _, _, _, eid, _, _, _, _, _)) => match(&gt, Rc(.TraitT(_, _, _, _, gid, _, _, _, _, _)) => (eid == gid), _ => false),
           _ => false
         );
         if(same_kind, {
@@ -1761,7 +1761,7 @@ _synthesize_types_impl :: (
       Rc(.SomeT({ id : hk_id, name : hk_name, kind_function_type : hk_kind })) => match(
         hk_ctor,
         .Some(hk_cv) => if(hk_targs.len() == hk_args.len(), {
-          hk_kind_ty := match(hk_kind, .Some(k) => k, .None => rc(TypeValueNode.Unit));
+          hk_kind_ty := match(hk_kind, .Some(k) => Rc.clone(k), .None => rc(TypeValueNode.Unit));
           _bind_some_type(&ee, &hk_name, &hk_id, &hk_cv, &hk_kind_ty, opts_token(opts, &ee), exn);
           (hk_i : usize) = usize(0);
           while(hk_i < hk_args.len(), {

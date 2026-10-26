@@ -1607,7 +1607,7 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
         match(
           eft_rtts.get(eft_i),
           .Some(eft_rt) => match(
-            eft_rt,
+            &eft_rt,
             Rc(.FutureTraitT(_, _, _, _)) => {
               eft_found = Option(TypeValue).Some(eft_rt);
             },
@@ -1818,7 +1818,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
         // started stamping the resolution.
         if(_some_t_requires_future(t), {
           match(
-            rct,
+            &rct,
             Rc(.ExternOpaqueT(_, gts_ec)) => {
               return(`${gts_ec.clone()}*`);
             },
@@ -2482,19 +2482,22 @@ dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
   seen := HashSet(String).new();
   (go : bool) = true;
   while(go, {
-    match(
-      cur,
-      Rc(.SomeT({ id : dcf_id, resolution : .Some(dcf_r) })) => if(seen.insert(dcf_id.clone()), {
-        cur = Rc.clone(dcf_r);
-      }, {
-        go = false;
-      }),
+    cur = match(
+      &cur,
+      Rc(.SomeT({ id : dcf_id, resolution : .Some(dcf_r) })) => cond(
+        seen.insert(dcf_id.clone()) => Rc.clone(dcf_r),
+        true => {
+          go = false;
+          cur.clone()
+        }
+      ),
       _ => {
         go = false;
+        cur.clone()
       }
     );
   });
-  match(cur, Rc(.Func({})) => Option(TypeValue).Some(cur), _ => Option(TypeValue).None)
+  match(&cur, Rc(.Func({})) => Option(TypeValue).Some(Rc.clone(cur)), _ => Option(TypeValue).None)
 });
 /// The C name of a `dyn(...)` impl's CONCRETE type: its registered C type
 /// name, else, for a `fn(...)` payload (`dyn(f)` of a named function, which has

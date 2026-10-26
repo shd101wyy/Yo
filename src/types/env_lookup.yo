@@ -318,7 +318,7 @@ _do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &
     cond(
       // Cycle check
       _id_visited(visited_ids, &cur_id) => {
-        result = current;
+        result = Rc.clone(current);
         done = true;
       },
       true => {
@@ -332,27 +332,27 @@ _do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &
         cond(
           (n == usize(0)) => {
             // Name not found → unbound SomeType
-            result = current;
+            result = Rc.clone(current);
             done = true;
           },
           true =>
             match(
               variables.get(n - usize(1)),
               .None => {
-                result = current;
+                result = Rc.clone(current);
                 done = true;
               },
               .Some(last_var) =>
                 match(
                   last_var.value.get(usize(0)),
                   .None => {
-                    result = current;
+                    result = Rc.clone(current);
                     done = true;
                   },
                   .Some(val) =>
                     cond(
                       !_is_type_eval_value(&val) => {
-                        result = current;
+                        result = Rc.clone(current);
                         done = true;
                       },
                       true => {
@@ -360,7 +360,7 @@ _do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &
                         cond(
                           // Resolved to itself → unbound
                           _same_some_id(&resolved_tv, &cur_id) => {
-                            result = current;
+                            result = Rc.clone(current);
                             done = true;
                           },
                           // Name collision: different SomeT with same name but different id
@@ -368,7 +368,7 @@ _do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &
                             was_bound := _was_self_bound(env, &cur_name, &cur_id);
                             cond(
                               !was_bound => {
-                                result = current;
+                                result = Rc.clone(current);
                                 done = true;
                               },
                               true => {
@@ -412,7 +412,7 @@ _do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &
                             });
                             cond(
                               !was_bound => {
-                                result = current;
+                                result = Rc.clone(current);
                                 done = true;
                               },
                               true => {

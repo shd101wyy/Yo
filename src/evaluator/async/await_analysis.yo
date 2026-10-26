@@ -332,7 +332,7 @@ detect_await_expr_ :: (
       // Extract the result type T from FutureTraitT(output: Rc(T))
       result_type := match(
         future_module_type.clone(),
-        Rc(.FutureTraitT(output : output_box)) => output_box,
+        Rc(.FutureTraitT(output : output_box)) => Rc.clone(output_box),
         _ => {
           return(());
         } // unreachable: we just verified FutureTraitT
@@ -355,12 +355,12 @@ detect_await_expr_ :: (
               Rc(.SomeT({ resolution : res_out_cell })) => match(
                 res_out_cell,
                 .Some(final_out) => {
-                  result_type = final_out;
+                  result_type = Rc.clone(final_out);
                 },
                 .None => ()
               ),
               _ => {
-                result_type = res_out;
+                result_type = Rc.clone(res_out);
               }
             ),
             _ => ()
@@ -441,7 +441,7 @@ analyze_await_points :: (
       detect : dyn({ await_extras : Rc.clone(await_extras), get_info }(expr, parent_expr) =>
         await_extras.with_mut(extras => {
           found := ArrayList(SuspensionPoint).new();
-          detect_await_expr_(expr, parent_expr, &mut found, extras, get_info);
+          detect_await_expr_(expr, parent_expr, &mut found, extras, &get_info);
           found
         })),
       should_skip_body : dyn(expr => is_io_async_call(expr)),

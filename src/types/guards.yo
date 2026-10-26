@@ -509,7 +509,7 @@ unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
       (field_labels.len() != usize(1)) => .None,
       !name.starts_with("Box(") => .None,
       !match(field_labels.get(usize(0)), .Some(l) => (l == "_cell"), .None => false) => .None,
-      true => match(field_types.get(usize(0)), .Some(Rc(.Pointer(p))) => .Some(p), _ => .None)
+      true => match(field_types.get(usize(0)), .Some(Rc(.Pointer(p))) => .Some(Rc.clone(p)), _ => .None)
     ),
     _ => .None
   )
@@ -856,7 +856,7 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
             match(
               pts.get(i),
               .Some(pt) => match(
-                pt,
+                &pt,
                 // Future-implementing SomeT params are exempt.
                 Rc(.SomeT(name : _)) => if(!_some_type_implements_future(&pt), {
                   found = true;
@@ -897,7 +897,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
             match(
               pts.get(i),
               .Some(pt) => match(
-                pt,
+                &pt,
                 Rc(.SomeT({ resolution : hg_res })) => {
                   // Future-implementing SomeT params are exempt:
                   // they
@@ -1049,7 +1049,7 @@ _nullable_shape_payload :: (fn(t : &TypeValue) -> Option(TypeValue))(
             cond(
               _is_nullable_payload_type(&child) => {
                 match(
-                  pointer_type,
+                  &pointer_type,
                   .Some(_) => {
                     valid = false;
                   },
@@ -1098,7 +1098,7 @@ _nullable_payload_reaches_enum :: (fn(payload : &TypeValue, enum_id : &String, h
   pointee := match(
     unique_box_payload_type(payload),
     .Some(v) => Option(TypeValue).Some(v),
-    .None => match(t_refine_inner(payload), Rc(.Pointer(p)) => Option(TypeValue).Some(p), _ => Option(TypeValue).None)
+    .None => match(t_refine_inner(payload), Rc(.Pointer(p)) => Option(TypeValue).Some(Rc.clone(p)), _ => Option(TypeValue).None)
   );
   match(
     pointee,
@@ -1108,7 +1108,7 @@ _nullable_payload_reaches_enum :: (fn(payload : &TypeValue, enum_id : &String, h
       cond(
         (is_pointer_type(&target) || is_unique_box_type(&target)) => recur(&target, enum_id, hops - usize(1)),
         true => match(
-          target,
+          &target,
           Rc(.EnumT({ id })) => cond(
             (_enum_identity(&id) == enum_id) => true,
             true => match(_nullable_shape_payload(&target), .Some(inner) => recur(&inner, enum_id, hops - usize(1)), .None => false)

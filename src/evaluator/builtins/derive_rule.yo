@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 get_derive_rule_type :: (fn(name : &String) -> Option(TypeValue))(
   match(
     g_derive_rule_types.with(m => m.get(name)),
-    .Some(v) => match(v, .TypeVal(t) => Option(TypeValue).Some(t), _ => Option(TypeValue).None),
+    .Some(v) => match(v, .TypeVal(t) => Option(TypeValue).Some(Rc.clone(t)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   )
 );

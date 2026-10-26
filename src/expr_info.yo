@@ -1366,7 +1366,7 @@ _scope_has_id :: (fn(vs : &ArrayList(Variable), id : usize) -> bool)({
 });
 /// What the records say for (`key`, `name`); `husk` is the body's entry env.
 _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -> ArrayList(Variable))({
-  info_opt := match(&g_scope_table, .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+  info_opt := match(g_scope_table.clone(), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
   match(
     info_opt,
     .Some(info) => match(
@@ -1439,7 +1439,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
   // Released only while the table still holds the object that was released:
   // a later unlogged write replaces it with an info that keeps its env (as
   // release mode would read it).
-  cur_info := match(&g_scope_table, .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+  cur_info := match(g_scope_table.clone(), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
   still_released := match(
     g_scope_shadow_objs.with(m => m.get(&key)),
     .Some(o) => match(cur_info, .Some(ci) => unsafe(__yo_ptr_eq(&o, &ci)), .None => false),
@@ -1465,7 +1465,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         g_scope_mismatch = (g_scope_mismatch + usize(1));
         pk := match(g_scope_path, usize(1) => "sv", usize(2) => "exc", usize(3) => "rec", _ => "fallback");
         tk := if(name.starts_with(String.from("_file_")), "temp", "named");
-        kinfo := match(&g_scope_table, .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+        kinfo := match(g_scope_table.clone(), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
         has_cf := match(kinfo, .Some(ki) => has_any_control_flow(ki.control_flow), .None => false);
         has_vn := match(kinfo, .Some(ki) => ki.variable_name.is_some(), .None => false);
         has_pc := match(kinfo, .Some(ki) => (ki.path_collection.len() > usize(0)), .None => false);
@@ -2480,12 +2480,10 @@ adopt_receiver_struct_instance :: (
       (rta : TypeValue) = match(ret_tas.get(ai_ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       vta := match(recv_tas.get(ai_ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       if(is_some_type(&rta), {
-        match(
-          rta,
-          Rc(.SomeT({ resolution : .Some(ai_conc) })) => {
-            rta = Rc.clone(ai_conc);
-          },
-          _ => ()
+        rta = match(
+          &rta,
+          Rc(.SomeT({ resolution : .Some(ai_conc) })) => Rc.clone(ai_conc),
+          _ => rta.clone()
         );
       });
       if(!is_some_type(&rta), {

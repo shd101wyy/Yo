@@ -1774,7 +1774,7 @@ evaluate_function_parameter :: (
       // instead of via the panic wrapper.
       saved_expected := ctx.expected_type;
       ctx.expected_type = match(
-        param_type,
+        &param_type,
         .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), env_mut)),
         .None => saved_expected
       );
@@ -1810,7 +1810,7 @@ evaluate_function_parameter :: (
                 exn.throw(dyn(_param_default_not_comptime_error(&label, &param_type, &dv_ty, &dve)));
               });
               match(
-                param_type,
+                &param_type,
                 .None => {
                   param_type = .Some(dv_ty);
                 },
@@ -1910,7 +1910,7 @@ evaluate_function_parameter :: (
   // Validate runtime function parameters with generic function types
   if(!is_compile_time_only && is_function_type(&final_param_type), {
     has_forall := match(
-      final_param_type,
+      &final_param_type,
       Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)),
       _ => false
     );
@@ -1968,7 +1968,7 @@ evaluate_function_parameter :: (
   // Validate trait type must have receiver type already set (error if not)
   if(is_trait_type(&final_param_type), {
     has_receiver := match(
-      final_param_type,
+      &final_param_type,
       Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => is_concrete.is_some(),
       _ => true
     );
@@ -2078,7 +2078,7 @@ use_id :: (fn(generic(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value.get(usize(0)), .Some(ev) => match(ev, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
+      existing_some_ty := match(wv.value.get(usize(0)), .Some(ev) => match(ev, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value,
@@ -2186,7 +2186,7 @@ use_id :: (fn(generic(T : Type),
                   // can evaluate to a TypeApplication.
                   if(
                     match(
-                      final_param_type,
+                      &final_param_type,
                       Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
                       _ => false
                     ),
@@ -2519,7 +2519,7 @@ apply_single_trait_constraint :: (
           ev,
           .TypeVal(b) => {
             if(is_some_type(&b), {
-              some_ty_opt = .Some(b);
+              some_ty_opt = .Some(Rc.clone(b));
             }, {
               // Concrete type — validate constraint using validate_concrete_type_constraints.
               // Use outer exn directly (hard failure) — the given/using soft-failure pattern
@@ -2708,7 +2708,7 @@ parse_where_clause_constraints :: (
               ev,
               .TypeVal(b) => {
                 if(is_some_type(&b), {
-                  some_ty_opt = .Some(b);
+                  some_ty_opt = .Some(Rc.clone(b));
                 }, {
                   // Concrete type — use outer exn (hard failure).
                   // The given/using soft-failure pattern generates incomplete C calls.
@@ -2828,7 +2828,7 @@ parse_where_clause_constraints :: (
       some_ty_opt,
       .Some(t) => t,
       .None => match(
-        type_app_lhs,
+        &type_app_lhs,
         // TypeApplication LHS: `some_ty` is unused on this path; bind a dummy.
         .Some(_) => t_unit(),
         .None => {
@@ -2935,7 +2935,7 @@ parse_where_clause_constraints :: (
       // Record the constraint: TypeApplication LHS → the dedicated
       // type-application table; otherwise directly on the SomeT's ArrayList.
       match(
-        type_app_lhs,
+        &type_app_lhs,
         .Some(ta_lhs) => {
           add_where_clause_constraint_for_type_application(env_mut, &ta_lhs, &trait_ty2, is_neg);
         },
@@ -4908,7 +4908,7 @@ _resolve_wrapper_carriers_from_env :: (fn(wrapper : &TypeValue, env : &Environme
     match(
       carriers.get(i),
       .Some(c) => match(
-        c,
+        &c,
         Rc(.SomeT(_, c_name, c_lvl, _, _, _, _, _, _, _)) => {
           r := get_value_of_some_type_from_env(env, &c);
           if(debug_knob(`YO_DEBUG_FWCARRIER`).is_some(), {
@@ -5288,11 +5288,11 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
         (tas_own : bool) = false;
         if(is_some_type(&tas_r), {
           match(
-            tas_st,
+            &tas_st,
             Rc(.SomeT({ resolution : tas_cell })) => match(
               tas_cell,
               .Some(tas_c) => {
-                tas_r = tas_c;
+                tas_r = Rc.clone(tas_c);
                 tas_own = true;
               },
               .None => ()

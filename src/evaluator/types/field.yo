@@ -294,7 +294,7 @@ evaluate_type_field :: (
       elem_env := match(ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => env);
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
+          ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
           env : elem_env
         )
       );
@@ -327,7 +327,7 @@ evaluate_type_field :: (
     // `fn_type_unrepresentable_impl`).
     if(!is_comptime, {
       match(
-        match(field_type, .Some(fft) => fn_type_unrepresentable_impl(&fft), .None => Option(TypeValue).None),
+        match(&field_type, .Some(fft) => fn_type_unrepresentable_impl(&fft), .None => Option(TypeValue).None),
         .Some(ffi_impl) => {
           exn.throw(
             dyn(
@@ -335,7 +335,7 @@ evaluate_type_field :: (
                 ast_expr_token(&te),
                 fn_type_unrepresentable_impl_message(
                   `${for_type} field "${match(label, .Some(l) => l, .None => `${tuple_field_index}`)}"`,
-                  match(field_type, .Some(fft2) => Rc.clone(fft2), .None => rc(TypeValueNode.Unit)),
+                  match(&field_type, .Some(fft2) => Rc.clone(fft2), .None => rc(TypeValueNode.Unit)),
                   &ffi_impl
                 ),
                 Option(String).Some(fn_type_unrepresentable_impl_help())
@@ -364,7 +364,7 @@ evaluate_type_field :: (
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
+          ty : match(&field_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
           env : env
         )
       ),
@@ -372,7 +372,7 @@ evaluate_type_field :: (
         expected_tuple_element_type.is_some(),
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
-            ty : match(expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
+            ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
             env : env
           )
         ),
@@ -456,7 +456,7 @@ evaluate_type_field :: (
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
+          ty : match(&field_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
           env : env
         )
       ),
