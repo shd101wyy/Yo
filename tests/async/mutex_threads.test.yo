@@ -72,11 +72,21 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
     io.await(sleep(u64(1)), io);
   });
   m.*.unlock();
-  // No suspension since the unlock: the foreign waiter's loop may not have
-  // run yet, and the lock is already its own.
+  // No suspension since the unlock: the foreign waiter's loop may not have run
+  // yet, and the lock is already its own.
   assert(m.*.is_locked(), "the lock stays held while it is handed over");
   assert(!m.*.try_lock(), "try_lock cannot take a lock handed to a waiter");
-  assert(m.*.waiter_count() == usize(1), "only the same-loop waiter is still queued");
+  // The foreign waiter is out of the queue (the unlock's hand-off dequeued the
+  // waiter it woke). The same-loop waiter MAY be out too: on a multicore box
+  // the foreign thread can run its whole critical section and unlock —
+  // handing the lock on to the same-loop waiter — between main's `unlock`
+  // above and this read, and that hand-off dequeues as well. It cannot have
+  // RUN: it needs this loop, which is busy here, so the lock is still held
+  // either way (the two asserts above). `0` and `1` both mean the FIFO order
+  // held; the order itself is what `rf`/`rs` pin below. Asserting `== 1` here
+  // was a race — 33/1000 under `taskset -c 2,3` with YO_IO_BACKEND=epoll
+  // (issues/fixed/2026-10-26-the-fifo-mutex-tests-mid-handoff-waiter-count-assert-is-racy.md).
+  assert(m.*.waiter_count() <= usize(1), "the foreign waiter is out of the queue");
   rs := match(hs.await(io), .Some(v) => v, .None => i64(-1));
   rf := t.join();
   assert(rf == i64(1), `the foreign waiter, first in line, ran first, got ${rf.to_string()}`);
