@@ -613,7 +613,8 @@ impl(
     )
   }),
   /// Write `key`/`value` into `index`, a slot `_probe` reported VACANT, and
-  /// return the value written.
+  /// return the slot the pair landed in — the resize path re-finds it, so the
+  /// caller cannot assume it is the `index` it passed.
   ///
   /// Resizes first when the new entry would cross the load factor — and in
   /// that case re-finds the slot, because the rehash moved everything. This is
@@ -621,7 +622,7 @@ impl(
   /// that a miss costs one probe rather than two.
   ///
   /// PANICS on allocation failure, like `insert` (D9).
-  _insert_at : (fn(self : &mut Self, index : usize, hash : u64, key : &K, value : &V) -> V)({
+  _insert_at : (fn(self : &mut Self, index : usize, hash : u64, key : &K, value : &V) -> usize)({
     slot := cond(
       Self._needs_resize(self) => {
         new_capacity := self._grown_capacity();
@@ -651,7 +652,7 @@ impl(
     new_bucket := MapEntry(K, V)(key : key, value : value);
     consume((data_ptr.add(slot)).* = new_bucket);
     self.size = (self.size + usize(1));
-    value
+    slot
   }),
   /// Copy of the value stored under `key`, or `.None` — O(1) average.
   ///
@@ -957,46 +958,60 @@ impl(
     )
   })
 );
-/// The entry API. `entry(key)` resolves the key's slot in ONE probe and hands
-/// back a `HashMapEntry`; the three shorthands under it are the common
-/// combinations, each now a single probe as well (they were get-then-insert —
-/// two full walks of the probe sequence — until 2026-09-08).
+/// The entry API. `entry(key, body)` resolves the key's slot in ONE probe and
+/// lends a `HashMapEntry` to `body`; the three shorthands under it are the
+/// common combinations, each now a single probe as well (they were
+/// get-then-insert — two full walks of the probe sequence — until 2026-09-08).
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// The slot for `key`, resolved in one probe — Rust's `entry`.
+  /// The slot for `key`, resolved in one probe and lent to `body` — Rust's
+  /// `entry` in a with-shape (decision 22): Yo has no borrow object, so the
+  /// entry lives only as the body's parameter and cannot be stored past a
+  /// rehash. The spec spells the body `FnOnce`; a generic `Impl(FnOnce(...))`
+  /// parameter cannot be called yet
+  /// (`issues/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md`),
+  /// so the body is the borrowed `Fn` every other std with-shape takes.
   ///
   /// ```yo
-  /// counts.entry(word).and_modify(n => (n + i32(1))).or_insert(i32(1));
+  /// counts.entry(word, e => {
+  ///   e.and_modify(n => (n + i32(1)));
+  ///   e.or_insert(i32(1));
+  /// });
   /// ```
   ///
-  /// See `HashMapEntry` for the invalidation rule.
-  entry : (fn(self : &mut Self, key : &K) -> HashMapEntry(K, V))({
+  /// The body must not touch the map through another handle: anything that
+  /// rehashes the table moves the key out of the slot the entry pinned. See
+  /// `HashMapEntry` for the full invalidation rule.
+  entry : (fn(generic(R : Type), self : &mut Self, key : &K, body : &Impl(Fn(e : &mut HashMapEntry(K, V)) -> R)) -> R)({
     hash := self._hash(key);
-    HashMapEntry(K, V)(_map : self, _key : key, _hash : hash, _slot : Self._probe(self, key, hash))
+    (mut(e) : HashMapEntry(K, V)) = HashMapEntry(K, V)(
+      _map : addr_of(self),
+      _key : key,
+      _hash : hash,
+      _slot : Self._probe(self, key, hash)
+    );
+    body(&mut e)
   }),
-  /// The value for `key`, inserting `default` first when absent.
+  /// The value for `key`, inserting `default` first when absent — one probe,
+  /// through the entry.
   get_or_insert : (fn(self : &mut Self, key : &K, default : &V) -> V)(
-    self.entry(key).or_insert(default)
+    self.entry(key, { &default }(e) => e.or_insert(default))
   ),
   /// The value for `key`, inserting `make()`'s result first when absent —
   /// use over `get_or_insert` when constructing the default is costly.
   get_or_insert_with : (fn(self : &mut Self, key : &K, make : &Impl(Fn() -> V)) -> V)(
-    self.entry(key).or_insert_with(make)
+    self.entry(key, { &make }(e) => e.or_insert_with(make))
   ),
   /// Update the value for `key` through `f` when present; no-op when absent.
   /// Returns true when an update happened.
-  update_with : (fn(self : &mut Self, key : &K, f : &Impl(Fn(v : &V) -> V)) -> bool)({
-    e := self.entry(key);
-    cond(
-      e.is_occupied() => {
-        e.and_modify(f);
-        true
-      },
-      true => false
-    )
-  })
+  update_with : (fn(self : &mut Self, key : &K, f : &Impl(Fn(v : &V) -> V)) -> bool)(
+    self.entry(key, { &f }(e) => {
+      e.and_modify(f);
+      e.is_occupied()
+    })
+  )
 );
 impl(
   generic(K : Type, V : Type),
@@ -1056,12 +1071,24 @@ impl(
 /// makes the entry worth having over `get` + `insert`: the miss path already
 /// knows where to write.
 ///
-/// It is invalidated by anything that rehashes the table — an `insert` that
-/// grows it, `remove`, `clear` — exactly like the pointer `get_entry_ptr`
-/// hands out. Use an entry and drop it; do not store one.
+/// The entry lives only as `HashMap.entry`'s body parameter (decision 22): it
+/// cannot be returned or stored, so it cannot go stale across a rehash the
+/// way a stored one would. Inside the body it is invalidated by anything that
+/// rehashes the table — an `insert` that grows it, `remove`, `clear` —
+/// exactly like the pointer `get_entry_ptr` hands out; a body that mutates
+/// the map through a captured handle must finish doing so before it uses the
+/// entry again.
 HashMapEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _map : HashMap(K, V),
+    // SAFETY: `_map` is `addr_of(self)` — it points at the receiver's SLOT
+    // (the caller's map binding), which holds the HashMap handle; `.*` reads
+    // the handle and the handle's cell carries the `ctrl`/`data` pointers. A
+    // resize replaces those pointers INSIDE the cell, so neither the slot nor
+    // the handle moves and `_map` stays valid across every rehash; only the
+    // cached `_slot` index goes stale, which the invalidation rule above
+    // covers. The struct is private to this module and `entry` never returns
+    // it, so no `HashMapEntry` outlives the `entry` call that made it.
+    _map : *HashMap(K, V),
     _key : K,
     _hash : u64,
     _slot : BucketProbe
@@ -1087,52 +1114,73 @@ impl(
   value : (fn(self : &Self) -> Option(V))(
     match(
       self._slot,
-      .Occupied(index) => Option(V).Some((self._map._data_ptr().add(index)).*.value),
+      .Occupied(index) => Option(V).Some((self._map.*._data_ptr().add(index)).*.value),
       .Vacant(_) => Option(V).None
     )
   ),
-  /// The value for this key, inserting `default` first when vacant.
+  /// The value for this key, inserting `default` first when vacant. The
+  /// vacant insert also flips the entry's own slot to `.Occupied`, so a body
+  /// may keep using the entry afterwards (`is_occupied`, `and_modify`).
+  ///
+  /// The decision-22 sketch returns `&mut V` here; a generic impl method
+  /// returning a borrow gets pointer-flavored `&T` parameters that do not
+  /// deref, which is invalid C
+  /// (`issues/2026-10-25-a-borrow-returning-generic-method-breaks-its-own-typed-parameters.md`),
+  /// so the value comes back as a copy, as before.
   or_insert : (fn(self : &mut Self, default : &V) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
-      .Vacant(index) => self._map._insert_at(index, self._hash, &self._key, default)
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value,
+      .Vacant(index) => {
+        slot := self._map.*._insert_at(index, self._hash, &self._key, default);
+        self._slot = BucketProbe.Occupied(index : slot);
+        (self._map.*._data_ptr().add(slot)).*.value
+      }
     )
   ),
   /// The value for this key, inserting `make()`'s result first when vacant —
-  /// use over `or_insert` when constructing the default is costly.
+  /// use over `or_insert` when constructing the default is costly. As
+  /// `or_insert`: the slot flips to `.Occupied`, and the value comes back as
+  /// a copy (see the `&mut V` note there).
   or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V)) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
-      .Vacant(index) => self._map._insert_at(index, self._hash, &self._key, make())
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value,
+      .Vacant(index) => {
+        slot := self._map.*._insert_at(index, self._hash, &self._key, make());
+        self._slot = BucketProbe.Occupied(index : slot);
+        (self._map.*._data_ptr().add(slot)).*.value
+      }
     )
   ),
   /// Replace the stored value with `f(value)` when occupied; a no-op when
-  /// vacant. Returns the entry, so it chains ahead of `or_insert`:
+  /// vacant. Returns `unit`, so it does not chain: write the two steps out
+  /// inside the `entry` body:
   ///
   /// ```yo
-  /// counts.entry(word).and_modify(n => (n + i32(1))).or_insert(i32(1));
+  /// counts.entry(word, e => {
+  ///   e.and_modify(n => (n + i32(1)));
+  ///   e.or_insert(i32(1));
+  /// });
   /// ```
-  and_modify : (fn(self : &Self, f : &Impl(Fn(v : &V) -> V)) -> Self)({
+  and_modify : (fn(self : &Self, f : &Impl(Fn(v : &V) -> V)) -> unit)({
     match(
       self._slot,
       .Occupied(index) => {
-        p := self._map._data_ptr().add(index);
+        p := self._map.*._data_ptr().add(index);
         // The value alone is replaced, so the key is not copied (a move-only
         // `K` works); the assignment drops the old value.
         p.*.value = f(&p.*.value);
       },
       .Vacant(_) => ()
     );
-    self
   }),
   /// Remove this key from the map, returning the value it held.
   ///
   /// Re-probes rather than using the pinned slot: removal has to decide
   /// between an empty slot and a tombstone from the chain that follows it, and
   /// that logic lives in `remove`.
-  remove : (fn(self : &mut Self) -> Option(V))(self._map.remove(&self._key))
+  remove : (fn(self : &mut Self) -> Option(V))(self._map.*.remove(&self._key))
 );
 /// Value iterator over a HashMap — yields each `MapEntry(K, V)` BY VALUE
 /// (both key and value dup'd for refcounted types). This is what
