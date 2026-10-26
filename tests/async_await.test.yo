@@ -4910,7 +4910,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
       mut(r) := usize(0);
       while(r < outer.len(), {
         match(
-          outer.get(r),
+          outer.get_cloned(r),
           .None => (),
           .Some(d) => {
             got := e.io.await(exists(Path.new(d.clone()), e.io), e.io);
@@ -4921,7 +4921,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
               mut(i) := usize(0);
               while(i < inner.len(), {
                 match(
-                  inner.get(i),
+                  inner.get_cloned(i),
                   .None => (),
                   .Some(f) => {
                     hit := e.io.await(exists(Path.new(f.clone()), e.io), e.io);

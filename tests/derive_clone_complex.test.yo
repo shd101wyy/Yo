@@ -126,7 +126,7 @@ test("derive Clone for enum with ArrayList variant", {
     c,
     .WithList(items) => {
       assert(items.len() == usize(2), "list len");
-      first := items.get(usize(0));
+      first := items.get_cloned(usize(0));
       match(first, .Some(v) => assert(v == `x`, "first"), .None => assert(false, "missing"));
     },
     _ => assert(false, "wrong variant")
@@ -229,7 +229,7 @@ test("derive Clone for struct with multiple RC fields", {
   assert(c.name == `compound`, "name");
   assert(c.count == usize(2), "count");
   assert(c.tags.len() == usize(2), "tags len");
-  t0 := c.tags.get(usize(0));
+  t0 := c.tags.get_cloned(usize(0));
   match(t0, .Some(v) => assert(v == `alpha`, "first tag"), .None => assert(false, "missing tag"));
 });
 // ===== 12. Recursive enum folded to a nullable pointer =====
@@ -275,7 +275,7 @@ test("derive Clone for a nullable-pointer recursive enum over HashMap(String, Se
   c := orig.clone();
   r := match(
     c,
-    .Obj(mm) => match(mm.get(`a`), .Some(_) => i32(1), .None => i32(-1)),
+    .Obj(mm) => match(mm.get_cloned(`a`), .Some(_) => i32(1), .None => i32(-1)),
     .Null => i32(0)
   );
   assert(r == i32(1), "the clone's map holds the key");

@@ -326,18 +326,18 @@ test("OrderedMap index_of and get_index address entries by position", {
   assert(m.index_of(`b`).unwrap() == usize(1), "b is at 1");
   assert(m.index_of(`c`).unwrap() == usize(2), "c is at 2");
   assert(m.index_of(`zzz`).is_none(), "a missing key has no position");
-  e := m.get_index(usize(1));
+  e := m.get_index_cloned(usize(1));
   assert(e.is_some(), "position 1 holds an entry");
   assert(e.unwrap().key == `b`, "and it is b");
   assert(e.unwrap().value == i32(2), "with b's value");
-  assert(m.get_index(usize(3)).is_none(), "past the end is .None");
+  assert(m.get_index_cloned(usize(3)).is_none(), "past the end is .None");
   // The positions follow the mutators.
   m.swap_remove(`a`);
   assert(m.index_of(`c`).unwrap() == usize(0), "c moved into a's slot");
   assert(m.index_of(`b`).unwrap() == usize(1), "b did not move");
   m.remove(`c`);
   assert(m.index_of(`b`).unwrap() == usize(0), "shift-remove pulled b forward");
-  assert(m.get_index(usize(0)).unwrap().key == `b`, "and get_index agrees");
+  assert(m.get_index_cloned(usize(0)).unwrap().key == `b`, "and get_index agrees");
 });
 // A key whose every value hashes alike, so all of a map's positions share
 // ONE bucket of the position index. Each `insert` after the first appends
@@ -442,7 +442,7 @@ test("get_cloned and get_index_cloned clone in place", {
   m.insert(`b`, `2`);
   mut(c) := m.get_cloned(&`b`).unwrap();
   c.push_str("!");
-  assert(m.get(&`b`) == .Some(`2`), "the clone is independent");
+  assert(m.get_cloned(&`b`) == .Some(`2`), "the clone is independent");
   assert(m.get_cloned(&`z`).is_none(), "absent: none");
   e := m.get_index_cloned(usize(0)).unwrap();
   assert((e.key == `a`) && (e.value == `1`), "the pair at position 0");
