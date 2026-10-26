@@ -144,7 +144,7 @@ t_array_var :: (fn(element : &TypeValue, length_var : &String) -> TypeValue)({
     );
     eprintln(`[alen] ${shape} ${length_var}`);
   });
-  rc(TypeValueNode.Array(element, usize(0), length_var))
+  rc(TypeValueNode.Array(element, usize(0), length_var.clone()))
 });
 /// Marker prefix of a COMPUTED array length recorded at definition time
 /// (`-> Array(u8, N + usize(1))`, `Array(u8, T.BYTES * 2)`): the length
@@ -278,11 +278,11 @@ t_trait :: (
     sink(field_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
+  rc(TypeValueNode.TraitT(name.clone(), assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : &String) -> TypeValue)(
-  rc(TypeValueNode.TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
+  rc(TypeValueNode.TraitT(name.clone(), ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
 );
 /// Create a module type with field lists.
 t_module :: (
@@ -294,11 +294,11 @@ t_module :: (
 )(
   // Source-namespace STRUCT — there is no separate module type.
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
-  rc(TypeValueNode.Struct(String.from(""), name, shared_list(field_labels), shared_list(field_types), false, false, false, String.from(""), no_types(), true))
+  rc(TypeValueNode.Struct(String.from(""), name.clone(), shared_list(field_labels), shared_list(field_types), false, false, false, String.from(""), no_types(), true))
 );
 /// Create a named module type with no fields.
 t_module_simple :: (fn(name : &String) -> TypeValue)(
-  rc(TypeValueNode.Struct(String.from(""), name, no_labels(), no_types(), false, false, false, String.from(""), no_types(), true))
+  rc(TypeValueNode.Struct(String.from(""), name.clone(), no_labels(), no_types(), false, false, false, String.from(""), no_types(), true))
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for Phase 2f variants
@@ -382,7 +382,7 @@ t_fn_trait :: (
     sink(call_param_is_owning) : ArrayList(bool)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name, shared_list(call_param_labels), shared_list(call_param_types), call_result, shared_list(implicit_labels), shared_list(implicit_types), shared_list(call_param_is_ref), shared_list(call_param_is_owning)))
+  rc(TypeValueNode.FnTraitT(base_name.clone(), shared_list(call_param_labels), shared_list(call_param_types), call_result, shared_list(implicit_labels), shared_list(implicit_types), shared_list(call_param_is_ref), shared_list(call_param_is_owning)))
 );
 t_fn_trait_simple :: (
   fn(
@@ -391,7 +391,7 @@ t_fn_trait_simple :: (
     call_result : &TypeValue
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name, no_labels(), shared_list(call_param_types), call_result, no_labels(), no_types(), no_flags(), no_flags()))
+  rc(TypeValueNode.FnTraitT(base_name.clone(), no_labels(), shared_list(call_param_types), call_result, no_labels(), no_types(), no_flags(), no_flags()))
 );
 t_future_trait :: (
   fn(
@@ -401,17 +401,17 @@ t_future_trait :: (
     sink(effect_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FutureTraitT(base_name, output, shared_list(effect_labels), shared_list(effect_types)))
+  rc(TypeValueNode.FutureTraitT(base_name.clone(), output, shared_list(effect_labels), shared_list(effect_types)))
 );
 t_future_trait_simple :: (fn(base_name : &String, output : &TypeValue) -> TypeValue)(
-  rc(TypeValueNode.FutureTraitT(base_name, output, no_labels(), no_types()))
+  rc(TypeValueNode.FutureTraitT(base_name.clone(), output, no_labels(), no_types()))
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
   rc(
     TypeValueNode.SomeT(
       generate_some_type_id(),
-      name,
+      name.clone(),
       frame_level,
       rc(TypeValueNode.TypeUni(usize(0))),
       ArrayList(TypeValue).new(),
@@ -495,7 +495,7 @@ t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
 /// (types/definitions.yo `ExternOpaqueT`). `c_name` is its C spelling; the
 /// label is its own spelling when no `c_type("...")` is given.
 t_extern_opaque :: (fn(name : &String, c_name : &String) -> TypeValue)(
-  rc(TypeValueNode.ExternOpaqueT(name, cond((c_name.len() > usize(0)) => c_name, true => name.clone())))
+  rc(TypeValueNode.ExternOpaqueT(name.clone(), cond((c_name.len() > usize(0)) => c_name, true => name.clone())))
 );
 /// Per-call SomeT minting (§7 step 3's cure, issues/fixed/
 /// warm-test-batches-doc-stability-genericimplentry.md): rebuild `s` with a
@@ -536,7 +536,7 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
   rc(
     TypeValueNode.SomeT(
       generate_some_type_id(),
-      name,
+      name.clone(),
       frame_level,
       rc(TypeValueNode.TypeUni(usize(0))),
       ArrayList(TypeValue).new(),
@@ -837,7 +837,7 @@ _patch_self_shell :: (
 (g_enum_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
   if((enum_id.len() > usize(0)) && g_enum_finals.with(m => m.get(enum_id)).is_none(), {
-    g_enum_finals.with_mut(m => m.insert(enum_id, ty));
+    g_enum_finals.with_mut(m => m.insert(enum_id.clone(), ty));
     bump_type_key_epoch();
   });
 });
@@ -875,7 +875,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
 /// `g_ctor_phantom_positions`); the first record wins.
 register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(bool)) -> unit)({
   if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.with(m => m.contains_key(func_id)), {
-    _prev := g_ctor_phantom_positions.with_mut(m => m.insert(func_id, phantom));
+    _prev := g_ctor_phantom_positions.with_mut(m => m.insert(func_id.clone(), phantom.clone()));
     bump_type_key_epoch();
   });
 });
@@ -905,7 +905,7 @@ ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))
 (g_enum_phantom_positions : RefCell(HashMap(String, ArrayList(bool)))) = RefCell(HashMap(String, ArrayList(bool))).new(HashMap(String, ArrayList(bool)).new());
 _register_enum_phantom_positions :: (fn(enum_id : &String, phantom : &ArrayList(bool)) -> unit)({
   if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.with(m => m.contains_key(enum_id)), {
-    _prev := g_enum_phantom_positions.with_mut(m => m.insert(enum_id, phantom));
+    _prev := g_enum_phantom_positions.with_mut(m => m.insert(enum_id.clone(), phantom.clone()));
     bump_type_key_epoch();
   });
 });
@@ -959,7 +959,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
 (g_struct_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
   if((struct_id.len() > usize(0)) && g_struct_finals.with(m => m.get(struct_id)).is_none(), {
-    g_struct_finals.with_mut(m => m.insert(struct_id, ty));
+    g_struct_finals.with_mut(m => m.insert(struct_id.clone(), ty));
     bump_type_key_epoch();
   });
 });
@@ -988,7 +988,7 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
 (g_type_binding_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_binding_name :: (fn(type_id : &String, name : &String) -> unit)({
   if((type_id.len() > usize(0)) && g_type_binding_names.with(m => m.get(type_id)).is_none(), {
-    g_type_binding_names.with_mut(m => m.insert(type_id, name));
+    g_type_binding_names.with_mut(m => m.insert(type_id.clone(), name.clone()));
   });
 });
 type_binding_name :: (fn(type_id : &String) -> Option(String))(
@@ -1018,7 +1018,7 @@ clear_type_binding_names :: (fn() -> unit)({
 register_some_binder_kind :: (
   fn(name : &String, lvl : usize, kind_name : &String) -> unit
 )({
-  _some_binder_kinds.with_mut(m => m.insert(`${name}@${lvl.to_string()}`, kind_name));
+  _some_binder_kinds.with_mut(m => m.insert(`${name}@${lvl.to_string()}`, kind_name.clone()));
 });
 clear_some_binder_kind :: (fn(name : &String, lvl : usize) -> unit)({
   _some_binder_kinds.with_mut(m => m.remove(`${name}@${lvl.to_string()}`));

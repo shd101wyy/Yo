@@ -41,7 +41,7 @@ type_key_epoch :: (fn() -> u64)(g_type_key_epoch);
 /// first registration wins — one id is minted by one constructor call.
 register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)({
   if(!g_type_display_names.with(m => m.contains_key(type_id.clone())), {
-    _prev := g_type_display_names.with_mut(m => m.insert(type_id, display));
+    _prev := g_type_display_names.with_mut(m => m.insert(type_id.clone(), display.clone()));
     bump_type_key_epoch();
   });
 });

@@ -2260,8 +2260,8 @@ build_doc_module_from_tokens :: (
     oi = (oi + usize(1));
   });
   DocModule(
-    name : name,
-    path : path,
+    name : name.clone(),
+    path : path.clone(),
     doc : module_doc.clone(),
     stability : module_stability(&module_doc),
     functions : ArrayList(DocFunction).new(),
@@ -3058,15 +3058,15 @@ build_doc_function :: (
     }
   );
   DocFunction(
-    name : name,
-    doc : doc,
+    name : name.clone(),
+    doc : doc.clone(),
     signature : signature,
     parameters : parameters,
     return_type : return_type,
     type_params : type_params,
     effects : Option(ArrayList(DocParam)).None,
     is_method : is_method,
-    self_type : self_type,
+    self_type : self_type.clone(),
     returns : returns,
     errors : errors,
     deprecated : deprecated,
@@ -3125,7 +3125,7 @@ _extract_methods :: (
           _method_doc(doc_lookup, type_name.clone(), entry.label.clone()),
           true,
           Option(String).Some(type_name.clone()),
-          Option(HashMap(String, String)).Some(doc_lookup),
+          Option(HashMap(String, String)).Some(doc_lookup.clone()),
           &receiver_name,
           Option(SourceSignatureInfo).None
         )
@@ -3189,7 +3189,7 @@ _extract_generic_impl_info :: (
             _method_doc(doc_lookup, type_name.clone(), m_name.clone()),
             true,
             Option(String).Some(type_name.clone()),
-            Option(HashMap(String, String)).Some(doc_lookup),
+            Option(HashMap(String, String)).Some(doc_lookup.clone()),
             String.new(),
             Option(SourceSignatureInfo).None
           )

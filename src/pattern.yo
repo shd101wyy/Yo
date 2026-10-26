@@ -224,7 +224,14 @@ register_arm_entry_drops :: (fn(arm_id : usize, drops : &ArrayList(AstExpr)) -> 
   if(!codegen_tables_enabled(), {
     return(());
   });
+<<<<<<< HEAD
   _old := g_arm_entry_drops.with_mut(m => m.insert(arm_id, drops.clone()));
+=======
+  // B4-1b: the registry entry SHARES the caller's `drops` list (the same
+  // decision as `register_match_arms` below: the table aliases by design, and
+  // `Arm` deliberately has no `Clone` — maintainer decision 2026-10-26).
+  _old := g_arm_entry_drops.with_mut(m => m.insert(arm_id, drops));
+>>>>>>> 8be5dd512 (wip(b4-1b): apply the explicit-copy tool's 140 insertions; revert the two documented intentional shares (Substitution rebuilds, arm-entry-drops registry))
   record_owned_expr_id(arm_id);
 });
 lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_arm_entry_drops.with(m => m.get(&arm_id)));

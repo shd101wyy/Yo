@@ -1235,7 +1235,7 @@ _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : &Token) -> To
 _synth_desugar_tok_s :: (fn(kind : TokenKind, value : &String, ref_tok : &Token) -> Token)(
   Token(
     kind : kind,
-    value : value,
+    value : value.clone(),
     row : ref_tok.row,
     column : ref_tok.column,
     character : ref_tok.character,
@@ -1367,7 +1367,7 @@ _borrow_sigil_of :: (fn(e : &AstExpr) -> Option(_BorrowSigil))(
 /// `__yo_imm(args...)` / `__yo_mut(args...)`, its head synthesized at the sigil `at`.
 _borrow_mode_call :: (fn(is_mut : bool, args : &ArrayList(AstExpr), at : &Token) -> AstExpr)({
   mtok := _synth_desugar_tok(TokenKind.Identifier, cond(is_mut => BK_MUT, true => BK_IMM), at);
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), mtok), args, false, mtok)
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), mtok), args.clone(), false, mtok)
 });
 _borrow_mode_call1 :: (fn(is_mut : bool, arg : &AstExpr, at : &Token) -> AstExpr)({
   one := ArrayList(AstExpr).new();
@@ -1405,7 +1405,7 @@ _bs_with_operands :: (fn(e : &AstExpr, lhs : &AstExpr, rhs : &AstExpr) -> AstExp
 _bs_with_args :: (fn(e : &AstExpr, args : &ArrayList(AstExpr)) -> AstExpr)(
   match(
     e,
-    .FnCall(wid, wf, _, w_infix, wtok) => AstExpr.FnCall(wid, wf, args, w_infix, wtok),
+    .FnCall(wid, wf, _, w_infix, wtok) => AstExpr.FnCall(wid, wf, args.clone(), w_infix, wtok),
     .Atom(_, _) => e
   )
 );

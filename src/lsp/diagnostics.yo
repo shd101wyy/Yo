@@ -118,7 +118,7 @@ export(LspDiag, RelatedInfo);
 _stash_parse_error :: (fn(msg : &String) -> unit)({
   prior := g_parse_error.clone();
   if(prior.is_none(), {
-    g_parse_error = Option(String).Some(msg);
+    g_parse_error = Option(String).Some(msg.clone());
   });
 });
 _take_parse_error :: (fn() -> Option(String))({
@@ -135,7 +135,7 @@ _is_digit_byte :: (fn(b : u8) -> bool)(
 /// The number of `^` bytes in `s` — the underline length the renderer drew
 /// (the caret is ASCII, so bytes == runes).
 _count_carets :: (fn(s : &String) -> usize)({
-  bytes := s;
+  bytes := s.clone();
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < bytes.len(), {
@@ -261,7 +261,7 @@ _strip_severity_prefix :: (fn(message : &String) -> SevPrefix)({
     },
     .None => ()
   );
-  SevPrefix(severity : usize(1), code : Option(String).None, message : message)
+  SevPrefix(severity : usize(1), code : Option(String).None, message : message.clone())
 });
 
 /// Extract diagnostics from a rendered diagnostic-group string (the P1

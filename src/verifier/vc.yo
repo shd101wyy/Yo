@@ -601,7 +601,7 @@ _register_uninterpreted_sort :: (fn(name : &String) -> unit)({
     i = (i + usize(1));
   });
   if(!found, {
-    g_uninterpreted_sorts.with_mut(xs => xs.push(name));
+    g_uninterpreted_sorts.with_mut(xs => xs.push(name.clone()));
   });
   ()
 });
@@ -678,7 +678,7 @@ _guard_site :: (fn(e : &AstExpr, class : &String) -> Option(GuardSite))({
       module : canonical_module_path(&tok.module_path.*),
       row : usize(tok.row),
       column : usize(tok.column),
-      class : class
+      class : class.clone()
     )
   )
 });
@@ -867,8 +867,8 @@ VcCtx :: ref(
 _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String) -> VcCtx)(
   VcCtx(
     table : table,
-    fn_name : fn_name,
-    func_id : func_id,
+    fn_name : fn_name.clone(),
+    func_id : func_id.clone(),
     vars : HashMap(String, VcTerm).new(),
     path : ArrayList(VcTerm).new(),
     unenforced : ArrayList(VcTerm).new(),
@@ -920,7 +920,7 @@ _fail_subset :: (fn(ctx : &mut VcCtx, construct : &String, at : &AstExpr) -> uni
     .None => {
       ctx.subset_error = Option(VcSubsetError).Some(
         VcSubsetError(
-          construct : construct,
+          construct : construct.clone(),
           source : ast_expr_to_string(at)
         )
       );
@@ -2030,7 +2030,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     if(tok.kind == TokenKind.Bool, {
       return(Option(VcTerm).Some(rc(VcTermNode.BoolLit(tok.value == "true"))));
     });
-    name := tok.value;
+    name := tok.value.clone();
     return(
       match(
         ctx.vars.get(name.clone()),
@@ -3864,7 +3864,7 @@ _loop_core :: (
   saved_measure := ctx.loop_measure;
   saved_head_measure := ctx.head_measure;
   saved_for_idx := ctx.loop_for_idx;
-  ctx.loop_invariants = a.invariants;
+  ctx.loop_invariants = a.invariants.clone();
   ctx.loop_measure = a.decreases;
   ctx.loop_for_idx = match(frame, .Some(frx) => Option(String).Some(frx.idx_name.clone()), .None => Option(String).None);
   ctx.head_measure = m_havoc;
@@ -5764,7 +5764,7 @@ _note_list_alias :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> uni
         });
       }, {
         if(!ctx.list_alias_locals.contains(name.clone()), {
-          ctx.list_alias_locals.push(name);
+          ctx.list_alias_locals.push(name.clone());
         });
       });
     }),
