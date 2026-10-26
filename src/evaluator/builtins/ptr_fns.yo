@@ -226,17 +226,16 @@ evaluate_address_call :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_expr := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -469,7 +468,7 @@ evaluate_address_call :: (
     )
   );
   // Propagate path_collection from arg.
-  out_info.path_collection = arg_info.path_collection;
+  out_info.path_collection = arg_info.path_collection.clone();
   // Propagate comptime_ref so callers can mutate through the pointer.
   expr_info_set_comptime_ref(&out_info, &comptime_ref_opt);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

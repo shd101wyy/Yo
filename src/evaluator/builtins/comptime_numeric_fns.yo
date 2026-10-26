@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 // str_lit_quote: wrap an unquoted string with double-quote chars.
 // ---------------------------------------------------------------------------
 str_lit_quote :: (fn(s : &String) -> String)(
-  String.from("\"") + s + String.from("\"")
+  String.from("\"") + s.clone() + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // apply_bounds: clamp i64 to the representable range of type `ty`.
@@ -339,7 +339,7 @@ evaluate_yo_comptime_numeric_functions :: (
     expr,
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
-      .Atom(_, ftok) => ftok.value,
+      .Atom(_, ftok) => ftok.value.clone(),
       _ => String.new()
     ),
     _ => String.new()
@@ -410,20 +410,19 @@ evaluate_yo_comptime_numeric_functions :: (
   op := fn_name.substring(prefix_len, fn_name.len());
   op_s := op.clone();
   // ---- 4. Extract args. --------------------------------------------------
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   // ---- 5. Unary operations (neg, bit_not, to_comptime_string). -----------
   is_unary := ((op_s == "neg") || (op_s == "bit_not") || (op_s == "to_comptime_string"));
   if(is_unary, {
     arg0 := match(
-      args.get(usize(0)),
-      .Some(a) => a,
-      .None => {
+      expr,
+      .FnCall(_, _, fargs, _, _) => match(
+        fargs.get(usize(0)),
+        .Some(a) => a,
+        .None => {
+          return(expr);
+        }
+      ),
+      _ => {
         return(expr);
       }
     );
@@ -535,6 +534,13 @@ evaluate_yo_comptime_numeric_functions :: (
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     // ---- 6. Binary operations. -------------------------------------------
+    args := match(
+      expr,
+      .FnCall(_, _, fargs, _, _) => fargs,
+      _ => {
+        return(expr);
+      }
+    );
     arg0 := match(
       args.get(usize(0)),
       .Some(a) => a,

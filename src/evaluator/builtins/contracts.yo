@@ -283,74 +283,73 @@ BF_SET_CONTAINS :: "set_contains";
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
 /// transparent no-op marker.
 evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
-  args0 := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _) => ArrayList(AstExpr).new()
-  );
   {
     match(
-      args0.get(usize(0)),
-      .Some(first) => {
-        if(ast_expr_is_fn_call_of(&first, ":=", Option(usize).Some(usize(2))), {
-          ba := match(
-            first,
-            .FnCall(_, _, a2, _, _) => a2,
-            .Atom(_, _) => ArrayList(AstExpr).new()
-          );
-          nm := match(
-            ba.get(usize(0)),
-            .Some(n0) => ast_expr_token(&n0).value,
-            .None => String.new()
-          );
-          rhs := match(
-            ba.get(usize(1)),
-            .Some(r0) => r0,
-            .None => make_err_expr()
-          );
-          // The RHS is ghost code (quantifiers are legal in it).
-          prev_ghost := ctx.is_ghost_context;
-          ctx.is_ghost_context = true;
-          evaluated := evaluate_expression_raw(&rhs, env, ctx, exn);
-          ctx.is_ghost_context = prev_ghost;
-          r_info := match(
-            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
-            .Some(ri) => ri,
-            .None => new_expr_info(env, t_unit())
-          );
-          ghost_var := add_variable_to_env(
-            env,
-            nm.clone(),
-            &r_info.ty,
-            &r_info.value,
-            false,
-            false,
-            false,
-            false,
-            ast_expr_token(&first)
-          );
-          // Mark the RESOLVED Variable itself as the spec-only binding —
-          // the escape gate (identifer_and_operator.yo) reads this flag,
-          // NOT a process-global name set. A global name set rejected an
-          // unrelated binding that merely shares the name in another
-          // module (or another function of the same module): loading a
-          // fixture with `ghost(v := ...)` poisoned every later module's
-          // plain local `v` for the rest of the process
-          // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
-          match(
-            ghost_var,
-            .Some(gv) => {
-              gv.is_ghost_binding = true;
-            },
-            .None => ()
-          );
-          out_info := new_expr_info(&r_info.env, t_unit());
-          out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-          return(expr);
-        });
-      },
-      .None => ()
+      expr,
+      .FnCall(_, _, fargs, _, _) => match(
+        fargs.get(usize(0)),
+        .Some(first) => {
+          if(ast_expr_is_fn_call_of(&first, ":=", Option(usize).Some(usize(2))), {
+            ba := match(
+              first,
+              .FnCall(_, _, a2, _, _) => a2,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            );
+            nm := match(
+              ba.get(usize(0)),
+              .Some(n0) => ast_expr_token(&n0).value,
+              .None => String.new()
+            );
+            rhs := match(
+              ba.get(usize(1)),
+              .Some(r0) => r0,
+              .None => make_err_expr()
+            );
+            // The RHS is ghost code (quantifiers are legal in it).
+            prev_ghost := ctx.is_ghost_context;
+            ctx.is_ghost_context = true;
+            evaluated := evaluate_expression_raw(&rhs, env, ctx, exn);
+            ctx.is_ghost_context = prev_ghost;
+            r_info := match(
+              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+              .Some(ri) => ri,
+              .None => new_expr_info(env, t_unit())
+            );
+            ghost_var := add_variable_to_env(
+              env,
+              nm.clone(),
+              &r_info.ty,
+              &r_info.value,
+              false,
+              false,
+              false,
+              false,
+              ast_expr_token(&first)
+            );
+            // Mark the RESOLVED Variable itself as the spec-only binding —
+            // the escape gate (identifer_and_operator.yo) reads this flag,
+            // NOT a process-global name set. A global name set rejected an
+            // unrelated binding that merely shares the name in another
+            // module (or another function of the same module): loading a
+            // fixture with `ghost(v := ...)` poisoned every later module's
+            // plain local `v` for the rest of the process
+            // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
+            match(
+              ghost_var,
+              .Some(gv) => {
+                gv.is_ghost_binding = true;
+              },
+              .None => ()
+            );
+            out_info := new_expr_info(&r_info.env, t_unit());
+            out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+            return(expr);
+          });
+        },
+        .None => ()
+      ),
+      .Atom(_, _) => ()
     );
   };
   _evaluate_contract_marker(expr, env, ctx, exn)
@@ -395,7 +394,7 @@ _evaluate_transparent_unary :: (
 /// from non-ghost context (a ghost_fn has no runtime semantics).
 (g_ghost_fn_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_ghost_fn :: (fn(func_id : &String) -> unit)({
-  g_ghost_fn_ids.with_mut(s => s.insert(func_id));
+  g_ghost_fn_ids.with_mut(s => s.insert(func_id.clone()));
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
@@ -416,7 +415,7 @@ GhostFnDef :: ref(
 );
 (g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
-  g_ghost_fn_defs.with_mut(m => m.insert(func_id, GhostFnDef(params : params, body : body)));
+  g_ghost_fn_defs.with_mut(m => m.insert(func_id.clone(), GhostFnDef(params : params.clone(), body : body)));
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
@@ -429,7 +428,7 @@ ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
 /// refine() evaluation); read by the verifier's assume/prove walks.
 (g_refine_pred_chains : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String)) -> unit)({
-  g_refine_pred_chains.with_mut(m => m.insert(outer_fid.clone(), chain));
+  g_refine_pred_chains.with_mut(m => m.insert(outer_fid.clone(), chain.clone()));
   ()
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
@@ -857,7 +856,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     // a binding FORM — never evaluated as an expression.
     ba := match(
       barg,
-      .FnCall(_, _, a2, _, _) => a2,
+      .FnCall(_, _, a2, _, _) => a2.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     ty_expr := match(
@@ -1094,7 +1093,7 @@ _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstEx
     alloc_global_expr_id(),
     Token(
       kind : kind,
-      value : value,
+      value : value.clone(),
       row : src_tok.row,
       column : src_tok.column,
       character : src_tok.character,
@@ -1112,7 +1111,7 @@ _synth_string_token_value :: (fn(s : &String) -> String)({
   sb := StringBuilder.new();
   sb.write_byte(u8(0x22));
   {
-    it := s.chars();
+    it := s.clone().chars();
     while(true, {
       r := match(it.next(), .Some(x) => x, .None => break);
       cond(
@@ -1270,7 +1269,7 @@ _build_assert_call :: (
 _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &String) -> AstExpr)({
   bind_tok := Token(
     kind : TokenKind.Identifier,
-    value : op,
+    value : op.clone(),
     row : src_tok.row,
     column : src_tok.column,
     character : src_tok.character,
@@ -1514,7 +1513,7 @@ guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) 
 /// the misleading "untyped expression" at the hollow body root.
 (g_verify_def_eval_failures : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> unit)({
-  g_verify_def_eval_failures.with_mut(m => m.insert(fn_id, msg));
+  g_verify_def_eval_failures.with_mut(m => m.insert(fn_id.clone(), msg.clone()));
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
@@ -1528,7 +1527,7 @@ verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
 /// when present, this decides otherwise.
 (mut(g_verify_mode_override) : Option(String)) = Option(String).None;
 set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
-  g_verify_mode_override = m;
+  g_verify_mode_override = m.clone();
   ()
 });
 /// Declare the verification target file set (and reset any previous one).
@@ -1833,7 +1832,7 @@ CallsiteContracts :: struct(
 register_callsite_contracts :: (
   fn(call_id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr)) -> unit
 )({
-  _ := g_callsite_contracts.with_mut(m => m.insert(call_id, CallsiteContracts(reqs : reqs, enss : enss)));
+  _ := g_callsite_contracts.with_mut(m => m.insert(call_id.clone(), CallsiteContracts(reqs : reqs.clone(), enss : enss.clone())));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
   g_callsite_contracts.with(m => m.get(call_id))
@@ -1844,7 +1843,7 @@ callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
 /// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
 (g_specialized_base : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)({
-  _ := g_specialized_base.with_mut(m => m.insert(spec_id, base_id));
+  _ := g_specialized_base.with_mut(m => m.insert(spec_id.clone(), base_id.clone()));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
   g_specialized_base.with(m => m.get(id))
@@ -1950,10 +1949,10 @@ _callsite_method_receiver :: (
   if(!first_is_self, {
     return(Option(AstExpr).None);
   });
-  dot_args := match(
+  recv := match(
     f,
     .FnCall(_, cf, fa, _, _) => cond(
-      ((ast_expr_token(&cf).value == ".") && (fa.len() == usize(2))) => fa,
+      ((ast_expr_token(&cf).value == ".") && (fa.len() == usize(2))) => match(fa.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
       true => {
         return(Option(AstExpr).None);
       }
@@ -1962,7 +1961,6 @@ _callsite_method_receiver :: (
       return(Option(AstExpr).None);
     }
   );
-  recv := match(dot_args.get(usize(0)), .Some(r) => r, .None => make_err_expr());
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
     .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
@@ -2052,7 +2050,7 @@ _stash_callsite_contracts :: (
     callee_val,
     .Some(v2) => match(
       v2,
-      .FuncVal(fvd2, _) => fvd2.*.params,
+      .FuncVal(fvd2, _) => fvd2.*.params.clone(),
       _ => ArrayList(String).new()
     ),
     .None => ArrayList(String).new()
@@ -2850,7 +2848,7 @@ wrap_function_body_with_contracts :: (
     });
     sei = (sei + usize(1));
   });
-  (splice_requires : ArrayList(AstExpr)) = requires_exprs;
+  (splice_requires : ArrayList(AstExpr)) = requires_exprs.clone();
   // Whether the requires-only splice may flatten a block body into its own
   // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
   // node and needs its ExprInfo, which a flattened body never gets (its
@@ -2905,7 +2903,7 @@ wrap_function_body_with_contracts :: (
   // under — the user's label when present, else the unspeakable internal name.
   ret_name := match(
     return_label,
-    .Some(label) => label,
+    .Some(label) => label.clone(),
     .None => String.from(__YO_CONTRACT_RESULT)
   );
   // requires asserts. `clone_expr_fresh_ids` gives each spliced predicate its

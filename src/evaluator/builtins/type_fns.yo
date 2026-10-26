@@ -104,17 +104,16 @@ evaluate_yo_type_to_string :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -192,24 +191,29 @@ evaluate_yo_are_types_compatible :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  arg0 := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
       return(expr);
     }
   );
-  arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
   arg1 := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -304,24 +308,29 @@ evaluate_yo_are_types_equal :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  arg0 := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
       return(expr);
     }
   );
-  arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
   arg1 := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -395,17 +404,16 @@ evaluate_yo_type_contains_rc_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -453,17 +461,16 @@ evaluate_yo_type_can_form_rc_cycle :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -511,24 +518,29 @@ evaluate_yo_type_impls :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  arg0 := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
       return(expr);
     }
   );
-  arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
   arg1 := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -644,7 +656,7 @@ _ti_escape_str :: (fn(s : &String) -> String)({
 format_type_field_info_call :: (
   fn(escaped_label : &String, ty_var_name : &String) -> String
 )(
-  String.from("TypeFieldInfo(\"") + escaped_label + String.from("\", ") + ty_var_name +
+  String.from("TypeFieldInfo(\"") + escaped_label.clone() + String.from("\", ") + ty_var_name.clone() +
     String.from(")")
 );
 /// Format the Yo source for a `VariantInfo("name", fl, et, usize(idx))` call:
@@ -654,11 +666,11 @@ format_type_field_info_call :: (
 format_variant_info_call :: (
   fn(escaped_name : &String, fl_var_name : &String, et_var_name : &String, idx_str : &String) -> String
 )(
-  String.from("VariantInfo(\"") + escaped_name + String.from("\", ") + fl_var_name +
+  String.from("VariantInfo(\"") + escaped_name.clone() + String.from("\", ") + fl_var_name.clone() +
     String.from(", ")
-    + et_var_name
+    + et_var_name.clone()
     + String.from(", usize(")
-    + idx_str
+    + idx_str.clone()
     + String.from("))")
 );
 /// Bind a TypeValue to a fresh comptime temp variable in the env.
@@ -1109,17 +1121,16 @@ evaluate_yo_type_get_info :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -1407,17 +1418,16 @@ evaluate_comptime_eval :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -1449,7 +1459,7 @@ evaluate_comptime_eval :: (
   // Extract the code string from StrLit.raw.
   raw := match(
     info0.value,
-    .Some(v) => match(v, .StrLit(r) => r, _ => String.from("")),
+    .Some(v) => match(v, .StrLit(r) => r.clone(), _ => String.from("")),
     .None => String.from("")
   );
   n_raw := raw.len();
@@ -1504,17 +1514,16 @@ evaluate_comptime_string_to_expr :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -1563,7 +1572,7 @@ evaluate_comptime_string_to_expr :: (
   // Extract code string from StrLit.raw.
   raw := match(
     info0.value,
-    .Some(v) => match(v, .StrLit(r) => r, _ => String.from("")),
+    .Some(v) => match(v, .StrLit(r) => r.clone(), _ => String.from("")),
     .None => String.from("")
   );
   n_raw := raw.len();
@@ -1591,31 +1600,42 @@ evaluate_type_join_fields :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  arg0 := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
       return(expr);
     }
   );
-  arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
   arg1 := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
   arg2 := match(
-    args.get(usize(2)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(2)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -1813,7 +1833,7 @@ evaluate_type_join_fields :: (
       false,
       synthetic_token(fi_name.clone(), &local_env.module_path.*)
     );
-    call_code := (mapper_name + String.from("(") + fi_name + String.from(")"));
+    call_code := (mapper_name.clone() + String.from("(") + fi_name + String.from(")"));
     call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     old_expected := ctx.expected_type;
@@ -1892,24 +1912,29 @@ evaluate_type_map_variants :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  arg0 := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
       return(expr);
     }
   );
-  arg0 := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
   arg1 := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -2048,7 +2073,7 @@ evaluate_type_map_variants :: (
       false,
       synthetic_token(vi_name.clone(), &local_env.module_path.*)
     );
-    call_code := (mapper_name + String.from("(") + vi_name + String.from(")"));
+    call_code := (mapper_name.clone() + String.from("(") + vi_name + String.from(")"));
     call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     old_expected := ctx.expected_type;

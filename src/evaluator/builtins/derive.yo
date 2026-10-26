@@ -67,9 +67,9 @@ pragma(Pragma.AllowUnsafe);
 (g_derive_impl_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _flag_derive_impl_err :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_derive_impl_err.with_mut(xs => xs.clear());
-  g_derive_impl_err.with_mut(xs => xs.push(msg));
+  g_derive_impl_err.with_mut(xs => xs.push(msg.clone()));
   g_derive_impl_code.with_mut(xs => xs.clear());
-  match(code, .Some(c) => g_derive_impl_code.with_mut(xs => xs.push(c)), .None => ());
+  match(code, .Some(c) => g_derive_impl_code.with_mut(xs => xs.push(c.clone())), .None => ());
 });
 _clear_derive_impl_err :: (fn() -> unit)({
   g_derive_impl_err.with_mut(xs => xs.clear());
@@ -130,7 +130,7 @@ _derive_strip_error_prefix :: (fn(raw_msg : &String) -> String)({
     raw_msg.starts_with(&lower_prefix) => raw_msg.substring(lower_prefix.len(), raw_msg.len()),
     raw_msg.starts_with(&upper_prefix) => raw_msg.substring(upper_prefix.len(), raw_msg.len()),
     coded_end.is_some() => raw_msg.substring(coded_end.unwrap() + usize(3), raw_msg.len()),
-    true => raw_msg
+    true => raw_msg.clone()
   )
 });
 // ---------------------------------------------------------------------------
@@ -297,9 +297,9 @@ call_registered_derive_rule :: (
     (ji : usize) = usize(0);
     while(ji < param_names.len(), {
       if(ji > usize(0), {
-        joined = (joined + String.from(", "));
+        joined = (joined.clone() + String.from(", "));
       });
-      joined = (joined + match(param_names.get(ji), .Some(n) => n, .None => String.from("")));
+      joined = (joined.clone() + match(param_names.get(ji), .Some(n) => n, .None => String.from("")));
       ji = (ji + usize(1));
     });
     list_code := `comptime_list(${joined})`;
@@ -618,13 +618,13 @@ _evaluate_derive_executing :: (
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
         fp,
-        .Atom(_, ftok) => ftok.value,
+        .Atom(_, ftok) => ftok.value.clone(),
         .FnCall(_, func_b, fa2, _, _) => match(
           func_b,
           .Atom(_, op_tok) => cond(
             (op_tok.value == ":") => match(
               fa2.get(usize(0)),
-              .Some(na) => match(na, .Atom(_, ntok) => ntok.value, .FnCall(_, _, _, _, _) => String.from("")),
+              .Some(na) => match(na, .Atom(_, ntok) => ntok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")),
               .None => String.from("")
             ),
             true => String.from("")

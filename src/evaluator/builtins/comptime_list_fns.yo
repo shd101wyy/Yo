@@ -40,17 +40,16 @@ evaluate_yo_comptime_list_car :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_e := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -142,17 +141,16 @@ evaluate_yo_comptime_list_cdr :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_e := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -243,24 +241,29 @@ evaluate_yo_comptime_list_cons :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  car_arg_e := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
       return(expr);
     }
   );
-  car_arg_e := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
   cdr_arg_e := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -384,24 +387,29 @@ evaluate_yo_comptime_list_append :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
+  first_arg_e := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
     _ => {
       return(expr);
     }
   );
-  first_arg_e := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
   second_arg_e := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(1)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -549,17 +557,16 @@ evaluate_yo_comptime_list_length :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_e := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -624,17 +631,16 @@ evaluate_yo_comptime_list_element_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_e := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -708,17 +714,16 @@ evaluate_yo_comptime_list_get :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_e := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(x) => x,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -761,9 +766,15 @@ evaluate_yo_comptime_list_get :: (
       .ComptimeListVal(elements) => {
         list_len := elements.len();
         index_arg_e := match(
-          args.get(usize(1)),
-          .Some(a) => a,
-          .None => {
+          expr,
+          .FnCall(_, _, fargs, _, _) => match(
+            fargs.get(usize(1)),
+            .Some(a) => a,
+            .None => {
+              return(expr);
+            }
+          ),
+          _ => {
             return(expr);
           }
         );

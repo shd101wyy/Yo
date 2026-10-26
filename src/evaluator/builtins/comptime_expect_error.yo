@@ -80,17 +80,16 @@ evaluate_comptime_expect_error :: (
     exn : Exception
   ) -> AstExpr
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   arg_expr := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
+    expr,
+    .FnCall(_, _, fargs, _, _) => match(
+      fargs.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    ),
+    _ => {
       return(expr);
     }
   );
@@ -403,6 +402,13 @@ evaluate_comptime_expect_error :: (
     // The optional second argument is the text the error must contain: an
     // error is expected, and it must be THIS error. Without the check a case
     // went green on whatever unrelated error its snippet happened to hit.
+    args := match(
+      expr,
+      .FnCall(_, _, fargs, _, _) => fargs,
+      _ => {
+        return(expr);
+      }
+    );
     match(
       args.get(usize(1)),
       .Some(want_expr) => {
@@ -447,7 +453,11 @@ evaluate_comptime_expect_error :: (
   });
   // No error was thrown — evaluate optional message argument for a better diagnostic.
   match(
-    args.get(usize(1)),
+    match(
+      expr,
+      .FnCall(_, _, fargs, _, _) => fargs.get(usize(1)),
+      _ => Option(AstExpr).None
+    ),
     .Some(msg_expr) => {
       eval_msg := evaluate_expression_raw(&msg_expr, env, ctx, exn);
       msg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_msg));
@@ -457,7 +467,7 @@ evaluate_comptime_expect_error :: (
           match(
             msg_info.value,
             .Some(v) => {
-              err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(&v));
+              err_msg := match(v, .StrLit(raw) => raw.clone(), _ => value_to_string(&v));
               exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
             },
             .None => ()
