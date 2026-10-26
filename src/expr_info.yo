@@ -2223,7 +2223,10 @@ take_active_where_trait_ids :: (fn() -> ArrayList(ArrayList(String)))({
 });
 restore_active_where_trait_ids :: (fn(saved : &ArrayList(ArrayList(String))) -> unit)({
   g_active_where_trait_ids.with_mut(xs => xs.clear());
-  g_active_where_trait_ids.with_mut(xs => xs.extend(saved));
+  // B4-1b: `extend` consumes its list now (decision 20); the saved stack is a
+  // borrow the caller still owns, so the restore appends clones — the same
+  // spelling `set_verify_target_paths` uses (B6-a).
+  g_active_where_trait_ids.with_mut(xs => xs.extend_cloned(saved));
   ()
 });
 /// True when a prior assignment record for `var_id` exists on the CURRENT

@@ -122,11 +122,13 @@ _append_meta_key :: (fn(sb : &mut StringBuilder, m : &FuncMeta) -> unit)({
   _append_b(sb, m.has_variadic);
   _append_b(sb, m.is_control);
   sb.write_str("e");
-  sb.write_string(m.is_extern.unwrap_or(String.from("")));
+  // B4-1b: `unwrap_or` consumes its Option (decision 20); `m` is a borrow, so
+  // the payload field is cloned out first — cold intern-key building.
+  sb.write_string(m.is_extern.clone().unwrap_or(String.from("")));
   sb.write_str("x");
-  sb.write_string(m.extern_name.unwrap_or(String.from("")));
+  sb.write_string(m.extern_name.clone().unwrap_or(String.from("")));
   sb.write_str("v");
-  sb.write_string(m.variadic_label.unwrap_or(String.from("")));
+  sb.write_string(m.variadic_label.clone().unwrap_or(String.from("")));
   _append_b(sb, m.variadic_comptime);
 });
 // ---------------------------------------------------------------------------
@@ -403,7 +405,7 @@ _intern_key_into :: (
             ivl = (ivl + usize(1));
           });
           sb.write_str("|");
-          sb.write_string(esvn.unwrap_or(String.from("n")));
+          sb.write_string(esvn.clone().unwrap_or(String.from("n")));
           sb.write_str("|");
           _append_b(sb, eirs);
           _append_b(sb, eiar);
