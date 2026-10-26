@@ -1,0 +1,37 @@
+// Reproducer: the explicit-copy tool proposes `touched : local_touched.clone()`
+// for the struct field below, but the callee writes through the field and the
+// local is read after — the clone empties `filtered` (S2, B4-3d).
+// Run: yo fix issues/repros/<this>.yo --migrate explicit-copy --dry-run
+// The field-store site is proposed as an insertion; applying it changes
+// behavior: the while loop below reads the ORIGINAL local, which stays empty.
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+
+Ctx :: struct(touched : ArrayList(String));
+Walk :: trait(collect : (fn(self : Self, ctx : &Ctx) -> unit));
+W :: struct();
+impl(
+  W,
+  Walk(
+    collect : (fn(self : Self, ctx : &Ctx) -> unit)({
+      ctx.touched.push(`callee`);
+    })
+  )
+);
+main :: (fn() -> unit)({
+  local_touched := ArrayList(String).new();
+  w := W();
+  ctx := Ctx(touched : local_touched); // the share the walk writes through
+  w.collect(&ctx);
+  // `filtered` built from the local: with `.clone()` at the field store this
+  // loop sees nothing and the dependency registration is skipped.
+  filtered := ArrayList(String).new();
+  (mut(i) : usize) = usize(0);
+  while(i < local_touched.len(), {
+    filtered.push(match(local_touched.get(i), .Some(t) => t, .None => ``));
+    i = (i + usize(1));
+  });
+  println(filtered.len().to_string()); // 1 before the insertion, 0 after
+});
+export(main);
