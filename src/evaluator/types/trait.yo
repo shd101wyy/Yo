@@ -1068,7 +1068,7 @@ evaluate_trait_type :: (
       assoc_type_names,
       field_labels,
       field_types,
-      trait_id,
+      trait_id.clone(),
       Option(TypeValue).None,
       self_constraints,
       neg_self_constraints,
@@ -1199,13 +1199,13 @@ evaluate_trait_type :: (
         )
       );
     });
-    field_labels.push(field_result.label);
+    field_labels.push(field_result.label.clone());
     field_types.push(field_result.ty);
     // If it's an associated type, add it to assoc_type_names and bind in env
     match(
       field_result.assoc_some_ty,
       .Some(some_ty) => {
-        assoc_type_names.push(field_result.label);
+        assoc_type_names.push(field_result.label.clone());
         // Only bind if not already bound (check existing vars)
         existing_vars := get_variables_from_env(&env_mut, &field_result.label);
         (already_bound : bool) = false;

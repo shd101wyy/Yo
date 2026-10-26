@@ -181,10 +181,10 @@ synthesize_types :: (
 synthesis_type_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    Rc(.Struct({ id })) => id,
-    Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
-    Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id,
+    Rc(.Struct({ id })) => id.clone(),
+    Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
     _ => type_to_string_key(ty)
   )
 );
@@ -364,7 +364,7 @@ _bind_some_type :: (
       // the value is replaced.
       new_var := Variable(
         id : old_var.id,
-        name : old_var.name,
+        name : old_var.name.clone(),
         ty : old_var.ty,
         is_compile_time_only : old_var.is_compile_time_only,
         frame_level : old_var.frame_level,
@@ -930,8 +930,8 @@ _synthesize_types_impl :: (
     giv_self_ident := is_bound_closure_identity(given_ty);
     expected_bound := if(exp_self_ident, expected_ty, get_value_of_some_type_from_env(&ee, expected_ty));
     given_bound := if(giv_self_ident, given_ty, get_value_of_some_type_from_env(&ge, given_ty));
-    exp_some_id := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
-    giv_some_id := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
+    exp_some_id := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    giv_some_id := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
     // A resolved closure identity (`is_bound_closure_identity`) is a
     // binding, not a free variable: with `T := <k1's Impl>` from the
     // receiver, `value : T` against `<k2's Impl>` must not rebind `T`
@@ -957,21 +957,21 @@ _synthesize_types_impl :: (
       !exp_bound_is_some => {
         // Expected is bound — use its value to bind given
         val := EvalValue.TypeVal(expected_bound);
-        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``), match(given_ty, Rc(.SomeT(gid9, _, _, _, _, _, _, _, _, _)) => gid9, _ => ``), &val, &expected_bound, &tok, exn);
+        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid9, _, _, _, _, _, _, _, _, _)) => gid9.clone(), _ => ``), &val, &expected_bound, &tok, exn);
       },
       !giv_bound_is_some => {
         // Given is bound — use its value to bind expected
         val := EvalValue.TypeVal(given_bound);
-        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``), match(expected_ty, Rc(.SomeT(eid9, _, _, _, _, _, _, _, _, _)) => eid9, _ => ``), &val, &given_bound, &tok, exn);
+        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid9, _, _, _, _, _, _, _, _, _)) => eid9.clone(), _ => ``), &val, &given_bound, &tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
         val := EvalValue.TypeVal(given_ty);
-        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``), match(expected_ty, Rc(.SomeT(eid8, _, _, _, _, _, _, _, _, _)) => eid8, _ => ``), &val, given_ty, &tok, exn);
+        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid8, _, _, _, _, _, _, _, _, _)) => eid8.clone(), _ => ``), &val, given_ty, &tok, exn);
         val2 := EvalValue.TypeVal(given_ty);
-        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``), match(given_ty, Rc(.SomeT(gid8, _, _, _, _, _, _, _, _, _)) => gid8, _ => ``), &val2, given_ty, &tok, exn);
+        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid8, _, _, _, _, _, _, _, _, _)) => gid8.clone(), _ => ``), &val2, given_ty, &tok, exn);
       }
     );
     // After unifying, recursively synthesize required trait type parameters
@@ -1056,8 +1056,8 @@ _synthesize_types_impl :: (
       return(_synthesize_types_impl(resolve_cell_chain(expected_ty), &ee, given_ty, &ge, checked, opts, exn));
     });
     bound := get_value_of_some_type_from_env(&ee, expected_ty);
-    exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
-    exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``);
+    exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``);
     exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts, _ => ArrayList(TypeValue).new());
     if(is_some_type(&bound) && match(bound, Rc(.SomeT(bid, _, _, _, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
       // Unbound — bind to given_ty
@@ -1121,8 +1121,8 @@ _synthesize_types_impl :: (
       return(_synthesize_types_impl(expected_ty, &ee, resolve_cell_chain(given_ty), &ge, checked, opts, exn));
     });
     existing_bound := get_value_of_some_type_from_env(&ge, given_ty);
-    giv_id2 := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
-    giv_name := match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``);
+    giv_id2 := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    giv_name := match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``);
     if(!is_some_type(&existing_bound), {
       // Given is already bound — recurse
       res := _synthesize_types_impl(expected_ty, &ee, &existing_bound, &ge, checked, opts, exn);
@@ -1196,12 +1196,12 @@ _synthesize_types_impl :: (
   });
   // Case : Type.Struct + Struct
   if(is_struct_type(expected_ty) && is_struct_type(given_ty), {
-    exp_id3 := match(expected_ty, Rc(.Struct({ id })) => id, _ => ``);
-    giv_id3 := match(given_ty, Rc(.Struct({ id })) => id, _ => ``);
+    exp_id3 := match(expected_ty, Rc(.Struct({ id })) => id.clone(), _ => ``);
+    giv_id3 := match(given_ty, Rc(.Struct({ id })) => id.clone(), _ => ``);
     // Two instantiations of the same generic constructor get distinct fresh
     // ids but share `constructor_func_id`.
-    exp_cfid3 := match(expected_ty, Rc(.Struct({ constructor_func_id : cfid })) => cfid, _ => ``);
-    giv_cfid3 := match(given_ty, Rc(.Struct({ constructor_func_id : cfid })) => cfid, _ => ``);
+    exp_cfid3 := match(expected_ty, Rc(.Struct({ constructor_func_id : cfid })) => cfid.clone(), _ => ``);
+    giv_cfid3 := match(given_ty, Rc(.Struct({ constructor_func_id : cfid })) => cfid.clone(), _ => ``);
     // An empty carried cfid may predate the constructor stamp (a self-recursive
     // shell, or a memoized instantiation that embedded one) — recover it from
     // the id-keyed stamp table (see expr_info.yo g_struct_ctor_fids). Without
@@ -1255,8 +1255,8 @@ _synthesize_types_impl :: (
     (same_shape3 : bool) = false;
     cfid_unknown3 := ((exp_eff_cfid.len() == usize(0)) || (giv_eff_cfid.len() == usize(0)));
     if((exp_id3 != giv_id3) && !same_constructor3 && cfid_unknown3 && in_def_time_trial(), {
-      exp_snm := match(expected_ty, Rc(.Struct({ name : n })) => n, _ => String.from(""));
-      giv_snm := match(given_ty, Rc(.Struct({ name : n })) => n, _ => String.from(""));
+      exp_snm := match(expected_ty, Rc(.Struct({ name : n })) => n.clone(), _ => String.from(""));
+      giv_snm := match(given_ty, Rc(.Struct({ name : n })) => n.clone(), _ => String.from(""));
       exp_lbls := match(expected_ty, Rc(.Struct({ field_labels : l })) => l, _ => no_labels());
       giv_lbls := match(given_ty, Rc(.Struct({ field_labels : l })) => l, _ => no_labels());
       if((exp_snm == giv_snm) && (exp_lbls.len() > usize(0)) && (exp_lbls.len() == giv_lbls.len()), {
@@ -1327,8 +1327,8 @@ _synthesize_types_impl :: (
     // see resolve_enum_shell) before any guard looks at variants.
     exp_en_ty := resolve_enum_shell(expected_ty);
     giv_en_ty := resolve_enum_shell(given_ty);
-    exp_enum_id := match(exp_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
-    giv_enum_id := match(giv_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
+    exp_enum_id := match(exp_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    giv_enum_id := match(giv_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
     // Two instantiations of the same generic enum share a constructor_func_id
     // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
     // constructor → unify variant fields, like the struct same_constructor check.
@@ -1482,8 +1482,8 @@ _synthesize_types_impl :: (
   });
   // Case: Module + Module (same constructor)
   if(is_module_type(expected_ty) && is_module_type(given_ty), {
-    exp_mod_id := match(expected_ty, Rc(.Struct({ id : m_id })) => m_id, _ => ``);
-    giv_mod_id := match(given_ty, Rc(.Struct({ id : g_id })) => g_id, _ => ``);
+    exp_mod_id := match(expected_ty, Rc(.Struct({ id : m_id })) => m_id.clone(), _ => ``);
+    giv_mod_id := match(given_ty, Rc(.Struct({ id : g_id })) => g_id.clone(), _ => ``);
     if(exp_mod_id == giv_mod_id, {
       exp_ft := match(expected_ty, Rc(.Struct({ field_types : e_fts })) => e_fts, _ => no_types());
       giv_ft := match(given_ty, Rc(.Struct({ field_types : g_fts })) => g_fts, _ => no_types());
@@ -1533,8 +1533,8 @@ _synthesize_types_impl :: (
   });
   // Case: TraitT + TraitT (same constructor)
   if(is_trait_type(expected_ty) && is_trait_type(given_ty), {
-    exp_trait_id := match(expected_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id, _ => ``);
-    giv_trait_id := match(given_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id, _ => ``);
+    exp_trait_id := match(expected_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(), _ => ``);
+    giv_trait_id := match(given_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(), _ => ``);
     if(exp_trait_id == giv_trait_id, {
       exp_ft := match(expected_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
       giv_ft := match(given_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
@@ -1620,9 +1620,9 @@ _synthesize_types_impl :: (
     // EXPECTED length is an unresolved generic variable and the GIVEN length
     // is concrete, bind the variable in the expected env to the concrete
     // count so `_resolve_one_forall_binding` sees `U := <n>`.
-    exp_lvar := match(expected_ty, Rc(.Array(_, _, lv)) => lv, _ => String.from(""));
+    exp_lvar := match(expected_ty, Rc(.Array(_, _, lv)) => lv.clone(), _ => String.from(""));
     giv_len := match(given_ty, Rc(.Array(_, n, _)) => n, _ => usize(0));
-    giv_lvar := match(given_ty, Rc(.Array(_, _, lv)) => lv, _ => String.from(""));
+    giv_lvar := match(given_ty, Rc(.Array(_, _, lv)) => lv.clone(), _ => String.from(""));
     if((exp_lvar.len() > usize(0)) && (giv_lvar.len() == usize(0)), {
       lvar_vars := get_variables_from_env(&ee, &exp_lvar);
       if(lvar_vars.len() > usize(0), {
@@ -1742,7 +1742,7 @@ _synthesize_types_impl :: (
     hk_args := match(expected_ty, Rc(.TypeAppT(_, args)) => args, _ => no_types());
     hk_cfid := match(
       given_ty,
-      Rc(.Struct({ constructor_func_id : c })) => c,
+      Rc(.Struct({ constructor_func_id : c })) => c.clone(),
       Rc(.EnumT({ id : eid })) => lookup_enum_cfid(&eid),
       _ => String.new()
     );

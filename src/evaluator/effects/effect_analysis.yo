@@ -114,7 +114,7 @@ is_effect_call_ :: (
     .None => {
       func_name := match(
         func_expr.clone(),
-        .Atom(_, tok) => tok.value,
+        .Atom(_, tok) => tok.value.clone(),
         .FnCall(_, _, _, _, _) => {
           return(false);
         }
@@ -156,7 +156,7 @@ is_effect_call_ :: (
         // Case 1b: Empty field path → same logic as Case 1
         func_name := match(
           func_expr.clone(),
-          .Atom(_, tok) => tok.value,
+          .Atom(_, tok) => tok.value.clone(),
           .FnCall(_, _, _, _, _) => {
             return(false);
           }
@@ -223,7 +223,7 @@ is_effect_call_ :: (
             match(
               field_arg,
               .Atom(_, tok) => {
-                access_path_rev.push(tok.value);
+                access_path_rev.push(tok.value.clone());
                 receiver_arg := match(
                   curr_args.get(usize(0)),
                   .None => {
@@ -243,7 +243,7 @@ is_effect_call_ :: (
       // The root should be an atom matching the effect parameter name
       root_name := match(
         current,
-        .Atom(_, tok) => tok.value,
+        .Atom(_, tok) => tok.value.clone(),
         .FnCall(_, _, _, _, _) => {
           return(false);
         }
@@ -716,7 +716,7 @@ analyze_effect_call_points :: (
       .Some(extra) => {
         ecp := EffectCallPoint(
           base : sp,
-          operation_arg_types : extra.operation_arg_types,
+          operation_arg_types : extra.operation_arg_types.clone(),
           operation_result_type : extra.operation_result_type,
           is_transitive_effect_call : cond(
             extra.is_transitive_effect_call => Option(bool).Some(true),
@@ -756,10 +756,10 @@ analyze_effect_call_points :: (
     effect_call_points : effect_call_points,
     captured_variables : captured_variables,
     has_effects : result.has_suspensions,
-    variable_id_remapping : result.variable_id_remapping,
-    effect_parameter_name : effect_parameter_name,
+    variable_id_remapping : result.variable_id_remapping.clone(),
+    effect_parameter_name : effect_parameter_name.clone(),
     effect_parameter_type : effect_parameter_type,
-    effect_field_path : effect_field_path,
+    effect_field_path : effect_field_path.clone(),
     handler_value : Option(EvalValue).None,
     effect_handler_infos : Option(ArrayList(EffectHandlerInfo)).None
   )
