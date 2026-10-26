@@ -98,7 +98,7 @@ subst_add_len_var :: (fn(s : &Substitution, name : &String, value : usize) -> un
     });
     i = (i + usize(1));
   });
-  s.len_var_names.push(name);
+  s.len_var_names.push(name.clone());
   s.len_var_values.push(value);
 });
 /// The same substitution with the const-generic LENGTH bindings dropped.
@@ -250,7 +250,7 @@ subst_add :: (fn(s : &Substitution, name : &String, level : usize, ty : &TypeVal
     });
     i = (i + usize(1));
   });
-  s.names.push(name);
+  s.names.push(name.clone());
   s.levels.push(level);
   s.types.push(ty);
 });
@@ -259,7 +259,7 @@ _is_some_t :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.SomeT({ id : _ })) => tr
 /// carries one (see `own_resolution_ids`).
 subst_adopt_own_resolution :: (fn(s : &Substitution, id : &String) -> unit)({
   if(!_subst_adopts_own(s, id), {
-    s.own_resolution_ids.push(id);
+    s.own_resolution_ids.push(id.clone());
   });
 });
 _subst_adopts_own :: (fn(s : &Substitution, id : &String) -> bool)({
@@ -432,7 +432,8 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
     levels : ArrayList(usize).new(),
     types : ArrayList(TypeValue).new(),
     // Shared handles: the trait-recursion guard and the Self binding apply
-    // unchanged under the mask.
+    // unchanged under the mask (B4-1b: the share is intentional; a rebuild is
+    // on the hot generic-resolution path, and the arrays become `Rc` at V2c).
     visited_trait_ids : s.visited_trait_ids,
     self_from : s.self_from,
     self_to : s.self_to,

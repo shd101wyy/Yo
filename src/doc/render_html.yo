@@ -63,7 +63,7 @@ _render_markdown :: (fn(text : &String) -> String)({
 // ── HTML escaping ────────────────────────────────────────────────────
 _escape_html :: (fn(text : &String) -> String)({
   out := String.new();
-  bytes := text;
+  bytes := text.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -83,7 +83,7 @@ _escape_html :: (fn(text : &String) -> String)({
 // ── JSON string escaping (JSON.stringify semantics, for the search index) ──
 _json_str :: (fn(text : &String) -> String)({
   out := String.from("\"");
-  bytes := text;
+  bytes := text.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -115,7 +115,7 @@ _json_str :: (fn(text : &String) -> String)({
 /// "collections/array_list" -> "collections__array_list"
 _module_to_filename :: (fn(name : &String) -> String)({
   out := String.new();
-  bytes := name;
+  bytes := name.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -136,7 +136,7 @@ _module_display_name :: (fn(name : &String) -> String)({
 });
 /// Directory/group part, or "" for top-level.
 _module_group :: (fn(name : &String) -> String)({
-  bytes := name;
+  bytes := name.clone();
   n := bytes.len();
   (idx : usize) = usize(0);
   (found : bool) = false;
@@ -958,7 +958,7 @@ _render_associated_types :: (
 )({
   types := match(
     types_opt,
-    .Some(t) => t,
+    .Some(t) => t.clone(),
     .None => {
       return(String.new());
     }
@@ -1653,7 +1653,7 @@ _replace_occurrences :: (fn(text : &String, from : &String, to : &String, first_
           out.push(match(hay.get(k), .Some(x) => x, .None => u8(0)));
           k = (k + usize(1));
         });
-        tb := to;
+        tb := to.clone();
         (tk : usize) = usize(0);
         while(tk < tb.len(), {
           out.push(match(tb.get_byte(tk), .Some(x) => x, .None => u8(0)));

@@ -121,12 +121,12 @@ _universe_memo_compute :: (
   outer_fired := g_universe_guard_fired;
   g_universe_guard_fired = false;
   new_visited := visited.clone();
-  new_visited.push(name);
+  new_visited.push(name.clone());
   r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
     bucket := match(g_universe_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
     bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
-    _ := g_universe_memo.with_mut(m => m.insert(key, bucket));
+    _ := g_universe_memo.with_mut(m => m.insert(key.clone(), bucket));
   });
   g_universe_guard_fired = (g_universe_guard_fired || outer_fired);
   r

@@ -495,7 +495,7 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
     });
     i = (i + usize(1));
   });
-  g_capture_borrows.with_mut(m => m.insert(struct_id, borrows));
+  g_capture_borrows.with_mut(m => m.insert(struct_id.clone(), borrows));
 });
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
@@ -3447,7 +3447,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
   bucket := match(g_repr_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
-  _ := g_repr_memo.with_mut(m => m.insert(key, bucket));
+  _ := g_repr_memo.with_mut(m => m.insert(key.clone(), bucket));
 });
 /// Start a top-level predicate call: an empty memo, no cut, no opaque
 /// handle. Clearing `g_repr_allocator_opaque` here (not only in the wrapper's

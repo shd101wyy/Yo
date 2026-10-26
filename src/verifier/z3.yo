@@ -167,15 +167,17 @@ _z3_write_file_sync :: (fn(path : &String, contents : &String) -> bool)({
   match(
     f,
     .Some(fh) => {
-      b := contents;
+      // B4-1b: the raw pointer is taken straight from the borrowed `contents`
+      // (the handle copy this replaced is what the migration flagged as a
+      // raw-pointer alias); `ptr`/`len` both borrow their receiver.
       bptr := match(
-        b.ptr(),
+        contents.ptr(),
         .Some(p) => p,
         .None => (*u8)(malloc(usize(1)).unwrap())
       );
-      wrote := unsafe(stdio.fwrite((*void)(bptr), usize(1), b.len(), fh));
+      wrote := unsafe(stdio.fwrite((*void)(bptr), usize(1), contents.len(), fh));
       unsafe(stdio.fclose(fh));
-      wrote == b.len()
+      wrote == contents.len()
     },
     .None => false
   )
@@ -385,7 +387,7 @@ Z3Sexpr :: enum(Atom(text : String), List(items : ArrayList(Self)));
 parse_z3_sexprs :: (fn(text : &String) -> ArrayList(Z3Sexpr))({
   out := ArrayList(Z3Sexpr).new();
   stack := ArrayList(ArrayList(Z3Sexpr)).new();
-  b := text;
+  b := text.clone();
   (i : usize) = usize(0);
   while(i < b.len(), {
     c := match(b.get_byte(i), .Some(x) => x, .None => u8(0));

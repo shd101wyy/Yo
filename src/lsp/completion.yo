@@ -75,7 +75,7 @@ _is_word_byte :: (fn(b : u8) -> bool)(
 /// Filters operator method names (`+`, `==`) out of dot completion — they
 /// cannot be typed after a `.`.
 _is_ident_name :: (fn(name : &String) -> bool)({
-  bytes := name;
+  bytes := name.clone();
   if(bytes.len() == usize(0), {
     return(false);
   });
@@ -185,7 +185,7 @@ _ci :: (
 /// Built by concatenation — inside a backtick template `${` is
 /// interpolation, so the literal snippet syntax cannot be templated.
 _placeholder :: (fn(n : usize, label : &String) -> String)(
-  String.from("${") + n.to_string() + String.from(":") + label + String.from("}")
+  String.from("${") + n.to_string() + String.from(":") + label.clone() + String.from("}")
 );
 
 /// Call snippet for a method/function: parameter placeholders from

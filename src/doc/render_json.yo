@@ -37,15 +37,15 @@ json :: import("std/encoding/json");
 _obj_add :: (
   fn(keys : &mut ArrayList(String), vals : &mut ArrayList(JsonValue), k : &String, v : &JsonValue) -> unit
 )({
-  keys.push(k);
-  vals.push(v);
+  keys.push(k.clone());
+  vals.push(v.clone());
 });
 /// Append a string-valued key.
 _obj_add_str :: (
   fn(keys : &mut ArrayList(String), vals : &mut ArrayList(JsonValue), k : &String, v : &String) -> unit
 )({
-  keys.push(k);
-  vals.push(JsonValue.Str(value : v));
+  keys.push(k.clone());
+  vals.push(JsonValue.Str(value : v.clone()));
 });
 /// Append a string-valued key only when the value is present — the
 /// JSON.stringify `undefined`-omission rule.
@@ -55,7 +55,7 @@ _obj_add_opt_str :: (
   match(
     v,
     .Some(s) => {
-      keys.push(k);
+      keys.push(k.clone());
       vals.push(JsonValue.Str(value : s.clone()));
     },
     .None => ()
@@ -65,7 +65,7 @@ _obj_add_opt_str :: (
 _obj_add_bool :: (
   fn(keys : &mut ArrayList(String), vals : &mut ArrayList(JsonValue), k : &String, v : bool) -> unit
 )({
-  keys.push(k);
+  keys.push(k.clone());
   vals.push(JsonValue.Bool(value : v));
 });
 /// A JSON array of strings.
