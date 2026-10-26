@@ -251,28 +251,28 @@ impl(
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
-        name : artifact.name,
-        root : artifact.root,
-        target : artifact.target,
-        optimize : artifact.optimize,
-        allocator : artifact.allocator,
+        name : artifact.name.clone(),
+        root : artifact.root.clone(),
+        target : artifact.target.clone(),
+        optimize : artifact.optimize.clone(),
+        allocator : artifact.allocator.clone(),
         heap_size : artifact.heap_size,
-        cycle_collector : artifact.cycle_collector,
-        sanitize : artifact.sanitize,
-        emit_c_to : artifact.emit_c_to,
+        cycle_collector : artifact.cycle_collector.clone(),
+        sanitize : artifact.sanitize.clone(),
+        emit_c_to : artifact.emit_c_to.clone(),
         emit_chunks : artifact.emit_chunks,
-        link_libraries : artifact.link_libraries,
-        include_paths : artifact.include_paths,
-        library_paths : artifact.library_paths,
-        c_sources : artifact.c_sources,
-        c_flags : artifact.c_flags,
-        defines : artifact.defines,
+        link_libraries : artifact.link_libraries.clone(),
+        include_paths : artifact.include_paths.clone(),
+        library_paths : artifact.library_paths.clone(),
+        c_sources : artifact.c_sources.clone(),
+        c_flags : artifact.c_flags.clone(),
+        defines : artifact.defines.clone(),
         strip : artifact.strip,
         static_link : artifact.static_link,
-        linked_artifacts : artifact.linked_artifacts,
-        linked_system_libs : artifact.linked_system_libs,
-        package_dir : artifact.package_dir,
-        package_name : artifact.package_name
+        linked_artifacts : artifact.linked_artifacts.clone(),
+        linked_system_libs : artifact.linked_system_libs.clone(),
+        package_dir : artifact.package_dir.clone(),
+        package_name : artifact.package_name.clone()
       )
     );
   }),
@@ -282,28 +282,28 @@ impl(
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
-        name : artifact.name,
-        root : artifact.root,
-        target : artifact.target,
-        optimize : artifact.optimize,
-        allocator : artifact.allocator,
+        name : artifact.name.clone(),
+        root : artifact.root.clone(),
+        target : artifact.target.clone(),
+        optimize : artifact.optimize.clone(),
+        allocator : artifact.allocator.clone(),
         heap_size : artifact.heap_size,
-        cycle_collector : artifact.cycle_collector,
-        sanitize : artifact.sanitize,
-        emit_c_to : artifact.emit_c_to,
+        cycle_collector : artifact.cycle_collector.clone(),
+        sanitize : artifact.sanitize.clone(),
+        emit_c_to : artifact.emit_c_to.clone(),
         emit_chunks : artifact.emit_chunks,
-        link_libraries : artifact.link_libraries,
-        include_paths : artifact.include_paths,
-        library_paths : artifact.library_paths,
-        c_sources : artifact.c_sources,
-        c_flags : artifact.c_flags,
-        defines : artifact.defines,
+        link_libraries : artifact.link_libraries.clone(),
+        include_paths : artifact.include_paths.clone(),
+        library_paths : artifact.library_paths.clone(),
+        c_sources : artifact.c_sources.clone(),
+        c_flags : artifact.c_flags.clone(),
+        defines : artifact.defines.clone(),
         strip : artifact.strip,
         static_link : artifact.static_link,
-        linked_artifacts : artifact.linked_artifacts,
-        linked_system_libs : artifact.linked_system_libs,
-        package_dir : artifact.package_dir,
-        package_name : artifact.package_name
+        linked_artifacts : artifact.linked_artifacts.clone(),
+        linked_system_libs : artifact.linked_system_libs.clone(),
+        package_dir : artifact.package_dir.clone(),
+        package_name : artifact.package_name.clone()
       )
     );
   }),
@@ -313,28 +313,28 @@ impl(
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,
-        name : artifact.name,
-        root : artifact.root,
-        target : artifact.target,
-        optimize : artifact.optimize,
-        allocator : artifact.allocator,
+        name : artifact.name.clone(),
+        root : artifact.root.clone(),
+        target : artifact.target.clone(),
+        optimize : artifact.optimize.clone(),
+        allocator : artifact.allocator.clone(),
         heap_size : artifact.heap_size,
-        cycle_collector : artifact.cycle_collector,
-        sanitize : artifact.sanitize,
-        emit_c_to : artifact.emit_c_to,
+        cycle_collector : artifact.cycle_collector.clone(),
+        sanitize : artifact.sanitize.clone(),
+        emit_c_to : artifact.emit_c_to.clone(),
         emit_chunks : artifact.emit_chunks,
-        link_libraries : artifact.link_libraries,
-        include_paths : artifact.include_paths,
-        library_paths : artifact.library_paths,
-        c_sources : artifact.c_sources,
-        c_flags : artifact.c_flags,
-        defines : artifact.defines,
+        link_libraries : artifact.link_libraries.clone(),
+        include_paths : artifact.include_paths.clone(),
+        library_paths : artifact.library_paths.clone(),
+        c_sources : artifact.c_sources.clone(),
+        c_flags : artifact.c_flags.clone(),
+        defines : artifact.defines.clone(),
         strip : artifact.strip,
         static_link : artifact.static_link,
-        linked_artifacts : artifact.linked_artifacts,
-        linked_system_libs : artifact.linked_system_libs,
-        package_dir : artifact.package_dir,
-        package_name : artifact.package_name
+        linked_artifacts : artifact.linked_artifacts.clone(),
+        linked_system_libs : artifact.linked_system_libs.clone(),
+        package_dir : artifact.package_dir.clone(),
+        package_name : artifact.package_name.clone()
       )
     );
   }),
@@ -352,8 +352,8 @@ impl(
     self.run_steps.push(
       BuildRunStep(
         name : synth_name,
-        artifact_name : artifact_name,
-        args : args
+        artifact_name : artifact_name.clone(),
+        args : args.clone()
       )
     );
   }),
@@ -375,8 +375,8 @@ impl(
     Self._check_name_taken(self, name.clone(), "a step", exn);
     self.steps.push(
       BuildStep(
-        name : name,
-        description : description,
+        name : name.clone(),
+        description : description.clone(),
         dependency_names : ArrayList(String).new()
       )
     );
@@ -400,7 +400,7 @@ impl(
         cond(
           already => (),
           true => {
-            step.dependency_names.push(dep_name);
+            step.dependency_names.push(dep_name.clone());
           }
         );
       });
@@ -416,7 +416,7 @@ impl(
       if(self.referenced_dependencies(i) == name, return(()));
       i = (i + usize(1));
     });
-    self.referenced_dependencies.push(name);
+    self.referenced_dependencies.push(name.clone());
     ()
   }),
   register_system_library : (fn(self : &mut Self, lib : &BuildSystemLibrary) -> unit)({
@@ -469,7 +469,7 @@ impl(
         cond(
           already => (),
           true => {
-            art.linked_artifacts.push(library_name);
+            art.linked_artifacts.push(library_name.clone());
           }
         );
       });
@@ -600,7 +600,7 @@ impl(
     i := usize(0);
     n := self.steps.len();
     while(i < n, {
-      names.push(self.steps(i).name);
+      names.push(self.steps(i).name.clone());
       i = (i + usize(1));
     });
     names
@@ -815,7 +815,7 @@ _under_build :: (fn() -> bool)(match(g_build_registry, .Some(_r) => true, .None 
 _build_string_result :: (
   fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, value : &String) -> AstExpr
 )({
-  raw := (String.from("\"") + value + String.from("\""));
+  raw := (String.from("\"") + value.clone() + String.from("\""));
   info := new_expr_info(env, t_comptime_string());
   info.value = Option(EvalValue).Some(EvalValue.StrLit(raw));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
@@ -918,7 +918,7 @@ _build_extract_variant :: (
 _build_split_ws :: (fn(s : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   cur := String.new();
-  bytes := s;
+  bytes := s.clone();
   (i : usize) = usize(0);
   n := bytes.len();
   while(i < n, {
@@ -998,15 +998,15 @@ _build_new_artifact :: (
 )(
   BuildArtifact(
     kind : ArtifactKind.Executable,
-    name : name,
-    root : root,
-    target : target,
-    optimize : optimize,
-    allocator : allocator,
+    name : name.clone(),
+    root : root.clone(),
+    target : target.clone(),
+    optimize : optimize.clone(),
+    allocator : allocator.clone(),
     heap_size : heap_size,
-    cycle_collector : cycle_collector,
-    sanitize : sanitize,
-    emit_c_to : emit_c_to,
+    cycle_collector : cycle_collector.clone(),
+    sanitize : sanitize.clone(),
+    emit_c_to : emit_c_to.clone(),
     emit_chunks : emit_chunks,
     link_libraries : ArrayList(String).new(),
     include_paths : ArrayList(String).new(),
@@ -1038,7 +1038,7 @@ _build_attach_system_library :: (
         });
         i = (i + usize(1));
       });
-      art.linked_system_libs.push(library_name);
+      art.linked_system_libs.push(library_name.clone());
     },
     .None => ()
   );
@@ -1102,7 +1102,7 @@ evaluate_yo_build_functions :: (
     triple := _build_extract_string(&args, usize(0), "triple", expr, ctx, exn);
     parsed := match(
       parse_target(&triple),
-      .Ok(t) => t.triple,
+      .Ok(t) => t.triple.clone(),
       .Err(_) => triple
     );
     return(_build_string_result(expr, env, ctx, &parsed));

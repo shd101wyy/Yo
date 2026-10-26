@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 // str_lit_quote: wrap an unquoted string with double-quote chars.
 // ---------------------------------------------------------------------------
 str_lit_quote :: (fn(s : &String) -> String)(
-  String.from("\"") + s + String.from("\"")
+  String.from("\"") + s.clone() + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // apply_bounds: clamp i64 to the representable range of type `ty`.
@@ -534,6 +534,13 @@ evaluate_yo_comptime_numeric_functions :: (
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     // ---- 6. Binary operations. -------------------------------------------
+    args := match(
+      expr,
+      .FnCall(_, _, fargs, _, _) => fargs,
+      _ => {
+        return(expr);
+      }
+    );
     arg0 := match(
       args.get(usize(0)),
       .Some(a) => a,

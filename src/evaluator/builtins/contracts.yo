@@ -394,7 +394,7 @@ _evaluate_transparent_unary :: (
 /// from non-ghost context (a ghost_fn has no runtime semantics).
 (g_ghost_fn_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_ghost_fn :: (fn(func_id : &String) -> unit)({
-  g_ghost_fn_ids.with_mut(s => s.insert(func_id));
+  g_ghost_fn_ids.with_mut(s => s.insert(func_id.clone()));
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
@@ -415,7 +415,7 @@ GhostFnDef :: ref(
 );
 (g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
-  g_ghost_fn_defs.with_mut(m => m.insert(func_id, GhostFnDef(params : params, body : body)));
+  g_ghost_fn_defs.with_mut(m => m.insert(func_id.clone(), GhostFnDef(params : params.clone(), body : body)));
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
@@ -428,7 +428,7 @@ ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
 /// refine() evaluation); read by the verifier's assume/prove walks.
 (g_refine_pred_chains : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String)) -> unit)({
-  g_refine_pred_chains.with_mut(m => m.insert(outer_fid.clone(), chain));
+  g_refine_pred_chains.with_mut(m => m.insert(outer_fid.clone(), chain.clone()));
   ()
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
@@ -856,7 +856,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     // a binding FORM — never evaluated as an expression.
     ba := match(
       barg,
-      .FnCall(_, _, a2, _, _) => a2,
+      .FnCall(_, _, a2, _, _) => a2.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     ty_expr := match(
@@ -1093,7 +1093,7 @@ _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstEx
     alloc_global_expr_id(),
     Token(
       kind : kind,
-      value : value,
+      value : value.clone(),
       row : src_tok.row,
       column : src_tok.column,
       character : src_tok.character,
@@ -1269,7 +1269,7 @@ _build_assert_call :: (
 _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &String) -> AstExpr)({
   bind_tok := Token(
     kind : TokenKind.Identifier,
-    value : op,
+    value : op.clone(),
     row : src_tok.row,
     column : src_tok.column,
     character : src_tok.character,
@@ -1513,7 +1513,7 @@ guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) 
 /// the misleading "untyped expression" at the hollow body root.
 (g_verify_def_eval_failures : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> unit)({
-  g_verify_def_eval_failures.with_mut(m => m.insert(fn_id, msg));
+  g_verify_def_eval_failures.with_mut(m => m.insert(fn_id.clone(), msg.clone()));
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
@@ -1527,7 +1527,7 @@ verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
 /// when present, this decides otherwise.
 (mut(g_verify_mode_override) : Option(String)) = Option(String).None;
 set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
-  g_verify_mode_override = m;
+  g_verify_mode_override = m.clone();
   ()
 });
 /// Declare the verification target file set (and reset any previous one).
@@ -1832,7 +1832,7 @@ CallsiteContracts :: struct(
 register_callsite_contracts :: (
   fn(call_id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr)) -> unit
 )({
-  _ := g_callsite_contracts.with_mut(m => m.insert(call_id, CallsiteContracts(reqs : reqs, enss : enss)));
+  _ := g_callsite_contracts.with_mut(m => m.insert(call_id.clone(), CallsiteContracts(reqs : reqs.clone(), enss : enss.clone())));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
   g_callsite_contracts.with(m => m.get(call_id))
@@ -1843,7 +1843,7 @@ callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
 /// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
 (g_specialized_base : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)({
-  _ := g_specialized_base.with_mut(m => m.insert(spec_id, base_id));
+  _ := g_specialized_base.with_mut(m => m.insert(spec_id.clone(), base_id.clone()));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
   g_specialized_base.with(m => m.get(id))
@@ -2050,7 +2050,7 @@ _stash_callsite_contracts :: (
     callee_val,
     .Some(v2) => match(
       v2,
-      .FuncVal(fvd2, _) => fvd2.*.params,
+      .FuncVal(fvd2, _) => fvd2.*.params.clone(),
       _ => ArrayList(String).new()
     ),
     .None => ArrayList(String).new()
