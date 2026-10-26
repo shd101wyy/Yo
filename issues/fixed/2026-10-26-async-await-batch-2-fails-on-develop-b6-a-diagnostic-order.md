@@ -72,14 +72,19 @@ assert runs).
 
 ## Fixed (2026-10-26)
 
-§3.13 A2 now owns the verdict for an argument lent to a parameter the callee's
-BORROWING FUTURE captures: `_future_lend_param_flags` (src/types/flowability.yo)
-computes, per call site (src/evaluator/calls/helper.yo, function.yo), which ref
-arguments those are — the callee's result is a future type whose registered
-capture borrows name the parameter — and `_reject_if_container_reachable`'s
-sibling rule (b) stands down for exactly those arguments. Rule (a) (a
-module-level container) is unchanged, #1619's sibling walk is unchanged for
-every non-future call (B6-a's accepted borrows all stay accepted), and A2 then
-rejects the cell lends with its own diagnostic or accepts the shared
-read-only-handle lend, exactly as before #1619. `tests/async_await.test.yo`:
-285/285 with the original expectations, no test edits.
+The callee's DECLARED result cannot tell which parameters the future captures
+(the registered captures live under the `io.async` value's per-call wrapper
+id, a different SomeT from the signature annotation), so the fix DEFERS the
+sibling rule instead of pre-deciding: `_reject_if_container_reachable`'s rule
+(b) records its complaint for a future-PRODUCING callee
+(`flag_deferred_sibling_rule`, src/types/flowability.yo) instead of throwing
+at the call, and `_note_future_producing_call` (src/evaluator/calls/function.yo)
+settles it against the future's real capture list — a parameter a capture
+names is §3.13 A2's (its cell diagnostic, or the deliberate
+shared-through-`Rc` acceptance; the #1629 re-pin to the aliasing text went
+back to the A2 pin), any other complaint re-raises. Rule (a) (a module-level
+container) is unchanged, a fixed-size `Array` index place is exempt from rule
+(b) (inline storage; part 2 of
+`issues/fixed/2026-10-26-the-async-await-a2-batch-is-poisoned-three-ways-on-develop.md`),
+and #1619's sibling walk is unchanged for every non-future call (B6-a's
+accepted borrows all stay accepted). `tests/async_await.test.yo`: 285/285.
