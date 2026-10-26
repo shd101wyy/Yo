@@ -8,7 +8,7 @@ Running `yo fix --migrate explicit-copy` on `src/evaluator/effects/mutation_summ
 (base a27cd5f01, B4-3d) inserted `.clone()` at the `_MspCtx` construction in
 `_mutation_summary_for`:
 
-```yo
+```yo ignore
 local_touched := ArrayList(String).new();
 ctx := _MspCtx(
   ...
