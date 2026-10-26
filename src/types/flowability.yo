@@ -1122,6 +1122,32 @@ _reject_if_container_reachable :: (
       )
     );
   });
+  // A fixed-size `Array(N, T)` element lives INLINE in its owner's storage:
+  // the buffer cannot be reallocated, and no other value can hold a handle
+  // to it (a capture copies the owner by value), so a sibling argument
+  // cannot invalidate the reference by growing anything. Only rule (a)
+  // above still applies (a callee could reassign a module-level owner).
+  // (issues/fixed/2026-10-26-the-async-await-a2-batch-is-poisoned-three-ways-on-develop.md part 2)
+  if(kind == "index", {
+    match(
+      ref_arg,
+      .FnCall(_, idx_callee, _, _, _) => {
+        match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx_callee)),
+          .Some(idx_info) => {
+            ity := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(&idx_info.ty)));
+            match(
+              ity,
+              Rc(.Array(element : _, length : _)) => return(()),
+              _ => ()
+            );
+          },
+          .None => ()
+        );
+      },
+      .Atom(_, _) => ()
+    );
+  });
   // (b) element-only: any OTHER argument that could hold a handle to the
   // container — a closure, or a value whose type can hold one of the types
   // the place hangs from — could grow/free it. Without the path's types, any
