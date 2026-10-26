@@ -227,8 +227,8 @@ render_associated_types_ :: (fn(types : &ArrayList(DocAssociatedType)) -> String
 /// Render a single DocFunction as Markdown (### heading + signature + docs).
 render_function_md :: (fn(fn_ : &DocFunction) -> String)({
   lines := ArrayList(String).new();
-  self_type_str := match(fn_.self_type, .Some(s) => s, .None => ``);
-  anchor := cond(fn_.is_method => `${self_type_str}.${fn_.name}`, true => fn_.name);
+  self_type_str := match(fn_.self_type, .Some(s) => s.clone(), .None => ``);
+  anchor := cond(fn_.is_method => `${self_type_str}.${fn_.name}`, true => fn_.name.clone());
   lines.push(`### \`${anchor}\``);
   lines.push(``);
   match(
@@ -841,7 +841,7 @@ render_index_md :: (fn(model : &DocModel) -> String)({
       mod.doc,
       .None => ``,
       .Some(d) => {
-        first_line := match(d.split(`\n`).get(usize(0)), .Some(l) => l, .None => d);
+        first_line := match(d.split(`\n`).get(usize(0)), .Some(l) => l.clone(), .None => d.clone());
         ` — ${first_line}`
       }
     );

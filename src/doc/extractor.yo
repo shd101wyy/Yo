@@ -94,7 +94,7 @@ strip_doc_line_comment :: (fn(value : &String) -> String)({
   content := cond(
     value.starts_with(`///`) => value.substring(usize(3), value.len()),
     value.starts_with(`//!`) => value.substring(usize(3), value.len()),
-    true => value
+    true => value.clone()
   );
   // Strip exactly one leading space if present
   cond(
@@ -117,7 +117,7 @@ strip_doc_block_comment :: (fn(value : &String) -> String)({
   content := cond(
     value.starts_with(`/**`) => value.substring(usize(3), value.len()),
     value.starts_with(`/*!`) => value.substring(usize(3), value.len()),
-    true => value
+    true => value.clone()
   );
   // Remove closing delimiter: */
   content2 := cond(
