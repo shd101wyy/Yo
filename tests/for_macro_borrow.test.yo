@@ -92,8 +92,8 @@ test("String elements mutate in place through the inout binding", {
   for(&mut names, s => {
     s.push_str("!");
   });
-  assert(match(names.get(usize(0)), .Some(s) => (s == "a!"), .None => false), "first mutated in place");
-  assert(match(names.get(usize(1)), .Some(s) => (s == "b!"), .None => false), "second mutated in place");
+  assert(match(names.get_cloned(usize(0)), .Some(s) => (s == "a!"), .None => false), "first mutated in place");
+  assert(match(names.get_cloned(usize(1)), .Some(s) => (s == "b!"), .None => false), "second mutated in place");
 });
 test("for(s.bytes(), (b) => body) on String iterates and reads bytes", {
   s := `xyz`;

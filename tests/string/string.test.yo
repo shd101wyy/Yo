@@ -2001,8 +2001,8 @@ test("String str-pattern overloads (StrPattern trait)", {
   assert(match(x.last_index_of("o"), .Some(i) => (i == usize(7)), .None => false), "last_index_of str");
   parts := x.split(" ");
   assert(parts.len() == usize(2), "split str count");
-  assert(match(parts.get(usize(0)), .Some(p) => (p == "hello"), .None => false), "split str first");
-  assert(match(parts.get(usize(1)), .Some(p) => (p == "world"), .None => false), "split str second");
+  assert(match(parts.get_cloned(usize(0)), .Some(p) => (p == "hello"), .None => false), "split str first");
+  assert(match(parts.get_cloned(usize(1)), .Some(p) => (p == "world"), .None => false), "split str second");
   // The String-typed inherent methods still dispatch alongside the
   // str-typed trait overloads.
   assert(x.contains(String.from("world")), "contains String");
@@ -2097,8 +2097,8 @@ test("rune pattern: starts_with / ends_with / split / split_once", {
   assert(!s.ends_with(rune(u32(0x2C))), "does not end with comma");
   parts := s.split(rune(u32(0x2C)));
   assert(parts.len() == usize(2), "split on comma");
-  first := parts.get(usize(0)).unwrap_or(String.from("?"));
-  second := parts.get(usize(1)).unwrap_or(String.from("?"));
+  first := parts.get_cloned(usize(0)).unwrap_or(String.from("?"));
+  second := parts.get_cloned(usize(1)).unwrap_or(String.from("?"));
   assert((first == String.from("é")) && (second == String.from("x")), "split parts");
   match(
     s.split_once(rune(u32(0x2C))),

@@ -4910,7 +4910,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
       mut(r) := usize(0);
       while(r < outer.len(), {
         match(
-          outer.get(r),
+          outer.get_cloned(r),
           .None => (),
           .Some(d) => {
             got := e.io.await(exists(Path.new(d.clone()), e.io), e.io);
@@ -4921,7 +4921,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
               mut(i) := usize(0);
               while(i < inner.len(), {
                 match(
-                  inner.get(i),
+                  inner.get_cloned(i),
                   .None => (),
                   .Some(f) => {
                     hit := e.io.await(exists(Path.new(f.clone()), e.io), e.io);
@@ -7617,7 +7617,12 @@ _A2Cells :: struct(cells : Array(i32, 2));
 test("a borrowing future cannot hold an element lent through an index (decision 38 D, §3.13 A2)", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
-  comptime_expect_error(io.await(_a2_bump_i32(&mut xs(usize(0)), io), io), "lives in a shared mutable cell");
+  // Since B6-a's container-reachability check (#1619) this call is rejected
+  // earlier, at the call itself: the `&mut xs(usize(0))` borrow beside the
+  // `io` sibling that could hold `xs`. The §3.13 A2 shared-cell check is
+  // never reached for this shape (the next two trials still hit their old
+  // rules: the Rc handle read-only rule and the shared-cell rule).
+  comptime_expect_error(io.await(_a2_bump_i32(&mut xs(usize(0)), io), io), "argument 2 of the same call could hold a handle");
   r := rc(_A2Shared(items : ArrayList(i32).new()));
   comptime_expect_error(io.await(_a2_bump_i32(&mut r.*.items(usize(0)), io), io), "read-only through the handle");
   mut(r2) := _A2Shared(items : ArrayList(i32).new());

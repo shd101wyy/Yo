@@ -868,12 +868,12 @@ test("entry works with an RC key and value type", {
     ()
   });
   m.entry(`a`, e => e.and_modify(s => (s.clone() + `!`)));
-  assert(m.get(`a`).unwrap() == `one!`, "and_modify replaced the value");
+  assert(m.get_cloned(`a`).unwrap() == `one!`, "and_modify replaced the value");
   m.entry(`b`, e => {
     e.or_insert_with(() => `two`);
     ()
   });
-  assert(m.get(`b`).unwrap() == `two`, "or_insert_with stored its value");
+  assert(m.get_cloned(`b`).unwrap() == `two`, "or_insert_with stored its value");
   assert(m.len() == usize(2), "two entries");
   assert(match(m.entry(`a`, e => e.remove()), .Some(s) => (s == `one!`), .None => false), "remove hands the value back");
   assert(m.len() == usize(1), "one entry left");
@@ -917,8 +917,8 @@ test("retain over an RC-typed map", {
   m.insert(`drop`, `no`);
   m.retain((k, _v) => (k == `keep`));
   assert(m.len() == usize(1), "one survivor");
-  assert(m.get(`keep`).unwrap() == `yes`, "with its value");
-  assert(m.get(`drop`).is_none(), "the other is gone");
+  assert(m.get_cloned(`keep`).unwrap() == `yes`, "with its value");
+  assert(m.get_cloned(`drop`).is_none(), "the other is gone");
 });
 test("extend merges another map, overwriting on duplicates", {
   a := HashMap(i32, i32).new();
