@@ -1,6 +1,7 @@
 # Yo verifies Yo — the self-verification campaign
 
-**ACTIVE 2026-09-18; amended 2026-10-18.** The maintainer made "the Yo
+**ACTIVE 2026-09-18; amended 2026-10-18; rewritten 2026-10-26 for the
+post-VBD language.** The maintainer made "the Yo
 compiler is verified by Yo's own verifier" a goal (this document started
 the same day as a feasibility note in `backlog/`; it was promoted when the
 decision was made). It is a selling point only if the claim behind it is
@@ -13,9 +14,23 @@ rows** behind the M1/M3 consistency proofs, the **re-derived-numbers
 rule** for every published claim sentence, a **mutation gate** and a
 **distrust lane** over the verifier's own soundness core (Trust section),
 and a **rationale string plus trust pins** behind every `assumed()`.
-Each item has a row in "Order and cost" below the vacuity section. Companion plans:
+Each item has a row in "Order and cost" below the vacuity section.
+
+The 2026-10-26 rewrite is an **overwrite, not a layer**. The
+VALUES_BY_DEFAULT campaign (decisions 17, 42, 43, 46, 47, 48; V2c/V5)
+changes what `src/` itself IS while this campaign waits — `ref` objects
+become explicit-clone `Rc`, collections become values, `&T`/`&mut T`
+carry origins, `Rc` is read-only through handles — and nothing beyond
+M0 had started, so the pre-VBD census, baseline framing and lever text
+are replaced rather than annotated (the pre-VBD document is in git
+history at the revision before this rewrite). Every count below that
+still says 2026-09-18 is a pre-VBD measurement the sweep and census
+re-derive at V5 Generation B. Companion plans:
 [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md) (the
-verifier), [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
+verifier), [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) (the campaign
+that re-spells the compiler), [`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)
+(decision 43's origins — the rules L6 and M3 annotate under),
+[`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 (B0 `--strict`, B1 `law`, B2 lemmas — this campaign consumes them),
 [`reference/MATCHING_LOGIC_RESEARCH.md`](reference/MATCHING_LOGIC_RESEARCH.md)
 (the foundation alternative already assessed).
@@ -26,7 +41,7 @@ verifier), [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND
 | --- | --- | --- |
 | **M0** | "Every function of the compiler is measured against the verifier; the number cannot go down." | S0 sweep + ratchet in CI; honest report (no vacuous `ok`, canonical ids) |
 | **M1** | "Every arithmetic and layout decision the compiler makes about your program is proved against the same model it proves your program with." | comptime integer ops, casts, struct layout, the verifier's own width tables under `Pragma.Verify`, zero `assumed()`; verification fixpoint (seed vs tree) |
-| **M2** | "The Yo front end (lexer, parser, formatter) is verified free of runtime errors." | strings, payload enums, exceptions, immutable-ref datatypes in the subset; every loop in ~7.6k LOC carries an invariant or is inferred |
+| **M2** | "The Yo front end (lexer, parser, formatter) is verified free of runtime errors." | strings, payload enums, exceptions, `Rc` trees as datatypes in the subset; every loop in ~7.6k LOC carries an invariant or is inferred |
 | **M3** | "The verifier is verified: the code that checks your proofs is itself proved free of runtime errors, and its encoding is proved consistent with the evaluator." | `src/verifier/` + `src/types/` verified; consistency laws (B1) between CTFE and the SMT encoding |
 | **M4** | "`yo verify --strict ./src` is green: the compiler is verified free of runtime errors and meets every stated contract, except the N functions at the FFI boundary, listed here." | the mutable-heap model, globals, invariant inference at scale over evaluator + codegen (156k LOC) |
 | **M5** | "These passes are proved correct: …" | functional contracts on chosen passes (dup/drop balance, side-table re-keying, path canonicalization) |
@@ -73,52 +88,33 @@ and not a habit:
 
 Until a sentence ships, the ratchet is the guard.
 
-Precedents, so the claim is calibrated: no SMT-contract language has
-verified its own compiler. Dafny's newer backends written in Dafny are
-verified for absence of runtime errors, not correctness; SPARK's compiler
-is not in SPARK; CompCert and CakeML are verified compilers, but in Coq
-and HOL4, not in themselves. M4 would be a first of its kind; M1–M3 are
-each already a stronger statement than any competitor makes about its
-toolchain.
+Precedents, so the claim is calibrated (re-checked 2026-10-26 against the
+`dafny-lang/dafny` tree): no SMT-contract language has verified its own
+compiler. Dafny's compiler — including every target backend (C#, Go, …)
+— is C#; the one Dafny-written compiler component is the Dafny→Dafny
+backend's AST and pretty-printer
+(`Source/DafnyCore/Backends/Dafny/*.dfy`), and the verification core
+(resolver, Boogie translation, Boogie, Z3) is unverified C#/C++. SPARK's
+compiler is not in SPARK; CompCert and CakeML are verified compilers,
+but in Coq and HOL4, not in themselves. M4 would be a first of its kind;
+M1–M3 are each already a stronger statement than any competitor makes
+about its toolchain.
 
-## Baseline — measured 2026-09-18
+## Baseline — measured 2026-09-18 (pre-VBD), re-derived at V5 Generation B
 
-`yo verify ./src --format json --std-path ./std`, tree `4ef01a66a`,
-`yo 0.2.36`, Z3 5.1.0, Apple M-series:
-
-| Metric | Value |
-| --- | --- |
-| Wall time (evaluate `src/` + verify) | 199 s (one 3.5k-LOC module alone: 6 s) |
-| Functions registered as verify targets | 4,049 |
-| `ok` | 57 (1.4%) |
-| `ok` with at least one obligation discharged | **2** |
-| `outside-subset` | 3,992 |
-| `refuted` / `unproven` / `solver-error` | 0 |
-
-First blocking construct per function:
-
-| Count | Blocker |
-| --- | --- |
-| 3,636 | parameter outside the integer/bool/array subset |
-| 104 | call to a callee without contracts |
-| 101 | unbound runtime name (string literals, module-level globals) |
-| 77 | call to an uncontracted, untyped callee |
-| 31 + 9 | enum variant with payload in construction / malformed enum construction |
-| 26 | field/method access |
-| 7 | `while` without a leading `invariant(...)` |
-
-**Re-measured by M0's own sweep** (`scripts/verify-src-sweep.sh`, the
-tree-built binary `0.2.36-16-gc4fa8b4b8` rather than the seed): 3,673 functions,
-52 `ok` of which **50 are vacuous**, 2 proved, 196 s. The proved count — the one
-the ratchet tracks — is identical; the task count differs because the tree is 16
-commits ahead of the seed that produced the first table. Read the numbers as a
-pair: the seed's view and the tree's view of the same source.
-
-Two report defects found by the sweep, filed and fixed in M0:
-`issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md` (48 of
-57 `ok` ids print as `fn@file:///<abs>/…`) and
-`issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`
-(55 of 57 `ok` are vacuous).
+The 2026-09-18 run (`yo verify ./src --format json --std-path ./std`,
+tree `4ef01a66a`, `yo 0.2.36`, Z3 5.1.0, Apple M-series) measured the
+pre-VBD tree: 4,049 verify targets, 57 `ok` (1.4%) of which **2
+discharged an obligation** and 50 were vacuous (the vacuity gate's
+origin, below), 3,992 `outside-subset`, none refuted, 199 s wall. The
+two report defects the sweep found are fixed and in
+`issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md`
+and
+`issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`.
+The per-blocker breakdown and the tree-vs-seed re-measurement are in
+git history at this section's pre-2026-10-26 revision; the ratchet's
+baseline re-records when V5 Generation B finishes re-spelling `src/`.
+What survives VBD unchanged is the constraint that shaped the campaign:
 
 ### Verifying the compiler is memory-bound — measured 2026-09-18 (M0)
 
@@ -153,37 +149,43 @@ closure is small, is cheap. So:
 
 ## What the compiler needs from the verifier — the census
 
-`scripts/verify_src_census.py` (M0) over the 3,799 `fn(...)` signatures in
-`src/` — a function counts once per kind it needs; 19.4% need none of them.
-The numbers below are the tool's, so they are reproducible and re-measurable
-after every lever:
+`scripts/verify_src_census.py` (M0), over the 3,799 pre-VBD `fn(...)`
+signatures in `src/` — a function counts once per kind it needs; 19.4%
+needed none. The 2026-10-26 rewrite states the categories
+in post-VBD terms; the percentage shares are the 2026-09-18 pre-VBD
+measurement, re-derived at V5 Generation B when `src/` finishes spelling
+its explicit clones (`VALUES_BY_DEFAULT.md` V2c/V5; the B4 sweep):
 
 | Share | Signatures that take | Verifier work it implies |
 | --- | --- | --- |
-| 43.5% | `str` / `String` | strings as first-class subset values (Seq of bytes) — lever L1 |
-| 43.8% | `AstExpr` / `ExprInfo` / `TypeValue` / `EvalValue` (`ref(enum)`) | **immutable reference types as datatypes** — lever L3 |
-| 20.1% | `ArrayList` / `HashMap` / `HashSet` (`ref(struct)` over raw buffers) | collections through their std contracts — lever L4 |
-| 14.0% | `EvalContext` / `Environment` (`ref(struct)`, mutated in place at 646 sites) | the mutable-heap model — lever L6 |
+| 43.5% | `str` / `String` | strings as first-class subset values (Seq of bytes) — lever L1. Unchanged by VBD: buffers are still heap storage |
+| 43.8% | `AstExpr` / `ExprInfo` / `TypeValue` / `EvalValue` — post-V5 explicit-clone `Rc` trees | **datatypes, with the immutability guaranteed by TYPE** (decision 46: `Rc` is read-only through every handle) — lever L3, whose syntactic discipline check is deleted |
+| 20.1% | `ArrayList` / `HashMap` / `HashSet` — post-V2b VALUES over raw buffers | collections through their std contracts — lever L4, whose aliasing exclusion becomes unrepresentable in owned code (decision 42) |
+| 14.0% | `EvalContext` / `Environment` (mutated in place at 646 pre-VBD sites) | the mutable-place model — lever L6. Whether each shape lands as `&mut` paths (in the subset through the alias model) or behind `RefCell` (outside it) is decided by the post-V5 census |
 | 13.7% | `Exception` (1,413 `exn.throw` sites) | exceptions as exit paths — lever L2 |
 | 4.6% | `Io` | not verified, by design (effects are the frame rule) |
-| 2.9% / 0.6% | `own`/`inout` params / closures | already in the subset / stays out |
+| 2.9% / 0.6% | `&T`/`&mut T` params / closures | `&T`/`&mut T` are IN the subset as root-alias places (decision 43's verifier rule); closures stay out |
 
-Other sizes that shape the plan: **3,382 `while` loops** (each needs an
-invariant in `verify` mode), **285 module-level mutable registries**
-(`g_*`: 79 `HashMap(String, …)`, 35 `ArrayList(String)`, …), **108
-`unsafe(...)` sites** (the `assumed()` boundary), and **only 2 in-place
-writes through a `ref(enum)`** in the whole tree (`src/env.yo:726`,
-`src/evaluator/builtins/contracts.yo:2242`).
+Other sizes that shape the plan (pre-VBD counts, re-derived at V5):
+**3,382 `while` loops** (each needs an invariant in `verify` mode), **285
+module-level registries** — of which only the `mut(...)`-marked ones are
+writable after decision 47 (an unmarked global is never written after its
+initializer, and the verifier carries no frame condition for it at all),
+and **108 `unsafe(...)` sites** (the `assumed()` boundary).
 
-That last number is the finding that makes the campaign tractable.
-Reference semantics only matter to a verifier under *mutation*. The AST,
-the type values and the evaluated values are built and then read, never
-written through (the AST's clone is share-on-recursion by design), so for
-verification they are **algebraic datatypes, not heap objects**: no heap
-model, no framing, just `declare-datatypes` — which the encoder already
-emits for structs and enums. The genuinely mutable heap is confined to the
-evaluator's context and environments, the global registries, and the
-collections, and each of those has a cheaper answer than a general heap
+The pre-VBD census's key finding survives as a type invariant. It found
+**only 2 in-place writes through a `ref(enum)`** in the whole tree — the
+AST, the type values and the evaluated values are built and then read —
+and concluded they are **algebraic datatypes, not heap objects**: no heap
+model, no framing, just `declare-datatypes`, which the encoder already
+emits for structs and enums. Post-VBD that conclusion is no longer a
+measurement but the type system's guarantee (decision 21's trees stay
+`Rc` and `Rc` is read-only, decision 46); the two pre-VBD writes are
+explicit shapes now — the `Variable` cell update is L6's subject, and
+the `verify+`-strip rewrite stays outside verified code. The genuinely
+mutable state is confined to
+the evaluator's context and environments, the `mut`-marked registries,
+and `RefCell` cells, and each has a cheaper answer than a general heap
 model (L4–L6 below). LOC by area, for sizing the milestones:
 
 | Area | LOC | fn signatures |
@@ -207,7 +209,7 @@ and whether matching logic is related. The answer, per alternative:
 | **Matching logic / K** | Define Yo's semantics once in K, get a symbolic executor and a reachability-logic prover | Assessed and declined 2026-09-09 (`reference/MATCHING_LOGIC_RESEARCH.md` §6 Option A): no solver decides it, every discharge funnels back through FOL/SMT-LIB, and its selling point ("semantics once") solves a problem Yo does not have — the evaluator *is* Yo's executable semantics. **Related, not alternative**: its §7 borrowings (proofs about the program that runs, flat-heap capture of separation logic) are the design input for L6. Its §8 parked idea — a K semantics of Yo as an *external audit oracle* — is the one thing that could ever check the M4 claim from outside, and it stays parked at research-collaboration cost |
 | **Abstract interpretation** (Astrée, Frama-C EVA, Infer) | Absence of runtime errors on unannotated code, whole-program, no invariants written | **Adopt as a lever, not a foundation** (L7): an interval/octagon pass generates candidate loop invariants that the SMT verifier then *proves*, so the claim stays "verified", not "analyzed". This is how the 3,382 loops get done; it is the industry answer to AoRTE at scale |
 | **Translation validation** (Alive2 for LLVM; per-compilation equivalence checks) | Check each compilation's output instead of the compiler | Out of scope: needs C11 semantics and an equivalence checker; D2 dropped external model checkers. Differential testing (CTFE vs compiled output over the corpus) already plays the pragmatic version of this role |
-| **Ownership-based framing** (Prusti/Viper permissions from Rust ownership) | Framing for mutable heap without separation-logic annotations | Partially applicable: Yo's `inout` exclusivity and `own` give Prusti-style framing for parameters; shared RC refs do not. L6 chooses between this and Burstall-Bornat flat heaps for the mutable remainder |
+| **Ownership-based framing** (Prusti/Viper permissions from Rust ownership) | Framing for mutable heap without separation-logic annotations | **Settled by VBD, not chosen here** (2026-10-26): decisions 42/43 give permission-style framing from origins — a `&mut(T, p)` parameter names exactly the place set the callee may touch, and the alias model VBD's B14 builds havocs precisely it. L6 keeps only the singleton-vs-flat-heap question underneath |
 | **Proof certificates** (Z3 proof logs + a small checker) | Remove Z3 from the trusted base | Parked (`MATCHING_LOGIC_RESEARCH.md` §8); relevant to M3's "the verifier is verified" sentence — the checker would be the thing to verify in Yo. V8+ at the earliest. The design rules to apply when it is un-parked (what the certificate binds to, checker versioning, the check/verify split, fail-closed) are recorded with the parked route in `backlog/THEOREM_PROVING_NEXT.md` §8 |
 
 So: the backend stays SMT; the *front* grows two things the current
@@ -379,39 +381,48 @@ new `ok`-with-obligations count in its PR description.
   handler is in the verified body — handlers stay outside the subset
   initially). An `Exception` parameter is accepted as an opaque token.
   Optional later: `throws(P)` exceptional postconditions.
-- **L3 Immutable reference types as datatypes.** A `ref(struct)` /
-  `ref(enum)` type that the verified body never writes through is encoded
-  as its value datatype. The verifier checks the discipline syntactically
-  per verified function (no `x.*.f = …`, no `inout` method call on the
-  value); a violation is a subset error naming the write. The two existing
-  writes are made explicit (`env.yo:726` is a `Variable` cell update, a
-  mutable heap object by design → L6; `contracts.yo:2242` rewrites a
-  FuncVal body during the `verify+` strip and is outside verified code).
-  Unlocks 47% of signatures at once.
-- **L4 Collections through their contracts.** `ArrayList(T)` is a
-  `ref(struct)` over a raw buffer whose core ops already carry contracts
-  and `assumed()` (V6 task 5). The verifier models an `ArrayList(T)` value
+- **L3 Trees as datatypes.** Decision 21's trees stay `Rc` post-V5, and
+  an `Rc` payload is read-only through every handle (decision 46), so
+  the pre-VBD syntactic discipline check — "the verified body never
+  writes through" — is deleted: the immutability is a type guarantee. A
+  tree value is encoded as its value datatype (`declare-datatypes`); an
+  explicit `Rc.clone` is a share of an immutable value, which the
+  encoding never needs to track. A `RefCell`-reaching value is the
+  subset error, per decision 46's narrowed exclusion (a verifier-side
+  `Rc` parameter was already outside; only `RefCell`-reaching ones stay
+  out now). Unlocks ~47% of signatures at once (pre-VBD share;
+  re-derived at V5).
+- **L4 Collections through their contracts.** Post-V2b a container is a
+  VALUE over a raw buffer whose core ops already carry contracts and
+  `assumed()` (V6 task 5). The verifier models an `ArrayList(T)` value
   as `(Seq T)` (and `HashMap(K, V)` as `(Array K (Option V))`,
   `HashSet(T)` as `(Array T Bool)`) and reads each std op's `ensures` as
-  the transition on that model — no body opened. Aliasing (two refs to one
-  list) is excluded for now by the same syntactic discipline as L3 on the
-  *container* value plus `inout` exclusivity where it is mutated; a
-  function that stores a collection into another heap object is a subset
-  error until L6.
+  the transition on that model — no body opened. The pre-VBD aliasing
+  exclusion (two refs to one list, policed syntactically) is
+  unrepresentable in owned code (decision 42: a copy is a new value);
+  mutation of a lent container goes through `&mut` and the alias model.
+  A container stored inside a `RefCell` payload is a subset error until
+  L6.
 - **L5 Globals as implicit state.** A module-level `::` comptime constant
-  folds. A mutable `g_*` registry is an implicit `inout` parameter of every
-  function that reads or writes it (the effect analysis in
+  folds. A `mut(...)`-marked registry is an implicit `&mut` parameter of
+  every function that writes it (the effect analysis in
   `src/evaluator/effects/` already knows which functions touch which
-  globals): entry value havoc'd, writes tracked two-state, `old(g)` legal.
-- **L6 The mutable-heap model** — `EvalContext`, `Environment`, `Variable`
-  cells and any collection stored in a heap object. Decision between (a)
-  Burstall-Bornat flat heaps: one SMT array per (type, field), references
-  as an uninterpreted sort, writes as array stores, framing by the effect
-  analysis's write set; and (b) singleton-object treatment: a type with one
-  live instance per verified call (`EvalContext`) is an implicit `inout`
-  parameter like a global. Recommendation: (b) for `EvalContext` and
-  `Environment` first (measure how much of the 14% it covers), (a) for the
-  rest. FV Open Question 1 is decided here, for the compiler's shapes.
+  globals): entry value havoc'd, writes tracked two-state, `old(g)`
+  legal. An UNMARKED global is never written after its initializer
+  (decision 47) — the verifier carries no frame condition for it, which
+  is most of the pre-VBD 285.
+- **L6 The mutable-place model** — `EvalContext`, `Environment`,
+  `Variable` cells and any collection stored inside a cell. VBD settled
+  the shape above the heap question: decision 43's verifier rule models
+  a `&T` parameter as a lent, unchanged place, a `&mut T` parameter as a
+  modifiable one, and a bound reference as an alias of its root — so the
+  singleton treatment (a type with one live instance per verified call,
+  such as `EvalContext`, is an implicit parameter like a global) IS the
+  alias model VBD's B14 step builds, and this lever extends it from
+  parameters to the two context objects. Burstall-Bornat flat heaps (one
+  SMT array per (type, field), references as an uninterpreted sort)
+  remain the fallback, on D2's trigger re-anchored post-V5 (M4's exit
+  gate). FV Open Question 1 is decided here, for the compiler's shapes.
 - **L7 Invariant inference.** An interval + zone (difference-bound)
   abstract interpretation over the verified body proposes candidate
   invariants per loop (bounds on the loop counter, `len` relations,
@@ -450,7 +461,8 @@ generation split; only `law` (B1) does.
 > The baseline holds one module (`src/types/utils.yo`, 2 functions);
 > M1 is next. The campaign's prerequisites also landed since the
 > drafting: B0 `--strict`, B1 `law`, B2 lemmas (#1075/#1106/#1107), so
-> L9 and every `--strict` exit criterion are unblocked.
+> L9 and every `--strict` exit criterion are unblocked. The baseline's
+> counts are pre-VBD; `--record` re-records them at V5 Generation B.
 
 1. `scripts/verify-src-sweep.sh`: runs the whole-tree sweep, writes
    `outcomes.tsv` (fn, outcome, blocker, obligations), prints the outcome
@@ -522,7 +534,12 @@ sentence documented with the `assumed()` list.
 ### M3 — The verifier and the type layer (one quarter)
 
 Levers **L5, L8, L9**; annotate `src/verifier/` and `src/types/` (427
-signatures). The consistency laws: for each comptime integer op, a `law`
+signatures). **Prerequisite (2026-10-26): VBD B14's verifier alias-model
+step lands first** — annotating `src/verifier/` against the pre-VBD
+alias machinery would be work re-done, and the subset rules the module is
+annotated under are decision 43's (`&T` a lent unchanged place, `&mut T`
+a modifiable one, references modelled as aliases of their roots). The
+consistency laws: for each comptime integer op, a `law`
 stating that CTFE's result equals the encoder's bitvector term applied to
 the same operands (M1 proved each side against the model; M3 states the
 equality between the two implementations directly). Each law pairs with a
@@ -541,7 +558,8 @@ consistency laws in CI; `yo check ./src` wall time within 2× of today's.
 ### M4 — Evaluator and codegen (two to four quarters)
 
 Levers **L6, L7**; then the long tail: 1,341 signatures, most of the 3,382
-loops and the 646 context writes. The annotation work is done the way the
+loops and the 646 context writes (all three pre-VBD sizing; the post-V5
+census re-derives them). The annotation work is done the way the
 language is designed to be written — by an agent loop against
 `yo verify --strict` with `--explain` and the counter-examples, module by
 module, with the sweep's ratchet as the progress meter and the vacuity
@@ -558,17 +576,30 @@ dogfooding did); each is an issue + regression test.
 exactly the FFI / raw-pointer boundary and is published (generated by the
 sweep's `assumed()` inventory); the vacuity gate's per-module numbers are
 at zero or falling; M4's sentence
-goes on the README. Gate inside M4 (D2): after L3+L4+L5 and the singleton
-treatment, re-run the census; flat heaps are built only if more than 5%
-of signatures remain outside the subset for heap reasons.
+goes on the README. Gate inside M4 (D2): after L3+L4+L5 and the
+mutable-place treatment, re-run the post-V5 census; flat heaps are built
+only if more than 5% of signatures remain outside the subset for
+`RefCell`-reaching or heap reasons.
 
 ### M5 — Proved passes (open-ended)
 
-Functional contracts on the passes whose bugs have cost the most: dup/drop
-balance per scope (a ghost counter + invariants; the emit-diff gate is
-today's oracle), `_optimize_dup_drop_pairs` soundness (container outlives
-local), `copy_func_contract_exprs` re-keying, `_canonical_module_path`
-idempotence. Each is a `law` or an `ensures`, each a separate PR.
+Functional contracts on the passes whose bugs have cost the most. The
+2026-10-26 rewrite re-scopes the list for post-VBD: the dup/drop pair
+optimizer loses its subject at V5 — "no implicit copy left to cancel"
+(`VALUES_BY_DEFAULT.md` decision 17) — and its pre-VBD items become:
+
+- **`Rc` clone/drop balance**: every explicit `Rc.clone` in `src/` is
+  matched by its release on every path. The standing oracle is the Z11
+  leak tracker (`yo test --allocator debug` fails a leaking test —
+  decision 48's own precondition for deleting the collector); the
+  verifier's share is the ghost-counter variant where a module wants the
+  stronger statement than the tracker's run-time answer.
+- `copy_func_contract_exprs` re-keying, `_canonical_module_path`
+  idempotence — unchanged (inductive tree walks; the natural first
+  customers for definition-hiding (`opaque`-style) support if M3's
+  obligations blow up on whole-definition unfoldings).
+
+Each is a `law` or an `ensures`, each a separate PR.
 
 ## Non-goals
 
@@ -594,6 +625,13 @@ idempotence. Each is a `law` or an `ensures`, each a separate PR.
 
 - [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md) —
   the verifier; §Non-goals, §The verifiable subset, Open Questions 1, 3, 7.
+- [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) — the campaign that
+  re-spells `src/`: decisions 17 (explicit clones, the optimizer's
+  obsolescence), 42, 43 (the verifier rule), 46 (`Rc` read-only), 47
+  (immutable bindings), 48 (deterministic `Drop`, the Z11 leak oracle);
+  V2c/V5 and B14's verifier alias-model step.
+- [`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)
+  — decision 43's origins: the rules L6 and M3 annotate under.
 - [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
   — B0 `--strict`, B1 `law`, B2 lemmas (L9).
 - [`reference/MATCHING_LOGIC_RESEARCH.md`](reference/MATCHING_LOGIC_RESEARCH.md)
@@ -603,7 +641,7 @@ idempotence. Each is a `law` or an `ensures`, each a separate PR.
 - [`archive/BOOTSTRAPPING.md`](archive/BOOTSTRAPPING.md),
   `scripts/bootstrap/fixpoint_only.sh` — the fixpoint discipline M1 task 4
   extends.
-- [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](INCREMENTAL_COMPILATION_ZIG_LESSONS.md)
+- [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md)
   — per-definition hashing (L8).
 - [`reference/MEMORY_SAFETY.md`](reference/MEMORY_SAFETY.md) — the unsafe
   boundary = the `assumed()` list.
