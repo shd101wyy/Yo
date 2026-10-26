@@ -364,7 +364,7 @@ evaluate_cond :: (
         );
         out_info := new_expr_info(&body_info.env, &result_ty);
         out_info.value = body_info.value;
-        out_info.path_collection = body_info.path_collection;
+        out_info.path_collection = body_info.path_collection.clone();
         out_info.control_flow = body_info.control_flow;
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         return(expr);
@@ -395,7 +395,7 @@ evaluate_cond :: (
         );
         out_info := new_expr_info(&env, &result_ty);
         out_info.value = body_info.value;
-        out_info.variable_name = body_info.variable_name;
+        out_info.variable_name = body_info.variable_name.clone();
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         // Only attach a new temp variable if the inner body doesn't have one.
         if(body_info.variable_name.is_none(), {

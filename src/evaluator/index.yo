@@ -247,7 +247,7 @@ impl(
         exn
       );
       module_value = Option(EvalValue).Some(result.module_value);
-      module_error = result.partial_module_error;
+      module_error = result.partial_module_error.clone();
       final_env = Option(Environment).Some(result.env);
       // Build the O(1) prelude variable cache after evaluating
       // the prelude itself.
@@ -256,8 +256,8 @@ impl(
       });
     });
     Evaluator(
-      input_string : input_string,
-      module_path : module_path,
+      input_string : input_string.clone(),
+      module_path : module_path.clone(),
       program : program,
       tokens : toks,
       module_value : module_value,

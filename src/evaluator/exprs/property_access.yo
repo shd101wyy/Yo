@@ -284,7 +284,7 @@ build_field_path_collection :: (
             );
             bpc_j = (bpc_j + usize(1));
           });
-          new_path.push(prop_name);
+          new_path.push(prop_name.clone());
           result.push(new_path);
         },
         .None => ()
@@ -295,7 +295,7 @@ build_field_path_collection :: (
     base_path := ArrayList(String).new();
     base_name := match(obj_vname, .Some(n) => n, .None => String.from("?"));
     base_path.push(base_name);
-    base_path.push(prop_name);
+    base_path.push(prop_name.clone());
     result.push(base_path);
   });
   result
@@ -574,7 +574,7 @@ evaluate_property_access :: (
                     en_name_1,
                     en_vnames_1,
                     en_vfields_1,
-                    Option(String).Some(variant_name_1),
+                    Option(String).Some(variant_name_1.clone()),
                     en_vflabels_1,
                     en_discs_1,
                     en_irs_1,
@@ -736,8 +736,8 @@ evaluate_property_access :: (
               .None => ot
             );
             hv_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt, .Some(oi) => oi.path_collection.clone(), .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name.clone(), .None => Option(String).None),
               &String.from("*")
             );
             out_hv := new_expr_info(&env, &hv_payload);
@@ -1163,7 +1163,7 @@ Raw pointer operations may dereference invalid memory.`
                   tv_en_name,
                   tv_en_vnames,
                   tv_en_vfields,
-                  Option(String).Some(variant_name_tv),
+                  Option(String).Some(variant_name_tv.clone()),
                   tv_en_vflabels,
                   tv_en_discs,
                   tv_en_irs,
@@ -1454,7 +1454,7 @@ Raw pointer operations may dereference invalid memory.`
           // (impl.test.yo DisambigPoint RED).
           tt_trait_id := match(
             type_val_inner,
-            Rc(.TraitT(_, _, _, _, tt_own_id, _, _, _, _, _)) => tt_own_id,
+            Rc(.TraitT(_, _, _, _, tt_own_id, _, _, _, _, _)) => tt_own_id.clone(),
             _ => String.from("")
           );
           tt_recv_id := type_id_or_empty(&tt_recv_ty);
@@ -1506,7 +1506,7 @@ Raw pointer operations may dereference invalid memory.`
       );
       tt_labels := match(
         type_val_inner,
-        Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
+        Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
         _ => ArrayList(String).new()
       );
       tt_types := match(
@@ -1584,7 +1584,7 @@ Raw pointer operations may dereference invalid memory.`
           if(is_trait_type(&st_trait), {
             st_labels := match(
               st_trait,
-              Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
+              Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
               _ => ArrayList(String).new()
             );
             st_types := match(
@@ -1706,14 +1706,14 @@ Raw pointer operations may dereference invalid memory.`
   // capability to project). Identity is keyed on the io-builtin side table,
   // so a user struct that merely has an `io` field is untouched.
   if(is_struct_type(&base_ty) && ast_expr_is_atom(&property_expr) && (ast_expr_token(&property_expr).value == "io"), {
-    io_proj_sid := match(base_ty, Rc(.Struct({ id : ips })) => ips, _ => String.from(""));
+    io_proj_sid := match(base_ty, Rc(.Struct({ id : ips })) => ips.clone(), _ => String.from(""));
     if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
       out_io := new_expr_info(&env, &base_ty);
       out_io.value = obj_val_main;
-      out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name, .None => Option(String).None);
+      out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name.clone(), .None => Option(String).None);
       out_io.path_collection = match(
         obj_info_opt,
-        .Some(oi_pc) => oi_pc.path_collection,
+        .Some(oi_pc) => oi_pc.path_collection.clone(),
         .None => ArrayList(ArrayList(String)).new()
       );
       out_io.is_accessing_property = Option(bool).Some(true);
@@ -1805,8 +1805,8 @@ Raw pointer operations may dereference invalid memory.`
               .None => original_obj_ty
             );
             idx_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt, .Some(oi) => oi.path_collection.clone(), .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name.clone(), .None => Option(String).None),
               &idx_str
             );
             out_idx := new_expr_info(&env, &ft_idx);
@@ -2006,8 +2006,8 @@ Raw pointer operations may dereference invalid memory.`
               .None => original_obj_ty
             );
             lbl_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt, .Some(oi) => oi.path_collection.clone(), .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name.clone(), .None => Option(String).None),
               &label_str
             );
             out_lbl := new_expr_info(&env, &ft_lbl);
@@ -2187,8 +2187,8 @@ Raw pointer operations may dereference invalid memory.`
           .Some(fi_mod) => {
             ft_mod := match(mod_types_rt.get(fi_mod), .Some(t) => t, .None => t_unit());
             mod_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt, .Some(oi) => oi.path_collection.clone(), .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name.clone(), .None => Option(String).None),
               &mod_label
             );
             out_mod := new_expr_info(&env, &ft_mod);

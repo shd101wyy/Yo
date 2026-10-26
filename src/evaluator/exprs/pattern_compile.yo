@@ -111,7 +111,7 @@ _atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.clone());
 _synth_token :: (fn(base : &Token, kind : TokenKind, value : &String) -> Token)(
   Token(
     kind : kind,
-    value : value,
+    value : value.clone(),
     row : base.row,
     column : base.column,
     character : base.character,
@@ -253,7 +253,7 @@ _variant_name_eq :: (fn(stored : &String, arm_name : &String) -> bool)(
 _select_variant :: (fn(enum_ty : &TypeValue, name : &String) -> TypeValue)(
   match(
     enum_ty,
-    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(name), vfl, discs, eirs, eiar, etas)),
+    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), vn, vf, Option(String).Some(name.clone()), vfl, discs, eirs, eiar, etas)),
     _ => enum_ty
   )
 );

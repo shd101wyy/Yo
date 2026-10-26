@@ -734,7 +734,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           f = (f + usize(1));
         });
       });
-      v := Pattern.Variant(name : vname, idx : vidx, field_idx : new_idx, subs : new_subs, enum_ty : enum_ty, through_ptr : through_ptr, arity : arity);
+      v := Pattern.Variant(name : vname.clone(), idx : vidx, field_idx : new_idx, subs : new_subs, enum_ty : enum_ty, through_ptr : through_ptr, arity : arity);
       cond(
         (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, v, env),
         true => v
@@ -805,7 +805,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         });
         si = (si + usize(1));
       });
-      Pattern.At(name : name, token : atok, atom : aatom, sub : box(new_sub))
+      Pattern.At(name : name.clone(), token : atok, atom : aatom, sub : box(new_sub))
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
       tb := Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : box(recur(&sub, &inner_ty, true, own, env, exn)));
@@ -823,7 +823,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         new_subs.push(recur(&subs(i), &ety, cell, own, env, exn));
         i = (i + usize(1));
       });
-      Pattern.Tuple(subs : new_subs, elem_tys : elem_tys)
+      Pattern.Tuple(subs : new_subs, elem_tys : elem_tys.clone())
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
       cell := (in_cell || pattern_position_is_cell(ty));
@@ -1086,7 +1086,7 @@ evaluate_match :: (
     is_ptr_match => t_ptr(&matched_type),
     true => matched_type
   );
-  en_id := match(matched_type, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid, _ => String.new());
+  en_id := match(matched_type, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(), _ => String.new());
   // GADT match detection: the enum is a GADT, an expected
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
@@ -1249,7 +1249,7 @@ evaluate_match :: (
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(&pattern_ast, "&&", .Some(usize(2))), {
-      gargs := match(pattern_ast, .FnCall(_, _, ga, _, _) => ga, .Atom(_, _) => ArrayList(AstExpr).new());
+      gargs := match(pattern_ast, .FnCall(_, _, ga, _, _) => ga.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       guard_ast = gargs.get(usize(1));
       pattern_ast = match(gargs.get(usize(0)), .Some(a) => a, .None => pattern_ast);
     });
@@ -1494,7 +1494,7 @@ evaluate_match :: (
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
-            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar, etas)),
+            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar, etas)),
             _ => venum
           );
           cond(is_ptr_match => t_ptr(&sel), true => sel)
@@ -1905,7 +1905,7 @@ evaluate_match :: (
           .Some(aa) => match(
             &aa.pattern,
             .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx == target_idx, {
-              vname = an;
+              vname = an.clone();
               varity = aar;
               vptr = aptr;
               vety = aety;

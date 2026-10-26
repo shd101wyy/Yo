@@ -472,8 +472,8 @@ eval_context_new :: (fn(std_path : &String, module_path : &String) -> EvalContex
     receiver_type : Option(TypeValue).None,
     is_evaluating_function_type : false,
     load_module : Option((fn(path : &String) -> LoadModuleResult)).None,
-    std_path : std_path,
-    current_module_path : Option(String).Some(module_path),
+    std_path : std_path.clone(),
+    current_module_path : Option(String).Some(module_path.clone()),
     is_unsafe_function_type : false,
     unsafe_context : false,
     is_control_function_type : false,
@@ -889,7 +889,7 @@ track_variable_usage_resolved :: (
             context.captured_variables.take(),
             .Some(found) => {
               captured := found;
-              captured.insert(variable_name, new_entry);
+              captured.insert(variable_name.clone(), new_entry);
               context.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(captured);
             },
             .None => ()
@@ -993,7 +993,7 @@ call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalCon
 (mut(g_module_begin_exprs) : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
 (mut(g_module_begin_expr_index) : usize) = usize(0);
 set_module_walk :: (fn(exprs : &ArrayList(AstExpr)) -> unit)({
-  g_module_begin_exprs = Option(ArrayList(AstExpr)).Some(exprs);
+  g_module_begin_exprs = Option(ArrayList(AstExpr)).Some(exprs.clone());
   ()
 });
 set_module_walk_index :: (fn(idx : usize) -> unit)({
@@ -1001,7 +1001,7 @@ set_module_walk_index :: (fn(idx : usize) -> unit)({
   ()
 });
 restore_module_walk :: (fn(prev : &Option(ArrayList(AstExpr)), prev_idx : usize) -> unit)({
-  g_module_begin_exprs = prev;
+  g_module_begin_exprs = prev.clone();
   g_module_begin_expr_index = prev_idx;
   ()
 });
@@ -1167,9 +1167,9 @@ _hard_swallow_classes :: (fn(msg : &String, include_generated : bool) -> Option(
             msg.starts_with(String.from("error[")) => match(
               msg.index_of(String.from("]: ")),
               .Some(k) => Option(String).Some(msg.substring(k + usize(3), msg.len())),
-              .None => Option(String).Some(msg)
+              .None => Option(String).Some(msg.clone())
             ),
-            true => Option(String).Some(msg)
+            true => Option(String).Some(msg.clone())
           )
         },
         true => Option(String).None
@@ -1317,7 +1317,7 @@ set_retain_walk_contexts :: (fn(v : bool) -> unit)({
 set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
   canon := canonical_module_path(path);
   if(keep, {
-    g_retained_walk_paths.with_mut(s => s.insert(canon));
+    g_retained_walk_paths.with_mut(s => s.insert(canon.clone()));
   }, {
     _removed := g_retained_walk_paths.with_mut(s => s.remove(canon.clone()));
     // `ModuleWalk` is a ref struct: releasing through the value handle
@@ -1445,7 +1445,7 @@ walk_context_retained_for :: (fn(module_path : &String) -> bool)(
 /// member-read hooks to attribute a field access to a module.
 (g_sns_module : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_sns_module :: (fn(struct_id : &String, module_path : &String) -> unit)({
-  _ := g_sns_module.with_mut(m => m.insert(struct_id, module_path));
+  _ := g_sns_module.with_mut(m => m.insert(struct_id.clone(), module_path.clone()));
 });
 /// The module behind a source-namespace struct id, if known.
 sns_module_of :: (fn(struct_id : &String) -> Option(String))(
@@ -1493,8 +1493,8 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
         .Some(existing) => existing,
         .None => HashSet(String).new()
       );
-      deps.insert(dependee);
-      _ := g_def_deps.with_mut(m => m.insert(dk, deps));
+      deps.insert(dependee.clone());
+      _ := g_def_deps.with_mut(m => m.insert(dk.clone(), deps));
       if(debug_knob(`YO_DEBUG_P3DIFF`).is_some(), {
         eprintln(`[p3edge] ${top.name} -> ${dependee}`);
       });
@@ -1518,9 +1518,9 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
     .Some(fs) => fs,
     .None => HashSet(String).new()
   );
-  fields.insert(field);
-  _ := by_target.insert(target_module, fields);
-  _ := g_module_ordered_reads.with_mut(m => m.insert(importer, by_target));
+  fields.insert(field.clone());
+  _ := by_target.insert(target_module.clone(), fields);
+  _ := g_module_ordered_reads.with_mut(m => m.insert(importer.clone(), by_target));
 });
 /// Module-member read hook shared by the property-access path: the
 /// enclosing def (forcing top) records a def-level edge when the field
@@ -1892,8 +1892,8 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     receiver_type : ctx.receiver_type,
     is_evaluating_function_type : ctx.is_evaluating_function_type,
     load_module : ctx.load_module,
-    std_path : ctx.std_path,
-    current_module_path : ctx.current_module_path,
+    std_path : ctx.std_path.clone(),
+    current_module_path : ctx.current_module_path.clone(),
     is_unsafe_function_type : ctx.is_unsafe_function_type,
     unsafe_context : ctx.unsafe_context,
     is_control_function_type : ctx.is_control_function_type,
@@ -1912,11 +1912,11 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
     currently_specializing_function_stack : ctx.currently_specializing_function_stack,
-    doc_comment_lookup : ctx.doc_comment_lookup,
+    doc_comment_lookup : ctx.doc_comment_lookup.clone(),
     expr_info_table : ctx.expr_info_table,
     comptime_fn_caches : ctx.comptime_fn_caches,
-    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
-    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types.clone(),
     pending_method_self_type : ctx.pending_method_self_type
   )
 );
@@ -2059,7 +2059,7 @@ _make_pending_def :: (fn(name : &String, e : &AstExpr, index : usize, is_impl : 
   });
   Option(PendingDef).Some(
     PendingDef(
-      name : name,
+      name : name.clone(),
       members : ArrayList(String).new(),
       expr : e,
       index : index,
@@ -2436,8 +2436,8 @@ begin_module_walk :: (
     .None => new_frame(false)
   );
   walk := ModuleWalk(
-    module_path : module_path,
-    begin_exprs : begin_exprs,
+    module_path : module_path.clone(),
+    begin_exprs : begin_exprs.clone(),
     env : env,
     module_frame_id : module_frame_id,
     module_frame : module_frame,
@@ -2465,7 +2465,7 @@ begin_module_walk :: (
       );
       si = (si + usize(1));
     });
-    _ := g_module_stmt_hash.with_mut(m => m.insert(module_path, fnv1a64(&stmt_hash_state)));
+    _ := g_module_stmt_hash.with_mut(m => m.insert(module_path.clone(), fnv1a64(&stmt_hash_state)));
   });
   (hi : usize) = usize(0);
   while(hi < defs.len(), {
@@ -2478,7 +2478,7 @@ begin_module_walk :: (
     );
     hi = (hi + usize(1));
   });
-  _ := g_module_def_count.with_mut(m => m.insert(module_path, defs.len()));
+  _ := g_module_def_count.with_mut(m => m.insert(module_path.clone(), defs.len()));
   g_module_walks.with_mut(xs => xs.push(walk));
   walk
 });
@@ -2812,7 +2812,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
     },
     .Some(msg) => {
       def.state = PendingDefState.Failed;
-      def.failure = Option(String).Some(msg);
+      def.failure = Option(String).Some(msg.clone());
     }
   );
   result
@@ -3090,7 +3090,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   match(
     missed,
     .Some(m) => {
-      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m));
+      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()));
       cond(
         in_own_impl => declaring,
         true => match(declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None), _ => declaring)
@@ -3302,7 +3302,7 @@ make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index
     state : ImplFieldState.Unforced,
     failure : Option(String).None,
     def : PendingDef(
-      name : label,
+      name : label.clone(),
       members : ArrayList(String).new(),
       expr : colon_expr,
       index : top_index,
@@ -3376,11 +3376,11 @@ impl_forcible_field :: (fn(rec : &ImplInFlight, label : &String) -> Option(ImplP
 /// which otherwise would report a misleading "No matching call found".
 (mut(g_pending_impl_force_error) : Option(String)) = Option(String).None;
 flag_pending_impl_force_error :: (fn(msg : &String) -> unit)({
-  g_pending_impl_force_error = Option(String).Some(msg);
+  g_pending_impl_force_error = Option(String).Some(msg.clone());
   ()
 });
 take_pending_impl_force_error :: (fn() -> Option(String))({
-  r := g_pending_impl_force_error;
+  r := g_pending_impl_force_error.clone();
   g_pending_impl_force_error = Option(String).None;
   r
 });
@@ -3474,8 +3474,8 @@ create_function_body_evaluation_context :: (
     self_module_type : ctx.self_module_type,
     receiver_type : ctx.receiver_type,
     load_module : ctx.load_module,
-    std_path : ctx.std_path,
-    current_module_path : ctx.current_module_path,
+    std_path : ctx.std_path.clone(),
+    current_module_path : ctx.current_module_path.clone(),
     is_unsafe_function_type : ctx.is_unsafe_function_type,
     unsafe_context : ctx.unsafe_context,
     is_control_function_type : ctx.is_control_function_type,
@@ -3498,12 +3498,12 @@ create_function_body_evaluation_context :: (
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
     currently_specializing_function_stack : ctx.currently_specializing_function_stack,
-    doc_comment_lookup : ctx.doc_comment_lookup,
+    doc_comment_lookup : ctx.doc_comment_lookup.clone(),
     // Shared mutable tables — same instance as parent so results are visible
     expr_info_table : ctx.expr_info_table,
     comptime_fn_caches : ctx.comptime_fn_caches,
-    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
-    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types.clone(),
     pending_method_self_type : Option(TypeValue).None
   )
 });

@@ -517,7 +517,7 @@ handle_member_destructuring :: (
           runtime_destructurings.push(
             RuntimeDestructuring(
               label : rhs_field_label.clone(),
-              variable_name : match(variable_name_opt, .Some(s) => s, .None => String.from("")),
+              variable_name : match(variable_name_opt, .Some(s) => s.clone(), .None => String.from("")),
               ty : rhs_field_type
             )
           );
@@ -799,7 +799,7 @@ evaluate_destructuring_assignment :: (
   // Enum variant destructuring
   // -------------------------------------------------------------------
   if(is_enum_type(&rhs_type) && ast_expr_is_fn_call(lhs), {
-    svn_opt := match(rhs_type, Rc(.EnumT(_, _, _, _, svn, _, _, _, _, _)) => svn, _ => Option(String).None);
+    svn_opt := match(rhs_type, Rc(.EnumT(_, _, _, _, svn, _, _, _, _, _)) => svn.clone(), _ => Option(String).None);
     match(
       svn_opt,
       .None => {

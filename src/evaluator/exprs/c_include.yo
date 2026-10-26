@@ -81,14 +81,14 @@ record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
         // Stored back: a `get` copy is not the stored list once collections
         // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
         grown := list;
-        grown.push(header);
-        g_extern_c_includes.with_mut(m => m.insert(name, grown));
+        grown.push(header.clone());
+        g_extern_c_includes.with_mut(m => m.insert(name.clone(), grown));
       });
     },
     .None => {
       list := ArrayList(String).new();
-      list.push(header);
-      g_extern_c_includes.with_mut(m => m.insert(name, list));
+      list.push(header.clone());
+      g_extern_c_includes.with_mut(m => m.insert(name.clone(), list));
     }
   );
 });
@@ -133,7 +133,7 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   if(!ast_expr_is_fn_call_of(&rhs, "c_type", .None), {
     return(Option(String).None);
   });
-  cargs := match(rhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  cargs := match(rhs, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get(usize(0)), .Some(a) => a, .None => rhs);
   raw := ast_expr_token(&spelling_atom).value.clone();
   rn := raw.len();
@@ -310,7 +310,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(
-          match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
+          match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
           .Some(fe) => ast_expr_token(&fe),
           .None => ast_expr_token(&arg)
         ),

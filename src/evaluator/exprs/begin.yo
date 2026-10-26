@@ -239,14 +239,14 @@ _push_dup_call :: (fn(res : &DupCallsResult, var_id : &String, e : &AstExpr) -> 
         // Stored back: the binding is a copy once collections are values.
         lst := found_lst;
         lst.push(e);
-        res.dup_calls.insert(var_id, lst);
+        res.dup_calls.insert(var_id.clone(), lst);
       });
     },
     .None => {
       nl := ArrayList(AstExpr).new();
       nl.push(e);
       res.dup_calls.insert(var_id.clone(), nl);
-      res.dup_call_var_ids.push(var_id);
+      res.dup_call_var_ids.push(var_id.clone());
     }
   );
 });
@@ -3032,8 +3032,8 @@ _evaluate_begin_expression_impl :: (
           out := new_expr_info(&env, &ret_info.ty);
           out.value = ret_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
-          out.path_collection = ret_info.path_collection;
-          out.variable_name = ret_info.variable_name;
+          out.path_collection = ret_info.path_collection.clone();
+          out.variable_name = ret_info.variable_name.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
         });
@@ -3195,8 +3195,8 @@ _evaluate_begin_expression_impl :: (
           out := new_expr_info(&env, &esc_info.ty);
           out.value = esc_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
-          out.path_collection = esc_info.path_collection;
-          out.variable_name = esc_info.variable_name;
+          out.path_collection = esc_info.path_collection.clone();
+          out.variable_name = esc_info.variable_name.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
           done = true;
@@ -3564,7 +3564,7 @@ _evaluate_begin_expression_impl :: (
   rv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&return_value_expr));
   rv_name_opt := match(
     rv_info_opt,
-    .Some(rv_info) => rv_info.variable_name,
+    .Some(rv_info) => rv_info.variable_name.clone(),
     .None => Option(String).None
   );
   match(
@@ -3954,7 +3954,7 @@ _evaluate_begin_expression_impl :: (
               );
               if(!skip, {
                 wspan := Span(
-                  path : wv.token.module_path.*,
+                  path : wv.token.module_path.*.clone(),
                   row : usize(wv.token.row),
                   col : usize(wv.token.column),
                   len : wv.token.value.chars().count()
