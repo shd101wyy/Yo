@@ -176,7 +176,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help } :: import("../../error.yo");
 { E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
@@ -2743,17 +2743,35 @@ _is_plain_place_expr :: (fn(e : &AstExpr) -> bool)({
 /// A borrowing future is then checked here, where it is made, against
 /// decision 38 D (`_check_future_call_lends`), and recorded so `io.await`
 /// knows its operand was checked (`g_checked_future_calls`).
+/// Settle this call's deferred sibling-rule complaints (§3.13 A2 deferral,
+/// `flag_deferred_sibling_rule`) at an exit of `_note_future_producing_call`
+/// where A2 checks nothing: with no captures to name a parameter, every
+/// deferred complaint of this call re-raises.
+_flush_deferred_sibling_rules_here :: (fn(expr : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  ctx;
+  none_borrowed := ArrayList(CaptureBorrow).new();
+  take_deferred_sibling_rules(ast_expr_id(expr), &none_borrowed, exn);
+});
 _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
   if(is_io_async_call(expr) || is_io_await_call(expr) || is_io_spawn_call(expr), {
+    _flush_deferred_sibling_rules_here(expr, ctx, exn);
     return(());
   });
   call_id := ast_expr_id(out_expr);
   info := match(
     expr_info_table_get(&ctx.expr_info_table, call_id),
     .Some(i) => i,
-    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)), .Some(i2) => i2, .None => return(()))
+    .None => match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
+      .Some(i2) => i2,
+      .None => {
+        _flush_deferred_sibling_rules_here(expr, ctx, exn);
+        return(())
+      }
+    )
   );
   if(!is_future_value_type(&info.ty), {
+    _flush_deferred_sibling_rules_here(expr, ctx, exn);
     return(());
   });
   (op_callee : AstExpr) = match(expr, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
@@ -2821,8 +2839,17 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     expr_info_table_set(&ctx.expr_info_table, call_id, &info);
   });
   if(bs.len() == usize(0), {
+    _flush_deferred_sibling_rules_here(expr, ctx, exn);
     return(());
   });
+  // §3.13 A2 settles the deferred sibling-rule complaints of this call
+  // (`flag_deferred_sibling_rule`, src/types/flowability.yo): a parameter a
+  // capture names is A2's — the checks below reject its place with the
+  // async-specific cell diagnostic, or deliberately accept it (a shared
+  // borrow through a read-only handle) — and its complaint is dropped; a
+  // parameter no capture names was never A2's, and its complaint re-raises
+  // before these checks speak.
+  take_deferred_sibling_rules(ast_expr_id(expr), &bs, exn);
   g_checked_future_calls.with_mut(s => s.insert(call_id));
   g_checked_future_calls.with_mut(s => s.insert(ast_expr_id(expr)));
   _check_future_call_lends(expr, &op_callee, &op_args, &bs, ctx, exn);
@@ -10561,7 +10588,20 @@ Fix: wrap the call:
           ctx,
           exn
         );
-        require_valid_ref_argument_places(&fv_param_is_ref.items, &fv_args, env, ctx, exn);
+        // §3.13 A2: for a future-PRODUCING callee the sibling-reachability
+        // rule inside `require_valid_ref_argument_places` defers its
+        // rejection to `_note_future_producing_call` (it owns the places the
+        // future's captures name).
+        fv_future_callee := match(
+          callee_info_opt,
+          .Some(ci) => match(
+            ci.ty,
+            Rc(.Func({ result : fv_fr })) => is_future_value_type(&fv_fr),
+            _ => false
+          ),
+          .None => false
+        );
+        require_valid_ref_argument_places(&fv_param_is_ref.items, fv_future_callee, ast_expr_id(expr), &fv_param_labels.items, &fv_args, env, ctx, exn);
         require_capture_borrow_exclusivity(&fv_param_is_ref.items, &fv_param_is_owning.items, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
         fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
         require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels.items, &fv_param_is_ref.items, &fv_args, fv_returns_place, env, ctx);

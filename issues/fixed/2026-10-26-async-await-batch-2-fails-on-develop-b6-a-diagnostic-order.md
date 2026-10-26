@@ -52,3 +52,39 @@ Either of:
 2. the two expectations at `tests/async_await.test.yo` idx 71 (and the batch's other A2 `comptime_expect_error`s that now raise the ref-vs-grow text) accept the new, more precise message.
 
 The verdict needs the B6-a owner's intent for decision 20's accessor guidance; this file records the regression so the red develop battery has a name.
+
+## Root cause (confirmed 2026-10-26, fix branch `fix/b6a-async-diagnostic-order`)
+
+Not a literal reorder: `require_valid_ref_argument_places` (the ref-vs-grow
+gate) has ALWAYS run inside call evaluation, before `_note_future_producing_call`'s
+A2 check. What changed is rule (b)'s judgment of the `io` sibling. `Io` is a
+struct of four plain `fn` fields; the pre-#1619 representation formulas
+(`type_contains_rc_type`, `type_representation_contains_raw_ptr`) judge a bare
+`fn` harmless, so rule (b) never fired beside it. #1619's reachability walk
+(`_type_may_reach_any_of`) conservatively answers yes for every `Func` field
+(it may be a closure that captured the container), so `io` now counts as "could
+hold a handle to xs" in EVERY async call that lends an element or object-hop
+place. That displaces A2's message on the rejected shapes — and also REJECTS
+shapes A2 deliberately accepts (a shared borrow through an `Rc` payload, e.g.
+`io.await(_a2_count(&r.*.items, io), io)`), which the batch failure masked
+(the wrong-message `comptime_expect_error` kills the batch compile before any
+assert runs).
+
+## Fixed (2026-10-26)
+
+The callee's DECLARED result cannot tell which parameters the future captures
+(the registered captures live under the `io.async` value's per-call wrapper
+id, a different SomeT from the signature annotation), so the fix DEFERS the
+sibling rule instead of pre-deciding: `_reject_if_container_reachable`'s rule
+(b) records its complaint for a future-PRODUCING callee
+(`flag_deferred_sibling_rule`, src/types/flowability.yo) instead of throwing
+at the call, and `_note_future_producing_call` (src/evaluator/calls/function.yo)
+settles it against the future's real capture list — a parameter a capture
+names is §3.13 A2's (its cell diagnostic, or the deliberate
+shared-through-`Rc` acceptance; the #1629 re-pin to the aliasing text went
+back to the A2 pin), any other complaint re-raises. Rule (a) (a module-level
+container) is unchanged, a fixed-size `Array` index place is exempt from rule
+(b) (inline storage; part 2 of
+`issues/fixed/2026-10-26-the-async-await-a2-batch-is-poisoned-three-ways-on-develop.md`),
+and #1619's sibling walk is unchanged for every non-future call (B6-a's
+accepted borrows all stay accepted). `tests/async_await.test.yo`: 285/285.

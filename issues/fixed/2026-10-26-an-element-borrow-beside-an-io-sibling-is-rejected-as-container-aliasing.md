@@ -59,3 +59,25 @@ B4-3a touches only `src/evaluator/calls/`; this belongs to develop's fix-forward
 walk (judge `Io` — or the concrete field chain inside it — as unable to reach user locals, or
 run the decision 38 D cell check before the sibling-aliasing check so the intended diagnostic
 wins). Both `tests/async_await.test.yo` batches must return to green on the fix.
+
+## Fixed (2026-10-26, `fix/b6a-async-diagnostic-order`)
+
+Two changes in `src/types/flowability.yo`, both scoped to the sibling rule
+(b) of `_reject_if_container_reachable`:
+
+- A fixed-size `Array(N, T)` index place is exempt from rule (b): the buffer
+  is inline in its owner, cannot be reallocated, and no other value can hold
+  a handle to it — the repro's `bump(&mut a.cells(usize(1)), io)` is accepted
+  again (rule (a), a module-level owner, still fires).
+- For any other index/object-hop place the rule does not throw beside a
+  future-PRODUCING callee: the complaint is deferred
+  (`flag_deferred_sibling_rule`) and `_note_future_producing_call` settles it
+  against the future's capture list — §3.13 A2 owns the places the captures
+  name (its cell diagnostic, or the deliberate shared-through-`Rc`
+  acceptance), the rest re-raise. `Io`'s maybe-closure walk verdict therefore
+  no longer displaces A2 or rejects its accepted shapes.
+
+The walk itself (`_type_may_reach_any_of`) is unchanged: a sync callee with
+an `Io` sibling beside an element borrow still rejects — that conservatism is
+B6-a's documented verdict for function-typed fields
+(`issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md`'s S3 fold).
