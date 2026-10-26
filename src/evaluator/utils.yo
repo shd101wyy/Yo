@@ -2757,6 +2757,7 @@ ExplicitCopySite :: struct(
 /// runs: `decl` is the variable's `_ic_decl_key`. The same record serves a
 /// raw pointer derived from a variable (`record_copy_pointer`).
 CopyWrite :: struct(decl : String, at_module : String, at_offset : u32);
+derive(CopyWrite, Clone);
 (mut(g_migrate_explicit_copy) : bool) = false;
 (g_explicit_copy_sites : RefCell(ArrayList(ExplicitCopySite))) = RefCell(ArrayList(ExplicitCopySite)).new(ArrayList(ExplicitCopySite).new());
 (g_explicit_copy_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -2995,6 +2996,7 @@ take_copy_pointers :: (fn() -> ArrayList(CopyWrite))({
 /// in it, is stored in `dst` by a binding, an assignment or a capture at
 /// `at_module`/`at_offset` (the leftmost token of the stored expression).
 CopyFlow :: struct(src : String, dst : String, at_module : String, at_offset : u32);
+derive(CopyFlow, Clone);
 (g_copy_flows : RefCell(ArrayList(CopyFlow))) = RefCell(ArrayList(CopyFlow)).new(ArrayList(CopyFlow).new());
 /// Record, while the migration runs, that the value of `rhs` is stored in
 /// the variable `dest_decl` (a binding, an assignment, a capture), for each
@@ -3090,6 +3092,7 @@ take_copy_tail_dests :: (fn() -> ArrayList(CopyWrite))({
 /// module (`start`..`end`, inclusive, over the member's tokens), and the
 /// impl's receiver type.
 CloneImplBody :: struct(at_module : String, start : u32, end : u32, receiver : String);
+derive(CloneImplBody, Clone);
 (g_clone_impl_bodies : RefCell(ArrayList(CloneImplBody))) = RefCell(ArrayList(CloneImplBody)).new(ArrayList(CloneImplBody).new());
 (g_clone_impl_body_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// The nominal types a `derive(T, …, Clone, …)` gave `Clone` while the
@@ -3155,6 +3158,7 @@ take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
 /// caller may call again, or a function (`is_function`, a `fn(...)`
 /// literal), which runs again on its next call.
 CopyLoop :: struct(at_module : String, start : u32, end : u32, is_function : bool);
+derive(CopyLoop, Clone);
 (g_copy_loops : RefCell(ArrayList(CopyLoop))) = RefCell(ArrayList(CopyLoop)).new(ArrayList(CopyLoop).new());
 (g_copy_loop_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// Record, while the migration runs, that `region` (a runtime `while`, a fn
