@@ -52,7 +52,9 @@
   expr_info_set_capture_type,
   expr_info_set_capture_field_inits,
   expr_info_set_macro_expansion,
-  record_macro_expansion
+  record_macro_expansion,
+  expr_info_index_trait_ptr_type,
+  expr_info_index_method_type
 } :: import("../../expr_info.yo");
 { get_closure_capture_info, get_func_type } :: import("../../function_value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
@@ -1470,15 +1472,38 @@ closure_identity_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
   });
   Option(TypeValue).None
 });
-/// A receiver a clone template may name more than once: a binding, or a
-/// field or dereference step of one. Reading it again has no effect.
-_clone_receiver_is_place :: (fn(e : &AstExpr) -> bool)(
+/// A receiver a clone template may name more than once: a binding, a field
+/// or dereference step of one, or an index read `xs(i)` (and a `.`-chain
+/// out of it) dispatched through `Index` (`_is_index_read_place`). Reading
+/// any of them again has no effect. An index read matters because the
+/// receiver of a structural `clone()` on a collection ELEMENT is one, and
+/// binding it first (`__yo_clone_src := xs(i)`) copies the element out,
+/// which is E0901 when it is move-only — the fields must be read in place
+/// (issues/fixed/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md).
+_clone_receiver_is_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   match(
     e,
     .Atom(_, _) => true,
-    .FnCall(_, _, pl_args, _, _) => (
-      ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(pl_args.get(usize(1)), .Some(.Atom(_, _)) => true, _ => false) && match(pl_args.get(usize(0)), .Some(pl_base) => recur(&pl_base), .None => false)
+    .FnCall(_, cr_callee, cr_args, cr_infix, _) => cond(
+      ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => (
+        match(cr_args.get(usize(1)), .Some(.Atom(_, _)) => true, _ => false) && match(cr_args.get(usize(0)), .Some(cr_base) => recur(&cr_base, ctx), .None => false)
+      ),
+      // `xs(i)`: the index read's own ExprInfo carries the `Index`-dispatch
+      // markers (a plain function call carries none).
+      (!cr_infix && _is_index_read_place(e, ctx)) => recur(&cr_callee, ctx),
+      true => false
     )
+  )
+);
+/// `e` was dispatched as an element read through an `Index` method
+/// (mirrors `_is_index_call`, evaluator/calls/index_trait.yo, spelled here
+/// to keep utils/ from importing calls/: the two ExprInfo markers it reads
+/// say the same thing).
+_is_index_read_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(ei) => (expr_info_index_trait_ptr_type(&ei).is_some() && expr_info_index_method_type(&ei).is_some()),
+    .None => false
   )
 );
 /// `e` with every `_CLONE_RECV_HOLE` atom replaced by a fresh-id copy of
@@ -1573,7 +1598,7 @@ structural_clone_expansion :: (
   if(!type_implements_trait_bool(target, &clone_tt, env), {
     return(Option(AstExpr).None);
   });
-  if(!_clone_receiver_is_place(recv), {
+  if(!_clone_receiver_is_place(recv, ctx), {
     bind_code := `{ __yo_clone_src := ${_CLONE_RECV_HOLE}; __yo_clone_src.clone() }`;
     bound := _eval_clone_template(&bind_code, recv, env, ctx, exn);
     return(Option(AstExpr).Some(_expand_clone_to(expr, &bound, ctx)));

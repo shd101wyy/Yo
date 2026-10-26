@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate cloned-accessors` rewrites a copying accessor call
+# whose result carries a unique buffer (`String`, a std collection, an
+# aggregate holding one) to its `<name>_cloned` sibling from the impl registry:
+# `names.get(...)` becomes `names.get_cloned(...)` and `names.first()` becomes
+# `names.first_cloned()`. YO_AUDIT_COPYING_ACCESSOR prints the same sites the
+# migration records (N7): one [copying-accessor] line per call site, from the
+# migration's own evaluation. The trailing `check` proves the rewritten file
+# still evaluates. Plans/VALUES_BY_DEFAULT.md decision 20; lookahead §4.2 B6-b.
+env=YO_AUDIT_COPYING_ACCESSOR=1
+stdout_keep=^(fix:|main\.yo:[0-9]+:[0-9]+ \[copying-accessor\] )
+timeout=240

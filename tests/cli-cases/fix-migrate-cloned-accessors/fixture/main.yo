@@ -1,0 +1,24 @@
+// `yo fix <path> --migrate cloned-accessors` (decision 20, B6-b): a copying
+// accessor call `r.m(...)` whose result holds a unique buffer becomes
+// `r.m_cloned(...)` — the copy the accessor makes today is spelled as the
+// clone, so the unique-buffer flip lands on a tree that already says where
+// it copies. The sibling name comes from the impl registry.
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(names) := ArrayList(String).new();
+  names.push(`ada`);
+  names.push(`grace`);
+  first := names.get(usize(0));
+  second := names.first();
+  match(
+    (first, second),
+    (.Some(a), .Some(b)) => {
+      println(&a);
+      println(&b);
+    },
+    _ => println(`none`)
+  );
+});
+export(main);

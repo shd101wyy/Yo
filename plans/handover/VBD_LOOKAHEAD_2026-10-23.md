@@ -95,7 +95,7 @@ CI's stage 1 is the seed compiling the tree's std and src. B8–B11 run on the v
 | B7a | §4.3 | `src/expr.yo`, `std/prelude.yo` | none | SHOULD (D7). Without it, std and src may not write `for(&xs, …)` until `SEED_VERSION` ≥ v0.2.70. | §4.3 |
 | C6 | `issues/2026-10-23-a-ref-payload-in-another-variant-makes-a-move-only-match-binding-a-borrow.md` | match binding mode per variant | none | **Any release** (downgraded). src and std contain no `derive(…FromJson)` use, so stage 1 never meets it; the 3 uses are in `tests/encoding/json.test.yo:456/459/510`. | build; repro; `tests/encoding/json.test.yo`; `tests/derive*` |
 | C8 | `issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md` | match evaluator, the curly-form unwrap | none | Preferred. Workaround: a `match` struct pattern, once C3 lands. | build; repro; `tests/match_*.test.yo` |
-| C9 | `issues/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md` | evaluator | none | Can slip. Workaround: a named struct in `std/fs/dir.yo`'s `read_dir`. | build; repro |
+| C9 | `issues/fixed/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md` | evaluator | none | Can slip. Workaround: a named struct in `std/fs/dir.yo`'s `read_dir`. | build; repro |
 | C10, C11 | `issues/2026-10-22-a-move-in-one-cond-arm-is-reported-at-the-other-arm.md`, `issues/2026-10-22-a-swallowed-test-body-error-inside-a-while-loop-breaks-the-next-derive.md` (S3) | tree only | none | any release | their tests |
 
 C5, the derive early return, landed as #1557.
@@ -417,6 +417,16 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
   - Internal: `error`, `diagnostics_registry`, `verifier_list_len`, `verifier_spec_collections`, `compile`.
   - `move_only_collections`.
   - **Extra:** one N7 run, `YO_AUDIT_COPYING_ACCESSOR=1 yo check ./src`, recorded in the plan.
+  - **As built (B6-b, 2026-10-25, branch `vbd/b6b-cloned-accessors`):** the
+    N7 run over `./src` printed **1,671 sites** — 1,436 `via:String`, 212
+    `via:ArrayList`, 15 `via:HashSet`, 8 `via:HashMap`; 1,660 `get` and 11
+    `last` — and `check` still passed 276/276 (rc 0). That is B6-c's
+    rewrite surface. Two mechanics the spec's wording left open, as landed:
+    the sibling lookup goes through `get_type_trait_methods_by_name_from_env`
+    (a `_cloned` sibling in a generic impl registers per instantiation, so
+    the eager registry lookup misses it), and the decision-20 help is
+    appended to the PENDING flow-violation copy too (the enclosing trial's
+    re-raise prints that one, not the function's return value).
 
 #### B6-c: the regeneration (B1's playbook)
 

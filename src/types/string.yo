@@ -448,6 +448,36 @@ format_param_with_mode :: (fn(label : &String, ts : &String, is_ref : bool, is_o
 type_to_string :: (fn(t : &TypeValue) -> String)(
   _tts(t, usize(0), ArrayList(String).new())
 );
+/// `ty` as a diagnostic names it: an anonymous record by its fields
+/// (`struct(b : B, k : i32)`), everything else exactly as `type_to_string`.
+/// The plain renderer prints an anonymous record's internal declaration id
+/// (`<struct:struct_decl_...>`), which names nothing a user wrote
+/// (issues/fixed/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md).
+/// Messages only — keys and identity keep `type_to_string`.
+type_to_string_for_message :: (fn(t : &TypeValue) -> String)({
+  shown := match(
+    t,
+    Rc(.Struct({ name : tfm_name, field_labels : tfm_fls, field_types : tfm_fts, is_source_namespace : tfm_sns })) => cond(
+      (tfm_sns || (tfm_name.len() > usize(0))) => type_to_string(t),
+      true => {
+        body := String.new();
+        (tfm_i : usize) = usize(0);
+        while(tfm_i < tfm_fls.len(), {
+          if(tfm_i > usize(0), {
+            body.push_str(", ");
+          });
+          tfm_lbl := match(tfm_fls.get(tfm_i), .Some(l) => l.clone(), .None => String.new());
+          tfm_ft := match(tfm_fts.get(tfm_i), .Some(ft) => type_to_string(&ft), .None => String.from("?"));
+          body.push_string(`${tfm_lbl} : ${tfm_ft}`);
+          tfm_i = (tfm_i + usize(1));
+        });
+        `struct(${body})`
+      }
+    ),
+    _ => type_to_string(t)
+  );
+  shown
+});
 /// A cheap, shallow key for the synthesizer's anti-circularity check. Renders
 /// only the top few levels of structure (then `…`), so it can't blow up the way
 /// full `type_to_string` (depth 40) does when called O(n) times over a large or
@@ -458,6 +488,6 @@ type_to_string :: (fn(t : &TypeValue) -> String)(
 type_to_string_key :: (fn(t : &TypeValue) -> String)(
   _tts(t, usize(36), ArrayList(String).new())
 );
-export(type_to_string, type_to_string_key, format_param_with_mode);
+export(type_to_string, type_to_string_key, format_param_with_mode, type_to_string_for_message);
 export(register_type_display_name, type_display_name, clear_type_display_names);
 export(bump_type_key_epoch, type_key_epoch);

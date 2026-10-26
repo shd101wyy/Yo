@@ -6,7 +6,7 @@ field), `.clone()` on a collection element of it, `xs(i).clone()`, is
 rejected as a copy of the element. The same call on a local, `r.clone()`,
 clones field-wise as documented.
 
-**Status:** open. **Found:** 2026-10-22 by the V2b B8 flip probe
+**Status:** fixed 2026-10-25 (B6-b, branch `vbd/b6b-cloned-accessors`). **Found:** 2026-10-22 by the V2b B8 flip probe
 (`plans/handover/VBD_B8_PROBE_CENSUS_2026-10-22.md`). Under the flip,
 `std/fs/dir.yo` `read_dir` holds an `ArrayList` of
 `{ name : String, dt, ino }` records. `r := raw(i)` is E0901 there, and so is
@@ -50,6 +50,21 @@ rvalue copy before the field-wise clone. On a local, that copy is the last use
 or is allowed, but an element projection cannot give up ownership. A named
 struct's `Clone.clone(self : &Self)` takes the receiver as `&`, and
 `xs(i).clone()` works for it (`ArrayList.clone` relies on that).
+
+## Fix (as landed)
+
+`_clone_receiver_is_place` (evaluator/utils/closure.yo) now treats an index
+read `xs(i)` — and a `.`-chain out of one — as a place (it already accepted
+atoms and `.`-chains of atoms): the field-wise template reads `xs(i).f` in
+place instead of binding `__yo_clone_src := xs(i)`, whose binding was the
+copy. The index shape is recognised from the call's own ExprInfo markers
+(`_is_index_read_place`, mirroring `_is_index_call` in
+evaluator/calls/index_trait.yo). This also unblocks B6-a's `get_cloned` on
+an anonymous-record element (`self(index).clone()` inside its body).
+The E0901 messages render anonymous records by their fields
+(`type_to_string_for_message`, types/string.yo — `struct(b : B, k : i32)`
+instead of `<struct:struct_decl_...>`) in `_throw_explicit_copy_violation`,
+`move_only_type_help` and `move_only_reason`.
 
 ## Fix direction
 

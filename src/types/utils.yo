@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
 { TypeValue, TypeValueNode, t_refine_inner, no_types, SharedList } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
-{ type_to_string } :: import("./string.yo");
+{ type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -1247,7 +1247,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
       cond(type_is_move_only(&c) => recur(&c, depth + u32(1)), true => Option(String).None),
       .Some(inner) => {
         lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
-        return(Option(String).Some(`\`${type_to_string(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string(&c)}\`): ${inner}`));
+        return(Option(String).Some(`\`${type_to_string_for_message(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string_for_message(&c)}\`): ${inner}`));
       },
       .None => ()
     );
