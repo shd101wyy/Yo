@@ -276,3 +276,13 @@ test("PriorityQueue Default is the empty queue", {
   q.push(i32(5));
   assert(q.len() == usize(1), "the default queue is a usable queue");
 });
+// ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
+test("peek_cloned clones the largest element in place", {
+  q := PriorityQueue(i32).new();
+  assert(q.peek_cloned().is_none(), "empty: none");
+  q.push(i32(3));
+  q.push(i32(8));
+  q.push(i32(5));
+  assert(q.peek_cloned() == .Some(i32(8)), "the largest");
+  assert(q.len() == usize(3), "nothing removed");
+});

@@ -154,7 +154,7 @@ _evaluate_contract_marker :: (
 (g_index_unchecked_twins : RefCell(HashMap(ExprId, EvalValue))) = RefCell(HashMap(ExprId, EvalValue)).new(HashMap(ExprId, EvalValue).new());
 set_verify_target_paths :: (fn(paths : &ArrayList(String)) -> unit)({
   g_verify_target_paths.with_mut(xs => xs.clear());
-  g_verify_target_paths.with_mut(xs => xs.extend(paths));
+  g_verify_target_paths.with_mut(xs => xs.extend_cloned(paths));
   // A new verification recording starts: forget the previous compile's
   // container twins (watch rounds). Unlike the proved-site table, which
   // `_run_contract_verification` clears AFTER evaluation, twins are recorded
@@ -2564,7 +2564,7 @@ strip_proved_ensures_asserts :: (
             // through the handle (plans/VALUES_BY_DEFAULT.md decision 46).
             stmts := args;
             stmts.clear();
-            stmts.extend(&kept);
+            stmts.extend(kept);
           });
           stripped
         },

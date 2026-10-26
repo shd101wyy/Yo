@@ -435,3 +435,16 @@ test("OrderedMap keys sharing one hash: swap_remove moves the last position", {
   assert(m.index_of(&k0).unwrap() == usize(0), "a refilled map starts at position 0");
   assert(m.get(&k0).unwrap() == i32(5), "with the new value");
 });
+// ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
+test("get_cloned and get_index_cloned clone in place", {
+  m := OrderedMap(String, String).new();
+  m.insert(`a`, `1`);
+  m.insert(`b`, `2`);
+  mut(c) := m.get_cloned(&`b`).unwrap();
+  c.push_str("!");
+  assert(m.get(&`b`) == .Some(`2`), "the clone is independent");
+  assert(m.get_cloned(&`z`).is_none(), "absent: none");
+  e := m.get_index_cloned(usize(0)).unwrap();
+  assert((e.key == `a`) && (e.value == `1`), "the pair at position 0");
+  assert(m.get_index_cloned(usize(2)).is_none(), "out of range: none");
+});

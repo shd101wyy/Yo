@@ -337,6 +337,33 @@ impl(
     self._index = HashMap(u64, ArrayList(usize)).new();
   })
 );
+/// Decision 20's cloning accessors (plans/VALUES_BY_DEFAULT.md): `get` for a
+/// value that is not copied implicitly. The stored value is cloned in place,
+/// never copied out first.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash), V <: Clone),
+  OrderedMap(K, V),
+  /// A clone of the value for `key`, or `.None`.
+  get_cloned : (fn(self : &Self, key : &K) -> Option(V))(
+    match(
+      self._find_pos(key),
+      .Some(pos) => Option(V).Some((self._entries_ptr().add(pos)).*.value.clone()),
+      .None => Option(V).None
+    )
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash, Clone), V <: Clone),
+  OrderedMap(K, V),
+  /// A clone of the `(key, value)` pair at position `i` in the iteration
+  /// order, or `.None` when `i` is out of range — `get_index` for a key or
+  /// value that is not copied implicitly.
+  get_index_cloned : (fn(self : &Self, i : usize) -> Option(MapEntry(K, V)))(
+    self._entries.get_cloned(i)
+  )
+);
 /// Iterator over the keys of an `OrderedMap` in insertion order.
 OrderedMapKeys :: (
   fn(

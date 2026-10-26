@@ -1632,12 +1632,12 @@ artifact_input_stamp :: (
     // tree, which is what every build used to do, per artifact (audit B10).
     if(!have_depfile, {
       project_files := e.io.await(_cache_collect_yo_files(project_dir.clone(), e.io), e);
-      files.extend(&project_files);
+      files.extend(project_files);
     });
     std_root := resolve_std_path();
     if(!have_depfile && (std_root.len() > usize(0)), {
       std_files := e.io.await(_cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), e.io), e);
-      files.extend(&std_files);
+      files.extend(std_files);
     });
     // The manifest and the lock are inputs to RESOLUTION, not to evaluation, so
     // no depfile names them — but changing either changes what `import("dep")`

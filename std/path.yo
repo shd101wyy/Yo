@@ -860,7 +860,7 @@ impl(
   push : (fn(generic(P : Type), self : &mut Self, other : &P, where(P <: ToString)) -> unit)({
     joined := self._join_path(Path.new(other.to_string()));
     self._segments.clear();
-    _e := self._segments.extend(&joined._segments);
+    self._segments.extend_cloned(&joined._segments);
     self._is_absolute = joined._is_absolute;
     self._prefix = joined._prefix.clone();
   })

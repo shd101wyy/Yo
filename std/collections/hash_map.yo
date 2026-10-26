@@ -910,6 +910,53 @@ impl(
     self._set_tombstones(usize(0));
   })
 );
+/// Decision 20's cloning accessors (plans/VALUES_BY_DEFAULT.md): `get` and
+/// `get_key_value` for a value that is not copied implicitly. The stored
+/// key and value are cloned in place, never copied out first.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash), V <: Clone),
+  HashMap(K, V),
+  /// A clone of the value stored under `key`, or `.None` — O(1) average.
+  ///
+  /// ```yo
+  /// { HashMap } :: import("std/collections/hash_map");
+  /// { String } :: import("std/string");
+  /// (mut(m) : HashMap(i32, String)) = HashMap(i32, String).new();
+  /// m.insert(i32(1), `one`);
+  /// assert(m.get_cloned(&i32(1)) == .Some(`one`), "a clone of the value");
+  /// ```
+  get_cloned : (fn(self : &Self, key : &K) -> Option(V))({
+    hash := self._hash(key);
+    match(
+      Self._find_bucket(self, key, hash),
+      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.value.clone()),
+      .None => .None
+    )
+  })
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash, Clone), V <: Clone),
+  HashMap(K, V),
+  /// A clone of the stored key and value — `get_key_value` for a key or
+  /// value that is not copied implicitly.
+  get_key_value_cloned : (fn(self : &Self, key : &K) -> Option(MapEntry(K, V)))({
+    cond(
+      (self.capacity == usize(0)) => return(.None),
+      true => ()
+    );
+    hash := self._hash(key);
+    match(
+      Self._find_bucket(self, key, hash),
+      .Some(index) => {
+        p := Self._data_ptr(self).add(index);
+        Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key.clone(), value : p.*.value.clone()))
+      },
+      .None => Option(MapEntry(K, V)).None
+    )
+  })
+);
 /// The entry API. `entry(key)` resolves the key's slot in ONE probe and hands
 /// back a `HashMapEntry`; the three shorthands under it are the common
 /// combinations, each now a single probe as well (they were get-then-insert —

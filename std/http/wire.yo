@@ -425,7 +425,7 @@ _split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &mut Ar
 _carry_set :: (fn(carry : &Rc(RefCell(ArrayList(u8))), rest : &ArrayList(u8)) -> unit)(
   carry.with_mut(c => {
     c.clear();
-    c.extend(rest);
+    c.extend_cloned(rest);
   })
 );
 /// `_split_message` into a connection's shared leftover buffer.

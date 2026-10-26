@@ -10,6 +10,7 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ Deque } :: import("std/collections/deque");
 { yield } :: import("std/async");
 { sleep } :: import("std/sys/timer");
 { VList } :: import("./fixtures/owned_buffer.yo");
@@ -2669,6 +2670,62 @@ test("std/mem: a Box", {
   assert(g_mo_disposed == (before + i32(3)), "every payload once");
   assert(g_mo_sum == i32(6), "each by its own value");
 });
+// Decision 20's non-copying element access (V2b B6-a): `take(i)`, `with(i,
+// body)` and `swap(i, j)` on a list or deque of move-only elements move
+// nothing out by copy, and an element `replace` beside a value that cannot
+// reach the list is accepted
+// (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
+test("B6-a: take, with, swap and an element replace on move-only elements", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  mut(xs) := ArrayList(_MoDef).new();
+  xs.push(_MoDef(n : i32(1)));
+  xs.push(_MoDef(n : i32(2)));
+  t := xs.take(usize(0));
+  assert((t.n == i32(1)) && (xs(usize(0)).n == i32(0)), "the element out, the default in");
+  assert(_mo_take_def(t) == i32(1), "the taken element is owned");
+  r := xs.with(usize(1), d => {
+    d.n = (d.n + i32(10));
+    d.n
+  });
+  assert((r == i32(12)) && (xs(usize(1)).n == i32(12)), "written in place");
+  old := replace(&mut xs(usize(1)), _MoDef(n : i32(3)));
+  assert((old.n == i32(12)) && (xs(usize(1)).n == i32(3)), "an element replace");
+  assert(_mo_take_def(old) == i32(12), "the replaced element is owned");
+  assert(g_mo_disposed == (before + i32(2)), "only the two moved-out elements so far");
+  mut(dq) := Deque(_MoFd).new();
+  dq.push_back(_MoFd(n : i32(4)));
+  dq.push_back(_MoFd(n : i32(5)));
+  dq.swap(usize(0), usize(1));
+  assert((dq(usize(0)).n == i32(5)) && (dq(usize(1)).n == i32(4)), "a deque swap moves the slots");
+  assert(g_mo_disposed == (before + i32(2)), "nothing disposed by the swap");
+  drop(xs);
+  drop(dq);
+  assert(g_mo_disposed == (before + i32(6)), "every element once");
+  assert(g_mo_sum == i32(25), "each by its own value");
+});
+_mo_ok :: (fn(n : i32) -> Result(_MoFd, i32))(.Ok(_MoFd(n : n)));
+_mo_err :: (fn(n : i32) -> Result(i32, _MoFd))(.Err(_MoFd(n : n)));
+// The unwrap family consumes its receiver (`self : Self`), so a move-only
+// payload moves out of a temporary or a local's last use; it was a copy out
+// of a `&Self` borrow, E0901.
+test("B6-a: the unwrap family moves a move-only payload out", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  assert(_mo_take(_mo_some(i32(1)).unwrap()) == i32(1), "Option.unwrap of a temporary");
+  assert(_mo_take(_mo_some(i32(2)).expect("some")) == i32(2), "Option.expect");
+  assert(_mo_take(_mo_some(i32(3)).unwrap_or_else(() => _MoFd(n : i32(0)))) == i32(3), "Option.unwrap_or_else");
+  assert(_mo_take(_mo_ok(i32(4)).unwrap()) == i32(4), "Result.unwrap");
+  assert(_mo_take(_mo_ok(i32(5)).expect("ok")) == i32(5), "Result.expect");
+  assert(_mo_take(_mo_err(i32(6)).unwrap_err()) == i32(6), "Result.unwrap_err");
+  o := _mo_some(i32(7));
+  f := o.unwrap();
+  comptime_expect_error(o.is_some(), "use of moved value");
+  assert(_mo_take(f) == i32(7), "a local's last use moves");
+  assert(g_mo_disposed == (before + i32(7)), "each payload once");
+  assert(g_mo_sum == i32(28), "each by its own value");
+});
+// A value declared outside a loop and moved only on a `break` path is gone
 // A value declared outside a loop and moved only on a `break` path is gone
 // where the loop ends, not at the move: an exit later in the body (a
 // `return`, an effect escape, an inner loop's `return`) runs on iterations

@@ -370,3 +370,19 @@ test("BTreeMap Default is the empty map", {
   m.insert(i32(1), i32(10));
   assert(m.get(i32(1)).unwrap() == i32(10), "the default map is a usable map");
 });
+// ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
+test("get_cloned, first_entry_cloned and last_entry_cloned clone in place", {
+  m := BTreeMap(i32, ArrayList(i32)).new();
+  assert(m.first_entry_cloned().is_none() && m.last_entry_cloned().is_none(), "empty: none");
+  one := ArrayList(i32).new();
+  one.push(i32(1));
+  m.insert(i32(2), one);
+  m.insert(i32(1), ArrayList(i32).new());
+  mut(c) := m.get_cloned(&i32(2)).unwrap();
+  c.push(i32(9));
+  assert(m(i32(2)).len() == usize(1), "the clone is independent");
+  assert(m.get_cloned(&i32(5)).is_none(), "absent: none");
+  assert(m.first_entry_cloned().unwrap().key == i32(1), "the smallest key");
+  last := m.last_entry_cloned().unwrap();
+  assert((last.key == i32(2)) && (last.value.len() == usize(1)), "the largest key");
+});

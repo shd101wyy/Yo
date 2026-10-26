@@ -8263,7 +8263,7 @@ impl(
   generic(T : Type),
   Option(T),
   /// Extract the contained value, panicking with a message if `None`.
-  unwrap : (fn(self : &Self) -> T)(
+  unwrap : (fn(self : Self) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8271,7 +8271,7 @@ impl(
     )
   ),
   /// Extract the contained value, or return `or_value` if `None`.
-  unwrap_or : (fn(self : &Self, or_value : &T) -> T)(
+  unwrap_or : (fn(self : Self, or_value : &T) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8367,7 +8367,7 @@ impl(
     )
   ),
   /// Extract the contained value, or call `f` to produce a default.
-  unwrap_or_else : (fn(self : &Self, f : &Impl(Fn() -> T)) -> T)(
+  unwrap_or_else : (fn(self : Self, f : &Impl(Fn() -> T)) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8375,7 +8375,7 @@ impl(
     )
   ),
   /// Extract the contained value, panicking with `msg` if `None`.
-  expect : (fn(self : &Self, msg : str) -> T)(
+  expect : (fn(self : Self, msg : str) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8449,7 +8449,7 @@ impl(
   where(T <: Default),
   Option(T),
   /// Extract the contained value, or `T`'s default when `None`.
-  unwrap_or_default : (fn(self : &Self) -> T)(
+  unwrap_or_default : (fn(self : Self) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -9154,7 +9154,7 @@ impl(
   generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Extract the `Ok` value, panicking if `Err`.
-  unwrap : (fn(self : &Self) -> OkType)(
+  unwrap : (fn(self : Self) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9162,7 +9162,7 @@ impl(
     )
   ),
   /// Extract the `Err` value, panicking if `Ok`.
-  unwrap_err : (fn(self : &Self) -> ErrorType)(
+  unwrap_err : (fn(self : Self) -> ErrorType)(
     match(
       self,
       .Err(error) => error,
@@ -9271,7 +9271,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
-  unwrap_or_else : (fn(self : &Self, f : &Impl(Fn(a : &ErrorType) -> OkType)) -> OkType)(
+  unwrap_or_else : (fn(self : Self, f : &Impl(Fn(a : &ErrorType) -> OkType)) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9279,7 +9279,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, or return `or_value` if `Err`.
-  unwrap_or : (fn(self : &Self, or_value : &OkType) -> OkType)(
+  unwrap_or : (fn(self : Self, or_value : &OkType) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9287,7 +9287,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, panicking with `msg` if `Err`.
-  expect : (fn(self : &Self, msg : str) -> OkType)(
+  expect : (fn(self : Self, msg : str) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9295,7 +9295,7 @@ impl(
     )
   ),
   /// Extract the `Err` value, panicking with `msg` if `Ok`.
-  expect_err : (fn(self : &Self, msg : str) -> ErrorType)(
+  expect_err : (fn(self : Self, msg : str) -> ErrorType)(
     match(
       self,
       .Err(error) => error,
@@ -9331,7 +9331,7 @@ impl(
   generic(OkType : Type, ErrorType : Type),
   where(OkType <: Default),
   Result(OkType, ErrorType),
-  unwrap_or_default : (fn(self : &Self) -> OkType)(
+  unwrap_or_default : (fn(self : Self) -> OkType)(
     match(
       self,
       .Ok(value) => value,

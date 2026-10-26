@@ -131,12 +131,18 @@ The argument passed to a `&mut T` parameter is a simple lvalue **place**:
   object and `*` is just a field) is a pointer into a heap object's
   storage; it may be a `&mut` argument only when the callee cannot reach
   that object — passing the container/cell (or an alias), indexing a
-  module-level container, or passing **any other object/closure
-  argument** that could hold a handle to it, is rejected (growth or
-  reassignment could free the storage under the reference). Element-only
-  uses (`to_string(xs(i))`, `${xs(i)}`, `bump(xs(i))`,
+  module-level container, or passing **any other argument** that could
+  hold a handle to it, is rejected (growth or reassignment could free the
+  storage under the reference). An argument could hold one when it is a
+  closure, or when a value of its type can hold — in a field, a cell, a box
+  or a pointer — a value of the container's type or of a type on the field
+  path to it; a `Dyn` or an open type variable always could. So
+  `replace(&mut xs(i), v)` with `xs : ArrayList(String)` and `v : String`
+  is fine: no `String` holds an `ArrayList(String)`. Element-only uses
+  (`to_string(xs(i))`, `${xs(i)}`, `bump(xs(i))`,
   `owner_box.*.id.clone()`) are safe and legal; to combine element and
-  container in one call, copy the element out with `.get(i)` first.
+  container in one call, read the element into a local first (`.get(i)`
+  copies it, `std/mem`'s `take(&mut xs(i))` moves it out).
 
 > **Runtime backstop.** One shape evades the static argument-reachability
 > check: a container that escaped into a _global_ heap structure earlier
