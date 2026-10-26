@@ -41,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
 /// modules under loader-frame evaluation, so detection goes by recorded name).
 (g_module_level_static_names : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 { TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
@@ -77,6 +78,9 @@ pragma(Pragma.AllowUnsafe);
 { registration_owner, set_registration_owner } :: import("./type_trait_methods.yo");
 { loading_key_for_module } :: import("../module_loader.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { is_valid_variable_name } :: import("../utils.yo");
 { format_error_message, render_any_error, stash_error_diagnostics, with_code } :: import("../../error.yo");
 { E_MODULE_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
@@ -795,6 +799,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     lhs_info_opt,
                     .Some(li) => if(li.value.is_none(), {
                       record_module_level_init_expr(&evaluated);
+                      _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
                       g_module_level_static_names.with_mut(s => s.insert(ast_expr_token(&init_lhs).value));
                     }),
                     .None => ()
@@ -811,6 +816,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                     if(ast_expr_is_atom(&binding_lhs), {
                       record_module_level_init_expr(&evaluated);
+                      _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
                       g_module_level_static_names.with_mut(s => s.insert(ast_expr_token(&binding_lhs).value));
                     });
                   }, {
@@ -818,6 +824,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     if(ast_expr_is_atom(&assign_lhs), {
                       if(g_module_level_static_names.with(s => s.contains(ast_expr_token(&assign_lhs).value)), {
                         record_module_level_init_expr(&evaluated);
+                        _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
                       });
                     });
                   });
@@ -909,6 +916,108 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
 // error OBJECT (not its text — the typed diagnostics channel must survive) and
 // unwinds; the public entry then truncates the stacks to their entry depths
 // and re-throws the same object through the caller's `exn`.
+/// A module-level init statement's temps (e.g. a String literal materialized
+/// to lend `&s` to a call in the initializer) have no begin epilogue: the walk
+/// pops its frame without `_schedule_scope_end_drops`, and codegen re-emits
+/// the recorded statement inside `__yo_main_module_init` / a `__tl_init_fn`
+/// helper, where nothing released them — every such temp leaked for the
+/// program's lifetime (the FV job's verifier batch under LSan). Attach the
+/// temps THIS statement minted to the init expr itself; codegen flushes the
+/// init node's drops right after the assignment (`generate_main_wrapper`).
+///
+/// The temps are NOT in the live module frame at the record site: they were
+/// minted in a nested frame of the RHS's evaluation, which is popped by then.
+/// The RHS node's ExprInfo carries an env SNAPSHOT that still contains them
+/// (it is how codegen resolves their C names), so the scan reads that. The
+/// eligibility gates mirror `_scope_end_drop_eligible` (exprs/begin.yo) line
+/// for line; they are inlined because importing begin.yo from the module walk
+/// is a cycle (begin.yo → context.yo → this module), the same reason begin.yo
+/// keeps its own second inline copy for the params pass. `is_module_level`
+/// keeps the global itself off the list (it moves into the C static, never
+/// dropped), `consumed` keeps the initializer's moved-out result off it, the
+/// `initialized_at_token` position filter keeps EARLIER statements' temps off
+/// it (each rides its own statement's init expr — a shared snapshot can carry
+/// both), and a compile-time-only temp that never gains a C declaration is
+/// skipped by codegen's undeclared-temp gate.
+_attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  stmt_tok := ast_expr_token(stmt);
+  rhs_node := match(
+    stmt,
+    .FnCall(_, _, sa, _, _) => match(sa.get(usize(1)), .Some(r) => r, .None => stmt),
+    _ => stmt
+  );
+  snapshot_env := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs_node)),
+    .Some(ri) => ri.env,
+    .None => env
+  );
+  stmt_temps := ArrayList(Variable).new();
+  (fi : usize) = snapshot_env.frames.len();
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    match(
+      snapshot_env.frames.get(fi),
+      .Some(fr) => {
+        fv := fr.variables;
+        (i : usize) = usize(0);
+        while(i < fv.len(), {
+          match(
+            fv.get(i),
+            .Some(v) => {
+              minted_here := match(
+                v.initialized_at_token,
+                .Some(it) => ((stmt_tok.module_path == it.module_path) && (stmt_tok.input == it.input) && (stmt_tok.character <= it.character)),
+                .None => false
+              );
+              some_undroppable := match(
+                v.ty,
+                Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+                _ => false
+              );
+              if(minted_here && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty) && !v.is_module_level && !v.is_ref && !some_undroppable && v.consumed_at_token.is_none(), {
+                stmt_temps.push(v);
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  if(stmt_temps.len() > usize(0), {
+    drops := ArrayList(AstExpr).new();
+    // REVERSE mint order, the same contract as `_schedule_scope_end_drops`.
+    (di : usize) = stmt_temps.len();
+    while(di > usize(0), {
+      di = (di - usize(1));
+      match(
+        stmt_temps.get(di),
+        .Some(v) => drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${v.name})`, exn), env, ctx, exn)),
+        .None => ()
+      );
+    });
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(stmt)),
+      .Some(si) => {
+        existing := match(si.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+        (j : usize) = usize(0);
+        while(j < drops.len(), {
+          match(
+            drops.get(j),
+            .Some(d) => existing.push(d),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+        si.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(stmt), &si);
+      },
+      .None => ()
+    );
+  });
+});
 (mut(g_walk_abort) : Option(AnyError)) = Option(AnyError).None;
 _flag_walk_abort :: (fn(err : &AnyError) -> unit)({
   g_walk_abort = Option(AnyError).Some(err);

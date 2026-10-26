@@ -2268,6 +2268,47 @@ _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
     .None => false
   )
 );
+/// Is `v` an owning local this scope must drop at its end? The gates
+/// `_schedule_scope_end_drops` applies, factored out so the module walk can
+/// reuse them verbatim (`_attach_module_init_temp_drops`,
+/// evaluator/values/anonymous_module.yo).
+/// Any owning local
+/// whose type CONTAINS an RC-managed type needs a scope-end drop —
+/// including value-structs with RC fields (e.g. MapEntry(K, V) locals in
+/// HashMap.set; their ___drop decrements the field). The earlier "M1"
+/// narrowing to direct ref-struct/ref-enum handles under-dropped those
+/// locals: the compound-literal dup + dup-on-store then over-counted
+/// every store by +1 and cycle collection never reclaimed HashMap
+/// cycles (issues/fixed/yo-self-compound-literal-rc-overcount.md).
+_scope_end_drop_eligible :: (
+  fn(
+    v : &Variable,
+    params_only : bool,
+    result_var_name : &Option(String),
+    tail_atom_name : &Option(String)
+  ) -> bool
+)({
+  e0 := (!params_only || v.is_parameter);
+  e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty));
+  e2 := (e1 && !v.is_module_level);
+  e3 := (e2 && !v.is_ref);
+  // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
+  // drop possible). Bounded/resolved SomeTypes keep their drop — matching
+  // the resolvedConcreteType/requiredTraits check.
+  some_undroppable := match(
+    v.ty,
+    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    _ => false
+  );
+  e4 := (e3 && !some_undroppable);
+  e5 := (e4 && v.consumed_at_token.is_none());
+  e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
+  e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
+  if(g_debug_scope_drops, {
+    eprintln(`[sd] mod=${v.token.module_path.*} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
+  });
+  e7
+});
 _schedule_scope_end_drops :: (
   fn(
     frame : &Frame,
@@ -2312,34 +2353,7 @@ _schedule_scope_end_drops :: (
     match(
       fvars.get(vi),
       .Some(v) => {
-        // Any owning local
-        // whose type CONTAINS an RC-managed type needs a scope-end drop —
-        // including value-structs with RC fields (e.g. MapEntry(K, V) locals in
-        // HashMap.set; their ___drop decrements the field). The earlier "M1"
-        // narrowing to direct ref-struct/ref-enum handles under-dropped those
-        // locals: the compound-literal dup + dup-on-store then over-counted
-        // every store by +1 and cycle collection never reclaimed HashMap
-        // cycles (issues/fixed/yo-self-compound-literal-rc-overcount.md).
-        e0 := (!params_only || v.is_parameter);
-        e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty));
-        e2 := (e1 && !v.is_module_level);
-        e3 := (e2 && !v.is_ref);
-        // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
-        // drop possible). Bounded/resolved SomeTypes keep their drop — matching
-        // the resolvedConcreteType/requiredTraits check.
-        some_undroppable := match(
-          v.ty,
-          Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
-          _ => false
-        );
-        e4 := (e3 && !some_undroppable);
-        e5 := (e4 && v.consumed_at_token.is_none());
-        e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
-        e7 := (e6 && !_name_matches_opt(v.name.clone(), &tail_atom_name));
-        if(g_debug_scope_drops, {
-          eprintln(`[sd] mod=${v.token.module_path.*} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
-        });
-        if(e7, {
+        if(_scope_end_drop_eligible(&v, params_only, result_var_name, &tail_atom_name), {
           to_drop.push(v);
         });
       },
@@ -4157,3 +4171,4 @@ attach_consumed_binding_exit_drops :: (fn(body : &AstExpr, v : &Variable, env : 
   );
 });
 export(attach_consumed_binding_exit_drops);
+export(_scope_end_drop_eligible, _m3_token_is_at_or_before);
