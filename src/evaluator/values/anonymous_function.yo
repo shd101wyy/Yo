@@ -318,7 +318,7 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
       .Atom(_, fbtok) => cond(
         (fbtok.value == ":") => match(
           args.get(usize(0)),
-          .Some(.Atom(_, ntok)) => ntok.value,
+          .Some(.Atom(_, ntok)) => ntok.value.clone(),
           .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
           .None => fallback.clone()
         ),
@@ -426,7 +426,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
       match(ss_bound, .Some(bt) => recur(&bt, env2, allow.clone()), .None => ty)
     },
     Rc(.Pointer(ss_in)) => rc(TypeValueNode.Pointer(recur(&ss_in, env2, allow.clone()))),
-    Rc(.Array(ss_ain, ss_alen, ss_alv)) => rc(TypeValueNode.Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv)),
+    Rc(.Array(ss_ain, ss_alen, ss_alv)) => rc(TypeValueNode.Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv.clone())),
     Rc(.Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm })) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);
@@ -451,9 +451,9 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
 (g_anon_swallow_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _flag_anon_swallow :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_anon_swallow_msg.with_mut(xs => xs.clear());
-  g_anon_swallow_msg.with_mut(xs => xs.push(msg));
+  g_anon_swallow_msg.with_mut(xs => xs.push(msg.clone()));
   g_anon_swallow_code.with_mut(xs => xs.clear());
-  match(code, .Some(c) => g_anon_swallow_code.with_mut(xs => xs.push(c)), .None => ());
+  match(code, .Some(c) => g_anon_swallow_code.with_mut(xs => xs.push(c.clone())), .None => ());
 });
 /// The swallowed error's STRUCTURED diagnostics, written and cleared in
 /// lockstep with the text, as calls/function_type.yo's
@@ -467,7 +467,7 @@ _flag_anon_swallow_diags :: (fn(err : &AnyError) -> unit)({
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.with_mut(xs => xs.push(d)), .None => ());
+        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.with_mut(xs => xs.push(d.clone())), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -1462,7 +1462,7 @@ evaluate_anonymous_function_implementation :: (
       match(
         ann_some_name,
         .Some(ann_nm) => {
-          ann_targs := match(ann_pe, .FnCall(_, _, ata, _, _) => ata, .Atom(_, _) => ArrayList(AstExpr).new());
+          ann_targs := match(ann_pe, .FnCall(_, _, ata, _, _) => ata.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           ann_tex := match(ann_targs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
           ann_out := ArrayList(TypeValue).new();
           ann_prev_flag := ctx.is_evaluating_function_type;
@@ -1977,7 +1977,7 @@ evaluate_anonymous_function_implementation :: (
   // emitted as a RUNTIME C parameter. `origin_id` is the channel for the same
   // thing and travels with the meta through the `.clone()` just above.
   match(
-    match(corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.*.origin_id, _ => Option(String).None),
+    match(corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.*.origin_id.clone(), _ => Option(String).None),
     .Some(_oid) => {
       copy_func_param_defaults(_oid.clone(), func_id.clone());
       copy_func_param_default_exprs(_oid.clone(), func_id.clone());
@@ -2983,7 +2983,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     if(cap_list_raw.is_none(), {
       dup_res := generate_captured_variable_dup_expressions(&cvwv, env, ctx, exn, &tok, closure_literal_is_borrowed(expr));
       closure_borrows_captures = dup_res.borrowed;
-      closure_capture_dups = dup_res.dup_exprs;
+      closure_capture_dups = dup_res.dup_exprs.clone();
     });
     cap_res := create_capture_type_and_value(Option(TypeValue).None, &cvwv, env, &tok, closure_signature_key(&function_type));
     closure_capture_type = cap_res.capture_type;

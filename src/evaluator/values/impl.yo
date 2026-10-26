@@ -191,7 +191,7 @@ _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) 
       .FuncVal(__fvm8, cv) => if(
         __fvm8.*.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(rc(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id, env_key : __fvm8.*.env_key)), cv)
+        EvalValue.FuncVal(rc(FuncValData(forall_names : names.clone(), params : __fvm8.*.params.clone(), param_type_names : __fvm8.*.param_type_names.clone(), evidence_params : __fvm8.*.evidence_params.clone(), body : __fvm8.*.body, cap_names : __fvm8.*.cap_names.clone(), cap_tys : __fvm8.*.cap_tys.clone(), func_id : __fvm8.*.func_id.clone(), env_key : __fvm8.*.env_key)), cv)
       ),
       _ => v
     )
@@ -386,7 +386,7 @@ set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// registered yet.
 (_currently_registering_concrete_impls : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 _concrete_impl_key :: (fn(type_id : &String, trait_id : &String) -> String)(
-  type_id.clone() + String.from(":") + trait_id
+  type_id.clone() + String.from(":") + trait_id.clone()
 );
 /// Returns true if (type_id, trait_id) is currently being registered.
 is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> bool)({
@@ -400,7 +400,7 @@ is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) 
 /// Mark a type+trait pair as currently being registered.
 mark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
-  _currently_registering_concrete_impls.with_mut(m => m.insert(k, true));
+  _currently_registering_concrete_impls.with_mut(m => m.insert(k.clone(), true));
 });
 /// Unmark a type+trait pair after registration completes.
 unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)({
@@ -487,7 +487,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
       new_list.push(entry);
       new_owners := ArrayList(String).new();
       new_owners.push(owner);
-      g_impl_registry_keys.with_mut(xs => xs.push(key));
+      g_impl_registry_keys.with_mut(xs => xs.push(key.clone()));
       g_impl_registry_entry_lists.with_mut(xs => xs.push(new_list));
       g_impl_registry_entry_owners.with_mut(xs => xs.push(new_owners));
     }
@@ -845,7 +845,7 @@ _resolve_one_forall_binding :: (
   // site still emits it (tests/derive_clone_complex.test.yo 'call to
   // undeclared function', measured; std/string module eval broke under the
   // unscoped name channel too).
-  bt_id := match(bound_type, Rc(.SomeT({ id : __bti })) => __bti, _ => String.from(""));
+  bt_id := match(bound_type, Rc(.SomeT({ id : __bti })) => __bti.clone(), _ => String.from(""));
   if(_abstract_bindings_ok() && (bt_id.len() > usize(0)) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
@@ -1643,7 +1643,7 @@ try_match_generic_impl :: (
     while((wcj < n_wcj) && wc_ok, {
       wcj_some := match(entry.where_constraint_some_types.get(wcj), .Some(sm) => sm, .None => t_unit());
       wcj_trait := match(entry.where_constraint_traits.get(wcj), .Some(tr) => tr, .None => t_unit());
-      wcj_name := match(wcj_some, Rc(.SomeT(_, nm, _, _, _, _, _, _, _, _)) => nm, _ => ``);
+      wcj_name := match(wcj_some, Rc(.SomeT(_, nm, _, _, _, _, _, _, _, _)) => nm.clone(), _ => ``);
       match(
         _pre_where_or_resolve(&entry.forall_some_types, &pre_where_bindings, &match_env, &wcj_some, &wcj_name, unify_base - usize(1)),
         .Some(wcj_bound) => match(
@@ -1749,7 +1749,7 @@ try_match_generic_impl :: (
                       );
                       if(wcr_is_this_forall, {
                         wcr_lbl := match(wcr_alabels.get(wcr_k), .Some(l) => l, .None => String.new());
-                        wcr_subj_nm := match(wcr_subj, Rc(.SomeT(name : wsn)) => wsn, _ => String.new());
+                        wcr_subj_nm := match(wcr_subj, Rc(.SomeT(name : wsn)) => wsn.clone(), _ => String.new());
                         match(
                           _resolve_one_forall_binding_from(&match_env, &wcr_subj, &wcr_subj_nm, unify_base - usize(1)),
                           .Some(wcr_subj_bound) => {
@@ -2091,7 +2091,7 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
     );
     bi = (bi + usize(1));
   });
-  g_concrete_trait_impls.with_mut(xs => xs.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site)));
+  g_concrete_trait_impls.with_mut(xs => xs.push(ConcreteTraitImpl(base_key : base.clone(), receiver_ty : receiver_ty, trait_ty : trait_ty, site : site.clone())));
   g_concrete_trait_impl_owners.with_mut(xs => xs.push(registration_owner()));
 });
 /// A canonical DECLARATION-IDENTITY render of `t`, for the generic-impl
@@ -2434,13 +2434,13 @@ _inject_forall_captures :: (
     .Some(mv) => match(
       mv,
       .FuncVal(__fvm9, cvs) => {
-        fns := __fvm9.*.forall_names;
-        ps := __fvm9.*.params;
-        ptns := __fvm9.*.param_type_names;
-        evs := __fvm9.*.evidence_params;
+        fns := __fvm9.*.forall_names.clone();
+        ps := __fvm9.*.params.clone();
+        ptns := __fvm9.*.param_type_names.clone();
+        evs := __fvm9.*.evidence_params.clone();
         body := __fvm9.*.body;
         csrc := fv_capture_source(&__fvm9.*);
-        fid := __fvm9.*.func_id;
+        fid := __fvm9.*.func_id.clone();
         ifc_orig_env_key := __fvm9.*.env_key;
         memo_key := fid.clone();
         {
@@ -3484,10 +3484,10 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
               result_is_ref : rw_m.*.result_is_ref,
               result_is_mut_ref : rw_m.*.result_is_mut_ref,
               has_variadic : rw_m.*.has_variadic,
-              is_extern : rw_m.*.is_extern,
-              extern_name : rw_m.*.extern_name,
+              is_extern : rw_m.*.is_extern.clone(),
+              extern_name : rw_m.*.extern_name.clone(),
               is_control : rw_m.*.is_control,
-              variadic_label : rw_m.*.variadic_label,
+              variadic_label : rw_m.*.variadic_label.clone(),
               variadic_comptime : rw_m.*.variadic_comptime
             )
           ),
@@ -3761,7 +3761,7 @@ _member_fn_param_list :: (fn(e : &AstExpr, depth : usize) -> Option(ArrayList(As
     .Atom(_, _) => Option(ArrayList(AstExpr)).None,
     .FnCall(_, f, args, _, _) => {
       if(match(f, .Atom(_, ftok) => (ftok.value == BK_FN), .FnCall(_, _, _, _, _) => false), {
-        return(Option(ArrayList(AstExpr)).Some(args));
+        return(Option(ArrayList(AstExpr)).Some(args.clone()));
       });
       match(
         _member_fn_param_list(&f, depth + usize(1)),
@@ -4312,10 +4312,10 @@ _c2_register_member :: (
     register_provisional_trait_method(
       st.recv_id.clone(),
       MethodEntry(
-        label : label,
+        label : label.clone(),
         ty : ty,
         value : Option(EvalValue).Some(value),
-        source_trait_id : src_tid,
+        source_trait_id : src_tid.clone(),
         needs_pointer_conversion : false,
         self_type : Option(TypeValue).None,
         owner : String.new()
@@ -4503,11 +4503,11 @@ _run_impl_field :: (
 /// A forced member's failure, parked by the capture-free handler below.
 (mut(g_field_force_failure) : Option(String)) = Option(String).None;
 _flag_field_force_failure :: (fn(msg : &String) -> unit)({
-  g_field_force_failure = Option(String).Some(msg);
+  g_field_force_failure = Option(String).Some(msg.clone());
   ()
 });
 _take_field_force_failure :: (fn() -> Option(String))({
-  r := g_field_force_failure;
+  r := g_field_force_failure.clone();
   g_field_force_failure = Option(String).None;
   r
 });
@@ -4835,7 +4835,7 @@ evaluate_module_value :: (
       (param_name_opt : Option(String)) = if(ast_expr_is_fn_call(&fp_expr) && ast_expr_is_fn_call_of(&fp_expr, BK_COLON, .Some(usize(2))), {
         colon_args2 := match(
           fp_expr,
-          .FnCall(_, _, ca2, _, _) => ca2,
+          .FnCall(_, _, ca2, _, _) => ca2.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         lhs2 := match(colon_args2.get(usize(0)), .Some(e) => e, .None => make_err_expr());
@@ -5128,7 +5128,7 @@ evaluate_module_value :: (
         ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
         trait_inner_args2 := match(
           mf_expr,
-          .FnCall(_, _, tia2, _, _) => tia2,
+          .FnCall(_, _, tia2, _, _) => tia2.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         c2_rec.current_trait_ty = g_trait_ty_opt;
@@ -5890,13 +5890,13 @@ evaluate_module_value :: (
                           d_fresh := EvalValue.FuncVal(
                             rc(
                               FuncValData(
-                                forall_names : d_fvd.*.forall_names,
-                                params : d_fvd.*.params,
-                                param_type_names : d_fvd.*.param_type_names,
-                                evidence_params : d_fvd.*.evidence_params,
+                                forall_names : d_fvd.*.forall_names.clone(),
+                                params : d_fvd.*.params.clone(),
+                                param_type_names : d_fvd.*.param_type_names.clone(),
+                                evidence_params : d_fvd.*.evidence_params.clone(),
                                 body : d_body_clone.clone(),
-                                cap_names : d_fvd.*.cap_names,
-                                cap_tys : d_fvd.*.cap_tys,
+                                cap_names : d_fvd.*.cap_names.clone(),
+                                cap_tys : d_fvd.*.cap_tys.clone(),
                                 func_id : d_fresh_id.clone(),
                                 env_key : d_fvd.*.env_key
                               )
@@ -6034,14 +6034,14 @@ evaluate_module_value :: (
                             true => EvalValue.FuncVal(
                               rc(
                                 FuncValData(
-                                  forall_names : d_fvd.*.forall_names,
-                                  params : d_fvd.*.params,
-                                  param_type_names : d_fvd.*.param_type_names,
-                                  evidence_params : d_fvd.*.evidence_params,
+                                  forall_names : d_fvd.*.forall_names.clone(),
+                                  params : d_fvd.*.params.clone(),
+                                  param_type_names : d_fvd.*.param_type_names.clone(),
+                                  evidence_params : d_fvd.*.evidence_params.clone(),
                                   body : d_fvd.*.body,
-                                  cap_names : d_fvd.*.cap_names,
-                                  cap_tys : d_fvd.*.cap_tys,
-                                  func_id : d_fvd.*.func_id,
+                                  cap_names : d_fvd.*.cap_names.clone(),
+                                  cap_tys : d_fvd.*.cap_tys.clone(),
+                                  func_id : d_fvd.*.func_id.clone(),
                                   env_key : d_fvd.*.env_key
                                 )
                               ),
@@ -6138,8 +6138,8 @@ _find_methods_from_generic_impls_as_method_entries :: (
             label : method_name.clone(),
             ty : c.method_type,
             value : c.method_value,
-            source_trait_id : c.source_trait_id,
-            owner : c.owner,
+            source_trait_id : c.source_trait_id.clone(),
+            owner : c.owner.clone(),
             needs_pointer_conversion : false,
             // Generic-impl candidates come from
             // `find_methods_from_generic_impls` which already
@@ -6243,7 +6243,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
     i = (i + usize(1));
   });
   g_move_only_in_flight.with_mut(m => m.remove(key.clone()));
-  g_move_only_memo.with_mut(m => m.insert(key, found.clone()));
+  g_move_only_memo.with_mut(m => m.insert(key.clone(), found.clone()));
   _record_move_only_fast(ty, key_epoch, &found);
   found
 });
@@ -6261,7 +6261,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
 generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
   (cfid, args, is_ref) := match(
     ty,
-    Rc(.Struct({ constructor_func_id : c, type_arguments : ta, is_reference_semantics : r })) => (c, ta, r),
+    Rc(.Struct({ constructor_func_id : c, type_arguments : ta, is_reference_semantics : r })) => (c.clone(), ta, r),
     _ => return(false)
   );
   if(is_ref || cfid.is_empty() || !_any_type_has_some_type(&args.items), {
@@ -6297,7 +6297,7 @@ generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
 _generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : &SharedList(TypeValue)) -> bool)({
   (pc, pat_args) := match(
     ge.receiver_type_pattern,
-    Rc(.Struct({ constructor_func_id : c, type_arguments : pta })) => (c, pta),
+    Rc(.Struct({ constructor_func_id : c, type_arguments : pta })) => (c.clone(), pta),
     _ => return(false)
   );
   if((pc != cfid) || (pat_args.len() != args.len()), {
@@ -6451,7 +6451,7 @@ _record_move_only_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : &String
   (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
   if(!g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
     g_move_only_fast.with_mut(xs => xs.insert(slot, ty));
-    g_move_only_fast_answers.with_mut(xs => xs.insert(slot, answer));
+    g_move_only_fast_answers.with_mut(xs => xs.insert(slot, answer.clone()));
   });
 });
 _clear_move_only_memo :: (fn() -> unit)({
@@ -6470,7 +6470,7 @@ note_concrete_move_only_impl :: (fn(receiver_ty : &TypeValue, trait_ty : &TypeVa
   if(is_value_nominal_type(receiver_ty), {
     tn := move_only_declaring_trait_name(trait_ty, env);
     if(!tn.is_empty(), {
-      _add_move_only_decl(MoveOnlyDecl(concrete_id : receiver_type_id, generic : Option(GenericImplEntry).None, trait_name : tn, owner : registration_owner()));
+      _add_move_only_decl(MoveOnlyDecl(concrete_id : receiver_type_id.clone(), generic : Option(GenericImplEntry).None, trait_name : tn, owner : registration_owner()));
     });
   });
 });
@@ -6556,7 +6556,7 @@ _check_copy_clone_exclusion :: (
         if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
           g_user_clone_sites.with_mut(m => m.insert(site.clone(), true));
         });
-        g_hand_written_clone_sites.with_mut(m => m.insert(site, true));
+        g_hand_written_clone_sites.with_mut(m => m.insert(site.clone(), true));
         if(_implements_via_hook(receiver_ty, &cc.copy_tt, env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
         });

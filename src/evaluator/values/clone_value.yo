@@ -69,7 +69,7 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
         new_fields.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
-      EvalValue.EnumVal(variant : vname, fields : new_fields)
+      EvalValue.EnumVal(variant : vname.clone(), fields : new_fields)
     },
     // StructVal — recursively clone field_values
     .StructVal(ty_name : tname, field_names : fnames, field_values : fvals) => {
@@ -80,7 +80,7 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
         new_fvals.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
-      EvalValue.StructVal(ty_name : tname, field_names : fnames, field_values : new_fvals)
+      EvalValue.StructVal(ty_name : tname.clone(), field_names : fnames.clone(), field_values : new_fvals)
     },
     // TupleVal — recursively clone fields
     .TupleVal(fields : flds) => {
@@ -118,7 +118,7 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
         new_fvals.push(cloned_opt);
         i = (i + usize(1));
       });
-      EvalValue.TraitVal(ty_name : tname, field_names : fnames, field_values : new_fvals)
+      EvalValue.TraitVal(ty_name : tname.clone(), field_names : fnames.clone(), field_values : new_fvals)
     },
     // ComptimeListVal — recursively clone elements
     .ComptimeListVal(elements : elems) => {
