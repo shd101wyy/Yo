@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { is_unit_type } :: import("../../types/guards.yo");
 { format_error_message, format_eval_failure, render_any_error } :: import("../../error.yo");
 { evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
-{ migrate_explicit_copy_on } :: import("../utils.yo");
+{ copy_migration_recording_on } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ _trial_eval_test_body :: (
         out.get(usize(0)),
         .Some(ev) => ev,
         .None => {
-          if(migrate_explicit_copy_on(), {
+          if(copy_migration_recording_on(), {
             message := match(trial_err, .Some(te) => render_any_error(&te), .None => String.from("the trial evaluation failed"));
             first_line := match(message.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.new());
             g_skipped_test_bodies.with_mut(xs => xs.push(SkippedTestBody(test_tok : test_tok.clone(), name : test_name.clone(), error : first_line)));

@@ -3229,3 +3229,46 @@ test("move-only: an aborted task drops a Box-holding local it never stored as no
   assert(_mo_boxed_run(false, io) == i32(11), "the task that does not throw adds both");
   assert(g_mo_disposed == (before + i32(2)), "and disposes both once");
 });
+// A move-only value with a `Clone` (B6-b): decision 20's `get_cloned` and
+// the structural clone read the element in place, never copy it out.
+_MoCl :: struct(n : i32);
+impl(
+  _MoCl,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_mo_disposed = (g_mo_disposed + i32(1));
+      g_mo_sum = (g_mo_sum + self.n);
+    })
+  ),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(_MoCl(n : self.n))
+  )
+);
+// B6-b / C9 (issues/fixed/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md):
+// a structural `.clone()` of an anonymous-record element, and `get_cloned`
+// over one, read the element in place — copying the element out first was
+// E0901, and the diagnostic named an internal `<struct:...>` id instead of
+// the record's fields.
+test("B6-b: a structural clone of an anonymous-record element reads it in place", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  mut(raw) := ArrayList(struct(b : _MoCl, k : i32)).new();
+  raw.push({ b : _MoCl(n : i32(4)), k : i32(1) });
+  s := raw(usize(0)).clone();
+  assert((s.b.n == i32(4)) && (s.k == i32(1)), "cloned field-wise, in place");
+  v := raw.get_cloned(usize(0));
+  match(
+    v,
+    .Some(x) => assert((x.b.n == i32(4)) && (x.k == i32(1)), "get_cloned over an anonymous record"),
+    .None => assert(false, "the element is there")
+  );
+  drop(s);
+  drop(raw);
+  assert(g_mo_disposed == (before + i32(3)), "the original and the two clones, each once");
+  assert(g_mo_sum == i32(12), "each by its own value");
+});
+// The decision-20 help at a copying accessor (`get` on a move-only element
+// is E0901 whose help names the in-place read, the `get_cloned` sibling and
+// `with`) is pinned by the cli-case
+// tests/cli-cases/check-accessor-copy-names-get-cloned, whose `check` fails
+// at exactly this call.

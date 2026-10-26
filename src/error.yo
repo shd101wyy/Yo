@@ -674,6 +674,42 @@ with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err,
 with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
   match(code, .Some(_) => _with_primary_code(err, code), .None => err)
 );
+/// `err` with its primary diagnostic's help extended by `more` (a sentence
+/// appended to the existing help, or the help itself when there was none):
+/// the decision-20 accessor guidance rides a re-anchored E0901/E0910 this
+/// way. Later diagnostics keep their place.
+_with_primary_help :: (fn(err : &YoError, more : &String) -> YoError)({
+  entries := ArrayList(Diagnostic).new();
+  (hi : usize) = usize(0);
+  while(hi < err.diagnostics.len(), {
+    match(
+      err.diagnostics.get(hi),
+      .Some(hd) => {
+        if(hi == usize(0), {
+          entries.push(
+            Diagnostic(
+              code : hd.code.clone(),
+              severity : hd.severity,
+              message : hd.message.clone(),
+              span : hd.span.clone(),
+              source_line : hd.source_line.clone(),
+              help : Option(String).Some(
+                match(hd.help, .Some(h) => `${h} ${more}`, .None => more.clone())
+              ),
+              repair : hd.repair.clone(),
+              generic_independent : hd.generic_independent
+            )
+          );
+        }, {
+          entries.push(hd);
+        });
+      },
+      .None => ()
+    );
+    hi = (hi + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
 _with_primary_code :: (fn(err : &YoError, code : &Option(String)) -> YoError)({
   entries := ArrayList(Diagnostic).new();
   (wi : usize) = usize(0);
@@ -852,7 +888,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError, ExitWith);
-export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, with_code_carried);
+export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, with_code_carried, _with_primary_help);
 export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the

@@ -5095,8 +5095,10 @@ _call_term :: (
         // `xs.get(i)` (R1 slice 3): the TOTAL read — `Some(select)` in
         // bounds, `None` past the end; no obligation (that is the point of
         // `get` over `xs(i)`). The result's `Option(T)` is a value enum
-        // datatype the walk already declares.
-        if((lr.method == "get") && (n == usize(1)), {
+        // datatype the walk already declares. `get_cloned` (decision 20's
+        // explicit-copy sibling, B6-a) is modelled the same way: its clone
+        // happens inside the callee, invisible to the symbolic value.
+        if(((lr.method == "get") || (lr.method == "get_cloned")) && (n == usize(1)), {
           idx_t := _expr_term(ctx, args.get(usize(0)).unwrap());
           if(idx_t.is_none(), {
             return(Option(VcTerm).None);

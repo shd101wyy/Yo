@@ -121,7 +121,7 @@ pragma(Pragma.AllowUnsafe);
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
-{ type_to_string } :: import("../types/string.yo");
+{ type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_std_module_path } :: import("./memory_safety.yo");
@@ -643,21 +643,21 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a \`&T\` or \`&mut T\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
+      `\`${type_to_string_for_message(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a \`&T\` or \`&mut T\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
       type_holds_dyn_by_value(ty) => Option(String).Some(_dyn_copy_note(String.from("the value"), ty)),
       (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
-        `\`${type_to_string(ty)}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, String.from("the closure"))}`
+        `\`${type_to_string_for_message(ty)}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, String.from("the closure"))}`
       ),
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
-        `\`${type_to_string(ty)}\` is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move its whole owner.`
+        `\`${type_to_string_for_message(ty)}\` is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move its whole owner.`
       ),
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
-        `\`${type_to_string(ty)}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, call \`.clone()\` on it for a copy, or move its whole owner.`
+        `\`${type_to_string_for_message(ty)}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, call \`.clone()\` on it for a copy, or move its whole owner.`
       ),
       type_requires_explicit_copy(ty) => Option(String).Some(
-        `\`${type_to_string(ty)}\` is copied explicitly: call \`.clone()\` on it for a copy, lend it to a by-value parameter, or move its whole owner.`
+        `\`${type_to_string_for_message(ty)}\` is copied explicitly: call \`.clone()\` on it for a copy, lend it to a by-value parameter, or move its whole owner.`
       ),
       true => Option(String).None
     )
@@ -982,7 +982,7 @@ _explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
 /// is moved whole or not at all.
 _throw_explicit_copy_violation :: (fn(rhs : &AstExpr, ty : &TypeValue, what : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
-  msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}, and it cannot be moved either: ${what}`;
+  msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string_for_message(ty)}\` ${_explicit_copy_kind(ty)}, and it cannot be moved either: ${what}`;
   help := cond(ast_expr_is_atom(rhs) => move_only_help(&name, ty), true => move_only_type_help(ty));
   raise_flow_violation(
     with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, &help), E_USE_OF_MOVED_VALUE),
@@ -2629,6 +2629,18 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
 /// copy only if the variable is read again after the site. Inert unless the
 /// knob is set: nothing else in the evaluator reads these tables.
 (g_audit_implicit_copy : bool) = debug_knob(`YO_AUDIT_IMPLICIT_COPY`).is_some();
+/// YO_AUDIT_COPYING_ACCESSOR (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.2
+/// B6-b, item N7; plans/VALUES_BY_DEFAULT.md decision 20): lists every call
+/// in user code of a copying accessor that has a `<name>_cloned` sibling in
+/// the impl registry (`get`, `first`, `last`, `front`, `back`, `peek`,
+/// `get_key_value`, `get_index`, `first_entry`, `last_entry` — whatever the
+/// registry holds a `<name>_cloned` for; the compiler keeps no name list)
+/// whose result carries a unique buffer (`_ic_category_is_unique_buffer`:
+/// `String`, a std collection, a value aggregate holding one). One stderr
+/// line per call site:
+/// `file:line:col [copying-accessor] <category> <type> \`recv.method(...)\``.
+/// `yo fix --migrate cloned-accessors` rewrites the same sites.
+(g_audit_copying_accessor : bool) = debug_knob(`YO_AUDIT_COPYING_ACCESSOR`).is_some();
 /// YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36):
 /// Sizes decision 36's sweep: every implicit copy of a plain-data value (no
 /// owned buffer, not move-only) whose type is not `Copy`, with the source
@@ -2768,6 +2780,70 @@ take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
   g_explicit_copy_site_keys.with_mut(s => s.clear());
   out
 });
+/// One copying-accessor call `yo fix --migrate cloned-accessors` rewrites to
+/// its `<name>_cloned` sibling (B6-b; plans/VALUES_BY_DEFAULT.md decision 20):
+/// `row`/`col` are the METHOD NAME's token (`get` of `raw.get(i)` — the
+/// rewrite inserts `_cloned` right after it), `method`/`cloned` the two
+/// names, `recv_text` the receiver as printed, and `ty` the call's result
+/// type: a position recorded at two types is a generic body, which the
+/// rewrite leaves alone. `src_decl` is the receiver's root declaration
+/// (`_ic_decl_key`, empty when the receiver is a call's own result): a copy
+/// out of a container written afterwards, or one a raw pointer reaches, is
+/// listed, not rewritten — the same guards `--migrate explicit-copy` applies.
+/// `at_module`/`at_offset` identify the position independently of `path`
+/// (the two spellings of a module path). `in_generic` is set when the call
+/// was evaluated inside a generic specialization or its type still mentions
+/// an open type parameter: one `<name>_cloned` there would demand `Clone` of
+/// every instantiation.
+CopyingAccessorSite :: struct(
+  path : String,
+  row : usize,
+  col : usize,
+  method : String,
+  cloned : String,
+  recv_text : String,
+  ty : String,
+  ty_value : TypeValue,
+  src_decl : String,
+  at_module : String,
+  at_offset : u32,
+  in_generic : bool
+);
+(mut(g_migrate_cloned_accessors) : bool) = false;
+(g_copying_accessor_sites : RefCell(ArrayList(CopyingAccessorSite))) = RefCell(ArrayList(CopyingAccessorSite)).new(ArrayList(CopyingAccessorSite).new());
+(g_copying_accessor_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+(g_copying_accessor_printed : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+set_migrate_cloned_accessors :: (fn(on : bool) -> unit)({
+  g_migrate_cloned_accessors = on;
+});
+/// Whether `yo fix --migrate cloned-accessors` is recording.
+migrate_cloned_accessors_on :: (fn() -> bool)(g_migrate_cloned_accessors);
+/// Either the YO_AUDIT_COPYING_ACCESSOR knob or the migration: the
+/// call-site classifier is inert otherwise.
+audit_copying_accessor_enabled :: (fn() -> bool)(g_audit_copying_accessor || g_migrate_cloned_accessors);
+/// Record one accessor site, once per position and result type.
+record_copying_accessor_site :: (fn(site : CopyingAccessorSite) -> unit)({
+  key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty}`;
+  if(!g_copying_accessor_site_keys.with_mut(s => s.insert(key)), {
+    return(());
+  });
+  g_copying_accessor_sites.with_mut(xs => xs.push(site));
+});
+take_copying_accessor_sites :: (fn() -> ArrayList(CopyingAccessorSite))({
+  out := g_copying_accessor_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_copying_accessor_site_keys.with_mut(s => s.clear());
+  out
+});
+/// Print one audit line, once per line.
+audit_print_copying_accessor :: (fn(line : &String) -> unit)({
+  if(g_audit_copying_accessor && g_copying_accessor_printed.with_mut(s => s.insert(line.clone())), {
+    eprintln(line);
+  });
+});
+/// Either copy migration recording: the written-after, flow, tail-destination
+/// and raw-pointer tables below serve `explicit-copy` and `cloned-accessors`
+/// with the same guards.
+copy_migration_recording_on :: (fn() -> bool)(g_migrate_explicit_copy || g_migrate_cloned_accessors);
 /// A variable declaration's identity across the session: its token's module
 /// (canonical) and byte offset.
 _ic_decl_key :: (fn(decl : &Token) -> String)(
@@ -2824,7 +2900,7 @@ _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
 /// `match(iter.next(), .Some(x) => …)` binds the user's `x` from the
 /// template's iterator, whose writes advance it and touch no element.
 _ic_binding_source_decl :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, binding : &Token) -> String)({
-  if(!g_migrate_explicit_copy, {
+  if(!copy_migration_recording_on(), {
     return(String.new());
   });
   match(
@@ -2839,14 +2915,14 @@ _ic_binding_source_decl :: (fn(place : &AstExpr, env : &Environment, ctx : &Eval
 /// Record a write to the variable `place` is rooted in, at `at`, while the
 /// migration runs.
 record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
-  if(!g_migrate_explicit_copy, {
+  if(!copy_migration_recording_on(), {
     return(());
   });
   record_copy_write_decl(_ic_place_root_decl(place, env), at);
 });
 /// The same, for a variable whose declaration key is known.
 record_copy_write_decl :: (fn(decl : String, at : &Token) -> unit)({
-  if(!g_migrate_explicit_copy || decl.is_empty(), {
+  if(!copy_migration_recording_on() || decl.is_empty(), {
     return(());
   });
   g_copy_writes.with_mut(xs => xs.push(CopyWrite(decl : decl, at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
@@ -2872,7 +2948,7 @@ take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
 /// passes the call's arguments as written. An argument lent with `&x` or `&mut x` (`first_ptr(&marks)`, a helper
 /// deriving the pointer from its borrow parameter) is the place `x`.
 record_copy_pointer :: (fn(result_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, at : &Token) -> unit)({
-  if(!g_migrate_explicit_copy || !type_representation_contains_raw_ptr(result_ty), {
+  if(!copy_migration_recording_on() || !type_representation_contains_raw_ptr(result_ty), {
     return(());
   });
   (i : usize) = usize(0);
@@ -2887,7 +2963,7 @@ record_copy_pointer :: (fn(result_ty : &TypeValue, args : &ArrayList(AstExpr), e
 /// marks`), a call-site borrow marker or a nested address-of around the place
 /// is read through first.
 record_copy_pointer_place :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
-  if(!g_migrate_explicit_copy, {
+  if(!copy_migration_recording_on(), {
     return(());
   });
   (bare : AstExpr) = place.clone();
@@ -2945,7 +3021,7 @@ CopyFlow :: struct(src : String, dst : String, at_module : String, at_offset : u
 /// A `return(...)` inside an arm leaves the function, not the arm, and is
 /// not a result position of `rhs`.
 record_copy_tail_dests :: (fn(rhs : &AstExpr, dest_decl : &String, ctx : &EvalContext) -> unit)({
-  if(!g_migrate_explicit_copy || dest_decl.is_empty(), {
+  if(!copy_migration_recording_on() || dest_decl.is_empty(), {
     return(());
   });
   _ic_note_result_positions(rhs, dest_decl, false, ctx);
@@ -2997,7 +3073,7 @@ _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool
 /// body is a write of the variable, and the guard follows the flow to it
 /// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-mut-capture-list-borrow.md).
 record_copy_flow_decl :: (fn(src : String, dst : String, at : &Token) -> unit)({
-  if(!g_migrate_explicit_copy || src.is_empty() || dst.is_empty() || (src == dst), {
+  if(!copy_migration_recording_on() || src.is_empty() || dst.is_empty() || (src == dst), {
     return(());
   });
   g_copy_flows.with_mut(xs => xs.push(CopyFlow(src : src, dst : dst, at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
@@ -3090,7 +3166,7 @@ CopyLoop :: struct(at_module : String, start : u32, end : u32, is_function : boo
 /// One span per module the region's tokens come from: a `for`'s expansion
 /// mixes the prelude's template tokens with the body's own.
 record_copy_loop :: (fn(region : &AstExpr, (is_function : bool) ?= false) -> unit)({
-  if(!g_migrate_explicit_copy, {
+  if(!copy_migration_recording_on(), {
     return(());
   });
   if(!g_copy_loop_ids.with_mut(s => s.insert(ast_expr_id(region))), {
@@ -3147,7 +3223,7 @@ take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
   g_copy_loop_ids.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive);
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.

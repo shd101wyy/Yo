@@ -66,9 +66,10 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
-{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name, canonical_module_path, display_module_path } :: import("../../utils.yo");
+{ type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer, audit_copying_accessor_enabled, audit_print_copying_accessor, migrate_cloned_accessors_on, record_copying_accessor_site, CopyingAccessorSite, implicit_copy_category, _ic_category_is_unique_buffer, _ic_place_root_decl, _ic_place_root_var, _ic_decl_key } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -173,7 +174,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), &env.module_path.*);
   create_runtime_unknown_val_with_name(ty, &nm)
 });
-{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help } :: import("../../error.yo");
 { E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
@@ -7054,22 +7055,136 @@ _generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, c
 /// The note on the standard-library location of an error that
 /// `evaluate_function_call` reports at the user's call.
 STD_RAISE_NOTE :: "raised here, inside the standard library";
+/// What the decision-20 accessor lookup found at a method call `r.m(args)`
+/// (`_copying_accessor_info`): the two registry names and whether the
+/// receiver reads in place (`Index`) and writes through (`with`).
+AccessorCallInfo :: struct(
+  method : String,
+  cloned : String,
+  recv_text : String,
+  has_index : bool,
+  has_with : bool
+);
+/// `call` is a method call `r.m(args)` whose receiver type has an `m_cloned`
+/// sibling in the impl registry (B6-b; plans/VALUES_BY_DEFAULT.md decision
+/// 20): the sibling's name, whether the receiver also reads an element in
+/// place (`index` registered) and writes one through `with` — every name
+/// comes from the registry (through the SAME resolver method resolution
+/// uses, generic-impl fallback included; a `<name>_cloned` in a generic impl
+/// like ArrayList's is registered per instantiation, not eagerly), and the
+/// compiler keeps no accessor name list. `.None` for any other shape, an
+/// infix call, a receiver whose type carries no registry id, or a name the
+/// registry holds no sibling for.
+_copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AccessorCallInfo))({
+  (ca_infix : bool) = true;
+  ca_callee := match(
+    call,
+    .FnCall(_, c, _, ci, _) => {
+      ca_infix = ci;
+      c
+    },
+    .Atom(_, _) => return(Option(AccessorCallInfo).None)
+  );
+  if(ca_infix || !ast_expr_is_fn_call_of(&ca_callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(AccessorCallInfo).None);
+  });
+  ca_pargs := match(ca_callee, .FnCall(_, _, pa, _, _) => pa, .Atom(_, _) => return(Option(AccessorCallInfo).None));
+  ca_recv := match(ca_pargs.get(usize(0)), .Some(r) => r, .None => return(Option(AccessorCallInfo).None));
+  ca_name_tok := match(
+    ca_pargs.get(usize(1)),
+    .Some(.Atom(_, nt)) => cond(
+      (nt.kind == TokenKind.Identifier) => nt,
+      true => return(Option(AccessorCallInfo).None)
+    ),
+    _ => return(Option(AccessorCallInfo).None)
+  );
+  ca_recv_ty := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ca_recv)),
+    .Some(ri) => match(ri.ty, Rc(.Pointer(pt)) => pt, _ => ri.ty),
+    .None => return(Option(AccessorCallInfo).None)
+  );
+  ca_rid := type_id_or_empty(&ca_recv_ty);
+  if(ca_rid == "", {
+    return(Option(AccessorCallInfo).None);
+  });
+  ca_cloned := `${ca_name_tok.value}_cloned`;
+  if(get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() == usize(0), {
+    return(Option(AccessorCallInfo).None);
+  });
+  Option(AccessorCallInfo).Some(
+    AccessorCallInfo(
+      method : ca_name_tok.value.clone(),
+      cloned : ca_cloned,
+      recv_text : ast_expr_to_string(&ca_recv),
+      has_index : (get_type_trait_methods_by_name_from_env(env, String.from("index"), &ca_recv_ty).len() > usize(0)),
+      has_with : (get_type_trait_methods_by_name_from_env(env, String.from("with"), &ca_recv_ty).len() > usize(0))
+    )
+  )
+});
+/// Decision 20's guidance for a copying accessor, as a help sentence:
+/// "read it in place with `r(i)`, copy it with `r.m_cloned(...)`, or write
+/// through it with `r.with(i, ...)`" — the in-place read only where the
+/// receiver is index-addressed, `with` only where the receiver has it, and
+/// every name from the registry (`_copying_accessor_info`).
+_accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
+  parts := ArrayList(String).new();
+  if(info.has_index, {
+    parts.push(`read it in place with \`${info.recv_text}(i)\``);
+  });
+  parts.push(`copy it with \`${info.recv_text}.${info.cloned}(...)\``);
+  if(info.has_with, {
+    parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
+  });
+  out := String.new();
+  (pi : usize) = usize(0);
+  while(pi < parts.len(), {
+    if(pi > usize(0), {
+      out.push_str(
+        cond(
+          (pi == (parts.len() - usize(1))) => ", or ",
+          true => ", "
+        )
+      );
+    });
+    out.push_string(&parts(pi));
+    pi = (pi + usize(1));
+  });
+  out
+});
 /// An error raised inside the standard library while evaluating a call
 /// written in user code, reported at that call: the outermost user frame,
 /// with the std location as a note. A pending flagged rejection from std gets
 /// the same treatment, since the definition-time re-raise throws the flag
-/// rather than the error this frame sees.
-_reported_at_user_call :: (fn(err : &AnyError, call_tok : &Token, ctx : &EvalContext) -> AnyError)({
+/// rather than the error this frame sees. A re-anchored E0901/E0910 at a
+/// method call whose receiver type has an `<name>_cloned` sibling carries
+/// decision 20's guidance in the primary's help (`_accessor_help_sentence`).
+_reported_at_user_call :: (fn(err : &AnyError, call : &AstExpr, call_tok : &Token, env : &Environment, ctx : &EvalContext) -> AnyError)({
   err_in_std := match(primary_diagnostic_path(err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
   if(!err_in_std, {
     return(err);
   });
+  accessor_help := match(
+    primary_diagnostic_code(err),
+    .Some(code) => cond(
+      ((code == E_USE_OF_MOVED_VALUE) || (code == E_BORROW_CONFLICT)) => match(
+        _copying_accessor_info(call, env, ctx),
+        .Some(ai) => Option(String).Some(_accessor_help_sentence(&ai)),
+        .None => Option(String).None
+      ),
+      true => Option(String).None
+    ),
+    .None => Option(String).None
+  );
   match(
     flow_violation_error(),
     .Some(fv) => match(
       fv.diagnostics.get(usize(0)),
       .Some(fd) => if(is_std_module_path(&fd.span.path, ctx.std_path.clone()), {
-        flag_flow_violation(reanchor_primary_at(&fv, call_tok, String.from(STD_RAISE_NOTE)));
+        // The enclosing trial swallows what this fn returns and re-raises
+        // the PENDING copy (`reraise_flow_violation`), so the decision-20
+        // help must ride this one as well.
+        fv_anchored := reanchor_primary_at(&fv, call_tok, String.from(STD_RAISE_NOTE));
+        flag_flow_violation(match(accessor_help, .Some(h) => _with_primary_help(&fv_anchored, &h), .None => fv_anchored));
       }),
       .None => ()
     ),
@@ -7077,7 +7192,10 @@ _reported_at_user_call :: (fn(err : &AnyError, call_tok : &Token, ctx : &EvalCon
   );
   match(
     downcast(err, YoError),
-    .Some(ye) => dyn(reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE))),
+    .Some(ye) => {
+      anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
+      dyn(match(accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
+    },
     .None => err
   )
 });
@@ -7225,7 +7343,7 @@ evaluate_function_call :: (
   match(
     _evaluate_function_call_trapped(expr, env, given_type, given_value, ctx, &mut out),
     .Some(err) => {
-      exn.throw(_reported_at_user_call(&err, &call_tok, ctx));
+      exn.throw(_reported_at_user_call(&err, expr, &call_tok, env, ctx));
       expr
     },
     .None => {
@@ -7240,10 +7358,101 @@ evaluate_function_call :: (
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });
+      _audit_copying_accessor_call(expr, &r, env, ctx);
       r
     }
   )
 });
+/// N7 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.2 B6-b): one copying
+/// accessor called in user code — a method call `r.m(args)` whose receiver
+/// type has an `m_cloned` sibling (`_copying_accessor_info`) whose RESULT
+/// carries a unique buffer (`_ic_category_is_unique_buffer`: `String`, a
+/// std collection, a value aggregate holding one). Prints one
+/// `[copying-accessor]` line per call site for `YO_AUDIT_COPYING_ACCESSOR`
+/// and records the site for `yo fix --migrate cloned-accessors`. Inert
+/// unless one of them is on.
+_audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
+  if(!audit_copying_accessor_enabled(), {
+    return(());
+  });
+  ai := match(_copying_accessor_info(call, env, ctx), .Some(x) => x, .None => return(()));
+  res_ty0 := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
+    .Some(ri) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => ci.ty, .None => ri.ty),
+    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => ci.ty, .None => return(()))
+  );
+  // A specialized generic accessor's recorded result still mentions its
+  // open parameter (`Option(T)` with T resolved to the element): resolve the
+  // SomeTs so the printed type, the recorded `ty` and the in-generic verdict
+  // see the instantiated type. An UNRESOLVED T (a definition-time trial of a
+  // generic body) stays — that is exactly the in-generic case.
+  res_ty := _resolve_some_types_deep(&res_ty0, env);
+  category := implicit_copy_category(&res_ty);
+  if(!_ic_category_is_unique_buffer(&category), {
+    return(());
+  });
+  // The method NAME's token is the rewrite point: `_cloned` inserts right
+  // after it. Compiler-synthesized code (derives, generated helpers) is not
+  // a site a user migrates.
+  name_tok := match(
+    call,
+    .FnCall(_, aa_callee, _, _, _) => match(
+      aa_callee,
+      .FnCall(_, _, aa_pa, _, _) => match(aa_pa.get(usize(1)), .Some(.Atom(_, nt)) => nt, _ => ast_expr_token(call)),
+      .Atom(_, _) => ast_expr_token(call)
+    ),
+    .Atom(_, _) => ast_expr_token(call)
+  );
+  if(name_tok.module_path.*.starts_with("auto-generated://"), {
+    return(());
+  });
+  recv_text := if(ai.recv_text.len() > usize(40), `${ai.recv_text.substring(usize(0), usize(37))}...`, ai.recv_text.clone());
+  line := `${display_module_path(&name_tok.module_path.*)}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()} [copying-accessor] ${category} ${type_to_string(&res_ty).replace(" ", String.from(""))} \`${recv_text}.${ai.method}(...)\``;
+  audit_print_copying_accessor(&line);
+  if(migrate_cloned_accessors_on(), {
+    recv_expr := _accessor_recv_of(call);
+    record_copying_accessor_site(
+      CopyingAccessorSite(
+        path : name_tok.module_path.*.clone(),
+        row : usize(name_tok.row),
+        col : usize(name_tok.column),
+        method : ai.method.clone(),
+        cloned : ai.cloned.clone(),
+        recv_text : recv_text.clone(),
+        // `type_key`, not the printed type: an instantiated
+        // `Option(String)` can carry the display name of its declaration
+        // (`Option(T)`), which would collapse two instantiations of a
+        // generic body into one site.
+        ty : type_key(&res_ty),
+        ty_value : res_ty.clone(),
+        // The stop-at-owning-temp walk: a receiver that is a call's own
+        // result (`mk().get(0)`) roots in no variable, so no written-after
+        // guard applies and the site is listed instead.
+        src_decl : match(
+          _ic_place_root_var(&recv_expr, env, stop_ctx : Option(EvalContext).Some(ctx)),
+          .Some(rv) => _ic_decl_key(&rv.token),
+          .None => String.new()
+        ),
+        at_module : canonical_module_path(&name_tok.module_path.*),
+        at_offset : name_tok.byte_offset,
+        in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&res_ty))
+      )
+    );
+  });
+});
+/// The receiver expression of a method call `r.m(...)`, or the call itself
+/// when the shape is not one.
+_accessor_recv_of :: (fn(call : &AstExpr) -> AstExpr)(
+  match(
+    call,
+    .FnCall(_, ar_callee, _, false, _) => match(
+      ar_callee,
+      .FnCall(_, _, ar_pa, _, _) => match(ar_pa.get(usize(0)), .Some(ar_base) => ar_base, .None => call.clone()),
+      .Atom(_, _) => call.clone()
+    ),
+    _ => call.clone()
+  )
+);
 /// Decision 24: `call` is a direct call of a projection
 /// (`projection_call_mode_of`). Its result is a place of type `T` inside the
 /// borrowed arguments, never an owned temporary: its temp is re-attached as

@@ -1,0 +1,17 @@
+// The decision-20 help at a copying accessor (B6-b): `get` on a move-only
+// element is E0901 raised inside std and reported at the user's call, and
+// its help names the in-place read, the `get_cloned` sibling and `with` —
+// every name from the impl registry, so an ArrayList's help says
+// `get_cloned` and `with` because the registry holds them.
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+B :: struct(n : i32);
+impl(B, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+impl(B, Clone(clone : (fn(self : &Self) -> Self)(B(n : self.n))));
+main :: (fn() -> unit)({
+  mut(raw) := ArrayList(B).new();
+  raw.push(B(n : i32(4)));
+  v := raw.get(usize(0));
+  match(v, .Some(x) => println(&x.n), .None => println(`none`));
+});
+export(main);

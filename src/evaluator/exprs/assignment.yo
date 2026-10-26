@@ -127,6 +127,7 @@ pragma(Pragma.AllowUnsafe);
   migrate_explicit_copy_on,
   record_copy_write,
   record_copy_write_decl,
+  copy_migration_recording_on,
   _ic_decl_key,
   _ic_place_root_decl,
   place_cell_hops,
@@ -875,7 +876,7 @@ d3_record_inout_place :: (
   // `yo fix --migrate explicit-copy`: a `&mut` argument or receiver is a
   // write of its root variable if the callee may write the parameter, which
   // `d3_check_pending` decides from the callee's mutation mask.
-  if(migrate_explicit_copy_on(), {
+  if(copy_migration_recording_on(), {
     cw_decl := _ic_place_root_decl(place, env);
     if(!cw_decl.is_empty(), {
       pending.push(
