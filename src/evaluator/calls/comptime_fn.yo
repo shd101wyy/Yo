@@ -16,6 +16,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ replace, swap } :: import("std/mem");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom_of, make_err_expr, clone_expr_fresh_ids, next_global_expr_id } :: import("../../expr.yo");
 { register_type_display_name } :: import("../../types/string.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
@@ -43,6 +45,7 @@ pragma(Pragma.AllowUnsafe);
   EvalContext,
   ArgValues,
   CalledComptimeFnCache,
+  CapturedVarInfo,
   ComptimeFnCacheEntry,
   ComptimeFnCallResult,
   FuncOrAsyncBlockCtx,
@@ -145,8 +148,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
   if(d > usize(6), {
     return(are_types_compatible_exact(aty, bty));
   });
-  a_sid := match(aty, Rc(.Struct({ id : x })) => x, _ => String.from(""));
-  b_sid := match(bty, Rc(.Struct({ id : x })) => x, _ => String.from(""));
+  a_sid := match(aty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
+  b_sid := match(bty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
   if((a_sid.len() > usize(0)) && (a_sid == b_sid), {
     return(_ctfe_same_id_type_args_agree(aty, bty, d));
   });
@@ -447,7 +450,7 @@ _arg_vals_equal :: (fn(a : &ArrayList(EvalValue), b : &ArrayList(EvalValue)) -> 
 /// entry (SomeT args) can never match a concrete key, so only a genuine
 /// concrete instantiation of the same constructor is ever adopted.
 canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
-  sid := match(ty, Rc(.Struct({ id : x })) => x, _ => String.from(""));
+  sid := match(ty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
   if(sid.len() == usize(0), {
     return(ty);
   });
@@ -479,7 +482,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
   cfid := match(
     lookup_struct_ctor_fid(&sid),
     .Some(f) => f,
-    .None => match(ty, Rc(.Struct({ constructor_func_id : c })) => c, _ => String.from(""))
+    .None => match(ty, Rc(.Struct({ constructor_func_id : c })) => c.clone(), _ => String.from(""))
   );
   if(cfid.len() == usize(0), {
     return(ty);
@@ -533,7 +536,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
 /// the same func (all instantiations share the same structure). Returns `.None`
 /// when `some_ty` is not a registered placeholder or nothing has resolved yet.
 resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> Option(TypeValue))({
-  sid := match(some_ty, Rc(.SomeT(id : x)) => x, _ => String.from(""));
+  sid := match(some_ty, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
   if(sid.len() == usize(0), {
     return(Option(TypeValue).None);
   });
@@ -676,7 +679,7 @@ evaluate_comptime_fn_call :: (
   // Extract func_id and body from the FuncVal.
   func_id_str := match(
     function_value,
-    .FuncVal(__fvd1, _) => __fvd1.*.func_id,
+    .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(),
     _ => String.from("")
   );
   body_box := match(
@@ -1149,9 +1152,7 @@ evaluate_comptime_fn_call :: (
   // Save old values so we can restore after the call.
   old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
   old_loop_ctx := ctx.is_evaluating_loop_body;
-  old_cap_vars := ctx.captured_variables;
   old_executing := ctx.is_executing;
-  old_ret_impl := ctx.function_return_impl_concrete_type;
   old_force_ct := ctx.force_compile_time_bindings;
   // LIVE execution (a panic it reaches is a compile error): every argument
   // is known, and the call is not inside an untaken arm of an enclosing
@@ -1180,10 +1181,11 @@ evaluate_comptime_fn_call :: (
     )
   );
   ctx.is_evaluating_loop_body = .None;
-  ctx.captured_variables = .None;
+  mut(old_cap_vars) := replace(&mut ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
   ctx.is_executing = !ctx.is_validating_function_definition;
-  ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
-    ArrayList(ImplConcreteTypeInfo).new()
+  mut(old_ret_impl) := replace(
+    &mut ctx.function_return_impl_concrete_type,
+    Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new())
   );
   ctx.force_compile_time_bindings = true;
   // Evaluate a FRESH-ID CLONE of the function body — the
@@ -1212,9 +1214,9 @@ evaluate_comptime_fn_call :: (
   // Restore context.
   ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
   ctx.is_evaluating_loop_body = old_loop_ctx;
-  ctx.captured_variables = old_cap_vars;
+  swap(&mut ctx.captured_variables, &mut old_cap_vars);
   ctx.is_executing = old_executing;
-  ctx.function_return_impl_concrete_type = old_ret_impl;
+  swap(&mut ctx.function_return_impl_concrete_type, &mut old_ret_impl);
   ctx.force_compile_time_bindings = old_force_ct;
   // Extract the return value from the ExprInfoTable.
   body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_body));
@@ -1326,7 +1328,7 @@ evaluate_comptime_fn_call :: (
   // boxes its payload with `arc`, and `is_boxed_type` must recognise that box
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
   // equally unambiguous: `atomic(ref(struct((*) : V)))`.
-  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce).value, .None => String.from(""));
+  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce).value.clone(), .None => String.from(""));
   // The unique `Box` (V1 step 2) is stamped too: `unique_box_payload_type`
   // (types/guards.yo) identifies it by this name plus its newtype shape, and
   // a prelude name cannot be shadowed, so a `Box` callee is always it.
@@ -1356,7 +1358,7 @@ evaluate_comptime_fn_call :: (
     function_callee_expr,
     .Some(ce) => match(
       ce,
-      .Atom(_, ca_tok) => ca_tok.value,
+      .Atom(_, ca_tok) => ca_tok.value.clone(),
       .FnCall(_, ce_fn, ce_args, ce_infix, _) => cond(
         (ce_infix && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn, ".")) => match(
           ce_args.get(usize(1)),

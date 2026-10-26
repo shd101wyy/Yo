@@ -181,7 +181,7 @@ _resolve_prelude_range_type :: (
 _struct_ctor_fid :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.Struct({ constructor_func_id : cfid })) => cfid,
+    Rc(.Struct({ constructor_func_id : cfid })) => cfid.clone(),
     _ => String.from("")
   )
 );
@@ -571,7 +571,7 @@ _try_comptime_element_access :: (
     arg_val,
     .Some(v) => if(is_int_lit(&v), {
       // Comptime integer index — direct element access
-      idx_raw := match(v, .IntLit(r) => r, _ => String.from("0"));
+      idx_raw := match(v, .IntLit(r) => r.clone(), _ => String.from("0"));
       idx_i64 := match(
         idx_raw.parse_i64(),
         .Some(n) => n,
@@ -783,7 +783,7 @@ _compute_comptime_string_index :: (
         )
       );
     });
-    idx_raw := match(arg_value, .IntLit(r) => r, _ => String.from("0"));
+    idx_raw := match(arg_value, .IntLit(r) => r.clone(), _ => String.from("0"));
     idx_i64 := match(
       idx_raw.parse_i64(),
       .Some(n) => n,
