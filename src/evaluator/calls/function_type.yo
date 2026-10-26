@@ -263,7 +263,7 @@ PendingDefEval :: ref(
 (g_trial_swallow_diags : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
 _flag_trial_swallow :: (fn(msg : &String) -> unit)({
   g_trial_swallow_msg.with_mut(xs => xs.clear());
-  g_trial_swallow_msg.with_mut(xs => xs.push(msg));
+  g_trial_swallow_msg.with_mut(xs => xs.push(msg.clone()));
 });
 /// Record the swallowed error's diagnostics. A non-`YoError` (a plain string
 /// thrown by some other layer) carries none, and then every site below
@@ -275,7 +275,7 @@ _flag_trial_swallow_diags :: (fn(err : &AnyError) -> unit)({
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.with_mut(xs => xs.push(d)), .None => ());
+        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.with_mut(xs => xs.push(d.clone())), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -289,7 +289,7 @@ _clear_trial_swallow :: (fn() -> unit)({
 _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.with(xs => xs.len()) > usize(0));
 /// The swallowed error's code, carried onto a re-raise built from its text.
 _trial_swallow_code :: (fn() -> Option(String))(
-  match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.code, .None => Option(String).None)
+  match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.code.clone(), .None => Option(String).None)
 );
 /// The code as census text (`-` for an uncoded error).
 _trial_swallow_code_text :: (fn() -> String)(
@@ -866,7 +866,7 @@ _build_def_time_body_env :: (
                 .None => match(
                   rv_bty,
                   .Some(_) => {
-                    rk_names.push(rv.name);
+                    rk_names.push(rv.name.clone());
                     rk_tys.push(rv_bty);
                     rk_reassign.push(rv.is_reassignable);
                     rk_module_level.push(rv.is_module_level);
@@ -1244,22 +1244,28 @@ Result type: ${type_to_string(&result_box)}`
         );
       });
       // Extract the function body from args[0] of the outer call expression.
-      args := match(
+      // D6: the argument list is read where it is bound (inside each arm) —
+      // the ArrayList handle never escapes the match as a copy.
+      body_arg_len := match(
         expr,
-        .FnCall(_, _, a, _, _) => a,
-        .Atom(_, _) => ArrayList(AstExpr).new()
+        .FnCall(_, _, a, _, _) => a.len(),
+        .Atom(_, _) => usize(0)
       );
-      if(args.len() != usize(1), {
+      if(body_arg_len != usize(1), {
         exn.throw(
           dyn(
             format_error_message(
               &tok,
-              `Expected 1 argument for function body, got ${args.len()}`
+              `Expected 1 argument for function body, got ${body_arg_len.to_string()}`
             )
           )
         );
       });
-      body_expr_unprojected := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      body_expr_unprojected := match(
+        expr,
+        .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+        .Atom(_, _) => make_err_expr()
+      );
       // Decision 24: a projection's body yields a place with the sigil of its
       // result's mode; each result position becomes the marked
       // `addr_of(place)` (`rewrite_projection_tails`), so the body produces
@@ -1524,7 +1530,7 @@ Result type: ${type_to_string(&result_box)}`
             forall_names : forall_labels.items.clone(),
             params : param_labels.items.clone(),
             param_type_names : param_type_names,
-            evidence_params : implicit_labels.items,
+            evidence_params : implicit_labels.items.clone(),
             body : body_expr,
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
@@ -1745,7 +1751,7 @@ Result type: ${type_to_string(&result_box)}`
               ),
               return_label : get_func_return_label(fn_val_id.clone()),
               table : ctx.expr_info_table,
-              mode : vmode,
+              mode : vmode.clone(),
               func_val : func_val,
               // V6 task 5: an `assumed()` body is not walked, but its
               // predicates were evaluated above all the same, so a caller
@@ -1882,7 +1888,7 @@ Result type: ${type_to_string(&result_box)}`
               match(
                 def_where_entries.get(fwi),
                 .Some(fwe) => {
-                  fwe_id := match(fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid, _ => String.from(""));
+                  fwe_id := match(fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid.clone(), _ => String.from(""));
                   if(fwe_id != "", {
                     flow_where_ids.push(fwe_id);
                   });
@@ -1974,11 +1980,11 @@ Result type: ${type_to_string(&result_box)}`
               xs => xs.push(
                 PendingDefEval(
                   body : body_expr.clone(),
-                  param_labels : param_labels.items,
-                  param_types : param_types.items,
-                  param_is_ref : param_is_ref.items,
-                  param_is_owning : param_is_owning.items,
-                  param_is_comptime : def_ct_flags,
+                  param_labels : param_labels.items.clone(),
+                  param_types : param_types.items.clone(),
+                  param_is_ref : param_is_ref.items.clone(),
+                  param_is_owning : param_is_owning.items.clone(),
+                  param_is_comptime : def_ct_flags.clone(),
                   result_ty : result_box,
                   where_entries : def_where_entries,
                   function_type : function_type,
@@ -2356,7 +2362,7 @@ Result type: ${type_to_string(&result_box)}`
                 match(
                   dg_where.get(dgw_i),
                   .Some(dgw_e) => {
-                    dgw_id := match(dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid, _ => String.from(""));
+                    dgw_id := match(dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid.clone(), _ => String.from(""));
                     if(dgw_id != "", {
                       dg_where_ids.push(dgw_id);
                     });

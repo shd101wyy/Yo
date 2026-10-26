@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ replace, swap } :: import("std/mem");
 { panic } :: import("std/assert");
 {
   AstExpr,
@@ -638,7 +639,7 @@ _refine_one_fn_trait_result :: (fn(ftt : &TypeValue, new_result : &TypeValue) ->
     Rc(.FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_cpr, rw_cpo)) => cond(
       (!is_some_type(&rw_cr) && (get_all_some_types(&rw_cr).len() > usize(0))) => rc(
         TypeValueNode.FnTraitT(
-          rw_bn,
+          rw_bn.clone(),
           rw_cpl,
           rw_cpt,
           new_result,
@@ -682,7 +683,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
         );
         rf_i = (rf_i + usize(1));
       });
-      rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
+      rc(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, rf_pt, new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft, rf_rc))
     },
     Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _refine_one_fn_trait_result(ty, new_result),
     _ => ty
@@ -719,7 +720,7 @@ strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : Excepti
       )
     );
   });
-  cl_label := ast_expr_token(&cl_label_expr).value;
+  cl_label := ast_expr_token(&cl_label_expr).value.clone();
   if(param_label.len() == usize(0), {
     exn.throw(
       dyn(
@@ -1080,7 +1081,7 @@ argument_root_name :: (fn(arg : &AstExpr) -> Option(String))({
     );
   });
   cond(
-    ast_expr_is_atom(&cur) => Option(String).Some(ast_expr_token(&cur).value),
+    ast_expr_is_atom(&cur) => Option(String).Some(ast_expr_token(&cur).value.clone()),
     true => Option(String).None
   )
 });
@@ -1110,7 +1111,7 @@ argument_is_aliased_by_inout :: (fn(arg : &AstExpr, param_is_ref : bool, inout_r
   if(!ast_expr_is_atom(&bare), {
     return(false);
   });
-  name := ast_expr_token(&bare).value;
+  name := ast_expr_token(&bare).value.clone();
   (ri : usize) = usize(0);
   while(ri < inout_roots.len(), {
     if(match(inout_roots.get(ri), .Some(r) => (r == name), .None => false), {
@@ -1824,7 +1825,7 @@ ${ast_expr_to_string(&actual_arg)}`
 /// Only the character-replacement aspect is handled (no C keyword avoidance
 /// needed here since the signature is a suffix appended to a valid func_id).
 sanitize_for_sig :: (fn(s : &String) -> String)({
-  bytes := s;
+  bytes := s.clone();
   n := bytes.len();
   result := String.new();
   (i : usize) = usize(0);
@@ -2328,7 +2329,7 @@ _store_specialization_cache :: (
 )({
   new_cache := SpecializedFunctionCache(
     compile_time_arg_values : compile_time_arg_values,
-    runtime_parameter_types : runtime_parameter_types,
+    runtime_parameter_types : runtime_parameter_types.clone(),
     specialized_func_value : specialized_func_val,
     owner : registration_owner()
   );
@@ -2358,7 +2359,7 @@ _store_specialization_cache :: (
     g_specialized_fn_caches.with_mut(
       xs => xs.push(
         SpecializedFunctionCacheEntry(
-          func_id : func_id,
+          func_id : func_id.clone(),
           caches : new_caches
         )
       )
@@ -2626,7 +2627,7 @@ _build_forward_ref_funcval :: (
             body : make_err_expr(),
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
-            func_id : specialized_func_id
+            func_id : specialized_func_id.clone()
           )
         ),
         ArrayList(EvalValue).new()
@@ -2707,14 +2708,14 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
       });
       rc(
         TypeValueNode.Struct(
-          id : bk_id,
-          name : bk_nm,
+          id : bk_id.clone(),
+          name : bk_nm.clone(),
           field_labels : bk_fl,
           field_types : shared_list(bk_new_ft),
           is_reference_semantics : bk_ref,
           is_atomic_rc : bk_arc,
           is_newtype : bk_nt,
-          constructor_func_id : bk_cfid,
+          constructor_func_id : bk_cfid.clone(),
           type_arguments : shared_list(bk_new_tas),
           is_source_namespace : bk_ns
         )
@@ -2872,7 +2873,7 @@ _somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args
           .TypeVal(ft) => match(
             ft,
             Rc(.SomeT(fid, _, _, _, _, _, _, _, _, _)) => if(extract_fn_trait_from_type(&ft).is_some(), {
-              ids.push(fid);
+              ids.push(fid.clone());
             }),
             _ => ()
           ),
@@ -2919,12 +2920,12 @@ create_specialized_function_inline :: (
   result := match(
     original_func_val,
     .FuncVal(__fvm2, cap_vals) => {
-      forall_names := __fvm2.*.forall_names;
-      params := __fvm2.*.params;
-      param_type_names := __fvm2.*.param_type_names;
-      evidence_params := __fvm2.*.evidence_params;
+      forall_names := __fvm2.*.forall_names.clone();
+      params := __fvm2.*.params.clone();
+      param_type_names := __fvm2.*.param_type_names.clone();
+      evidence_params := __fvm2.*.evidence_params.clone();
       body := __fvm2.*.body;
-      func_id := __fvm2.*.func_id;
+      func_id := __fvm2.*.func_id.clone();
       // ------------------------------------------------------------------
       // Collect compile-time arg values and runtime parameter types
       // ------------------------------------------------------------------
@@ -3145,7 +3146,7 @@ create_specialized_function_inline :: (
               .Some(cf_v) => match(
                 cf_v,
                 .FuncVal(cf_fvd, _) => {
-                  cf_fid := cf_fvd.*.func_id;
+                  cf_fid := cf_fvd.*.func_id.clone();
                   if(debug_knob(`YO_DEBUG_CLFID`).is_some(), {
                     eprintln(`[clf-key] caller=${func_id} i=${cfi.to_string()} fid=${cf_fid}`);
                   });
@@ -3212,7 +3213,7 @@ create_specialized_function_inline :: (
           specialized_func_id := if(
             sig.len() > usize(0),
             `${func_id}_${sig}`,
-            func_id
+            func_id.clone()
           );
           if(sig.len() > usize(0), {
             mark_fn_specialized(func_id.clone());
@@ -3665,8 +3666,8 @@ create_specialized_function_inline :: (
           ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack);
           ctx.currently_specializing_function = Option(SpecializingFunctionInfo).Some(
             SpecializingFunctionInfo(
-              original_func_id : func_id,
-              specialized_func_id : specialized_func_id,
+              original_func_id : func_id.clone(),
+              specialized_func_id : specialized_func_id.clone(),
               specialized_return_type : spec_ret_ty.clone(),
               original_func_value : original_func_val,
               impl_bindings_sig : push_bindings_sig,
@@ -3716,10 +3717,8 @@ create_specialized_function_inline :: (
           //   * give it a fresh function_return_impl_concrete_type array.
           // All saved and restored around the body eval.
           prev_fb := ctx.is_evaluating_function_body_or_async_block;
-          prev_caps := ctx.captured_variables;
           prev_loop := ctx.is_evaluating_loop_body;
           prev_expected := ctx.expected_type;
-          prev_fri := ctx.function_return_impl_concrete_type;
           ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
             FuncOrAsyncBlockCtx(
               kind : FuncOrAsyncBlockKind.FunctionBody,
@@ -3745,11 +3744,14 @@ create_specialized_function_inline :: (
           // keep the clearing (nested `->` fns must not inherit the caller's
           // map — the std/path regression its comment documents).
           spec_is_closure := is_closure_fn(func_id.clone());
-          if(spec_is_closure, {
-            ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(HashMap(String, CapturedVarInfo).new());
-          }, {
-            ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).None;
-          });
+          mut(prev_caps) := replace(
+            &mut ctx.captured_variables,
+            if(
+              spec_is_closure,
+              Option(HashMap(String, CapturedVarInfo)).Some(HashMap(String, CapturedVarInfo).new()),
+              Option(HashMap(String, CapturedVarInfo)).None
+            )
+          );
           ctx.is_evaluating_loop_body = Option(LoopBodyCtx).None;
           // A projection's body yields its place's address (decision 24,
           // `rewrite_projection_tails`), so a `cond`/`match` tail is typed
@@ -3760,8 +3762,9 @@ create_specialized_function_inline :: (
               env : callee_env
             )
           );
-          ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
-            ArrayList(ImplConcreteTypeInfo).new()
+          mut(prev_fri) := replace(
+            &mut ctx.function_return_impl_concrete_type,
+            Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new())
           );
           // Re-bind a regular parameter to a RUNTIME placeholder (`UnknownVal`
           // of its specialized type) ONLY when try_to_call left it bound to a
@@ -3856,7 +3859,7 @@ create_specialized_function_inline :: (
             );
             closure_some_id := match(
               decl_pt,
-              Rc(.SomeT({ id : sid })) => match(extract_fn_trait_from_type(&decl_pt), .Some(_) => sid, .None => String.from("")),
+              Rc(.SomeT({ id : sid })) => match(extract_fn_trait_from_type(&decl_pt), .Some(_) => sid.clone(), .None => String.from("")),
               _ => String.from("")
             );
             is_closure_param := (closure_some_id.len() > usize(0));
@@ -3991,13 +3994,13 @@ create_specialized_function_inline :: (
                             rc(
                               TypeValueNode.SomeT(
                                 fw_rebind_id,
-                                fw_nm,
+                                fw_nm.clone(),
                                 fw_fl,
                                 fw_pt,
                                 fw_new_rtt,
-                                fw_rtl,
-                                fw_ntt,
-                                fw_ntl,
+                                fw_rtl.clone(),
+                                fw_ntt.clone(),
+                                fw_ntl.clone(),
                                 fw_kft,
                                 Option(TypeValue).Some(fw_res.clone())
                               )
@@ -4123,13 +4126,13 @@ create_specialized_function_inline :: (
                       bind_pt_cl = rc(
                         TypeValueNode.SomeT(
                           fresh_some_id.clone(),
-                          sp_nm_c,
+                          sp_nm_c.clone(),
                           sp_fl_c,
                           sp_pt_c,
-                          sp_rtt_c,
-                          sp_rtl_c,
-                          sp_ntt_c,
-                          sp_ntl_c,
+                          sp_rtt_c.clone(),
+                          sp_rtl_c.clone(),
+                          sp_ntt_c.clone(),
+                          sp_ntl_c.clone(),
                           sp_kft_c,
                           Option(TypeValue).Some(cap_ty)
                         )
@@ -4368,7 +4371,7 @@ create_specialized_function_inline :: (
               match(
                 spec_wes.get(swi),
                 .Some(swe) => {
-                  swe_id := match(swe.trait_ty, Rc(.TraitT(_, _, _, _, swe_tid, _, _, _, _, _)) => swe_tid, _ => String.from(""));
+                  swe_id := match(swe.trait_ty, Rc(.TraitT(_, _, _, _, swe_tid, _, _, _, _, _)) => swe_tid.clone(), _ => String.from(""));
                   if(swe_id != "", {
                     spec_where_ids.push(swe_id);
                   });
@@ -4493,10 +4496,10 @@ create_specialized_function_inline :: (
           spec_recorded_caps := if(spec_is_closure, ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
           // Restore context
           ctx.self_type = prev_self_type_spec;
-          ctx.function_return_impl_concrete_type = prev_fri;
+          swap(&mut ctx.function_return_impl_concrete_type, &mut prev_fri);
           ctx.expected_type = prev_expected;
           ctx.is_evaluating_loop_body = prev_loop;
-          ctx.captured_variables = prev_caps;
+          swap(&mut ctx.captured_variables, &mut prev_caps);
           ctx.is_evaluating_function_body_or_async_block = prev_fb;
           ctx.currently_specializing_function = prev_spec;
           // Pop this specialization off the full stack (pushed at the set site above).
@@ -4658,14 +4661,14 @@ create_specialized_function_inline :: (
           specialized_func_val := EvalValue.FuncVal(
             rc(
               FuncValData(
-                forall_names : forall_names,
-                params : params,
+                forall_names : forall_names.clone(),
+                params : params.clone(),
                 param_type_names : param_type_names,
                 evidence_params : evidence_params,
                 body : cloned_body,
                 cap_names : new_cap_names,
                 cap_tys : new_cap_tys,
-                func_id : specialized_func_id,
+                func_id : specialized_func_id.clone(),
                 env_key : new_env_key
               )
             ),
@@ -4724,8 +4727,8 @@ create_specialized_function_inline :: (
               sp_rir := __fm5.*.result_is_ref;
               sp_rimr := __fm5.*.result_is_mut_ref;
               sp_hv := __fm5.*.has_variadic;
-              sp_ie := __fm5.*.is_extern;
-              sp_en := __fm5.*.extern_name;
+              sp_ie := __fm5.*.is_extern.clone();
+              sp_en := __fm5.*.extern_name.clone();
               sp_ic := __fm5.*.is_control;
               (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
               (spi : usize) = usize(0);
@@ -5016,7 +5019,7 @@ create_specialized_function_inline :: (
                                           rk_some = (rk_some + get_all_some_types(match(cw_new_pts.get(rk_i), .Some(t) => t, .None => t_unit())).len());
                                           rk_i = (rk_i + usize(1));
                                         });
-                                        rk_code := match(rk_err.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c, .None => String.from("-")), .None => String.from("-"));
+                                        rk_code := match(rk_err.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c.clone(), .None => String.from("-")), .None => String.from("-"));
                                         rk_tok := ast_expr_token(&cc_fvd.*.body);
                                         eprintln(`[kept] site=${if(rk_some == usize(0), String.from("reeval-concrete"), String.from("reeval-abstract"))} code=${rk_code} owner=${rk_tok.module_path.*}:${rk_tok.row.to_string()}:${rk_tok.column.to_string()}`);
                                       },
@@ -5706,11 +5709,13 @@ evaluate_ctl_function_body_inline :: (
   prev_expected_type := ctx.expected_type;
   prev_is_eval_fb := ctx.is_evaluating_function_body_or_async_block;
   prev_enclosing_ret := ctx.enclosing_function_return_type;
-  prev_impl_concrete := ctx.function_return_impl_concrete_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(handler_fb_ctx);
   ctx.enclosing_function_return_type = Option(TypeValue).Some(enclosing_return_ty);
-  ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new());
+  mut(prev_impl_concrete) := replace(
+    &mut ctx.function_return_impl_concrete_type,
+    Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new())
+  );
   // -------------------------------------------------------------------------
   // Evaluate the body.
   // -------------------------------------------------------------------------
@@ -5726,7 +5731,7 @@ evaluate_ctl_function_body_inline :: (
   ctx.expected_type = prev_expected_type;
   ctx.is_evaluating_function_body_or_async_block = prev_is_eval_fb;
   ctx.enclosing_function_return_type = prev_enclosing_ret;
-  ctx.function_return_impl_concrete_type = prev_impl_concrete;
+  swap(&mut ctx.function_return_impl_concrete_type, &mut prev_impl_concrete);
   // -------------------------------------------------------------------------
   // Build the specialized FuncVal (func_id `<orig>_ctl_<sig>`).
   // -------------------------------------------------------------------------
@@ -6147,7 +6152,7 @@ resolve_param_types_from_expected :: (
   (si : usize) = usize(0);
   while(si < sig_somes.len(), {
     sst := match(sig_somes.get(si), .Some(t) => t, .None => t_unit());
-    snm := match(sst, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => String.from(""));
+    snm := match(sst, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => String.from(""));
     if(snm.len() > usize(0), {
       add_variable_to_env(
         &synth_env,
@@ -6399,7 +6404,7 @@ reject_runtime_comptime_arguments :: (
     fv,
     .FuncVal(rc_d, _) => {
       rc_flags := get_func_param_comptime(rc_d.*.func_id.clone());
-      rc_params := rc_d.*.params;
+      rc_params := rc_d.*.params.clone();
       (rci : usize) = usize(0);
       while(rci < args.len(), {
         if(match(rc_flags.get(rci), .Some(f) => f, .None => false), {
@@ -7020,7 +7025,7 @@ try_to_call_function_with_arguments :: (
       // here, so every later step reads the place.
       // The arguments as written, for decision 33's bare-argument rule
       // (`check_call_site_borrow_marker`), which must tell `&x` from `x`.
-      written_args := adjusted_args;
+      written_args := adjusted_args.clone();
       adjusted_args = apply_call_site_borrow_markers(&adjusted_args, &pt.items, &pref.items, &pio.items, &pl.items, is_method_call, exn);
       // An operator's operands take no marker (decision 34).
       call_is_operator := match(expr, .FnCall(_, op_f, _, op_infix, _) => (op_infix || match(op_f, .Atom(_, op_t) => (op_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
@@ -7242,7 +7247,7 @@ try_to_call_function_with_arguments :: (
           (sx_i : usize) = usize(0);
           while(sx_i < sx_all.len(), {
             sx_st := match(sx_all.get(sx_i), .Some(t) => t, .None => t_unit());
-            sx_id := match(sx_st, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => String.from(""));
+            sx_id := match(sx_st, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => String.from(""));
             if(sx_id.len() > usize(0), {
               out_ids.push(sx_id);
             });
@@ -7297,8 +7302,8 @@ try_to_call_function_with_arguments :: (
         (sg_i : usize) = usize(0);
         while(sg_i < sig_some_types.len(), {
           sg_st := match(sig_some_types.get(sg_i), .Some(t) => t, .None => t_unit());
-          sg_id := match(sg_st, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => String.from(""));
-          sg_nm := match(sg_st, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => String.from(""));
+          sg_id := match(sg_st, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => String.from(""));
+          sg_nm := match(sg_st, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => String.from(""));
           (sg_dup : bool) = false;
           (sd_i : usize) = usize(0);
           while((sd_i < seen_st_ids.len()) && !sg_dup, {
@@ -7936,7 +7941,7 @@ try_to_call_function_with_arguments :: (
                               ewa_al := match(ewa_pair.get(usize(0)), .Some(a) => a, .None => make_err_expr());
                               ewa_av := match(ewa_pair.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                               if(ast_expr_is_atom(&ewa_al) && ast_expr_is_atom(&ewa_av), {
-                                ewa_xn := ast_expr_token(&ewa_av).value;
+                                ewa_xn := ast_expr_token(&ewa_av).value.clone();
                                 // Only forall labels of THIS call, still unbound.
                                 (ewa_is_fl : bool) = false;
                                 (ewa_fi : usize) = usize(0);
@@ -9060,7 +9065,7 @@ try_to_call_function_with_arguments :: (
                   found_given = true;
                   given_val = gv.value.get(usize(0));
                   given_ty = gv.ty;
-                  given_name = gv.name;
+                  given_name = gv.name.clone();
                 });
               },
               .None => ()
@@ -9252,7 +9257,7 @@ try_to_call_function_with_arguments :: (
       if(!skip_specialization && is_func_generic, {
         callee_fid_g := match(
           func_val,
-          .Some(fv) => match(fv, .FuncVal(__fvd14, _) => __fvd14.*.func_id, _ => String.from("")),
+          .Some(fv) => match(fv, .FuncVal(__fvd14, _) => __fvd14.*.func_id.clone(), _ => String.from("")),
           .None => String.from("")
         );
         // The callee's impl-instantiation identity: one func_id is shared
@@ -9304,7 +9309,7 @@ try_to_call_function_with_arguments :: (
           // ----------------------------------------------------------------
           fv2_func_id := match(
             fv2,
-            .FuncVal(__fvd15, _) => __fvd15.*.func_id,
+            .FuncVal(__fvd15, _) => __fvd15.*.func_id.clone(),
             _ => String.from("")
           );
           is_ctl := is_control_fn(fv2_func_id.clone());
@@ -9354,14 +9359,14 @@ try_to_call_function_with_arguments :: (
                   Rc(.SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt, cr_rtl, cr_ntt, cr_ntl, cr_kft, _)) => {
                     return_type = rc(
                       TypeValueNode.SomeT(
-                        cr_id,
-                        cr_nm,
+                        cr_id.clone(),
+                        cr_nm.clone(),
                         cr_fl,
                         cr_pt,
-                        cr_rtt,
-                        cr_rtl,
-                        cr_ntt,
-                        cr_ntl,
+                        cr_rtt.clone(),
+                        cr_rtl.clone(),
+                        cr_ntt.clone(),
+                        cr_ntl.clone(),
                         cr_kft,
                         Option(TypeValue).Some(ctl_res_conc)
                       )

@@ -74,17 +74,17 @@ try_to_specialize_trait_type :: (
   // Extract field labels and assoc_type_names from TraitT.
   field_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
+    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
     _ => ArrayList(String).new()
   );
   assoc_type_names := match(
     trait_type,
-    Rc(.TraitT(_, an, _, _, _, _, _, _, _, _)) => an,
+    Rc(.TraitT(_, an, _, _, _, _, _, _, _, _)) => an.clone(),
     _ => ArrayList(String).new()
   );
   trait_name := match(
     trait_type,
-    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n,
+    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n.clone(),
     _ => String.from("unknown")
   );
   (caller_env : Environment) = caller_env_in;
@@ -230,7 +230,7 @@ try_to_specialize_trait_type :: (
   specialized_trait_type := match(
     trait_type,
     Rc(.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _)) =>
-      rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, shared_list(atc_labels), shared_list(atc_types))),
+      rc(TypeValueNode.TraitT(n.clone(), atns.clone(), fls.clone(), fts.clone(), tid.clone(), ic, sc.clone(), nsc.clone(), shared_list(atc_labels), shared_list(atc_types))),
     _ => trait_type
   );
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
@@ -253,17 +253,17 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Extract field labels and types from TraitT.
   field_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
+    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
     _ => ArrayList(String).new()
   );
   field_types := match(
     trait_type,
-    Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
+    Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types.clone(),
     _ => ArrayList(TypeValue).new()
   );
   trait_name := match(
     trait_type,
-    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n,
+    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n.clone(),
     _ => String.from("unknown")
   );
   n_fields := field_labels.len();
@@ -315,7 +315,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   pv_type_id := type_id_or_empty(&receiver_ty_pv);
   trait_tid_pv := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, tid, _, _, _, _, _)) => tid,
+    Rc(.TraitT(_, _, _, _, tid, _, _, _, _, _)) => tid.clone(),
     _ => String.from("")
   );
   if(pv_type_id != "", {
@@ -495,7 +495,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     k = (k + usize(1));
   });
   // NOTE: where-clause checking (typeImplementsTraitBool) deferred to Phase 3.
-  trait_val := EvalValue.TraitVal(trait_name.clone(), result_names, field_values);
+  trait_val := EvalValue.TraitVal(trait_name, result_names, field_values);
   TraitTypeCallResult(trait_value : trait_val, caller_env : caller_env)
 });
 export(try_to_specialize_trait_type);

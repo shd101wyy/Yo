@@ -1,0 +1,15 @@
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+_Cells :: struct(cells : Array(i32, 2));
+main :: (fn(io : Io) -> unit)({
+  bump :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(
+    io.async({ &mut c }(io : Io) => {
+      io.await(yield(io), io);
+      c = (c + i32(1));
+    })
+  );
+  mut(a) := _Cells(cells : Array(i32, 2)(i32(4), i32(5)));
+  io.await(bump(&mut a.cells(usize(1)), io), io);
+  assert(a.cells(usize(1)) == i32(5), "bumped");
+});
+export(main);
