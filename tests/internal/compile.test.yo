@@ -328,7 +328,9 @@ test("a code spill that is gone or holds other bytes fails the compile", {
   truncated := _spill_copy_error(spill.clone(), usize(9), &dst, io);
   assert(truncated.contains("yielded 7 bytes, but this compile spilled 9 bytes"), `a copy that yields fewer bytes fails; got: ${truncated}`);
   assert(_spill_copy_error(spill.clone(), usize(7), &dst, io) == "", "a copy of exactly the spilled bytes passes");
-  io.await(dst.close(io), IoExn(io : io, exn : exn));
+  // `File.close`'s future borrows `dst`, so its bundle must be a place (E0910).
+  b := IoExn(io : io, exn : exn);
+  io.await(dst.close(io), b);
 });
 test("a compile splices only its own spill, by its byte count, and removes dead compiles' spills", {
   exn := Exception(

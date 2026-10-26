@@ -993,11 +993,11 @@ _sweep_dir :: (
     (i : usize) = usize(0);
     while(i < entries.len(), {
       name := entries(i).name.clone();
+      is_dir := match(entries(i).file_type, .Directory => true, _ => false);
       i = (i + usize(1));
       base := if((strip.len() > usize(0)) && name.ends_with(strip.clone()), name.substring(usize(0), name.len() - strip.len()), name.clone());
       keep_it := _contains_string(keep, &base);
       full := `${dir}/${name}`;
-      is_dir := match(entries(i).file_type, .Directory => true, _ => false);
       if(!keep_it && is_dir, {
         e.io.await(remove_dir_all(Path.new(full.clone()), e.io), e);
       });

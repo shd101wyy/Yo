@@ -18,7 +18,7 @@
 { Emitter } :: import("../../emitter.yo");
 { HashSet } :: import("std/collections/hash_set");
 { RefCell } :: import("std/sync/refcell");
-{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_to_string, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
@@ -31,7 +31,7 @@
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, is_fnonce_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function_value.yo");
-{ declare_c_var_name, push_declared_scope, get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position, get_variable_name_for_codegen_at, is_self_named_atom } :: import("../utils/index.yo");
+{ declare_c_var_name, get_deferred_drop_target_atom_name, push_declared_scope, get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position, get_variable_name_for_codegen_at, is_self_named_atom } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _return_type_override } :: import("./declarations.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -1250,6 +1250,11 @@ _main_call_args :: (fn(main_func_id : &String, context : &FunctionGenerationCont
 ModuleLevelVarEntry :: struct(
   c_var_name : String,
   rhs : AstExpr,
+  /// The full init statement (`x := v` / `(x : T) = v` / `x = v`) the entry
+  /// was collected from: the evaluator attaches the statement's intermediate
+  /// temps' drops to THIS node (`_attach_module_init_temp_drops`), and the
+  /// init emitters flush them right after the assignment.
+  init_expr : AstExpr,
   /// `thread_local(name : T) = init;`. Its storage is declared `_Thread_local`
   /// and it is NOT initialized by `__yo_main_module_init` — the initializer
   /// becomes the body of a per-variable lazy accessor instead, because every
@@ -1421,6 +1426,7 @@ emit_module_level_variable_declarations :: (
                 ModuleLevelVarEntry(
                   c_var_name : c_var_name,
                   rhs : rhs,
+                  init_expr : init_expr,
                   is_thread_local : mg_is_tl,
                   c_type_str : c_type_str
                 )
@@ -1496,6 +1502,11 @@ emit_thread_local_accessors :: (
         em.emit_string_line(`${linkage}void ${mv.c_var_name}__tl_init_fn(void) {`);
         rhs_code := _call_generate_expr(&mv.rhs, String.from("  "), context);
         em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
+        // Same scope-end flush as `__yo_main_module_init` above: the lazy
+        // accessor's helper has no begin epilogue either, so the statement's
+        // intermediate temps (init-node drops) must be released here or they
+        // leak on every thread's first touch.
+        generate_deferred_drop_expressions(&mv.init_expr, String.from("  "), context);
         em.emit_string_line(String.from("}"));
         em.emit_string_line(`${linkage}${mv.c_type_str}* ${mv.c_var_name}__tl_get(void) {`);
         em.emit_string_line(`  if (!${mv.c_var_name}__tl_init) {`);
@@ -1668,6 +1679,18 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
         .Some(mv) => if(!mv.is_thread_local, {
           rhs_code := _call_generate_expr(&mv.rhs, String.from("  "), context);
           em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
+          // The statement's scope-end flush. In a function body the enclosing
+          // begin's epilogue releases an initializer's INTERMEDIATE temps (a
+          // String literal materialized to lend `&s` to a call in the
+          // initializer, e.g. `debug_knob(`YO_...`)`); the call emitter
+          // flushes them itself only on its may-unwind arms.
+          // `__yo_main_module_init` has no begin epilogue, so the evaluator
+          // attaches the statement's temp drops to the INIT node
+          // (`_attach_module_init_temp_drops`) and they are released here —
+          // without this every such temp leaked for the program's lifetime
+          // (the FV job's verifier batch under LSan). The initializer's
+          // RESULT moved into the global and is never on that list.
+          generate_deferred_drop_expressions(&mv.init_expr, String.from("  "), context);
         }),
         .None => ()
       );
