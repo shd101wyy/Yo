@@ -1,5 +1,16 @@
 # async_await §3.13 A2 tests expect "lives in a shared mutable cell" but the ref-argument realloc error fires
 
+**Fixed by #1634** (`c3526f3fe`, 2026-10-26): §3.13 A2 owns the places a
+borrowing future captures — the flowability sibling-reachability rule defers
+to the A2 diagnostic (part 1), and a fixed-size Array index place is exempt
+(part 2); `tests/async_await.test.yo` passes 285/285 on `c3526f3fe`. The
+canonical fix docs are
+`issues/fixed/2026-10-26-an-element-borrow-beside-an-io-sibling-is-rejected-as-container-aliasing.md`
+and
+`issues/fixed/2026-10-26-async-await-batch-2-fails-on-develop-b6-a-diagnostic-order.md`;
+this record is kept for its clean-binary attribution table (the failure
+reproduced with compilers carrying none of b4-1b's edits).
+
 **Severity:** S2 — the `tests/async_await.test.yo` §3.13 A2 batch fails to
 compile on the develop tip (85 of 285 cases report failed), and a real program
 shape gets the realloc diagnostic where `plans/VALUES_BY_DEFAULT.md` §3.13 A2
