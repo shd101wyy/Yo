@@ -90,6 +90,9 @@ VerifyVerdict :: enum(
   /// The solver could not be run at all (missing, crashed).
   SolverError(message : String)
 );
+// B4-1b: the verdict payloads are plain lists/strings; derived so report
+// copies and b4-1a's deferred sites can spell `.clone()`.
+derive(VerifyVerdict, Clone);
 /// One obligation result: what was asked and what came back.
 VerifyResult :: ref(
   struct(
@@ -942,7 +945,7 @@ verify_and_strip_tasks :: (
                         cached : false,
                         folded : true,
                         goal : encode_term(&obl.query.goal),
-                        site : obl.site,
+                        site : obl.site.clone(),
                         elidable : obl.elidable,
                         elision_only : obl.elision_only
                       )
@@ -971,7 +974,7 @@ verify_and_strip_tasks :: (
                         verdict : clean_verdict,
                         cached : r.cached,
                         goal : encode_term(&obl.query.goal),
-                        site : obl.site,
+                        site : obl.site.clone(),
                         elidable : obl.elidable,
                         elision_only : obl.elision_only
                       )
@@ -1035,7 +1038,7 @@ unmangle_for_display :: (fn(fn_id : &String, mangled : &String) -> String)({
   if(mangled.starts_with(prefix.clone()), {
     return(mangled.substring(prefix.len(), mangled.len()));
   });
-  mangled
+  mangled.clone()
 });
 /// The fn_id → SMT-name sanitizer mirror (encode.yo's `_sanitize_smt_name`
 /// is private to the encoder; this reproduces its exact rules —

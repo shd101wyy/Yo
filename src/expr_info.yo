@@ -352,6 +352,9 @@ derive(RuntimeDestructuring, Clone);
 /// `x : e`) stores the value; a borrow entry (`imm(y) : &p`,
 /// `mut(z) : &mut p`) stores the address of the place `init` names.
 CaptureFieldInit :: struct(label : String, init : AstExpr, is_borrow : bool);
+// B4-1b: a plain value struct (String + a shared AstExpr handle + bool), so
+// the rare-group deep copy and the setter can spell their copies.
+derive(CaptureFieldInit, Clone);
 ExprInfoRare :: ref(
   struct(
     /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
@@ -538,7 +541,7 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
         is_anonymous_function_definition : x.is_anonymous_function_definition,
         comptime_unrolled_bodies : x.comptime_unrolled_bodies.clone(),
         early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions.clone(),
-        capture_field_inits : x.capture_field_inits
+        capture_field_inits : x.capture_field_inits.clone()
       )
     )
   )
@@ -546,7 +549,7 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
 expr_info_doc_comment :: (fn(info : &ExprInfo) -> Option(String))(
   match(
     info.rare,
-    .Some(r) => r.doc_comment,
+    .Some(r) => r.doc_comment.clone(),
     .None => Option(String).None
   )
 );
@@ -588,7 +591,7 @@ expr_info_set_capture_field_inits :: (fn(info : &ExprInfo, v : &Option(ArrayList
     return(());
   });
   r := _expr_info_rare_for_write(info);
-  r.capture_field_inits = v;
+  r.capture_field_inits = v.clone();
   ()
 });
 expr_info_capture_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
@@ -922,7 +925,7 @@ expr_info_set_async_stack_size :: (fn(info : &ExprInfo, v : &Option(AstExpr)) ->
 expr_info_async_state_machine_struct_name :: (fn(info : &ExprInfo) -> Option(String))(
   match(
     info.rare,
-    .Some(r) => r.async_state_machine_struct_name,
+    .Some(r) => r.async_state_machine_struct_name.clone(),
     .None => Option(String).None
   )
 );
@@ -1260,7 +1263,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         .None => ()
       );
       names := ArrayList(String).new();
-      sv_name := match(info.source_variable, .Some(sv) => sv.name, .None => String.new());
+      sv_name := match(info.source_variable, .Some(sv) => sv.name.clone(), .None => String.new());
       match(info.variable_name, .Some(vn) => names.push(vn.clone()), .None => ());
       _scope_target_names(&info.deferred_drop_expressions, &mut names);
       _scope_target_names(expr_info_deferred_dup_expressions(&info), &mut names);
@@ -1799,7 +1802,7 @@ register_extern_c_global_alias :: (fn(yo_name : &String, c_name : &String, ty : 
 /// Returns a CLONE (never the registry's own String — a caller that appends
 /// to it in place would corrupt the stored name).
 extern_c_global_c_name :: (fn(yo_name : &String) -> String)(
-  match(g_extern_c_global_c_names.with(m => m.get(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name)
+  match(g_extern_c_global_c_names.with(m => m.get(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name.clone())
 );
 /// Every declared type recorded for the extern-C global `name` (empty when
 /// the name was never declared). Consumers match a resolved binding against
@@ -2631,8 +2634,11 @@ record_module_level_init_expr :: (fn(e : &AstExpr) -> unit)({
   ()
 });
 /// All collected module-level init expressions (for codegen declaration + init).
+/// B4-1b (the ArrayList identity accessor): returns a SNAPSHOT (an owned
+/// clone whose elements are AstExpr handle bumps), so it stays correct after
+/// B8 flips `ArrayList` to a value; callers only iterate.
 get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
-  g_module_level_init_exprs.with(xs => xs)
+  g_module_level_init_exprs.with(xs => xs.clone())
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 /// The Variables named `name` that node `key`'s recorded scope sees, innermost
@@ -3270,6 +3276,8 @@ export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, recor
 /// `mut(name)` (decision 47): `row`/`col` are its declared name's token,
 /// `expect` the name, which the rewrite matches against the source text.
 MutableGlobalSite :: struct(path : String, row : usize, col : usize, expect : String);
+// B4-1b: the census/migration tables store owned copies of each site.
+derive(MutableGlobalSite, Clone);
 (mut(g_migrate_mutable_globals) : bool) = false;
 (g_mutable_global_sites : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 (g_mutable_global_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3317,7 +3325,7 @@ _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   if(!g_mut_binding_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
-  g_mut_binding_sites.with_mut(xs => xs.push(site));
+  g_mut_binding_sites.with_mut(xs => xs.push(site.clone()));
 });
 /// A write inside a `comptime_expect_error` argument is HELD, not recorded:
 /// whether its binding needs `mut` depends on what the case expects, which
@@ -3366,7 +3374,7 @@ _record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   if(!g_mut_param_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
-  g_mut_param_sites.with_mut(xs => xs.push(site));
+  g_mut_param_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_mut_binding_sites :: (fn() -> ArrayList(MutableGlobalSite))({
   out := g_mut_binding_sites.with_mut(xs => xs.split_off(usize(0)));

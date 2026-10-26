@@ -31,7 +31,7 @@
 { Exception } :: import("std/error");
 { Token, TokenKind, is_reserved_operator_name } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
-{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_to_string } :: import("../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_text, ast_expr_to_string } :: import("../expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_doc_comment } :: import("../expr_info.yo");
 { get_variables_from_env, Variable, variable_doc_comment } :: import("../env.yo");
 { type_to_string } :: import("../types/string.yo");
@@ -323,7 +323,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &AtomRoles) -> unit)({
     .FnCall(_, func_box, args, is_infix, _) => {
       callee := match(
         func_box,
-        .Atom(_, t) => t.value,
+        .Atom(_, _) => ast_expr_text(&func_box),
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(

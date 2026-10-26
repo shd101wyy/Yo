@@ -20,6 +20,7 @@
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ mem } :: import("std/mem");
 { HashMap } :: import("std/collections/hash_map");
 {
   AstExpr,
@@ -31,6 +32,7 @@ pragma(Pragma.AllowUnsafe);
   BF_YO_BORROW_CHECK,
   ast_expr_id,
   ast_expr_token,
+  ast_expr_text,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
@@ -669,6 +671,8 @@ GuardSite :: struct(
   /// `index-in-bounds`.
   class : String
 );
+// B4-1b: a plain value struct; the report rows own their site copies.
+derive(GuardSite, Clone);
 /// The guard site of the AoRTE obligation an expression `e` emits.
 _guard_site :: (fn(e : &AstExpr, class : &String) -> Option(GuardSite))({
   tok := ast_expr_token(e);
@@ -1501,7 +1505,7 @@ _emit :: (
       uk = (uk + usize(1));
     });
   });
-  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable, elision_only : elision_only));
+  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site.clone(), elidable : elidable, elision_only : elision_only));
   ()
 });
 /// The strict-decrease comparison for a measure, in its own type's order:
@@ -1887,7 +1891,7 @@ _zero_of :: (fn(w : usize) -> VcTerm)(rc(VcTermNode.BvLit(value : u64(0), width 
 /// `.None` without recording anything.
 _untyped_opaque_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(ast_expr_is_atom(e), {
-    return(ctx.vars.get(ast_expr_token(e).value));
+    return(ctx.vars.get(ast_expr_text(e)));
   });
   is_eq := ast_expr_is_fn_call_of(e, "==", Option(usize).Some(usize(2)));
   is_ne := ast_expr_is_fn_call_of(e, "!=", Option(usize).Some(usize(2)));
@@ -2094,7 +2098,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     );
     head := match(
       e,
-      .FnCall(_, f, _, _, _) => ast_expr_token(&f).value,
+      .FnCall(_, f, _, _, _) => ast_expr_text(&f),
       .Atom(_, _) => String.new()
     );
     return(_call_term(ctx, e, &head, &args, &info));
@@ -2271,8 +2275,8 @@ _qualified_nullary_variant :: (fn(info : &ExprInfo, dot_args : &ArrayList(AstExp
     Rc(.EnumT({ variant_names : q_names })) => cond(
       (dot_args.len() != usize(2)) => Option(AstExpr).None,
       !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
-      _variant_named(&q_names, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
-      _variant_named(&q_names, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
+      _variant_named(&q_names, ast_expr_text(dot_args.get(usize(0)).unwrap())) => Option(AstExpr).None,
+      _variant_named(&q_names, ast_expr_text(dot_args.get(usize(1)).unwrap())) => dot_args.get(usize(1)),
       true => Option(AstExpr).None
     ),
     _ => Option(AstExpr).None
@@ -2288,7 +2292,7 @@ _payload_ctor_variant :: (fn(e : &AstExpr) -> Option(AstExpr))(
     .FnCall(_, f, _, _, _) => match(
       f,
       .FnCall(_, dot, dargs, _, _) => cond(
-        !(ast_expr_is_atom(&dot) && (ast_expr_token(&dot).value == ".")) => Option(AstExpr).None,
+        !(ast_expr_is_atom(&dot) && (ast_expr_text(&dot) == ".")) => Option(AstExpr).None,
         lookup_method_callee_value(ast_expr_id(e)).is_some() => Option(AstExpr).None,
         ((dargs.len() == usize(1)) && ast_expr_is_atom(dargs.get(usize(0)).unwrap())) => dargs.get(usize(0)),
         ((dargs.len() == usize(2)) && ast_expr_is_atom(dargs.get(usize(1)).unwrap())) => dargs.get(usize(1)),
@@ -2326,7 +2330,7 @@ _enum_ctor_first :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, info : &ExprInfo, v_atom : &AstExpr, dot_args : &ArrayList(AstExpr)) -> Option(VcTerm)
 )(
   cond(
-    ast_expr_is_atom(v_atom) => _enum_ctor_named(ctx, e, info, ast_expr_token(v_atom).value, dot_args),
+    ast_expr_is_atom(v_atom) => _enum_ctor_named(ctx, e, info, ast_expr_text(v_atom), dot_args),
     true => {
       _fail_subset(ctx, String.from("non-atom enum variant in construction"), e);
       Option(VcTerm).None
@@ -3049,7 +3053,7 @@ _scan_assigned :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut ArrayList
         expanded,
         .Some(xp) => _scan_assigned(table, &xp, out),
         .None => {
-          head := ast_expr_token(&f).value;
+          head := ast_expr_text(&f);
           // A call rebinds the names it may change (`_callee_call_term`):
           // `pop`'s receiver, an argument its contract relates with
           // `old(...)` (`out.push(v)`, `grow(xs)`), one passed to a `&mut`
@@ -3122,7 +3126,7 @@ _pop_receiver_name :: (fn(e : &AstExpr) -> Option(String))({
   dot_args := match(
     callee,
     .FnCall(_, cf, da, _, _) => cond(
-      ((ast_expr_token(&cf).value == ".") && (da.len() == usize(2))) => da,
+      ((ast_expr_text(&cf) == ".") && (da.len() == usize(2))) => da,
       true => {
         return(Option(String).None);
       }
@@ -3136,10 +3140,10 @@ _pop_receiver_name :: (fn(e : &AstExpr) -> Option(String))({
   if(!ast_expr_is_atom(&recv) || !ast_expr_is_atom(&m), {
     return(Option(String).None);
   });
-  if(ast_expr_token(&m).value != "pop", {
+  if(ast_expr_text(&m) != "pop", {
     return(Option(String).None);
   });
-  Option(String).Some(ast_expr_token(&recv).value)
+  Option(String).Some(ast_expr_text(&recv))
 });
 /// The names a call may change, as `_callee_call_term` rebinds them: each
 /// plain-name argument (the receiver first for a method call) whose
@@ -3175,7 +3179,7 @@ _call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut Arra
   if(match(params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false), {
     match(
       callee,
-      .FnCall(_, cf, da, _, _) => if((ast_expr_token(&cf).value == ".") && (da.len() == usize(2)), {
+      .FnCall(_, cf, da, _, _) => if((ast_expr_text(&cf) == ".") && (da.len() == usize(2)), {
         eff.push(da.get(usize(0)).unwrap());
       }),
       .Atom(_, _) => ()
@@ -3204,7 +3208,7 @@ _call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut Arra
     match(
       _arg_place_atom(&a),
       .Some(pa) => {
-        pn := ast_expr_token(&pa).value;
+        pn := ast_expr_text(&pa);
         pl := match(params.get(i), .Some(p) => p, .None => String.new());
         written := (ast_expr_is_fn_call_of(&a, "&mut", .Some(usize(1))) || ((fid.len() > usize(0)) && _callee_param_is_mut_ref(&fid, i)) || ((pl.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, pl.clone())));
         if(written && !out.contains(pn.clone()), {
@@ -3280,14 +3284,14 @@ _loop_annotations :: (
       stmts.get(usize(0)),
       .Some(first) => match(
         first,
-        .FnCall(_, invf, inv_args, _, _) => if(ast_expr_token(&invf).value == "invariant", {
+        .FnCall(_, invf, inv_args, _, _) => if(ast_expr_text(&invf) == "invariant", {
           measure := Option(AstExpr).None;
           rest_at := usize(1);
           match(
             stmts.get(usize(1)),
             .Some(second) => match(
               second,
-              .FnCall(_, df, dargs, _, _) => if((ast_expr_token(&df).value == "decreases") && (dargs.len() == usize(1)), {
+              .FnCall(_, df, dargs, _, _) => if((ast_expr_text(&df) == "decreases") && (dargs.len() == usize(1)), {
                 measure = dargs.get(usize(0));
                 rest_at = usize(2);
               }),
@@ -3323,13 +3327,13 @@ BreakSite :: struct(path : VcTerm, vals : HashMap(String, VcTerm));
 /// `break` parses as a plain atom or a zero-arg call (like `continue`).
 _is_break_stmt :: (fn(e : &AstExpr) -> bool)(
   cond(
-    ast_expr_is_atom(e) => (ast_expr_token(e).value == "break"),
+    ast_expr_is_atom(e) => (ast_expr_text(e) == "break"),
     true => ast_expr_is_fn_call_of(e, "break", Option(usize).None)
   )
 );
 _is_continue_stmt :: (fn(e : &AstExpr) -> bool)(
   cond(
-    ast_expr_is_atom(e) => (ast_expr_token(e).value == "continue"),
+    ast_expr_is_atom(e) => (ast_expr_text(e) == "continue"),
     true => ast_expr_is_fn_call_of(e, "continue", Option(usize).None)
   )
 );
@@ -3692,7 +3696,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
     _fail_subset(ctx, String.from("for over something other than an ArrayList variable"), e);
     return(Option(VcTerm).None);
   });
-  coll_name := ast_expr_token(&coll).value;
+  coll_name := ast_expr_text(&coll);
   list_t := ctx.vars.get(coll_name.clone());
   // The element sort is read off the list's own term: the source-form
   // `for` call's arguments are typed through its expansion, not in place.
@@ -3736,7 +3740,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
   a := a_opt.unwrap();
   idx_name := `__yo_for_idx_${ast_expr_id(e).to_string()}`;
   ctx.vars.insert(idx_name.clone(), rc(VcTermNode.BvLit(value : u64(0), width : usize(64))));
-  fr := ForFrame(idx_name : idx_name.clone(), coll_name : coll_name, list : list_t.unwrap(), elem : elem_opt.unwrap(), elem_name : ast_expr_token(&var).value);
+  fr := ForFrame(idx_name : idx_name.clone(), coll_name : coll_name, list : list_t.unwrap(), elem : elem_opt.unwrap(), elem_name : ast_expr_text(&var));
   ctx.for_frames.push(fr);
   r := _loop_core(ctx, e, &a, Option(AstExpr).None, ctx.for_frames.get(ctx.for_frames.len() - usize(1)));
   _ := ctx.for_frames.pop();
@@ -3860,16 +3864,18 @@ _loop_core :: (
   //    the iterate/variant goals are skipped (the continue sites proved
   //    the invariant at their statements) and the exit is only the break
   //    disjuncts plus the cond-exit.
-  saved_invariants := ctx.loop_invariants;
+  // B4-1b: `mem.replace` moves the old value out (decision 19) instead of
+  // saving a handle copy that a later write-through would alias.
+  saved_invariants := mem.replace(&mut ctx.loop_invariants, a.invariants.clone());
   saved_measure := ctx.loop_measure;
   saved_head_measure := ctx.head_measure;
-  saved_for_idx := ctx.loop_for_idx;
-  ctx.loop_invariants = a.invariants.clone();
+  saved_for_idx := mem.replace(
+    &mut ctx.loop_for_idx,
+    match(frame, .Some(frx) => Option(String).Some(frx.idx_name.clone()), .None => Option(String).None)
+  );
   ctx.loop_measure = a.decreases;
-  ctx.loop_for_idx = match(frame, .Some(frx) => Option(String).Some(frx.idx_name.clone()), .None => Option(String).None);
   ctx.head_measure = m_havoc;
-  saved_sites := ctx.break_sites;
-  ctx.break_sites = ArrayList(BreakSite).new();
+  saved_sites := mem.replace(&mut ctx.break_sites, ArrayList(BreakSite).new());
   ctx.path_dead = false;
   ctx.loop_depth = (ctx.loop_depth + usize(1));
   // A `for` binds the element at the index for the body.
@@ -4086,7 +4092,7 @@ _quant_term :: (
       _fail_subset(ctx, String.from("quantifier binder name must be a plain name"), &b);
       return(Option(VcTerm).None);
     });
-    bn := ast_expr_token(&nm_arg).value;
+    bn := ast_expr_text(&nm_arg);
     // The binder's sort: the `:`-call's SECOND argument (the type
     // expression) evaluates to a TypeVal; the annotation call itself
     // does not carry one.
@@ -4441,7 +4447,7 @@ _call_term :: (
           ctor_args.push(args.get(pai).unwrap());
           pai = (pai + usize(1));
         });
-        return(_enum_ctor_named(ctx, e, info, ast_expr_token(&vatom).value, &ctor_args));
+        return(_enum_ctor_named(ctx, e, info, ast_expr_text(&vatom), &ctor_args));
       },
       .None => ()
     );
@@ -4474,8 +4480,8 @@ _call_term :: (
       _fail_subset(ctx, String.from("distinct(...) over something other than two parameter names"), e);
       return(Option(VcTerm).None);
     });
-    an := ast_expr_token(&da).value;
-    bn := ast_expr_token(&db).value;
+    an := ast_expr_text(&da);
+    bn := ast_expr_text(&db);
     return(
       cond(
         (ctx.requires_phase == usize(1)) => {
@@ -4500,7 +4506,7 @@ _call_term :: (
   if((head == "produced") && (n == usize(1)), {
     pa := args.get(usize(0)).unwrap();
     if(ast_expr_is_atom(&pa), {
-      pname := ast_expr_token(&pa).value;
+      pname := ast_expr_text(&pa);
       (fi : usize) = ctx.for_frames.len();
       while(fi > usize(0), {
         fi = (fi - usize(1));
@@ -4518,7 +4524,7 @@ _call_term :: (
   // appeared in EXPRESSION position (`x := (break, 1)`-shaped code),
   // where there is no state to snapshot as a single exit disjunct.
   if((head == "break") || (head == "continue") ||
-    (ast_expr_is_atom(e) && ((ast_expr_token(e).value == "break") || (ast_expr_token(e).value == "continue"))), {
+    (ast_expr_is_atom(e) && ((ast_expr_text(e) == "break") || (ast_expr_text(e) == "continue"))), {
     _fail_subset(
       ctx,
       String.from("break/continue in expression position (supported as statements only)"),
@@ -4547,7 +4553,7 @@ _call_term :: (
             .None => false
           );
           if(is_plain_name, {
-            ctx.vars.insert(ast_expr_token(ga.get(usize(0)).unwrap()).value.clone(), gvt);
+            ctx.vars.insert(ast_expr_text(ga.get(usize(0)).unwrap()), gvt);
           });
           Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)))
         },
@@ -4662,10 +4668,10 @@ _call_term :: (
     // A bare name must be bound AT ENTRY — a body-local name has no entry
     // value (the Dafny rule); a complex arg's own unbound names error
     // precisely during the snapshot walk below.
-    if(ast_expr_is_atom(&oa) && !ctx.entry_vars.contains_key(ast_expr_token(&oa).value), {
+    if(ast_expr_is_atom(&oa) && !ctx.entry_vars.contains_key(ast_expr_text(&oa)), {
       _fail_subset(
         ctx,
-        `old(...) of '${ast_expr_token(&oa).value}' — the name is not bound at function entry (old is the entry state; a body-local has no entry value)`,
+        `old(...) of '${ast_expr_text(&oa)}' — the name is not bound at function entry (old is the entry state; a body-local has no entry value)`,
         e
       );
       return(Option(VcTerm).None);
@@ -5119,7 +5125,7 @@ _call_term :: (
           if(ast_expr_is_atom(&lr.recv), {
             new_len := _app3(VcOp.IteOp, &non_empty, &last_i, &len_t);
             rebound := rc(VcTermNode.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len)));
-            rnm := ast_expr_token(&lr.recv).value;
+            rnm := ast_expr_text(&lr.recv);
             ctx.vars.insert(rnm.clone(), rebound);
             // A popped parameter is a mutation its callers must learn of
             // through old(), exactly as a push is (the subset rule in
@@ -5156,7 +5162,7 @@ _list_len_read_by_var :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))(
   dot_args := match(
     callee,
     .FnCall(_, cf, da, _, _) => cond(
-      (ast_expr_token(&cf).value == ".") => da,
+      (ast_expr_text(&cf) == ".") => da,
       true => {
         return(Option(VcTerm).None);
       }
@@ -5173,12 +5179,12 @@ _list_len_read_by_var :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))(
   if(!ast_expr_is_atom(&recv) || !ast_expr_is_atom(&m), {
     return(Option(VcTerm).None);
   });
-  mname := ast_expr_token(&m).value;
+  mname := ast_expr_text(&m);
   if(!((mname == "len") || (mname == "is_empty")), {
     return(Option(VcTerm).None);
   });
   match(
-    ctx.vars.get(ast_expr_token(&recv).value),
+    ctx.vars.get(ast_expr_text(&recv)),
     .Some(rv) => match(
       rv,
       Rc(.Var(_, rv_sort)) => match(
@@ -5260,13 +5266,13 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
   // may carry no ExprInfo); any other receiver answers from its type.
   if(ast_expr_is_atom(&recv), {
     match(
-      ctx.vars.get(ast_expr_token(&recv).value),
+      ctx.vars.get(ast_expr_text(&recv)),
       .Some(rv) => match(
         rv,
         Rc(.Var(_, rv_sort)) => match(
           _list_sort_elem(&rv_sort),
           .Some(les0) => {
-            return(Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value, elem : les0)));
+            return(Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_text(&m), elem : les0)));
           },
           .None => ()
         ),
@@ -5281,7 +5287,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
       _list_elem_sort(&ri.ty),
       .Some(les) => {
         _register_list_datatype(&les);
-        Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value, elem : les))
+        Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_text(&m), elem : les))
       },
       .None => Option(ListReceiver).None
     ),
@@ -5648,7 +5654,7 @@ _atom_arg_name :: (fn(args : &ArrayList(AstExpr)) -> Option(String))(
   match(
     args.get(usize(0)),
     .Some(first) => cond(
-      ast_expr_is_atom(&first) => Option(String).Some(ast_expr_token(&first).value),
+      ast_expr_is_atom(&first) => Option(String).Some(ast_expr_text(&first)),
       true => Option(String).None
     ),
     .None => Option(String).None
@@ -5668,7 +5674,7 @@ _typed_binding_lhs_name :: (fn(lhs : &AstExpr) -> Option(String))(
 /// by `_index_write_target`).
 _binding_name_of :: (fn(lhs : &AstExpr) -> Option(String))(
   cond(
-    ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_token(lhs).value),
+    ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_text(lhs)),
     ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))) => _typed_binding_lhs_name(lhs),
     true => Option(String).None
   )
@@ -5680,7 +5686,7 @@ _index_write_name_shape :: (fn(lhs : &AstExpr) -> Option(String))(
   match(
     lhs,
     .FnCall(_, f, a, _, _) => cond(
-      (ast_expr_is_atom(&f) && (a.len() == usize(1))) => Option(String).Some(ast_expr_token(&f).value),
+      (ast_expr_is_atom(&f) && (a.len() == usize(1))) => Option(String).Some(ast_expr_text(&f)),
       true => Option(String).None
     ),
     .Atom(_, _) => Option(String).None
@@ -5808,8 +5814,8 @@ _requires_state_distinct :: (fn(reqs : &ArrayList(AstExpr), a : &String, b : &St
       p := ra.get(usize(0)).unwrap();
       q := ra.get(usize(1)).unwrap();
       if(ast_expr_is_atom(&p) && ast_expr_is_atom(&q), {
-        pn := ast_expr_token(&p).value;
-        qn := ast_expr_token(&q).value;
+        pn := ast_expr_text(&p);
+        qn := ast_expr_text(&q);
         if(((pn == a) && (qn == b)) || ((pn == b) && (qn == a)), {
           return(true);
         });
@@ -5827,19 +5833,19 @@ _is_fresh_list_ctor :: (fn(rhs : &AstExpr) -> bool)(
     .FnCall(_, f, _, _, _) => match(
       f,
       .FnCall(_, dot, dargs, _, _) => {
-        is_dot := (ast_expr_is_atom(&dot) && (ast_expr_token(&dot).value == "."));
+        is_dot := (ast_expr_is_atom(&dot) && (ast_expr_text(&dot) == "."));
         recv_ok := match(
           dargs.get(usize(0)),
           .Some(recv) => match(
             recv,
-            .FnCall(_, g, _, _, _) => (ast_expr_is_atom(&g) && (ast_expr_token(&g).value == "ArrayList")),
+            .FnCall(_, g, _, _, _) => (ast_expr_is_atom(&g) && (ast_expr_text(&g) == "ArrayList")),
             .Atom(_, _) => false
           ),
           .None => false
         );
         method_ok := match(
           dargs.get(usize(1)),
-          .Some(m) => (ast_expr_is_atom(&m) && ((ast_expr_token(&m).value == "new") || (ast_expr_token(&m).value == "with_capacity"))),
+          .Some(m) => (ast_expr_is_atom(&m) && ((ast_expr_text(&m) == "new") || (ast_expr_text(&m) == "with_capacity"))),
           .None => false
         );
         is_dot && recv_ok && method_ok
@@ -5891,7 +5897,7 @@ _is_unit_lit :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, at) => (at.value == "()"),
-    .FnCall(_, f, a, _, _) => ((ast_expr_token(&f).value == BK_TUPLE) && (a.len() == usize(0)))
+    .FnCall(_, f, a, _, _) => ((ast_expr_text(&f) == BK_TUPLE) && (a.len() == usize(0)))
   )
 );
 _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTerm))({
@@ -6759,16 +6765,15 @@ _callee_call_term :: (
   });
   // `distinct(p, q)` in the callee's requires is proved from the caller's
   // argument names (R2 task 5).
-  saved_arg_names := ctx.call_arg_names;
+  saved_arg_names := mem.replace(&mut ctx.call_arg_names, HashMap(String, String).new());
   saved_phase := ctx.requires_phase;
-  ctx.call_arg_names = HashMap(String, String).new();
   (ani : usize) = usize(0);
   while(ani < eff_args.len(), {
     match(
       callee_params.get(ani),
       .Some(acp) => {
         aa := eff_args.get(ani).unwrap();
-        ctx.call_arg_names.insert(acp.clone(), match(_arg_place_atom(&aa), .Some(pa) => ast_expr_token(&pa).value, .None => String.new()));
+        ctx.call_arg_names.insert(acp.clone(), match(_arg_place_atom(&aa), .Some(pa) => ast_expr_text(&pa), .None => String.new()));
         ()
       },
       .None => ()
@@ -6855,7 +6860,7 @@ _callee_call_term :: (
         arg_terms.get(hvi),
         .Some(hpre) => if(hcp.len() > usize(0), {
           place := _arg_place_atom(&ha_arg);
-          hnm := match(place, .Some(ha) => ast_expr_token(&ha).value, .None => String.new());
+          hnm := match(place, .Some(ha) => ast_expr_text(&ha), .None => String.new());
           writes_through := (_callee_param_is_mut_ref(&fid, hvi) || ast_expr_is_fn_call_of(&ha_arg, "&mut", .Some(usize(1))));
           if(writes_through && (hnm.len() == usize(0)), {
             _fail_subset(ctx, String.from("a `&mut` argument that is not a plain name (the call may write it)"), &ha_arg);
@@ -7025,7 +7030,7 @@ _method_effective_args :: (
   dot_args := match(
     callee,
     .FnCall(_, cf, da, _, _) => cond(
-      (ast_expr_token(&cf).value == ".") => da,
+      (ast_expr_text(&cf) == ".") => da,
       true => {
         return(args);
       }
@@ -7080,7 +7085,7 @@ _old_mentions :: (fn(e : &AstExpr, label : &String) -> bool)(
     e,
     .Atom(_, _) => false,
     .FnCall(_, f, fargs, _, _) => {
-      here := ((ast_expr_token(&f).value == "old") && (fargs.len() == usize(1)) && _expr_mentions_atom(fargs.get(usize(0)).unwrap(), label.clone()));
+      here := ((ast_expr_text(&f) == "old") && (fargs.len() == usize(1)) && _expr_mentions_atom(fargs.get(usize(0)).unwrap(), label.clone()));
       (found : bool) = here;
       (i : usize) = usize(0);
       while((i < fargs.len()) && !found, {
@@ -7096,7 +7101,7 @@ _old_mentions :: (fn(e : &AstExpr, label : &String) -> bool)(
 _expr_mentions_atom :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, _) => (ast_expr_token(e).value == name),
+    .Atom(_, _) => (ast_expr_text(e) == name),
     .FnCall(_, f, fargs, _, _) => {
       (found : bool) = _expr_mentions_atom(&f, name.clone());
       (i : usize) = usize(0);

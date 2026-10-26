@@ -9,7 +9,7 @@
 { ArrayList } :: import("std/collections/array_list");
 import("std/error");
 { Token, TokenKind } :: import("../token.yo");
-{ AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_text } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { TypeValue, TypeValueNode } :: import("../types/definitions.yo");
 { type_to_string, format_param_with_mode } :: import("../types/string.yo");
@@ -160,7 +160,7 @@ handle_signature_help :: (
       return(Option(JsonValue).None);
     }
   );
-  callee_name := ast_expr_token(&callee).value;
+  callee_name := ast_expr_text(&callee);
   match(
     info.ty,
     Rc(.Func(_, param_types, _, _, _, meta, _)) => {

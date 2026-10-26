@@ -71,34 +71,40 @@ DocParam :: struct(
   default_value : Option(String),
   doc : Option(String)
 );
+derive(DocParam, Clone);
 DocField :: struct(
   name : String,
   type_ : String,
   doc : Option(String),
   default_value : Option(String)
 );
+derive(DocField, Clone);
 DocVariant :: struct(
   name : String,
   fields : Option(ArrayList(DocField)),
   doc : Option(String),
   discriminant : Option(String)
 );
+derive(DocVariant, Clone);
 DocAssociatedType :: struct(
   name : String,
   doc : Option(String),
   constraint : Option(String)
 );
+derive(DocAssociatedType, Clone);
 DocImplAssocType :: struct(
   name : String,
   type_ : String,
   doc : Option(String)
 );
+derive(DocImplAssocType, Clone);
 DocImpl :: struct(
   signature : String,
   trait_name : Option(String),
   method_names : ArrayList(String),
   associated_types : Option(ArrayList(DocImplAssocType))
 );
+derive(DocImpl, Clone);
 // ---------------------------------------------------------------------------
 // Function documentation
 // ---------------------------------------------------------------------------
@@ -135,6 +141,7 @@ DocFunction :: struct(
   /// (`imm/*`'s `IntoIterator` says it is eager rather than lazy).
   inherited_from : Option(String)
 );
+derive(DocFunction, Clone);
 // ---------------------------------------------------------------------------
 // Type documentation
 // ---------------------------------------------------------------------------
@@ -152,6 +159,7 @@ DocType :: struct(
   deprecated : Option(String),
   examples : Option(String)
 );
+derive(DocType, Clone);
 // ---------------------------------------------------------------------------
 // Trait documentation
 // ---------------------------------------------------------------------------
@@ -167,6 +175,7 @@ DocTrait :: struct(
   deprecated : Option(String),
   examples : Option(String)
 );
+derive(DocTrait, Clone);
 // ---------------------------------------------------------------------------
 // Constant documentation
 // ---------------------------------------------------------------------------
@@ -181,6 +190,7 @@ DocConstant :: struct(
   /// kept explicit for render_json parity.
   examples : Option(String)
 );
+derive(DocConstant, Clone);
 // ---------------------------------------------------------------------------
 // Module documentation (recursive via ArrayList)
 // ---------------------------------------------------------------------------
@@ -199,6 +209,9 @@ DocModule :: struct(
   constants : ArrayList(DocConstant),
   submodules : ArrayList(Rc(Self))
 );
+// Recursive through `Rc(Self)` submodules: `Rc`'s `Clone` deep-clones its
+// payload (until V2c), which is correct here — `yo doc` is cold.
+derive(DocModule, Clone);
 // ---------------------------------------------------------------------------
 // Top-level documentation model
 // ---------------------------------------------------------------------------
@@ -219,6 +232,7 @@ DocModel :: struct(
   /// `--favicon <path>`: the site's `<link rel="icon">`. `.None` = none.
   (favicon : Option(String)) ?= Option(String).None
 );
+derive(DocModel, Clone);
 export(
   DocItemKind,
   doc_item_kind_to_string,

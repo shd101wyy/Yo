@@ -19,6 +19,7 @@
 //! which converts back. The encoding itself is negotiated in `initialize`
 //! (protocol.yo, "Column bases").
 { String } :: import("std/string");
+{ mem } :: import("std/mem");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
@@ -329,8 +330,9 @@ _flush_pending_analyses :: (
   if(pending.uris.len() == usize(0), {
     return(());
   });
-  due := pending.uris;
-  pending.uris = ArrayList(String).new();
+  // B4-1b: `mem.replace` moves the due list out (decision 19) instead of
+  // saving a handle copy the reset would alias.
+  due := mem.replace(&mut pending.uris, ArrayList(String).new());
   (i : usize) = usize(0);
   while(i < due.len(), {
     match(
