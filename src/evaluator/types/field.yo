@@ -89,7 +89,7 @@ EvalTypeFieldResult :: struct(
 register_struct_fields :: (fn(id : &String, fields : &ArrayList(TypeField)) -> unit)({
   // `insert` returns the previous entry (D9); a re-registration legitimately
   // replaces one, so the value is discarded. `{ e; }` is unit-valued.
-  g_struct_field_registry.with_mut(m => m.insert(id, fields));
+  g_struct_field_registry.with_mut(m => m.insert(id.clone(), fields));
 });
 get_struct_fields :: (fn(id : &String) -> Option(ArrayList(TypeField)))(
   g_struct_field_registry.with(m => m.get(id))
@@ -105,7 +105,7 @@ get_struct_fields :: (fn(id : &String) -> Option(ArrayList(TypeField)))(
 (g_capture_structs_with_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_capture_field_decl_site :: (fn(struct_id : &String, label : &String, decl_site : &String) -> unit)({
   g_capture_field_decl_sites.with_mut(s => s.insert(`${struct_id}|${label}|${decl_site}`));
-  g_capture_structs_with_sites.with_mut(s => s.insert(struct_id));
+  g_capture_structs_with_sites.with_mut(s => s.insert(struct_id.clone()));
 });
 /// Whether field `label` of capture struct `struct_id` holds the binding
 /// declared at `decl_site`.
@@ -156,7 +156,7 @@ evaluate_type_field :: (
   (field_type : Option(TypeValue)) = Option(TypeValue).None;
   // --- Check for default value: `x ?= default` ---
   if(ast_expr_is_fn_call_of(&expr_, "?=", Option(usize).Some(usize(2))), {
-    args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     default_value_expr = Option(AstExpr).Some(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
     expr_ = match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
@@ -165,7 +165,7 @@ evaluate_type_field :: (
     is_const := ast_expr_is_fn_call_of(&expr_, BK_CONST, Option(usize).Some(usize(2)));
     if(is_const, {
       is_comptime = true;
-      args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
       lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       if(!is_valid_variable_name(&lhs_expr), {
         exn.throw(
@@ -180,7 +180,7 @@ evaluate_type_field :: (
       label_expr = Option(AstExpr).Some(lhs_expr);
       label = Option(String).Some(ast_expr_token(&lhs_expr).value);
     });
-    args2 := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    args2 := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
     expr_ = match(args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
@@ -197,7 +197,7 @@ evaluate_type_field :: (
   });
   // --- Parse the lhs expr: `x: T`, `comptime(x): T`, or just `comptime(x)` ---
   if(ast_expr_is_fn_call_of(&expr_, ":", Option(usize).Some(usize(2))), {
-    colon_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    colon_args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     (lhs_ : AstExpr) = match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     rhs := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     type_expr = Option(AstExpr).Some(rhs);
@@ -214,7 +214,7 @@ evaluate_type_field :: (
         );
       });
       is_comptime = true;
-      ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
       lhs_ = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(!ast_expr_is_atom(&lhs_) || !is_valid_variable_name(&lhs_), {
@@ -241,7 +241,7 @@ evaluate_type_field :: (
       );
     });
     is_comptime = true;
-    ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     lhs_ := match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     if(!ast_expr_is_atom(&lhs_) || !is_valid_variable_name(&lhs_), {
       exn.throw(
@@ -333,7 +333,7 @@ evaluate_type_field :: (
               format_error_message_with_help(
                 ast_expr_token(&te),
                 fn_type_unrepresentable_impl_message(
-                  `${for_type} field "${match(label, .Some(l) => l, .None => `${tuple_field_index}`)}"`,
+                  `${for_type} field "${match(label, .Some(l) => l.clone(), .None => `${tuple_field_index}`)}"`,
                   match(field_type, .Some(fft2) => fft2, .None => rc(TypeValueNode.Unit)),
                   &ffi_impl
                 ),

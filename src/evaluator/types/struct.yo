@@ -159,7 +159,7 @@ evaluate_struct_type :: (
       dup_idx = (dup_idx + usize(1));
     });
     if(has_dup, {
-      arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
+      arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
@@ -191,7 +191,7 @@ evaluate_struct_type :: (
     // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
     // cannot collide and must stay legal.
     if(is_reference_semantics && !field.is_comptime && (field.label == "header"), {
-      res_args := match(arg, .FnCall(_, _, a3, _, _) => a3, .Atom(_, _) => ArrayList(AstExpr).new());
+      res_args := match(arg, .FnCall(_, _, a3, _, _) => a3.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       res_tok := if(
         ast_expr_is_fn_call(&arg),
         match(res_args.get(usize(0)), .Some(fe2) => ast_expr_token(&fe2), .None => ast_expr_token(&arg)),
@@ -417,7 +417,7 @@ _cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
     match(
       g_cell_instances.with(xs => xs.get(i)),
       .Some(inst) => if((inst.is_atomic == is_atomic) && _ctfe_args_equal(&EvalValue.TypeVal(inst.payload.clone()), &given), {
-        return(inst.id);
+        return(inst.id.clone());
       }),
       .None => ()
     );
