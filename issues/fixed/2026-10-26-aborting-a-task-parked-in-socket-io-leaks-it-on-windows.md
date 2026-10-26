@@ -81,13 +81,23 @@ separate files).
   proven blocking-accept pattern; refcounts and the pending count balance
   exactly as that path's do.
 - Locally (Linux, tree-built `yo`): `yo check ./src` and `yo check ./std`
-  green; `tests/http/http.test.yo` (all 60+ tests incl. the aborted-fetch
-  one) green on epoll and uring; `tests/net/tcp.test.yo`,
-  `tests/net/udp.test.yo`, `tests/net/unix.test.yo` green — the Linux
-  emission does not include this runtime, so those runs guard against
-  accidental cross-platform damage only.
-- `yo compile --target x86_64-pc-windows-msvc --emit-c` emits the new
-  `__yo_win_sock_cancel` and the `sock_abandoned` guard into the runtime C.
+  green; `tests/http/http.test.yo` (all 52 tests incl. the aborted-fetch
+  one) green on epoll, uring and the default backend; `tests/net/tcp.test.yo`
+  (25 tests, epoll and default), `tests/net/udp.test.yo`, `tests/net/dns.test.yo`,
+  `tests/net/unix.test.yo` (8 tests), `tests/fs/watch.test.yo` (default and
+  epoll), `tests/async/mutex.test.yo`, `tests/thread.test.yo` and
+  `tests/cross_thread_wake.test.yo` green under `YO_TEST_LEAK_VERDICT=0` — the
+  Linux emission does not include this runtime, so those runs guard against
+  accidental cross-platform damage only. Without the knob tcp and unix still
+  fail their LeakSanitizer verdict, from the two known open abort-leak issues
+  (`issues/2026-10-22-an-aborted-accept-leaks-its-peer-address-buffers.md`,
+  `issues/2026-10-24-an-aborted-task-never-drops-its-by-value-captures.md`);
+  CI sets the knob for these, and neither leak involves this change.
+- `yo compile --target x86_64-pc-windows-msvc --emit-c` (a sleep-only `main`)
+  emits the whole socket runtime into the C: `__yo_win_sock_cancel` 8x,
+  the `sock_abandoned` guard 6x, and exactly 6 `cancel_fn = __yo_win_sock_cancel`
+  hookup sites beside 6 `next_sock` list sites — one per submit path
+  (accept, connect, send, recv, sendto, recvfrom).
 - The Windows legs of the develop battery are the real confirmation: both
   `test (windows-latest)` and `test (windows-11-arm)` shard 1/4 should turn
   green on `tests/http/http.test.yo`.
