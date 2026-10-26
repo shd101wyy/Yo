@@ -65,7 +65,7 @@ _append_string_vec :: (fn(sb : &mut StringBuilder, xs : &ArrayList(String)) -> u
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    match(xs.get(i), .Some(s) => sb.write_string(&s), .None => ());
+    match(xs.get_cloned(i), .Some(s) => sb.write_string(&s), .None => ());
     sb.write_str(",");
     i = (i + usize(1));
   });
@@ -840,7 +840,7 @@ purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < keys.len(), {
     match(
-      keys.get(i),
+      keys.get_cloned(i),
       .Some(k) => {
         _r := g_type_intern.with_mut(m => m.remove(&k));
       },

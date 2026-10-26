@@ -375,7 +375,7 @@ prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
   (ei : usize) = usize(0);
   while(ei < entries.len(), {
     entry := match(
-      entries.get(ei),
+      entries.get_cloned(ei),
       .Some(e) => e.clone(),
       .None => String.new()
     );
@@ -500,7 +500,7 @@ _open_doc_index :: (fn(fs_path : &String) -> Option(usize))({
   n := g_open_doc_paths.with(xs => xs.len());
   while(i < n, {
     match(
-      g_open_doc_paths.with(xs => xs.get(i)),
+      g_open_doc_paths.with(xs => xs.get_cloned(i)),
       .Some(p) => if(p == fs_path, {
         return(Option(usize).Some(i));
       }),
@@ -543,7 +543,7 @@ mm_forget_open_document :: (fn(fs_path : &String) -> unit)({
 _open_doc_text :: (fn(fs_path : &String) -> Option(String))(
   match(
     _open_doc_index(fs_path.clone()),
-    .Some(i) => g_open_doc_texts.with(xs => xs.get(i)),
+    .Some(i) => g_open_doc_texts.with(xs => xs.get_cloned(i)),
     .None => Option(String).None
   )
 );
@@ -745,7 +745,7 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < removed.len(), {
     match(
-      removed.get(i),
+      removed.get_cloned(i),
       .Some(owner) => {
         purge_type_trait_methods_owned_by(owner.clone());
         purge_trait_impl_sites_owned_by(owner.clone());
@@ -969,7 +969,7 @@ _list_contains :: (fn(list : &ArrayList(String), item : &String) -> bool)({
   (i : usize) = usize(0);
   while((i < list.len()) && !found, {
     match(
-      list.get(i),
+      list.get_cloned(i),
       .Some(x) => if(x == item, {
         found = true;
       }),
@@ -1197,7 +1197,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
   (fi : usize) = usize(0);
   while(fi < first.len(), {
     match(
-      first.get(fi),
+      first.get_cloned(fi),
       .Some(k) => if(!seen.contains(k.clone()), {
         seen.insert(k.clone());
         out.push(k.clone());
@@ -1259,7 +1259,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
             (ki : usize) = usize(0);
             while(ki < mentioning.len(), {
               match(
-                mentioning.get(ki),
+                mentioning.get_cloned(ki),
                 .Some(k) => if(!seen.contains(k.clone()), {
                   fresh.push(k.clone());
                 }),
@@ -1279,7 +1279,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
       (xi : usize) = usize(0);
       while(xi < more.len(), {
         match(
-          more.get(xi),
+          more.get_cloned(xi),
           .Some(k) => if(!seen.contains(k.clone()), {
             seen.insert(k.clone());
             out.push(k.clone());
@@ -1376,7 +1376,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   (ki : usize) = usize(0);
   while(ki < closure.len(), {
     match(
-      closure.get(ki),
+      closure.get_cloned(ki),
       .Some(key) => if(!_list_contains(&seeds, key.clone()), {
         module := def_key_module(key.clone());
         index := def_key_index(key.clone());
@@ -1472,7 +1472,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
           (ri : usize) = usize(0);
           while(ri < readers.len(), {
             match(
-              readers.get(ri),
+              readers.get_cloned(ri),
               .Some(importer) => if(_reader_rebindable(importer.clone(), names.clone()), {
                 // Phase 3 (§6): re-point the importer's own bindings at the
                 // re-forced definitions and re-force the importer's
@@ -1534,7 +1534,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
         (xi : usize) = usize(0);
         while(xi < extra.len(), {
           match(
-            extra.get(xi),
+            extra.get_cloned(xi),
             .Some(key) => if(
               !(_list_contains(&seeds, key.clone()) || _list_contains(&closure_keys, key.clone())),
               if(!_admit_closure_key(key.clone(), &mut closure_keys, &mut fallbacks, &mut names2_by_module), {
@@ -1571,7 +1571,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
           (r2i : usize) = usize(0);
           while(r2i < readers2.len(), {
             match(
-              readers2.get(r2i),
+              readers2.get_cloned(r2i),
               .Some(importer2) => if(!_rebinds_contain(&rebinds, importer2.clone()), {
                 fallbacks.push(importer2.clone());
               }),
@@ -1635,7 +1635,7 @@ mm_revalidate_apply :: (
   (ki : usize) = usize(0);
   while(ki < plan.closure_keys.len(), {
     match(
-      plan.closure_keys.get(ki),
+      plan.closure_keys.get_cloned(ki),
       .Some(key) => match(
         def_key_index(key.clone()),
         .Some(ix) => _rev_add_index(&mut indexes_by_module, def_key_module(key.clone()), ix),
@@ -1661,7 +1661,7 @@ mm_revalidate_apply :: (
   (li : usize) = usize(0);
   while(li < plan.closure_keys.len(), {
     match(
-      plan.closure_keys.get(li),
+      plan.closure_keys.get_cloned(li),
       .Some(key) => _rev_add_module(&mut modules, excluded, def_key_module(key.clone())),
       .None => ()
     );
@@ -1870,7 +1870,7 @@ mm_revalidate_apply :: (
             (fi : usize) = usize(0);
             while(fi < mod_failures.len(), {
               match(
-                mod_failures.get(fi),
+                mod_failures.get_cloned(fi),
                 .Some(msg) => failures.push(msg.clone()),
                 .None => ()
               );
@@ -1925,7 +1925,7 @@ mm_revalidate_apply :: (
                   (rni : usize) = usize(0);
                   while(rni < entry.names.len(), {
                     match(
-                      entry.names.get(rni),
+                      entry.names.get_cloned(rni),
                       .Some(nm) => {
                         (found : bool) = false;
                         (fdi : usize) = usize(0);
@@ -2674,7 +2674,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
     .StructVal(_, labels, values) => {
       (i : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get(i), .Some(l) => (l == "main"), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == "main"), .None => false), {
           match(
             values.get(i),
             .Some(v) => match(

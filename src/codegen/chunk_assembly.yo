@@ -807,7 +807,7 @@ assemble_chunks :: (
   (sx : usize) = usize(0);
   while(sx < fns_texts.len(), {
     match(
-      fns_texts.get(sx),
+      fns_texts.get_cloned(sx),
       .Some(ft) => _ca_collect_yo_refs(&ft, &mut referenced),
       .None => ()
     );
@@ -826,10 +826,10 @@ assemble_chunks :: (
   (pn : usize) = usize(0);
   while(pn < proto_names.len(), {
     match(
-      proto_names.get(pn),
+      proto_names.get_cloned(pn),
       .Some(pname) => if(referenced.contains(pname.clone()), {
         match(
-          proto_map.get(&pname),
+          proto_map.get_cloned(&pname),
           .Some(sig) => {
             protos.push_string(&sig);
             protos.push_str(";\n");
@@ -890,7 +890,7 @@ assemble_chunks :: (
       body.push_string(decl_split.moved_part.clone());
     });
     match(
-      fns_texts.get(ci2),
+      fns_texts.get_cloned(ci2),
       .Some(ft) => body.push_string(&ft),
       .None => ()
     );

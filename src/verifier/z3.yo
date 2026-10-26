@@ -381,6 +381,7 @@ run_z3_script :: (fn(binary : &String, script : &String) -> Result(String, Strin
 /// A parsed S-expression: atom or list. A value tree: a `List` owns its
 /// items (plans/VALUES_BY_DEFAULT.md §6 V4).
 Z3Sexpr :: enum(Atom(text : String), List(items : ArrayList(Self)));
+derive(Z3Sexpr, Clone);
 /// Parse ALL top-level S-expressions in `text` (whitespace and `;` line
 /// comments tolerated). Unclosed lists are dropped rather than thrown —
 /// the caller decides what missing evidence means.
@@ -471,7 +472,7 @@ z3_sexpr_to_string :: (fn(s : &Z3Sexpr) -> String)(
       (i : usize) = usize(0);
       while(i < items.len(), {
         match(
-          items.get(i),
+          items.get_cloned(i),
           .Some(x) => {
             if(i > usize(0), {
               sb.write_byte(u8(0x20));
@@ -580,7 +581,7 @@ z3_unsat_core_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
               (j : usize) = usize(0);
               while(j < items.len(), {
                 match(
-                  items.get(j),
+                  items.get_cloned(j),
                   .Some(item) => {
                     match(
                       item,
@@ -601,7 +602,7 @@ z3_unsat_core_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
                 (k : usize) = usize(0);
                 while(k < items.len(), {
                   match(
-                    items.get(k),
+                    items.get_cloned(k),
                     .Some(item2) => {
                       match(
                         item2,
@@ -644,7 +645,7 @@ z3_value_pairs_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
             (j : usize) = usize(0);
             while(j < pairs.len(), {
               match(
-                pairs.get(j),
+                pairs.get_cloned(j),
                 .Some(pair) => {
                   match(
                     pair,
@@ -671,7 +672,7 @@ z3_value_pairs_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
               (k : usize) = usize(0);
               while(k < pairs.len(), {
                 match(
-                  pairs.get(k),
+                  pairs.get_cloned(k),
                   .Some(pair2) => {
                     match(
                       pair2,

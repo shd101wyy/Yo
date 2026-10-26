@@ -636,7 +636,7 @@ _shell_walk_visited :: (fn(visited : &ArrayList(String), tok : &String) -> bool)
     // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
     // shape required — the bool-valued match form miscompiles self-hosted).
     match(
-      visited.get(i),
+      visited.get_cloned(i),
       .Some(e) => if(e == tok, {
         found = true;
       }),
@@ -896,7 +896,7 @@ register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(b
 /// position the payloads already determine only adds a redundant key part;
 /// leaving a phantom one unkeyed makes two instantiations one C type.
 ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))({
-  rec := g_ctor_phantom_positions.with(m => m.get(func_id));
+  rec := g_ctor_phantom_positions.with(m => m.get_cloned(func_id));
   out := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < n_args, {
@@ -924,7 +924,7 @@ _register_enum_phantom_positions :: (fn(enum_id : &String, phantom : &ArrayList(
 /// The phantom-position flags recorded for an enum instantiation (see
 /// `g_enum_phantom_positions`), or an empty list when it has none.
 enum_phantom_positions :: (fn(enum_id : &String) -> ArrayList(bool))(
-  match(g_enum_phantom_positions.with(m => m.get(enum_id)), .Some(m) => m, .None => ArrayList(bool).new())
+  match(g_enum_phantom_positions.with(m => m.get_cloned(enum_id)), .Some(m) => m, .None => ArrayList(bool).new())
 );
 /// Stamp an enum instantiation's type arguments onto its finalized form in the
 /// enum-final registry (keyed by the self-shell id), so a leaked self-shell
@@ -999,12 +999,12 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
 /// alias `Y :: X` does not rename X).
 (g_type_binding_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_binding_name :: (fn(type_id : &String, name : &String) -> unit)({
-  if((type_id.len() > usize(0)) && g_type_binding_names.with(m => m.get(type_id)).is_none(), {
+  if((type_id.len() > usize(0)) && g_type_binding_names.with(m => m.get_cloned(type_id)).is_none(), {
     g_type_binding_names.with_mut(m => m.insert(type_id.clone(), name.clone()));
   });
 });
 type_binding_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_binding_names.with(m => m.get(type_id))
+  g_type_binding_names.with(m => m.get_cloned(type_id))
 );
 /// Drop every binding name (a reset of the evaluator universe).
 clear_type_binding_names :: (fn() -> unit)({
@@ -1052,7 +1052,7 @@ trial_flag_set :: (fn(v : bool) -> bool)({
 /// registers, so type binders are unaffected.
 resolve_some_binder_kind :: (fn(name : &String, lvl : usize) -> Option(TypeValue))(
   match(
-    _some_binder_kinds.with(m => m.get(`${name}@${lvl.to_string()}`)),
+    _some_binder_kinds.with(m => m.get_cloned(`${name}@${lvl.to_string()}`)),
     .Some(kind_name) => cond(
       (kind_name == "usize") => Option(TypeValue).Some(t_usize()),
       (kind_name == "isize") => Option(TypeValue).Some(t_isize()),

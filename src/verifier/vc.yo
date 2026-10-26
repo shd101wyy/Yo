@@ -108,7 +108,7 @@ _same_recursion_clique :: (fn(a : &String, b : &String) -> bool)({
   (ci : usize) = usize(0);
   while((ci < g_recursion_cliques.with(xs => xs.len())) && !found, {
     match(
-      g_recursion_cliques.with(xs => xs.get(ci)),
+      g_recursion_cliques.with(xs => xs.get_cloned(ci)),
       .Some(clique) => {
         if(clique.contains(a.clone()) && clique.contains(b.clone()), {
           found = true;
@@ -387,7 +387,7 @@ _is_array_list_shape :: (fn(id : &String, name : &String, labels : &ArrayList(St
     true => match(type_display_name(id.clone()), .Some(d) => d, .None => String.new())
   );
   head_ok := ((display == "ArrayList") || display.starts_with("ArrayList("));
-  fields_ok := ((labels.len() == usize(3)) && match(labels.get(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && match(labels.get(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false));
+  fields_ok := ((labels.len() == usize(3)) && match(labels.get_cloned(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && match(labels.get_cloned(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get_cloned(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false));
   head_ok && fields_ok
 });
 /// The element SORT of a modeled `ArrayList(T)`: `T` must be an integer or
@@ -441,7 +441,7 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
   (i : usize) = usize(0);
   while((i < g_list_datatypes.with(xs => xs.len())) && !found, {
     match(
-      g_list_datatypes.with(xs => xs.get(i)),
+      g_list_datatypes.with(xs => xs.get_cloned(i)),
       .Some(entry) => {
         bar := entry.index_of(String.from("|"));
         nm := match(
@@ -592,7 +592,7 @@ _register_uninterpreted_sort :: (fn(name : &String) -> unit)({
   (i : usize) = usize(0);
   while((i < g_uninterpreted_sorts.with(xs => xs.len())) && !found, {
     match(
-      g_uninterpreted_sorts.with(xs => xs.get(i)),
+      g_uninterpreted_sorts.with(xs => xs.get_cloned(i)),
       .Some(n) => {
         if(n == name, {
           found = true;
@@ -1306,7 +1306,7 @@ _emit :: (
   (ki : usize) = usize(0);
   while(ki < sorted_keys.len(), {
     match(
-      sorted_keys.get(ki),
+      sorted_keys.get_cloned(ki),
       .Some(k) => {
         match(
           declared.get(k.clone()),
@@ -1326,7 +1326,7 @@ _emit :: (
   (ri : usize) = usize(0);
   while(ri < sorted_keys.len(), {
     match(
-      sorted_keys.get(ri),
+      sorted_keys.get_cloned(ri),
       .Some(k) => {
         rename_map.insert(k.clone(), mangle_vc_name(ctx.fn_name.clone(), k.clone()));
       },
@@ -1446,7 +1446,7 @@ _emit :: (
   (ldi : usize) = usize(0);
   while(ldi < g_list_datatypes.with(xs => xs.len()), {
     match(
-      g_list_datatypes.with(xs => xs.get(ldi)),
+      g_list_datatypes.with(xs => xs.get_cloned(ldi)),
       .Some(entry) => {
         q.datatypes.push(entry.clone());
       },
@@ -1457,7 +1457,7 @@ _emit :: (
   (usi : usize) = usize(0);
   while(usi < g_uninterpreted_sorts.with(xs => xs.len()), {
     match(
-      g_uninterpreted_sorts.with(xs => xs.get(usi)),
+      g_uninterpreted_sorts.with(xs => xs.get_cloned(usi)),
       .Some(name) => {
         q.sorts.push(name.clone());
       },
@@ -1557,7 +1557,7 @@ _sorted_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     match(
-      xs.get(i),
+      xs.get_cloned(i),
       .Some(x) => {
         out.push(x.clone());
       },
@@ -1652,7 +1652,7 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
       (qi : usize) = usize(0);
       while(qi < names.len(), {
         match(
-          names.get(qi),
+          names.get_cloned(qi),
           .Some(bn) => {
             _ := inner.remove(bn.clone());
           },
@@ -1689,7 +1689,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
   match(
     t,
     Rc(.Var(name, sort)) => match(
-      map.get(name.clone()),
+      map.get_cloned(name.clone()),
       .Some(m) => rc(VcTermNode.Var(name : m.clone(), sort : sort)),
       .None => t
     ),
@@ -1742,7 +1742,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
             (qi2 : usize) = usize(0);
             while(qi2 < names.len(), {
               match(
-                names.get(qi2),
+                names.get_cloned(qi2),
                 .Some(bn2) => {
                   if(mk == bn2, {
                     is_bound = true;
@@ -1754,7 +1754,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
             });
             if(!is_bound, {
               match(
-                map.get(mk.clone()),
+                map.get_cloned(mk.clone()),
                 .Some(mv) => {
                   inner_map.insert(mk.clone(), mv);
                 },
@@ -2231,7 +2231,7 @@ _dt_registered :: (fn(entries : &ArrayList(String), dt : &String) -> bool)({
   (i : usize) = usize(0);
   while((i < entries.len()) && !found, {
     match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(entry) => {
         bar := entry.index_of(String.from("|"));
         nm := match(
@@ -2678,7 +2678,7 @@ _match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &_MatchPhi) -> boo
   b := base.unwrap();
   (ni : usize) = usize(0);
   while(ni < ph.names.len(), {
-    nm := ph.names.get(ni).unwrap();
+    nm := ph.names.get_cloned(ni).unwrap();
     pre_t := ph.pre.get(ni).unwrap();
     match(
       pre_t,
@@ -2715,7 +2715,7 @@ _restore_vars :: (
   (si : usize) = saved_names.len();
   while(si > usize(0), {
     si = (si - usize(1));
-    sn := saved_names.get(si).unwrap();
+    sn := saved_names.get_cloned(si).unwrap();
     match(
       saved_vals.get(si),
       .Some(sv) => {
@@ -2840,7 +2840,7 @@ _arm_ir_bind_into :: (
       while((i < subs.len()) && ok2, {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         accessor := match(
-          accessors.get(fi),
+          accessors.get_cloned(fi),
           .Some(a) => a.clone(),
           .None => _variant_ctor_name(&inner_ty, vname.clone())
         );
@@ -3176,7 +3176,7 @@ _call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut Arra
   );
   // [receiver] ++ args when the callee is a method taking `self`.
   eff := ArrayList(AstExpr).new();
-  if(match(params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false), {
+  if(match(params.get_cloned(usize(0)), .Some(p0) => (p0 == "self"), .None => false), {
     match(
       callee,
       .FnCall(_, cf, da, _, _) => if((ast_expr_text(&cf) == ".") && (da.len() == usize(2)), {
@@ -3209,7 +3209,7 @@ _call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut Arra
       _arg_place_atom(&a),
       .Some(pa) => {
         pn := ast_expr_text(&pa);
-        pl := match(params.get(i), .Some(p) => p, .None => String.new());
+        pl := match(params.get_cloned(i), .Some(p) => p, .None => String.new());
         written := (ast_expr_is_fn_call_of(&a, "&mut", .Some(usize(1))) || ((fid.len() > usize(0)) && _callee_param_is_mut_ref(&fid, i)) || ((pl.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, pl.clone())));
         if(written && !out.contains(pn.clone()), {
           out.push(pn);
@@ -3506,7 +3506,7 @@ _havoc_assigned :: (fn(ctx : &mut VcCtx, assigned : &ArrayList(String)) -> unit)
   ctx.havoc = (ctx.havoc + usize(1));
   (ai : usize) = usize(0);
   while(ai < assigned.len(), {
-    name := assigned.get(ai).unwrap();
+    name := assigned.get_cloned(ai).unwrap();
     srt := match(
       ctx.vars.get(name.clone()),
       .Some(old) => _binding_sort(ctx, &name, &old),
@@ -6077,7 +6077,7 @@ _refine_pred_term :: (
     _fail_subset(ctx, String.from("refinement predicate must take exactly one parameter"), at);
     return(Option(VcTerm).None);
   });
-  pname := match(gfd.params.get(usize(0)), .Some(p) => p.clone(), .None => String.new());
+  pname := match(gfd.params.get_cloned(usize(0)), .Some(p) => p.clone(), .None => String.new());
   saved := ctx.vars.get(pname.clone());
   ctx.vars.insert(pname.clone(), vt);
   out := _expr_term(ctx, &gfd.body);
@@ -6109,7 +6109,7 @@ _refine_pred_chain_term :: (
   (ci : usize) = usize(0);
   while((ci < chain.len()) && out.is_some(), {
     match(
-      chain.get(ci),
+      chain.get_cloned(ci),
       .Some(cf) => {
         next := _refine_pred_term(ctx, at, vt, cf.clone());
         match(
@@ -6290,7 +6290,7 @@ _ghost_fn_app_term :: (
     saved_mv := ArrayList(Option(VcTerm)).new();
     (mi : usize) = usize(0);
     while(mi < params.len(), {
-      pn := params.get(mi).unwrap();
+      pn := params.get_cloned(mi).unwrap();
       saved_mn.push(pn.clone());
       saved_mv.push(ctx.vars.get(pn.clone()));
       ctx.vars.insert(pn, arg_terms.get(mi).unwrap());
@@ -6324,7 +6324,7 @@ _ghost_fn_app_term :: (
       bvar := rc(VcTermNode.Var(name : bname.clone(), sort : arg_sorts.get(bi).unwrap()));
       binder_names.push(bname);
       binder_terms.push(bvar);
-      pn2 := params.get(bi).unwrap();
+      pn2 := params.get_cloned(bi).unwrap();
       saved_bn.push(pn2.clone());
       saved_bv.push(ctx.vars.get(pn2.clone()));
       ctx.vars.insert(pn2, bvar);
@@ -6368,7 +6368,7 @@ _ghost_fn_inline_term :: (
   });
   (si : usize) = usize(0);
   while(si < g_ghost_inline_stack.with(xs => xs.len()), {
-    if(g_ghost_inline_stack.with(xs => xs.get(si)).unwrap() == fid, {
+    if(g_ghost_inline_stack.with(xs => xs.get_cloned(si)).unwrap() == fid, {
       _fail_subset(ctx, String.from("recursive ghost_fn inlining (a spec function must not reach itself)"), at);
       return(Option(VcTerm).None);
     });
@@ -6440,7 +6440,7 @@ _ghost_fn_inline_term :: (
   (bi : usize) = usize(0);
   while(bi < inl_terms.len(), {
     match(
-      params.get(bi),
+      params.get_cloned(bi),
       .Some(cp) => {
         saved_names.push(cp.clone());
         saved_vals.push(ctx.vars.get(cp.clone()));
@@ -6608,7 +6608,7 @@ _callee_call_term :: (
       (hri : usize) = usize(0);
       while((hri < base_preds.len()) && !any_refined, {
         match(
-          base_preds.get(hri),
+          base_preds.get_cloned(hri),
           .Some(pid) => {
             if(pid.len() > usize(0), {
               any_refined = true;
@@ -6727,7 +6727,7 @@ _callee_call_term :: (
   (pbi : usize) = usize(0);
   while(pbi < arg_terms.len(), {
     match(
-      callee_params.get(pbi),
+      callee_params.get_cloned(pbi),
       .Some(cp) => {
         saved_names.push(cp.clone());
         saved_vals.push(ctx.vars.get(cp.clone()));
@@ -6770,7 +6770,7 @@ _callee_call_term :: (
   (ani : usize) = usize(0);
   while(ani < eff_args.len(), {
     match(
-      callee_params.get(ani),
+      callee_params.get_cloned(ani),
       .Some(acp) => {
         aa := eff_args.get(ani).unwrap();
         ctx.call_arg_names.insert(acp.clone(), match(_arg_place_atom(&aa), .Some(pa) => ast_expr_text(&pa), .None => String.new()));
@@ -6807,7 +6807,7 @@ _callee_call_term :: (
   (ri2 : usize) = usize(0);
   while(ri2 < refine_preds.len(), {
     match(
-      refine_preds.get(ri2),
+      refine_preds.get_cloned(ri2),
       .Some(pred_fid) => {
         if(pred_fid.len() > usize(0), {
           at2 := match(
@@ -6853,7 +6853,7 @@ _callee_call_term :: (
   pre_map := HashMap(String, VcTerm).new();
   (hvi : usize) = usize(0);
   while(hvi < eff_args.len(), {
-    hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
+    hcp := match(callee_params.get_cloned(hvi), .Some(c) => c, .None => String.new());
     match(
       eff_args.get(hvi),
       .Some(ha_arg) => match(
@@ -7016,7 +7016,7 @@ _callee_call_term :: (
 _method_effective_args :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr), callee_params : &ArrayList(String)) -> ArrayList(AstExpr)
 )({
-  first_is_self := match(callee_params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
+  first_is_self := match(callee_params.get_cloned(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
   if(!first_is_self, {
     return(args);
   });
@@ -7313,7 +7313,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
   (i : usize) = usize(0);
   while(i < input.param_names.len(), {
     match(
-      input.param_names.get(i),
+      input.param_names.get_cloned(i),
       .Some(pn) => {
         match(
           input.param_types.get(i),
@@ -7337,7 +7337,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
                 // call site. The sort above is already the plain declared
                 // type (refine() evaluates to its inner — erasure).
                 match(
-                  param_pred_ids.get(i),
+                  param_pred_ids.get_cloned(i),
                   .Some(pred_fid) => {
                     if(pred_fid.len() > usize(0), {
                       ptm := ctx.vars.get(pn.clone());
@@ -7459,7 +7459,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
   (mpi : usize) = usize(0);
   while(mpi < input.param_names.len(), {
     match(
-      input.param_names.get(mpi),
+      input.param_names.get_cloned(mpi),
       .Some(mpn) => if(ctx.mutated_names.contains(mpn.clone()) && !_contracts_mention_old_of(&input.requires_exprs, &input.ensures_exprs, mpn.clone()), {
         _fail_subset(
           &mut ctx,
@@ -7489,7 +7489,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
     );
     (api : usize) = usize(0);
     while(api < input.param_names.len(), {
-      apn := input.param_names.get(api).unwrap();
+      apn := input.param_names.get_cloned(api).unwrap();
       adt := match(input.param_types.get(api), .Some(apt) => _list_dt_of_type(&apt), .None => Option(String).None);
       if(ctx.mutated_names.contains(apn.clone()) && adt.is_some(), {
         (apj : usize) = usize(0);
@@ -7497,10 +7497,10 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
           bdt := match(input.param_types.get(apj), .Some(bpt) => _list_dt_of_type(&bpt), .None => Option(String).None);
           // `requires(distinct(a, b))` says the caller passes two lists
           // (R2 task 5), so the pair is safe to model separately.
-          if((apj != api) && (bdt.is_some() && (bdt.unwrap() == adt.clone().unwrap())) && !_requires_state_distinct(&input.requires_exprs, apn.clone(), input.param_names.get(apj).unwrap()), {
+          if((apj != api) && (bdt.is_some() && (bdt.unwrap() == adt.clone().unwrap())) && !_requires_state_distinct(&input.requires_exprs, apn.clone(), input.param_names.get_cloned(apj).unwrap()), {
             _fail_subset(
               &mut ctx,
-              `the body mutates list parameter '${apn}' and '${input.param_names.get(apj).unwrap()}' has the same list type — a caller may pass one list as both, and the list model cannot follow aliases (state requires(distinct(${apn}, ${input.param_names.get(apj).unwrap()})) to rule that out)`,
+              `the body mutates list parameter '${apn}' and '${input.param_names.get_cloned(apj).unwrap()}' has the same list type — a caller may pass one list as both, and the list model cannot follow aliases (state requires(distinct(${apn}, ${input.param_names.get_cloned(apj).unwrap()})) to rule that out)`,
               &input.body
             );
           });
@@ -7625,7 +7625,7 @@ _call_is_contracted :: (fn(fid : &String, e : &AstExpr) -> bool)({
   );
   (i : usize) = usize(0);
   while(i < preds.len(), {
-    if(preds.get(i).unwrap().len() > usize(0), {
+    if(preds.get_cloned(i).unwrap().len() > usize(0), {
       return(true);
     });
     i = (i + usize(1));
@@ -7788,14 +7788,14 @@ _sort_holds_list :: (fn(ctx : &VcCtx, s : &VcSort) -> bool)(
         own := dn.clone();
         (di : usize) = usize(0);
         while((di < ctx.datatypes.len()) && !holds, {
-          entry := ctx.datatypes.get(di).unwrap();
+          entry := ctx.datatypes.get_cloned(di).unwrap();
           if(entry.starts_with(`${own}|`), {
             // Constructor names start with the datatype's own name; any
             // other datatype named in the entry is a field's sort.
             parts := entry.split(&own);
             (pi : usize) = usize(0);
             while(pi < parts.len(), {
-              part := parts.get(pi).unwrap();
+              part := parts.get_cloned(pi).unwrap();
               if(part.contains("List_") || part.contains("__yo_d"), {
                 holds = true;
               });

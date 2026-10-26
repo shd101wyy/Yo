@@ -254,7 +254,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
           (ci : usize) = usize(0);
           while((ci < inits.len()) && field_code.is_none(), {
             match(
-              inits.get(ci),
+              inits.get_cloned(ci),
               .Some(cfi) => if(cfi.label == label, {
                 init_code := _call_generate_expr(&cfi.init, indent.clone(), context);
                 // A by-value RC entry's +1 rides the initializer's own

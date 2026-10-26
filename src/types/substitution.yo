@@ -157,7 +157,7 @@ _subst_lookup_by_name :: (fn(s : &Substitution, name : &String) -> Option(TypeVa
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get_cloned(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       return(
         match(s.types.get(i), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None)
@@ -197,7 +197,7 @@ subst_lookup_len_var :: (fn(s : &Substitution, name : &String) -> Option(usize))
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
-    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.len_var_names.get_cloned(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       return(
         match(
@@ -229,7 +229,7 @@ _subst_trait_visited :: (fn(s : &Substitution, id : &String) -> bool)({
   i := usize(0);
   n := s.visited_trait_ids.len();
   while(i < n, {
-    vi := match(s.visited_trait_ids.get(i), .Some(v) => v, .None => ``);
+    vi := match(s.visited_trait_ids.get_cloned(i), .Some(v) => v, .None => ``);
     if(vi == id, {
       return(true);
     });
@@ -265,7 +265,7 @@ subst_adopt_own_resolution :: (fn(s : &Substitution, id : &String) -> unit)({
 _subst_adopts_own :: (fn(s : &Substitution, id : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < s.own_resolution_ids.len(), {
-    if(match(s.own_resolution_ids.get(i), .Some(v) => (v == id), .None => false), {
+    if(match(s.own_resolution_ids.get_cloned(i), .Some(v) => (v == id), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -277,7 +277,7 @@ subst_lookup :: (fn(s : &Substitution, name : &String, level : usize) -> Option(
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get_cloned(i), .Some(v) => v, .None => ``);
     li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
     if((ni == name) && (li == level), {
       return(
@@ -386,7 +386,7 @@ _mfb_is_binder :: (fn(labels : &ArrayList(String), nm : &String) -> bool)({
   (hit : bool) = false;
   while((bi < labels.len()) && !hit, {
     match(
-      labels.get(bi),
+      labels.get_cloned(bi),
       .Some(b_nm) => if(b_nm == nm, {
         hit = true;
       }),
@@ -404,7 +404,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   {
     (si : usize) = usize(0);
     while((si < s.names.len()) && !any_masked, {
-      nm := match(s.names.get(si), .Some(v) => v, .None => ``);
+      nm := match(s.names.get_cloned(si), .Some(v) => v, .None => ``);
       if(_mfb_is_binder(forall_labels, &nm), {
         any_masked = true;
       });
@@ -417,7 +417,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   {
     (li : usize) = usize(0);
     while((li < s.len_var_names.len()) && !any_masked, {
-      lnm := match(s.len_var_names.get(li), .Some(v) => v, .None => ``);
+      lnm := match(s.len_var_names.get_cloned(li), .Some(v) => v, .None => ``);
       if(_mfb_is_binder(forall_labels, &lnm), {
         any_masked = true;
       });
@@ -447,7 +447,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   );
   (ci : usize) = usize(0);
   while(ci < s.names.len(), {
-    nm := match(s.names.get(ci), .Some(v) => v, .None => ``);
+    nm := match(s.names.get_cloned(ci), .Some(v) => v, .None => ``);
     if(!_mfb_is_binder(forall_labels, &nm), {
       masked.names.push(nm);
       masked.levels.push(match(s.levels.get(ci), .Some(v) => v, .None => usize(0)));
@@ -457,7 +457,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   });
   (mli : usize) = usize(0);
   while(mli < s.len_var_names.len(), {
-    lnm := match(s.len_var_names.get(mli), .Some(v) => v, .None => ``);
+    lnm := match(s.len_var_names.get_cloned(mli), .Some(v) => v, .None => ``);
     if(!_mfb_is_binder(forall_labels, &lnm), {
       masked.len_var_names.push(lnm);
       masked.len_var_values.push(match(s.len_var_values.get(mli), .Some(v) => v, .None => usize(0)));

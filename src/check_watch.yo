@@ -79,7 +79,7 @@ watch_round :: (
   (ci : usize) = usize(0);
   while(ci < changed.len(), {
     match(
-      changed.get(ci),
+      changed.get_cloned(ci),
       .Some(p) => {
         // Canonicalize: `collect_check_files` yields paths relative to the
         // CWD for a relative target (`yo check ./src --watch`), while the
@@ -123,7 +123,7 @@ watch_round :: (
                 (fi0 : usize) = usize(0);
                 while(fi0 < pl.fallback_modules.len(), {
                   match(
-                    pl.fallback_modules.get(fi0),
+                    pl.fallback_modules.get_cloned(fi0),
                     .Some(mk) => {
                       m_fs := mk.replace(String.from("file://"), String.new());
                       if(m_fs.len() > usize(0), {
@@ -131,7 +131,7 @@ watch_round :: (
                         dropped_by_m := mm_invalidate_document(m_fs.clone());
                         while(di < dropped_by_m.len(), {
                           match(
-                            dropped_by_m.get(di),
+                            dropped_by_m.get_cloned(di),
                             .Some(k) => {
                               removed.insert(k);
                               ()
@@ -150,7 +150,7 @@ watch_round :: (
                 (ei : usize) = usize(0);
                 while(ei < pl.fallback_modules.len(), {
                   match(
-                    pl.fallback_modules.get(ei),
+                    pl.fallback_modules.get_cloned(ei),
                     .Some(mk) => {
                       _ := excluded.insert(mk.clone());
                     },
@@ -167,7 +167,7 @@ watch_round :: (
                 (fi1 : usize) = usize(0);
                 while(fi1 < outcome.fallback_modules.len(), {
                   match(
-                    outcome.fallback_modules.get(fi1),
+                    outcome.fallback_modules.get_cloned(fi1),
                     .Some(mk) => {
                       m_fs := mk.replace(String.from("file://"), String.new());
                       if(m_fs.len() > usize(0), {
@@ -175,7 +175,7 @@ watch_round :: (
                         dropped_by_m := mm_invalidate_document(m_fs.clone());
                         while(di < dropped_by_m.len(), {
                           match(
-                            dropped_by_m.get(di),
+                            dropped_by_m.get_cloned(di),
                             .Some(k) => {
                               removed.insert(k);
                               ()
@@ -196,7 +196,7 @@ watch_round :: (
                   (mi : usize) = usize(0);
                   while(mi < outcome.failures.len(), {
                     match(
-                      outcome.failures.get(mi),
+                      outcome.failures.get_cloned(mi),
                       .Some(msg) => emit_rendered_text(msg.clone()),
                       .None => ()
                     );
@@ -221,7 +221,7 @@ watch_round :: (
                 (di : usize) = usize(0);
                 while(di < dropped.len(), {
                   match(
-                    dropped.get(di),
+                    dropped.get_cloned(di),
                     .Some(k) => {
                       removed.insert(k);
                       ()
@@ -243,7 +243,7 @@ watch_round :: (
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     match(
-      files.get(fi),
+      files.get_cloned(fi),
       .Some(fp) => {
         key := mm_resolve_entry_abs(fp.clone(), std_path.clone());
         if(removed.contains(&key), {
@@ -323,7 +323,7 @@ watch_snapshot :: (
   (si : usize) = usize(0);
   while(si < files.len(), {
     match(
-      files.get(si),
+      files.get_cloned(si),
       .Some(p) => match(
         _stat_key(p.clone(), io),
         .Some(k) => {
@@ -354,7 +354,7 @@ wait_for_change :: (
     (wi : usize) = usize(0);
     while(wi < files.len(), {
       match(
-        files.get(wi),
+        files.get_cloned(wi),
         .Some(p) => match(
           _stat_key(p.clone(), io),
           .Some(k) => {
@@ -405,7 +405,7 @@ run_check_watch :: (
     (pi : usize) = usize(0);
     while(pi < changed.len(), {
       match(
-        changed.get(pi),
+        changed.get_cloned(pi),
         .Some(p) => {
           if(p.contains(std_path.clone()) || p.ends_with(String.from("prelude.yo")), {
             std_edit = true;
@@ -435,7 +435,7 @@ invalidate_changed_files :: (fn(changed : &ArrayList(String), std_path : &String
   (ci : usize) = usize(0);
   while(ci < changed.len(), {
     match(
-      changed.get(ci),
+      changed.get_cloned(ci),
       .Some(p) => {
         // Same canonicalization as watch_round: the cache keys absolute
         // `file://` paths, and `mm_invalidate_document` re-prefixes it.

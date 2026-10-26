@@ -383,7 +383,7 @@ _emit_enum_tags :: (fn(c_name : &String, variant_names : &ArrayList(String), var
   n := variant_names.len();
   (i : usize) = usize(0);
   while(i < n, {
-    vname := match(variant_names.get(i), .Some(v) => v, .None => String.from(""));
+    vname := match(variant_names.get_cloned(i), .Some(v) => v, .None => String.from(""));
     clean := if(vname.starts_with("."), vname.substring(usize(1), vname.len()), vname.clone());
     tag := c_name.to_uppercase();
     tag.push_str("_");
@@ -1464,7 +1464,7 @@ _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
 _walk_add_dep :: (fn(deps_set : &mut HashSet(String), dep_ty : &TypeValue, self_type_id : &String, cname_to_typeid : &HashMap(String, String), context : &CodeGenContext) -> unit)({
   dep_cname := get_type_string(dep_ty, context);
   match(
-    cname_to_typeid.get(&dep_cname),
+    cname_to_typeid.get_cloned(&dep_cname),
     .Some(dep_tid) => if(!(dep_tid == self_type_id), {
       deps_set.insert(dep_tid.clone());
     }),
@@ -1734,7 +1734,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
               nf := field_labels.len();
               (fi : usize) = usize(0);
               while(fi < nf, {
-                flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+                flabel := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
                 fty := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if(!is_destructor_trait_member(&tt, &flabel), {
                   match(
@@ -1885,7 +1885,7 @@ _deferred_decl_cnames :: (
   (wi : usize) = usize(0);
   while(wi < wrapper_names.len(), {
     match(
-      wrapper_names.get(wi),
+      wrapper_names.get_cloned(wi),
       .Some(w) => {
         out.insert(w);
       },
@@ -2257,7 +2257,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   (xi : usize) = usize(0);
   nx := sorted_ids.len();
   while(xi < nx, {
-    sid := match(sorted_ids.get(xi), .Some(s) => s, .None => String.from(""));
+    sid := match(sorted_ids.get_cloned(xi), .Some(s) => s, .None => String.from(""));
     // Find the matching entry (small N).
     (yi : usize) = usize(0);
     (found : bool) = false;
@@ -2295,7 +2295,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   _flush_i := usize(0);
   while(_flush_i < array_pending.len(), {
     match(
-      array_pending.get(_flush_i),
+      array_pending.get_cloned(_flush_i),
       .Some(pn) => _emit_array_wrapper(context, &pn),
       .None => ()
     );
@@ -2308,7 +2308,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
     (ni : usize) = usize(0);
     while(ni < nkeys.len(), {
       match(
-        nkeys.get(ni),
+        nkeys.get_cloned(ni),
         .Some(tid) => match(
           context.get_type_entry(tid.clone()),
           .Some(entry) => {
@@ -2336,7 +2336,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
     (oi : usize) = usize(0);
     while(oi < okeys.len(), {
       match(
-        okeys.get(oi),
+        okeys.get_cloned(oi),
         .Some(tid) => match(
           context.get_type_entry(tid.clone()),
           .Some(entry) => {

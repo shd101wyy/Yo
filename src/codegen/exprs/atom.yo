@@ -48,7 +48,7 @@
 _shadowed_name_code :: (fn(var_name : &String, context : &FunctionGenerationContext) -> String)({
   cname := sanitize_for_c_identifier(var_name, false);
   match(
-    match(context.shadow_slots, .Some(m) => m.get(cname.clone()), .None => Option(String).None),
+    match(context.shadow_slots, .Some(m) => m.get_cloned(cname.clone()), .None => Option(String).None),
     .Some(field) => `sm->${field}`,
     .None => cname
   )
@@ -92,7 +92,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
                 match(
                   context.state_machine_field_aliases,
                   .Some(aliases) => match(
-                    aliases.get(var_id.clone()),
+                    aliases.get_cloned(var_id.clone()),
                     .Some(aliased_field) => return(Option(String).Some(`sm->${aliased_field.clone()}`)),
                     .None => ()
                   ),
@@ -117,7 +117,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
                           if(!(e.key == var_id), {
                             if((e.value.base.name == var_name) && (e.value.base.decl_site.len() == usize(0)), {
                               match(
-                                aliases2.get(e.key.clone()),
+                                aliases2.get_cloned(e.key.clone()),
                                 .Some(other_alias) => return(Option(String).Some(`sm->${other_alias.clone()}`)),
                                 .None => ()
                               );
@@ -193,7 +193,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
             match(
               context.state_machine_field_aliases,
               .Some(al) => match(
-                al.get(e.key.clone()),
+                al.get_cloned(e.key.clone()),
                 .Some(af) => return(Option(String).Some(`sm->${af.clone()}`)),
                 .None => ()
               ),
@@ -712,7 +712,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
       // TOKEN; the matching declaration uses the same sanitized source name.
       if(_is_shadowed_name(tv.clone(), context), {
         shadowed_code := match(
-          match(context.shadow_slots, .Some(m) => m.get(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),
+          match(context.shadow_slots, .Some(m) => m.get_cloned(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),
           .Some(field) => `sm->${field}`,
           .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
         );

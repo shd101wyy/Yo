@@ -68,10 +68,10 @@ pragma(Pragma.AllowUnsafe);
 _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &String) -> String)(
   cond(
     (decl.len() == usize(0)) => match(
-      g_enum_bare_claims.with(m => m.get(bare)),
+      g_enum_bare_claims.with(m => m.get_cloned(bare)),
       .Some(k) => k.clone(),
       .None => match(
-        g_enum_bare_unclaimed.with(m => m.get(bare)),
+        g_enum_bare_unclaimed.with(m => m.get_cloned(bare)),
         .Some(k) => k.clone(),
         .None => {
           g_enum_bare_unclaimed.with_mut(m => m.insert(bare.clone(), full_key.clone()));
@@ -83,16 +83,16 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
     true => {
       sig := `${bare}@${decl}`;
       match(
-        g_enum_sig_keys.with(m => m.get(&sig)),
+        g_enum_sig_keys.with(m => m.get_cloned(&sig)),
         .Some(k) => k.clone(),
         .None => {
           canonical := cond(
             !is_prelude_enum_decl(decl) => full_key.clone(),
             true => match(
-              g_enum_bare_claims.with(m => m.get(bare)),
+              g_enum_bare_claims.with(m => m.get_cloned(bare)),
               .Some(_) => full_key.clone(),
               .None => {
-                adopted := match(g_enum_bare_unclaimed.with(m => m.get(bare)), .Some(k) => k.clone(), .None => full_key.clone());
+                adopted := match(g_enum_bare_unclaimed.with(m => m.get_cloned(bare)), .Some(k) => k.clone(), .None => full_key.clone());
                 g_enum_bare_claims.with_mut(m => m.insert(bare.clone(), adopted.clone()));
                 adopted
               }
@@ -208,7 +208,7 @@ _tk_seen :: (fn(id : &String) -> bool)({
     // Compact bool-valued arm form (an r3-era self-hosted miscompile of
     // this shape was fixed by later work — restored 2026-08-07 with the
     // fixpoint as judge; issues/retired/yo-self-bool-match-arm-miscompile.md).
-    found = match(g_tk_visited.with(xs => xs.get(i)), .Some(e) => (e == id), .None => false);
+    found = match(g_tk_visited.with(xs => xs.get_cloned(i)), .Some(e) => (e == id), .None => false);
     i = (i + usize(1));
   });
   found
@@ -327,7 +327,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       tk_node := _tk_node_id(&tk_head, &stas);
       if((sid.len() > usize(0)) && _tk_seen(&tk_node), {
         cyc_inner := match(
-          g_struct_cfid_keys.with(m => m.get(&sid)),
+          g_struct_cfid_keys.with(m => m.get_cloned(&sid)),
           // A POISONED slot ("!AMBIG" — multiple instantiations share this
           // sid) must NOT leak the sentinel as a key: two different nested
           // types would both render "!AMBIG" and collide (the sentinel
@@ -414,7 +414,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
           // with registration order deciding the winner per emit.
           if(sid.len() > usize(0), {
             match(
-              g_struct_cfid_keys.with(m => m.get(&sid)),
+              g_struct_cfid_keys.with(m => m.get_cloned(&sid)),
               .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
                 g_struct_cfid_keys.with_mut(m => m.insert(sid.clone(), String.from("!AMBIG")));
                 bump_type_key_epoch();
@@ -441,7 +441,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
         // must get its own visit fn. Unpoisoned REGISTERED sids
         // (.Some non-poison) behave exactly as before.
         (sid.len() > usize(0)) => {
-          slot := g_struct_cfid_keys.with(m => m.get(&sid));
+          slot := g_struct_cfid_keys.with(m => m.get_cloned(&sid));
           need_structural := match(
             slot,
             .Some(k) => (k == "!AMBIG"),
@@ -890,7 +890,7 @@ _sti_seen :: (fn(id : &String) -> bool)({
   (found : bool) = false;
   while((i < n) && !found, {
     match(
-      g_sti_visited.with(xs => xs.get(i)),
+      g_sti_visited.with(xs => xs.get_cloned(i)),
       .Some(v) => if(v == id, {
         found = true;
       }),

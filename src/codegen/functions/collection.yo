@@ -352,7 +352,7 @@ _register_extern_fn_callee :: (
 _add_all_c_includes :: (fn(headers : &ArrayList(String), context : &CodeGenContext) -> unit)({
   (i : usize) = usize(0);
   while(i < headers.len(), {
-    match(headers.get(i), .Some(h) => context.add_c_include(&h), .None => ());
+    match(headers.get_cloned(i), .Some(h) => context.add_c_include(&h), .None => ());
     i = (i + usize(1));
   });
 });
@@ -586,7 +586,7 @@ collect_required_functions :: (
       n := field_names.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_names.get_cloned(i), .Some(l) => l, .None => String.from(""));
         match(
           field_values.get(i),
           .Some(value) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
@@ -599,7 +599,7 @@ collect_required_functions :: (
       n := field_names.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_names.get_cloned(i), .Some(l) => l, .None => String.from(""));
         match(
           field_values.get(i),
           .Some(.Some(value)) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
@@ -828,7 +828,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                 n_rm := rm_names.len();
                 (rmi : usize) = usize(0);
                 while(rmi < n_rm, {
-                  rm_hit := match(rm_names.get(rmi), .Some(nm) => (nm == cmname), .None => false);
+                  rm_hit := match(rm_names.get_cloned(rmi), .Some(nm) => (nm == cmname), .None => false);
                   if(rm_hit, {
                     match(
                       rm_vals.get(rmi),
@@ -1000,7 +1000,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           .Some(cinits) => {
             (cii : usize) = usize(0);
             while(cii < cinits.len(), {
-              match(cinits.get(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
+              match(cinits.get_cloned(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
               cii = (cii + usize(1));
             });
           },

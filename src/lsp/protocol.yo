@@ -198,7 +198,7 @@ rune_col_to_client :: (fn(line : &String, col : usize) -> usize)(
 /// trailing `\r` (CRLF documents) stays on the line — it sits after every
 /// column, so conversions are unaffected.
 line_at :: (fn(lines : &ArrayList(String), row : usize) -> String)(
-  match(lines.get(row), .Some(l) => l, .None => String.new())
+  match(lines.get_cloned(row), .Some(l) => l, .None => String.new())
 );
 /// LSP Range from RUNE columns, converted to the wire encoding against the
 /// document's lines (`text.split("\n")`).
@@ -377,7 +377,7 @@ fs_path_to_uri :: (fn(path : &String) -> String)({
   (i : usize) = usize(0);
   while(i < segs.len(), {
     match(
-      segs.get(i),
+      segs.get_cloned(i),
       .Some(seg) => {
         encoded.push(percent.encode(&seg));
       },

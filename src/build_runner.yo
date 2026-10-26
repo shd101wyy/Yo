@@ -392,7 +392,7 @@ _import_lines :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < g_import_lines.with(xs => xs.len()), {
-    match(g_import_lines.with(xs => xs.get(i)), .Some(l) => out.push(l), .None => ());
+    match(g_import_lines.with(xs => xs.get_cloned(i)), .Some(l) => out.push(l), .None => ());
     i = (i + usize(1));
   });
   out
@@ -594,7 +594,7 @@ _namespaced_defines :: (fn(dep_name : &String, defines : &HashMap(String, String
       .Some(k) => {
         if(k.starts_with(prefix.clone()), {
           match(
-            defines.get(k.clone()),
+            defines.get_cloned(k.clone()),
             .Some(v) => {
               out.insert(k.substring(prefix.len(), k.len()), v);
             },
@@ -1357,7 +1357,7 @@ _cache_collect_yo_files :: (
       (i : usize) = usize(0);
       while(i < entries.len(), {
         match(
-          entries.get(i),
+          entries.get_cloned(i),
           .Some(en) => {
             names.push(en.name.clone());
           },
@@ -1575,7 +1575,7 @@ artifact_input_stamp :: (
     reads := env_reads();
     (ei : usize) = usize(0);
     while(ei < reads.len(), {
-      match(reads.get(ei), .Some(r) => _stamp_push_str(&mut acc, `env ${r}`), .None => ());
+      match(reads.get_cloned(ei), .Some(r) => _stamp_push_str(&mut acc, `env ${r}`), .None => ());
       ei = (ei + usize(1));
     });
     // RECORD pass: the child just wrote the depfile, and its hashes are the
@@ -1689,7 +1689,7 @@ _read_depfile :: (fn(path : &String, io : Io) -> Impl(Future(ArrayList(String), 
     (i : usize) = usize(0);
     while(i < lines.len(), {
       match(
-        lines.get(i),
+        lines.get_cloned(i),
         .Some(l) => {
           trimmed := l.trim();
           if(trimmed.len() > usize(0), {
@@ -2434,7 +2434,7 @@ run_test_suite :: (
     (exi : usize) = usize(0);
     while(exi < suite.exclude.len(), {
       match(
-        suite.exclude.get(exi),
+        suite.exclude.get_cloned(exi),
         .Some(ex) => {
           cmd.arg(String.from("--exclude"));
           cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(ex.clone())).to_string());
@@ -2483,7 +2483,7 @@ _push_all_strings :: (fn(dst : &mut ArrayList(String), src : &ArrayList(String))
   (pa_i : usize) = usize(0);
   while(pa_i < src.len(), {
     match(
-      src.get(pa_i),
+      src.get_cloned(pa_i),
       .Some(s) => {
         dst.push(s.clone());
       },
@@ -3140,7 +3140,7 @@ print_options :: (fn(registry : &BuildRegistry) -> unit)({
     match(
       registry.declared_options.get(name.clone()),
       .Some(opt) => {
-        value := match(registry.cli_options.get(name.clone()), .Some(v) => v, .None => opt.default_value.clone());
+        value := match(registry.cli_options.get_cloned(name.clone()), .Some(v) => v, .None => opt.default_value.clone());
         println(`  -D${name}=<value>\t${opt.description} (default: "${opt.default_value}", now: "${value}")`);
       },
       .None => ()

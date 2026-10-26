@@ -81,7 +81,7 @@ parse_cflags :: (fn(raw : &String) -> PkgConfigResult)({
   n := tokens.len();
   k := usize(0);
   while(k < n, {
-    flag_opt := tokens.get(k);
+    flag_opt := tokens.get_cloned(k);
     flag := match(flag_opt, .None => String.new(), .Some(p) => p);
     cond(
       flag.starts_with(String.from("-I")) => {
@@ -106,7 +106,7 @@ parse_ldflags_into :: (fn(raw : &String, result : &PkgConfigResult) -> PkgConfig
   n := tokens.len();
   k := usize(0);
   while(k < n, {
-    flag_opt := tokens.get(k);
+    flag_opt := tokens.get_cloned(k);
     flag := match(flag_opt, .None => String.new(), .Some(p) => p);
     cond(
       flag.starts_with(String.from("-L")) => {
@@ -139,7 +139,7 @@ build_fallback :: (fn(lib : &BuildSystemLibrary) -> PkgConfigResult)({
     lt_n := link_tokens.len();
     lt_k := usize(0);
     while(lt_k < lt_n, {
-      tok_opt := link_tokens.get(lt_k);
+      tok_opt := link_tokens.get_cloned(lt_k);
       tok := match(tok_opt, .None => String.new(), .Some(p) => p);
       if(!tok.is_empty(), {
         result.link_libraries.push(tok);
@@ -154,7 +154,7 @@ apply_system_library_metadata :: (fn(lib : &BuildSystemLibrary, result : &PkgCon
   k := usize(0);
   n := lib.defines.len();
   while(k < n, {
-    def_opt := lib.defines.get(k);
+    def_opt := lib.defines.get_cloned(k);
     def := match(def_opt, .None => String.new(), .Some(p) => p);
     if(!def.is_empty(), {
       result.defines.push(def);
@@ -168,7 +168,7 @@ _append_all :: (fn(dst : &mut ArrayList(String), src : &ArrayList(String)) -> un
   k := usize(0);
   n := src.len();
   while(k < n, {
-    elem_opt := src.get(k);
+    elem_opt := src.get_cloned(k);
     elem := match(elem_opt, .None => String.new(), .Some(p) => p);
     dst.push(elem);
     k = (k + usize(1));

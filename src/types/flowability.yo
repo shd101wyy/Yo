@@ -683,7 +683,7 @@ require_ref_own_argument_exclusivity :: (
     if(!is_ref && !is_owning, {
       pi = (pi + usize(1));
     }, {
-      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
+      lbl := cond((pi < param_labels.len()) => match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
       match(
         args.get(pi),
         .Some(arg) => {
@@ -971,7 +971,7 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
             (bi : usize) = usize(0);
             while(bi < borrowed.len(), {
               match(
-                borrowed.get(bi),
+                borrowed.get_cloned(bi),
                 .Some(b) => {
                   if(b.root_name == e.label, {
                     owned = true;
@@ -1250,11 +1250,11 @@ require_valid_ref_argument_places :: (
       // (`flag_deferred_sibling_rule`); `_note_future_producing_call`
       // settles it against the future's real capture list.
       defer_id := if(
-        future_callee && param_labels.get(i).is_some(),
+        future_callee && param_labels.get_cloned(i).is_some(),
         Option(usize).Some(call_id),
         Option(usize).None
       );
-      defer_label := match(param_labels.get(i), .Some(l) => l, .None => String.new());
+      defer_label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_tok := ast_expr_token(&arg);
       if(!arg_tok.module_path.*.starts_with(String.from("auto-generated://")), {

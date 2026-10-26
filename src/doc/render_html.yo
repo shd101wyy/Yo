@@ -132,7 +132,7 @@ _module_to_filename :: (fn(name : &String) -> String)({
 /// Last path segment.
 _module_display_name :: (fn(name : &String) -> String)({
   parts := name.split(String.from("/"));
-  match(parts.last(), .Some(p) => p, .None => name.clone())
+  match(parts.last_cloned(), .Some(p) => p, .None => name.clone())
 });
 /// Directory/group part, or "" for top-level.
 _module_group :: (fn(name : &String) -> String)({
@@ -165,7 +165,7 @@ _build_symbol_links :: (fn(model : &DocModel) -> HashMap(String, String))({
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
-      model.modules.get(mi),
+      model.modules.get_cloned(mi),
       .Some(x) => x,
       .None => {
         break;
@@ -175,7 +175,7 @@ _build_symbol_links :: (fn(model : &DocModel) -> HashMap(String, String))({
     (i : usize) = usize(0);
     while(i < m.types.len(), {
       t := match(
-        m.types.get(i),
+        m.types.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -187,7 +187,7 @@ _build_symbol_links :: (fn(model : &DocModel) -> HashMap(String, String))({
     i = usize(0);
     while(i < m.traits.len(), {
       tr := match(
-        m.traits.get(i),
+        m.traits.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -199,7 +199,7 @@ _build_symbol_links :: (fn(model : &DocModel) -> HashMap(String, String))({
     i = usize(0);
     while(i < m.functions.len(), {
       f := match(
-        m.functions.get(i),
+        m.functions.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -211,7 +211,7 @@ _build_symbol_links :: (fn(model : &DocModel) -> HashMap(String, String))({
     i = usize(0);
     while(i < m.constants.len(), {
       c := match(
-        m.constants.get(i),
+        m.constants.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -258,7 +258,7 @@ _linkify_type :: (
       });
       word := String.from_bytes(word_bytes);
       match(
-        links.get(word.clone()),
+        links.get_cloned(word.clone()),
         .Some(href) => {
           (use_anchor : bool) = match(
             current_mod_file,
@@ -422,12 +422,13 @@ SearchEntry :: struct(
   doc : Option(String),
   module_name : String
 );
+derive(SearchEntry, Clone);
 _build_search_index :: (fn(model : &DocModel) -> ArrayList(SearchEntry))({
   entries := ArrayList(SearchEntry).new();
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
-      model.modules.get(mi),
+      model.modules.get_cloned(mi),
       .Some(x) => x,
       .None => {
         break;
@@ -438,7 +439,7 @@ _build_search_index :: (fn(model : &DocModel) -> ArrayList(SearchEntry))({
     (i : usize) = usize(0);
     while(i < m.functions.len(), {
       f := match(
-        m.functions.get(i),
+        m.functions.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -450,7 +451,7 @@ _build_search_index :: (fn(model : &DocModel) -> ArrayList(SearchEntry))({
     i = usize(0);
     while(i < m.types.len(), {
       t := match(
-        m.types.get(i),
+        m.types.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -460,7 +461,7 @@ _build_search_index :: (fn(model : &DocModel) -> ArrayList(SearchEntry))({
       (j : usize) = usize(0);
       while(j < t.methods.len(), {
         me := match(
-          t.methods.get(j),
+          t.methods.get_cloned(j),
           .Some(x) => x,
           .None => {
             break;
@@ -474,7 +475,7 @@ _build_search_index :: (fn(model : &DocModel) -> ArrayList(SearchEntry))({
     i = usize(0);
     while(i < m.traits.len(), {
       tr := match(
-        m.traits.get(i),
+        m.traits.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -486,7 +487,7 @@ _build_search_index :: (fn(model : &DocModel) -> ArrayList(SearchEntry))({
     i = usize(0);
     while(i < m.constants.len(), {
       c := match(
-        m.constants.get(i),
+        m.constants.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -504,7 +505,7 @@ _search_index_json :: (fn(entries : &ArrayList(SearchEntry)) -> String)({
   (i : usize) = usize(0);
   while(i < entries.len(), {
     e := match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -599,7 +600,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
-      model.modules.get(mi),
+      model.modules.get_cloned(mi),
       .Some(x) => x,
       .None => {
         break;
@@ -666,7 +667,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
     (mj : usize) = usize(0);
     while(mj < mods.len(), {
       m := match(
-        mods.get(mj),
+        mods.get_cloned(mj),
         .Some(x) => x,
         .None => {
           break;
@@ -695,7 +696,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
       (fi : usize) = usize(0);
       while(fi < model.modules.len(), {
         m := match(
-          model.modules.get(fi),
+          model.modules.get_cloned(fi),
           .Some(x) => x,
           .None => {
             break;
@@ -715,7 +716,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
             (ti : usize) = usize(0);
             while(ti < m.types.len(), {
               t := match(
-                m.types.get(ti),
+                m.types.get_cloned(ti),
                 .Some(x) => x,
                 .None => {
                   break;
@@ -731,7 +732,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
             (ti2 : usize) = usize(0);
             while(ti2 < m.traits.len(), {
               tr := match(
-                m.traits.get(ti2),
+                m.traits.get_cloned(ti2),
                 .Some(x) => x,
                 .None => {
                   break;
@@ -747,7 +748,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
             (fi2 : usize) = usize(0);
             while(fi2 < m.functions.len(), {
               f := match(
-                m.functions.get(fi2),
+                m.functions.get_cloned(fi2),
                 .Some(x) => x,
                 .None => {
                   break;
@@ -763,7 +764,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
             (ci : usize) = usize(0);
             while(ci < m.constants.len(), {
               c := match(
-                m.constants.get(ci),
+                m.constants.get_cloned(ci),
                 .Some(x) => x,
                 .None => {
                   break;
@@ -839,7 +840,7 @@ _render_params_table :: (
   (i : usize) = usize(0);
   while(i < params.len(), {
     p := match(
-      params.get(i),
+      params.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -859,7 +860,7 @@ _render_params_table :: (
   i = usize(0);
   while(i < params.len(), {
     p := match(
-      params.get(i),
+      params.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -895,7 +896,7 @@ _render_fields_table :: (
   (i : usize) = usize(0);
   while(i < fields.len(), {
     f := match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -919,7 +920,7 @@ _render_variants_table :: (
   (i : usize) = usize(0);
   while(i < variants.len(), {
     v := match(
-      variants.get(i),
+      variants.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -932,7 +933,7 @@ _render_variants_table :: (
         (j : usize) = usize(0);
         while(j < fls.len(), {
           f := match(
-            fls.get(j),
+            fls.get_cloned(j),
             .Some(x) => x,
             .None => {
               break;
@@ -970,7 +971,7 @@ _render_associated_types :: (
   (i : usize) = usize(0);
   while(i < types.len(), {
     t := match(
-      types.get(i),
+      types.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -996,7 +997,7 @@ _render_method_items :: (
   (i : usize) = usize(0);
   while(i < methods.len(), {
     m := match(
-      methods.get(i),
+      methods.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -1036,13 +1037,13 @@ _render_trait_impls :: (
   (i : usize) = usize(0);
   while(i < impls.len(), {
     name := match(
-      impls.get(i),
+      impls.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
       }
     );
-    (href_opt : Option(String)) = if(use_links, links.get(name.clone()), Option(String).None);
+    (href_opt : Option(String)) = if(use_links, links.get_cloned(name.clone()), Option(String).None);
     match(
       href_opt,
       .Some(href) => {
@@ -1088,7 +1089,7 @@ _render_impl_blocks :: (
   (i : usize) = usize(0);
   while(i < all_methods.len(), {
     m := match(
-      all_methods.get(i),
+      all_methods.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -1105,7 +1106,7 @@ _render_impl_blocks :: (
       (ii : usize) = usize(0);
       while(ii < impls.len(), {
         impl_ := match(
-          impls.get(ii),
+          impls.get_cloned(ii),
           .Some(x) => x,
           .None => {
             break;
@@ -1119,7 +1120,7 @@ _render_impl_blocks :: (
             (ai : usize) = usize(0);
             while(ai < ats.len(), {
               at := match(
-                ats.get(ai),
+                ats.get_cloned(ai),
                 .Some(x) => x,
                 .None => {
                   break;
@@ -1144,7 +1145,7 @@ _render_impl_blocks :: (
         (ni : usize) = usize(0);
         while(ni < impl_.method_names.len(), {
           nm := match(
-            impl_.method_names.get(ni),
+            impl_.method_names.get_cloned(ni),
             .Some(x) => x,
             .None => {
               break;
@@ -1167,7 +1168,7 @@ _render_impl_blocks :: (
         ni = usize(0);
         while(ni < impl_.method_names.len(), {
           nm := match(
-            impl_.method_names.get(ni),
+            impl_.method_names.get_cloned(ni),
             .Some(x) => x,
             .None => {
               break;
@@ -1192,7 +1193,7 @@ _render_impl_blocks :: (
   i = usize(0);
   while(i < all_methods.len(), {
     m := match(
-      all_methods.get(i),
+      all_methods.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -1322,13 +1323,13 @@ _render_trait :: (
     (i : usize) = usize(0);
     while(i < tr.implementors.len(), {
       name := match(
-        tr.implementors.get(i),
+        tr.implementors.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
         }
       );
-      (href_opt : Option(String)) = if(use_links, links.get(name.clone()), Option(String).None);
+      (href_opt : Option(String)) = if(use_links, links.get_cloned(name.clone()), Option(String).None);
       match(
         href_opt,
         .Some(href) => {
@@ -1398,7 +1399,7 @@ _render_module_card :: (fn(m : &DocModule) -> String)({
   (i : usize) = usize(0);
   while(i < m.traits.len(), {
     tr := match(
-      m.traits.get(i),
+      m.traits.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -1441,7 +1442,7 @@ _render_index_content :: (fn(model : &DocModel) -> String)({
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
-      model.modules.get(mi),
+      model.modules.get_cloned(mi),
       .Some(x) => x,
       .None => {
         break;
@@ -1499,7 +1500,7 @@ _render_index_content :: (fn(model : &DocModel) -> String)({
     (mj : usize) = usize(0);
     while(mj < mods.len(), {
       m := match(
-        mods.get(mj),
+        mods.get_cloned(mj),
         .Some(x) => x,
         .None => {
           break;
@@ -1548,7 +1549,7 @@ render_module_content_html :: (
     (i : usize) = usize(0);
     while(i < m.types.len(), {
       t := match(
-        m.types.get(i),
+        m.types.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -1564,7 +1565,7 @@ render_module_content_html :: (
     (i : usize) = usize(0);
     while(i < m.traits.len(), {
       tr := match(
-        m.traits.get(i),
+        m.traits.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -1580,7 +1581,7 @@ render_module_content_html :: (
     (i : usize) = usize(0);
     while(i < m.functions.len(), {
       f := match(
-        m.functions.get(i),
+        m.functions.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -1596,7 +1597,7 @@ render_module_content_html :: (
     (i : usize) = usize(0);
     while(i < m.constants.len(), {
       c := match(
-        m.constants.get(i),
+        m.constants.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -1688,7 +1689,7 @@ _fix_search_index_for_module_page :: (fn(entries : &ArrayList(SearchEntry)) -> A
   (i : usize) = usize(0);
   while(i < entries.len(), {
     e := match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -1719,7 +1720,7 @@ render_doc_site :: (
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
-      model.modules.get(mi),
+      model.modules.get_cloned(mi),
       .Some(x) => x,
       .None => {
         break;

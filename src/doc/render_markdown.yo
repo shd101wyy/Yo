@@ -22,7 +22,7 @@ _md_doc :: (fn(d : &String) -> String)({
   lines := d.split(`\n`);
   (i : usize) = usize(0);
   while(i < lines.len(), {
-    line := match(lines.get(i), .Some(l) => l, .None => String.new());
+    line := match(lines.get_cloned(i), .Some(l) => l, .None => String.new());
     trimmed := line.trim();
     if(trimmed == `\`\`\`yo`, {
       // Preserve the original indentation; only the tag changes.
@@ -65,7 +65,7 @@ find_method_by_name_ :: (fn(methods : &ArrayList(DocFunction), name : &String) -
   n := methods.len();
   while(i < n, {
     m := match(
-      methods.get(i),
+      methods.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -85,7 +85,7 @@ is_in_list_ :: (fn(list : &ArrayList(String), name : &String) -> bool)({
   result := false;
   while(i < n, {
     item := match(
-      list.get(i),
+      list.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -113,7 +113,7 @@ format_type_params_ :: (fn(params : &Option(ArrayList(DocParam))) -> String)(
           n := p.len();
           while(i < n, {
             param := match(
-              p.get(i),
+              p.get_cloned(i),
               .Some(x) => x,
               .None => {
                 break;
@@ -137,7 +137,7 @@ render_fields_ :: (fn(fields : &ArrayList(DocField)) -> String)({
   n := fields.len();
   while(i < n, {
     f := match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -160,7 +160,7 @@ render_variants_ :: (fn(variants : &ArrayList(DocVariant)) -> String)({
   n := variants.len();
   while(i < n, {
     v := match(
-      variants.get(i),
+      variants.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -179,7 +179,7 @@ render_variants_ :: (fn(variants : &ArrayList(DocVariant)) -> String)({
           fn_ := fs.len();
           while(fi < fn_, {
             f := match(
-              fs.get(fi),
+              fs.get_cloned(fi),
               .Some(x) => x,
               .None => {
                 break;
@@ -209,7 +209,7 @@ render_associated_types_ :: (fn(types : &ArrayList(DocAssociatedType)) -> String
   n := types.len();
   while(i < n, {
     t := match(
-      types.get(i),
+      types.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -266,7 +266,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     n := fn_.parameters.len();
     while(i < n, {
       p := match(
-        fn_.parameters.get(i),
+        fn_.parameters.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -365,7 +365,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     tn := t.trait_impls.len();
     while(ti < tn, {
       name := match(
-        t.trait_impls.get(ti),
+        t.trait_impls.get_cloned(ti),
         .Some(x) => x,
         .None => {
           break;
@@ -390,7 +390,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
         ni := impls.len();
         while(ii < ni, {
           impl := match(
-            impls.get(ii),
+            impls.get_cloned(ii),
             .Some(x) => x,
             .None => {
               break;
@@ -407,7 +407,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
                 na := assoc_types.len();
                 while(ai < na, {
                   at := match(
-                    assoc_types.get(ai),
+                    assoc_types.get_cloned(ai),
                     .Some(x) => x,
                     .None => {
                       break;
@@ -424,7 +424,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
           nm := impl.method_names.len();
           while(mi < nm, {
             method_name := match(
-              impl.method_names.get(mi),
+              impl.method_names.get_cloned(mi),
               .Some(x) => x,
               .None => {
                 break;
@@ -438,7 +438,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
           nm2 := impl.method_names.len();
           while(mi2 < nm2, {
             method_name := match(
-              impl.method_names.get(mi2),
+              impl.method_names.get_cloned(mi2),
               .Some(x) => x,
               .None => {
                 break;
@@ -483,7 +483,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     unm := t.methods.len();
     while(umi < unm, {
       m := match(
-        t.methods.get(umi),
+        t.methods.get_cloned(umi),
         .Some(x) => x,
         .None => {
           break;
@@ -568,7 +568,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     n := t.methods.len();
     while(i < n, {
       m := match(
-        t.methods.get(i),
+        t.methods.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -584,7 +584,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     n := t.implementors.len();
     while(i < n, {
       name := match(
-        t.implementors.get(i),
+        t.implementors.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -678,7 +678,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
       n := mod.types.len();
       while(i < n, {
         t := match(
-          mod.types.get(i),
+          mod.types.get_cloned(i),
           .Some(x) => x,
           .None => {
             break;
@@ -695,7 +695,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
       n := mod.traits.len();
       while(i < n, {
         t := match(
-          mod.traits.get(i),
+          mod.traits.get_cloned(i),
           .Some(x) => x,
           .None => {
             break;
@@ -712,7 +712,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
       n := mod.functions.len();
       while(i < n, {
         f := match(
-          mod.functions.get(i),
+          mod.functions.get_cloned(i),
           .Some(x) => x,
           .None => {
             break;
@@ -729,7 +729,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
       n := mod.constants.len();
       while(i < n, {
         c := match(
-          mod.constants.get(i),
+          mod.constants.get_cloned(i),
           .Some(x) => x,
           .None => {
             break;
@@ -750,7 +750,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
     n := mod.types.len();
     while(i < n, {
       t := match(
-        mod.types.get(i),
+        mod.types.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -769,7 +769,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
     n := mod.traits.len();
     while(i < n, {
       t := match(
-        mod.traits.get(i),
+        mod.traits.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -788,7 +788,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
     n := mod.functions.len();
     while(i < n, {
       f := match(
-        mod.functions.get(i),
+        mod.functions.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -807,7 +807,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
     n := mod.constants.len();
     while(i < n, {
       c := match(
-        mod.constants.get(i),
+        mod.constants.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -830,7 +830,7 @@ render_index_md :: (fn(model : &DocModel) -> String)({
   n := model.modules.len();
   while(i < n, {
     mod := match(
-      model.modules.get(i),
+      model.modules.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;

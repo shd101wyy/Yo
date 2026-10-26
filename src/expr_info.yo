@@ -98,8 +98,8 @@ path_contains_path :: (fn(path1 : &ArrayList(String), path2 : &ArrayList(String)
   });
   i := usize(0);
   while(i < n2, {
-    s1 := match(path1.get(i), .Some(s) => s, .None => String.from(""));
-    s2 := match(path2.get(i), .Some(s) => s, .None => String.from("~"));
+    s1 := match(path1.get_cloned(i), .Some(s) => s, .None => String.from(""));
+    s2 := match(path2.get_cloned(i), .Some(s) => s, .None => String.from("~"));
     if(s1 != s2, {
       return(false);
     });
@@ -126,10 +126,10 @@ path_collection_conflicts_with_path_collection :: (
   n2 := c2.len();
   i := usize(0);
   while(i < n1, {
-    p1 := match(c1.get(i), .Some(p) => p, .None => ArrayList(String).new());
+    p1 := match(c1.get_cloned(i), .Some(p) => p, .None => ArrayList(String).new());
     j := usize(0);
     while(j < n2, {
-      p2 := match(c2.get(j), .Some(p) => p, .None => ArrayList(String).new());
+      p2 := match(c2.get_cloned(j), .Some(p) => p, .None => ArrayList(String).new());
       if(path_conflicts_with_path(&p1, &p2), {
         return(true);
       });
@@ -1504,7 +1504,7 @@ scope_release_report :: (fn() -> unit)(
     });
     (i : usize) = usize(0);
     while(i < g_scope_samples.with(xs => xs.len()), {
-      eprintln(`[scope-release-sample] ${g_scope_samples.with(xs => xs.get(i)).unwrap()}`);
+      eprintln(`[scope-release-sample] ${g_scope_samples.with(xs => xs.get_cloned(i)).unwrap()}`);
       i = (i + usize(1));
     });
   })
@@ -1678,7 +1678,7 @@ record_io_builtin_struct_field :: (fn(struct_id : &String, field_label : &String
 });
 /// Look up the io-builtin marker for `struct_id`.`field_label`, if any.
 lookup_io_builtin_struct_field :: (fn(struct_id : &String, field_label : &String) -> Option(String))(
-  g_io_builtin_struct_fields.with(m => m.get(`${struct_id}\n${field_label}`))
+  g_io_builtin_struct_fields.with(m => m.get_cloned(`${struct_id}\n${field_label}`))
 );
 (g_io_builtin_calls : RefCell(HashMap(ExprId, String))) = RefCell(HashMap(ExprId, String)).new(HashMap(ExprId, String).new());
 /// Record the io-builtin marker for a call expr id.
@@ -1689,7 +1689,7 @@ record_io_builtin_call :: (fn(call_id : ExprId, marker : &String) -> unit)({
 });
 /// Look up the io-builtin marker for a call expr id, if any.
 lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
-  g_io_builtin_calls.with(m => m.get(&call_id))
+  g_io_builtin_calls.with(m => m.get_cloned(&call_id))
 );
 // Method-callee VALUE side-table (parallel to g_method_callee_types). Codegen's
 // generate_other_function_call dispatches via the callee's ExprInfo value, but a
@@ -1802,17 +1802,17 @@ register_extern_c_global_alias :: (fn(yo_name : &String, c_name : &String, ty : 
 /// Returns a CLONE (never the registry's own String — a caller that appends
 /// to it in place would corrupt the stored name).
 extern_c_global_c_name :: (fn(yo_name : &String) -> String)(
-  match(g_extern_c_global_c_names.with(m => m.get(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name.clone())
+  match(g_extern_c_global_c_names.with(m => m.get_cloned(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name.clone())
 );
 /// Every declared type recorded for the extern-C global `name` (empty when
 /// the name was never declared). Consumers match a resolved binding against
 /// this list by `type_key`.
 get_extern_c_global_types :: (fn(name : &String) -> ArrayList(TypeValue))(
-  match(g_extern_c_globals.with(m => m.get(name)), .Some(l) => l, .None => ArrayList(TypeValue).new())
+  match(g_extern_c_globals.with(m => m.get_cloned(name)), .Some(l) => l, .None => ArrayList(TypeValue).new())
 );
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : &String) -> bool)(
-  g_extern_c_globals.with(m => m.get(name)).is_some()
+  g_extern_c_globals.with(m => m.get_cloned(name)).is_some()
 );
 /// Record `sns_id` as the id of a `c_include(...)` module value.
 register_extern_c_module_id :: (fn(sns_id : &String) -> unit)({
@@ -1913,7 +1913,7 @@ module_global_recording_mark :: (fn() -> usize)({
 rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
   while(g_mg_recorded_keys.with(xs => xs.len()) > mark, {
     match(
-      g_mg_recorded_keys.with(xs => xs.last()),
+      g_mg_recorded_keys.with(xs => xs.last_cloned()),
       .Some(k) => {
         g_module_level_globals.with_mut(m => m.remove(k.clone()));
         // The thread-local registry is keyed identically and is a SUBSET, so
@@ -2208,7 +2208,7 @@ pop_active_where_trait_ids :: (fn() -> unit)({
 });
 active_where_trait_ids :: (fn() -> ArrayList(String))(
   match(
-    g_active_where_trait_ids.with(xs => xs.last()),
+    g_active_where_trait_ids.with(xs => xs.last_cloned()),
     .Some(top) => top,
     .None => ArrayList(String).new()
   )
@@ -2237,7 +2237,7 @@ restore_active_where_trait_ids :: (fn(saved : &ArrayList(ArrayList(String))) -> 
 has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
   (found : bool) = false;
   match(
-    g_branch_init_by_var.with(m => m.get(&var_id)),
+    g_branch_init_by_var.with(m => m.get_cloned(&var_id)),
     .Some(idxs) => {
       (ii : usize) = usize(0);
       while(ii < idxs.len(), {
@@ -2247,7 +2247,7 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
         (gi : usize) = usize(0);
         while(gi < g_branch_group_stack.with(xs => xs.len()), {
           match(
-            g_branch_group_stack.with(xs => xs.get(gi)),
+            g_branch_group_stack.with(xs => xs.get_cloned(gi)),
             .Some(g) => {
               gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
               ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
@@ -2270,7 +2270,7 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
   found
 });
 /// The log indices of `var_id`'s assignment records, oldest first.
-branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_branch_init_by_var.with(m => m.get(&var_id)));
+branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_branch_init_by_var.with(m => m.get_cloned(&var_id)));
 /// The earliest record of each variable that a COMPLETED SIBLING arm of the
 /// innermost active group touched (records in `[group_start,
 /// current_arm_start)`). Its before-state is the state before the branch,
@@ -2278,7 +2278,7 @@ branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_br
 sibling_first_flow_records :: (fn() -> ArrayList(BranchInitRecord))({
   out := ArrayList(BranchInitRecord).new();
   match(
-    g_branch_group_stack.with(xs => xs.last()),
+    g_branch_group_stack.with(xs => xs.last_cloned()),
     .Some(g) => {
       gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
       ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
@@ -2311,7 +2311,7 @@ first_flow_records_in :: (fn(start : usize, end : usize) -> ArrayList(BranchInit
 last_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option(BranchInitRecord))({
   (found : Option(BranchInitRecord)) = Option(BranchInitRecord).None;
   match(
-    g_branch_init_by_var.with(m => m.get(&var_id)),
+    g_branch_init_by_var.with(m => m.get_cloned(&var_id)),
     .Some(idxs) => {
       (k : usize) = idxs.len();
       while((k > usize(0)) && found.is_none(), {
@@ -2331,7 +2331,7 @@ last_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option
 first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option(BranchInitRecord))({
   (found : Option(BranchInitRecord)) = Option(BranchInitRecord).None;
   match(
-    g_branch_init_by_var.with(m => m.get(&var_id)),
+    g_branch_init_by_var.with(m => m.get_cloned(&var_id)),
     .Some(idxs) => {
       (k : usize) = usize(0);
       while((k < idxs.len()) && found.is_none(), {
@@ -2352,7 +2352,7 @@ register_struct_ctor_fid :: (fn(struct_id : &String, ctor_fid : &String) -> unit
 });
 /// The constructor funcId stamped for `struct_id`, if any.
 lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
-  g_struct_ctor_fids.with(m => m.get(struct_id))
+  g_struct_ctor_fids.with(m => m.get_cloned(struct_id))
 );
 /// Trait counterpart of the struct ctor-fid table. The generic-impl
 /// registry keys parameterized traits by the trait constructor's funcId
@@ -2364,7 +2364,7 @@ lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
 /// Record the constructor funcId for the trait with `trait_id` (first wins).
 register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)({
   match(
-    g_trait_ctor_fids.with(m => m.get(trait_id.clone())),
+    g_trait_ctor_fids.with(m => m.get_cloned(trait_id.clone())),
     .Some(_) => (),
     .None => {
       g_trait_ctor_fids.with_mut(m => m.insert(trait_id.clone(), ctor_fid.clone()));
@@ -2373,7 +2373,7 @@ register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)(
 });
 /// The constructor funcId stamped for `trait_id`, if any.
 lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
-  g_trait_ctor_fids.with(m => m.get(trait_id))
+  g_trait_ctor_fids.with(m => m.get_cloned(trait_id))
 );
 /// The type arguments a parameterized trait was instantiated with, by trait
 /// id (the companion of `g_trait_ctor_fids` above). A constructor
@@ -2386,7 +2386,7 @@ lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
 /// Record the instantiation arguments of the trait with `trait_id` (first wins).
 register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
   match(
-    g_trait_type_args.with(m => m.get(trait_id.clone())),
+    g_trait_type_args.with(m => m.get_cloned(trait_id.clone())),
     .Some(_) => (),
     .None => {
       g_trait_type_args.with_mut(m => m.insert(trait_id.clone(), args.clone()));
@@ -2396,7 +2396,7 @@ register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)
 /// The type arguments the trait with id `trait_id` was instantiated with
 /// (`register_trait_type_args`), when it is a parameterized trait's mint.
 lookup_trait_type_args :: (fn(trait_id : &String) -> Option(ArrayList(TypeValue)))(
-  g_trait_type_args.with(m => m.get(trait_id))
+  g_trait_type_args.with(m => m.get_cloned(trait_id))
 );
 /// Forget every recorded instantiation. Called where a COLD compile resets
 /// the id counters (`stable_occurrence_reset`, `run_compile`): trait ids are
@@ -2554,6 +2554,7 @@ fid_fully_specialized :: (fn(fid : &String) -> bool)({
 /// this error (its code, span and help) instead of the generic E0905
 /// (issues/fixed/an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md).
 HollowBodyError :: struct(message : String, diagnostics : ArrayList(Diagnostic));
+derive(HollowBodyError, Clone);
 (g_hollow_body_errors : RefCell(HashMap(String, HollowBodyError))) = RefCell(HashMap(String, HollowBodyError)).new(HashMap(String, HollowBodyError).new());
 record_hollow_body_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
   g_hollow_body_errors.with_mut(m => m.insert(site.clone(), HollowBodyError(message : message.clone(), diagnostics : diagnostics.clone())));
@@ -2567,7 +2568,7 @@ clear_hollow_body_error :: (fn(site : &String) -> unit)({
   });
   ()
 });
-lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_hollow_body_errors.with(m => m.get(site)));
+lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_hollow_body_errors.with(m => m.get_cloned(site)));
 /// The error a GENERIC body's definition-time trial swallowed and kept, keyed
 /// by the body's source position (`module:row:col`): the trial ran with the
 /// type variables abstract, so a call may still resolve it
@@ -2592,7 +2593,7 @@ clear_generic_trial_error :: (fn(site : &String) -> unit)({
   });
   ()
 });
-lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_generic_trial_errors.with(m => m.get(site)));
+lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_generic_trial_errors.with(m => m.get_cloned(site)));
 /// Where a specialization was first requested: the call's position and the
 /// instantiation it asked for (`twice` with T = bool). Keyed by the
 /// specialization's func id; written once, by the first call that minted it.
@@ -2977,7 +2978,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
       eshown = usize(30);
     }, {
       eid := match(ids.get(ebest), .Some(i) => i, .None => usize(0));
-      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.with(m => m.get(&eid)), .Some(l) => l, .None => String.from("?"))}`);
+      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.with(m => m.get_cloned(&eid)), .Some(l) => l, .None => String.from("?"))}`);
       ecounts(ebest) = usize(0);
       eshown = (eshown + usize(1));
     });
@@ -3073,6 +3074,7 @@ export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_en
 /// edit recorded through a synthetic token (a derive's generated impl) is
 /// dropped at apply time instead of corrupting the file.
 MigrateEdit :: struct(path : String, row : usize, col : usize, len : usize, replacement : String, expect : String);
+derive(MigrateEdit, Clone);
 (mut(g_migrate_param_modes) : bool) = false;
 (g_migrate_edits : RefCell(ArrayList(MigrateEdit))) = RefCell(ArrayList(MigrateEdit)).new(ArrayList(MigrateEdit).new());
 (g_migrate_edit_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3355,12 +3357,12 @@ settle_mut_binding_pending :: (fn(mark : usize, pmark : usize, keep : bool) -> u
   if(keep, {
     (i : usize) = mark;
     while(i < g_mut_binding_pending.with(xs => xs.len()), {
-      match(g_mut_binding_pending.with(xs => xs.get(i)), .Some(site) => _record_mut_binding_site_at(site), .None => ());
+      match(g_mut_binding_pending.with(xs => xs.get_cloned(i)), .Some(site) => _record_mut_binding_site_at(site), .None => ());
       i = (i + usize(1));
     });
     (j : usize) = pmark;
     while(j < g_mut_param_pending.with(xs => xs.len()), {
-      match(g_mut_param_pending.with(xs => xs.get(j)), .Some(psite) => _record_mut_param_site_at(psite), .None => ());
+      match(g_mut_param_pending.with(xs => xs.get_cloned(j)), .Some(psite) => _record_mut_param_site_at(psite), .None => ());
       j = (j + usize(1));
     });
   });
