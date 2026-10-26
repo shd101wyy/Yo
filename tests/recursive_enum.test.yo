@@ -171,15 +171,15 @@ _list_tree_weight :: (fn(t : &ListTree) -> i32)(
   match(
     t,
     .LtLeaf(n) => n,
-    .LtList(xs) => match(xs.get_cloned(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+    .LtList(xs) => match(xs.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
     .LtGrid(rows) => match(
-      rows.get_cloned(usize(0)),
-      .Some(row) => match(row.get_cloned(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+      rows.get(usize(0)),
+      .Some(row) => match(row.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
       .None => i32(0)
     )
   )
 );
-_list_tree_first :: (fn(xs : &ArrayList(ListTree)) -> Option(ListTree))(xs.get_cloned(usize(0)));
+_list_tree_first :: (fn(xs : &ArrayList(ListTree)) -> Option(ListTree))(xs.get(usize(0)));
 test("Recursive value enum: ArrayList(Self).get and a declared Option(Self) are one type", {
   inner := ArrayList(ListTree).new();
   inner.push(ListTree.LtLeaf(n : i32(7)));
