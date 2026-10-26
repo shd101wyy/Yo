@@ -993,7 +993,7 @@ call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalCon
 (mut(g_module_begin_exprs) : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
 (mut(g_module_begin_expr_index) : usize) = usize(0);
 set_module_walk :: (fn(exprs : &ArrayList(AstExpr)) -> unit)({
-  g_module_begin_exprs = Option(ArrayList(AstExpr)).Some(exprs.clone());
+  g_module_begin_exprs = Option(ArrayList(AstExpr)).Some(exprs);
   ()
 });
 set_module_walk_index :: (fn(idx : usize) -> unit)({
@@ -1001,7 +1001,7 @@ set_module_walk_index :: (fn(idx : usize) -> unit)({
   ()
 });
 restore_module_walk :: (fn(prev : &Option(ArrayList(AstExpr)), prev_idx : usize) -> unit)({
-  g_module_begin_exprs = prev.clone();
+  g_module_begin_exprs = prev;
   g_module_begin_expr_index = prev_idx;
   ()
 });
@@ -1912,11 +1912,11 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
     currently_specializing_function_stack : ctx.currently_specializing_function_stack,
-    doc_comment_lookup : ctx.doc_comment_lookup.clone(),
+    doc_comment_lookup : ctx.doc_comment_lookup,
     expr_info_table : ctx.expr_info_table,
     comptime_fn_caches : ctx.comptime_fn_caches,
-    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
-    current_impl_trait_field_types : ctx.current_impl_trait_field_types.clone(),
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
     pending_method_self_type : ctx.pending_method_self_type
   )
 );
@@ -2437,7 +2437,7 @@ begin_module_walk :: (
   );
   walk := ModuleWalk(
     module_path : module_path.clone(),
-    begin_exprs : begin_exprs.clone(),
+    begin_exprs : begin_exprs,
     env : env,
     module_frame_id : module_frame_id,
     module_frame : module_frame,
@@ -3498,12 +3498,12 @@ create_function_body_evaluation_context :: (
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
     currently_specializing_function_stack : ctx.currently_specializing_function_stack,
-    doc_comment_lookup : ctx.doc_comment_lookup.clone(),
+    doc_comment_lookup : ctx.doc_comment_lookup,
     // Shared mutable tables — same instance as parent so results are visible
     expr_info_table : ctx.expr_info_table,
     comptime_fn_caches : ctx.comptime_fn_caches,
-    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
-    current_impl_trait_field_types : ctx.current_impl_trait_field_types.clone(),
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
     pending_method_self_type : Option(TypeValue).None
   )
 });

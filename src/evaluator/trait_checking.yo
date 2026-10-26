@@ -181,9 +181,9 @@ register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> un
 _trait_type_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
-    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name,
-    Rc(.FutureTraitT(base_name, _, _, _)) => base_name,
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name.clone(),
+    Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
   )
 );
@@ -310,7 +310,7 @@ _type_id_for_trait_check :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     // `type_id_or_empty` has no Union arm — keep the name-keyed special case.
-    Rc(.Union(name, _, _)) => name,
+    Rc(.Union(name, _, _)) => name.clone(),
     // SomeT: must mirror `type_id_or_empty` (the REGISTRATION key in
     // impl.yo) — a manual `impl(X, Send())` on an extern opaque type
     // declaration (`extern("Yo", X : Type)` binds X to a SomeT placeholder,
@@ -2766,9 +2766,9 @@ type_contains_some_type_for_codegen_param :: (
   // Cycle guard on nominal type id.
   nominal_id := match(
     ty,
-    Rc(.Struct({ id : sid })) => sid,
-    Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid,
-    Rc(.Union(uname, _, _)) => uname,
+    Rc(.Struct({ id : sid })) => sid.clone(),
+    Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(),
+    Rc(.Union(uname, _, _)) => uname.clone(),
     _ => String.from("")
   );
   if(!nominal_id.is_empty(), {

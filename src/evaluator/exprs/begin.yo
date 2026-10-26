@@ -3032,7 +3032,7 @@ _evaluate_begin_expression_impl :: (
           out := new_expr_info(&env, &ret_info.ty);
           out.value = ret_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
-          out.path_collection = ret_info.path_collection.clone();
+          out.path_collection = ret_info.path_collection;
           out.variable_name = ret_info.variable_name.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
@@ -3195,7 +3195,7 @@ _evaluate_begin_expression_impl :: (
           out := new_expr_info(&env, &esc_info.ty);
           out.value = esc_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
-          out.path_collection = esc_info.path_collection.clone();
+          out.path_collection = esc_info.path_collection;
           out.variable_name = esc_info.variable_name.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
