@@ -1530,8 +1530,8 @@ extract_impl_info_from_tokens :: (
                 if(_paren_contains_trait_body(&toks, first_paren_end), {
                   extracted := _extract_trait_body_members(&toks, first_paren_end, tokens);
                   trait_method_names = extracted.method_names.clone();
-                  trait_assoc_types = extracted.associated_types;
-                  trait_methods = extracted.methods;
+                  trait_assoc_types = extracted.associated_types.clone();
+                  trait_methods = extracted.methods.clone();
                   trait_signature = `${trait_signature}(...)`;
                 });
               },
@@ -1541,8 +1541,8 @@ extract_impl_info_from_tokens :: (
               true => {
                 extracted := _extract_trait_body_members(&toks, arg_start + usize(1), tokens);
                 trait_method_names = extracted.method_names.clone();
-                trait_assoc_types = extracted.associated_types;
-                trait_methods = extracted.methods;
+                trait_assoc_types = extracted.associated_types.clone();
+                trait_methods = extracted.methods.clone();
                 trait_signature = `${first.value}(...)`;
               }
             );
@@ -1572,10 +1572,10 @@ extract_impl_info_from_tokens :: (
                     name : m.name.clone(),
                     doc : m.doc.clone(),
                     signature : m.signature.clone(),
-                    parameters : m.parameters,
+                    parameters : m.parameters.clone(),
                     return_type : m.return_type.clone(),
-                    type_params : m.type_params,
-                    effects : m.effects,
+                    type_params : m.type_params.clone(),
+                    effects : m.effects.clone(),
                     is_method : m.is_method,
                     self_type : Option(String).Some(receiver_type_name.clone()),
                     returns : m.returns.clone(),
@@ -1913,18 +1913,18 @@ _attach_token_field :: (fn(types : &mut ArrayList(DocType), idx : usize, field :
     .Some(fs) => fs,
     .None => ArrayList(DocField).new()
   );
-  fields.push(field);
+  fields.push(field.clone());
   types(idx) = DocType(
     name : t.name.clone(),
     doc : t.doc.clone(),
     kind : t.kind,
     signature : t.signature.clone(),
-    type_params : t.type_params,
+    type_params : t.type_params.clone(),
     fields : Option(ArrayList(DocField)).Some(fields),
-    variants : t.variants,
-    methods : t.methods,
+    variants : t.variants.clone(),
+    methods : t.methods.clone(),
     trait_impls : t.trait_impls.clone(),
-    impls : t.impls,
+    impls : t.impls.clone(),
     deprecated : t.deprecated.clone(),
     examples : t.examples.clone()
   );
@@ -1944,18 +1944,18 @@ _attach_token_variant :: (fn(types : &mut ArrayList(DocType), idx : usize, varia
     .Some(vs) => vs,
     .None => ArrayList(DocVariant).new()
   );
-  variants.push(variant);
+  variants.push(variant.clone());
   types(idx) = DocType(
     name : t.name.clone(),
     doc : t.doc.clone(),
     kind : t.kind,
     signature : t.signature.clone(),
-    type_params : t.type_params,
-    fields : t.fields,
+    type_params : t.type_params.clone(),
+    fields : t.fields.clone(),
     variants : Option(ArrayList(DocVariant)).Some(variants),
-    methods : t.methods,
+    methods : t.methods.clone(),
     trait_impls : t.trait_impls.clone(),
-    impls : t.impls,
+    impls : t.impls.clone(),
     deprecated : t.deprecated.clone(),
     examples : t.examples.clone()
   );
@@ -2035,7 +2035,7 @@ build_doc_module_from_tokens :: (
           structure.trait_body_lparens.get(decl_name.clone()),
           .Some(lp) => {
             extracted := _extract_trait_body_members(&structure.toks, lp, tokens);
-            trait_methods = extracted.methods;
+            trait_methods = extracted.methods.clone();
           },
           .None => ()
         );
@@ -2071,7 +2071,7 @@ build_doc_module_from_tokens :: (
           match(
             impl_info_map.get(decl_name.clone()),
             .Some(info) => {
-              methods = info.methods;
+              methods = info.methods.clone();
             },
             .None => ()
           );
@@ -2230,7 +2230,7 @@ build_doc_module_from_tokens :: (
     match(
       impl_info_map.get(receiver.clone()),
       .Some(info) => {
-        methods = info.methods;
+        methods = info.methods.clone();
       },
       .None => ()
     );
@@ -2368,9 +2368,9 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
             doc : tr.doc.clone(),
             kind : tr.kind,
             signature : tr.signature.clone(),
-            type_params : tr.type_params,
-            associated_types : tr.associated_types,
-            methods : tr.methods,
+            type_params : tr.type_params.clone(),
+            associated_types : tr.associated_types.clone(),
+            methods : tr.methods.clone(),
             implementors : sorted,
             deprecated : tr.deprecated.clone(),
             examples : tr.examples.clone()
@@ -2445,7 +2445,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
               // — and registering that would let it claim the key and block the
               // declaring module's fully documented entry. Module walk order is
               // not something to depend on either way.
-              .Some(di) => if(score > _doc_type_doc_count(match(d_types.get(di), .Some(x) => x, .None => t)), {
+              .Some(di) => if(score > _doc_type_doc_count(match(d_types.get(di), .Some(x) => x, .None => t.clone())), {
                 d_types(di) = t;
               }),
               .None => {
@@ -2602,10 +2602,10 @@ _fill_doc_methods_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
             name : dm.name.clone(),
             doc : found,
             signature : dm.signature.clone(),
-            parameters : dm.parameters,
+            parameters : dm.parameters.clone(),
             return_type : dm.return_type.clone(),
-            type_params : dm.type_params,
-            effects : dm.effects,
+            type_params : dm.type_params.clone(),
+            effects : dm.effects.clone(),
             is_method : dm.is_method,
             self_type : dm.self_type.clone(),
             returns : dm.returns.clone(),
@@ -2662,7 +2662,7 @@ _fill_doc_variants_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
           match(
             svs.get(j),
             .Some(sv) => if((sv.name == dv.name) && sv.doc.is_some(), {
-              dvs(i) = DocVariant(name : dv.name.clone(), fields : dv.fields, doc : sv.doc.clone(), discriminant : dv.discriminant.clone());
+              dvs(i) = DocVariant(name : dv.name.clone(), fields : dv.fields.clone(), doc : sv.doc.clone(), discriminant : dv.discriminant.clone());
               j = svs.len();
             }),
             .None => ()
@@ -2823,10 +2823,10 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
               name : mm.name.clone(),
               doc : found_doc,
               signature : mm.signature.clone(),
-              parameters : mm.parameters,
+              parameters : mm.parameters.clone(),
               return_type : mm.return_type.clone(),
-              type_params : mm.type_params,
-              effects : mm.effects,
+              type_params : mm.type_params.clone(),
+              effects : mm.effects.clone(),
               is_method : mm.is_method,
               self_type : mm.self_type.clone(),
               returns : mm.returns.clone(),
@@ -3472,9 +3472,9 @@ build_doc_module :: (
             match(
               token_impl_info_map.get(field_name.clone()),
               .Some(tii) => {
-                token_methods = tii.methods;
+                token_methods = tii.methods.clone();
                 token_trait_impls = tii.trait_impls.clone();
-                token_impls = tii.impls;
+                token_impls = tii.impls.clone();
               },
               .None => ()
             );
@@ -3540,9 +3540,9 @@ build_doc_module :: (
             match(
               token_impl_info_map.get(field_name.clone()),
               .Some(tii) => {
-                token_methods = tii.methods;
+                token_methods = tii.methods.clone();
                 token_trait_impls = tii.trait_impls.clone();
-                token_impls = tii.impls;
+                token_impls = tii.impls.clone();
               },
               .None => ()
             );
@@ -3599,9 +3599,9 @@ build_doc_module :: (
             match(
               token_impl_info_map.get(field_name.clone()),
               .Some(tii) => {
-                token_methods = tii.methods;
+                token_methods = tii.methods.clone();
                 token_trait_impls = tii.trait_impls.clone();
-                token_impls = tii.impls;
+                token_impls = tii.impls.clone();
               },
               .None => ()
             );
@@ -3820,9 +3820,9 @@ build_doc_module :: (
             match(
               token_impl_info_map.get(field_name.clone()),
               .Some(tii) => {
-                token_methods = tii.methods;
+                token_methods = tii.methods.clone();
                 token_trait_impls = tii.trait_impls.clone();
-                token_impls = tii.impls;
+                token_impls = tii.impls.clone();
               },
               .None => ()
             );
@@ -3888,9 +3888,9 @@ build_doc_module :: (
             match(
               token_impl_info_map.get(field_name.clone()),
               .Some(tii) => {
-                token_methods = tii.methods;
+                token_methods = tii.methods.clone();
                 token_trait_impls = tii.trait_impls.clone();
-                token_impls = tii.impls;
+                token_impls = tii.impls.clone();
               },
               .None => ()
             );
@@ -4087,9 +4087,9 @@ build_doc_module :: (
               match(
                 token_impl_info_map.get(field_name.clone()),
                 .Some(tii) => {
-                  token_methods = tii.methods;
+                  token_methods = tii.methods.clone();
                   token_trait_impls = tii.trait_impls.clone();
-                  token_impls = tii.impls;
+                  token_impls = tii.impls.clone();
                 },
                 .None => ()
               );

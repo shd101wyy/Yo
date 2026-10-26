@@ -20,7 +20,7 @@
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ mem } :: import("std/mem");
+{ replace } :: import("std/mem");
 { HashMap } :: import("std/collections/hash_map");
 {
   AstExpr,
@@ -3866,16 +3866,16 @@ _loop_core :: (
   //    disjuncts plus the cond-exit.
   // B4-1b: `mem.replace` moves the old value out (decision 19) instead of
   // saving a handle copy that a later write-through would alias.
-  saved_invariants := mem.replace(&mut ctx.loop_invariants, a.invariants.clone());
+  saved_invariants := replace(&mut ctx.loop_invariants, a.invariants.clone());
   saved_measure := ctx.loop_measure;
   saved_head_measure := ctx.head_measure;
-  saved_for_idx := mem.replace(
+  saved_for_idx := replace(
     &mut ctx.loop_for_idx,
     match(frame, .Some(frx) => Option(String).Some(frx.idx_name.clone()), .None => Option(String).None)
   );
   ctx.loop_measure = a.decreases;
   ctx.head_measure = m_havoc;
-  saved_sites := mem.replace(&mut ctx.break_sites, ArrayList(BreakSite).new());
+  saved_sites := replace(&mut ctx.break_sites, ArrayList(BreakSite).new());
   ctx.path_dead = false;
   ctx.loop_depth = (ctx.loop_depth + usize(1));
   // A `for` binds the element at the index for the body.
@@ -6765,7 +6765,7 @@ _callee_call_term :: (
   });
   // `distinct(p, q)` in the callee's requires is proved from the caller's
   // argument names (R2 task 5).
-  saved_arg_names := mem.replace(&mut ctx.call_arg_names, HashMap(String, String).new());
+  saved_arg_names := replace(&mut ctx.call_arg_names, HashMap(String, String).new());
   saved_phase := ctx.requires_phase;
   (ani : usize) = usize(0);
   while(ani < eff_args.len(), {
