@@ -121,6 +121,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [使用示例](#使用示例)
   - [Rc 与赋值](#rc-与赋值)
   - [Rc 与引用计数](#rc-与引用计数)
+  - [Weak：不拥有的句柄](#weak不拥有的句柄)
   - [何时使用 Rc](#何时使用-rc)
 - [Impl 类型](#impl-类型)
   - [基本用法](#基本用法)
@@ -3302,7 +3303,8 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 > `ref(struct(...))` 都是引用计数的，`Rc` 只是其中单字段的特例。
 >
 > 实际影响：共享是隐式的；`Rc` 形成的环若不打破就会泄漏（Rust 的 `Box` 根本无法
-> 形成环）；用 `ref_count(b)` / `Rc.try_unwrap` 来询问唯一性。
+> 形成环；`Weak` 回边可以打破它，见 [Weak：不拥有的句柄](#weak不拥有的句柄)）；用
+> `ref_count(b)` / `Rc.try_unwrap` 来询问唯一性。
 >
 > 这个共享单元以前写作 `Box(V)` / `box(v)`。`Box` 现在是另一种类型：唯一所有、
 > 不计数的单元，类似 Rust 的 `Box<T>`（[Box：唯一所有的单元](#box唯一所有的单元)）。
@@ -3440,6 +3442,21 @@ test("Rc reference counting", {
 - `Rc.get_mut(&mut h)`（仅当计数为 1 时为 `.Some(&mut T)`）将在 `Option(&mut T)` 可以表达之后提供（决策 43）。
 
 这些入口与 Rust 一样通过类型调用，因此载荷上同名的方法仍可用 `h.name()` 调用。`Arc` 有同样的 `Arc.make_mut` 和 `Arc.try_unwrap`（[ARC.md](./ARC.md)）。
+
+### Weak：不拥有的句柄
+
+`Weak(T)` 对应 Rust 的 `rc::Weak<T>`：`Rc.downgrade(&h)` 创建一个指向该单元、但不让载荷保持存活的句柄；
+只要还有指向它的 `Rc`，`w.upgrade()` 就是 `.Some(handle)`，最后一个 `Rc` 消失后为 `.None`。最后一个 `Rc`
+释放载荷，任一种类的最后一个句柄释放单元。`Weak` 没有 `Deref`，是显式复制的（`Weak.clone(&w)`），对环回收器
+而言也不是边，因此父指针 `Weak(RefCell(Node))` 不会闭合环。见 [WEAK.md](./WEAK.md)。
+
+```yo
+a := rc(i32(7));
+w := Rc.downgrade(&a);
+assert(w.upgrade().is_some(), "alive while a is");
+consume(a);
+assert(w.upgrade().is_none(), "the last Rc dropped the payload");
+```
 
 ### 何时使用 Rc
 
