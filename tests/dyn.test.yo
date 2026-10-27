@@ -523,6 +523,7 @@ _DynDefShow :: trait(
   })
 );
 _DynDefP :: struct(x : i32);
+derive(_DynDefP, Copy, Clone);
 impl(_DynDefP, _DynDefShow(show : (fn(self : &Self) -> i32)(self.x)));
 _dyn_def_use :: (fn(v : &Dyn(_DynDefShow)) -> i32)({
   mut(acc) := i32(1);
@@ -532,8 +533,8 @@ _dyn_def_use :: (fn(v : &Dyn(_DynDefShow)) -> i32)({
 _dyn_def_generic :: (fn(generic(T : Type), v : &T, where(T <: _DynDefShow)) -> i32)(_dyn_def_use(dyn(v)));
 test("a dyn of a type variable binds every parameter of a trait default", {
   p := _DynDefP(x : i32(41));
-  assert(_dyn_def_use(dyn(p)) == i32(42), "through a concrete dyn");
   assert(_dyn_def_generic(&p) == i32(42), "through a dyn of the type variable");
+  assert(_dyn_def_use(dyn(p)) == i32(42), "through a concrete dyn (which moves `p`)");
   // ToString's own `append_to` default is one: a later template part calls it.
   assert(`[${_generic_show(i32(7))}]` == `[7]`, "a Dyn(ToString) rendered inside a template");
 });
