@@ -463,11 +463,11 @@ _IndexShape :: struct(is_projection : bool, is_mut : bool, output : TypeValue);
 _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Option(_IndexShape))(
   match(
     method_type,
-    Rc(.Func({ param_types, result : result_box })) => cond(
+    Rc(.Func({ param_types, result : result_box, meta : __fm1 })) => cond(
       (param_types.len() != usize(2)) => Option(_IndexShape).None,
       true => {
         p0_is_ref := t_slot_is_mut_ref(&param_types(usize(0)));
-        p0_is_ptr := is_pointer_type(t_slot_pointee(&param_types(usize(0))));
+        p0_is_ptr := is_pointer_type(&t_slot_pointee(&param_types(usize(0))));
         // `are_types_compatible(actual, expected)` — the ARGUMENT's type is the
         // actual, the parameter's declared type is the expected. Passing
         // them the other way round made the parameter type the "actual",
@@ -476,7 +476,7 @@ _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Optio
         // `actual` — never fired: `l(0)` on a `ComptimeIndex(usize)` impl was
         // rejected with "Type does not implement Index for the given argument
         // type" while `l(usize(0))` worked.
-        p1_compatible := are_types_compatible(arg_type, t_slot_pointee(&param_types(usize(1))));
+        p1_compatible := are_types_compatible(arg_type, &t_slot_pointee(&param_types(usize(1))));
         cond(
           !p1_compatible => Option(_IndexShape).None,
           // A projection: `&Self` for `index`, `&mut Self` for `index_mut`.

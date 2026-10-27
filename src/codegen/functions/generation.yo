@@ -21,7 +21,7 @@
 { AstExpr, ast_expr_to_string, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue, no_types, no_labels, slot_pointee_at } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, no_labels, slot_pointee_at, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation } :: import("../../expr_info.yo");
 { YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
@@ -642,7 +642,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
         if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
           // the caller's handle slot); the object the flag lives on is `*name`.
-          is_ref := match(__fm.*.param_is_ref.get(i), .Some(b) => b, .None => false);
+          is_ref := match(pts.get(i), .Some(b) => t_slot_is_mut_ref(&b), .None => false);
           pname := sanitize_for_c_identifier(label.clone(), false);
           // An atomic object's counter is shared across threads: read it atomically.
           line := if(is_atomic_counted_handle_type(&pt), String.from("  __yo_borrow_assert_unborrowed_atomic((void*)"), String.from("  __yo_borrow_assert_unborrowed((void*)"));
