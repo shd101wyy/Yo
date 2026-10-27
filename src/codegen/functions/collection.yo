@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
 { ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global, extern_c_global_c_name, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_capture_field_inits, expr_info_dyn_call_trait_values, get_module_level_init_exprs, expr_info_deferred_dup_expressions, expr_info_index_method_value, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type, cell_handle_view } :: import("../../types/guards.yo");
 { is_control_fn, mark_as_effect_record_member, mark_as_index_entry_method, get_func_type, fn_has_specializations } :: import("../../function_value.yo");
 { get_all_some_types, type_contains_rc_cell_or_move_only, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type, type_is_move_only, is_value_nominal_type, value_type_owns_buffer } :: import("../../types/utils.yo");
@@ -382,7 +382,7 @@ _func_val_id :: (fn(v : &EvalValue) -> String)(
 _func_val_body :: (fn(v : &EvalValue) -> AstExpr)(
   match(v, .FuncVal(__fvd4, _) => __fvd4.*.body, _ => make_err_expr())
 );
-/// True if any type in the list is the `Expr` type (a quoted-AST param) — the
+/// True if any parameter slot in the list holds the `Expr` type (a quoted-AST param) — the
 /// signature of a MACRO (e.g. `if`, `try`: `fn(quote(x) : Expr, …) ->
 /// unquote(Expr)`). Macros are comptime-only (expanded at their call site, see
 /// the macro_expansion ExprInfo), so they must NOT be emitted as C functions
@@ -394,7 +394,7 @@ _any_expr_param :: (fn(tys : &ArrayList(TypeValue)) -> bool)({
   while((i < n) && !found, {
     match(
       tys.get(i),
-      .Some(t) => if(is_expr_type(&t), {
+      .Some(t) => if(is_expr_type(&t_slot_pointee(&t)), {
         found = true;
       }),
       .None => ()
@@ -443,7 +443,7 @@ _is_generic_unspecialized_func :: (fn(v : &EvalValue) -> bool)({
       (tp_i : usize) = usize(0);
       while(tp_i < param_types.len(), {
         match(
-          param_types.get(tp_i),
+          slot_pointee_at(&param_types, tp_i),
           .Some(Rc(.TypeUni(_))) => {
             has_type_param = true;
           },
@@ -491,7 +491,7 @@ _func_has_some_param :: (fn(fid : &String) -> bool)(
           // IS concrete at codegen (utils.yo carve-out) — the raw scan
           // wrongly skipped collecting the box-of-closure fn ("no C function
           // name for func value", the dyn-of-closure-capture family).
-          .Some(pt) => if(type_contains_some_type(&pt), {
+          .Some(pt) => if(type_contains_some_type(&t_slot_pointee(&pt)), {
             found = true;
           }),
           .None => ()
@@ -1134,7 +1134,7 @@ _specialize_and_register_trace :: (
   (pi : usize) = usize(0);
   while(pi < p_labels.len(), {
     plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
-    pty := if(pi == usize(0), ct.clone(), match(p_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
+    pty := if(pi == usize(0), ct.clone(), match(slot_pointee_at(&p_types, pi), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
     _bp := add_variable_to_env(
       &fresh,
       plabel.clone(),
@@ -1151,7 +1151,7 @@ _specialize_and_register_trace :: (
   // The tracer (2nd) parameter type from the trace signature.
   tracer_ty := match(
     method_ty,
-    Rc(.Func({ param_types })) => match(param_types.get(usize(1)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+    Rc(.Func({ param_types })) => match(slot_pointee_at(&param_types, usize(1)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
     _ => rc(TypeValueNode.Unit)
   );
   // ArgValues for `trace(self : ct, tracer : GcTracer)`. The regular args drive
@@ -1187,7 +1187,7 @@ _specialize_and_register_trace :: (
         // module already imports this one).
         (cti : usize) = usize(0);
         while(cti < p_types.len(), {
-          match(p_types.get(cti), .Some(pt) => _call_collect_type(&pt, base), .None => ());
+          match(slot_pointee_at(&p_types, cti), .Some(pt) => _call_collect_type(&pt, base), .None => ());
           cti = (cti + usize(1));
         });
         _call_collect_type(tracer_ty.clone(), base);
@@ -1801,6 +1801,8 @@ register_find_function_calls_in_expr :: (fn() -> unit)({
   ()
 });
 export(
+  _is_generic_unspecialized_func,
+  _func_has_some_param,
   expr_contains_unknown_value,
   collect_effect_record_members,
   collect_required_functions,

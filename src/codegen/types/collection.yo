@@ -203,6 +203,11 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // registers the C struct decl under the same type_key as the final, and the
   // final is then deduped away — emitting `struct { header; }` with no members.
   type := resolve_struct_shell(resolve_enum_shell(type_in));
+  // A `&T` / `&mut T` is a parameter slot's mode (decision 43 step 1), never
+  // a C type: a slot read without `t_slot_pointee` is an internal error.
+  if(match(type, Rc(.Reference(_, _, _)) => true, _ => false), {
+    __yo_panic("collect_type: a reference type reached codegen (a parameter slot read without t_slot_pointee)");
+  });
   if(context.get_type_entry(type_key(&type)).is_some(), {
     return(()); // Already collected this type
   });

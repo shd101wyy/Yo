@@ -80,6 +80,8 @@ TypeInfo :: enum(
   // `&T`（`mutable = false`）或 `&mut T`，带其来源（`Origin` 类型的值）。
   // 目前只有函数参数的槽位是引用，而 `ParamInfo.param_type` 报告的是被指向的
   // 类型，因此用户代码暂时还到达不了这两个变体。
+  // `origin` 以 `Type` 的形式携带来源值；`Type.get_info` 目前还没有针对
+  // 来源值本身的分支（由决策 43 第 2 步决定）。
   Reference(pointee : Type, mutable : bool, origin : Type),
   // `Origin` 类型：来源值的类型。
   Origin
