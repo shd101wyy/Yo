@@ -1473,17 +1473,23 @@ _sai_arg_place :: (fn(arg : &AstExpr) -> AstExpr)({
 });
 /// An argument inference never evaluates (§2 step 3): a closure literal and
 /// an enum shorthand (`.X`, `.Some(x)`) take their type from the parameter.
+/// A field read `v.f` and a range `a..b` are calls of an operator atom that
+/// also starts with `.`, and are not shorthands.
 _sai_arg_is_contextual :: (fn(place : &AstExpr) -> bool)(
   cond(
     ast_expr_is_fn_call_of(place, "=>", Option(usize).None) => true,
-    ast_expr_is_atom(place) => ast_expr_token(place).value.starts_with("."),
+    ast_expr_is_atom(place) => _sai_is_shorthand_name(&ast_expr_token(place).value),
     ast_expr_is_fn_call_of(place, BF_DOT, .Some(usize(1))) => true,
     true => match(
       place,
-      .FnCall(_, sc_f, _, _, _) => ((ast_expr_is_atom(&sc_f) && ast_expr_token(&sc_f).value.starts_with(".")) || ast_expr_is_fn_call_of(&sc_f, BF_DOT, .Some(usize(1)))),
+      .FnCall(_, sc_f, _, _, _) => ((ast_expr_is_atom(&sc_f) && _sai_is_shorthand_name(&ast_expr_token(&sc_f).value)) || ast_expr_is_fn_call_of(&sc_f, BF_DOT, .Some(usize(1)))),
       _ => false
     )
   )
+);
+/// `.X`: a dot followed by a name, not the `.` / `..` / `..=` operators.
+_sai_is_shorthand_name :: (fn(v : &String) -> bool)(
+  v.starts_with(".") && !(v == BF_DOT) && !v.starts_with("..")
 );
 /// Argument `i`'s type, evaluating it once with no expected type and
 /// recording the evaluated node; `.None` for an argument that is not

@@ -52,6 +52,13 @@ test("a static method binds the constructor's parameters from its arguments", {
   comptime_assert(Type.eq(type_of(q), _Pair(i32, bool)), "_Pair.make(i32(1), true) is _Pair(i32, bool)");
   assert(q.b, "B := bool");
 });
+_Lists :: struct(xs : ArrayList(String), h : Rc(ArrayList(i32)));
+test("a field read is an argument like any other, for a static method and for decision 32", {
+  ls := _Lists(xs : ArrayList(String).new(), h : rc(ArrayList(i32).new()));
+  comptime_assert(Type.eq(type_of(_Wrap.of_list(&ls.xs)), _Wrap(String)), "the field's type binds T");
+  Rc.make_mut(&mut ls.h).push(i32(2));
+  assert(ls.h.len() == usize(1), "the receiver is the field");
+});
 test("a binder nested in the parameter type: ArrayList(T), Option(T), *T and &T", {
   xs := ArrayList(String).new();
   xs.push(`a`);
