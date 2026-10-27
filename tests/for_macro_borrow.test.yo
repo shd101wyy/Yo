@@ -207,19 +207,18 @@ test("borrowed for over struct elements: field writes land in the buffer", {
   assert(enemies(usize(0)).hp == i32(2), "a: 3 -> 2");
   assert(enemies(usize(1)).hp == i32(0), "b: 1 -> 0");
 });
-test("borrowed for over RC elements: no per-element dup, mutate through the reference", {
+// The elements were refcounted until B8 and this test also pinned their
+// counts; a `String` is a value now (no count), so what remains is the write
+// through the element reference.
+test("borrowed for over String elements: mutate through the reference", {
   mut(names) := ArrayList(String).new();
   names.push(String.from("x"));
   names.push(String.from("y"));
-  first := (names(usize(0))).clone();
-  before := ref_count(first);
   for(&mut names, s => {
     s.push_str("!");
-    assert(ref_count(first) == before, "the element is borrowed, not dup'd");
   });
   assert(names(usize(0)) == "x!", "x!");
   assert(names(usize(1)) == "y!", "y!");
-  assert(ref_count(first) == before, "counts unchanged after the loop");
 });
 test("borrowed for: element handed to an inout parameter, break and continue", {
   mut(list) := ArrayList(i32).new();
