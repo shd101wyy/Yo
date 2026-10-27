@@ -6181,6 +6181,24 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               exn.throw(dyn(with_code(format_error_messages(&err_list), E_MOVED_ON_SOME_PATHS)));
             });
           });
+          // A value moved before the branch and reassigned on every arm that
+          // continues past it is initialized where the arms meet: each arm's
+          // flow record ends unconsumed (`x = v` after `y := x`, in both arms
+          // of an `if`/else). The join above starts from the pre-branch
+          // state, so without this the move survived the reassignments and a
+          // later read was E0901 (issues/2026-10-27-a-value-reassigned-in-every-arm-after-a-move-is-still-moved.md).
+          if(flow_joined && flow_pre_consumed.is_some() && (n_cases > usize(0)), {
+            (all_reinit : bool) = true;
+            (ri_i : usize) = usize(0);
+            while(ri_i < n_cases, ri_i = (ri_i + usize(1)), {
+              if(match(consumed_at_tokens.get(ri_i), .Some(.Some(_)) => true, _ => false), {
+                all_reinit = false;
+              });
+            });
+            if(all_reinit, {
+              base_var.consumed_at_token = Option(Token).None;
+            });
+          });
           // The branch's net effect, for an enclosing arm or loop.
           if(flow_joined, {
             record_flow_event(
