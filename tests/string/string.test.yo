@@ -2504,7 +2504,7 @@ test("Writing a String through inout, own or a local copy is accepted (E0908 ext
   assert(_bumped(_Counter(n : i32(1))) == i32(2), "a value without RC data stays writable as a local copy");
 });
 test("collect(String) builds the string through an owned accumulator", {
-  parts := ArrayList(String).new();
+  mut(parts) := ArrayList(String).new();
   parts.push(String.from("a"));
   parts.push(String.from("b"));
   parts.push(String.from("c"));
@@ -2650,17 +2650,19 @@ test("a string pushed onto itself through a ref root appends a copy of itself", 
   t := String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
   assert(o.s == `${t}${t}`, "the argument is read after the write grew the buffer");
 });
-test("to_bytes copies, into_bytes moves when unique, from_bytes takes the list", {
+test("to_bytes copies, into_bytes moves, from_bytes takes the list", {
   s := String.from("xyz");
-  l := s.to_bytes();
+  mut(l) := s.to_bytes();
   l.push(u8(33));
   assert(s == "xyz", "writing the to_bytes list never changes the string");
-  t := s;
-  shared_out := t.into_bytes();
-  assert((shared_out.len() == usize(3)) && (s == "xyz"), "into_bytes of a shared buffer copies, the other copy keeps its bytes");
+  // A `String` owns its buffer (B8): `into_bytes` of a clone moves the
+  // clone's buffer out, and the original keeps its own.
+  t := s.clone();
+  cloned_out := t.into_bytes();
+  assert((cloned_out.len() == usize(3)) && (s == "xyz"), "into_bytes of a clone leaves the original its bytes");
   u := String.from("own");
   out := u.into_bytes();
-  assert(ref_count(out) == usize(1), "into_bytes of a unique buffer moves it out");
+  assert(out.len() == usize(3), "into_bytes moves the buffer out");
   v := String.from_bytes(out);
   assert(v == "own", "from_bytes takes the list over");
   assert((v.get_byte(usize(0)) == Option(u8).Some(u8(111))) && (v.get_byte(usize(9)) == Option(u8).None), "get_byte reads in place");
@@ -2698,4 +2700,40 @@ test("to_cstr_checked rejects an interior NUL and terminates a clean string", {
   );
   empty := String.from("");
   assert(empty.to_cstr_checked().is_ok(), "an empty string converts");
+});
+// A write through a copy of a `String` used to reach the original only when
+// the original was non-empty: copies shared a non-empty buffer and an empty
+// one allocated its own. Since B8 a `String` owns its bytes, so each of the
+// three shapes either moves the string or is E0901, and a clone is the only
+// copy (issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md).
+_StrCopyBox :: struct(s : String);
+_str_append_owned :: (fn(out : String) -> String)({
+  mut(o) := out;
+  o.push_str("!");
+  o
+});
+test("a write through a String copy: every shape moves or is E0901 (B8)", {
+  comptime_expect_error({
+    a := String.new();
+    mut(ta) := a;
+    ta.push_str("!");
+    a.len()
+  }, "use of moved value");
+  comptime_expect_error({
+    b := String.from("hi");
+    _r := _str_append_owned(b);
+    b.len()
+  }, "use of moved value");
+  comptime_expect_error({
+    c := String.new();
+    mut(x) := _StrCopyBox(s : c);
+    x.s.push_str("!");
+    c.len()
+  }, "use of moved value");
+  // A clone is independent, empty or not: neither original sees the write.
+  e := String.new();
+  n := String.from("hi");
+  assert(_str_append_owned(e.clone()) == "!", "the empty string's clone is written");
+  assert(_str_append_owned(n.clone()) == "hi!", "the non-empty string's clone is written");
+  assert((e == "") && (n == "hi"), "neither original changed");
 });

@@ -135,8 +135,8 @@ into the UTF-8 buffer, no boundary requirement — and panics past the end.
 `s.as_bytes().get(i)`). Both read the string in place. Decoding is `at(i)`.
 
 `s(i)` reads the same byte: `String` implements `Index(usize)` with
-`Output : u8` and no `IndexMut`. `s(i) = b` is a compile error: a write would
-reach every string sharing the buffer and could leave invalid UTF-8 behind. The
+`Output : u8` and no `IndexMut`. `s(i) = b` is a compile error: a byte write
+could leave invalid UTF-8 behind. The
 range sugar `s(a..b)` builds a new string.
 
 ```yo
@@ -152,13 +152,17 @@ s(usize(1) .. usize(3)); // "é" — a new String
 
 Every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`,
 `reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`)
-takes `self : &mut Self` and writes in place. `clone()` copies the bytes (O(n));
-the clone is independent of the original, empty or not. A plain copy
-(`t := s`) still shares a non-empty buffer until `plans/VALUES_BY_DEFAULT.md`
-V2b makes `String` uniquely owned (then `t := s` is a move, or an error naming
-`s.clone()`), so write only through a clone. Writing through a borrowed copy
-(a by-value parameter, a `for` or `match` binding) is E0908; the rules are in
-[DESIGN.md](./DESIGN.md#writing-through-a-copy-of-a-string).
+takes `self : &mut Self` and writes in place. A `String` owns its bytes: it is
+a value (`newtype(_bytes : ArrayList(u8))`), never shared. `t := s` MOVES the
+string, so a later use of `s` is E0901, whose help names `s.clone()`. `clone()`
+copies the bytes (O(n)) into an independent string. A `&String` parameter,
+a `match(&s, ...)` binding or a `for(&xs, ...)` element borrows the string
+without copying it; to keep one, `.clone()` it. A string is `Send` and `Sync`,
+so it moves into `Thread(...).spawn` and through a `Channel(String)`.
+
+A template string appends a `String` part by borrow: `` `a${s}b` `` builds one
+new string and copies `s`'s bytes into it once. Only a template whose FIRST
+part is the `String` renders it through `to_string()`, which is `clone()`.
 
 Nothing outside a `String` may write its buffer, so the byte list is copied or
 moved, never lent:
@@ -166,7 +170,7 @@ moved, never lent:
 | method | result |
 | --- | --- |
 | `to_bytes()` | a new, independent `ArrayList(u8)`, O(n) |
-| `into_bytes()` | consumes the string and moves its buffer out; copies only when another copy shares it |
+| `into_bytes()` | consumes the string and moves its buffer out, O(1) |
 | `String.from_bytes(sink(bytes))` | takes the list over, unchecked |
 | `String.from_utf8(sink(bytes))` | takes the list over after validating it; `Err(.InvalidUtf8(...))` otherwise |
 | `to_cstr_checked()` | the bytes plus a terminating `\0`, for a C boundary; `Err(.InteriorNul(index))` when the string holds a NUL byte |
