@@ -1537,33 +1537,25 @@ emit_thread_local_accessors :: (
 generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars : &ArrayList(ModuleLevelVarEntry)) -> unit)({
   em := context.base.emitter;
   // Find __yo_user_main and its func_id.
-  it := context.base.functions.keys();
   (main_func_id : String) = String.from("");
   (main_def_module : String) = String.from("");
   (found : bool) = false;
-  (go : bool) = true;
-  while(go, {
+  for(&context.base.functions, (fid, _e) => {
     match(
-      it.next(),
-      .Some(fid) => match(
-        context.base.get_function_entry(&fid),
-        .Some(entry) => if(entry.c_name == "__yo_user_main", {
-          main_def_module = entry.def_module.clone();
-          match(
-            entry.value,
-            .FuncVal(__fvd1, _) => {
-              main_func_id = __fvd1.*.func_id.clone();
-              found = true;
-              go = false;
-            },
-            _ => ()
-          );
-        }),
-        .None => ()
-      ),
-      .None => {
-        go = false;
-      }
+      context.base.get_function_entry(fid),
+      .Some(entry) => if(entry.c_name == "__yo_user_main", {
+        main_def_module = entry.def_module.clone();
+        match(
+          entry.value,
+          .FuncVal(__fvd1, _) => {
+            main_func_id = __fvd1.*.func_id.clone();
+            found = true;
+            break;
+          },
+          _ => ()
+        );
+      }),
+      .None => ()
     );
   });
   if(!found, {

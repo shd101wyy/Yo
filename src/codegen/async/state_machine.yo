@@ -1015,30 +1015,20 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
       });
       if(is_struct_type(&resolved), {
         capture_id := match(resolved, Rc(.Struct({ id })) => id, _ => String.from(""));
-        it := context.base.types.into_iter();
-        (go : bool) = true;
-        while(go, {
-          match(
-            it.next(),
-            .Some(bucket) => {
-              ety := bucket.value.ty;
-              if(is_some_type(&ety) && type_implements_future(&ety), {
-                match(
-                  some_resolution(&ety),
-                  .Some(erc) => if(is_struct_type(&erc), {
-                    ercid := match(erc, Rc(.Struct({ id })) => id, _ => String.from(""));
-                    if(ercid == capture_id, {
-                      return(false);
-                    });
-                  }),
-                  .None => ()
-                );
-              });
-            },
-            .None => {
-              go = false;
-            }
-          );
+        for(&context.base.types, (_tid, entry) => {
+          ety := entry.ty;
+          if(is_some_type(&ety) && type_implements_future(&ety), {
+            match(
+              some_resolution(&ety),
+              .Some(erc) => if(is_struct_type(&erc), {
+                ercid := match(erc, Rc(.Struct({ id })) => id, _ => String.from(""));
+                if(ercid == capture_id, {
+                  return(false);
+                });
+              }),
+              .None => ()
+            );
+          });
         });
       });
     },

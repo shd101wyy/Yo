@@ -67,18 +67,8 @@ _array_wrapper_name_lt :: (fn(a : &String, b : &String) -> bool)(
 /// `generate_type_declarations` drains again after each nominal type it emits.
 _array_wrapper_names_sorted :: (fn(context : &CodeGenContext) -> ArrayList(String))({
   keys := ArrayList(String).new();
-  kit := context.array_struct_types.keys();
-  (kdone : bool) = false;
-  while(!kdone, {
-    match(
-      kit.next(),
-      .Some(k) => {
-        keys.push(k);
-      },
-      .None => {
-        kdone = true;
-      }
-    );
+  for(&context.array_struct_types, (k, _v) => {
+    keys.push(k.clone());
   });
   // Selection sort by (length, lexicographic) into a fresh list (ArrayList
   // has no element assignment; the registry is small).
@@ -1557,19 +1547,11 @@ _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, 
 /// Call it until it returns nothing to also reach the types the walk registered.
 _unseen_type_ids :: (fn(context : &CodeGenContext, seen : &mut HashSet(String)) -> ArrayList(String))({
   ids := ArrayList(String).new();
-  it := context.types.keys();
-  (done : bool) = false;
-  while(!done, {
-    match(
-      it.next(),
-      .Some(k) => if(!seen.contains(k.clone()), {
-        seen.insert(k.clone());
-        ids.push(k);
-      }),
-      .None => {
-        done = true;
-      }
-    );
+  for(&context.types, (k, _v) => {
+    if(!seen.contains(k.clone()), {
+      seen.insert(k.clone());
+      ids.push(k.clone());
+    });
   });
   ids
 });
@@ -1585,18 +1567,8 @@ _is_reserved_dyn_method :: (fn(label : &String) -> bool)(
 generate_dyn_forward_declarations :: (fn(context : &CodeGenContext) -> unit)({
   em := context.emitter;
   keys := ArrayList(String).new();
-  fkit := context.types.keys();
-  (fkdone : bool) = false;
-  while(!fkdone, {
-    match(
-      fkit.next(),
-      .Some(k) => {
-        keys.push(k);
-      },
-      .None => {
-        fkdone = true;
-      }
-    );
+  for(&context.types, (k, _v) => {
+    keys.push(k.clone());
   });
   (has_any : bool) = false;
   n := keys.len();
@@ -1801,18 +1773,8 @@ generate_dyn_box_types :: (fn(context : &CodeGenContext) -> unit)({
   em.emit_declaration_line("");
   generated := HashSet(String).new();
   keys := ArrayList(String).new();
-  bkit := context.dyn_impls.keys();
-  (bkdone : bool) = false;
-  while(!bkdone, {
-    match(
-      bkit.next(),
-      .Some(k) => {
-        keys.push(k);
-      },
-      .None => {
-        bkdone = true;
-      }
-    );
+  for(&context.dyn_impls, (k, _v) => {
+    keys.push(k.clone());
   });
   n := keys.len();
   (i : usize) = usize(0);
@@ -1894,40 +1856,36 @@ _deferred_decl_cnames :: (
     );
     wi = (wi + usize(1));
   });
-  dkeys := context.types.keys();
-  (gd : bool) = true;
-  while(gd, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  dkeys_cur := context.types.walk_start();
+  while(context.types.walk_valid(&dkeys_cur), dkeys_cur = context.types.walk_next(&dkeys_cur), {
+    tid := context.types.walk_ref(&dkeys_cur).key.clone();
     match(
-      dkeys.next(),
-      .Some(tid) => match(
-        context.get_type_entry(tid.clone()),
-        .Some(entry) => {
-          ty := entry.ty;
-          skip := (
-            _walk_skip_some(&ty)
-            || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
-          );
-          if(
-            !skip,
-            cond(
-              is_struct_type(&ty) => {
-                out.insert(entry.c_name.clone());
-              },
-              (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
-                out.insert(entry.c_name.clone());
-              },
-              is_tuple_type(&ty) => {
-                out.insert(entry.c_name.clone());
-              },
-              true => ()
-            )
-          );
-        },
-        .None => ()
-      ),
-      .None => {
-        gd = false;
-      }
+      context.get_type_entry(tid.clone()),
+      .Some(entry) => {
+        ty := entry.ty;
+        skip := (
+          _walk_skip_some(&ty)
+          || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
+        );
+        if(
+          !skip,
+          cond(
+            is_struct_type(&ty) => {
+              out.insert(entry.c_name.clone());
+            },
+            (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
+              out.insert(entry.c_name.clone());
+            },
+            is_tuple_type(&ty) => {
+              out.insert(entry.c_name.clone());
+            },
+            true => ()
+          )
+        );
+      },
+      .None => ()
     );
   });
   out
@@ -1944,74 +1902,70 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   em := context.emitter;
   _emit_type_runtime_preamble(context);
   // Forward declarations for structs / enums / future traits.
-  fkeys := context.types.keys();
-  (gf : bool) = true;
-  while(gf, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  fkeys_cur := context.types.walk_start();
+  while(context.types.walk_valid(&fkeys_cur), fkeys_cur = context.types.walk_next(&fkeys_cur), {
+    tid := context.types.walk_ref(&fkeys_cur).key.clone();
     match(
-      fkeys.next(),
-      .Some(tid) => match(
-        context.get_type_entry(tid.clone()),
-        .Some(entry) => {
-          ty := entry.ty;
-          cn := entry.c_name.clone();
-          skip := (_walk_skip_some(&ty) || entry.c_include.is_some());
-          if(
-            !skip,
-            cond(
-              is_future_trait_type(&ty) => {
+      context.get_type_entry(tid.clone()),
+      .Some(entry) => {
+        ty := entry.ty;
+        cn := entry.c_name.clone();
+        skip := (_walk_skip_some(&ty) || entry.c_include.is_some());
+        if(
+          !skip,
+          cond(
+            is_future_trait_type(&ty) => {
+              l := String.from("typedef struct ");
+              l.push_string(cn.clone());
+              l.push_str("_struct ");
+              l.push_string(cn.clone());
+              l.push_str("; // Forward declaration");
+              em.emit_declaration_string_line(&l);
+            },
+            is_struct_type(&ty) => {
+              // Newtypes are plain typedefs — no forward struct declaration.
+              is_nt_single := (
+                is_newtype_type(&ty) && match(ty, Rc(.Struct({ field_types })) => (field_types.len() == usize(1)), _ => false)
+              );
+              if(!is_nt_single, {
                 l := String.from("typedef struct ");
                 l.push_string(cn.clone());
                 l.push_str("_struct ");
                 l.push_string(cn.clone());
                 l.push_str("; // Forward declaration");
                 em.emit_declaration_string_line(&l);
-              },
-              is_struct_type(&ty) => {
-                // Newtypes are plain typedefs — no forward struct declaration.
-                is_nt_single := (
-                  is_newtype_type(&ty) && match(ty, Rc(.Struct({ field_types })) => (field_types.len() == usize(1)), _ => false)
-                );
-                if(!is_nt_single, {
-                  l := String.from("typedef struct ");
-                  l.push_string(cn.clone());
-                  l.push_str("_struct ");
-                  l.push_string(cn.clone());
-                  l.push_str("; // Forward declaration");
-                  em.emit_declaration_string_line(&l);
-                });
-              },
-              is_enum_type(&ty) => {
-                optimized := (can_optimize_as_nullable_pointer(&ty).is_some() || can_optimize_as_simple_enum(&ty));
-                if(!optimized, {
-                  l := String.from("typedef struct ");
-                  l.push_string(cn.clone());
-                  l.push_str("_struct ");
-                  l.push_string(cn.clone());
-                  l.push_str("; // Forward declaration");
-                  em.emit_declaration_string_line(&l);
-                });
-              },
-              // A tuple is a plain value struct, but it can still be reached
-              // THROUGH A POINTER from a struct emitted earlier — an
-              // `ArrayList(Tuple(..))`'s `_ptr` is exactly that — so it needs
-              // its name declared up here like any other struct.
-              is_tuple_type(&ty) => {
+              });
+            },
+            is_enum_type(&ty) => {
+              optimized := (can_optimize_as_nullable_pointer(&ty).is_some() || can_optimize_as_simple_enum(&ty));
+              if(!optimized, {
                 l := String.from("typedef struct ");
                 l.push_string(cn.clone());
                 l.push_str("_struct ");
                 l.push_string(cn.clone());
                 l.push_str("; // Forward declaration");
                 em.emit_declaration_string_line(&l);
-              },
-              true => ()
-            )
-          );
-        },
-        .None => ()
-      ),
-      .None => {
-        gf = false;
-      }
+              });
+            },
+            // A tuple is a plain value struct, but it can still be reached
+            // THROUGH A POINTER from a struct emitted earlier — an
+            // `ArrayList(Tuple(..))`'s `_ptr` is exactly that — so it needs
+            // its name declared up here like any other struct.
+            is_tuple_type(&ty) => {
+              l := String.from("typedef struct ");
+              l.push_string(cn.clone());
+              l.push_str("_struct ");
+              l.push_string(cn.clone());
+              l.push_str("; // Forward declaration");
+              em.emit_declaration_string_line(&l);
+            },
+            true => ()
+          )
+        );
+      },
+      .None => ()
     );
   });
   em.emit_declaration_line("");
@@ -2032,67 +1986,59 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   // error.
   emitted_decl_cnames := HashSet(String).new();
   // First pass: simple-enum declarations (leaf types).
-  skeys := context.types.keys();
-  (gs : bool) = true;
-  while(gs, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  skeys_cur := context.types.walk_start();
+  while(context.types.walk_valid(&skeys_cur), skeys_cur = context.types.walk_next(&skeys_cur), {
+    tid := context.types.walk_ref(&skeys_cur).key.clone();
     match(
-      skeys.next(),
-      .Some(tid) => match(
-        context.get_type_entry(tid.clone()),
-        .Some(entry) => {
-          ty := entry.ty;
-          skip := (type_contains_some_type(&ty) || entry.c_include.is_some());
-          if(!skip && (is_enum_type(&ty) && can_optimize_as_simple_enum(&ty)), {
-            if(!emitted_decl_cnames.contains(entry.c_name.clone()) && !context.on_demand_body_cnames.contains(entry.c_name.clone()), {
-              emitted_decl_cnames.insert(entry.c_name.clone());
-              generate_enum_declaration(&ty, entry.c_name.clone(), context);
-            });
+      context.get_type_entry(tid.clone()),
+      .Some(entry) => {
+        ty := entry.ty;
+        skip := (type_contains_some_type(&ty) || entry.c_include.is_some());
+        if(!skip && (is_enum_type(&ty) && can_optimize_as_simple_enum(&ty)), {
+          if(!emitted_decl_cnames.contains(entry.c_name.clone()) && !context.on_demand_body_cnames.contains(entry.c_name.clone()), {
+            emitted_decl_cnames.insert(entry.c_name.clone());
+            generate_enum_declaration(&ty, entry.c_name.clone(), context);
           });
-        },
-        .None => ()
-      ),
-      .None => {
-        gs = false;
-      }
+        });
+      },
+      .None => ()
     );
   });
   // Second pass: collect structs, complex enums, tuples for topological sorting.
   entries := ArrayList(_TypeWalkEntry).new();
   cname_to_typeid := HashMap(String, String).new();
-  ckeys := context.types.keys();
-  (gc : bool) = true;
-  while(gc, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  ckeys_cur := context.types.walk_start();
+  while(context.types.walk_valid(&ckeys_cur), ckeys_cur = context.types.walk_next(&ckeys_cur), {
+    tid := context.types.walk_ref(&ckeys_cur).key.clone();
     match(
-      ckeys.next(),
-      .Some(tid) => match(
-        context.get_type_entry(tid.clone()),
-        .Some(entry) => {
-          ty := entry.ty;
-          skip := (_walk_skip_some(&ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
-          if(
-            !skip,
-            cond(
-              is_struct_type(&ty) => {
-                entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
-                cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
-              },
-              (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
-                entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
-                cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
-              },
-              is_tuple_type(&ty) => {
-                entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
-                cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
-              },
-              true => ()
-            )
-          );
-        },
-        .None => ()
-      ),
-      .None => {
-        gc = false;
-      }
+      context.get_type_entry(tid.clone()),
+      .Some(entry) => {
+        ty := entry.ty;
+        skip := (_walk_skip_some(&ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
+        if(
+          !skip,
+          cond(
+            is_struct_type(&ty) => {
+              entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
+              cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
+            },
+            (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
+              entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
+              cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
+            },
+            is_tuple_type(&ty) => {
+              entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
+              cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
+            },
+            true => ()
+          )
+        );
+      },
+      .None => ()
     );
   });
   // Build the dependency graph (edge A→B means B must be defined before A).

@@ -16,39 +16,19 @@ collect_c_includes :: (fn(context : &CodeGenContext) -> unit)({
   // Collect C includes from all collected types. (Loop via a flag, NOT
   // `return(())` — a bare return would exit the whole function and skip the
   // extern-function pass below.)
-  type_vals := context.types.values();
-  (go_types : bool) = true;
-  while(go_types, {
+  for(&context.types, (_tid, type_entry) => {
     match(
-      type_vals.next(),
-      .Some(type_entry) => {
-        match(
-          type_entry.c_include.clone(),
-          .Some(inc) => context.add_c_include(&inc),
-          .None => ()
-        );
-      },
-      .None => {
-        go_types = false;
-      }
+      type_entry.c_include.clone(),
+      .Some(inc) => context.add_c_include(&inc),
+      .None => ()
     );
   });
   // Collect C includes from all extern functions.
-  fn_vals := context.extern_functions.values();
-  (go_fns : bool) = true;
-  while(go_fns, {
+  for(&context.extern_functions, (_fid, fn_entry) => {
     match(
-      fn_vals.next(),
-      .Some(fn_entry) => {
-        match(
-          fn_entry.c_include.clone(),
-          .Some(inc) => context.add_c_include(&inc),
-          .None => ()
-        );
-      },
-      .None => {
-        go_fns = false;
-      }
+      fn_entry.c_include.clone(),
+      .Some(inc) => context.add_c_include(&inc),
+      .None => ()
     );
   });
 });

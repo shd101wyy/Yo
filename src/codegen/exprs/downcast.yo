@@ -104,30 +104,18 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     tkey := type_key(&target_type);
     dyn_tkey := type_key(&dyn_ei.ty);
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
-    it := context.base.dyn_impls.keys();
-    (scan_done : bool) = false;
-    while(!scan_done, {
-      match(
-        it.next(),
-        .Some(dk) => match(
-          context.base.dyn_impls.get(dk.clone()),
-          // The entry's concrete is resolved through the SomeType's resolution before
-          // keying — exactly like `generate_dyn_box_types` — so an entry whose
-          // concrete IS this target but was recorded as an unresolved SomeT
-          // still matches. Without that, the miss below would report "never
-          // dyn'd" for a type that is.
-          .Some(de) => if((type_key(&de.dyn_type) == dyn_tkey) && (type_key(resolve_some_type_to_concrete(&de.concrete_type)) == tkey), {
-            // A cell handle's data is its cell (`cell_handle_view`): the
-            // handle is a C-transparent newtype over the cell pointer.
-            box_opt = Option(TypeValue).Some(match(cell_handle_view(&de.data_type), .Some(v) => v.cell, .None => de.data_type));
-            scan_done = true;
-          }),
-          .None => ()
-        ),
-        .None => {
-          scan_done = true;
-        }
-      );
+    for(&context.base.dyn_impls, (_dk, de) => {
+      // The entry's concrete is resolved through the SomeType's resolution before
+      // keying — exactly like `generate_dyn_box_types` — so an entry whose
+      // concrete IS this target but was recorded as an unresolved SomeT
+      // still matches. Without that, the miss below would report "never
+      // dyn'd" for a type that is.
+      if((type_key(&de.dyn_type) == dyn_tkey) && (type_key(resolve_some_type_to_concrete(&de.concrete_type)) == tkey), {
+        // A cell handle's data is its cell (`cell_handle_view`): the
+        // handle is a C-transparent newtype over the cell pointer.
+        box_opt = Option(TypeValue).Some(match(cell_handle_view(&de.data_type), .Some(v) => v.cell, .None => de.data_type));
+        break;
+      });
     });
     match(
       box_opt,

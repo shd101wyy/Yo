@@ -508,20 +508,12 @@ AsyncBlockStructInfo :: ref(
 /// type-entry c_name if present, else `async_capture_<id>`.
 _find_capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> String)({
   target_key := type_key(capture_type);
-  vals := context.base.types.values();
-  (go : bool) = true;
   (found : Option(String)) = Option(String).None;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(entry) => if(type_key(&entry.ty) == target_key, {
-        found = Option(String).Some(entry.c_name.clone());
-        go = false;
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&context.base.types, (_tid, entry) => {
+    if(type_key(&entry.ty) == target_key, {
+      found = Option(String).Some(entry.c_name.clone());
+      break;
+    });
   });
   match(
     found,
@@ -1085,18 +1077,10 @@ _rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent 
 /// True if `capture_type` is registered in `context.types`.
 _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> bool)({
   target_key := type_key(capture_type);
-  vals := context.base.types.values();
-  (go : bool) = true;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(entry) => if(type_key(&entry.ty) == target_key, {
-        return(true);
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&context.base.types, (_tid, entry) => {
+    if(type_key(&entry.ty) == target_key, {
+      return(true);
+    });
   });
   false
 });
@@ -3544,19 +3528,11 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
 /// Pre-register every function body's async-block state-machine types before
 /// function declarations are generated, so prototypes see the right struct names.
 preregister_async_block_types :: (fn(context : &FunctionGenerationContext) -> unit)({
-  vals := context.base.functions.values();
-  (go : bool) = true;
-  while(go, {
+  for(&context.base.functions, (_fid, entry) => {
     match(
-      vals.next(),
-      .Some(entry) => match(
-        entry.value,
-        .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(&__fvd3.*.body, context),
-        _ => ()
-      ),
-      .None => {
-        go = false;
-      }
+      entry.value,
+      .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(&__fvd3.*.body, context),
+      _ => ()
     );
   });
 });
