@@ -1536,7 +1536,7 @@ _sai_param0_is_self :: (fn(method_ty : &TypeValue, self_ty : &TypeValue) -> bool
   match(
     method_ty,
     Rc(.Func({ param_types : pts })) => match(
-      pts.get(usize(0)),
+      slot_pointee_at(&pts, usize(0)),
       .Some(p0) => (are_types_compatible_exact(&p0, self_ty) || (type_key(&p0) == type_key(self_ty))),
       .None => false
     ),
@@ -1686,7 +1686,9 @@ _sai_try_candidate :: (
     match(
       pts.get(ai),
       .Some(pt_raw) => {
-        pt := _sai_normalize_binder_levels(&pt_raw, &c.binder_names, &c.binder_types);
+        // A parameter's type is its slot (`&T` is `Reference(T)`); the
+        // argument binds the pointee.
+        pt := _sai_normalize_binder_levels(&t_slot_pointee(&pt_raw), &c.binder_names, &c.binder_types);
         if(_sai_mentions_binder(&pt, &c.binder_names), {
           match(
             _sai_arg_type(args, ai, nodes, tys, env, ctx, exn),
