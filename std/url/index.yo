@@ -1072,11 +1072,11 @@ impl(
     // authority is validated by the one parser rather than a second copy.
     out := StringBuilder.new();
     match(
-      r.scheme,
+      &r.scheme,
       .Some(sch) => {
         out.write_string(`${sch}:`);
         match(
-          r.authority,
+          &r.authority,
           .Some(a) => {
             out.write_string(`//${a}`);
           },
@@ -1087,7 +1087,7 @@ impl(
       .None => {
         out.write_string(`${self._scheme}:`);
         match(
-          r.authority,
+          &r.authority,
           .Some(a) => {
             out.write_string(`//${a}`);
             out.write_string(_remove_dot_segments(&r.path));
@@ -1119,7 +1119,7 @@ impl(
     // from the base only for the one case §5.3 singles out: an empty
     // reference with no query of its own.
     eff_query := match(
-      r.query,
+      &r.query,
       .Some(q) => Option(String).Some(q.clone()),
       .None => cond(
         (r.scheme.is_none() && r.authority.is_none() && (r.path.len() == usize(0))) => self._query.clone(),
@@ -1136,7 +1136,7 @@ impl(
     // The fragment is ALWAYS the reference's — a base fragment never carries
     // over, which is why `join("")` drops it.
     match(
-      r.fragment,
+      &r.fragment,
       .Some(f) => {
         out.write_string(`#${f}`);
       },
@@ -1157,7 +1157,7 @@ impl(
     cond(
       self._host.is_none() => Option(ArrayList(String)).None,
       true => {
-        out := ArrayList(String).new();
+        mut(out) := ArrayList(String).new();
         body := cond(
           self._path.starts_with(`/`) => self._path.substring(usize(1), self._path.len()),
           true => self._path.clone()
@@ -1186,7 +1186,7 @@ impl(
   /// everything after the FIRST one (`?a=b=c` is `("a", "b=c")`).
   /// Order and duplicates are preserved: `?a=1&a=2` is two pairs.
   query_pairs : (fn(self : &Self) -> ArrayList(Tuple(String, String)))({
-    out := ArrayList(Tuple(String, String)).new();
+    mut(out) := ArrayList(Tuple(String, String)).new();
     q := match(&self._query, .Some(v) => v.clone(), .None => String.new());
     if(q.len() == usize(0), {
       return(out);

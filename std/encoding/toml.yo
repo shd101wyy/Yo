@@ -258,6 +258,7 @@ TomlValue :: enum(
   /// A TOML table, keys in insertion order.
   Table(keys : ArrayList(String), values : ArrayList(Self))
 );
+derive(TomlValue, Clone);
 impl(
   TomlValue,
   /// Create a new empty table.
@@ -277,7 +278,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(Option(TomlValue).Some(values(i)));
+              return(Option(TomlValue).Some(values(i).clone()));
             },
             true => ()
           );
@@ -307,7 +308,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              old := values(i);
+              old := values(i).clone();
               values(i) = value;
               return(Option(TomlValue).Some(old));
             },
