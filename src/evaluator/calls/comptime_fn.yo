@@ -267,8 +267,8 @@ _ctfe_args_equal :: (
         // traverse/drop machinery cross-corrupted the heap (the
         // recursive-enum Rc(Self)+ArrayList(Self) OOM/segv,
         // issues/repros/recursive-enum-box-plus-arraylist-self.yo).
-        a_enum_id := match(aty, Rc(.EnumT(ae_id, _, _, _, _, _, _, _, _, _)) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
-        b_enum_id := match(bty, Rc(.EnumT(be_id, _, _, _, _, _, _, _, _, _)) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        a_enum_id := match(&aty, Rc(.EnumT(ae_id, _, _, _, _, _, _, _, _, _)) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        b_enum_id := match(&bty, Rc(.EnumT(be_id, _, _, _, _, _, _, _, _, _)) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         cond(
           ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),
           ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),

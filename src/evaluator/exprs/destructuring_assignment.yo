@@ -706,13 +706,13 @@ evaluate_destructuring_assignment :: (
   is_struct_union_module := (is_struct_type(&rhs_type) || is_union_type(&rhs_type) || is_module_type(&rhs_type));
   if(is_struct_union_module && ast_expr_is_fn_call(lhs), {
     field_labels_opt := match(
-      rhs_type,
+      &rhs_type,
       Rc(.Struct({ field_labels : fl })) => Option(SharedList(String)).Some(Rc.clone(fl)),
       Rc(.Union(_, fl, _)) => Option(SharedList(String)).Some(Rc.clone(fl)),
       _ => Option(SharedList(String)).None
     );
     field_types_opt := match(
-      rhs_type,
+      &rhs_type,
       Rc(.Struct({ field_types : ft })) => Option(SharedList(TypeValue)).Some(Rc.clone(ft)),
       Rc(.Union(_, _, ft)) => Option(SharedList(TypeValue)).Some(Rc.clone(ft)),
       _ => Option(SharedList(TypeValue)).None
@@ -743,7 +743,7 @@ evaluate_destructuring_assignment :: (
   // -------------------------------------------------------------------
   if(is_tuple_type(&rhs_type) && ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
     field_labels := match(rhs_type, Rc(.Tuple(fl, _)) => Rc.clone(fl), _ => no_labels());
-    field_types := match(rhs_type, Rc(.Tuple(_, ft)) => Rc.clone(ft), _ => no_types());
+    field_types := match(&rhs_type, Rc(.Tuple(_, ft)) => Rc.clone(ft), _ => no_types());
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
     lhs_args := match(lhs, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
     return(
