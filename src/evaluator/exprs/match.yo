@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl } :: import("../utils.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies } :: import("./begin.yo");
@@ -564,6 +564,14 @@ _decide_match_mode :: (
     );
   });
   if(!type_requires_explicit_copy(&ty), {
+    // `yo fix --migrate rc-clone` (the rule suspended): a place the rule
+    // could not move gets the `&` its E0901 asks for.
+    if(migrate_rc_clone_on(), {
+      unmovable := if(is_atom, match(root, .Some(rv) => (rv.is_module_level || match_scrutinee_is_capture(&rv, env, ctx)), .None => false), _scrutinee_is_projection(&scr, env));
+      if(unmovable, {
+        migrate_rc_clone_borrow_scrutinee(&scr, &ty);
+      });
+    });
     return(MATCH_MODE_BORROW);
   });
   stok := ast_expr_token(&scr);
@@ -1297,6 +1305,24 @@ evaluate_match :: (
     if(consuming || mut_places, {
       arm_pat = Option(Pattern).Some(_augment_arm_pattern(&pat, &position_type, false, &own, &env, exn));
     });
+    // `yo fix --migrate rc-clone` suspends decision 17's rule, so this match
+    // borrows; under the rule a binding below a cell is a borrow whatever the
+    // mode, so a copy of one is judged as a copy of a borrow.
+    rc_cell_borrowed := ArrayList(String).new();
+    if(migrate_rc_clone_on() && !consuming && !mut_places, {
+      probe := _ArmOwnership(
+        unbound : ArrayList(BindInfo).new(),
+        keeps : ArrayList(BindInfo).new(),
+        borrowed : ArrayList(String).new(),
+        add_hidden : false,
+        bind_tys : pc.binds,
+        tok : ast_expr_token(&arm_expr),
+        counter : usize(0),
+        is_mut : false
+      );
+      _probe_pat := _augment_arm_pattern(&pat, &position_type, false, &probe, &env, exn);
+      rc_cell_borrowed = probe.borrowed;
+    });
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
     (bi : usize) = usize(0);
@@ -1359,7 +1385,7 @@ evaluate_match :: (
           });
           match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
           if(audit_pending_copies_enabled(), {
-            match(_added, .Some(added_var) => audit_note_match_binding(&added_var, &scr_info), .None => ());
+            match(_added, .Some(added_var) => audit_note_match_binding(&added_var, &scr_info, below_cell : _names_contain(&rc_cell_borrowed, b.name.clone())), .None => ());
           });
           match(
             imm_place,

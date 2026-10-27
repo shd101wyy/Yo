@@ -40,9 +40,8 @@ SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// field read through the node's `Rc` is a deep copy). Build one with
 /// `shared_list(xs)`; read it with `len`/`get`/`is_empty`, `xs(i)` and `for(xs, ...)`,
 /// or lend the list itself as `&xs.items`.
-/// `Clone` is declared per element type below and in `TypeValue`'s block: a
-/// generic `Clone` for `SharedList(T)` loses to the prelude's `Rc(T)` impl
-/// (issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md).
+/// Its `Clone` is the prelude's `Rc(T)` one, a second handle
+/// (plans/VALUES_BY_DEFAULT.md decision 17): `Rc.clone(xs)`.
 /// Not every list is shared: a `SomeT`'s four bound lists and a `TraitT`'s
 /// `assoc_type_names`, `field_labels`, `field_types`, `self_constraints` and
 /// `neg_self_constraints` are written in place after the node is built, and
@@ -214,19 +213,15 @@ impl(
     into_iter : (fn(self : Self) -> ArrayListIter(SharedList(String)))(self.*.items.into_iter())
   )
 );
-// A `SharedList` copy is one count bump (see `SharedList`). Each list is
-// built once and never written (no mutator reaches `items` through the
+// A `SharedList` copy is one count bump, `Rc.clone(xs)` (see `SharedList`;
+// the prelude's `Rc(T)` clone, plans/VALUES_BY_DEFAULT.md decision 17). Each
+// list is built once and never written (no mutator reaches `items` through the
 // read-only `Rc`, decision 46), so a cell points only at older values and
 // none reaches itself: `Acyclic` keeps the cells out of the cycle collector.
-impl(SharedList(String), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(String), Acyclic());
-impl(SharedList(bool), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(bool), Acyclic());
-impl(SharedList(usize), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(usize), Acyclic());
-impl(SharedList(i64), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(i64), Acyclic());
-impl(SharedList(SharedList(String)), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(SharedList(String)), Acyclic());
 /// Non-recursive ("meta") fields of a function type, factored out of the
 /// `TypeValue.Func` variant and stored behind an `Rc` (P2 memory: the inline
@@ -630,22 +625,13 @@ t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
   )
 );
 
-// `TypeValue.clone()` is one count bump: it returns the handle, sharing the
-// whole node. A `TypeValue` is rebuilt, never mutated (`substitute` and every
-// other consumer construct FRESH nodes; a codebase-wide audit found no
-// in-place write to a node's fields; the `ArrayList` lists named under
-// `SharedList` are pushed to in place, and that write is meant to reach
-// every holder), so sharing is sound, and the
-// self-compile calls this millions of times (ExprInfo / `Variable.ty`).
-// The prelude's `Rc(T)` clone (for a `T <: Clone`) would copy the payload
-// into a new cell; `TypeValueNode` does not implement `Clone`, so this impl
-// is the only one (plans/backlog/TYPEVALUE_HASH_CONSING.md §5).
-impl(
-  TypeValue,
-  Clone(
-    clone : (fn(self : &Self) -> Self)(self)
-  )
-);
+// A `TypeValue` copy is one count bump, the prelude's `Rc(T)` clone
+// (`Rc.clone(t)`, plans/VALUES_BY_DEFAULT.md decision 17), sharing the whole
+// node. A `TypeValue` is rebuilt, never mutated (`substitute` and every other
+// consumer construct FRESH nodes; a codebase-wide audit found no in-place
+// write to a node's fields; the `ArrayList` lists named under `SharedList`
+// are pushed to in place, and that write is meant to reach every holder), so
+// sharing is sound (plans/backlog/TYPEVALUE_HASH_CONSING.md §5).
 // SAFETY: a TypeValue is rebuilt, never mutated (the audit above): its
 // children are filled when it is built and never written afterwards, so a
 // node only points at nodes older than itself and none reaches itself;
@@ -656,9 +642,7 @@ impl(
 impl(TypeValue, Acyclic());
 // The type lists inside a node: a copy is one count bump, and they are
 // acyclic for the reason `TypeValue` is (see `SharedList`).
-impl(SharedList(TypeValue), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(TypeValue), Acyclic());
-impl(SharedList(SharedList(TypeValue)), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(SharedList(TypeValue)), Acyclic());
 // The empty lists, one shared cell each (`shared_list` of an empty list
 // returns these through `SharedListElem`).

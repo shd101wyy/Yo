@@ -1,0 +1,14 @@
+# `yo fix <path> --migrate rc-clone` (plans/VALUES_BY_DEFAULT.md decision 17,
+# V2c) spells every implicit copy of a counted handle whose source stays
+# alive: `Rc.clone(h)` / `Arc.clone(h)` for a handle (a local read again, a
+# `&Rc(T)` parameter or a field returned, a by-value argument), `.clone()` for
+# a `Clone` value holding one (`Node`, `Option(Rc(i32))`), `k : Rc.clone(k)`
+# for a capture list's shorthand entry, and a capture list for a closure that
+# captures a handle implicitly (not for one lent to `RefCell.with`, which
+# borrows its captures), and `&` before a `match` scrutinee that is a field
+# holding a handle (`match(&h.slot, ...)`). A last use (`moved := last`) is
+# a move and is left alone; `Bare` holds a handle and is not `Clone`, so its
+# copy is listed.
+# The expected_tree pins the rewritten main.yo.
+stdout_keep=^fix:
+timeout=240
