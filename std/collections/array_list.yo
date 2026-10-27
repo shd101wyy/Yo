@@ -1550,9 +1550,10 @@ _heapsort_by :: (
           );
           cond(
             less((ptr.add(root)).*, (ptr.add(largest)).*) => {
-              tmp := (ptr.add(root)).*;
-              (ptr.add(root)).* = (ptr.add(largest)).*;
-              (ptr.add(largest)).* = tmp;
+              // Bitwise moves: a move-only `T` swaps too.
+              tmp := __yo_ptr_read(ptr.add(root));
+              __yo_ptr_write(ptr.add(root), __yo_ptr_read(ptr.add(largest)));
+              __yo_ptr_write(ptr.add(largest), tmp);
               root = largest;
             },
             true => {
@@ -1567,9 +1568,9 @@ _heapsort_by :: (
   (mut(end) : usize) = n;
   while(end > usize(1), {
     end = (end - usize(1));
-    head := (ptr.add(usize(0))).*;
-    (ptr.add(usize(0))).* = (ptr.add(end)).*;
-    (ptr.add(end)).* = head;
+    head := __yo_ptr_read(ptr.add(usize(0)));
+    __yo_ptr_write(ptr.add(usize(0)), __yo_ptr_read(ptr.add(end)));
+    __yo_ptr_write(ptr.add(end), head);
     (mut(root) : usize) = usize(0);
     (mut(going) : bool) = true;
     while(going, {
@@ -1588,9 +1589,10 @@ _heapsort_by :: (
           );
           cond(
             less((ptr.add(root)).*, (ptr.add(largest)).*) => {
-              tmp := (ptr.add(root)).*;
-              (ptr.add(root)).* = (ptr.add(largest)).*;
-              (ptr.add(largest)).* = tmp;
+              // Bitwise moves: a move-only `T` swaps too.
+              tmp := __yo_ptr_read(ptr.add(root));
+              __yo_ptr_write(ptr.add(root), __yo_ptr_read(ptr.add(largest)));
+              __yo_ptr_write(ptr.add(largest), tmp);
               root = largest;
             },
             true => {
@@ -1696,9 +1698,10 @@ _stable_sort_by :: (
   while(i < n, {
     while(scratch(i) != i, {
       j := scratch(i);
-      tmp := unsafe((ptr.add(i)).*);
-      unsafe((ptr.add(i)).* = (ptr.add(j)).*);
-      unsafe((ptr.add(j)).* = tmp);
+      // Bitwise moves: a move-only `T` is permuted too.
+      tmp := unsafe(__yo_ptr_read(ptr.add(i)));
+      unsafe(__yo_ptr_write(ptr.add(i), __yo_ptr_read(ptr.add(j))));
+      unsafe(__yo_ptr_write(ptr.add(j), tmp));
       scratch(i) = scratch(j);
       scratch(j) = j;
     });
@@ -2046,29 +2049,34 @@ impl(
     );
   }),
   /// Keep only the elements `pred` accepts, in place and in order; the
-  /// rejected elements are dropped. One pass: the survivors are collected
-  /// into a fresh list, `clear` releases every original, `extend` moves the
-  /// survivors back — O(n) with a single allocation, and every RC step is one
-  /// of the module's proven public operations (push / clear / extend). The
-  /// first cut compacted through raw pointers and double-released RC elements
-  /// (the Linux-ASan heap-use-after-free on PR #313's first run; local ASan is
-  /// non-functional, so CI was the first to see it); the second walked
-  /// backwards over `drain`, which was O(n²) with an allocation per rejection
-  /// (issues/fixed/array-list-retain-is-quadratic.md).
+  /// rejected elements are dropped. One pass, O(n) with a single allocation:
+  /// every element is moved out of the buffer exactly once (bitwise, after the
+  /// list stops owning it), a survivor into a fresh list and a rejected one into
+  /// a local that drops, and `extend` moves the survivors back. A value list is
+  /// its elements' only owner (B8), so the move is exact for a move-only `T`;
+  /// the old copy-then-`clear` shape was a copy of every element
+  /// (issues/fixed/array-list-retain-is-quadratic.md has the earlier cuts).
   retain : (fn(self : &mut Self, pred : &Impl(Fn(v : &T) -> bool)) -> unit)({
     n := self._length;
     mut(kept) := Self.with_capacity(n);
-    (mut(i) : usize) = usize(0);
-    while(i < n, i = (i + usize(1)), {
-      v := self(i);
-      cond(
-        pred(&v) => {
-          kept.push(v);
-        },
-        true => ()
-      );
-    });
-    self.clear();
+    match(
+      self._ptr,
+      .Some(_ptr) => {
+        // The list gives the elements up before the first move.
+        self._length = usize(0);
+        (mut(i) : usize) = usize(0);
+        while(i < n, i = (i + usize(1)), {
+          v := __yo_ptr_read(_ptr.add(i));
+          cond(
+            pred(&v) => {
+              kept.push(v);
+            },
+            true => ()
+          );
+        });
+      },
+      .None => ()
+    );
     self.extend(kept);
   }),
   /// Append every element of `other`, consuming it — Rust's
@@ -2147,12 +2155,12 @@ impl(
     (mut(found) : Option(usize)) = Option(usize).None;
     while((lo < hi) && found.is_none(), {
       mid := (lo + ((hi - lo) / usize(2)));
-      cur := self(mid);
+      // Compared in place: a copy of the element would clone it.
       cond(
-        (cur < value) => {
+        (self(mid) < value) => {
           lo = (mid + usize(1));
         },
-        (value < cur) => {
+        (value < self(mid)) => {
           hi = mid;
         },
         true => {
