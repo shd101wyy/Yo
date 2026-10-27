@@ -603,7 +603,7 @@ impl(
   /// only read.
   compile : (fn(self : &Self, root : &RegexNode, n_groups : usize, group_names : &ArrayList(GroupNameEntry)) -> NfaProgram)({
     self._program.n_groups = n_groups;
-    self._program.group_names = group_names;
+    self._program.group_names = group_names.clone();
     self._emit(Instr.save_instr(usize(0)));
     self._compile_node(root);
     self._emit(Instr.save_instr(usize(1)));

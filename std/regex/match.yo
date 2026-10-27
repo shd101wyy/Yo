@@ -53,10 +53,10 @@ impl(
       _value : value,
       _index : index,
       _end : end,
-      _input : input,
+      _input : input.clone(),
       _groups : groups,
       _group_spans : group_spans,
-      _group_names : group_names
+      _group_names : group_names.clone()
     )
   ),
   /// The matched text itself — the same bytes as
@@ -139,7 +139,7 @@ impl(
   named_group : (fn(self : &Self, name : &String) -> Option(String))({
     mut(i) := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
-      entry := self._group_names(i);
+      entry :=( self._group_names(i)).clone();
       cond(
         (entry.name == name) => {
           return(self.group(entry.index));
