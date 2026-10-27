@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { closure_identity_of } :: import("../utils/closure.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
-{ find_methods_from_generic_impls, MethodCandidate } :: import("./impl.yo");
+{ find_methods_from_generic_impls, MethodCandidate, _substitute_self_in_method_ty } :: import("./impl.yo");
 { Exception } :: import("std/error");
 /// Build the ordered TraitVal evidence for a DynType over a concrete value
 /// type, resolving each trait method to the concrete type's registered impl
@@ -766,6 +766,22 @@ _monomorphize_default_fv :: (
       default_ft := get_func_type(default_fid.clone());
       self_args := ArrayList(ArgEntry).new();
       self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));
+      // Every parameter after `self` is a runtime argument of its declared
+      // type (`Self` read as the receiver): with only `self` supplied, a
+      // default such as `append_to : (fn(self : &Self, out : &mut String))`
+      // evaluated its body with `out` unbound, `Variable "out" not found`
+      // (issues/fixed/2026-10-27-a-dyn-of-a-type-variable-fails-on-a-trait-default-with-a-parameter.md).
+      sub_ft := _substitute_self_in_method_ty(&default_ft, value_type);
+      sub_pts := match(sub_ft, Rc(.Func({ param_types : sp })) => sp, _ => no_types());
+      (spi : usize) = usize(1);
+      while(spi < sub_pts.len(), {
+        match(
+          sub_pts.get(spi),
+          .Some(spt) => self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : spt.clone(), arg_type : spt.clone())),
+          .None => ()
+        );
+        spi = (spi + usize(1));
+      });
       spec_argvals := ArgValues(
         forall_args : ArrayList(ArgEntry).new(),
         args : self_args,
