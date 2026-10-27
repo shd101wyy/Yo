@@ -510,7 +510,7 @@ test("Copy: an implicit capture of a String is by value, so that closure moves t
 });
 test("Copy: where(T <: Copy) rejects a closure that owns a String", {
   s := String.from("hi");
-  (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  (c : Impl(Fn() -> usize)) = ({ s.clone() }() => s.len());
   comptime_expect_error(_ct_need_copy(type_of(c), c), "does not implement required trait Copy");
   assert(c() == usize(2), "the closure rejected by comptime_expect_error is still callable");
   (c2 : Impl(Fn() -> usize)) = ({ s }() => s.len());

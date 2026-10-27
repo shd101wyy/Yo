@@ -144,7 +144,7 @@ impl(
     total
   }),
   doubled_copy : (fn(self : &Self) -> ArrayList(i32))({
-    copy := self.items.clone();
+    mut(copy) := self.items.clone();
     mut(i) := usize(0);
     while(i < copy.len(), {
       copy(i) = (copy(i) * i32(2));
@@ -155,7 +155,7 @@ impl(
   })
 );
 test("borrowed for: user methods iterating the collection or mutating a fresh copy, through an alias, do not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(2));
   xs.push(i32(3));
   bag := Bag(items : xs, version : i32(0));
@@ -427,7 +427,7 @@ impl(
 // parameters instead of giving up on the call.
 keep_in_cell :: (fn(b : VBag) -> RefCell(VBag))(RefCell(VBag).new(b));
 test("borrowed for: read-only methods iterating a value field by value, through an alias, do not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   c := Counter(n : usize(3));
@@ -688,7 +688,7 @@ impl(
   )
 );
 test("a read-only user collection is a read-walk source", {
-  rb := ReadOnlyBag(items : ArrayList(i32).new());
+  mut(rb) := ReadOnlyBag(items : ArrayList(i32).new());
   rb.items.push(i32(4));
   rb.items.push(i32(5));
   (mut(total) : i32) = i32(0);

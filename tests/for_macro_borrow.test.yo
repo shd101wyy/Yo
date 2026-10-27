@@ -211,7 +211,7 @@ test("borrowed for over RC elements: no per-element dup, mutate through the refe
   mut(names) := ArrayList(String).new();
   names.push(String.from("x"));
   names.push(String.from("y"));
-  first := names(usize(0));
+  first := (names(usize(0))).clone();
   before := ref_count(first);
   for(&mut names, s => {
     s.push_str("!");
@@ -259,7 +259,7 @@ test("borrowed for: return from the body and unwind through the body release the
     });
     i32(-1)
   });
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(4));
   list.push(i32(5));
@@ -341,10 +341,10 @@ test("for(map, (k, inout(v)) => body): key read-only, value borrowed", {
   scores := HashMap(String, i32).new();
   scores.insert(String.from("a"), i32(1));
   scores.insert(String.from("b"), i32(2));
-  keys := ArrayList(String).new();
+  mut(keys) := ArrayList(String).new();
   for(&mut scores, (k, v) => {
     v = (v + i32(10));
-    keys.push(k);
+    keys.push(k.clone());
   });
   assert(scores.get(String.from("a")) == Option(i32).Some(i32(11)), "a bumped in place");
   assert(scores.get(String.from("b")) == Option(i32).Some(i32(12)), "b bumped in place");
