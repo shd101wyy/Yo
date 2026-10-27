@@ -833,11 +833,12 @@ test("Peeling survives multibyte literal text around the interpolation", {
       }
     )
   );
-  assert_str_eq(
-    _parse_ts("中${名前:>8}文", exn),
-    `((("中".to_string)().(+))((名前.format)(">8")).(+))(("文".to_string)())`,
-    "multibyte literal segments on both sides"
-  );
+  // A template of several parts lowers to one builder block (D10): the first
+  // part is rendered owned, every later part is appended to it.
+  got := _parse_ts("中${名前:>8}文", exn);
+  assert(got.contains(`("中".to_string)()`), `the first literal part is rendered owned: ${got}`);
+  assert(got.contains(`(名前.format)(">8").append_to)`), `the spec'd part appends its format() result: ${got}`);
+  assert(got.contains(`push_str)("文")`), `the last literal part is appended from its bytes: ${got}`);
 });
 test("Reject adjacent different operators without parentheses", {
   // The parse-time rejection of `1 + 2 * 3` had NO test at all: the header
