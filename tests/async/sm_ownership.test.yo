@@ -972,7 +972,7 @@ test("a fused await keeps a named local passed by value alive", {
 // implicitly, read a move flag the nested state machine never declared.
 test("a capture list and a nested implicit capture of the same name compile", {
   ms := Rc(u64)(u64(5));
-  outer := io.async({ ms }(io : Io) => {
+  outer := io.async({ ms : Rc.clone(ms) }(io : Io) => {
     inner := io.async((io : Io) => {
       io.await(sleep(ms.*), io);
       i32(1)

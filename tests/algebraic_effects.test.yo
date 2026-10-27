@@ -919,15 +919,13 @@ test("Test closure with using() effect - resume", {
     }
   );
   (closure : Impl(Fn(v : i32, msg : &String) -> i32)) =
-    (
-      (v, msg) => {
-        log(msg);
-        x.with_mut(cur => {
-          cur = (cur + v);
-        });
-        return(x.with(cur => cur));
-      }
-    );
+    ({ log, x : Rc.clone(x) }(v, msg) => {
+      log(msg);
+      x.with_mut(cur => {
+        cur = (cur + v);
+      });
+      return(x.with(cur => cur));
+    });
   result1 := closure(1, `hello`);
   assert(result1 == 1, "closure+effect resume: expected result1 to be 1");
   assert(x.with(cur => cur) == 1, "closure+effect resume: expected x to be 1");

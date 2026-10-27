@@ -61,7 +61,7 @@ test("AwaitPoint base fields accessible", {
     target_is_reassign : false
   );
   assert(ap.base.index == usize(3), "base index");
-  has_ftype := match(ap.future_type, .Some(_) => true, .None => false);
+  has_ftype := match(&ap.future_type, .Some(_) => true, .None => false);
   assert(!has_ftype, "no future_type");
 });
 test("AwaitPoint future_type can be set", {
@@ -72,7 +72,7 @@ test("AwaitPoint future_type can be set", {
     future_variable_id : Option(String).Some(String.from("fv0")),
     target_is_reassign : false
   );
-  has_ftype := match(ap.future_type, .Some(_) => true, .None => false);
+  has_ftype := match(&ap.future_type, .Some(_) => true, .None => false);
   assert(has_ftype, "has future_type");
   fvar := match(ap.future_variable_id, .Some(id) => id, .None => String.from(""));
   assert(fvar == "fv0", "future_variable_id");

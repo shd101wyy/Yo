@@ -15,7 +15,7 @@ test("the prelude rc(v) builds a cell with ref_count 1", {
   assert(b.* == i32(7), "the cell holds the value");
   assert(ref_count(b) == usize(1), "a fresh cell has one owner");
   {
-    b2 := b;
+    b2 := Rc.clone(b);
     {
       b3 := b2;
       assert(ref_count(b) == usize(2), "a copy in an inner scope shares the cell");
