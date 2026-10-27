@@ -3927,3 +3927,29 @@ test("Rc.try_unwrap succeeds with a Weak alive and leaves the Weak dangling", {
   consume(wc);
   assert(counts.live == usize(0), "the last Weak freed the cell");
 });
+// A generic method whose result builds `Rc(T)` over a recursive payload is
+// keyed as the payload's own `Rc`, not as a second C type
+// (issues/fixed/2026-10-27-a-generic-method-returning-rc-of-its-parameter-over-a-recursive-struct-gets-a-second-c-type.md).
+_RcHolder :: (fn(comptime(V) : Type) -> comptime(Type))(
+  struct(_h : Option(Rc(V)))
+);
+impl(
+  generic(T : Type),
+  _RcHolder(T),
+  get : (fn(self : &Self) -> Option(Rc(T)))(
+    match(self._h, .Some(h) => .Some(h), .None => .None)
+  )
+);
+_RcRecNode :: struct(next : Option(Rc(RefCell(Self))), tag : i32);
+test("a generic method returning Rc of its parameter over a recursive struct", {
+  a := rc(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(7))));
+  h := _RcHolder(RefCell(_RcRecNode))(_h : .Some(a));
+  t := match(h.get(), .Some(p) => p.with(v => v.tag), .None => i32(0));
+  assert(t == i32(7), "the returned handle reads the payload");
+});
+test("Weak.upgrade over a recursive payload reads the cell", {
+  a := rc(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(9))));
+  w := Rc.downgrade(&a);
+  t := match(w.upgrade(), .Some(p) => p.with(v => v.tag), .None => i32(0));
+  assert(t == i32(9), "the upgraded handle reads the payload");
+});
