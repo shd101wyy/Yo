@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
+{ debug_knob } :: import("../utils.yo");
 { t_dyn, enum_phantom_positions } :: import("./creators.yo");
 { resolve_cell_chain, get_all_some_types } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
@@ -716,6 +717,9 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           // `type_arguments` (e.g. `[K, V]`) becomes the concrete `[String, V]`
           // after substitution — keeping them aligned with the substituted fields.
           new_tyargs := _subst_list(&s_nom, &tyargs);
+          if(name.starts_with("Rc(") && debug_knob(`YO_DEBUG_CELL_STAMP`).is_some(), {
+            eprintln(`[cell-subst] ${name} id=${id}`);
+          });
           // Preserve constructor_func_id across substitution so the
           // type-constructor identity travels with specialized instantiations.
           rc(TypeValueNode.Struct(id.clone(), name.clone(), labels, new_types, is_ref, is_atomic, is_nt, cfid.clone(), new_tyargs, is_sns))

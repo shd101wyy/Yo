@@ -1346,6 +1346,24 @@ evaluate_comptime_fn_call :: (
     nm.push_str(")");
     nm
   });
+  if((ctfe_box_name.len() > usize(0)) && debug_knob(`YO_DEBUG_CELL_STAMP`).is_some(), {
+    (kinds : String) = String.new();
+    (dki : usize) = usize(0);
+    while(dki < all_arg_vals.len(), {
+      match(
+        all_arg_vals.get(dki),
+        .Some(.TypeVal(dkt)) => match(
+          dkt,
+          Rc(.SomeT({ resolution : dkr })) => kinds.push_str(if(dkr.is_some(), "SomeT+res ", "SomeT ")),
+          Rc(.Struct({ id : dkid, name : dkn })) => kinds.push_string(`Struct(${dkid},${dkn}) `),
+          _ => kinds.push_str("other ")
+        ),
+        _ => kinds.push_str("nontype ")
+      );
+      dki = (dki + usize(1));
+    });
+    eprintln(`[cell-stamp] ${ctfe_box_name} args=${kinds} def_trial=${in_def_time_trial().to_string()}`);
+  });
   // Every OTHER constructor's result gets a DISPLAY name — `ArrayList(i32)`,
   // `Option(String)`, `HashMap(K, V)` — in the renderer's side table
   // (types/string.yo), never in the type's `name` (nominal identity, see the

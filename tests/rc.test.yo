@@ -3870,7 +3870,7 @@ test("an upgrade from the payload's own Drop is .None, and the payload's Weak fr
 });
 // The weak count lives in the header bits a `ref` object's borrow marks use
 // (§3.2), so nothing may mark an `Rc` cell: not a borrowed `for` over it, not
-// an interior argument into it, not a function's entry check on an `Rc`
+// an interior argument into its payload, not a function's entry check on an `Rc`
 // parameter (a second `downgrade` ran one, and saw the first `Weak` as a
 // live borrow).
 _weak_read :: (fn(x : &i32) -> i32)(x);
@@ -3891,8 +3891,8 @@ test("no borrow mark reaches an Rc cell's weak count", {
     assert(w.weak_count() == usize(2), "a borrowed for over the Rc marks nothing");
   });
   assert(sum == i32(3), "the loop read the payload");
-  assert(_weak_read(&xs(usize(1))) == i32(2), "an interior argument through the Rc");
-  assert(w2.weak_count() == usize(2), "and marks nothing either");
+  assert(_weak_read(&xs.*(usize(1))) == i32(2), "an interior argument into the payload");
+  assert(w2.weak_count() == usize(2), "marks the payload's list, not the cell");
   consume(xs);
   assert(w.upgrade().is_none(), "the last Rc is gone");
 });

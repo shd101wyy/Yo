@@ -63,6 +63,7 @@ pragma(Pragma.AllowUnsafe);
   is_future_trait_type,
   can_optimize_as_nullable_pointer,
   unique_box_payload_type,
+  is_weak_handle_type,
   is_prelude_allocator_struct
 }
 :: import("./guards.yo");
@@ -1897,6 +1898,10 @@ _type_refs_back_to_cyclic :: (
           match(unique_box_payload_type(&ty), .Some(payload) => recur(&payload, original_id, &v2), .None => false)
         }
       ),
+      // A `Weak` is not an edge (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+      // §3.4): its `?*V` field is the cell's address, not a buffer the value
+      // owns, so a cycle closed through it is no cycle.
+      is_weak_handle_type(&ty) => false,
       // Value-type struct (struct / newtype): stored inline but may hold RC
       // references that close a cycle. Keep the same root.
       true => {

@@ -9953,10 +9953,13 @@ extern(
 /// assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 /// ```
 Weak :: (fn(comptime(V) : Type) -> comptime(Type))(
-  // The cell's address, `.None` for `Weak.new()`. A raw pointer to no
-  // particular type, so neither the collector's walk nor the `Acyclic`
-  // derivation follows it: a weak edge is not an edge (§3.4).
-  newtype(_cell : ?*void)
+  // The cell's address, `.None` for `Weak.new()`. It points at the cell's
+  // header, not at a `V`, and is never dereferenced here; it is typed by the
+  // payload so that a `Weak(RefCell(Self))` field's `Self` is fixed up with
+  // its declaration. A weak edge is not an edge: the cycle walk does not
+  // follow it (`is_weak_handle_type`, §3.4), and neither does the
+  // collector's.
+  newtype(_cell : ?*V)
 );
 impl(
   generic(T : Type),
@@ -9966,8 +9969,8 @@ impl(
   /// same name stays reachable as `h.downgrade()`.
   downgrade : (fn(self : &Self) -> Weak(T))({
     // SAFETY: an `Rc` handle is the address of its live cell.
-    cell := unsafe(unsafe.cast(self, *void));
-    __yo_rc_weak_retain(cell);
+    cell := unsafe(unsafe.cast(self, *T));
+    __yo_rc_weak_retain((*void)(cell));
     Weak(T)(.Some(cell))
   })
 );
@@ -9984,7 +9987,7 @@ impl(
       .Some(cell) => cond(
         // SAFETY: the upgrade raised the strong count for the handle built
         // here, which owns that count (`__yo_rc_own`: no second one).
-        __yo_rc_weak_upgrade(cell) => .Some(__yo_rc_own(unsafe(unsafe.cast(&cell, Rc(T))))),
+        __yo_rc_weak_upgrade((*void)(cell)) => .Some(__yo_rc_own(unsafe(unsafe.cast(&cell, Rc(T))))),
         true => .None
       ),
       .None => .None
@@ -9993,13 +9996,13 @@ impl(
   /// The number of `Rc` handles to the cell: 0 once the payload is gone,
   /// and for `Weak.new()`.
   strong_count : (fn(self : &Self) -> usize)(
-    match(self._cell, .Some(cell) => __yo_rc_weak_strong_count(cell), .None => usize(0))
+    match(self._cell, .Some(cell) => __yo_rc_weak_strong_count((*void)(cell)), .None => usize(0))
   ),
   /// The number of `Weak` handles to the cell, this one included: 0 once the
   /// payload is gone (as Rust's), and for `Weak.new()`; `usize.MAX` when the
   /// count saturated.
   weak_count : (fn(self : &Self) -> usize)(
-    match(self._cell, .Some(cell) => __yo_rc_weak_weak_count(cell), .None => usize(0))
+    match(self._cell, .Some(cell) => __yo_rc_weak_weak_count((*void)(cell)), .None => usize(0))
   ),
   /// Whether `self` and `other` name the same cell (two `Weak.new()` do).
   ptr_eq : (fn(self : &Self, other : &Self) -> bool)(
@@ -10016,7 +10019,7 @@ impl(
   Weak(T),
   Clone(
     clone : (fn(self : &Self) -> Self)({
-      match(self._cell, .Some(cell) => __yo_rc_weak_retain(cell), .None => ());
+      match(self._cell, .Some(cell) => __yo_rc_weak_retain((*void)(cell)), .None => ());
       Weak(T)(self._cell)
     })
   )
@@ -10037,7 +10040,7 @@ impl(
     /// was the last handle. A zeroed `Weak` (a task slot never stored) names
     /// no cell, and dropping it is a no-op, as for `Box`.
     drop : (fn(self : &mut Self) -> unit)(
-      match(self._cell, .Some(cell) => __yo_rc_weak_release(cell), .None => ())
+      match(self._cell, .Some(cell) => __yo_rc_weak_release((*void)(cell)), .None => ())
     )
   )
 );
