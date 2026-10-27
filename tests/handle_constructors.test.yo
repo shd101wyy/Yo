@@ -116,8 +116,19 @@ test("dyn(Rc.new(<closure>)) contextually types the closure, as dyn(rc(<closure>
   base := i32(10);
   a := _Detector(detect : dyn(Rc.new(x => (x + base))));
   b := _Detector(detect : dyn(rc(x => (x * base))));
-  c := _Detector(detect : dyn(Rc(Impl(Fn(x : i32) -> i32)).new(x => (x - base))));
   assert(a.detect(i32(1)) == i32(11), "Rc.new: the closure's x is an i32");
   assert(b.detect(i32(2)) == i32(20), "rc: unchanged");
-  assert(c.detect(i32(15)) == i32(5), "Rc(T).new: typed by T");
+});
+// A payload over an open type parameter (`f : Impl(Fn(...))`) is boxed by the
+// prelude's `rc`, bound to the callee: `Rc(Impl(Fn(...))).new` does not
+// dispatch outside a definition-time trial
+// (issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
+_box_fn :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(f));
+_box_fn_under_rc :: (fn(rc : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(rc));
+test("dyn(f) of an Impl(Fn) parameter boxes, also under a parameter named rc", {
+  n := i32(5);
+  d := _box_fn(x => (x + n));
+  assert(d(i32(1)) == i32(6), "the boxed parameter");
+  e := _box_fn_under_rc(x => (x * n));
+  assert(e(i32(2)) == i32(10), "a parameter named rc does not capture the cell constructor");
 });

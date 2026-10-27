@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated
 } :: import("../../expr_info.yo");
-{ Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
+{ Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, shared_cell_type_name_of_constructor, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
-{ resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
+{ resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, type_somes_all_resolve_concrete, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -122,10 +122,12 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
 /// cell's type constructor name, and for the unapplied `Rc.new` the receiver
 /// node, which is preset to the cell type.
 DynCellConstructor :: struct(type_name : String, unapplied_receiver : Option(usize));
-/// The cell `callee` constructs: `Rc.new`, `Rc(T).new`, or the prelude's
-/// `rc` (until static-argument inference Generation B deletes it); `.None`
-/// for any other callee. `Rc` is matched by name, through
-/// `is_shared_cell_type_name`, and `new` is the method name.
+/// The cell `callee` constructs: `Rc.new`, or the prelude's `rc` (until
+/// static-argument inference Generation B deletes it); `.None` for any other
+/// callee. `Rc` is matched by name, through `is_shared_cell_type_name`, and
+/// `new` is the method name. An applied `Rc(T).new` is not recognized: a
+/// closure's type cannot be written as `T` (`Rc(Impl(Fn(...)))` has no
+/// `new`), so its written type stands.
 _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor))(
   match(
     callee,
@@ -139,10 +141,6 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
         dot_args.get(usize(0)),
         .Some(.Atom(r_id, r_tok)) => cond(
           is_shared_cell_type_name(&r_tok.value) => .Some(DynCellConstructor(type_name : r_tok.value.clone(), unapplied_receiver : .Some(r_id))),
-          true => .None
-        ),
-        .Some(.FnCall(_, .Atom(_, h_tok), _, _, _)) => cond(
-          is_shared_cell_type_name(&h_tok.value) => .Some(DynCellConstructor(type_name : h_tok.value.clone(), unapplied_receiver : .None)),
           true => .None
         ),
         _ => .None
@@ -161,37 +159,83 @@ _mark_preset_receiver :: (fn(recv : &Option(usize), on : bool) -> unit)(
     .None => ()
   )
 );
-/// The call `C.new(value)` that boxes a `dyn(...)` payload, where `C` is the
-/// cell type already computed (`Rc(T)`, or `Arc(T)` for a Send Dyn) and
-/// `value` the payload node (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5,
-/// A3). The receiver is a fresh node whose ExprInfo is `.TypeVal(C)` before
-/// the call is evaluated: the call is the written `Rc(T).new(value)`, and no
-/// name is looked up, so a user binding named `rc` cannot capture it. The
-/// caller marks the receiver pre-evaluated around the evaluation (`.1`), as it
-/// does the payload.
-_synthesized_cell_new_call :: (fn(cell_ty : &TypeValue, cell_name : &String, value : AstExpr, at : &Token, env : &Environment, ctx : &EvalContext) -> Tuple(AstExpr, usize))({
-  recv_id := alloc_global_expr_id();
-  recv := AstExpr.Atom(recv_id, synthetic_token(cell_name.clone(), &env.module_path.*));
-  recv_info := new_expr_info(env, t_type());
-  recv_info.value = Option(EvalValue).Some(create_type_value(cell_ty));
-  expr_info_table_set(&ctx.expr_info_table, recv_id, &recv_info);
-  dot_tok := Token(
-    kind : TokenKind.Operator,
-    value : intern_token_str(String.from(BF_DOT)),
-    row : at.row,
-    column : at.column,
-    character : at.character,
-    byte_offset : at.byte_offset,
-    module_path : at.module_path,
-    input : at.input
-  );
-  dot_args := ArrayList(AstExpr).new();
-  dot_args.push(recv);
-  dot_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("new"), &env.module_path.*)));
-  callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), dot_args, true, dot_tok);
+/// The call that boxes a `dyn(...)` payload `value` of type `payload_ty` in
+/// the cell type `cell_ty` (`Rc(T)`, or `Arc(T)` for a Send Dyn; `cell_name`
+/// names its constructor), with the node ids the caller marks pre-evaluated
+/// around its evaluation (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A3).
+///
+/// It is `Rc(T).new(value)`: the receiver is a fresh node whose ExprInfo is
+/// `.TypeVal(cell_ty)` before the call is evaluated, the written
+/// `Rc(T).new(value)`. A payload over an OPEN type parameter (`dyn(f)` for
+/// `f : Impl(Fn(...))` in a body checked at its definition) has no `new` to
+/// dispatch: an impl does not match an instantiation over an unresolved
+/// type parameter outside a definition-time trial
+/// (issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
+/// That payload is boxed by the prelude's generic constructor (`rc`, `arc`)
+/// as before, its function value bound to the callee node, so no name is
+/// looked up either way and a binding named `rc` cannot capture the call.
+_synthesized_cell_call :: (
+  fn(cell_ty : &TypeValue, cell_name : &String, payload_ty : &TypeValue, value : AstExpr, at : &Token, env : &Environment, ctx : &EvalContext) -> Tuple(AstExpr, usize)
+)({
   call_args := ArrayList(AstExpr).new();
   call_args.push(value);
-  (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), recv_id)
+  open_payload := ((is_some_type(payload_ty) || (get_all_some_types(payload_ty).len() > usize(0))) && !type_somes_all_resolve_concrete(payload_ty));
+  ctor_fv := cond(
+    open_payload => _prelude_cell_constructor(cell_name, env),
+    true => Option(Variable).None
+  );
+  match(
+    ctor_fv,
+    .Some(ctor) => {
+      callee_id := alloc_global_expr_id();
+      callee_info := new_expr_info(env, &ctor.ty);
+      callee_info.value = ctor.value.get(usize(0));
+      expr_info_table_set(&ctx.expr_info_table, callee_id, &callee_info);
+      callee := AstExpr.Atom(callee_id, synthetic_token(ctor.name.clone(), &env.module_path.*));
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), callee_id)
+    },
+    .None => {
+      recv_id := alloc_global_expr_id();
+      recv := AstExpr.Atom(recv_id, synthetic_token(cell_name.clone(), &env.module_path.*));
+      recv_info := new_expr_info(env, t_type());
+      recv_info.value = Option(EvalValue).Some(create_type_value(cell_ty));
+      expr_info_table_set(&ctx.expr_info_table, recv_id, &recv_info);
+      dot_tok := Token(
+        kind : TokenKind.Operator,
+        value : intern_token_str(String.from(BF_DOT)),
+        row : at.row,
+        column : at.column,
+        character : at.character,
+        byte_offset : at.byte_offset,
+        module_path : at.module_path,
+        input : at.input
+      );
+      dot_args := ArrayList(AstExpr).new();
+      dot_args.push(recv);
+      dot_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("new"), &env.module_path.*)));
+      callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), dot_args, true, dot_tok);
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), recv_id)
+    }
+  )
+});
+/// The prelude's generic constructor of the cell `cell_name` (`Rc` → `rc`,
+/// `Arc` → `arc`): the OUTERMOST function value of that name, the prelude's,
+/// which a module-level definition cannot shadow (a parameter or a pattern
+/// binding is inner).
+_prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Option(Variable))({
+  ctor_name := cond((cell_name == "Arc") => String.from("arc"), true => String.from(shared_cell_canonical_names().constructor));
+  vars := get_variables_from_env(env, &ctor_name);
+  (vi : usize) = usize(0);
+  while(vi < vars.len(), vi = (vi + usize(1)), {
+    match(
+      vars.get(vi),
+      .Some(v) => if(match(v.value.get(usize(0)), .Some(val) => is_func_val(&val), .None => false), {
+        return(Option(Variable).Some(v));
+      }),
+      .None => ()
+    );
+  });
+  .None
 });
 /// Does a `dyn(...)` build a `Dyn(..., Send)` or a `Dyn(..., Sync)`? From the
 /// expected Dyn type, or from the value's own `Impl(..., Send)` wrapper when
@@ -1129,8 +1173,8 @@ evaluate_dyn_value :: (
       Rc(.DynT(_, _, _, _)) => {
         w_ty := match(t_dyn_payload_wrapper(&et.ty, env.frames.len()), .Some(w) => w, .None => et.ty);
         (exp_ty : TypeValue) = w_ty;
-        // dyn(Rc.new(<closure>)) special case — `Rc.new`, `Rc(T).new` or the
-        // generation-A spelling `rc` (types/guards.yo `shared_cell_names_at`):
+        // dyn(Rc.new(<closure>)) special case — `Rc.new` or the generation-A
+        // spelling `rc` (types/guards.yo `shared_cell_names_at`):
         // pass `Rc(Impl-SomeT)` as the cell call's expected type so the
         // closure argument is contextually typed from the wrapper's Fn trait
         // (concrete param types). Without it the closure is created through
@@ -1141,8 +1185,8 @@ evaluate_dyn_value :: (
         // from a closure or the expected type
         // (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2 steps 3 and 5), so
         // its receiver is that cell type, `.TypeVal(Rc(W))`, before the call
-        // is evaluated (§5 A3). (`Rc(T)(...)` ctor calls are not recognized;
-        // the constructor call covers the dyn-closure pattern.)
+        // is evaluated (§5 A3). (`Rc(T)(...)` and `Rc(T).new(...)` are not
+        // recognized; the constructor call covers the dyn-closure pattern.)
         dyn_cell_closure := match(
           value_arg,
           .FnCall(_, dbc_fn, dbc_args, _, _) => cond(
@@ -1322,7 +1366,7 @@ evaluate_dyn_value :: (
       match(
         _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          (ne_box_call, ne_box_recv) := _synthesized_cell_new_call(&box_ty, if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), inner_ne, &expr_tok, env, ctx);
+          (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, inner_ne, &expr_tok, env, ctx);
           saved_bet := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env));
           // The inner value is evaluated once: as the box call's argument it
@@ -1421,7 +1465,7 @@ evaluate_dyn_value :: (
     boxed_info_opt := match(
       _create_box_type_via(&box_cell_name, &value_type, &cur_env, ctx, exn),
       .Some(box_cell_ty) => {
-        (box_call, box_recv) := _synthesized_cell_new_call(&box_cell_ty, &box_cell_name, eval_inner, &expr_tok, &cur_env, ctx);
+        (box_call, box_recv) := _synthesized_cell_call(&box_cell_ty, &box_cell_name, &value_type, eval_inner, &expr_tok, &cur_env, ctx);
         mark_node_preevaluated(ast_expr_id(&eval_inner));
         mark_node_preevaluated(box_recv);
         boxed_expr := evaluate_expression_raw(&box_call, &cur_env, ctx, exn);
