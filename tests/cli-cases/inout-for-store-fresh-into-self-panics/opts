@@ -1,3 +1,6 @@
+# Since B8 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.5) an `ArrayList` is a
+# value: `self.items = fresh` moves the list, so the later `fresh.push` is a
+# static E0901 instead of the runtime panic described below.
 # Since decision 39 (plans/VALUES_BY_DEFAULT.md) the loop body cannot name the
 # iterated collection (E0911), so the call goes through a second handle, which
 # the static rule cannot see and the runtime borrow flag guards.
@@ -8,5 +11,5 @@
 # counts. `rebuild` builds a fresh list, stores it into `self.items`, then
 # pushes into it: the method must carry the entry assert and panic under a
 # live borrow. `build run` propagates the panic as rc≠0.
-stdout_keep_match=panic: container operation while an interior reference.*
+stdout_keep_match=error\[E0901\]: use of moved value.*
 timeout=300
