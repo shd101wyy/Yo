@@ -4765,19 +4765,19 @@ IndexElem :: ref(struct(name : String, n : usize));
 /// net -1 per element per pass. TWO passes are required: the elements start at
 /// refcount 2, so a single pass only masks the imbalance.
 _index_elems_twice :: (fn(items : &ArrayList(IndexElem), io : Io) -> Impl(Future(usize, Io)))({
-  __probe_items := items.clone();
+  items_owned := items.clone();
   io.async((io : Io) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < __probe_items.len(), {
-      it := __probe_items(i);
+    while(i < items_owned.len(), {
+      it := items_owned(i);
       total = (total + it.n);
       io.await(yield(io), io);
       i = (i + usize(1));
     });
     (mut(j) : usize) = usize(0);
-    while(j < __probe_items.len(), {
-      it2 := __probe_items(j);
+    while(j < items_owned.len(), {
+      it2 := items_owned(j);
       total = (total + it2.n);
       io.await(yield(io), io);
       j = (j + usize(1));
@@ -5670,20 +5670,20 @@ _nested_resolve :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   })
 );
 _nested_append :: (fn(line : &String, io : Io) -> Impl(Future(bool, IoExn)))({
-  __probe_line := line.clone();
+  line_owned := line.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    __probe_line.len() > usize(0)
+    line_owned.len() > usize(0)
   })
 });
 /// Shape A — the reproducer: a value-producing inner match whose `.None` arm
 /// awaits (tail await) and whose `.Some` arm is synchronous, followed by
 /// statements that use the bound value and an outer pattern binding.
 _nested_shape_a :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_parsed := parsed.clone();
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     out := match(
-      &__probe_parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
@@ -5709,10 +5709,10 @@ _nested_shape_a :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, 
 /// bound to a local, then an `if` whose body awaits; a sibling arm binds the
 /// same local name from its own await.
 _nested_shape_b :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_parsed := parsed.clone();
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     out := match(
-      &__probe_parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
@@ -5743,10 +5743,10 @@ _nested_shape_b :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, 
 });
 /// Shape C — two nesting levels: match → match → cond with an awaiting arm.
 _nested_shape_c :: (fn(parsed : &_NestedParsed, deep : bool, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_parsed := parsed.clone();
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     out := match(
-      &__probe_parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
@@ -5792,11 +5792,11 @@ _nested_two_awaits :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
 /// Shape E — an awaiting `if` STATEMENT after a bound await, then the arm's
 /// tail value (the `yo install` `.Git` arm with `if(added, { … await fetch … })`).
 _nested_if_statement :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_parsed := parsed.clone();
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     (mut(log) : String) = String.new();
     out := match(
-      &__probe_parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
@@ -5958,21 +5958,21 @@ _sibling_second_awaits :: (fn(k : &_SibKind, io : Io) -> Impl(Future(String, IoE
 /// (issues/fixed/nested-while-loops-in-an-async-body-redefine-c-labels.md).
 _NwArtifact :: ref(struct(name : String, mods : ArrayList(String)));
 _nw_resolve :: (fn(m : &String, io : Io) -> Impl(Future(Option(String), IoExn)))({
-  __probe_m := m.clone();
+  m_owned := m.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    if(__probe_m.len() > usize(1), Option(String).Some(__probe_m.clone()), Option(String).None)
+    if(m_owned.len() > usize(1), Option(String).Some(m_owned.clone()), Option(String).None)
   })
 });
 _nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_arts := arts.clone();
+  arts_owned := arts.clone();
   io.async((e : IoExn) => {
     (mut(log) : String) = String.new();
     pre := e.io.await(_nw_resolve(String.from("pre"), e.io), e);
     match(pre, .Some(p) => log.push_string(`${p};`), .None => ());
     (mut(ai) : usize) = usize(0);
-    while(ai < __probe_arts.len(), {
-      artifact := __probe_arts(ai);
+    while(ai < arts_owned.len(), {
+      artifact := arts_owned(ai);
       head := e.io.await(_nw_resolve(artifact.name.clone(), e.io), e);
       match(head, .Some(h) => log.push_string(`head-${h};`), .None => ());
       (mut(i) : usize) = usize(0);
@@ -6112,10 +6112,10 @@ test("nested cond arms mixing a named and an anonymous future await through thei
 // (issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
 _MmParsed :: enum(Git(name : String, url : String), Path(name : String, rel : String));
 _mm_probe :: (fn(what : &String, io : Io) -> Impl(Future(bool, IoExn)))({
-  __probe_what := what.clone();
+  what_owned := what.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    __probe_what.len() > usize(1)
+    what_owned.len() > usize(1)
   })
 });
 _mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
@@ -6126,12 +6126,12 @@ _mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
   })
 });
 _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_spec := spec.clone();
+  spec_owned := spec.clone();
   io.async((e : IoExn) => {
     parsed := match(
-      __probe_spec.starts_with("./"),
-      true => _MmParsed.Path(String.from("mylib"), __probe_spec.clone()),
-      false => _MmParsed.Git(String.from("repo"), __probe_spec.clone())
+      spec_owned.starts_with("./"),
+      true => _MmParsed.Path(String.from("mylib"), spec_owned.clone()),
+      false => _MmParsed.Git(String.from("repo"), spec_owned.clone())
     );
     (mut(name) : String) = String.new();
     (mut(url) : String) = String.new();
@@ -6173,12 +6173,12 @@ _mm_tags_of :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
   })
 });
 _match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_srcs := srcs.clone();
+  srcs_owned := srcs.clone();
   io.async((e : IoExn) => {
     mut(out) := String.new();
     (mut(i) : usize) = usize(0);
-    while(i < __probe_srcs.len(), {
-      src := __probe_srcs(i).clone();
+    while(i < srcs_owned.len(), {
+      src := srcs_owned(i).clone();
       i = (i + usize(1));
       requirement := match(&src, .Git(_, t) => t.clone(), .Path(p) => p.clone());
       url := match(src, .Git(u, _) => u, .Path(_) => String.from("local"));
@@ -6413,10 +6413,10 @@ _cap_sm_opt :: (fn(o : &Option(_CapHandle), io : Io) -> Impl(Future(i32, IoExn))
 );
 // state-machine body, a String captured and read after an await (a value-shaped capture)
 _cap_sm_str :: (fn(s : &String, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_s := s.clone();
+  s_owned := s.clone();
   io.async((e : IoExn) => {
     k := e.io.await(_cap_tick(e.io), e);
-    `${__probe_s}:${k.to_string()}`
+    `${s_owned}:${k.to_string()}`
   })
 });
 test("an io.async closure releases its captured values when the future dies", {
@@ -6462,12 +6462,12 @@ _nb_size :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async((e : IoExn) => n)
 );
 _nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
-  __probe_sizes := sizes.clone();
+  sizes_owned := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < __probe_sizes.len(), {
-      n := __probe_sizes(i);
+    while(i < sizes_owned.len(), {
+      n := sizes_owned(i);
       i = (i + usize(1));
       if(n == usize(0), {
         total = (total + usize(1000));
@@ -6482,12 +6482,12 @@ _nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize,
   })
 });
 _nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
-  __probe_sizes := sizes.clone();
+  sizes_owned := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < __probe_sizes.len(), {
-      n := __probe_sizes(i);
+    while(i < sizes_owned.len(), {
+      n := sizes_owned(i);
       i = (i + usize(1));
       if(n == usize(0), {
         total = (total + usize(1000));
@@ -6500,12 +6500,12 @@ _nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, I
   })
 });
 _nb_match_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
-  __probe_sizes := sizes.clone();
+  sizes_owned := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < __probe_sizes.len(), {
-      n := __probe_sizes(i);
+    while(i < sizes_owned.len(), {
+      n := sizes_owned(i);
       i = (i + usize(1));
       kind := if(n == usize(0), Option(usize).None, Option(usize).Some(n));
       match(
