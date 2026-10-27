@@ -636,7 +636,7 @@ read_http_message_buffered :: (
     // Seed from what the previous message left behind — those bytes are
     // already this message's, and there may be enough of them that no read is
     // needed at all.
-    result := carry.with_mut(c => {
+    mut(result) := carry.with_mut(c => {
       seeded := c.clone();
       c.clear();
       seeded
@@ -741,14 +741,14 @@ read_http_message_buffered :: (
             // Bytes after the terminating chunk belong to the next message.
             // `_split_message` is not usable here: the value handed on is the
             // DECODED rewrite, not a prefix of `result`.
-            rest := ArrayList(u8).new();
+            mut(rest) := ArrayList(u8).new();
             mut(k) := end;
             while(k < result.len(), {
               rest.push(result(k));
               k = (k + usize(1));
             });
             _carry_set(carry, &rest);
-            decoded := ArrayList(u8).with_capacity(body_start + data.len());
+            mut(decoded) := ArrayList(u8).with_capacity(body_start + data.len());
             mut(j) := usize(0);
             while(j < body_start, {
               decoded.push(result(j));
