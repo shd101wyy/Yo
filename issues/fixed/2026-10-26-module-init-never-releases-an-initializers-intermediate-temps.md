@@ -31,8 +31,8 @@ Minimal reproducer (`tmp/fixme.yo`, tree binary, `--sanitize address --allocator
 ```yo
 { String } :: import("std/string");
 _len_of :: (fn(s : &String) -> usize)(s.len());
-(g_check : usize) = _len_of(`hello world`);   // the lent literal is the leak
-(g_text : String) = String.from("stored");    // the moved result is NOT a leak
+(g_check : usize) = _len_of(`hello world`); // the lent literal is the leak
+(g_text : String) = String.from("stored"); // the moved result is NOT a leak
 ```
 
 ASan at exit: `Direct leak of 32 byte(s) … hello world` + its 11-byte buffer
