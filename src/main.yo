@@ -9188,7 +9188,10 @@ _exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
   (xj : usize) = usize(0);
   while(xj < argc, {
     match(
-      exec_cstrs.get_cloned(xj),
+      // The leaked C-string storage must outlive execve: read the argument
+      // in place (a get_cloned clone is a temporary whose buffer the argv
+      // pointers would dangle into — `issues/2026-10-27-cloned-accessors-migration-clones-a-list-whose-pointer-must-outlive-the-call.md`).
+      exec_cstrs.get(xj),
       .Some(cs) => match(
         cs.ptr(),
         .Some(p) => {
