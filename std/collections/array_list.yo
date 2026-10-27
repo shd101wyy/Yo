@@ -45,14 +45,19 @@ derive(ArrayListError, Copy, Clone);
 /// Generic growable array similar to Rust's `Vec<T>`.
 /// Heap-allocated with automatic resizing and reference-counted cleanup.
 ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _ptr : ?*T,
-      _length : usize,
-      _capacity : usize
-    )
+  struct(
+    _ptr : ?*T,
+    _length : usize,
+    _capacity : usize
   )
 );
+// SAFETY: a value `ArrayList(T)` is the only owner of its buffer (B8,
+// plans/VALUES_BY_DEFAULT.md): moving the list moves every element with it,
+// and no other handle reaches the buffer, so it is `Send`/`Sync` exactly when
+// `T` is. The raw `_ptr` field derives neither (decision 38 E), as `Box`'s
+// `_cell` does not (std/prelude.yo).
+impl(generic(T : Type), where(T <: Send), ArrayList(T), Send());
+impl(generic(T : Type), where(T <: Sync), ArrayList(T), Sync());
 impl(
   generic(T : Type),
   ArrayList(T),
