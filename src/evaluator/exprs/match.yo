@@ -1594,7 +1594,19 @@ evaluate_match :: (
           });
           match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
           if(audit_pending_copies_enabled(), {
-            match(_added, .Some(added_var) => audit_note_match_binding(&added_var, &scr_info, below_cell : _names_contain(&rc_cell_borrowed, b.name.clone())), .None => ());
+            // `yo fix --migrate rc-clone`: a binding of a `&`/`&mut`
+            // scrutinee borrows whatever the scrutinee is (a call's
+            // temporary too, `match(&f(), .Some(x) => …)`), so a copy of it
+            // is a copy of a borrow, never a move.
+            match(
+              _added,
+              .Some(added_var) => audit_note_match_binding(
+                &added_var,
+                &scr_info,
+                below_cell : (_names_contain(&rc_cell_borrowed, b.name.clone()) || (migrate_rc_clone_on() && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0))))
+              ),
+              .None => ()
+            );
           });
           // `yo fix --migrate rc-clone`: with the rule suspended this match
           // borrows (its scrutinee's type holds a counted handle), but the
