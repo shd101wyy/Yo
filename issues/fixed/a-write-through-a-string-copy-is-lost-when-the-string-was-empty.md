@@ -2,7 +2,9 @@
 
 **Severity:** S1: silently wrong result. Whether a write through a copy of a `String` reaches the original depends on whether the original happened to be empty, and nothing reports the lost write.
 
-**Status: OPEN. Closed by V2b's flip (`plans/VALUES_BY_DEFAULT.md`, "Unique buffers", Generation B), not by an earlier step.** Re-triaged 2026-10-14 on seed v0.2.62. Three shapes still split silently:
+**Status: FIXED by B8 (`vbd/b8-arraylist-string-flip`), the flip this doc names.** `ArrayList` is a value with a destructor and `String` is `newtype(_bytes : ArrayList(u8))`, so `String` is move-only: each of the three shapes below either moves the string or is E0901 naming `s.clone()`, and a clone is the only copy. Test: `tests/string/string.test.yo`, "a write through a String copy: every shape moves or is E0901 (B8)" (its three `comptime_expect_error` cases raise nothing on develop). The history below is kept as it was.
+
+**Former status: OPEN. Closed by V2b's flip (`plans/VALUES_BY_DEFAULT.md`, "Unique buffers", Generation B), not by an earlier step.** Re-triaged 2026-10-14 on seed v0.2.62. Three shapes still split silently:
 
 - a local copy (`ta := a; ta.push_str("!")`);
 - a by-value parameter (`append_copy(a)` below). It was E0908 under `plans/STRING_VALUE_SEMANTICS.md` S1, but V3b's flip (#1296) made a plain parameter an owned copy rather than a borrowed binding, so the rule no longer covers it;

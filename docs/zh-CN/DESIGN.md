@@ -2661,14 +2661,13 @@ s3 := (s + s2); // 创建一个新字符串。
 看到，反之亦然，无论原值是否为空。每个修改方法都接受 `self : &mut Self` 并就地写入，空
 `String` 在第一次写入之前不分配任何内存。
 
-普通的复制（`t := s`、结构体的复制、从集合中读出的值）目前仍只复制句柄。非空的缓冲区
-是共享的，所以通过副本的写入会通过原值看到；空字符串还没有缓冲区，副本的第一次写入会
-为自己分配一个，原值永远看不到这次写入。
-
-**已知缺陷（S1，`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`）。**
-这种分歧是该问题尚未修复的一半。`plans/VALUES_BY_DEFAULT.md` 的 V2b 让 `String`
-成为唯一所有的值，从而修复它：`t := s` 变为移动；如果之后还使用 `s`，则报错并提示
-`s.clone()`。在此之前，不要通过普通副本写入。
+`String` 唯一地拥有自己的字节（`newtype(_bytes : ArrayList(u8))`，而 `ArrayList`
+是值类型）。因此普通的复制就是移动：`t := s`、用 `s` 构造结构体、按值传递 `s`，都会把
+字符串交出去，之后再使用 `s` 是 E0901，其帮助信息会给出 `s.clone()`。从集合中读出的值
+要么就地借用，要么克隆（`xs.get_cloned(i)`）。没有任何缓冲区是共享的，所以写入不会经由
+另一个名字影响到字符串
+（`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`，
+由此修复）。
 
 写入落在被写的位置上：
 

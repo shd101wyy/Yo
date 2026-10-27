@@ -542,7 +542,7 @@ impl(
               out.push(__yo_ptr_read(_ptr.add(r.start + ci)));
             });
             // Shift the tail left over the gap — a bitwise move as well.
-            elements_after := ((self._length - r.start) - count);
+            elements_after := (self._length - r.start - count);
             if(elements_after > usize(0), {
               // SAFETY: both ranges lie inside the list's buffer:
               // `elements_after = self._length - (r.start + count)` elements
@@ -1015,15 +1015,15 @@ impl(
   )
 );
 // === Iterator support ===
-/// Value iterator over an ArrayList — yields each element BY VALUE, which
-/// dups a refcounted `T`. This is what `into_iter()` (and therefore
-/// `for(list, ...)`) returns; `iter()` yields pointers instead (D14).
+/// Value iterator over an ArrayList — yields each element BY VALUE. This is
+/// what `into_iter()` (and therefore `for(list, ...)`) returns; `iter()`
+/// yields pointers instead (D14).
 ///
-/// It OWNS the list: `into_iter` takes it by value (B7b). Until `ArrayList`
-/// is a value type that is a shared handle, so the elements are still copied
-/// out rather than moved (lookahead D21), and `_length` is re-read on every
-/// `next`: a `push` through another handle during a forward walk extends the
-/// walk. Double-ended: `next_back` takes from the far end.
+/// It OWNS the list: `into_iter` takes it by value (B7b), and each element
+/// MOVES out of its slot bitwise (lookahead D21), so a move-only `T` works and
+/// nothing is copied. Dropping the iterator drops the elements it has not
+/// yielded and then frees the buffer. Double-ended: `next_back` takes from
+/// the far end.
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _list : ArrayList(T),
@@ -1044,7 +1044,8 @@ impl(
       cond(
         ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
-          value := self._list.get(self._index);
+          // Moved out: the slot is behind `_index` now, which `Drop` skips.
+          value := match(self._list._ptr, .Some(p) => Option(T).Some(__yo_ptr_read(p.add(self._index))), .None => Option(T).None);
           self._index = (self._index + usize(1));
           value
         }
@@ -1062,10 +1063,33 @@ impl(
         ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
           self._back_taken = (self._back_taken + usize(1));
-          self._list.get(self._list._length - self._back_taken)
+          match(self._list._ptr, .Some(p) => Option(T).Some(__yo_ptr_read(p.add(self._list._length - self._back_taken))), .None => Option(T).None)
         }
       )
     )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListIter(T),
+  Drop(
+    /// Drops the elements not yet yielded (`_index` up to the ones
+    /// `next_back` took), then empties the list so its own `Drop` frees only
+    /// the buffer: every other slot was moved out.
+    drop : (fn(self : &mut Self) -> unit)({
+      match(
+        self._list._ptr,
+        .Some(p) => {
+          end := (self._list._length - self._back_taken);
+          (mut(i) : usize) = self._index;
+          while(i < end, i = (i + usize(1)), {
+            unsafe(drop_in_place(p.add(i)));
+          });
+        },
+        .None => ()
+      );
+      self._list._length = usize(0);
+    })
   )
 );
 impl(

@@ -996,7 +996,7 @@ impl(
 );
 test("a method call on a move-only element borrows it: no copy is disposed", {
   before := g_mo_disposed;
-  xs := ArrayList(_MoFd).new();
+  mut(xs) := ArrayList(_MoFd).new();
   xs.push(_MoFd(n : i32(4)));
   xs.push(_MoFd(n : i32(5)));
   assert(xs(usize(0))._mo_note() == i32(4), "the first element");
@@ -1196,7 +1196,7 @@ test("Drop: a destructor that takes a field out runs once on every drop path", {
   };
   assert((g_md_calls == (c0 + i32(5))) && (g_md_inner == (i0 + i32(5))), "Dyn object: once");
   {
-    xs := ArrayList(_MdOuter).new();
+    mut(xs) := ArrayList(_MdOuter).new();
     xs.push(_md_make(i32(6)));
     xs.push(_md_make(i32(7)));
     assert(xs.len() == usize(2), "ArrayList elements: live");
@@ -1269,7 +1269,7 @@ test("Drop: a type has one destructor", {
   comptime_expect_error(impl(generic(T : Type), _MoDropPair(T), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
   before := g_mo_dropped;
   {
-    xs := ArrayList(_MoDropFd).new();
+    mut(xs) := ArrayList(_MoDropFd).new();
     xs.push(_MoDropFd(n : i32(20)));
     xs.push(_MoDropFd(n : i32(30)));
     assert(xs.len() == usize(2), "live");
@@ -1314,7 +1314,7 @@ test("Drop: a trait named Dispose is an ordinary trait", {
 test("ArrayList pop/swap/remove/reverse move a move-only element", {
   before := g_mo_disposed;
   sum_before := g_mo_sum;
-  xs := ArrayList(_MoFd).new();
+  mut(xs) := ArrayList(_MoFd).new();
   xs.push(_MoFd(n : i32(1)));
   xs.push(_MoFd(n : i32(2)));
   xs.push(_MoFd(n : i32(3)));
@@ -1453,7 +1453,7 @@ _mo_arm_break_before_move :: (fn(k : i32) -> i32)({
 });
 // A `for` body.
 _mo_for_break_before_move :: (fn(k : i32) -> i32)({
-  ns := ArrayList(i32).new();
+  mut(ns) := ArrayList(i32).new();
   ns.push(i32(1));
   ns.push(i32(2));
   ns.push(i32(3));
@@ -1608,7 +1608,7 @@ _mo_break_between_move_and_reassign :: (fn(k : i32) -> i32)({
   total
 });
 _mo_continue_between_move_and_reassign :: (fn(k : i32) -> i32)({
-  ns := ArrayList(i32).new();
+  mut(ns) := ArrayList(i32).new();
   ns.push(i32(1));
   ns.push(i32(2));
   ns.push(i32(3));
@@ -1962,7 +1962,7 @@ _mo_mb_enum :: (fn() -> i32)({
   total
 });
 _mo_mb_for :: (fn(k : i32) -> i32)({
-  ns := ArrayList(i32).new();
+  mut(ns) := ArrayList(i32).new();
   ns.push(i32(1));
   ns.push(i32(2));
   ns.push(i32(3));
