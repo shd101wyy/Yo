@@ -832,10 +832,11 @@ test("Peeling survives multibyte literal text around the interpolation", {
       }
     )
   );
-  // A template of several parts lowers to one builder block (D10): the first
-  // part is rendered owned, every later part is appended to it.
+  // A template of several parts lowers to one builder block (D10): an empty
+  // string, then every part appended to it in order.
   got := _parse_ts("中${名前:>8}文", exn);
-  assert(got.contains(`("中".to_string)()`), `the first literal part is rendered owned: ${got}`);
+  assert(got.contains(`("".to_string)()`), `the builder starts empty: ${got}`);
+  assert(got.contains(`push_str)("中")`), `the first literal part is appended from its bytes: ${got}`);
   assert(got.contains(`(名前.format)(">8").append_to)`), `the spec'd part appends its format() result: ${got}`);
   assert(got.contains(`push_str)("文")`), `the last literal part is appended from its bytes: ${got}`);
 });
