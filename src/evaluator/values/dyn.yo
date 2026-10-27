@@ -8,7 +8,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT, BK_BORROW_MUT } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -876,6 +876,52 @@ _generic_impl_method_for_dyn :: (
         callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), &caller_env.module_path.*));
         call_args := ArrayList(AstExpr).new();
         call_args.push(recv_atom);
+        // Every parameter after the receiver gets a synthetic runtime
+        // variable of its declared type (`Self` read as the receiver), lent
+        // the way the parameter takes it: a method such as ToString's
+        // `append_to(self : &Self, out : &mut String)` was called with the
+        // receiver alone, `Argument count mismatch: expected 2 arguments, got 1`
+        // (issues/fixed/2026-10-27-a-dyn-of-a-type-variable-fails-on-a-trait-default-with-a-parameter.md).
+        m_ty := _substitute_self_in_method_ty(&pc.method_type, receiver_type);
+        m_pts := match(m_ty, Rc(.Func({ param_types : mp })) => mp, _ => no_types());
+        m_is_ref := match(&m_ty, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&m_ty), _ => no_flags());
+        (mpi : usize) = usize(1);
+        while(mpi < m_pts.len(), {
+          match(
+            slot_pointee_at(&m_pts, mpi),
+            .Some(mpt) => {
+              arg_name := `__yo_dyn_arg_${fname}_${mpi.to_string()}`;
+              arg_tok := synthetic_token(arg_name.clone(), &caller_env.module_path.*);
+              _arg_var := add_variable_to_env(caller_env, arg_name.clone(), mpt.clone(), Option(EvalValue).Some(create_unknown_val(mpt.clone())), false, true, false, false, arg_tok.clone());
+              arg_atom := AstExpr.Atom(alloc_global_expr_id(), arg_tok.clone());
+              mp_is_ref := match(m_is_ref.get(mpi), .Some(b) => b, .None => false);
+              mp_is_owning := match(match(&m_ty, Rc(.Func({ result : _ })) => fn_param_by_value_at(&m_ty, mpi), _ => Option(bool).None), .Some(b) => b, .None => false);
+              cond(
+                (mp_is_ref || !mp_is_owning) => {
+                  sigil_val := cond(mp_is_ref => String.from(BK_BORROW_MUT), true => String.from("&"));
+                  sigil_tok := Token(
+                    kind : TokenKind.Operator,
+                    value : intern_token_str(&sigil_val),
+                    row : arg_tok.row,
+                    column : arg_tok.column,
+                    character : arg_tok.character,
+                    byte_offset : arg_tok.byte_offset,
+                    module_path : Rc.clone(arg_tok.module_path),
+                    input : Rc.clone(arg_tok.input)
+                  );
+                  lent_args := ArrayList(AstExpr).new();
+                  lent_args.push(arg_atom);
+                  call_args.push(AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), sigil_tok.clone()), Rc.new(lent_args), false, sigil_tok));
+                },
+                true => {
+                  call_args.push(arg_atom);
+                }
+              );
+            },
+            .None => ()
+          );
+          mpi = (mpi + usize(1));
+        });
         call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok);
         ctx.pending_method_self_type = Option(TypeValue).Some(receiver_type.clone());
         // The synthetic call has no expected result: the surrounding
