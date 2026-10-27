@@ -501,50 +501,34 @@ _enclosing_closure_capture_read :: (fn(key : ExprId, name : &String, env : &Envi
 /// call-site lookup misses. The capture struct comes from the
 /// get_closure_capture_info side-table (keyed by func_id).
 register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext) -> unit)({
-  it := context.base.functions.keys();
-  (go : bool) = true;
-  while(go, {
-    match(
-      it.next(),
-      .Some(fid) => {
-        if(is_closure_fn(fid.clone()), {
-          match(
-            get_closure_capture_info(fid.clone()),
-            .Some(cci) => {
-              key := match(
-                resolve_some_type_to_concrete(&cci.capture_type),
-                Rc(.Struct({ id : sid })) => sid,
-                Rc(.SomeT({ id : sid })) => sid,
-                _ => String.from("")
-              );
-              if(key.len() > usize(0), {
-                match(
-                  context.base.functions.get(fid.clone()),
-                  .Some(entry) => {
-                    cg_base := context.base;
-                    cg_base.impl_closure_call_map.insert(
-                      key,
-                      ImplClosureCallInfo(
-                        function_c_name : entry.c_name.clone(),
-                        call_type_id : String.from(""),
-                        call_type : Option(TypeValue).None,
-                        consumed_captures : Option(ArrayList(String)).None,
-                        closure_fid : fid.clone()
-                      )
-                    );
-                  },
-                  .None => ()
-                );
-              });
-            },
-            .None => ()
+  for(&context.base.functions, (fid, entry) => {
+    if(is_closure_fn(fid.clone()), {
+      match(
+        get_closure_capture_info(fid.clone()),
+        .Some(cci) => {
+          key := match(
+            resolve_some_type_to_concrete(&cci.capture_type),
+            Rc(.Struct({ id : sid })) => sid,
+            Rc(.SomeT({ id : sid })) => sid,
+            _ => String.from("")
           );
-        });
-      },
-      .None => {
-        go = false;
-      }
-    );
+          if(key.len() > usize(0), {
+            cg_base := context.base;
+            cg_base.impl_closure_call_map.insert(
+              key,
+              ImplClosureCallInfo(
+                function_c_name : entry.c_name.clone(),
+                call_type_id : String.from(""),
+                call_type : Option(TypeValue).None,
+                consumed_captures : Option(ArrayList(String)).None,
+                closure_fid : fid.clone()
+              )
+            );
+          });
+        },
+        .None => ()
+      );
+    });
   });
 });
 export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, generate_yo_capture_field, register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code, closure_capture_counter_reset);
