@@ -91,9 +91,8 @@ impl(
           .Err(e) => .Err(e),
           .Ok(ast) => {
             n_groups := parser.group_count();
-            gnames := parser.group_names();
             compiler := NfaCompiler.new();
-            program := compiler.compile(&ast, n_groups, &gnames);
+            program := compiler.compile(&ast, n_groups, parser.group_names());
             // Literal prefix scan is case-sensitive; disable when ignoreCase
             cond(
               flags.ignore_case => {

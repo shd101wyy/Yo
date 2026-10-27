@@ -94,7 +94,7 @@ _ascii_lower :: (fn(b : u8) -> u8)(
 //     `Content-Length:5` is as legal as `Content-Length:  5`;
 //   - trailing OWS is stripped too.
 _header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String) -> ArrayList(String))({
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   key := &name;
   klen := key.len();
   mut(line_start) := usize(0);
@@ -141,7 +141,7 @@ _header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String)
             while((value_end > value_start) && _is_ows(data(value_end - usize(1))), {
               value_end = (value_end - usize(1));
             });
-            value_bytes := ArrayList(u8).new();
+            mut(value_bytes) := ArrayList(u8).new();
             mut(j) := value_start;
             while(j < value_end, {
               value_bytes.push(data(j));
@@ -303,7 +303,7 @@ _hex_digit :: (fn(b : u8) -> i32)(
 /// `Dechunk.Incomplete` instead of an error. A chunk size past 0x0FFFFFFF is
 /// rejected as `.Malformed` rather than wrapped.
 dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   n := body.len();
   mut(i) := body_start;
   while(true, {
@@ -409,17 +409,18 @@ dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
 _release_message :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
 _split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &mut ArrayList(u8)) -> String)({
   carry.clear();
-  if(limit < data.len(), {
+  mut(msg) := data;
+  if(limit < msg.len(), {
     mut(i) := limit;
-    while(i < data.len(), {
-      carry.push(data(i));
+    while(i < msg.len(), {
+      carry.push(msg(i));
       i = (i + usize(1));
     });
-    // The list is ours (`own`): cut it to the message and hand it to the
+    // The list is ours (`sink`): cut it to the message and hand it to the
     // String, with no copy of the kept prefix.
-    data.truncate(limit);
+    msg.truncate(limit);
   });
-  String.from_bytes(data)
+  String.from_bytes(msg)
 });
 /// Replace the leftover bytes `carry` holds with `rest`.
 _carry_set :: (fn(carry : &Rc(RefCell(ArrayList(u8))), rest : &ArrayList(u8)) -> unit)(
@@ -430,7 +431,7 @@ _carry_set :: (fn(carry : &Rc(RefCell(ArrayList(u8))), rest : &ArrayList(u8)) ->
 );
 /// `_split_message` into a connection's shared leftover buffer.
 _split_into_carry :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &Rc(RefCell(ArrayList(u8)))) -> String)({
-  rest := ArrayList(u8).new();
+  mut(rest) := ArrayList(u8).new();
   message := _split_message(data, limit, &mut rest);
   _carry_set(carry, &rest);
   message
