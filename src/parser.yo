@@ -124,7 +124,7 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
       true => match(
         hf,
         .Atom(_, ht) => cond(
-          ((ht.value == BK_FN) || (ht.value == BK_UNSAFE_FN) || (ht.value == BK_CTL) || (ht.value == BK_FN_TRAIT) || (ht.value == BK_FN_ONCE_TRAIT)) => ht.value,
+          ((ht.value == BK_FN) || (ht.value == BK_UNSAFE_FN) || (ht.value == BK_CTL) || (ht.value == BK_FN_TRAIT) || (ht.value == BK_FN_ONCE_TRAIT)) => ht.value.clone(),
           true => String.new()
         ),
         .FnCall(_, _, _, _, _) => String.new()
@@ -303,7 +303,7 @@ impl(
       next_expr_id : usize(0)
     )
   }),
-  get_tokens : (fn(self : &Self) -> ArrayList(Token))(self.tokens),
+  get_tokens : (fn(self : &Self) -> ArrayList(Token))(self.tokens.clone()),
   alloc_id : (fn(self : &mut Self) -> ExprId)({
     id := alloc_global_expr_id();
     self.next_expr_id = (self.next_expr_id + usize(1));
@@ -2115,7 +2115,7 @@ impl(
   /// (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
   get_expression_program : (fn(self : &mut Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
-    self.program
+    self.program.clone()
   }),
   get_program : (fn(self : &mut Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
@@ -2167,7 +2167,7 @@ impl(
       });
       return(result);
     });
-    self.program
+    self.program.clone()
   })
 );
 /// Parse Yo source code and return the top-level expression list.

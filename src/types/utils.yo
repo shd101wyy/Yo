@@ -482,6 +482,7 @@ CaptureBorrow :: struct(
   /// `module:row:col` of the entry, for diagnostics.
   site : String
 );
+derive(CaptureBorrow, Clone);
 /// Record the borrow entries of the capture struct `struct_id`. A `mut` entry
 /// makes the struct move-only, so the move-only fast path is armed.
 register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(CaptureBorrow)) -> unit)({
@@ -495,7 +496,7 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
     });
     i = (i + usize(1));
   });
-  g_capture_borrows.with_mut(m => m.insert(struct_id.clone(), borrows));
+  g_capture_borrows.with_mut(m => m.insert(struct_id.clone(), borrows.clone()));
 });
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
@@ -1850,7 +1851,7 @@ _type_refs_back_to_cyclic :: (
         _id_already_visited(visited, &sid) => true,
         true => {
           v2 := visited.clone();
-          v2.push(sid);
+          v2.push(sid.clone());
           (found : bool) = false;
           (i : usize) = usize(0);
           while((i < sfields.len()) && !found, {
@@ -1951,7 +1952,7 @@ _type_refs_back_to_cyclic :: (
       _id_already_visited(visited, &eid) => false,
       true => {
         v2 := visited.clone();
-        v2.push(eid);
+        v2.push(eid.clone());
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {
@@ -2265,7 +2266,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(st_id.len() > usize(0), {
-        visited_ids.push(st_id);
+        visited_ids.push(st_id.clone());
       });
       (i : usize) = usize(0);
       while(i < ftys.len(), {
@@ -2279,7 +2280,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(en_id.len() > usize(0), {
-        visited_ids.push(en_id);
+        visited_ids.push(en_id.clone());
       });
       (vi : usize) = usize(0);
       while(vi < vfs.len(), {
@@ -2466,7 +2467,7 @@ enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -
           if(field_somes.is_none(), {
             field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
           });
-          ta_id := match(ta, Rc(.SomeT({ id : x })) => x, _ => String.from(""));
+          ta_id := match(ta, Rc(.SomeT({ id : x })) => x.clone(), _ => String.from(""));
           fs := field_somes.unwrap();
           (in_field : bool) = false;
           (j : usize) = usize(0);
