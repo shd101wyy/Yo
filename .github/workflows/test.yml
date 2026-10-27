@@ -1653,6 +1653,9 @@ jobs:
               -lws2_32 -lbcrypt -ladvapi32 -lsecur32 -lcrypt32 \
               -o yo-suite.exe
             ./yo-suite.exe --version
+            # The same allocator proof release.yml runs on the shipped bundles
+            # (this arm is mimalloc-flavored; the ratchet job covers system).
+            bash scripts/assert-binary-allocator.sh yo-suite.exe mimalloc
           else
             # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
             # and symbols into the macOS cross C; the runner's brew openssl@3
@@ -2224,12 +2227,26 @@ jobs:
         run: bash scripts/bootstrap/memory_ratchet.sh /tmp/stage2/yo-stage2-bin
 
       - name: "Work ratchet: rebuild the stage-2 C on the C library's malloc"
+        # Not skipped by a red RSS step above: the allocator proof below needs it.
+        if: ${{ !cancelled() }}
         run: |
           # The stage-2 C is mimalloc-flavored, and a missing <mimalloc.h> is an
           # #error: the stand-in header maps the mi_* calls onto malloc/free.
           time nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 -I scripts/bootstrap/libc_mimalloc /tmp/stage2/yo-stage2.c $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-libc
           cc -O2 -shared -fPIC -o /tmp/alloc_count.so scripts/bootstrap/alloc_count.c
           nm -D --undefined-only /tmp/yo-stage2-libc | grep -E ' (malloc|calloc|realloc|free|aligned_alloc)(@|$)'
+
+      # The release's Windows bundles are SYSTEM-allocator builds; every suite
+      # leg builds mimalloc. This is the one place a battery builds both arms
+      # of one compiler, so it is where release.yml's allocator proof
+      # (scripts/assert-binary-allocator.sh) is shown to tell them apart.
+      # Before it, a compiler string containing "mimalloc: " (#1600) failed
+      # only the release (v0.2.71's run 40462960329).
+      - name: "Allocator proof: the release assertion tells the two arms apart"
+        if: ${{ !cancelled() }}
+        run: |
+          bash scripts/assert-binary-allocator.sh /tmp/stage2/yo-stage2-bin mimalloc
+          bash scripts/assert-binary-allocator.sh /tmp/yo-stage2-libc system
 
       - name: Measure the allocation count of `check src/main.yo` against the ratchet
         run: REPEAT=2 bash scripts/bootstrap/eval_work_ratchet.sh /tmp/yo-stage2-libc /tmp/alloc_count.so
