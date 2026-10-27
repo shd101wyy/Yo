@@ -17,6 +17,33 @@ label_of :: (fn(n : &Node) -> Rc(i32))(n.label);
 total :: (fn(h : Rc(i32), k : i32) -> i32)(h.* + k);
 Holder :: struct(slot : Option(Rc(i32)));
 peek :: (fn(h : &Holder) -> i32)(match(h.slot, .Some(r) => r.*, .None => i32(0)));
+mut(g_last) := Option(Rc(i32)).Some(rc(i32(10)));
+last_of :: (fn() -> i32)(match(g_last, .Some(h) => total(h, i32(0)), .None => i32(0)));
+walk :: (fn(start : Rc(i32)) -> Rc(i32))({
+  mut(cur) := start;
+  mut(out) := rc(i32(0));
+  mut(done) := false;
+  while(!done, {
+    if(cur.* > i32(2), {
+      out = cur;
+      done = true;
+    }, {
+      cur = rc(cur.* + i32(1));
+    });
+  });
+  out
+});
+refresh :: (fn(o : Option(Rc(i32))) -> bool)({
+  mut(x) := o;
+  match(
+    x,
+    .Some(h) => {
+      x = Option(Rc(i32)).Some(h);
+    },
+    .None => ()
+  );
+  x.is_some()
+});
 main :: (fn() -> unit)({
   a := rc(i32(1));
   b := a;
@@ -40,6 +67,10 @@ main :: (fn() -> unit)({
   w := RefCell(i32).new(i32(7));
   u := w.with(c => (c + total(a, i32(0))));
   p := peek(&Holder(slot : .Some(rc(i32(8)))));
-  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p}`);
+  cell := rc(i32(9));
+  pair := Node(label : cell, weight : i32(0));
+  v := w.with(c => (c + cell.*));
+  q := ((last_of() + walk(rc(i32(1))).*) + if(refresh(.Some(rc(i32(11)))), i32(1), i32(0)));
+  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p} ${pair.weight} ${v} ${q}`);
 });
 export(main);
