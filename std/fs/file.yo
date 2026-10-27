@@ -468,13 +468,14 @@ read_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   read(Path.from_cstr(path), io)
 );
 /// Write a `String` to a file, creating or truncating it.
-write_string :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))(
+write_string :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  __probe_data := data.clone();
   io.async(e => {
     file := e.io.await(File.open(path, .Write, io), e);
-    e.io.await(file.write_string(data, io), e);
+    e.io.await(file.write_string(&__probe_data, io), e);
     e.io.await(file.close(io), e);
   })
-);
+});
 /// Write a `str` to a file, creating or truncating it (`str` path variant).
 write_string_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
   write_string(Path.new(String.from(path)), String.from(data), io)
@@ -484,21 +485,23 @@ write_string_cstr :: (fn(path : *u8, data : str, io : Io) -> Impl(Future(unit, I
   write_string(Path.from_cstr(path), String.from(data), io)
 );
 /// Write bytes to a file, creating or truncating it.
-write :: (fn(path : &Path, data : &ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
+write :: (fn(path : &Path, data : &ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))({
+  __probe_data := data.clone();
   io.async(e => {
     file := e.io.await(File.open(path, .Write, io), e);
-    e.io.await(file.write_bytes(data, io), e);
+    e.io.await(file.write_bytes(&__probe_data, io), e);
     e.io.await(file.close(io), e);
   })
-);
+});
 /// Append a `String` to a file, creating it if it does not exist.
-append_file :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))(
+append_file :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  __probe_data := data.clone();
   io.async(e => {
     file := e.io.await(File.open(path, .Append, io), e);
-    e.io.await(file.write_string(data, io), e);
+    e.io.await(file.write_string(&__probe_data, io), e);
     e.io.await(file.close(io), e);
   })
-);
+});
 /// Append a `str` to a file (`str` path variant).
 append_file_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
   append_file(Path.new(String.from(path)), String.from(data), io)

@@ -69,6 +69,7 @@ ParseFrame :: struct(
   /// both lookaround flags are false.
   is_positive : bool
 );
+derive(ParseFrame, Clone);
 /// A parser over one pattern: the byte cursor plus the capture-numbering
 /// state that outlives the parse.
 ///
@@ -749,7 +750,7 @@ impl(
       },
       true => ()
     );
-    alts.push(seq);
+    alts.push(seq.clone());
     mut(result) := self._make_sequence(&alts(usize(0)));
     mut(i) := usize(1);
     while(i < alts.len(), i = (i + usize(1)), {
@@ -775,7 +776,7 @@ impl(
   /// An empty pattern is legal and parses to an empty `Sequence`, which
   /// matches the empty string at every position.
   parse : (fn(self : &Self) -> Result(RegexNode, RegexError))({
-    stack := ArrayList(ParseFrame).new();
+    mut(stack) := ArrayList(ParseFrame).new();
     mut(cur_alts) := ArrayList(ArrayList(RegexNode)).new();
     mut(cur_seq) := ArrayList(RegexNode).new();
     mut(cur_non_cap) := false;
@@ -880,7 +881,7 @@ impl(
                         // (?<name>  — named capturing group
                         true => {
                           self._pos = (self._pos + usize(2));
-                          name_bytes := ArrayList(u8).new();
+                          mut(name_bytes) := ArrayList(u8).new();
                           while(!self._at_end(), {
                             name_b := self._peek();
                             name_ch := match(
@@ -950,10 +951,10 @@ impl(
             cur_non_cap => RegexNode.non_capturing_group(&inner),
             true => RegexNode.group(&inner, cur_group_idx)
           );
-          parent := stack(stack.len() - usize(1));
+          parent :=( stack(stack.len() - usize(1))).clone();
           stack.pop();
-          cur_alts = parent.alternatives;
-          cur_seq = parent.current;
+          cur_alts = parent.alternatives.clone();
+          cur_seq = parent.current.clone();
           cur_non_cap = parent.is_non_capturing;
           cur_group_idx = parent.group_index;
           cur_is_la = parent.is_lookahead;

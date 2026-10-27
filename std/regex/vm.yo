@@ -338,7 +338,7 @@ impl(
           },
           true => ()
         );
-        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots);
+        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots.clone());
         recur(self, list, &new_t, byte_pos, seen);
       },
       .AssertStart => {
@@ -402,7 +402,7 @@ impl(
     unset := usize.MAX;
     mut(sub_current) := ArrayList(NfaThread).new();
     mut(sub_next) := ArrayList(NfaThread).new();
-    sub_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
+    mut(sub_seen) := ArrayList(bool).with_capacity(self._program.instructions.len());
     sub_seen.resize_with_byte(self._program.instructions.len(), int(0));
     initial := NfaThread.new(sub_start_pc, self._n_slots);
     self._add_thread(&mut sub_current, &initial, start_byte, &mut sub_seen);
