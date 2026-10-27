@@ -73,6 +73,7 @@ pragma(Pragma.AllowUnsafe);
   trait_impl_site_of,
   forget_trait_impl_site_if_from,
   get_type_trait_methods_by_name,
+  get_visible_type_trait_methods_by_name,
   get_assoc_type_entries,
   assoc_type_registry_key,
   get_trait_default,
@@ -92,7 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, fn_param_is_ptr_borrow, declare_acyclic_type_id } :: import("../../types/utils.yo");
+{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, declare_acyclic_type_id } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -4149,6 +4150,12 @@ _c3_eval_colon_pair :: (
       // produce an empty id — skip those (no registry
       // entry can be keyed without an id).
       if(st.recv_id != "", {
+        // A concrete impl's method on an instance of a type constructor is a
+        // candidate of static-argument inference (`G.m(...)`), which the
+        // generic registry does not hold.
+        if(!st.is_generic && is_function_type(&fi.ty), {
+          note_concrete_ctor_method(&st.receiver_ty, &method_name, &fi.ty, &_impl_site_string(&name_tok));
+        });
         // A phase-A entry for this field is already in the registry (a
         // sibling referenced this method while it was being evaluated —
         // plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): it carries the SAME func_id as
@@ -6752,3 +6759,222 @@ export(unmark_concrete_impl_being_registered);
 export(has_negative_impl);
 export(GenericImplDocEntry, get_generic_impl_doc_entries, find_generic_impl_method_value);
 export(purge_generic_impls_owned_by, generic_impl_entry_count, generic_impl_binder_bound_counts);
+// ---------------------------------------------------------------------------
+// Static-argument inference (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2):
+// the impls a method called through an unapplied type constructor,
+// `G.m(a1, …, an)`, may come from, and the binders its arguments bind.
+// ---------------------------------------------------------------------------
+/// The func id of the comptime type constructor that minted `ty`: a struct's
+/// stamped `constructor_func_id` (or the id-keyed stamp), an enum's
+/// registered cfid. `""` for a type no constructor call produced. Decision
+/// 32 matches an unapplied constructor's instances by this identity.
+instance_constructor_fid :: (fn(ty : &TypeValue) -> String)(
+  match(
+    ty,
+    Rc(.Struct({ id : _ })) => struct_effective_ctor_fid(ty),
+    Rc(.EnumT({ id : ic_eid })) => lookup_enum_cfid(ic_eid.replace(String.from("__self_shell"), String.from(""))),
+    _ => String.new()
+  )
+);
+/// One impl that declares a method `m` on instances of a type constructor:
+/// the impl's binders (none for an impl on a concrete `G(i32)`), the receiver
+/// pattern `Self` stands for, the method's declared type (`Self` baked in as
+/// the pattern) and the impl's site. `generic_entry` is the registry entry of
+/// a generic impl, whose where-clauses the inference checks.
+CtorMethodImpl :: struct(
+  binder_names : ArrayList(String),
+  binder_types : ArrayList(TypeValue),
+  receiver_pattern : TypeValue,
+  method_ty : TypeValue,
+  generic_entry : Option(GenericImplEntry),
+  site : String
+);
+/// A method a CONCRETE impl registered on an instance of a type constructor
+/// (`impl(Pair(i32), m : …)`): the generic registry holds no entry for it.
+_CtorConcreteMethod :: struct(ctor_fid : String, method : String, receiver_ty : TypeValue, method_ty : TypeValue, site : String);
+(g_ctor_concrete_methods : RefCell(ArrayList(_CtorConcreteMethod))) = RefCell(ArrayList(_CtorConcreteMethod)).new(ArrayList(_CtorConcreteMethod).new());
+/// The generic candidates of one `(constructor fid, method)` key, valid while
+/// the trait-impl epoch they were collected at stands.
+_CtorMethodCacheEntry :: struct(epoch : u64, impls : ArrayList(CtorMethodImpl));
+(g_ctor_method_cache : RefCell(HashMap(String, _CtorMethodCacheEntry))) = RefCell(HashMap(String, _CtorMethodCacheEntry)).new(HashMap(String, _CtorMethodCacheEntry).new());
+/// Records a concrete impl's method for `impls_of_constructor_method`: called
+/// where a non-generic impl registers it.
+note_concrete_ctor_method :: (fn(receiver_ty : &TypeValue, method : &String, method_ty : &TypeValue, site : &String) -> unit)({
+  fid := instance_constructor_fid(receiver_ty);
+  // The loader's idempotent re-evaluation replays the same site.
+  (seen : bool) = (fid.len() == usize(0));
+  (si : usize) = usize(0);
+  while((si < g_ctor_concrete_methods.with(xs => xs.len())) && !seen, si = (si + usize(1)), {
+    seen = match(g_ctor_concrete_methods.with(xs => xs.get(si)), .Some(cm) => ((cm.site == site) && (cm.method == method)), .None => false);
+  });
+  if(!seen, {
+    g_ctor_concrete_methods.with_mut(xs => xs.push(_CtorConcreteMethod(ctor_fid : fid, method : method.clone(), receiver_ty : receiver_ty.clone(), method_ty : method_ty.clone(), site : site.clone())));
+  });
+});
+/// Every impl, inherent or trait, generic or concrete, whose receiver is an
+/// instance of the type constructor `ctor_fid` (constructor identity) and
+/// which declares `method`, visible from the module being evaluated. The
+/// generic half is collected once per key and kept until
+/// `bump_trait_impl_epoch` moves (an impl registered or purged); the concrete
+/// half is read from the entries `note_concrete_ctor_method` recorded, each
+/// still in the concrete registry (a purged module's entries are not).
+impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> ArrayList(CtorMethodImpl))({
+  key := `${ctor_fid}.${method}`;
+  epoch := trait_impl_epoch();
+  out := match(
+    g_ctor_method_cache.with(m => m.get(&key)),
+    .Some(ce) => cond(
+      (ce.epoch == epoch) => ce.impls,
+      true => _collect_generic_ctor_method_impls(ctor_fid, method)
+    ),
+    .None => _collect_generic_ctor_method_impls(ctor_fid, method)
+  );
+  g_ctor_method_cache.with_mut(m => m.insert(key, _CtorMethodCacheEntry(epoch : epoch, impls : out.clone())));
+  // Visibility is the reader's module's, so it is judged per call.
+  visible := ArrayList(CtorMethodImpl).new();
+  (vi : usize) = usize(0);
+  while(vi < out.len(), vi = (vi + usize(1)), {
+    match(out.get(vi), .Some(c) => visible.push(c), .None => ());
+  });
+  n_conc := g_ctor_concrete_methods.with(xs => xs.len());
+  (ci : usize) = usize(0);
+  while(ci < n_conc, ci = (ci + usize(1)), {
+    match(
+      g_ctor_concrete_methods.with(xs => xs.get(ci)),
+      .Some(cm) => if((cm.ctor_fid == ctor_fid) && (cm.method == method) && (get_visible_type_trait_methods_by_name(type_id_or_empty(&cm.receiver_ty), method.clone()).len() > usize(0)), {
+        visible.push(CtorMethodImpl(binder_names : ArrayList(String).new(), binder_types : ArrayList(TypeValue).new(), receiver_pattern : cm.receiver_ty.clone(), method_ty : cm.method_ty.clone(), generic_entry : .None, site : cm.site.clone()));
+      }),
+      .None => ()
+    );
+  });
+  visible
+});
+/// The generic registry's entries for `(ctor_fid, method)`: one scan of every
+/// bucket, run once per key and epoch. An impl the current module cannot
+/// reach through its imports is left out, as `find_methods_from_generic_impls`
+/// leaves it out.
+_collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) -> ArrayList(CtorMethodImpl))({
+  out := ArrayList(CtorMethodImpl).new();
+  n_keys := g_impl_registry_keys.with(xs => xs.len());
+  (ki : usize) = usize(0);
+  while(ki < n_keys, ki = (ki + usize(1)), {
+    entry_list := match(g_impl_registry_entry_lists.with(xs => xs.get(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new());
+    (ei : usize) = usize(0);
+    while(ei < entry_list.len(), ei = (ei + usize(1)), {
+      match(
+        entry_list.get(ei),
+        .Some(entry) => {
+          (fi : usize) = usize(0);
+          (found : Option(TypeValue)) = .None;
+          while((fi < entry.field_names.len()) && found.is_none(), fi = (fi + usize(1)), {
+            if(match(entry.field_names.get(fi), .Some(n) => (n == method), .None => false), {
+              found = entry.field_types.get(fi);
+            });
+          });
+          match(
+            found,
+            .Some(mty) => {
+              owner := match(g_impl_registry_entry_owners.with(xs => xs.get(ki)), .Some(ol) => match(ol.get(ei), .Some(o) => o.clone(), .None => String.new()), .None => String.new());
+              if(is_function_type(&mty) && (instance_constructor_fid(&entry.receiver_type_pattern) == ctor_fid) && owner_visible_from_current(owner), {
+                out.push(
+                  CtorMethodImpl(
+                    binder_names : entry.forall_names.clone(),
+                    binder_types : entry.forall_some_types.clone(),
+                    receiver_pattern : entry.receiver_type_pattern.clone(),
+                    method_ty : mty,
+                    generic_entry : .Some(entry.clone()),
+                    site : entry.site.clone()
+                  )
+                );
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    });
+  });
+  out
+});
+/// The bindings that unifying `pattern`, a type over the binders `names` /
+/// `somes` (a candidate impl's `generic(...)`), with the argument type `given`
+/// gives them: one entry per binder, `.None` where it stays open. `.None` when
+/// the two do not unify. The synthesis runs in a fresh frame over scratch
+/// envs, as `try_match_generic_impl`'s receiver match does, so nothing it binds
+/// reaches the caller's env.
+synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(TypeValue), pattern : &TypeValue, given : &TypeValue, env : &Environment) -> Option(ArrayList(Option(TypeValue))))({
+  (unify_env : Environment) = snapshot_env(env);
+  unify_env.push_frame(false);
+  (unify_base : usize) = unify_env.frames.len();
+  (ui : usize) = usize(0);
+  while(ui < names.len(), ui = (ui + usize(1)), {
+    nm := match(names.get(ui), .Some(n) => n, .None => String.new());
+    sm := match(somes.get(ui), .Some(s) => s, .None => t_unit());
+    add_variable_to_env(&unify_env, &nm, t_type(), Option(EvalValue).Some(create_type_value(&sm)), true, false, false, false, synthetic_token(&nm, &env.module_path.*));
+  });
+  exn_synth := Exception(
+    throw : (
+      err -> {
+        if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
+          eprintln(`[sai-synth-swallow] ${err.to_string()}`);
+        });
+        unwind(Option(ArrayList(Option(TypeValue))).None);
+      }
+    )
+  );
+  checked := ArrayList(TypePair).new();
+  opts := Option(SynthesizeOptions).None;
+  (given_scratch : Environment) = snapshot_env(env);
+  given_scratch.push_frame(false);
+  synth := synthesize_types(pattern, &unify_env, given, &given_scratch, &mut checked, &opts, exn_synth);
+  out := ArrayList(Option(TypeValue)).new();
+  (bi : usize) = usize(0);
+  while(bi < names.len(), bi = (bi + usize(1)), {
+    nm := match(names.get(bi), .Some(n) => n, .None => String.new());
+    sm := match(somes.get(bi), .Some(s) => s, .None => t_unit());
+    out.push(
+      match(
+        _resolve_one_forall_binding_from(&synth.expected_env, &sm, &nm, unify_base - usize(1)),
+        .Some(b) => if(is_some_type(&b), Option(TypeValue).None, Option(TypeValue).Some(b)),
+        .None => Option(TypeValue).None
+      )
+    );
+  });
+  .Some(out)
+});
+/// A where-clause of `entry` that `bindings` (one per binder, `.None` where
+/// open) fails, judged as `try_match_generic_impl` judges a constructed
+/// receiver's clauses under `enforce_all_where`: a marker bound, or one whose
+/// trait mentions none of the impl's binders. `(binder, its binding, the
+/// trait)`; `.None` when every judged clause holds.
+first_failed_impl_where :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(Option(TypeValue)), env : &Environment) -> Option(Tuple(String, TypeValue, TypeValue)))({
+  (wj : usize) = usize(0);
+  while(wj < entry.where_constraint_some_types.len(), wj = (wj + usize(1)), {
+    w_some := match(entry.where_constraint_some_types.get(wj), .Some(s) => s, .None => t_unit());
+    w_trait := match(entry.where_constraint_traits.get(wj), .Some(t) => t, .None => t_unit());
+    w_name := match(w_some, Rc(.SomeT(_, nm, _, _, _, _, _, _, _, _)) => nm.clone(), _ => String.new());
+    (bi : usize) = usize(0);
+    while(bi < entry.forall_names.len(), bi = (bi + usize(1)), {
+      if(match(entry.forall_names.get(bi), .Some(n) => (n == w_name), .None => false), {
+        match(
+          bindings.get(bi),
+          .Some(.Some(bound)) => match(
+            g_type_implements_trait_full_fn,
+            .Some(f) => {
+              (w_env : Environment) = snapshot_env(env);
+              w_env.push_frame(false);
+              if(!f(&bound, &w_trait, &w_env) && (_is_marker_trait(&w_trait) || _where_trait_mentions_no_forall(&w_trait, &entry.forall_some_types)), {
+                return(Option(Tuple(String, TypeValue, TypeValue)).Some((w_name, bound, w_trait)));
+              });
+            },
+            .None => ()
+          ),
+          _ => ()
+        );
+      });
+    });
+  });
+  .None
+});
+export(instance_constructor_fid, CtorMethodImpl, note_concrete_ctor_method, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where);
