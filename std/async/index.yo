@@ -114,7 +114,7 @@ impl(
 /// The tasks of `handles`, as the raw pointers the join wait takes. The list
 /// keeps owning the handles; a pointer is valid while its handle is alive.
 _task_ptrs :: (fn(generic(T : Type), handles : &ArrayList(JoinHandle(T))) -> ArrayList(*void))({
-  out := ArrayList(*void).with_capacity(handles.len());
+  mut(out) := ArrayList(*void).with_capacity(handles.len());
   (mut(i) : usize) = usize(0);
   while(i < handles.len(), i = (i + usize(1)), {
     out.push(handles(i).as_ptr());
@@ -143,8 +143,8 @@ join_all :: (
   fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(ArrayList(Option(T)), Io))
 )(
   io.async({ handles }(io : Io) => {
-    hs := handles;
-    out := ArrayList(Option(T)).with_capacity(hs.len());
+    mut(hs) := handles;
+    mut(out) := ArrayList(Option(T)).with_capacity(hs.len());
     // `pop` drains from the back, so reverse once to join in list order.
     hs.reverse();
     while(hs.len() > usize(0), {
@@ -203,7 +203,7 @@ any :: (
       // Every task still running; the wait below resolves when one of
       // THESE ends, so an already-terminal (aborted) task cannot keep
       // resolving it at once.
-      pending := ArrayList(*void).new();
+      mut(pending) := ArrayList(*void).new();
       (mut(i) : usize) = usize(0);
       while((i < hs.len()) && (decided == false), i = (i + usize(1)), {
         s := hs(i).state();
@@ -237,7 +237,7 @@ _settle :: (
   fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), winner : Option(usize), io : Io) -> Impl(Future(Option(T), Io))
 )(
   io.async({ handles, winner }(io : Io) => {
-    hs := handles;
+    mut(hs) := handles;
     (mut(out) : Option(T)) = Option(T).None;
     // `pop` drains from the back: the popped handle's index is the length
     // after the pop.
