@@ -11,7 +11,7 @@
 {
   AstExpr,
   ast_expr_id,
-  ast_expr_token,
+  ast_expr_token, ast_expr_text,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
   BK_BEGIN,
@@ -1524,7 +1524,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
       match(
         args.get(usize(0)),
         .Some(a0) => if(ast_expr_is_atom(&a0), {
-          return(Option(String).Some(ast_expr_token(&a0).value));
+          return(Option(String).Some(ast_expr_text(&a0)));
         }),
         .None => ()
       );
@@ -1537,7 +1537,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
             match(
               fargs.get(usize(0)),
               .Some(f0) => if(ast_expr_is_atom(&f0), {
-                return(Option(String).Some(ast_expr_token(&f0).value));
+                return(Option(String).Some(ast_expr_text(&f0)));
               }),
               .None => ()
             );
