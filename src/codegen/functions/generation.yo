@@ -640,7 +640,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
       (i : usize) = usize(0);
       while(i < pts.len(), {
         pt := match(slot_pointee_at(&pts, i), .Some(t) => t, .None => t_unit());
-        is_object := is_counted_handle_type(&pt) && !is_counted_cell_type(&pt);
+        is_object := (is_counted_handle_type(&pt) && !is_counted_cell_type(&pt));
         label := match(__fm.*.param_labels.get(i), .Some(l) => l, .None => String.new());
         if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
