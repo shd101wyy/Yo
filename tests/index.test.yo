@@ -1352,7 +1352,7 @@ impl(
   )
 );
 test("V2b: a projection that drops a local before yielding its place", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(5));
   xs.push(i32(6));
   c := Chain(items : xs);
@@ -1468,8 +1468,8 @@ test("IndexMut: a String key survives the write it indexes", {
   ms := HashMap(String, i32).new();
   ms.insert(String.from("key-long-enough-to-heap"), i32(1));
   s := String.from("key-long-enough-to-heap");
-  ms(s) = i32(5);
-  assert(ms(s) == i32(5), "the write landed");
+  ms(s.clone()) = i32(5);
+  assert(ms(s.clone()) == i32(5), "the write landed");
   assert(s.len() == usize(23), "the key string is alive after the write");
 });
 // The nested access `mm(i)(k) = v`: the inner index_mut's receiver is itself

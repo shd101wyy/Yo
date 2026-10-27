@@ -123,30 +123,28 @@ impl(
   /// place — a `&K` is all a lookup ever needs, so a move-only key is found.
   _find_pos : (fn(self : &Self, key : &K) -> Option(usize))({
     h := self._hash_key(key);
-    match(
-      self._index.get(&h),
-      .Some(positions) => {
-        (mut(found) : Option(usize)) = Option(usize).None;
-        mut(i) := usize(0);
-        while((i < positions.len()) && found.is_none(), i = (i + usize(1)), {
-          match(
-            positions.get(i),
-            .Some(pos) => {
-              ep := self._entries_ptr().add(pos);
-              cond(
-                (ep.*.key == key) => {
-                  found = Option(usize).Some(pos);
-                },
-                true => ()
-              );
-            },
-            .None => ()
-          );
-        });
-        found
-      },
-      .None => Option(usize).None
+    cond(
+      // The position list is lent where the index holds it: `get` would
+      // copy the list, which is a value since B8.
+      self._index.contains_key(&h) => self._find_among(&self._index(h), key),
+      true => Option(usize).None
     )
+  }),
+  /// The entry among `positions` whose key is `key`, compared in place.
+  _find_among : (fn(self : &Self, positions : &ArrayList(usize), key : &K) -> Option(usize))({
+    (mut(found) : Option(usize)) = Option(usize).None;
+    mut(i) := usize(0);
+    while((i < positions.len()) && found.is_none(), i = (i + usize(1)), {
+      pos := positions(i);
+      ep := self._entries_ptr().add(pos);
+      cond(
+        (ep.*.key == key) => {
+          found = Option(usize).Some(pos);
+        },
+        true => ()
+      );
+    });
+    found
   }),
   /// Record that `pos` holds an entry whose key hashes to `h`.
   ///

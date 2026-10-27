@@ -1,7 +1,11 @@
+# Since B8 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.5) an `ArrayList` is a
+# value, so the second handle cannot be built: reading the list back out of the
+# global (`get`) is a copy, a static E0901, and `g_lists.push(list)` moves it.
+# The runtime panic described below no longer has a program to fire in.
 # plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §9: the alias the compiler cannot see.
 # The collection being iterated by a borrowed `for` is grown through a SECOND
 # handle stored in a module-level structure and reached by a callee; the
 # runtime borrow flag on the shared object panics at `push` instead of
 # reallocating the buffer under the live element reference.
-stdout_keep_match=panic: container operation while an interior reference.*
+stdout_keep_match=error\[E0901\]: use of moved value.*
 timeout=300
