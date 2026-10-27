@@ -726,7 +726,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(x : &mut i32) -> unit`, `fn(x : &String) -> usize` and `fn(x : String) -> usize` are three different types: a `&mut T` parameter is an exclusive borrow of the caller's place, a `&T` parameter is a read-only (shared) borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, or plain data without `Copy`) consumes its argument: the caller's binding ends at the call. A kind that is still implicitly copyable (`String`, the collections, `Rc`, a `ref` handle) is passed the way `t := s` binds it, as a share, and the caller keeps its value; it moves with `t := s` when its phase of the values-by-default plan makes it explicit-copy. Until then the share is an alias, as `t := s` is: a callee that writes a by-value `String` or collection writes the caller's too, so write a `.clone()` instead. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(x : &i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
+`fn(x : &mut i32) -> unit`, `fn(x : &String) -> usize` and `fn(x : String) -> usize` are three different types: a `&mut T` parameter is an exclusive borrow of the caller's place, a `&T` parameter is a read-only (shared) borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, plain data without `Copy`, or an `Rc`/`Arc` handle, decision 17) consumes its argument: the caller's binding ends at the call. A kind that is still implicitly copyable (`String`, the collections, a `ref` handle) is passed the way `t := s` binds it, as a share, and the caller keeps its value; it moves with `t := s` when its phase of the values-by-default plan makes it explicit-copy. Until then the share is an alias, as `t := s` is: a callee that writes a by-value `String` or collection writes the caller's too, so write a `.clone()` instead. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(x : &i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
 
 ```yo
 bump :: (fn(x : &mut i32) -> unit)({
@@ -2679,7 +2679,7 @@ A `match` takes its scrutinee the way a parameter takes its argument
 | a `mut` binding (a `mut` parameter, `mut(y) := …`) | `mut` places: writing a binding writes the scrutinee |
 | `match(&x, …)` | read-only borrows; `x` stays usable |
 | `match(&mut x, …)` | `mut` places; `x` stays usable |
-| a `Copy` value, or a kind that is still implicitly copyable (`String`, a collection, `Rc`, a `ref` handle) | copies or shares, as a by-value parameter does |
+| a `Copy` value, or a kind that is still implicitly copyable (`String`, a collection, a `ref` handle) | copies or shares, as a by-value parameter does |
 
 ```yo
 Fd :: struct(n : i32);
@@ -3451,15 +3451,28 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 ### Rc Type
 
 > **⚠️ `Rc` is Rust's `Rc`, not Rust's `Box`.** Rust's `Box<T>` is a unique
-> owner — passing it moves, cloning it deep-copies. Yo's `Rc(T)` is a `ref`
-> type: copying the handle **shares one heap value and bumps a reference
-> count**, exactly like Rust's `Rc<T>`.
+> owner — passing it moves, cloning it deep-copies. Yo's `Rc(T)` is a counted
+> handle: `Rc.clone(a)` makes **a second handle to one heap value and bumps a
+> reference count**, exactly like Rust's `Rc::clone`.
 >
 > ```yo
 > a := rc(i32(42));
-> b := a;                    // a second handle, NOT a copy of the value
+> b := Rc.clone(a);          // a second handle, NOT a copy of the value
 > assert(ref_count(a) == usize(2), "a and b name the SAME value");
 > ```
+>
+> **A second handle is spelled** (`plans/VALUES_BY_DEFAULT.md` decision 17):
+> a handle is a new owner, so sharing is visible where it is created. A
+> handle's last use moves it (`b := a` with no later `a`); an implicit copy
+> whose source is used again is E0901, whose note names `Rc.clone(a)`. A
+> `&Rc(T)` parameter borrows the handle without a copy. A value holding a
+> handle (a struct field, an `Option(Rc(T))`) is copied with `.clone()`,
+> which clones each handle; a closure takes a second handle in its capture
+> list, `{ a : Rc.clone(a) }() => a.*`. `yo fix <path> --migrate rc-clone`
+> spells the clones in existing code. The clone is spelled through the type,
+> `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`
+> (decision 32). Copies inside a generic body, where the handle is a `T`
+> (`ArrayList(Rc(T)).get(i)`), still share it implicitly.
 >
 > Reference counting is Yo's *universal* object model, not one container's
 > opt-in policy: every `ref(struct(...))` is reference counted, and `Rc` is
@@ -3612,7 +3625,7 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
   ```yo
   { RefCell } :: import("std/sync/refcell");
   log := rc(RefCell(i32).new(i32(0)));
-  other := log; // a second handle to the same cell
+  other := Rc.clone(log); // a second handle to the same cell
   other.replace_with(n => (n + i32(1)));
   assert(log.with(n => n) == i32(1), "seen through the first handle");
   ```
@@ -3625,7 +3638,7 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
 
   ```yo
   a := rc(Point(x : 1, y : 2));
-  b := a;
+  b := Rc.clone(a);
   Rc.make_mut(&mut b).x = 10; // b gets a cell of its own
   assert((a.x == 1) && (b.x == 10), "a is unchanged");
   ```

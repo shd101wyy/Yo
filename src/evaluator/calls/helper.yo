@@ -155,7 +155,8 @@ pragma(Pragma.AllowUnsafe);
   force_pending_impls_for_type_name,
   note_borrowing_argument,
   type_head_name_for_impl_forcing,
-  call_function_value_marker
+  call_function_value_marker,
+  sync_counted_handle_std_generic
 } :: import("../context.yo");
 {
   PathCollection,
@@ -3654,6 +3655,11 @@ create_specialized_function_inline :: (
           // instantiation" (a nested call that must mint its own spec) — see
           // _impl_type_captures_sig.
           push_bindings_sig := _impl_type_captures_sig(original_func_val);
+          // A closure's body is generic when the body it is specialized in is.
+          spec_generic_body := cond(
+            is_closure_fn(func_id.clone()) => match(prev_spec, .Some(ps) => ps.is_generic_body, .None => false),
+            true => ((forall_names.len() > usize(0)) || !push_bindings_sig.is_empty())
+          );
           spec_stack.push(
             SpecializingFunctionInfo(
               original_func_id : func_id.clone(),
@@ -3671,9 +3677,12 @@ create_specialized_function_inline :: (
               specialized_return_type : spec_ret_ty.clone(),
               original_func_value : original_func_val,
               impl_bindings_sig : push_bindings_sig,
-              is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys)
+              is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys),
+              in_std : is_std_module_path(&ast_expr_token(&body).module_path.*, ctx.std_path.clone()),
+              is_generic_body : spec_generic_body
             )
           );
+          sync_counted_handle_std_generic(ctx);
           // Build a function-body evaluation context so explicit `return(...)`
           // statements inside the specialized body are legal — begin.yo gates
           // `return` on `is_evaluating_function_body_or_async_block` and throws
@@ -4502,6 +4511,7 @@ create_specialized_function_inline :: (
           swap(&mut ctx.captured_variables, &mut prev_caps);
           ctx.is_evaluating_function_body_or_async_block = prev_fb;
           ctx.currently_specializing_function = prev_spec;
+          sync_counted_handle_std_generic(ctx);
           // Pop this specialization off the full stack (pushed at the set site above).
           spec_stack_r := match(
             ctx.currently_specializing_function_stack,
@@ -5486,6 +5496,7 @@ create_specialization_at_call :: (
     trapped,
     .Some(err) => {
       ctx.currently_specializing_function = prev_spec;
+      sync_counted_handle_std_generic(ctx);
       // Taken out and stored back: a `match` binding is a copy of the stack
       // once collections are values.
       match(

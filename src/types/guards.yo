@@ -483,6 +483,32 @@ is_box_type :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// True if `t` is the prelude's atomically counted cell, `Arc(V)`: an
+/// `atomic(ref(struct((*) : V)))` whose stamped name is `Arc(V)` (a prelude
+/// name cannot be shadowed, so the name plus the shape is the prelude's type,
+/// as `handle_payload_is_read_only` reads it). A cell handle over the atomic
+/// cell (`cell_handle_view`, V5's `Arc`) is one too. Any other atomic object
+/// (`std/sync/atomic.yo`'s handles, a user's `atomic(ref(...))`) is not.
+is_arc_type :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t,
+    Rc(.Struct({ name, field_labels, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => cond(
+      !is_ref => match(cell_handle_view(t), .Some(v) => v.is_atomic, .None => false),
+      !is_atomic => false,
+      !name.starts_with("Arc(") => false,
+      (field_labels.len() != usize(1)) => false,
+      true => match(field_labels.get(usize(0)), .Some(label) => (label == "*"), .None => false)
+    ),
+    _ => false
+  )
+);
+/// A counted handle, which decision 17 (plans/VALUES_BY_DEFAULT.md, V2c)
+/// copies only explicitly: the prelude's `Rc(V)` (`is_box_type`) or `Arc(V)`
+/// (`is_arc_type`), or a cell handle of V5's (`cell_handle_view`, which both
+/// read). A new handle is a new owner, so it is spelled where it is made:
+/// `Rc.clone(h)`, `Arc.clone(h)`. Every other `ref` object still shares
+/// implicitly until V5.
+is_counted_handle_value_type :: (fn(t : &TypeValue) -> bool)(is_box_type(t) || is_arc_type(t));
 /// The payload type of the prelude's unique cell (`Box(V)`,
 /// plans/VALUES_BY_DEFAULT.md §3.2, V1 step 2), or `.None` for any other
 /// type. A `Box` is a newtype over a raw pointer to its payload (its one field,
@@ -1186,6 +1212,8 @@ export(
   is_newtype_type,
   is_str_type,
   is_box_type,
+  is_arc_type,
+  is_counted_handle_value_type,
   is_cell_primitive_type,
   CellHandleView,
   cell_handle_view,
