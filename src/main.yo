@@ -4136,11 +4136,12 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
             cand.push_rune(runes(k));
           });
           label_prefix := if(st.capture_label.is_empty(), String.new(), `${st.capture_label} : `);
-          if(st.spelling == "borrow", {
+          if((st.spelling == "borrow") || (st.spelling == "borrow-mut"), {
             // A consuming `match` on a place the rule cannot move: match
             // through a borrow.
-            bare_b := _parse_or_none(`&${cand}`, file.clone());
-            wrapped_b := _parse_or_none(`&(${cand})`, file.clone());
+            sigil := if(st.spelling == "borrow-mut", String.from("&mut "), String.from("&"));
+            bare_b := _parse_or_none(`${sigil}${cand}`, file.clone());
+            wrapped_b := _parse_or_none(`${sigil}(${cand})`, file.clone());
             (parens_b : bool) = match(
               bare_b,
               .Some(b_asts) => match(
@@ -4152,10 +4153,10 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
             );
             n_borrows = (n_borrows + usize(1));
             if(dry_run, {
-              println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`&${if(parens_b, `(${cand})`, cand.clone())}\``);
+              println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${sigil}${if(parens_b, `(${cand})`, cand.clone())}\``);
             });
             at_idx.push(start);
-            at_text.push(if(parens_b, String.from("&("), String.from("&")));
+            at_text.push(if(parens_b, `${sigil}(`, sigil.clone()));
             at_close.push(false);
             if(parens_b, {
               at_idx.push(end);

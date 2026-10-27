@@ -429,7 +429,7 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
                 .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level && !rv.is_compile_time_only
                 && !match_scrutinee_is_capture(&rv, env, ctx)
                 && type_holds_counted_handle_ignoring_migration(&rv.ty), {
-                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty, clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx));
+                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty, clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx), mut_borrow : _arms_write_through_bindings(e, ctx));
                 }),
                 .None => ()
               );
@@ -524,6 +524,54 @@ _scrutinee_written_in_arms :: (fn(whole : &AstExpr, name : &String, ctx : &EvalC
         if(_subtree_assigns_variable(&args(ai), name.clone(), ctx), {
           return(true);
         });
+      });
+      false
+    },
+    .Atom(_, _) => false
+  )
+);
+/// The identifiers a pattern `head` may bind (every identifier atom in it;
+/// a constructor name or `_` is never written in an arm, so over-collecting
+/// is harmless for `_arms_write_through_bindings`).
+_pattern_identifiers :: (fn(head : &AstExpr, out : &mut ArrayList(String)) -> unit)(
+  match(
+    head,
+    .Atom(_, t) => if((t.kind == TokenKind.Identifier) && (t.value != "_"), {
+      out.push(t.value.clone());
+    }),
+    .FnCall(_, callee, args, _, _) => {
+      _pattern_identifiers(&callee, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        _pattern_identifiers(&args(i), out);
+      });
+    }
+  )
+);
+/// `yo fix --migrate rc-clone`: does an arm of the `match` node `whole` write
+/// through one of its own bindings (an assignment, a `&mut` lend, a
+/// `&mut self` call: `_subtree_assigns_variable`)? A binding through a `&x`
+/// scrutinee is read-only (E0908), so the migration borrows with `&mut x`.
+_arms_write_through_bindings :: (fn(whole : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    whole,
+    .FnCall(_, _, args, _, _) => {
+      (ai : usize) = usize(1);
+      while(ai < args.len(), ai = (ai + usize(1)), {
+        match(
+          &args(ai),
+          .FnCall(_, _, arm_args, _, _) => if(ast_expr_is_fn_call_of(&args(ai), "=>", Option(usize).Some(usize(2))), {
+            names := ArrayList(String).new();
+            _pattern_identifiers(&arm_args(usize(0)), &mut names);
+            (ni : usize) = usize(0);
+            while(ni < names.len(), ni = (ni + usize(1)), {
+              if(_subtree_assigns_variable(&arm_args(usize(1)), names(ni).clone(), ctx), {
+                return(true);
+              });
+            });
+          }),
+          _ => ()
+        );
       });
       false
     },
@@ -735,7 +783,8 @@ _decide_match_mode :: (
         migrate_rc_clone_borrow_scrutinee(
           &scr,
           &ty,
-          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false))
+          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false)),
+          mut_borrow : _arms_write_through_bindings(whole, ctx)
         );
       });
       // A plain local the rule would consume: the branch below runs only
@@ -758,7 +807,7 @@ _decide_match_mode :: (
       if((!unmovable && plain_local), {
         match(
           root,
-          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty, clone_scrutinee : _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)),
+          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty, clone_scrutinee : _scrutinee_written_in_arms(whole, rv.name.clone(), ctx), mut_borrow : _arms_write_through_bindings(whole, ctx)),
           .None => ()
         );
       });
