@@ -66,7 +66,7 @@ tokenize :: (
     module_path : &String,
     exn : Exception
   ) -> ArrayList(Token)
-)(tokenize_shared(rc(input), rc(module_path), exn));
+)(tokenize_shared(rc(input.clone()), rc(module_path.clone()), exn));
 /// `tokenize` over cells the caller already holds: every token shares
 /// `input` and `module_path` (`Token.input`).
 tokenize_shared :: (
@@ -113,7 +113,7 @@ tokenize_span :: (
   char_byte_offsets := ArrayList(usize).new();
   {
     span := cond(
-      ((start_byte == usize(0)) && (end_byte == input.*.len())) => input.*,
+      ((start_byte == usize(0)) && (end_byte == input.*.len())) => input.*.clone(),
       true => input.*.substring(start_byte, end_byte)
     );
     c_iter := span.char_indices();
@@ -380,27 +380,27 @@ tokenize_span :: (
       },
       // ( ) [ ] { }
       (c.char == u32(0x28)) => {
-        tokens.push(Token(kind : TokenKind.LParen, value : g_tv_lparen, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LParen, value : g_tv_lparen.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x29)) => {
-        tokens.push(Token(kind : TokenKind.RParen, value : g_tv_rparen, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RParen, value : g_tv_rparen.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x5B)) => {
-        tokens.push(Token(kind : TokenKind.LBracket, value : g_tv_lbracket, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LBracket, value : g_tv_lbracket.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x5D)) => {
-        tokens.push(Token(kind : TokenKind.RBracket, value : g_tv_rbracket, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RBracket, value : g_tv_rbracket.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x7B)) => {
-        tokens.push(Token(kind : TokenKind.LCurlyBracket, value : g_tv_lcurly, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LCurlyBracket, value : g_tv_lcurly.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x7D)) => {
-        tokens.push(Token(kind : TokenKind.RCurlyBracket, value : g_tv_rcurly, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RCurlyBracket, value : g_tv_rcurly.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Char literal: '...'
@@ -778,11 +778,11 @@ tokenize_span :: (
       },
       // Comma and semicolon
       (c.char == u32(0x2C)) => {
-        tokens.push(Token(kind : TokenKind.Comma, value : g_tv_comma, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Comma, value : g_tv_comma.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x3B)) => {
-        tokens.push(Token(kind : TokenKind.Semicolon, value : g_tv_semicolon, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Semicolon, value : g_tv_semicolon.clone(), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Number literals (integer and float)

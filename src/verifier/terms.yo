@@ -224,6 +224,7 @@ VcTerm :: Rc(VcTermNode);
 impl(VcTerm, Acyclic());
 /// One declared constant of a query.
 VcDecl :: struct(name : String, sort : VcSort);
+derive(VcDecl, Clone);
 /// One uninterpreted function symbol (R2: a recursive `ghost_fn`), rendered
 /// as `(declare-fun <name> (<args>) <result>)` before the axioms that
 /// define it.
@@ -265,6 +266,8 @@ VcQuery :: ref(
     datatypes : ArrayList(String)
   )
 );
+derive(VcAssumption, Clone);
+derive(VcFunDecl, Clone);
 impl(
   VcQuery,
   /// Builder: push a declaration.

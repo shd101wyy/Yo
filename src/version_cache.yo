@@ -781,11 +781,11 @@ ensure_cached_version :: (
     // (rc=0, nothing cached), falsy garbage continued into corrupted state
     // (rc=134) — `yo __probe_version install` was broken in every release
     // (issues/fixed/wrong-arity-call-silently-accepted-__probe_version-install-broken.md).
-    cached := e.io.await(is_version_cached(__probe_version, e.io, e.exn), e);
+    cached := e.io.await(is_version_cached(&__probe_version, e.io, e.exn), e);
     if(cached, {
-      return(get_version_cache_dir(__probe_version));
+      return(get_version_cache_dir(&__probe_version));
     });
-    e.io.await(download_version(__probe_version, e.io, e.exn), e)
+    e.io.await(download_version(&__probe_version, e.io, e.exn), e)
   })
 });
 /// Fetch all published Yo versions from the GitHub Releases API.

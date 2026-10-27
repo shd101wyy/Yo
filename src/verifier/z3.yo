@@ -381,6 +381,7 @@ run_z3_script :: (fn(binary : &String, script : &String) -> Result(String, Strin
 /// A parsed S-expression: atom or list. A value tree: a `List` owns its
 /// items (plans/VALUES_BY_DEFAULT.md §6 V4).
 Z3Sexpr :: enum(Atom(text : String), List(items : ArrayList(Self)));
+derive(Z3Sexpr, Clone);
 /// Parse ALL top-level S-expressions in `text` (whitespace and `;` line
 /// comments tolerated). Unclosed lists are dropped rather than thrown —
 /// the caller decides what missing evidence means.
@@ -487,7 +488,6 @@ z3_sexpr_to_string :: (fn(s : &Z3Sexpr) -> String)(
     }
   )
 );
-derive(Z3Sexpr, Clone);
 /// The check-sat verdict of a response stream: the FIRST top-level atom
 /// among `unsat` / `sat` / `unknown`. `.None` when the stream has none
 /// (solver error — the caller reports the raw output).

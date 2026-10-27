@@ -447,7 +447,7 @@ impl(
       match(
         self,
         .Atom(aid, atok) => AstExpr.Atom(aid, atok.clone()),
-        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs, finfix, ftok.clone())
+        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs.clone(), finfix, ftok.clone())
       )
     )
   )
@@ -544,8 +544,8 @@ ast_expr_token :: (fn(e : &AstExpr) -> Token)(
 ast_expr_text :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, tok) => tok.value,
-    .FnCall(_, _, _, _, tok) => tok.value
+    .Atom(_, tok) => tok.value.clone(),
+    .FnCall(_, _, _, _, tok) => tok.value.clone()
   )
 );
 /// Return the stable ExprId of an expression node.
@@ -1277,7 +1277,7 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
   });
   pair_args := match(
     arg,
-    .FnCall(_, _, pa, _, _) => pa,
+    .FnCall(_, _, pa, _, _) => pa.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   label_matches := match(
@@ -1421,7 +1421,7 @@ _bs_with_args :: (fn(e : &AstExpr, args : &ArrayList(AstExpr)) -> AstExpr)(
   )
 );
 _bs_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// An identifier atom: the only name a local borrow or a capture pun binds.
 _bs_is_name :: (fn(e : &AstExpr) -> bool)(
@@ -1548,7 +1548,7 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
             changed = true;
             np
           },
-          .None => cl_params
+          .None => cl_params.clone()
         );
         cond(
           changed => Option(AstExpr).Some(AstExpr.FnCall(lid, _bs_with_args(&cl_callee, &new_entries), new_params, cl_infix, ltok)),

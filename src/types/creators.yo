@@ -318,7 +318,7 @@ t_type_app :: (fn(constructor : &TypeValue, sink(args) : ArrayList(TypeValue)) -
 /// The printed form breaks ties between instances of one generic trait and
 /// orders the id-less `Fn` traits.
 _dyn_trait_sort_key :: (fn(t : &TypeValue) -> String)({
-  tid := match(t, Rc(.TraitT(id : i)) => i, _ => String.new());
+  tid := match(t, Rc(.TraitT(id : i)) => i.clone(), _ => String.new());
   `${tid}#${type_to_string(t)}`
 });
 /// Reorder `types` (and its parallel `levels`, when it has one entry per
@@ -888,7 +888,7 @@ ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))
   out := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < n_args, {
-    out.push(match(rec, .Some(m) => match(m.get(i), .Some(b) => b, .None => true), .None => true));
+    out.push(match(rec.clone(), .Some(m) => match(m.get(i), .Some(b) => b, .None => true), .None => true));
     i = (i + usize(1));
   });
   out
