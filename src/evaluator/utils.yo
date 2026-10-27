@@ -3619,7 +3619,11 @@ record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &Typ
 take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScrutineeBorrow))(
   g_pending_scrutinee_borrows.with_mut(m => match(m.remove(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new()))
 );
-migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue) -> unit)({
+/// With `clone_scrutinee` (a module-level binding) and a `Clone` type the
+/// scrutinee's `.clone()` is spelled instead (`clone`): a `match(&G, …)`
+/// binding borrows a module-level place, which may not be live across a call
+/// (E0911), and an arm's `Rc.clone` of the binding is one.
+migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
   if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
   });
@@ -3642,7 +3646,7 @@ migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue) -> uni
       capture_label : String.new(),
       ty_value : ty.clone(),
       lacks_clone_at_copy : type_lacks_clone(ty),
-      spelling : String.from("borrow"),
+      spelling : if(clone_scrutinee && !type_lacks_clone(ty), String.from("clone"), String.from("borrow")),
       capture_names : String.new()
     )
   );
