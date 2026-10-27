@@ -710,33 +710,6 @@ impl(
       }
     );
   }),
-  /// Resize to exactly `new_len`, dropping the tail when shrinking and
-  /// appending copies of `value` when growing. Rust's `resize`.
-  ///
-  /// Distinct from `resize_with_byte`, which memsets raw storage and is only
-  /// meaningful for a plain-old-data element type.
-  resize : (fn(self : &mut Self, new_len : usize, value : &T) -> unit)({
-    cond(
-      (new_len < self._length) => {
-        self.truncate(new_len);
-      },
-      (new_len > self._length) => {
-        self.reserve(new_len - self._length);
-        while(self._length < new_len, {
-          self.push(value);
-        });
-      },
-      true => ()
-    );
-  }),
-  /// Overwrite every element with `value`, keeping the length. Rust's `fill`.
-  fill : (fn(self : &mut Self, value : &T) -> unit)({
-    (mut(i) : usize) = usize(0);
-    n := self._length;
-    while(i < n, i = (i + usize(1)), {
-      self(i) = value;
-    });
-  }),
   /// Split off `[at, len)` into a new list, leaving `[0, at)` here.
   split_off : (fn(self : &mut Self, at : usize) -> Self)({
     if(at > self._length, {
@@ -2001,6 +1974,34 @@ impl(
       }
     )
   ),
+  /// Resize to exactly `new_len`, dropping the tail when shrinking and
+  /// appending clones of `value` when growing. Rust's `resize`.
+  ///
+  /// Distinct from `resize_with_byte`, which memsets raw storage and is only
+  /// meaningful for a plain-old-data element type.
+  resize : (fn(self : &mut Self, new_len : usize, value : &T) -> unit)({
+    cond(
+      (new_len < self._length) => {
+        self.truncate(new_len);
+      },
+      (new_len > self._length) => {
+        self.reserve(new_len - self._length);
+        while(self._length < new_len, {
+          self.push(value.clone());
+        });
+      },
+      true => ()
+    );
+  }),
+  /// Overwrite every element with a clone of `value`, keeping the length.
+  /// Rust's `fill`.
+  fill : (fn(self : &mut Self, value : &T) -> unit)({
+    (mut(i) : usize) = usize(0);
+    n := self._length;
+    while(i < n, i = (i + usize(1)), {
+      self(i) = value.clone();
+    });
+  }),
   /// Append a clone of every element of `other`, which is left as it was.
   /// Each element is cloned in place through `other(i)`.
   extend_cloned : (fn(self : &mut Self, other : &ArrayList(T)) -> unit)({
