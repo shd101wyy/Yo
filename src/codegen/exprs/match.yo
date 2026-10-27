@@ -15,7 +15,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
 {
@@ -832,7 +832,7 @@ _case_executed :: (fn(case_value : &AstExpr, context : &FunctionGenerationContex
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : &AstExpr) -> String)(
-  match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_token(&v).value, .None => String.from("")), .Atom(_, _) => String.from(""))
+  match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v), .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Add a name to the function's local-shadowed-variables set (creating it if
@@ -1424,7 +1424,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
               dparams.get(pi),
               .Some(param) => if(ast_expr_is_fn_call_of(&param, ":", Option(usize).Some(usize(2))), {
                 pargs := _args(&param);
-                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_token(&le).value, String.from("")), .None => String.from(""));
+                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_text(&le), String.from("")), .None => String.from(""));
                 match(
                   pargs.get(usize(1)),
                   .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value == "_") && (label.len() > usize(0)), {

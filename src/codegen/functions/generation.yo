@@ -18,7 +18,7 @@
 { Emitter } :: import("../../emitter.yo");
 { HashSet } :: import("std/collections/hash_set");
 { RefCell } :: import("std/sync/refcell");
-{ AstExpr, ast_expr_to_string, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_to_string, ast_expr_id, ast_expr_token, ast_expr_text, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, no_types, no_labels, slot_pointee_at, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
@@ -1317,7 +1317,7 @@ emit_module_level_variable_declarations :: (
           context.base.get_expr_info(&var_atom),
           .None => (),
           .Some(vi) => {
-            var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_token(&var_atom).value);
+            var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_text(&var_atom));
             (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(&var_atom), &var_name, Option(Environment).Some(vi.env));
             // The recorded env for a `name := rhs` module init can miss the
             // variable (resolution falls back to the bare name and the
