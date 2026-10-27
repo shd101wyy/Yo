@@ -47,7 +47,7 @@ register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)
 });
 /// The registered display name for `type_id`, if any.
 type_display_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_display_names.with(m => m.get_cloned(type_id))
+  g_type_display_names.with(m => m.get(type_id))
 );
 /// Drop every registered display name (a reset of the evaluator universe).
 clear_type_display_names :: (fn() -> unit)({
@@ -63,7 +63,7 @@ _tts_seen :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
     // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
     // shape required — the bool-valued match form miscompiles self-hosted).
     match(
-      xs.get_cloned(i),
+      xs.get(i),
       .Some(e) => if(e == s, {
         found = true;
       }),
@@ -305,7 +305,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           if(i > usize(0), {
             body = `${body}, `;
           });
-          fl := match(fls.get_cloned(i), .Some(s) => s, .None => `""`);
+          fl := match(fls.get(i), .Some(s) => s, .None => `""`);
           ft := match(fts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${fl} : ${ft}`;
           i = (i + usize(1));

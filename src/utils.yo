@@ -206,7 +206,7 @@ _stable_id_module_stem :: (fn(module_path : &String) -> String)({
       if(out.len() > usize(0), {
         out.push_str("__");
       });
-      seg := match(segments.get_cloned(si), .Some(s) => s, .None => String.new());
+      seg := match(segments.get(si), .Some(s) => s, .None => String.new());
       bytes := seg;
       (bi : usize) = usize(0);
       while(bi < bytes.len(), {
@@ -348,7 +348,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
       while(lo < hi, {
         mid := ((lo + hi) / usize(2));
         at_or_before := match(
-          list.get_cloned(mid),
+          list.get(mid),
           .Some(a) => ((a.row < row) || ((a.row == row) && (a.column <= column))),
           .None => false
         );
@@ -359,7 +359,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
         });
       });
       match(
-        if(lo > usize(0), list.get_cloned(lo - usize(1)), Option(TopLevelAnchor).None),
+        if(lo > usize(0), list.get(lo - usize(1)), Option(TopLevelAnchor).None),
         .Some(a) => {
           drow := (row - a.row);
           (`@${a.label}:${drow.to_string()}:${column.to_string()}`, `_${a.label}_r${drow.to_string()}c${column.to_string()}`)
@@ -469,7 +469,7 @@ stable_position_id :: (
   (suffix : usize) = usize(1);
   while(true, {
     match(
-      g_stable_id_owner.with(m => m.get_cloned(&candidate)),
+      g_stable_id_owner.with(m => m.get(&candidate)),
       .Some(owner) => {
         if(owner == src_key, {
           return(candidate);
@@ -493,11 +493,11 @@ stable_position_id :: (
 /// three or two `:` segments.
 stable_id_module_path :: (fn(id : &String) -> Option(String))(
   match(
-    g_stable_id_owner.with(m => m.get_cloned(id)),
+    g_stable_id_owner.with(m => m.get(id)),
     .Some(key) => {
       segs := key.split(":");
       n := segs.len();
-      anchored := ((n >= usize(4)) && match(segs.get_cloned(n - usize(3)), .Some(s) => s.starts_with("@"), .None => false));
+      anchored := ((n >= usize(4)) && match(segs.get(n - usize(3)), .Some(s) => s.starts_with("@"), .None => false));
       keep := cond(anchored => (n - usize(3)), (n >= usize(3)) => (n - usize(2)), true => usize(0));
       if(keep == usize(0), {
         return(Option(String).None);
@@ -505,7 +505,7 @@ stable_id_module_path :: (fn(id : &String) -> Option(String))(
       head := ArrayList(String).new();
       (si : usize) = usize(0);
       while(si < keep, {
-        match(segs.get_cloned(si), .Some(s) => head.push(s), .None => ());
+        match(segs.get(si), .Some(s) => head.push(s), .None => ());
         si = (si + usize(1));
       });
       Option(String).Some(String.from(":").join(&head))
@@ -681,7 +681,7 @@ profile_memory_mark :: (fn(label : str) -> unit)({
 });
 profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.with(xs => xs.len()));
 profile_mark_line_at :: (fn(i : usize) -> String)(
-  `profile: mark ${match(g_prof_mark_labels.with(xs => xs.get_cloned(i)), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB`
+  `profile: mark ${match(g_prof_mark_labels.with(xs => xs.get(i)), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB`
 );
 _prof_sample :: (fn(probe : Option((fn() -> usize))) -> usize)(
   match(probe, .Some(f) => f(), .None => usize(0))
@@ -719,7 +719,7 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
 profile_phase_count :: (fn() -> usize)(g_prof_phase_names.with(xs => xs.len()));
 profile_phase_name_at :: (fn(i : usize) -> String)(
   match(
-    g_prof_phase_names.with(xs => xs.get_cloned(i)),
+    g_prof_phase_names.with(xs => xs.get(i)),
     .Some(n) => n.clone(),
     .None => String.new()
   )
@@ -769,7 +769,7 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
 profile_module_count :: (fn() -> usize)(g_prof_mod_paths.with(xs => xs.len()));
 profile_module_path_at :: (fn(i : usize) -> String)(
   match(
-    g_prof_mod_paths.with(xs => xs.get_cloned(i)),
+    g_prof_mod_paths.with(xs => xs.get(i)),
     .Some(p) => p.clone(),
     .None => String.new()
   )
@@ -989,7 +989,7 @@ export(str_lit_unquote_bytes);
 /// The value of the `YO_DEBUG_*` knob `name`, read from the environment once.
 debug_knob :: (fn(name : &String) -> Option(String))(
   match(
-    g_debug_knobs.with(m => m.get_cloned(name)),
+    g_debug_knobs.with(m => m.get(name)),
     .Some(cached) => cached,
     .None => {
       fresh := env.get(name);

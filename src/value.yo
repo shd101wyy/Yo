@@ -301,10 +301,10 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
               (sf_ok : bool) = true;
               while((sf_i < n_sf) && sf_ok, {
                 match(
-                  anames.get_cloned(sf_i),
+                  anames.get(sf_i),
                   .Some(an_s) =>
                     match(
-                      bnames.get_cloned(sf_i),
+                      bnames.get(sf_i),
                       .Some(bn_s) => {
                         cond(
                           !(an_s == bn_s) => {
@@ -434,10 +434,10 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
               (tr_ok : bool) = true;
               while((tr_i < n_tr) && tr_ok, {
                 match(
-                  afnames.get_cloned(tr_i),
+                  afnames.get(tr_i),
                   .Some(an_s) =>
                     match(
-                      bfnames.get_cloned(tr_i),
+                      bfnames.get(tr_i),
                       .Some(bn_s) => {
                         cond(
                           !(an_s == bn_s) => {
@@ -597,7 +597,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           true => ()
         );
         match(
-          __fvd1.*.params.get_cloned(pi),
+          __fvd1.*.params.get(pi),
           .Some(p) => {
             param_str = `${param_str}${p}`;
           },
@@ -626,7 +626,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           true => ()
         );
         match(
-          field_names.get_cloned(svi),
+          field_names.get(svi),
           .Some(fn_s) => {
             match(
               field_values.get(svi),
@@ -735,7 +735,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           true => ()
         );
         match(
-          field_names.get_cloned(tri),
+          field_names.get(tri),
           .Some(fn_tr) => {
             match(
               field_values.get(tri),
@@ -1035,7 +1035,7 @@ register_enum_cfid :: (fn(enum_id : &String, func_id : &String) -> unit)({
   });
 });
 lookup_enum_cfid :: (fn(enum_id : &String) -> String)(
-  match(g_enum_cfids.with(m => m.get_cloned(enum_id)), .Some(f) => f, .None => String.from(""))
+  match(g_enum_cfids.with(m => m.get(enum_id)), .Some(f) => f, .None => String.from(""))
 );
 export(register_enum_cfid, lookup_enum_cfid);
 // Type-constructor VALUES by func_id: the comptime function (`Option`,

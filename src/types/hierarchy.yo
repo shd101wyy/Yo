@@ -32,7 +32,7 @@ _name_in_visited :: (fn(visited : &ArrayList(String), name : &String) -> bool)({
   result := false;
   i := usize(0);
   while(i < visited.len(), {
-    elem := match(visited.get_cloned(i), .Some(s) => s, .None => String.from(""));
+    elem := match(visited.get(i), .Some(s) => s, .None => String.from(""));
     cond(
       (elem == name) => {
         result = true;
@@ -98,7 +98,7 @@ derive(_UniverseMemoEntry, Clone);
 /// a result computed under it depends on that path, so it is not memoized.
 (mut(g_universe_guard_fired) : bool) = false;
 _universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue))({
-  bucket := match(g_universe_memo.with(m => m.get_cloned(key)), .Some(b) => b, .None => return(Option(TypeValue).None));
+  bucket := match(g_universe_memo.with(m => m.get(key)), .Some(b) => b, .None => return(Option(TypeValue).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
@@ -125,7 +125,7 @@ _universe_memo_compute :: (
   new_visited.push(name.clone());
   r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
-    bucket := match(g_universe_memo.with(m => m.get_cloned(key.clone())), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
+    bucket := match(g_universe_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
     bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
     _ := g_universe_memo.with_mut(m => m.insert(key.clone(), bucket));
   });
