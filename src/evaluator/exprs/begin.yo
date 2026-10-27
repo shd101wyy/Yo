@@ -108,6 +108,10 @@ pragma(Pragma.AllowUnsafe);
   get_dup_use_site_token,
   snapshot_loop_flow,
   ImplicitCopyPending,
+  ExplicitCopySite,
+  migrate_rc_clone_on,
+  migrate_rc_clone_borrow_scrutinee,
+  take_pending_scrutinee_borrows,
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
   take_dyn_copy_pending,
@@ -2222,6 +2226,48 @@ discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
+/// `yo fix --migrate rc-clone`: judge the pending match-scrutinee borrows of
+/// `frame`'s variables against the block that declares them: a scrutinee the
+/// rule consumes (recorded by `_decide_match_mode`) whose variable the block
+/// reads after it (`_ic_scan`) borrows — `match(&x, …)` — instead of moving.
+_migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), {
+    match(
+      fvars.get(i),
+      .Some(v) => {
+        pendings := take_pending_scrutinee_borrows(v.id);
+        (pi : usize) = usize(0);
+        while(pi < pendings.len(), pi = (pi + usize(1)), {
+          match(
+            pendings.get(pi),
+            .Some(pb) => {
+              acc := _ic_new_scan();
+              site := ImplicitCopyPending(
+                line : String.new(),
+                module_path : ast_expr_token(&pb.scr).module_path.*.clone(),
+                byte_offset : ast_expr_token(&pb.scr).byte_offset,
+                migrate_site : Option(ExplicitCopySite).None
+              );
+              (ci : usize) = usize(0);
+              while((ci < begin_args.len()) && !acc.later, {
+                match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &acc, ctx), .None => ());
+                ci = (ci + usize(1));
+              });
+              if(acc.later, {
+                migrate_rc_clone_borrow_scrutinee(&pb.scr, &pb.ty);
+              });
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 /// Judge, at the end of a `match` arm, the pending copies of the arm's
 /// pattern bindings (`frame`) against the arm's body (`scanned`): a binding
 /// of an owned temporary holds its copies pending for `yo fix --migrate
@@ -2254,7 +2300,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
-export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies);
+export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
@@ -3680,6 +3726,15 @@ _evaluate_begin_expression_impl :: (
     match(current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr, &begin_args, ctx, exn), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
       match(env.frames.get(env.frames.len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
+    });
+  });
+  // `yo fix --migrate rc-clone`: judge the pending match-scrutinee borrows
+  // the same way — a scrutinee the rule consumes whose variable the block
+  // reads again (`_ic_scan`'s later) borrows: `match(&x, …)`.
+  if(migrate_rc_clone_on(), {
+    match(current_frame_opt, .Some(mig_fr) => _migrate_judge_scrutinee_borrows(&mig_fr, &begin_args, ctx), .None => ());
+    if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+      match(env.frames.get(env.frames.len() - usize(2)), .Some(mig_pfr) => _migrate_judge_scrutinee_borrows(&mig_pfr, &begin_args, ctx), .None => ());
     });
   });
   // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate
