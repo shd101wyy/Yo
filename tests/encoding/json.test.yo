@@ -240,7 +240,7 @@ test("json.stringify empty array", {
   assert(result == "[]", "empty array should stringify to []");
 });
 test("json.stringify array", {
-  items := ArrayList(JsonValue).new();
+  mut(items) := ArrayList(JsonValue).new();
   items.push(.Number(f64(1)));
   items.push(.Number(f64(2)));
   items.push(.Number(f64(3)));
@@ -254,8 +254,8 @@ test("json.stringify empty object", {
   assert(result == "{}", "empty object should stringify to {}");
 });
 test("json.stringify object", {
-  keys := ArrayList(String).new();
-  vals := ArrayList(JsonValue).new();
+  mut(keys) := ArrayList(String).new();
+  mut(vals) := ArrayList(JsonValue).new();
   keys.push(String.from("a"));
   vals.push(.Number(f64(1)));
   keys.push(String.from("b"));
@@ -306,8 +306,8 @@ impl(
   _TPoint,
   ToJson(
     to_json : (fn(self : &Self) -> JsonValue)({
-      keys := ArrayList(String).new();
-      values := ArrayList(JsonValue).new();
+      mut(keys) := ArrayList(String).new();
+      mut(values) := ArrayList(JsonValue).new();
       keys.push(`x`);
       values.push(self.x.to_json());
       keys.push(`y`);
@@ -397,7 +397,7 @@ test("json Option roundtrip", {
   );
 });
 test("json ArrayList roundtrip", {
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
