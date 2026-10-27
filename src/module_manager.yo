@@ -122,7 +122,9 @@ env_mod :: import("std/env");
 /// (issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md). Populated in the
 /// same block as `g_cached_prelude_env`, cleared with it in `mm_reset`.
 (mut(g_cached_prelude_module_value) : Option(EvalValue)) = Option(EvalValue).None;
-(mut(g_cached_prelude_module_type) : Option(TypeValue)) = Option(TypeValue).None;
+/// The type half is a cell rather than a `mut` global, so a read lends no
+/// mutable module-level binding (E0916).
+(g_cached_prelude_module_type : RefCell(Option(TypeValue))) = RefCell(Option(TypeValue)).new(Option(TypeValue).None);
 /// Frame count of `g_cached_prelude_env` when it was cached. The cache is a
 /// PRIVATE snapshot and nothing may push into it; `mm_fresh_module_env`
 /// treats any growth as an internal error (silent contamination of every
@@ -143,9 +145,11 @@ env_mod :: import("std/env");
 // so their ExprInfo must live in a single table. ExprIds are globally unique
 // (alloc_global_expr_id), so a shared table has no cross-module key collisions.
 // `.None` during `check`/`test` (each file keeps its own table).
-(mut(g_shared_expr_info_table) : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
+// A cell rather than a `mut` global, so a read lends no mutable module-level
+// binding (E0916).
+(g_shared_expr_info_table : RefCell(Option(ExprInfoTable))) = RefCell(Option(ExprInfoTable)).new(Option(ExprInfoTable).None);
 /// No shared table is installed: each module evaluation keeps its own.
-_no_shared_expr_info_table :: (fn() -> bool)(match(g_shared_expr_info_table.clone(), .Some(_) => false, .None => true));
+_no_shared_expr_info_table :: (fn() -> bool)(g_shared_expr_info_table.with(st => st.is_none()));
 /// Message slot for a module-eval error captured inside
 /// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot reference
 /// outer runtime variables, but they CAN call module-level FUNCTIONS — so the
@@ -430,18 +434,18 @@ mm_has_prelude_env :: (fn() -> bool)(match(g_cached_prelude_env, .Some(_) => tru
 mm_clear_prelude_env :: (fn() -> unit)({
   g_cached_prelude_env = Option(Environment).None;
   g_cached_prelude_module_value = Option(EvalValue).None;
-  g_cached_prelude_module_type = Option(TypeValue).None;
+  _prev_type := g_cached_prelude_module_type.replace(Option(TypeValue).None);
   g_cached_prelude_frame_count = usize(0);
 });
 /// Publish the shared codegen ExprInfoTable. Every module loaded from here on
 /// routes its per-expression metadata into `t`.
 mm_set_shared_expr_info_table :: (fn(t : &ExprInfoTable) -> unit)({
-  g_shared_expr_info_table = Option(ExprInfoTable).Some(t.clone());
+  _prev_table := g_shared_expr_info_table.replace(Option(ExprInfoTable).Some(t.clone()));
   set_name_path_sharing(true);
   scope_release_set_table(Option(ExprInfoTable).Some(t.clone()));
 });
 mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
-  g_shared_expr_info_table.clone()
+  g_shared_expr_info_table.with(st => st.clone())
 );
 /// Clone the cached prelude env, or start a fresh one keyed on `module_path`
 /// when no prelude has been loaded yet.
@@ -1983,9 +1987,9 @@ mm_reset :: (fn() -> unit)({
   clear_type_binding_names();
   g_cached_prelude_env = Option(Environment).None;
   g_cached_prelude_module_value = Option(EvalValue).None;
-  g_cached_prelude_module_type = Option(TypeValue).None;
+  _prev_type := g_cached_prelude_module_type.replace(Option(TypeValue).None);
   g_cached_prelude_frame_count = usize(0);
-  g_shared_expr_info_table = Option(ExprInfoTable).None;
+  _prev_table := g_shared_expr_info_table.replace(Option(ExprInfoTable).None);
   set_name_path_sharing(false);
   scope_release_set_table(Option(ExprInfoTable).None);
   g_loader_std_path = Option(String).None;
@@ -2362,7 +2366,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   // Codegen: route this module's per-expression metadata into the shared table
   // (see g_shared_expr_info_table). No-op during check/test.
   match(
-    g_shared_expr_info_table.clone(),
+    g_shared_expr_info_table.with(st => st.clone()),
     .Some(t) => {
       ctx.expr_info_table = t.clone();
     },
@@ -2549,7 +2553,7 @@ mm_load_prelude_file :: (
   // functions emitted directly (e.g. `assert`). No-op for `check`/`test`
   // (g_shared is None there → the prelude uses its own throwaway table).
   match(
-    g_shared_expr_info_table.clone(),
+    g_shared_expr_info_table.with(st => st.clone()),
     .Some(t) => {
       prelude_ctx.expr_info_table = t.clone();
     },
@@ -2641,7 +2645,7 @@ mm_load_prelude_file :: (
     // cannot recover fn field types — a FuncVal carries none — so keep the
     // recorded pair for `_prelude_load_outcome`.
     g_cached_prelude_module_value = Option(EvalValue).Some(prelude_result.module_value);
-    g_cached_prelude_module_type = Option(TypeValue).Some(Rc.clone(prelude_result.module_type));
+    _prev_type := g_cached_prelude_module_type.replace(Option(TypeValue).Some(Rc.clone(prelude_result.module_type)));
   });
   true
 });
@@ -2762,7 +2766,7 @@ mm_eval_entry_exprs :: (
   ctx.is_executing = true;
   ctx.load_module = Option((fn(path : &String) -> LoadModuleResult)).Some(demand_load_module);
   match(
-    g_shared_expr_info_table.clone(),
+    g_shared_expr_info_table.with(st => st.clone()),
     .Some(t) => {
       ctx.expr_info_table = t.clone();
     },
@@ -2860,7 +2864,7 @@ _prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> Module
     .None => _build_module_val_from_env(&prelude_env)
   );
   prelude_ty := match(
-    g_cached_prelude_module_type.clone(),
+    g_cached_prelude_module_type.with(st => st.clone()),
     .Some(mt) => Rc.clone(mt),
     .None => type_of_eval_value(&prelude_val)
   );
