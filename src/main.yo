@@ -4018,12 +4018,44 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
   _tails := take_copy_tail_dests();
   _flows := take_copy_flows();
   _bodies := take_clone_impl_bodies();
+  // Decision 33's call-site markers a capture list made necessary (a
+  // captured `&T` borrow passed bare to a `&T` parameter), spelled `marker&`
+  // / `marker&mut ` and inserted like a `&` scrutinee.
+  set_migrate_markers(false);
+  markers := take_marker_sites();
+  (mki : usize) = usize(0);
+  while(mki < markers.len(), mki = (mki + usize(1)), {
+    mk := markers(mki);
+    sites.push(
+      ExplicitCopySite(
+        path : mk.path.clone(),
+        row : mk.row,
+        col : mk.col,
+        expect : mk.expect.clone(),
+        ty : String.new(),
+        copy_path : String.from("call-site marker"),
+        src_decl : String.new(),
+        dst_decl : String.new(),
+        at_module : canonical_module_path(mk.path.clone()),
+        at_offset : u32(0),
+        src_borrow : String.new(),
+        in_generic : false,
+        src_dying : String.new(),
+        capture_label : String.new(),
+        ty_value : rc(TypeValueNode.Unit),
+        lacks_clone_at_copy : false,
+        spelling : `marker${mk.marker}`,
+        capture_names : String.new()
+      )
+    );
+  });
   site_paths := ArrayList(String).new();
   (spi : usize) = usize(0);
   while(spi < sites.len(), spi = (spi + usize(1)), {
     site_paths.push(canonical_module_path(sites(spi).path.clone()));
   });
   (n_inserted : usize) = usize(0);
+  (n_markers : usize) = usize(0);
   (n_captures : usize) = usize(0);
   (n_borrows : usize) = usize(0);
   (n_skipped : usize) = usize(0);
@@ -4136,11 +4168,16 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
             cand.push_rune(runes(k));
           });
           label_prefix := if(st.capture_label.is_empty(), String.new(), `${st.capture_label} : `);
-          if(st.spelling == "borrow", {
+          if((st.spelling == "borrow") || st.spelling.starts_with("marker"), {
             // A consuming `match` on a place the rule cannot move: match
             // through a borrow.
             // An arm writes through one of the match's bindings: `&mut`.
-            sigil := if(migrate_mut_scrutinee_at(`${canon}:${st.row.to_string()}:${st.col.to_string()}`), String.from("&mut "), String.from("&"));
+            sigil := cond(
+              (st.spelling == "marker&") => String.from("&"),
+              st.spelling.starts_with("marker") => String.from("&mut "),
+              migrate_mut_scrutinee_at(`${canon}:${st.row.to_string()}:${st.col.to_string()}`) => String.from("&mut "),
+              true => String.from("&")
+            );
             bare_b := _parse_or_none(`${sigil}${cand}`, file.clone());
             wrapped_b := _parse_or_none(`${sigil}(${cand})`, file.clone());
             (parens_b : bool) = match(
@@ -4152,7 +4189,11 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
               ),
               .None => true
             );
-            n_borrows = (n_borrows + usize(1));
+            if(st.spelling.starts_with("marker"), {
+              n_markers = (n_markers + usize(1));
+            }, {
+              n_borrows = (n_borrows + usize(1));
+            });
             if(dry_run, {
               println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${sigil}${if(parens_b, `(${cand})`, cand.clone())}\``);
             });
@@ -4372,7 +4413,8 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
   tests_note := if(n_skipped_tests > usize(0), `; ${n_skipped_tests.to_string()} test body(ies) did not evaluate (listed above)`, String.new());
   clear_migrate_mut_scrutinees();
   borrows_note := if(n_borrows > usize(0), ` and ${n_borrows.to_string()} \`&\` before a \`match\` scrutinee`, String.new());
-  println(`fix: ${verb} ${n_inserted.to_string()} clone(s) and ${n_captures.to_string()} capture list(s)${borrows_note}; ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
+  markers_note := if(n_markers > usize(0), ` and ${n_markers.to_string()} call-site marker(s)`, String.new());
+  println(`fix: ${verb} ${n_inserted.to_string()} clone(s) and ${n_captures.to_string()} capture list(s)${borrows_note}${markers_note}; ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated copies were not migrated`));
   });
@@ -4822,6 +4864,11 @@ run_fix :: (
   });
   if(migrate == "rc-clone", {
     set_migrate_rc_clone(true);
+    // A capture list this migration writes makes a captured `&T` borrow an
+    // explicit capture, whose body uses then need decision 33's call-site
+    // marker (`f(&get_info)`, E0914): the next pass records and inserts
+    // them as `--migrate markers` does.
+    set_migrate_markers(true);
   });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
