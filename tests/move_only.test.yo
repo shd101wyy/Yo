@@ -983,12 +983,14 @@ test("a move inside a unary operator's operand moves once", {
 // not read-only, which for a move-only value was a bitwise copy whose drop
 // ran `Drop` while the list still owned the element.
 // The method writes container storage (a global list), so the mutation
-// summary cannot prove it read-only and Stage 0 applied.
-(mut(g_mo_seen) : ArrayList(i32)) = ArrayList(i32).new();
+// summary cannot prove it read-only and Stage 0 applied. The list is a value
+// since B8, so the global holds it in a cell (B5's spelling).
+(g_mo_seen : RefCell(ArrayList(i32))) = RefCell(ArrayList(i32)).new(ArrayList(i32).new());
 impl(
   _MoFd,
   _mo_note : (fn(self : &Self) -> i32)({
-    g_mo_seen.push(self.n);
+    n := self.n;
+    g_mo_seen.with_mut(xs => xs.push(n));
     self.n
   })
 );

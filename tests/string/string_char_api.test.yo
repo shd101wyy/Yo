@@ -32,7 +32,7 @@ _subject :: (fn() -> String)(
 test("String chars().count() counts runes across all four UTF-8 widths", {
   s := _subject();
   assert(s.len() == usize(10), "subject must be 10 bytes");
-  assert(s.chars().count() == usize(4), "subject must be 4 runes");
+  assert(s.clone().chars().count() == usize(4), "subject must be 4 runes");
   // Pin the corpus: if these bytes ever change, every offset below is wrong.
   assert(s.byte_at(usize(0)) == u8(0x61), "byte 0 is 'a'");
   assert(s.byte_at(usize(1)) == u8(0xC3), "byte 1 leads 'é'");
@@ -96,7 +96,7 @@ test("String is_char_boundary over a standalone 4-byte sequence", {
   // The 4-byte width alone, so the offsets are not shifted by anything else.
   s := `𝄞`;
   assert(s.len() == usize(4), "U+1D11E is 4 bytes");
-  assert(s.chars().count() == usize(1), "U+1D11E is 1 rune");
+  assert(s.clone().chars().count() == usize(1), "U+1D11E is 1 rune");
   assert(s.is_char_boundary(usize(0)), "byte 0 is the lead");
   assert(!s.is_char_boundary(usize(1)), "byte 1 is a continuation");
   assert(!s.is_char_boundary(usize(2)), "byte 2 is a continuation");
@@ -203,8 +203,8 @@ test("String char_indices offsets are exactly the char boundaries", {
   // for every i in [0, len()). (len() itself is a boundary but is
   // not a key, since no rune starts there.)
   s := _subject();
-  offsets := ArrayList(usize).new();
-  mut(it) := s.char_indices();
+  mut(offsets) := ArrayList(usize).new();
+  mut(it) := s.clone().char_indices();
   while(true, {
     match(
       it.next(),
@@ -216,7 +216,7 @@ test("String char_indices offsets are exactly the char boundaries", {
       }
     );
   });
-  assert(offsets.len() == s.chars().count(), "one key per rune");
+  assert(offsets.len() == s.clone().chars().count(), "one key per rune");
   mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     assert(offsets.contains(&i) == s.is_char_boundary(i), "key set matches the boundary set");
@@ -225,8 +225,8 @@ test("String char_indices offsets are exactly the char boundaries", {
 });
 test("String char_indices walks in lockstep with chars()", {
   s := `héllo, 世界! 😀`;
-  mut(ci) := s.char_indices();
-  mut(ch) := s.chars();
+  mut(ci) := s.clone().char_indices();
+  mut(ch) := s.clone().chars();
   mut(expected_offset) := usize(0);
   mut(seen) := usize(0);
   while(true, {
@@ -253,7 +253,7 @@ test("String char_indices walks in lockstep with chars()", {
       break;
     });
   });
-  assert(seen == s.chars().count(), "both iterators yielded every rune");
+  assert(seen == s.clone().chars().count(), "both iterators yielded every rune");
   assert(expected_offset == s.len(), "both iterators consumed every byte");
 });
 test("String char_indices on the empty string yields nothing", {
@@ -323,8 +323,8 @@ test("String try_substring composes with floor/ceil to make any range safe", {
 // values the deleted methods returned.
 // ===========================================================================
 _rune_slice :: (fn(s : &String, start : usize, end : usize) -> String)({
-  start_b := match(s.char_indices().nth(start), .Some(p) => p._0, .None => s.len());
-  end_b := match(s.char_indices().nth(end), .Some(p) => p._0, .None => s.len());
+  start_b := match(s.clone().char_indices().nth(start), .Some(p) => p._0, .None => s.len());
+  end_b := match(s.clone().char_indices().nth(end), .Some(p) => p._0, .None => s.len());
   if(start_b >= end_b, {
     return(String.new());
   });
@@ -332,7 +332,7 @@ _rune_slice :: (fn(s : &String, start : usize, end : usize) -> String)({
 });
 _truncate_runes :: (fn(s : &String, max_runes : usize) -> String)(
   match(
-    s.char_indices().nth(max_runes),
+    s.clone().char_indices().nth(max_runes),
     .Some(p) => s.substring(usize(0), p._0),
     .None => s.clone()
   )
