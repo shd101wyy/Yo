@@ -132,3 +132,26 @@ test("dyn(f) of an Impl(Fn) parameter boxes, also under a parameter named rc", {
   e := _box_fn_under_rc(x => (x * n));
   assert(e(i32(2)) == i32(10), "a parameter named rc does not capture the cell constructor");
 });
+// Static-argument inference (A1): the unapplied spellings infer the payload
+// type from the value.
+test("Rc.new, Box.new and Arc.new infer the payload type, alloc included", {
+  counts := _Counts(live : usize(0));
+  heap := _counting(addr_of(counts));
+  {
+    a := Rc.new(i32(1), alloc : .Some(heap));
+    b := Box.new(i32(2), alloc : .Some(heap));
+    c := Arc.new(i32(3), alloc : .Some(heap));
+    comptime_assert(Type.eq(type_of(a), Rc(i32)), "Rc.new(i32(1)) is Rc(i32)");
+    comptime_assert(Type.eq(type_of(b), Box(i32)), "Box.new(i32(2)) is Box(i32)");
+    comptime_assert(Type.eq(type_of(c), Arc(i32)), "Arc.new(i32(3)) is Arc(i32)");
+    assert(counts.live == usize(3), "every cell is in the allocator");
+    assert(((a.* + b.*) + c.*) == i32(6), "the payloads");
+  };
+  assert(counts.live == usize(0), "every cell went back");
+});
+test("Rc.new(some_rc) is an Rc(Rc(i32))", {
+  inner := Rc.new(i32(4));
+  outer := Rc.new(inner);
+  comptime_assert(Type.eq(type_of(outer), Rc(Rc(i32))), "a handle is a payload, as Rust's Rc::new(rc)");
+  assert(outer.*.* == i32(4), "the inner payload");
+});

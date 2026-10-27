@@ -1,10 +1,12 @@
 // A method called through an UNAPPLIED generic type constructor, `G.m(x, ...)`
-// (plans/VALUES_BY_DEFAULT.md decision 32): `G`'s type arguments are inferred
-// from the receiver `x`, the call's first argument, as Rust infers
-// `Rc::clone`'s `T`. `Rc.clone(w)` is `Rc(i32).clone(w)` for `w : Rc(i32)`.
-// The receiver must itself be an instance of `G`; a static method has no
-// receiver to infer from, so its type arguments are written (E0613); the
-// type a binding expects of the call's result does not supply them either.
+// (plans/VALUES_BY_DEFAULT.md decision 32): when the method takes `Self` first,
+// `G`'s type arguments are inferred from the receiver `x`, the call's first
+// argument, as Rust infers `Rc::clone`'s `T`. `Rc.clone(w)` is
+// `Rc(i32).clone(w)` for `w : Rc(i32)`, and the receiver must itself be an
+// instance of `G`. A static method infers them from every argument whose
+// parameter mentions them (plans/backlog/STATIC_ARGUMENT_INFERENCE.md,
+// tests/static_argument_inference.test.yo); a call with no arguments is E0613,
+// and the type a binding expects of the call's result never supplies them.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 mv :: import("./member_visibility/counter.yo");
@@ -123,9 +125,10 @@ test("a user generic enum", {
   o := Option(i32).Some(i32(4));
   assert(Option.unwrap_or(o, i32(0)) == i32(4), "the prelude's Option too");
 });
-test("a static method has no receiver to infer from (E0613)", {
-  comptime_expect_error(_Pair.make(i32(1), true), "not an instance of `_Pair`");
-  comptime_expect_error(_Pair.make(i32(1), true), "_Pair(...).make(...)");
+test("a static method infers from its arguments; with none it is E0613", {
+  p := _Pair.make(i32(1), true);
+  comptime_assert(Type.eq(type_of(p), _Pair(i32, bool)), "A := i32, B := bool from the arguments");
+  assert(p.a == i32(1), "the static method ran");
   comptime_expect_error(Rc.default(), "this call has none");
   q := _Pair(i32, bool).make(i32(2), false);
   assert(q.a == i32(2), "written type arguments call the static method");

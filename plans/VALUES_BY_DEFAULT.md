@@ -4855,13 +4855,17 @@ and in git, not a silent edit.
     `IntPair(u8).first(q)` work. A labeled receiver
     (`Pair.first(self : p)`) is the first argument too, since labels are
     positional.
-  - **Static methods.** (Amended 2026-10-23: A1 of
-    `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` replaces this bullet when it
-    lands; a static method then infers from every argument whose declared
-    type mentions the constructor's binders.) A method with no `self` has
-    nothing to infer from, so `Pair.make(a, b)` is E0613; the type arguments are written,
-    `Pair(A, B).make(a, b)`. The type a binding expects of the result does
-    not supply them either: "whenever we could be explicit, do explicit".
+  - **Static methods.** (Amended 2026-10-27: A1 of
+    `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` landed, so this bullet's
+    original rule — a method with no `self` has nothing to infer from, and
+    `Pair.make(a, b)` is E0613 — is replaced.) A method whose first
+    parameter is not `Self` infers the constructor's arguments from every
+    argument whose declared parameter type mentions the impl's binders:
+    `Pair.make(a, b)` is `Pair(A, B).make(a, b)`, `Rc.new(some_rc)` is
+    `Rc(Rc(X))`. A method that takes `Self` first keeps the receiver rule
+    above. The type a binding expects of the result still never supplies
+    them: "whenever we could be explicit, do explicit", so `ArrayList.new()`
+    and `Rc.new(.None)` stay E0613.
     A first argument of another type (`Box.clone(a)` for an `Arc`) is
     E0613 naming its type; a missing method stays E0610, which now names
     the instance (`No method "m" on Box(i32)`, not `on Type`).

@@ -1365,16 +1365,17 @@ _infer_unapplied_ctor_receiver :: (
     uc_tys.push(.None);
   });
   uc_arg0_ty := _sai_arg_type(args, usize(0), &mut uc_nodes, &mut uc_tys, env, ctx, exn);
+  uc_has_arg0 := uc_arg0_ty.is_some();
   uc_arg_ty := match(uc_arg0_ty, .Some(t) => t, .None => t_unit());
   uc_own := resolve_enum_shell(resolve_struct_shell(t_refine_inner(&uc_arg_ty)));
   uc_inst := cond(
-    (uc_arg0_ty.is_some() && (instance_constructor_fid(&uc_own) == uc_ctor_fid)) => Option(TypeValue).Some(uc_own),
+    (uc_has_arg0 && (instance_constructor_fid(&uc_own) == uc_ctor_fid)) => Option(TypeValue).Some(uc_own.clone()),
     true => Option(TypeValue).None
   );
   // Decision 32's fast path: the receiver binding stands when the method
   // found on the instance takes `Self` first.
   match(
-    uc_inst,
+    uc_inst.clone(),
     .Some(uc_self) => if(_sai_instance_method_takes_self(env, &uc_method, &uc_self), {
       return(_sai_bind_receiver(&uc_recv, &uc_self, &uc_nodes, &uc_tys, true, env, ctx));
     }),
@@ -1396,7 +1397,7 @@ _infer_unapplied_ctor_receiver :: (
       },
       .None => ()
     );
-    if(uc_may_throw && uc_arg0_ty.is_none(), {
+    if(uc_may_throw && !uc_has_arg0, {
       exn.throw(
         dyn(
           with_code(
@@ -1410,7 +1411,7 @@ _infer_unapplied_ctor_receiver :: (
         )
       );
     });
-    if(uc_may_throw && uc_arg0_ty.is_some(), {
+    if(uc_may_throw && uc_has_arg0, {
       // An instance of ANOTHER constructor (the argument's type was built by
       // one) is told apart from a type no constructor built (`i32`): the
       // first is fixed by naming that constructor, the second by passing a
@@ -1515,7 +1516,7 @@ _sai_arg_type :: (
       // The WRITTEN node is the one argument matching evaluates again, so it
       // is the one marked pre-evaluated, as decision 32 marked its receiver.
       nodes(i) = Option(AstExpr).Some(place);
-      tys(i) = Option(TypeValue).Some(ai.ty);
+      tys(i) = Option(TypeValue).Some(ai.ty.clone());
       Option(TypeValue).Some(ai.ty)
     },
     .None => Option(TypeValue).None
@@ -1789,11 +1790,12 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   s := subst_new();
   (bi : usize) = usize(0);
   while(bi < c.binder_names.len(), bi = (bi + usize(1)), {
+    b_name := match(c.binder_names.get(bi), .Some(n) => n, .None => String.new());
     match(
       bindings.get(bi),
       .Some(.Some(bty)) => match(
         c.binder_types.get(bi),
-        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &match(c.binder_names.get(bi), .Some(n) => n, .None => String.new()), lvl, &bty),
+        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &b_name, lvl, &bty),
         _ => ()
       ),
       _ => ()
@@ -1878,7 +1880,8 @@ _sai_decide :: (
     );
   });
   if(bound_tys.len() == usize(1), {
-    return(_sai_bind_receiver(recv, &match(bound_tys.get(usize(0)), .Some(t) => t, .None => t_unit()), nodes, tys, false, env, ctx));
+    chosen := match(bound_tys.get(usize(0)), .Some(t) => t, .None => t_unit());
+    return(_sai_bind_receiver(recv, &chosen, nodes, tys, false, env, ctx));
   });
   if(!may_throw, {
     return(none);
@@ -1897,7 +1900,7 @@ _sai_decide :: (
     exn.throw(
       dyn(
         with_code(
-          format_error_message_with_help(tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: it is ambiguous, the arguments fit more than one impl that declares \`${m}\`: ${listing}.`, help),
+          format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: it is ambiguous, the arguments fit more than one impl that declares \`${m}\`: ${listing}.`, &help),
           E_CANNOT_INFER
         )
       )
@@ -1911,7 +1914,7 @@ _sai_decide :: (
         exn.throw(
           dyn(
             with_code(
-              format_error_message(tok, `Type ${type_to_string(&wbound)} does not implement required trait ${type_to_string(&wtrait)}: \`${ctor}.${m}(...)\` binds \`${wb}\` to ${type_to_string(&wbound)}, and the impl that declares \`${m}\` (at ${wsite}) requires \`${wb} <: ${type_to_string(&wtrait)}\`.`),
+              format_error_message(&tok, `Type ${type_to_string(&wbound)} does not implement required trait ${type_to_string(&wtrait)}: \`${ctor}.${m}(...)\` binds \`${wb}\` to ${type_to_string(&wbound)}, and the impl that declares \`${m}\` (at ${wsite}) requires \`${wb} <: ${type_to_string(&wtrait)}\`.`),
               E_TRAIT_NOT_IMPLEMENTED
             )
           )
@@ -1929,7 +1932,7 @@ _sai_decide :: (
         exn.throw(
           dyn(
             with_code(
-              format_error_message(tok, `Incompatible types for type parameter "${cb}" of \`${ctor}\`: it is ${type_to_string(&cfirst)} from argument ${(cfirst_arg + usize(1)).to_string()} but ${type_to_string(&clater)} from argument ${(clater_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`),
+              format_error_message(&tok, `Incompatible types for type parameter "${cb}" of \`${ctor}\`: it is ${type_to_string(&cfirst)} from argument ${(cfirst_arg + usize(1)).to_string()} but ${type_to_string(&clater)} from argument ${(clater_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`),
               E_INCOMPATIBLE_TYPES
             )
           )
@@ -1947,7 +1950,7 @@ _sai_decide :: (
         exn.throw(
           dyn(
             with_code(
-              format_error_message_with_help(tok, `Cannot infer the type parameter \`${ub}\` of \`${ctor}\` in \`${ctor}.${m}(...)\`: no argument binds it. An argument binds the type parameters its parameter's declared type mentions; a closure, an enum shorthand \`.X\` and a defaulted argument bind none, and neither does the type the call is expected to have.`, help),
+              format_error_message_with_help(&tok, `Cannot infer the type parameter \`${ub}\` of \`${ctor}\` in \`${ctor}.${m}(...)\`: no argument binds it. An argument binds the type parameters its parameter's declared type mentions; a closure, an enum shorthand \`.X\` and a defaulted argument bind none, and neither does the type the call is expected to have.`, &help),
               E_CANNOT_INFER
             )
           )
@@ -1965,7 +1968,7 @@ _sai_decide :: (
         exn.throw(
           dyn(
             with_code(
-              format_error_message_with_help(tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: argument ${(na + usize(1)).to_string()} has type \`${type_to_string(&nty)}\`, which does not fit the parameter type \`${type_to_string(&npt)}\`.`, help),
+              format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: argument ${(na + usize(1)).to_string()} has type \`${type_to_string(&nty)}\`, which does not fit the parameter type \`${type_to_string(&npt)}\`.`, &help),
               E_CANNOT_INFER
             )
           )
@@ -1978,7 +1981,7 @@ _sai_decide :: (
   exn.throw(
     dyn(
       with_code(
-        format_error_message_with_help(tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: the bounds of every impl that declares \`${m}\` fail for these arguments.`, help),
+        format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: the bounds of every impl that declares \`${m}\` fail for these arguments.`, &help),
         E_CANNOT_INFER
       )
     )
