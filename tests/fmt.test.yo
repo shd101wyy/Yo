@@ -1,6 +1,7 @@
 { assert } :: import("std/assert");
 { ToString, StringBuilder, Alignment, println } :: import("std/fmt");
 { rune } :: import("std/string/rune");
+{ String } :: import("std/string");
 // Side-effect witness for the unit-receiver test at the bottom of this file.
 (mut(_unit_side_effects) : i32) = i32(0);
 _unit_mark :: (fn(n : i32) -> unit)({
@@ -291,4 +292,52 @@ test("StringBuilder.write_hex renders lowercase hexadecimal", {
   assert(w.to_string() == `0`, "zero is 0");
   w.write_hex(u64(3735928559));
   assert(w.to_string() == `deadbeef`, "and the classic one");
+});
+// A template of two or more parts builds ONE String: the first part is
+// rendered owned, every later part is appended to it through
+// `ToString.append_to` (`String` and `str` append their bytes by borrow)
+// instead of `part.to_string()` joined with `+`
+// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D10).
+_D10Plain :: struct(n : i32);
+impl(_D10Plain, ToString(to_string : (fn(self : &Self) -> String)(`p${self.n}`)));
+_D10Custom :: struct(n : i32);
+impl(
+  _D10Custom,
+  ToString(
+    to_string : (fn(self : &Self) -> String)(`to_string`),
+    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str("append_to"))
+  )
+);
+_d10_tick :: (fn(n : &mut i32) -> i32)({
+  n = (n + i32(1));
+  n
+});
+test("D10: a template's parts render left to right, each once", {
+  mut(n) := i32(0);
+  s := `${_d10_tick(&mut n)}-${_d10_tick(&mut n)}-${_d10_tick(&mut n)}`;
+  assert(s == `1-2-3`, "evaluation order");
+  assert(n == i32(3), "each part evaluated once");
+});
+test("D10: a String part is appended by borrow and stays usable", {
+  word := String.from("ab");
+  s := `<${word}>${word}`;
+  assert(s == `<ab>ab`, "both String parts rendered");
+  assert(word == `ab`, "the interpolated String is untouched");
+  t := `${word}${word}`;
+  assert(t == `abab`, "a String first part and a String later part");
+});
+test("D10: a later part uses the trait's append_to, default or overridden", {
+  assert(`x ${_D10Plain(n : i32(4))} y` == `x p4 y`, "the default append_to renders through to_string");
+  assert(`x ${_D10Custom(n : i32(4))} y` == `x append_to y`, "an overriding append_to is the one a later part calls");
+  assert(`${_D10Custom(n : i32(4))} y` == `to_string y`, "the first part is rendered by to_string");
+});
+test("D10: nested templates, specs and literal-only templates", {
+  x := i32(5);
+  assert(`a${`b${x}c`}d` == `ab5cd`, "a template nested in an interpolation");
+  assert(`a${`b${`c${x}`}`}` == `abc5`, "three levels: each builder local is its own");
+  assert(`[${x:>3}|${x:x}]` == `[  5|5]`, "spec'd later parts append their format() result");
+  assert(`only literal` == "only literal", "a literal-only template stays one part");
+  assert(`${x}` == `5`, "a single interpolation stays one part");
+  r := rune(u32(233));
+  assert(`r=${r}!` == `r=é!`, "a rune part");
 });
