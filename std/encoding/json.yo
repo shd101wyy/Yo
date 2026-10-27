@@ -1808,7 +1808,7 @@ impl(
   ArrayList(T),
   ToJson(
     to_json : (fn(self : &Self) -> JsonValue)({
-      items := ArrayList(JsonValue).new();
+      mut(items) := ArrayList(JsonValue).new();
       (mut(i) : usize) = usize(0);
       while(i < self.len(), {
         items.push(self(i).to_json());
@@ -1827,7 +1827,7 @@ impl(
       match(
         v,
         .Array(items) => {
-          out := Self.new();
+          mut(out) := Self.new();
           (mut(i) : usize) = usize(0);
           while(i < items.len(), {
             match(
