@@ -436,7 +436,10 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
     e,
     .Atom(_, _) => (),
     .FnCall(_, _, args, _, _) => {
-      if(ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+      // A scrutinee already spelled `&x`/`&mut x` (an earlier pass's
+      // output: the parser keeps the marker beside the match, not in it)
+      // borrows already.
+      if(ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None) && (borrowed_match_scrutinee_kind(ast_expr_token(e)) == u8(0)), {
         match(
           args.get(usize(0)),
           .Some(loop_scr_raw) => {
@@ -507,7 +510,8 @@ _record_nested_scrutinee_borrows :: (fn(body : &AstExpr, name : &String, var_id 
     body,
     .Atom(_, _) => (),
     .FnCall(_, callee, args, _, _) => {
-      if(ast_expr_is_fn_call_of(body, BK_MATCH, Option(usize).None), {
+      // One already spelled `&name` (an earlier pass's output) borrows.
+      if(ast_expr_is_fn_call_of(body, BK_MATCH, Option(usize).None) && (borrowed_match_scrutinee_kind(ast_expr_token(body)) == u8(0)), {
         match(
           args.get(usize(0)),
           .Some(nested_scr) => {
