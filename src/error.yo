@@ -564,7 +564,7 @@ error_message_text :: (fn(err : &AnyError) -> String)(
           ye.diagnostics.get(i),
           .Some(d) => {
             parts.push(d.message.clone());
-            match(d.help, .Some(h) => parts.push(h.clone()), .None => ());
+            match(&d.help, .Some(h) => parts.push(h.clone()), .None => ());
           },
           .None => ()
         );
@@ -657,7 +657,7 @@ yo_error_from_diagnostics :: (fn(entries : &ArrayList(Diagnostic)) -> YoError)(
 take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
   taken := g_last_error_diagnostics.clone();
   if(debug_knob(`YO_DEBUG_DIAGSTASH`).is_some(), {
-    eprintln(`[diagstash] TAKE ${match(taken, .Some(d) => d.len().to_string(), .None => String.from("none"))}`);
+    eprintln(`[diagstash] TAKE ${match(&taken, .Some(d) => d.len().to_string(), .None => String.from("none"))}`);
   });
   g_last_error_diagnostics = Option(ArrayList(Diagnostic)).None;
   taken
@@ -694,7 +694,7 @@ _with_primary_help :: (fn(err : &YoError, more : &String) -> YoError)({
               span : hd.span.clone(),
               source_line : hd.source_line.clone(),
               help : Option(String).Some(
-                match(hd.help, .Some(h) => `${h} ${more}`, .None => more.clone())
+                match(&hd.help, .Some(h) => `${h} ${more}`, .None => more.clone())
               ),
               repair : hd.repair.clone(),
               generic_independent : hd.generic_independent

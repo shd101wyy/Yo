@@ -1666,8 +1666,8 @@ _stable_sort_by :: (
   while(i < n, {
     while(scratch(i) != i, {
       j := scratch(i);
-      tmp := unsafe((ptr.add(i)).*);
-      unsafe((ptr.add(i)).* = (ptr.add(j)).*);
+      tmp :=__probe_dup(&( unsafe((ptr.add(i)).*)));
+      unsafe((ptr.add(i)).* =__probe_dup(&( (ptr.add(j)).*)));
       unsafe((ptr.add(j)).* = tmp);
       scratch(i) = scratch(j);
       scratch(j) = j;

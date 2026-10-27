@@ -54,6 +54,7 @@ VcSort :: ref(
     Uninterpreted(name : String)
   )
 );
+impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self)));
 derive(VcSort, Eq(VcSort));
 // SAFETY: a VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
@@ -206,6 +207,7 @@ VcTermNode :: enum(
   /// Set / Multiset). `lit` is a BoolLit or a BvLit.
   ArrConst(sort : VcSort, lit : Rc(Self))
 );
+derive(VcTermNode, Clone);
 /// A VC term: a shared, immutable handle to a `VcTermNode`.
 VcTerm :: Rc(VcTermNode);
 // SAFETY: a VcTerm has no back edges. No code in src/ writes a `Self`
@@ -312,7 +314,7 @@ vc_and :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(1), {
     return(match(ts.get(usize(0)), .Some(t) => t, .None => rc(VcTermNode.BoolLit(true))));
   });
-  rc(VcTermNode.App(VcOp.AndOp, ts))
+  rc(VcTermNode.App(VcOp.AndOp, ts.clone()))
 });
 /// N-ary disjunction.
 vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
@@ -322,7 +324,7 @@ vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(1), {
     return(match(ts.get(usize(0)), .Some(t) => t, .None => rc(VcTermNode.BoolLit(false))));
   });
-  rc(VcTermNode.App(VcOp.OrOp, ts))
+  rc(VcTermNode.App(VcOp.OrOp, ts.clone()))
 });
 /// Implication `a => b` (right-associative chain when built pairwise).
 vc_imp :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
