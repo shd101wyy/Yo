@@ -275,7 +275,7 @@ impl(
       },
       true => ()
     );
-    scheme_bytes := ArrayList(u8).new();
+    mut(scheme_bytes) := ArrayList(u8).new();
     mut(j) := usize(0);
     while(j < scheme_end, {
       b := s.byte_at(j);
@@ -326,7 +326,7 @@ impl(
           cond(
             (s.byte_at(m) == _AT) => {
               // Everything before '@' is userinfo
-              ui_bytes := ArrayList(u8).new();
+              mut(ui_bytes) := ArrayList(u8).new();
               mut(n) := auth_start;
               while(n < m, {
                 ui_bytes.push(s.byte_at(n));
@@ -349,7 +349,7 @@ impl(
             while((bracket_end < auth_end) && (s.byte_at(bracket_end) != _RBRACKET), {
               bracket_end = (bracket_end + usize(1));
             });
-            host_bytes := ArrayList(u8).new();
+            mut(host_bytes) := ArrayList(u8).new();
             mut(hh) := host_start;
             while(hh <= bracket_end, {
               cond(
@@ -396,7 +396,7 @@ impl(
               colon_pos,
               .Some(cp_val) => {
                 // host is before colon, port is after
-                host_b := ArrayList(u8).new();
+                mut(host_b) := ArrayList(u8).new();
                 mut(hh2) := host_start;
                 while(hh2 < cp_val, {
                   host_b.push(s.byte_at(hh2));
@@ -415,7 +415,7 @@ impl(
               },
               .None => {
                 // No port, entire range is host
-                host_b := ArrayList(u8).new();
+                mut(host_b) := ArrayList(u8).new();
                 mut(hh3) := host_start;
                 while(hh3 < auth_end, {
                   host_b.push(s.byte_at(hh3));
@@ -453,7 +453,7 @@ impl(
     });
     cond(
       (path_start < path_end) => {
-        path_bytes := ArrayList(u8).new();
+        mut(path_bytes) := ArrayList(u8).new();
         mut(pb) := path_start;
         while(pb < path_end, {
           path_bytes.push(s.byte_at(pb));
@@ -482,7 +482,7 @@ impl(
           );
           qq = (qq + usize(1));
         });
-        q_bytes := ArrayList(u8).new();
+        mut(q_bytes) := ArrayList(u8).new();
         mut(qb) := q_start;
         while(qb < q_end, {
           q_bytes.push(s.byte_at(qb));
@@ -498,7 +498,7 @@ impl(
     cond(
       ((pos < src_len) && (s.byte_at(pos) == _HASH)) => {
         pos = (pos + usize(1)); // skip '#'
-        f_bytes := ArrayList(u8).new();
+        mut(f_bytes) := ArrayList(u8).new();
         mut(fb) := pos;
         while(fb < src_len, {
           f_bytes.push(s.byte_at(fb));
@@ -762,7 +762,7 @@ impl(
   /// brackets, so the result stays unambiguous (`[::1]:8080`).
   host_port : (fn(self : &Self) -> Option(String))(
     match(
-      self._host,
+      &self._host,
       .None => .None,
       .Some(h) =>
         match(
@@ -782,7 +782,7 @@ impl(
   /// scheme rather than the opaque `"null"` that HTML specifies.
   origin : (fn(self : &Self) -> String)(
     match(
-      self._host,
+      &self._host,
       .None => self._scheme.clone(),
       .Some(h) =>
         match(
@@ -975,7 +975,7 @@ _split_ref :: (fn(s : &String) -> _UrlRef)({
 _remove_dot_segments :: (fn(path : &String) -> String)({
   absolute := path.starts_with(`/`);
   segs := path.split(`/`);
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   mut(trailing) := false;
   // For an absolute path `split` yields a leading empty segment that IS the
   // leading separator, not a segment; the separator is re-added at the end.
@@ -1038,10 +1038,10 @@ _merge_paths :: (fn(base : &Url, ref_path : &String) -> String)(
 /// The base's authority as RFC 3986 spells it — `[userinfo@]host[:port]`.
 _authority_of :: (fn(u : &Url) -> Option(String))(
   match(
-    u._host,
+    &u._host,
     .None => Option(String).None,
     .Some(h) => {
-      a := match(u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h.clone());
+      a := match(&u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h.clone());
       Option(String).Some(match(u._port, .Some(p) => `${a}:${p}`, .None => a))
     }
   )
@@ -1187,7 +1187,7 @@ impl(
   /// Order and duplicates are preserved: `?a=1&a=2` is two pairs.
   query_pairs : (fn(self : &Self) -> ArrayList(Tuple(String, String)))({
     out := ArrayList(Tuple(String, String)).new();
-    q := match(self._query, .Some(v) => v.clone(), .None => String.new());
+    q := match(&self._query, .Some(v) => v.clone(), .None => String.new());
     if(q.len() == usize(0), {
       return(out);
     });
@@ -1220,11 +1220,11 @@ impl(
       self -> {
         mut(result) := `${self._scheme}:`;
         match(
-          self._host,
+          &self._host,
           .Some(h) => {
             result = result.concat(`//`);
             match(
-              self._userinfo,
+              &self._userinfo,
               .Some(ui) => {
                 result = result.concat(&ui).concat(`@`);
               },
@@ -1243,14 +1243,14 @@ impl(
         );
         result = result.concat(&self._path);
         match(
-          self._query,
+          &self._query,
           .Some(q) => {
             result = result.concat(`?`).concat(&q);
           },
           .None => ()
         );
         match(
-          self._fragment,
+          &self._fragment,
           .Some(f) => {
             result = result.concat(`#`).concat(&f);
           },

@@ -77,7 +77,7 @@ impl(
   /// with one `memset` of `0xFF` instead of a per-slot loop — which is why the
   /// sentinel is MAX rather than 0 (0 is a legal byte offset).
   new : (fn(pc : usize, n_slots : usize) -> Self)({
-    s := ArrayList(usize).with_capacity(n_slots);
+    mut(s) := ArrayList(usize).with_capacity(n_slots);
     // usize.MAX = 0xFF..FF, so memset with 0xFF fills each byte
     s.resize_with_byte(n_slots, int(255));
     Self(pc : pc, slots : s)
@@ -90,7 +90,7 @@ impl(
   /// forks rather than mutating, so a thread's captures are only ever written
   /// by the thread that owns them.
   fork : (fn(self : &Self, new_pc : usize) -> Self)({
-    new_slots := ArrayList(usize).with_capacity(self.slots.len());
+    mut(new_slots) := ArrayList(usize).with_capacity(self.slots.len());
     match(
       self.slots.ptr(),
       .Some(src) => new_slots.extend_from_ptr(src, self.slots.len()),
@@ -164,9 +164,9 @@ impl(
   new : (fn(program : &NfaProgram, flags : RegexFlags, input : &String) -> Self)({
     n_slots := ((program.n_groups + usize(1)) * usize(2));
     n_instr := program.instructions.len();
-    seen := ArrayList(bool).with_capacity(n_instr);
+    mut(seen) := ArrayList(bool).with_capacity(n_instr);
     seen.resize_with_byte(n_instr, int(0));
-    next_seen := ArrayList(bool).with_capacity(n_instr);
+    mut(next_seen) := ArrayList(bool).with_capacity(n_instr);
     next_seen.resize_with_byte(n_instr, int(0));
     Self(
       _program : program,

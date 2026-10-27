@@ -87,7 +87,7 @@ BufWriter :: (fn(comptime(W) : Type) -> comptime(Type))(
 impl(generic(W : Type), BufWriter(W), !Sync());
 /// A `capacity`-long zeroed byte buffer (`ArrayList` used as fixed storage).
 _zeroed :: (fn(capacity : usize) -> ArrayList(u8))({
-  b := ArrayList(u8).with_capacity(capacity);
+  mut(b) := ArrayList(u8).with_capacity(capacity);
   (mut(i) : usize) = usize(0);
   while(i < capacity, i = (i + usize(1)), {
     b.push(u8(0));

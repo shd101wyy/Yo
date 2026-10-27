@@ -50,7 +50,7 @@ utf8 :: import("./utf8");
 /// Handles BMP characters directly and encodes supplementary characters as surrogate pairs.
 from_utf8 :: (fn(s : &String) -> ArrayList(u16))({
   bytes := s.to_bytes();
-  out := ArrayList(u16).new();
+  mut(out) := ArrayList(u16).new();
   mut(i) := usize(0);
   while(i < bytes.len(), {
     // A malformed byte becomes U+FFFD and advances by one, so a corrupt input
@@ -85,7 +85,7 @@ export(from_utf8);
 /// `InvalidChar(u8(0))`, an offending character of NUL, because a 16-bit code
 /// unit does not fit in `InvalidChar`'s `u8`.
 to_utf8 :: (fn(data : &ArrayList(u16)) -> Result(String, EncodingError))({
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   mut(i) := usize(0);
   while(i < data.len(), {
     w := u32(data(i));
