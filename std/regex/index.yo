@@ -59,7 +59,8 @@ Regex :: ref(
     _flags : RegexFlags,
     _pattern : String,
     _n_groups : usize,
-    _group_names : ArrayList(GroupNameEntry)
+    /// Shared with every `RegexMatch` this pattern builds.
+    _group_names : Rc(ArrayList(GroupNameEntry))
   )
 );
 // Block 1: Constructor and leaf methods
@@ -106,7 +107,7 @@ impl(
                 _flags : flags,
                 _pattern : pattern.clone(),
                 _n_groups : n_groups,
-                _group_names : parser.group_names().clone()
+                _group_names : rc(parser.group_names().clone())
               )
             )
           }
@@ -226,7 +227,14 @@ impl(
 // Block 2: _build_match (depends on Block 1)
 impl(
   Regex,
-  _build_match : (fn(self : &Self, slots : &ArrayList(usize), input : &String) -> RegexMatch)({
+  /// `shared` is the search's one shared copy of `input`, made at its first
+  /// match: every match of one `find_all` / `find_iter` holds the same `Rc`
+  /// instead of a copy of the input each (B8).
+  _build_match : (fn(self : &Self, slots : &ArrayList(usize), input : &String, shared : &mut Option(Rc(String))) -> RegexMatch)({
+    if(shared.is_none(), {
+      shared = .Some(rc(input.clone()));
+    });
+    shared_input := match(&shared, .Some(r) => Rc.clone(r), .None => rc(input.clone()));
     bytes := &input;
     unset := usize.MAX;
     match_start_byte := slots(usize(0));
@@ -260,7 +268,7 @@ impl(
         }
       );
     });
-    RegexMatch.new(match_text, match_start_byte, match_end_byte, input, groups, group_spans, &self._group_names)
+    RegexMatch.new(match_text, match_start_byte, match_end_byte, shared_input, groups, group_spans, Rc.clone(&self._group_names))
   })
 );
 // Block 3: find, find_all (depend on Block 2)
@@ -271,6 +279,7 @@ impl(
   /// anchored attempt at `from_byte`. Otherwise every rune boundary from
   /// `from_byte` on, with the same literal-prefix jump `exec` uses.
   _find_from : (fn(self : &Self, input : &String, from_byte : usize) -> Option(RegexMatch))({
+    (mut(shared) : Option(Rc(String))) = .None;
     bytes := &input;
     input_len := bytes.len();
     vm := NfaVm.new(&self._program, self._flags, input);
@@ -278,7 +287,7 @@ impl(
       self._flags.sticky => {
         result := vm.exec_at(from_byte);
         cond(
-          result.matched => .Some(self._build_match(&result.slots, input)),
+          result.matched => .Some(self._build_match(&result.slots, input, &mut shared)),
           true => .None
         )
       },
@@ -292,7 +301,7 @@ impl(
           result := vm.exec_at(byte_pos);
           cond(
             result.matched => {
-              return(.Some(self._build_match(&result.slots, input)));
+              return(.Some(self._build_match(&result.slots, input, &mut shared)));
             },
             true => ()
           );
@@ -328,6 +337,7 @@ impl(
   /// `find_iter` is the lazy form and is what a `for` loop should use.
   find_all : (fn(self : &Self, input : &String) -> ArrayList(RegexMatch))({
     mut(matches) := ArrayList(RegexMatch).new();
+    (mut(shared) : Option(Rc(String))) = .None;
     bytes := &input;
     input_len := bytes.len();
     vm := NfaVm.new(&self._program, self._flags, input);
@@ -339,7 +349,7 @@ impl(
           result := vm.exec_at(byte_pos);
           cond(
             result.matched => {
-              m := self._build_match(&result.slots, input);
+              m := self._build_match(&result.slots, input, &mut shared);
               matches.push(m);
               match_start := result.slots(usize(0));
               match_end := result.slots(usize(1));
@@ -378,7 +388,7 @@ impl(
           result := vm.exec_at(byte_pos);
           cond(
             result.matched => {
-              m := self._build_match(&result.slots, input);
+              m := self._build_match(&result.slots, input, &mut shared);
               matches.push(m);
               match_start := result.slots(usize(0));
               match_end := result.slots(usize(1));
@@ -441,7 +451,8 @@ RegexMatchIter :: ref(
   struct(
     _regex : Regex,
     _vm : NfaVm,
-    _input : String,
+    /// The iterator's copy of the input, shared with every match it yields.
+    _input : Rc(String),
     _byte_pos : usize,
     _has_prefix : bool
   )
@@ -457,7 +468,8 @@ impl(
         result := self._vm.exec_at(self._byte_pos);
         cond(
           result.matched => {
-            m := re._build_match(&result.slots, &self._input);
+            mut(shared) := Option(Rc(String)).Some(Rc.clone(&self._input));
+            m := re._build_match(&result.slots, &self._input.*, &mut shared);
             match_start := result.slots(usize(0));
             match_end := result.slots(usize(1));
             cond(
@@ -472,7 +484,7 @@ impl(
                     char_len := utf8.step_len(b);
                     next_pos := (self._byte_pos + char_len);
                     self._byte_pos = cond(
-                      self._has_prefix => re._find_prefix_pos(&self._input, next_pos),
+                      self._has_prefix => re._find_prefix_pos(&self._input.*, next_pos),
                       true => next_pos
                     );
                   }
@@ -480,7 +492,7 @@ impl(
               },
               true => {
                 self._byte_pos = cond(
-                  self._has_prefix => re._find_prefix_pos(&self._input, match_end),
+                  self._has_prefix => re._find_prefix_pos(&self._input.*, match_end),
                   true => match_end
                 );
               }
@@ -503,7 +515,7 @@ impl(
                 char_len := utf8.step_len(b);
                 next_pos := (self._byte_pos + char_len);
                 self._byte_pos = cond(
-                  self._has_prefix => re._find_prefix_pos(&self._input, next_pos),
+                  self._has_prefix => re._find_prefix_pos(&self._input.*, next_pos),
                   true => next_pos
                 );
               }
@@ -535,7 +547,7 @@ impl(
     RegexMatchIter(
       _regex : self,
       _vm : vm,
-      _input : input.clone(),
+      _input : rc(input.clone()),
       _byte_pos : byte_pos,
       _has_prefix : has_prefix
     )
