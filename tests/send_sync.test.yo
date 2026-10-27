@@ -39,6 +39,10 @@ test("a non-atomic cell is neither Send nor Sync", {
   comptime_assert(!Type.impls(Rc(i32), Send), "Rc is not Send");
   comptime_assert(!Type.impls(Rc(i32), Sync), "Rc is not Sync");
   comptime_assert(!Type.impls(Rc(i32), Sync), "Rc (a shared cell) is not Sync");
+  // A `Weak` into an `Rc` graph is as thread-local as the graph
+  // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.5).
+  comptime_assert(!Type.impls(Weak(i32), Send), "Weak is not Send");
+  comptime_assert(!Type.impls(Weak(i32), Sync), "Weak is not Sync");
   comptime_assert(!Type.impls(SsCell, Send), "a ref(struct) is not Send");
   comptime_assert(!Type.impls(SsCell, Sync), "a ref(struct) is not Sync");
   // Until V2b gives String and the collections unique buffers, their buffer

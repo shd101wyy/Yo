@@ -1332,7 +1332,10 @@ evaluate_comptime_fn_call :: (
   // The unique `Box` (V1 step 2) is stamped too: `unique_box_payload_type`
   // (types/guards.yo) identifies it by this name plus its newtype shape, and
   // a prelude name cannot be shadowed, so a `Box` callee is always it.
-  ctfe_box_name := if(!(is_shared_cell_type_name(&ctfe_fn_name) || (ctfe_fn_name == "Arc") || (ctfe_fn_name == "Box")), String.from(""), {
+  // `Weak` (decision 48 W3) is stamped for the same reason:
+  // `is_weak_handle_type` identifies it by this name plus its newtype shape,
+  // so the cycle walk does not follow a weak edge.
+  ctfe_box_name := if(!(is_shared_cell_type_name(&ctfe_fn_name) || (ctfe_fn_name == "Arc") || (ctfe_fn_name == "Box") || (ctfe_fn_name == "Weak")), String.from(""), {
     nm := ctfe_fn_name.clone();
     nm.push_str("(");
     (cni : usize) = usize(0);

@@ -483,6 +483,26 @@ is_box_type :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// True if `t` is a counted cell whose payload is read-only through the
+/// handle (decision 46): the prelude's `Rc(T)` (`is_box_type`) and `Arc(T)`,
+/// or a cell handle (`cell_handle_view`, V5's `Rc` and `Arc`). The `Arc` is
+/// identified as `Box` is (`unique_box_payload_type`): the stamped name
+/// `Arc(V)` plus the `atomic(ref(struct((*) : V)))` shape. Such a cell carries
+/// no borrow marks, so codegen never emits a borrow primitive on it: the 16
+/// bits of its header's `borrow_count` are the cell's weak count
+/// (`Weak`/`ArcWeak`, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2).
+is_counted_cell_type :: (fn(t : &TypeValue) -> bool)(
+  is_box_type(&t_refine_inner(t))
+  || cell_handle_view(t).is_some()
+  || (
+    is_atomic_reference_struct_type(t)
+    && match(
+      t,
+      Rc(.Struct({ name, field_labels })) => (name.starts_with("Arc(") && ((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false))),
+      _ => false
+    )
+  )
+);
 /// The payload type of the prelude's unique cell (`Box(V)`,
 /// plans/VALUES_BY_DEFAULT.md §3.2, V1 step 2), or `.None` for any other
 /// type. A `Box` is a newtype over a raw pointer to its payload (its one field,
@@ -505,6 +525,21 @@ unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 );
 /// True if `t` is the prelude's unique cell `Box(V)` (`unique_box_payload_type`).
 is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is_some());
+/// True if `t` is the prelude's non-owning handle `Weak(V)`
+/// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3): a newtype over `?*V`, its
+/// one field `_cell`, stamped `Weak(V)`, identified as `Box` is
+/// (`unique_box_payload_type`). The field names its payload type so that a
+/// `Weak(RefCell(Self))` field's `Self` is fixed up with the declaration, but
+/// it holds the cell's address and owns nothing: a `Weak` is not an edge, so
+/// the cycle walk (`can_type_form_rc_cycle`) does not follow it.
+is_weak_handle_type :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t_refine_inner(t),
+    Rc(.Struct({ name, field_labels, is_reference_semantics : is_ref, is_newtype : is_nt })) =>
+      (!is_ref && is_nt && (field_labels.len() == usize(1)) && name.starts_with("Weak(") && match(field_labels.get(usize(0)), .Some(l) => (l == "_cell"), .None => false)),
+    _ => false
+  )
+);
 /// True if `t` is a cell primitive, `__yo_cell(V)` or `__yo_atomic_cell(V)`
 /// (plans/VALUES_BY_DEFAULT.md §3.5). The builtin stamps its own name as the
 /// type's `constructor_func_id` (`evaluate_cell_type`,
@@ -1196,6 +1231,8 @@ export(
   SharedCellNames,
   shared_cell_names_at,
   is_shared_cell_type_name,
+  is_counted_cell_type,
+  is_weak_handle_type,
   shared_cell_type_name_of_constructor,
   shared_cell_canonical_names,
   is_fn_trait_type,

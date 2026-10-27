@@ -382,6 +382,28 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-27): `make_mut` disassociates `Weak`
+
+**Generation A (W3, `feat/w3-weak`, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md):**
+the prelude gains `Weak(T)`, whose methods call new runtime primitives
+(`__yo_rc_weak_*`, emitted by `src/codegen/functions/gc_runtime.yo`). Rust's
+`Rc::make_mut` also clones when only `Weak` handles share the cell, so a
+`Weak`'s later `upgrade` never sees the write. That check calls
+`__yo_rc_weak_weak_count`, and the compiler's own `src/` instantiates
+`Rc.make_mut`: under a seed that does not emit the primitive, `yo build`
+fails in the C compile (`call to undeclared function
+'__yo_rc_weak_weak_count'`, measured 2026-10-27 with v0.2.70). A prelude
+function that `src/` instantiates may call a new runtime symbol only once
+the seed emits it.
+
+**Generation B (once `SEED_VERSION` carries W3, v0.2.72 or later):** in
+`Rc.make_mut`, clone when `ref_count(self) != 1` OR
+`__yo_rc_weak_weak_count(cell) != 0`; the same in `Arc.make_mut` with
+`__yo_arc_weak_weak_count` (W4). Add the rows to `tests/rc.test.yo` and
+`tests/arc.test.yo` (a `Weak` to the only handle's cell upgrades to `.None`
+after `make_mut`), and drop the "does not yet disassociate" sentences in
+the two doc comments, `docs/*/WEAK.md` and the plan's §3.3.
+
 ## Seed-gated follow-up (2026-10-24): a cli-case for the borrow-spelling migration over a lexer error
 
 `_raw_parse_or_none` (`src/main.yo`) calls `Parser.new(src, file, local_exn)`,

@@ -121,6 +121,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Usage Examples](#usage-examples)
   - [Rc with Assignments](#rc-with-assignments)
   - [Rc and Reference Counting](#rc-and-reference-counting)
+  - [Weak: a Handle That Does Not Own](#weak-a-handle-that-does-not-own)
   - [When to Use Rc](#when-to-use-rc)
 - [Impl Types](#impl-types)
   - [Basic Usage](#basic-usage)
@@ -3466,8 +3467,9 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > simply the one-field case.
 >
 > What this means in practice: sharing is silent, an `Rc` cycle leaks unless
-> broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Rc.try_unwrap` are how you
-> ask about uniqueness.
+> broken (Rust's `Box` cannot form one; a `Weak` back edge breaks it, see
+> [Weak: a Handle That Does Not Own](#weak-a-handle-that-does-not-own)), and
+> `ref_count(b)` / `Rc.try_unwrap` are how you ask about uniqueness.
 >
 > The shared cell used to be spelled `Box(V)` / `box(v)`. `Box` is now a
 > different type: the uniquely owned, uncounted cell, like Rust's `Box<T>`
@@ -3639,6 +3641,24 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
 The doors are called through the type, as in Rust, so a payload method of
 the same name stays reachable as `h.name()`. `Arc` has the same
 `Arc.make_mut` and `Arc.try_unwrap` ([ARC.md](./ARC.md)).
+
+### Weak: a Handle That Does Not Own
+
+`Weak(T)` is Rust's `rc::Weak<T>`: `Rc.downgrade(&h)` makes a handle to the
+cell that does not keep the payload alive, and `w.upgrade()` is
+`.Some(handle)` while an `Rc` to it exists, `.None` after the last one. The
+last `Rc` drops the payload; the last handle of either kind frees the cell.
+A `Weak` has no `Deref`, is explicit-copy (`Weak.clone(&w)`), and is not an
+edge for the cycle collector, so a parent pointer `Weak(RefCell(Node))`
+closes no cycle. See [WEAK.md](./WEAK.md).
+
+```yo
+a := rc(i32(7));
+w := Rc.downgrade(&a);
+assert(w.upgrade().is_some(), "alive while a is");
+consume(a);
+assert(w.upgrade().is_none(), "the last Rc dropped the payload");
+```
 
 ### When to Use Rc
 

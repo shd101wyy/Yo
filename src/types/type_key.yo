@@ -213,6 +213,25 @@ _tk_seen :: (fn(id : &String) -> bool)({
   });
   found
 });
+/// Whether a generic instance's argument list holds a `Type` or `unit` slot:
+/// a comptime VALUE argument erased from its key's argument part (see the
+/// Struct arm of `_type_key_at`).
+_tk_args_value_erased :: (fn(tas : &SharedList(TypeValue)) -> bool)({
+  (erased : bool) = false;
+  (i : usize) = usize(0);
+  while((i < tas.len()) && !erased, {
+    match(
+      tas.get(i),
+      .Some(ta_raw) => {
+        ta := _tk_resolve_arg_slot(&ta_raw);
+        erased = (is_type_hierarchy_type(&ta) || is_unit_type(&ta));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  erased
+});
 /// A struct's node on the `g_tk_visited` path: its id plus the identities of
 /// its type arguments (`_tk_arg_id`). A true self-reference (a recursive
 /// struct's `Option(Self)` field) repeats both; two instantiations sharing a
@@ -294,7 +313,18 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // one `IterMap` inside another under ONE id, and an id-only guard cut
       // the inner one to its bare id, which gave the returned instance a
       // second C type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
-      tk_node := _tk_node_id(&sid, &stas);
+      // A generic instance's node is headed by its constructor, as its key
+      // is (below), not by its id: each constructor call stamps a fresh id,
+      // and substitution keeps the def-era one, so `Rc(T)` substituted to
+      // `Rc(RefCell(N))` and the `Rc(RefCell(N))` inside a recursive `N`
+      // carry two ids for one instance. Headed by the ids, the guard cut the
+      // substituted instance's walk one level deeper than the direct one's,
+      // and the two keys (two C types, two header layouts) differed
+      // (issues/fixed/2026-10-27-a-generic-method-returning-rc-of-its-parameter-over-a-recursive-struct-gets-a-second-c-type.md).
+      // A value-erased argument list keeps the id head: its key reads the
+      // fields too, which the argument identities do not cover.
+      tk_head := if((scfid.len() > usize(0)) && (stas.len() > usize(0)) && !_tk_args_value_erased(&stas), `c:${scfid}`, sid.clone());
+      tk_node := _tk_node_id(&tk_head, &stas);
       if((sid.len() > usize(0)) && _tk_seen(&tk_node), {
         cyc_inner := match(
           g_struct_cfid_keys.with(m => m.get(&sid)),

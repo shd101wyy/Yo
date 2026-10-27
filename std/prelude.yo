@@ -9881,6 +9881,9 @@ impl(
   /// the cell, `self` first moves to a fresh cell holding a clone of the
   /// payload, so the write never reaches the other handles. Rust's
   /// `Rc::make_mut`; the clone is spelled in the name (§0.1 of the plan).
+  /// Unlike Rust's, it does not yet disassociate `Weak` handles: a `Weak` to
+  /// the only `Rc`'s cell sees the write (plans/backlog/SEED_VERSION_AUTOMATION.md,
+  /// "`make_mut` disassociates `Weak`").
   ///
   /// ```yo
   /// a := rc(i32(1));
@@ -9899,6 +9902,149 @@ export(
   Rc,
   rc
 );
+/// === Weak ===
+// The weak-count hooks behind `Weak(T)`
+// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2). `cell` is an `Rc` cell
+// some handle of either kind still names: the cell's header keeps a weak
+// count beside the strong one, and the allocation outlives the payload until
+// the last `Weak` goes.
+extern(
+  "Yo",
+  /// One more `Weak` handle to `cell`. The count saturates: a cell whose weak
+  /// count reaches its maximum stops counting and is never freed.
+  __yo_rc_weak_retain :
+    (fn(cell : *void) -> unit),
+  /// One `Weak` handle to `cell` fewer: frees the allocation when the payload
+  /// is gone and this was the last handle of either kind.
+  __yo_rc_weak_release :
+    (fn(cell : *void) -> unit),
+  /// A new strong handle's count, taken when the payload is alive: true and
+  /// the strong count raised by one, or false and nothing changed.
+  __yo_rc_weak_upgrade :
+    (fn(cell : *void) -> bool),
+  /// The strong count of `cell`, 0 once the payload is gone.
+  __yo_rc_weak_strong_count :
+    (fn(cell : *void) -> usize),
+  /// The weak count of `cell`: 0 once the payload is gone, `usize.MAX` when
+  /// it saturated.
+  __yo_rc_weak_weak_count :
+    (fn(cell : *void) -> usize)
+);
+/// Weak — a non-owning handle to an `Rc` cell: Rust's `rc::Weak<T>`
+/// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3). `Rc.downgrade(&h)` makes
+/// one; `w.upgrade()` is `.Some(handle)`, a new `Rc` to the same cell, while
+/// any `Rc` to it is alive, and `.None` once the last one is dropped. A
+/// `Weak` keeps the cell's bytes allocated, never its payload: the last `Rc`
+/// drops the payload, and the last handle of either kind frees the cell.
+///
+/// A `Weak` is not an edge of the ownership graph, so a cycle closed through
+/// one is not a cycle: a parent pointer is `Weak(RefCell(Node))`, and the
+/// tree frees itself without the cycle collector (and under
+/// `--cycle-collector off`). It has no `Deref`: the payload may be gone, so
+/// every read goes through `upgrade`. It is explicit-copy (`Weak.clone(w)`
+/// makes a second handle) and never `Send` or `Sync`; `ArcWeak` is the
+/// thread-safe form.
+///
+/// ```yo
+/// a := rc(i32(7));
+/// w := Rc.downgrade(&a);
+/// assert(w.upgrade().unwrap().* == i32(7), "alive while a is");
+/// consume(a);
+/// assert(w.upgrade().is_none(), "the last Rc dropped the payload");
+/// ```
+Weak :: (fn(comptime(V) : Type) -> comptime(Type))(
+  // The cell's address, `.None` for `Weak.new()`. It points at the cell's
+  // header, not at a `V`, and is never dereferenced here; it is typed by the
+  // payload so that a `Weak(RefCell(Self))` field's `Self` is fixed up with
+  // its declaration. A weak edge is not an edge: the cycle walk does not
+  // follow it (`is_weak_handle_type`, §3.4), and neither does the
+  // collector's.
+  newtype(_cell : ?*V)
+);
+impl(
+  generic(T : Type),
+  Rc(T),
+  /// A `Weak` handle to `self`'s cell: Rust's `Rc::downgrade`. Spelled
+  /// `Rc.downgrade(&h)`, as `Rc.try_unwrap` is, so a payload method of the
+  /// same name stays reachable as `h.downgrade()`.
+  downgrade : (fn(self : &Self) -> Weak(T))({
+    // SAFETY: an `Rc` handle is the address of its live cell.
+    cell := unsafe(unsafe.cast(self, *T));
+    __yo_rc_weak_retain((*void)(cell));
+    Weak(T)(.Some(cell))
+  })
+);
+impl(
+  generic(T : Type),
+  Weak(T),
+  /// A `Weak` that names no cell: `upgrade` is always `.None`. Rust's
+  /// `Weak::new`.
+  new : (fn() -> Self)(Weak(T)(.None)),
+  /// A new `Rc` to the cell while its payload is alive, else `.None`.
+  upgrade : (fn(self : &Self) -> Option(Rc(T)))(
+    match(
+      self._cell,
+      .Some(cell) => cond(
+        // SAFETY: the upgrade raised the strong count for the handle built
+        // here, which owns that count (`__yo_rc_own`: no second one).
+        __yo_rc_weak_upgrade((*void)(cell)) => .Some(__yo_rc_own(unsafe(unsafe.cast(&cell, Rc(T))))),
+        true => .None
+      ),
+      .None => .None
+    )
+  ),
+  /// The number of `Rc` handles to the cell: 0 once the payload is gone,
+  /// and for `Weak.new()`.
+  strong_count : (fn(self : &Self) -> usize)(
+    match(self._cell, .Some(cell) => __yo_rc_weak_strong_count((*void)(cell)), .None => usize(0))
+  ),
+  /// The number of `Weak` handles to the cell, this one included: 0 once the
+  /// payload is gone (as Rust's), and for `Weak.new()`; `usize.MAX` when the
+  /// count saturated.
+  weak_count : (fn(self : &Self) -> usize)(
+    match(self._cell, .Some(cell) => __yo_rc_weak_weak_count((*void)(cell)), .None => usize(0))
+  ),
+  /// Whether `self` and `other` name the same cell (two `Weak.new()` do).
+  ptr_eq : (fn(self : &Self, other : &Self) -> bool)(
+    match(
+      self._cell,
+      .Some(a) => match(other._cell, .Some(b) => (a == b), .None => false),
+      .None => other._cell.is_none()
+    )
+  )
+);
+/// `Clone` — a second `Weak` to the same cell (the weak count rises).
+impl(
+  generic(T : Type),
+  Weak(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      match(self._cell, .Some(cell) => __yo_rc_weak_retain((*void)(cell)), .None => ());
+      Weak(T)(self._cell)
+    })
+  )
+);
+/// `Default` — `Weak.new()`.
+impl(
+  generic(T : Type),
+  Weak(T),
+  Default(
+    default : (fn() -> Self)(Weak(T)(.None))
+  )
+);
+impl(
+  generic(T : Type),
+  Weak(T),
+  Drop(
+    /// One `Weak` fewer; the cell is freed when its payload is gone and this
+    /// was the last handle. A zeroed `Weak` (a task slot never stored) names
+    /// no cell, and dropping it is a no-op, as for `Box`.
+    drop : (fn(self : &mut Self) -> unit)(
+      match(self._cell, .Some(cell) => __yo_rc_weak_release((*void)(cell)), .None => ())
+    )
+  )
+);
+export(Weak);
 /// === Box ===
 /// Box — a uniquely owned heap cell for a single value, with no count: Rust's
 /// `Box<T>` (plans/VALUES_BY_DEFAULT.md §3.2, V1 step 2). A recursive type

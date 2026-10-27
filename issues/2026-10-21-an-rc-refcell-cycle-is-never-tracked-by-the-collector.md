@@ -52,6 +52,14 @@ runtime selection.
 The same program with `Node :: ref(struct(...))` and a direct `Self` edge is
 `tests/cycle_collector.test.yo`'s shape and is collected.
 
+**Re-measured 2026-10-27** (develop `476cfb700`, and the W3 branch, while
+writing `tests/cycle_collector.test.yo`'s CollectWhite `Weak` row): two
+`Rc(RefCell(Node))` cells closed into a cycle through `with_mut` are now
+tracked (`Gc.tracked_count()` rises by 2), but `Gc.collect()` still reclaims
+neither and no `Drop` runs. The leak stands; only the "never tracked" half of
+the title is stale. The W3 row closes its cycle through a `ref(struct)`
+instead.
+
 ## Root cause (hypothesis)
 
 The prelude's `Rc(V)` is `ref(struct((*) : V))`, a generic reference struct.
