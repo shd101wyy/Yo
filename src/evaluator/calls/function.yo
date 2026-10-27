@@ -1234,12 +1234,14 @@ _try_find_receiver_method :: (
     )
   )
 });
-/// What `_infer_unapplied_ctor_receiver` decided for `G.m(args)`: the
-/// argument that is the receiver (decision 32: the call is `G(A…).m(x, …)`
-/// with `x` as `self`, whose call-site marker is peeled against `self`'s
-/// mode), and the argument nodes evaluated once while inferring, which the
-/// call marks pre-evaluated around its argument matching.
-UnappliedCtorInference :: struct(receiver_arg : Option(usize), preevaluated : ArrayList(usize));
+/// What `_infer_unapplied_ctor_receiver` decided for `G.m(args)`: whether
+/// it bound the receiver to `G(A…)` (the call is then method-form, which
+/// leaves position 0 unpeeled, so the caller peels argument 0's call-site
+/// marker against parameter 0's mode: `Rc.make_mut(&mut h)`,
+/// `_Wrap.of_list(&xs)`), and the argument nodes evaluated once while
+/// inferring, which the call marks pre-evaluated around its argument
+/// matching.
+UnappliedCtorInference :: struct(bound : bool, preevaluated : ArrayList(usize));
 /// A candidate impl's verdict on the arguments of `G.m(...)`
 /// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2 step 4).
 _SaiOutcome :: enum(
@@ -1296,7 +1298,7 @@ _SaiBinding :: struct(ty : TypeValue, arg : usize);
 _infer_unapplied_ctor_receiver :: (
   fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> UnappliedCtorInference
 )({
-  none := UnappliedCtorInference(receiver_arg : .None, preevaluated : ArrayList(usize).new());
+  none := UnappliedCtorInference(bound : false, preevaluated : ArrayList(usize).new());
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(none);
   });
@@ -1377,7 +1379,7 @@ _infer_unapplied_ctor_receiver :: (
   match(
     uc_inst.clone(),
     .Some(uc_self) => if(_sai_instance_method_takes_self(env, &uc_method, &uc_self), {
-      return(_sai_bind_receiver(&uc_recv, &uc_self, &uc_nodes, &uc_tys, true, env, ctx));
+      return(_sai_bind_receiver(&uc_recv, &uc_self, &uc_nodes, &uc_tys, env, ctx));
     }),
     .None => ()
   );
@@ -1393,7 +1395,7 @@ _infer_unapplied_ctor_receiver :: (
       // A receiver method, or a name no impl of `G` declares: the instance is
       // the receiver, and a miss is E0610 naming it.
       .Some(uc_self) => {
-        return(_sai_bind_receiver(&uc_recv, &uc_self, &uc_nodes, &uc_tys, true, env, ctx));
+        return(_sai_bind_receiver(&uc_recv, &uc_self, &uc_nodes, &uc_tys, env, ctx));
       },
       .None => ()
     );
@@ -1587,13 +1589,12 @@ _sai_static_candidates :: (fn(ctor_fid : &String, m : &String, head : &String) -
   out
 });
 /// The receiver's ExprInfo becomes `.TypeVal(self_ty)`: the call proceeds as
-/// `G(A…).m(…)`. `is_receiver_call`: argument 0 is the receiver (a
-/// `Self`-first method, decision 32). Every argument evaluated while
+/// `G(A…).m(…)`. Every argument evaluated while
 /// inferring is pre-evaluated for the call, except one whose type still
 /// carries a comptime literal type (`Rc.new(42)`): that one is evaluated again
 /// under the parameter's instantiated type, as the written call evaluates it.
 _sai_bind_receiver :: (
-  fn(recv : &AstExpr, self_ty : &TypeValue, nodes : &ArrayList(Option(AstExpr)), tys : &ArrayList(Option(TypeValue)), is_receiver_call : bool, env : &Environment, ctx : &EvalContext) -> UnappliedCtorInference
+  fn(recv : &AstExpr, self_ty : &TypeValue, nodes : &ArrayList(Option(AstExpr)), tys : &ArrayList(Option(TypeValue)), env : &Environment, ctx : &EvalContext) -> UnappliedCtorInference
 )({
   info := new_expr_info(env, t_type());
   info.value = Option(EvalValue).Some(EvalValue.TypeVal(self_ty.clone()));
@@ -1613,11 +1614,7 @@ _sai_bind_receiver :: (
       _ => ()
     );
   });
-  recv_arg := cond(
-    is_receiver_call => match(nodes.get(usize(0)), .Some(.Some(n0)) => Option(usize).Some(ast_expr_id(&n0)), _ => Option(usize).None),
-    true => Option(usize).None
-  );
-  UnappliedCtorInference(receiver_arg : recv_arg, preevaluated : pre)
+  UnappliedCtorInference(bound : true, preevaluated : pre)
 });
 /// Every SomeT of a binder named in `names` that `ty` carries at another
 /// frame level than the binder's own is the binder: a method type can mint
@@ -1858,7 +1855,7 @@ _sai_decide :: (
     exn : Exception
   ) -> UnappliedCtorInference
 )({
-  none := UnappliedCtorInference(receiver_arg : .None, preevaluated : ArrayList(usize).new());
+  none := UnappliedCtorInference(bound : false, preevaluated : ArrayList(usize).new());
   bound_tys := ArrayList(TypeValue).new();
   bound_sites := ArrayList(String).new();
   (oi : usize) = usize(0);
@@ -1881,7 +1878,7 @@ _sai_decide :: (
   });
   if(bound_tys.len() == usize(1), {
     chosen := match(bound_tys.get(usize(0)), .Some(t) => t, .None => t_unit());
-    return(_sai_bind_receiver(recv, &chosen, nodes, tys, false, env, ctx));
+    return(_sai_bind_receiver(recv, &chosen, nodes, tys, env, ctx));
   });
   if(!may_throw, {
     return(none);
@@ -12300,9 +12297,8 @@ Fix: wrap the call:
           // call-site marker (Rust's `Rc::make_mut(&mut h)`), checked and
           // peeled against `self`'s mode here. The call below is
           // method-form, which leaves position 0 unpeeled.
-          uc_args := match(
-            uc_inf.receiver_arg,
-            .Some(_) => match(
+          uc_args := cond(
+            uc_inf.bound => match(
               method_info.method_ty,
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
