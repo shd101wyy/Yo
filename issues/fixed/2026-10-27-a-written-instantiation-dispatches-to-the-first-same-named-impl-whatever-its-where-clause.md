@@ -1,6 +1,6 @@
 # A written instantiation dispatches to the first same-named impl, whatever its where-clause
 
-**Severity:** S2 — wrong code, silently: when two inherent generic impls on one constructor pattern declare the same method under disjoint `where` bounds, `W(bool).mk(true)` runs the body of the impl whose bound `bool` does NOT satisfy.
+**Severity:** S1 — wrong code, silently: when two inherent generic impls on one constructor pattern declare the same method under disjoint `where` bounds, `W(bool).mk(true)` runs the body of the impl whose bound `bool` does NOT satisfy.
 
 **Status:** fixed on `feat/sai-a1-static-arg-inference` (static-argument inference A1). **Found:** 2026-10-27, while writing static-argument inference A1's where-clause tests (`feat/sai-a1-static-arg-inference`). The inferred form `W.mk(true)` selects by bound (A1 checks each candidate impl's where-clause, `first_failed_impl_where` in `src/evaluator/values/impl.yo`); the written form does not.
 
@@ -28,7 +28,7 @@ Built with develop `476cfb700`, the binary aborts on the second assert (`b.tag` 
 
 ## Root cause
 
-`find_methods_from_generic_impls` (`src/evaluator/values/impl.yo`) returns every generic impl whose receiver pattern matches and that declares the method, and the caller takes the first. `try_match_generic_impl` runs it with `enforce_all_where = false` on purpose: a constructed pattern's where-clause is not enforced at dispatch, because a load-order false negative of the trait predicate (`String <: Hash` while std loads) would delete a method that does exist. Both impls therefore matched `W(bool)`, and the first registered answered for both. In the `_Sel` shape the same happens across patterns: `_Sel(T)` with `T := Option(bool)` matches `_Sel(Option(bool))` as well as the `_Sel(Option(T))` impl it was written for.
+`find_methods_from_generic_impls` (`src/evaluator/values/impl.yo`) returns every generic impl whose receiver pattern matches and that declares the method, and the caller takes the first. `try_match_generic_impl` runs it with `enforce_all_where = false` on purpose: a constructed pattern's where-clause is not enforced at dispatch, because a load-order false negative of the trait predicate (`String <: Hash` while std loads) would delete a method that does exist. Both impls therefore matched `W(bool)`, and the first registered answered for both. In the `_Sel` shape the same happens across patterns: `_Sel(T)` with `T := Option(bool)` matches `_Sel(Option(bool))` as well as the `_Sel(Option(T))` impl it was written for (when a field mentions `T`; otherwise the second impl does not match at all, issues/2026-10-27-an-impl-on-a-compound-instantiation-of-a-phantom-parameter-never-matches.md).
 
 ## Fix
 

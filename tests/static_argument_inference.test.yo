@@ -117,11 +117,14 @@ _Loudly :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(generic(T : Type), where(T <: _Loud), _Loudly(T), mk : (fn(v : T) -> Self)(Self(v : v)));
 /// Two inherent impls over different bounds declare `mk`; the bound decides
 /// which receiver the arguments bind.
+/// (`hold` mentions `T`: a pattern over a parameter no field mentions does
+/// not match a compound argument,
+/// issues/2026-10-27-an-impl-on-a-compound-instantiation-of-a-phantom-parameter-never-matches.md.)
 _Sel :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(tag : i32)
+  struct(tag : i32, hold : Option(T))
 );
-impl(generic(T : Type), where(T <: _Loud), _Sel(T), mk : (fn(x : T) -> Self)(Self(tag : i32(1))));
-impl(generic(T : Type), where(T <: _Quiet), _Sel(Option(T)), mk : (fn(x : T) -> Self)(Self(tag : i32(2))));
+impl(generic(T : Type), where(T <: _Loud), _Sel(T), mk : (fn(x : T) -> Self)(Self(tag : i32(1), hold : .None)));
+impl(generic(T : Type), where(T <: _Quiet), _Sel(Option(T)), mk : (fn(x : T) -> Self)(Self(tag : i32(2), hold : .None)));
 /// A binder only a where-clause mentions.
 _Count :: struct(n : i32);
 impl(
