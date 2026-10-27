@@ -217,7 +217,7 @@ _trim_trailing_h_ws :: (fn(s : &String) -> String)({
   // the C-variadic `... )` — visible only in files with an em dash (or any
   // non-ASCII) EARLIER in the output, which is why it looked like a "multiline
   // paren frame" rule and never reproduced in an ASCII repro.
-  bytes := s;
+  bytes := s.clone();
   n := bytes.len();
   (k : usize) = usize(0);
   (done : bool) = false;
@@ -1988,7 +1988,7 @@ is_tightly_bound_operator :: (
                 // RUNE columns (the lexer indexes an ArrayList(rune)), so the
                 // token width added to one has to be a rune count
                 // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-                (usize(n.column) == (usize(token.column) + token.value.chars().count()))
+                (usize(n.column) == (usize(token.column) + token.value.clone().chars().count()))
             )
           );
           cond(
@@ -2018,7 +2018,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
   // Split raw on '\n', trim each line's trailing horizontal whitespace.
   lines := ArrayList(String).new();
   {
-    bytes := raw;
+    bytes := raw.clone();
     n := bytes.len();
     (i : usize) = usize(0);
     (line_start : usize) = usize(0);
@@ -2065,7 +2065,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
   // two-pass approach.
   lines = ArrayList(String).new();
   {
-    bytes := raw;
+    bytes := raw.clone();
     n := bytes.len();
     (i : usize) = usize(0);
     (start : usize) = usize(0);
@@ -2234,7 +2234,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
 /// `Token.byte_offset` (added by `plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3) is
 /// that issue's named follow-up, and it removes the conversion walk entirely.
 read_raw_template_string :: (fn(input : &String, start : usize) -> String)({
-  bytes := input;
+  bytes := input.clone();
   n := bytes.len();
   (index : usize) = (start + usize(1));
   (end_index : usize) = n; // default: until EOF

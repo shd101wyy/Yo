@@ -276,7 +276,7 @@ impl(
       module_path : &String,
       exn : Exception
     ) -> Self
-  )(Parser.new_shared(rc(input_string), rc(module_path), exn)),
+  )(Parser.new_shared(rc(input_string.clone()), rc(module_path.clone()), exn)),
   /// A parser over the byte range `[start_byte, end_byte)` of `input`, its
   /// tokens positioned in the whole file (`tokenize_span`). Template
   /// interpolation bodies are parsed through this.
@@ -483,7 +483,7 @@ impl(
   }),
   parse_template_string : (fn(self : &mut Self, tok : &Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
-    template_value := tok.value;
+    template_value := tok.value.clone();
     // Byte-wise: every delimiter here is ASCII, and a UTF-8 multi-byte
     // sequence never contains an ASCII byte, so literal runes pass through
     // byte by byte unchanged.
@@ -629,7 +629,7 @@ impl(
       // `toff(i)` is the byte offset rune `i` starts at.
       toff := ArrayList(usize).new();
       {
-        ti := text.char_indices();
+        ti := text.clone().char_indices();
         while(true, {
           match(
             ti.next(),
@@ -650,11 +650,11 @@ impl(
       });
       cond(
         // no run, no colon before it, or a colon with nothing in front
-        ((k == tn) || (k < usize(2))) => _SpecSplit(expr_text : text, spec : String.new()),
-        (tc(k - usize(1)).char != u32(0x3A)) => _SpecSplit(expr_text : text, spec : String.new()),
+        ((k == tn) || (k < usize(2))) => _SpecSplit(expr_text : text.clone(), spec : String.new()),
+        (tc(k - usize(1)).char != u32(0x3A)) => _SpecSplit(expr_text : text.clone(), spec : String.new()),
         // a SPACE before the colon means an ordinary colon-pair, not a spec
         ((tc(k - usize(2)).char == u32(0x20)) || (tc(k - usize(2)).char == u32(0x09))) =>
-          _SpecSplit(expr_text : text, spec : String.new()),
+          _SpecSplit(expr_text : text.clone(), spec : String.new()),
         true => {
           // Both cuts land on rune boundaries by construction: they come out
           // of `char_indices()`, so `try_substring` can only answer `.Some`.
@@ -1866,7 +1866,7 @@ impl(
   e0003_grouping_hint : (
     fn(self : &Self, tok : &Token, lhs : &AstExpr, rhs_op : &String, rhs : &AstExpr, rhs_start : usize, rhs_end : usize) -> String
   )({
-    outer := tok.value;
+    outer := tok.value.clone();
     outer_tier := _e0003_tier(&outer);
     rhs_tier := _e0003_tier(rhs_op);
     rhs_is_assign := ((rhs_op == "=") || (rhs_op == "?="));
