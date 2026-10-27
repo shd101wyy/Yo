@@ -8919,6 +8919,25 @@ and its macro deletion rides with step 4.
      specialization identity (REFERENCES_AND_ORIGINS O1): the variant
      carries the origin, the keys ignore it, and the gate's emit-diff is
      what proves it (added 2026-10-20).
+   - Status (2026-10-27, branch `vbd/d43-step1-reference-type`): done for
+     the regular parameter slots (`Func.param_types`,
+     `FnTraitT.call_param_types`).
+     - A by-value slot is the bare `T`, a `&T` slot is
+       `Reference(T, false, elided)` and a `&mut T` slot is
+       `Reference(T, true, elided)`.
+     - A regular parameter with no mode (a `Type`-valued or a `quote` one)
+       keeps today's borrow, so its slot is `&T`.
+     - The `generic(...)` and `using(...)` lists (`forall_types`,
+       `implicit_types`) and the variadic list never carried a mode and stay
+       plain types.
+     - `sink(x) : T` is a by-value slot. `FuncMeta.param_is_sink` stays a
+       caller-side flag beside it, as the `sink` rule above says, and is not
+       a mode of the type.
+     - The emit-diff of `src/main.yo` and the language corpus is
+       byte-identical.
+     - The only origin step 1 builds is the shared elided one, so "origins
+       are not in any key" holds by construction until step 2 produces a
+       second origin.
 2. **Generation A: the kind and the rules in user code (N1).**
    - `generic(p : Origin)`; the `&(T, p)` / `&mut(T, p)` parse with its
      kind-directed disambiguation; `&(T, p)` bound (`r := &x` elides to
@@ -8927,6 +8946,10 @@ and its macro deletion rides with step 4.
    - The elision defaults (fresh per reference parameter; result = union
      of the reference-holding parameters; per-field fresh in type
      definitions; flow-inferred in bodies), each checked against the body.
+   - The result reference joins the type: `FuncMeta.result_is_ref` /
+     `result_is_mut_ref` (left as flags by step 1) become a
+     `Reference(T, mutable, origin)` result, whose origin is the elided
+     union above.
    - The checking rules (REFERENCES_AND_ORIGINS O3): freeze/exclusivity by
      origin intersection, the covariant/invariant coercion rule (exact
      through a `&mut` pointee, a `RefCell` payload, a `&mut` capture),

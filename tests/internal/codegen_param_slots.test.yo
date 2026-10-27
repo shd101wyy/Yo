@@ -1,0 +1,66 @@
+//! Codegen's emittability guards read a parameter's TYPE through its slot
+//! (decision 43 step 1: a `&T` / `&mut T` parameter's slot is a
+//! `Reference(T, ...)`). Read raw, a `K : &Type` slot is not `TypeUni`, an
+//! `x : &Expr` slot is not `Expr` and a `&T` slot over a generic `T` contains
+//! no SomeT at the top level, so the guards let a generic or macro original
+//! through to C, where its prototype spells `// Unknown type: ...`.
+//!
+//! Each case registers a function type under a fresh func id that has NO
+//! comptime flags in the side table (as a function minted during
+//! instantiation has), so only the type-level half of each guard can fire.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ Token, TokenKind } :: import("../../src/token.yo");
+{ AstExpr } :: import("../../src/expr.yo");
+{ EvalValue, FuncValData } :: import("../../src/value.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ t_func_simple, t_expr_t, t_some_t, t_unit } :: import("../../src/types/creators.yo");
+{ register_func_type } :: import("../../src/function_value.yo");
+{ _is_generic_unspecialized_func, _func_has_some_param } :: import("../../src/codegen/functions/collection.yo");
+
+/// Register `fn(<label> : &<param>) -> unit` under `fid` and return its FuncVal.
+_mk_func_val :: (fn(fid : str, label : str, param : TypeValue) -> EvalValue)({
+  labels := ArrayList(String).new();
+  labels.push(String.from(label));
+  tys := ArrayList(TypeValue).new();
+  tys.push(param);
+  register_func_type(String.from(fid), t_func_simple(labels, tys, t_unit()));
+  tok := Token(
+    kind : TokenKind.Identifier,
+    value : String.from(label),
+    row : u32(0),
+    column : u32(0),
+    character : u32(0),
+    module_path : rc(String.from("app.yo")),
+    input : rc(String.new())
+  );
+  data := FuncValData(
+    forall_names : ArrayList(String).new(),
+    params : ArrayList(String).new(),
+    param_type_names : ArrayList(String).new(),
+    evidence_params : ArrayList(String).new(),
+    body : AstExpr.Atom(usize(1), tok),
+    cap_names : ArrayList(String).new(),
+    cap_tys : ArrayList(TypeValue).new(),
+    func_id : String.from(fid)
+  );
+  EvalValue.FuncVal(rc(data), ArrayList(EvalValue).new())
+});
+test("a `K : &Type` parameter slot makes the original unemittable", {
+  fv := _mk_func_val("fn_yo_id_test_slot_type_param", "K", rc(TypeValueNode.TypeUni(usize(0))));
+  assert(_is_generic_unspecialized_func(&fv), "a Type-universe parameter behind a `&` slot is generic");
+});
+test("an `x : &Expr` parameter slot marks a macro, never a C function", {
+  fv := _mk_func_val("fn_yo_id_test_slot_expr_param", "x", t_expr_t());
+  assert(_is_generic_unspecialized_func(&fv), "an Expr parameter behind a `&` slot is a macro");
+});
+test("a `&T` slot over an unresolved SomeT counts as a generic parameter", {
+  _fv := _mk_func_val("fn_yo_id_test_slot_some_param", "x", t_some_t(String.from("T"), usize(0)));
+  assert(_func_has_some_param(String.from("fn_yo_id_test_slot_some_param")), "SomeT behind a `&` slot");
+});
+test("a concrete `&i32` slot is emittable", {
+  fv := _mk_func_val("fn_yo_id_test_slot_concrete_param", "x", rc(TypeValueNode.Int(u8(32), true)));
+  assert(!_is_generic_unspecialized_func(&fv), "a concrete parameter is emittable");
+  assert(!_func_has_some_param(String.from("fn_yo_id_test_slot_concrete_param")), "no SomeT");
+});

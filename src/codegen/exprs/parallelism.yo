@@ -23,7 +23,7 @@
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, no_labels, slot_pointee_at } :: import("../../types/definitions.yo");
 { is_unit_type, is_array_type, is_tuple_type, is_enum_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only, type_is_move_only, is_value_nominal_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -108,7 +108,7 @@ _closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &Function
       (i : usize) = usize(0);
       while(i < n, {
         match(
-          pts.get(i),
+          slot_pointee_at(&pts, i),
           .Some(pt) => {
             out.push_str(", (");
             out.push_string(get_type_string(&pt, &context.base));

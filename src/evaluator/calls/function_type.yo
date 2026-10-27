@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text, record_copy_loop } :: import("../utils.yo");
@@ -204,8 +204,6 @@ PendingDefEval :: ref(
     body : AstExpr,
     param_labels : ArrayList(String),
     param_types : ArrayList(TypeValue),
-    param_is_ref : ArrayList(bool),
-    param_is_owning : ArrayList(bool),
     param_is_comptime : ArrayList(bool),
     result_ty : TypeValue,
     where_entries : ArrayList(WhereConstraintEntry),
@@ -734,12 +732,10 @@ _build_def_time_body_env :: (
   fn(
     caller_env : &Environment,
     param_labels : &ArrayList(String),
-    param_types : &ArrayList(TypeValue),
-    param_is_ref : &ArrayList(bool),
-    /// Per-parameter `own(...)` flags (FuncMeta.param_is_owning) — an own
-    /// param's def-time binding must be created OWNING so the function-body
+    /// The parameter slots: each one's mode is its type. A by-value
+    /// parameter's def-time binding is created OWNING so the function-body
     /// begin block's parameters-frame drop pass releases it at scope end.
-    param_is_owning : &ArrayList(bool),
+    param_types : &ArrayList(TypeValue),
     /// Per-parameter `comptime(...)` flags (the fn-type side table). A comptime
     /// VALUE param must carry an
     /// UnknownVal or every builtin the body hands it to throws its
@@ -934,7 +930,7 @@ _build_def_time_body_env :: (
   {
     (sci : usize) = usize(0);
     while(sci < param_types.len(), {
-      spt := match(param_types.get(sci), .Some(t) => t, .None => t_unit());
+      spt := match(param_types.get(sci), .Some(t) => t_slot_pointee(&t), .None => t_unit());
       found := get_all_some_types(&spt);
       (sfi : usize) = usize(0);
       while(sfi < found.len(), {
@@ -1032,9 +1028,9 @@ _build_def_time_body_env :: (
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
     pn := match(param_labels.get(pi), .Some(n) => n, .None => String.from(""));
-    pt := match(param_types.get(pi), .Some(t) => t, .None => t_unit());
-    p_ref := match(param_is_ref.get(pi), .Some(b) => b, .None => false);
-    p_own := match(param_is_owning.get(pi), .Some(b) => b, .None => false);
+    pt := match(param_types.get(pi), .Some(t) => t_slot_pointee(&t), .None => t_unit());
+    p_ref := match(param_types.get(pi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
+    p_own := match(param_types.get(pi), .Some(t) => t_slot_is_by_value(&t), .None => false);
     // A comptime TYPE parameter (`comptime(T) : Type`) must be bound as a
     // `TypeVal(SomeT(name))` type value — NOT `create_unknown_val(Type)` (an
     // unknown VALUE) — so the body can use it as a type (e.g. a type-constructor
@@ -1087,8 +1083,6 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
           caller_env,
           &pd.param_labels,
           &pd.param_types,
-          &pd.param_is_ref,
-          &pd.param_is_owning,
           &pd.param_is_comptime,
           &pd.result_ty,
           &pd.where_entries,
@@ -1210,8 +1204,6 @@ try_to_implement_function_by_function_type :: (
       forall_labels := __fm2.*.forall_labels;
       param_labels := __fm2.*.param_labels;
       implicit_labels := __fm2.*.implicit_labels;
-      param_is_ref := __fm2.*.param_is_ref;
-      param_is_owning := __fm2.*.param_is_owning;
       result_is_ref := __fm2.*.result_is_ref;
       result_is_comptime_only := __fm2.*.result_is_comptime_only;
       tok := ast_expr_token(expr);
@@ -1340,7 +1332,7 @@ Result type: ${type_to_string(&result_box)}`
       n_pt := param_types.len();
       while(pti < n_pt, {
         pt_name := match(
-          param_types.get(pti),
+          slot_pointee_at(&param_types, pti),
           .Some(Rc(.SomeT(_, name, _, _, _, _, _, _, _, _))) => name,
           .Some(_) => String.from(""),
           .None => String.from("")
@@ -1462,7 +1454,7 @@ Result type: ${type_to_string(&result_box)}`
       (spi : usize) = usize(0);
       while((spi < param_types.len()) && !any_some_param_ft, {
         match(
-          param_types.get(spi),
+          slot_pointee_at(&param_types, spi),
           .Some(pt) => if(type_contains_some_type_for_codegen_param(&pt, ArrayList(String).new()), {
             any_some_param_ft = true;
           }),
@@ -1502,7 +1494,7 @@ Result type: ${type_to_string(&result_box)}`
           (ct_fi : usize) = usize(0);
           while((ct_fi < ct_flags_ft.len()) && !ft_has_ct_param, {
             ct_is_typeuni := match(
-              param_types.get(ct_fi),
+              slot_pointee_at(&param_types, ct_fi),
               .Some(ct_pt) => match(ct_pt, Rc(.TypeUni(_)) => true, _ => false),
               .None => false
             );
@@ -1622,7 +1614,7 @@ Result type: ${type_to_string(&result_box)}`
           (pv_i : usize) = usize(0);
           while(pv_i < param_labels.len(), {
             pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
-            pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
+            pv_ty := match(slot_pointee_at(&param_types, pv_i), .Some(t) => t, .None => t_unit());
             if(pv_name.len() > usize(0), {
               add_variable_to_env(
                 &pred_env,
@@ -1740,7 +1732,7 @@ Result type: ${type_to_string(&result_box)}`
               module_path : tok.module_path.*.clone(),
               body : body_expr_raw.clone(),
               param_names : param_labels.items.clone(),
-              param_types : param_types.items.clone(),
+              param_types : slot_pointees(&param_types),
               result_type : result_box.clone(),
               requires_exprs : evd_reqs,
               ensures_exprs : evd_enss,
@@ -1822,8 +1814,6 @@ Result type: ${type_to_string(&result_box)}`
             caller_env,
             &param_labels.items,
             &param_types.items,
-            &param_is_ref.items,
-            &param_is_owning.items,
             &def_ct_flags,
             &result_box,
             &def_where_entries,
@@ -1982,8 +1972,6 @@ Result type: ${type_to_string(&result_box)}`
                   body : body_expr.clone(),
                   param_labels : param_labels.items.clone(),
                   param_types : param_types.items.clone(),
-                  param_is_ref : param_is_ref.items.clone(),
-                  param_is_owning : param_is_owning.items.clone(),
                   param_is_comptime : def_ct_flags.clone(),
                   result_ty : result_box,
                   where_entries : def_where_entries,
@@ -2320,8 +2308,6 @@ Result type: ${type_to_string(&result_box)}`
               caller_env,
               &param_labels.items,
               &param_types.items,
-              &param_is_ref.items,
-              &param_is_owning.items,
               &dg_ct_flags,
               &result_box,
               &dg_where,
@@ -2436,7 +2422,7 @@ Result type: ${type_to_string(&result_box)}`
             {
               (dgcv_i : usize) = usize(0);
               while(dgcv_i < dg_ct_flags.len(), {
-                dgcv_typeuni := match(param_types.get(dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, Rc(.TypeUni(_)) => true, _ => false), .None => false);
+                dgcv_typeuni := match(slot_pointee_at(&param_types, dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, Rc(.TypeUni(_)) => true, _ => false), .None => false);
                 if(match(dg_ct_flags.get(dgcv_i), .Some(b) => b, .None => false) && !dgcv_typeuni, {
                   dg_has_ct_value = true;
                 });

@@ -51,7 +51,7 @@
 { snapshot_env, Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at } :: import("../../types/definitions.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
@@ -1668,7 +1668,7 @@ register_impl_inheritance_task :: (
           (pih : usize) = usize(0);
           while(pih < __ihpt.len(), {
             match(
-              __ihpt.get(pih),
+              slot_pointee_at(&__ihpt, pih),
               .Some(pt) => {
                 p_types.push(pt.clone());
                 p_names.push(
@@ -2254,7 +2254,7 @@ register_impl_variance_task :: (
       (pi : usize) = usize(0);
       while(pi < __vpt.len(), {
         match(
-          __vpt.get(pi),
+          slot_pointee_at(&__vpt, pi),
           .Some(pt) => {
             p_types.push(pt.clone());
             p_names.push(
@@ -3170,7 +3170,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
       (pi : usize) = usize(0);
       while(pi < __lpt.len(), {
         match(
-          __lpt.get(pi),
+          slot_pointee_at(&__lpt, pi),
           .Some(t) => {
             p_types.push(t.clone());
             p_names.push(

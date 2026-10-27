@@ -79,14 +79,6 @@ _append_strings :: (fn(sb : &mut StringBuilder, xs : &SharedList(String)) -> uni
     i = (i + usize(1));
   });
 });
-_append_bools :: (fn(sb : &mut StringBuilder, xs : &SharedList(bool)) -> unit)({
-  n := xs.len();
-  (i : usize) = usize(0);
-  while(i < n, {
-    _append_b(sb, match(xs.get(i), .Some(b) => b, .None => false));
-    i = (i + usize(1));
-  });
-});
 _append_i64s :: (fn(sb : &mut StringBuilder, xs : &SharedList(i64)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
@@ -113,9 +105,7 @@ _append_meta_key :: (fn(sb : &mut StringBuilder, m : &FuncMeta) -> unit)({
   _append_strings(sb, &m.implicit_labels);
   sb.write_str(";");
   _append_b(sb, m.result_is_comptime_only);
-  _append_bools(sb, &m.param_is_ref);
-  sb.write_str(";");
-  _append_bools(sb, &m.param_is_owning);
+  // The parameter modes are the param slots' types, rendered with them.
   sb.write_str(";");
   _append_b(sb, m.result_is_ref);
   _append_b(sb, m.result_is_mut_ref);
@@ -607,7 +597,7 @@ _intern_key_into :: (
         _append_usizes(sb, &dntl);
         sb.write_str("]");
       },
-      Rc(.FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, call_param_is_ref : fncprf, call_param_is_owning : fncpo })) => {
+      Rc(.FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit })) => {
         sb.write_str("FT:");
         sb.write_string(&fnbn);
         sb.write_str("[");
@@ -632,10 +622,6 @@ _intern_key_into :: (
           sb.write_str(",");
           ifi = (ifi + usize(1));
         });
-        sb.write_str("|");
-        _append_bools(sb, &fncprf);
-        sb.write_str("|");
-        _append_bools(sb, &fncpo);
         sb.write_str("]");
       },
       Rc(.FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet })) => {
@@ -667,6 +653,23 @@ _intern_key_into :: (
       Rc(.ExternOpaqueT(_, eo_c)) => {
         sb.write_str("Ex:");
         sb.write_string(&eo_c);
+      },
+      // The intern table decides node SHARING, so the key carries the
+      // origin: two references that differ only in origin are one type for
+      // `type_key` and every memo, but must stay two nodes for the borrow
+      // checker (decision 43 step 1; every step-1 origin is the elided one).
+      Rc(.Reference(r_pointee, r_mut, r_origin)) => {
+        sb.write_str(if(r_mut, "Ref:m", "Ref:i"));
+        recur(&r_pointee, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        recur(&r_origin, sb, depth + usize(1), visited);
+      },
+      Rc(.OriginKind) => sb.write_str("OrK"),
+      Rc(.OriginSet(o_places, o_elided)) => {
+        sb.write_str("OrS:");
+        _append_b(sb, o_elided);
+        _append_strings(sb, &o_places);
+        sb.write_str(";");
       }
     )
   )

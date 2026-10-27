@@ -79,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
   ImplConcreteTypeInfo
 } :: import("../context.yo");
 { EvalValue, is_type_value, value_contains_unknown } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -1320,7 +1320,7 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
   );
   receiver_is_mut := match(
     method_ty,
-    Rc(.Func({ meta : mm })) => (match(mm.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(mm.*.param_is_ref.get(usize(0)), .Some(r) => r, .None => false)),
+    Rc(.Func({ param_types : mm_pts, meta : mm })) => (match(mm.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(mm_pts.get(usize(0)), .Some(mm_s) => t_slot_is_mut_ref(&mm_s), .None => false)),
     _ => false
   );
   if(!receiver_is_mut, {
@@ -3625,7 +3625,7 @@ _evaluate_begin_expression_impl :: (
                         Rc(.Func({ meta : own_fm })) => {
                           (own_found : bool) = false;
                           own_labels := own_fm.*.param_labels;
-                          own_flags := own_fm.*.param_is_owning;
+                          own_flags := fn_param_by_value_flags(&fty);
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();
                           while((own_i < n_own) && !own_found, {

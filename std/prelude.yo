@@ -8048,7 +8048,14 @@ TypeInfo :: enum(
   ComptimeList(element : Type),
   // Metaprogramming (fieldless)
   Expr,
-  TypeApplication
+  TypeApplication,
+  /// `&T` (`mutable = false`) or `&mut T` with its origin, a value of the
+  /// `Origin` kind (plans/VALUES_BY_DEFAULT.md decision 43). Today only a
+  /// function parameter's slot is a reference, and a function's
+  /// `ParamInfo.param_type` reports the pointee.
+  Reference(pointee : Type, mutable : bool, origin : Type),
+  /// The `Origin` kind: the type of an origin value.
+  Origin
 );
 impl(TypeInfo, Comptime());
 impl(

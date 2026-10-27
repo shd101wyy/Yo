@@ -22,7 +22,7 @@
 { stable_position_id, stable_label_id, debug_knob, is_temp_variable_name, is_any_temp_variable_name } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_is_mut_ref, slot_pointee_at } :: import("../../types/definitions.yo");
 {
   is_function_type,
   is_struct_type,
@@ -1917,11 +1917,11 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   (n_params : usize) = usize(0);
   match(
     get_func_type(cand.func_id.clone()),
-    Rc(.Func({ param_types : wpts, meta : wmeta })) => {
+    Rc(.Func({ param_types : wpts })) => {
       n_params = wpts.len();
       (ri : usize) = usize(0);
-      while(ri < wmeta.*.param_is_ref.len(), ri = (ri + usize(1)), {
-        if(match(wmeta.*.param_is_ref.get(ri), .Some(r) => r, .None => false), {
+      while(ri < wpts.len(), ri = (ri + usize(1)), {
+        if(match(wpts.get(ri), .Some(r) => t_slot_is_mut_ref(&r), .None => false), {
           return(_fusion_not_lowered(await_expr, String.from("a wrapper parameter is mut"), report));
         });
       });
@@ -2390,7 +2390,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     Rc(.Func({ param_types : wpts, meta : wmeta })) => {
       (pi : usize) = usize(0);
       while(pi < wpts.len(), pi = (pi + usize(1)), {
-        pt := match(wpts.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        pt := match(slot_pointee_at(&wpts, pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         label := match(wmeta.*.param_labels.get(pi), .Some(l) => l, .None => `param${pi.to_string()}`);
         cname := sanitize_for_c_identifier(&label, false);
         code := match(arg_codes.get(pi), .Some(c) => c, .None => String.from("0"));
@@ -2949,7 +2949,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           pls := __fm1.*.param_labels;
           (i : usize) = usize(0);
           while(i < pts.len(), {
-            pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+            pt := match(slot_pointee_at(&pts, i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             // Slot 0 (the bundle param) must render THIS call's effect. The
             // registry type's param-0 can be the io.async builtin's SHARED
             // forall E — its global fallback resolves to whichever
@@ -3743,7 +3743,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     Rc(.Func({ param_types : pts })) => {
       (i : usize) = usize(0);
       while(i < pts.len(), {
-        pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        pt := match(slot_pointee_at(&pts, i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         // Same per-call rule as the FSM slot collection above: slot 0 is the
         // bundle param; when the closure's recorded Func type still carries
         // the io.async builtin's SHARED forall E, render THIS call's Future

@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../expr.yo");
 { TokenKind } :: import("../token.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, SharedList } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, SharedList, t_slot_is_mut_ref } :: import("../types/definitions.yo");
 { canonical_module_path } :: import("../utils.yo");
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
@@ -7770,7 +7770,7 @@ _call_frame_open :: (fn(table : &ExprInfoTable, e : &AstExpr) -> bool)(
 _callee_param_is_mut_ref :: (fn(fid : &String, i : usize) -> bool)(
   match(
     get_func_type(fid),
-    Rc(.Func({ meta : fm })) => match(fm.*.param_is_ref.get(i), .Some(b) => b, .None => false),
+    Rc(.Func({ param_types : fpts })) => match(fpts.get(i), .Some(fs) => t_slot_is_mut_ref(&fs), .None => false),
     _ => false
   )
 );

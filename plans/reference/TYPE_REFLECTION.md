@@ -93,7 +93,15 @@ TypeInfo :: enum(
 
   // === Metaprogramming (fieldless) ===
   Expr,
-  TypeApplication
+  TypeApplication,
+  // === References (decision 43 step 1) ===
+  // `&T` (mutable = false) or `&mut T`, with its origin. Step 1: only a
+  // function parameter's slot is a reference, ParamInfo.param_type reports
+  // the pointee, and no user code can name a reference or an origin yet.
+  // `origin` is the origin value carried as a Type; `Type.get_info` has no
+  // arm for an origin value itself (step 2 decides how it reflects).
+  Reference(pointee : Type, mutable : bool, origin : Type),
+  Origin // the Origin kind (the type of an origin value)
 );
 ```
 

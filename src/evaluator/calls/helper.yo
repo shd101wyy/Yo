@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -636,7 +636,7 @@ _trial_eval_ret_type_expr :: (
 _refine_one_fn_trait_result :: (fn(ftt : &TypeValue, new_result : &TypeValue) -> TypeValue)(
   match(
     ftt,
-    Rc(.FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_cpr, rw_cpo)) => cond(
+    Rc(.FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it)) => cond(
       (!is_some_type(&rw_cr) && (get_all_some_types(&rw_cr).len() > usize(0))) => rc(
         TypeValueNode.FnTraitT(
           rw_bn.clone(),
@@ -644,9 +644,7 @@ _refine_one_fn_trait_result :: (fn(ftt : &TypeValue, new_result : &TypeValue) ->
           rw_cpt,
           new_result,
           rw_il,
-          rw_it,
-          rw_cpr,
-          rw_cpo
+          rw_it
         )
       ),
       true => ftt
@@ -685,7 +683,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
       });
       rc(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, rf_pt, new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft, rf_rc))
     },
-    Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _refine_one_fn_trait_result(ty, new_result),
+    Rc(.FnTraitT(_, _, _, _, _, _)) => _refine_one_fn_trait_result(ty, new_result),
     _ => ty
   )
 );
@@ -946,7 +944,7 @@ apply_call_site_borrow_markers :: (
       p_is_ref := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
       p_is_owning := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
       p_label := match(param_labels.get(ai), .Some(l) => l, .None => String.new());
-      p_ty := match(param_types.get(ai), .Some(t) => t, .None => t_unit());
+      p_ty := match(param_types.get(ai), .Some(t) => t_slot_pointee(&t), .None => t_unit());
       place_text := ast_place_text(ast_expr_strip_borrow_marker(&bare));
       cond(
         // A `Type` parameter (`ArrayList(&T)`, `Option(&mut T)`): a borrow
@@ -3025,7 +3023,7 @@ create_specialized_function_inline :: (
             (dgi : usize) = usize(0);
             while((dgi < runtime_param_tys.len()) && !degenerate_unit_arg, {
               rpt_d := match(runtime_param_tys.get(dgi), .Some(t) => t, .None => t_unit());
-              decl_d := match(dg_pt.get(dgi), .Some(t) => t, .None => t_unit());
+              decl_d := match(slot_pointee_at(&dg_pt, dgi), .Some(t) => t, .None => t_unit());
               if(is_unit_type(&rpt_d) && !is_unit_type(&decl_d) && !type_contains_some_type(&decl_d), {
                 degenerate_unit_arg = true;
               });
@@ -3282,7 +3280,7 @@ create_specialized_function_inline :: (
                         (zb_done : bool) = false;
                         while((zbp < zb_pt.len()) && !zb_done, {
                           zb_decl_nm := match(
-                            zb_pt.get(zbp),
+                            slot_pointee_at(&zb_pt, zbp),
                             .Some(Rc(.SomeT(_, zdn, _, _, _, _, _, _, _, _))) => zdn,
                             .Some(_) => String.from(""),
                             .None => String.from("")
@@ -3521,7 +3519,7 @@ create_specialized_function_inline :: (
               while(pte_i < runtime_param_tys.len(), {
                 pte_ct := match(spec_param_ct_flags.get(pte_i), .Some(f) => f, .None => false);
                 pte_is_fn_carrier := match(
-                  pte_decl_pts.get(pte_i),
+                  slot_pointee_at(&pte_decl_pts, pte_i),
                   .Some(pte_dpt) => extract_fn_trait_from_type(&pte_dpt).is_some(),
                   .None => false
                 );
@@ -3793,7 +3791,7 @@ create_specialized_function_inline :: (
           // calls/function.yo:5265.
           decl_param_is_ref := match(
             func_type,
-            Rc(.Func({ meta : __fm_rb })) => __fm_rb.*.param_is_ref,
+            Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&func_type),
             _ => no_flags()
           );
           // The re-bind is NON-owning even for an `own(p)` parameter, and
@@ -3840,7 +3838,7 @@ create_specialized_function_inline :: (
             // below would otherwise skip them). Register the capture struct as the
             // SomeT's resolved concrete so get_type_string(SomeT) lowers to it
             // (utils/index.yo:760).
-            decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+            decl_pt := match(slot_pointee_at(&decl_param_types, rbp_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             // Prefer the CALL's resolved parameter type over the pristine
             // declared one. The declared type stays def-era (there is no
             // shared parameter object for the closure's return rewrite to
@@ -4182,7 +4180,7 @@ create_specialized_function_inline :: (
                     extract_fn_trait_from_type(&decl_pt),
                     .Some(fn_tr) => match(
                       fn_tr,
-                      Rc(.FnTraitT(_, _, _, fn_res, _, _, _, _)) => if(is_some_type(&fn_res), {
+                      Rc(.FnTraitT(_, _, _, fn_res, _, _)) => if(is_some_type(&fn_res), {
                         match(
                           arg_values.args.get(rbp_i),
                           .Some(cl_ae3) => match(
@@ -4721,8 +4719,8 @@ create_specialized_function_inline :: (
               });
               sp_il := __fm5.*.implicit_labels;
               sp_rico := __fm5.*.result_is_comptime_only;
-              sp_pir := __fm5.*.param_is_ref;
-              sp_pio := __fm5.*.param_is_owning;
+              sp_pir := fn_param_mut_ref_flags(&func_type);
+              sp_pio := fn_param_by_value_flags(&func_type);
               sp_pis := match(__fm5.*.param_is_sink, .Some(l) => l, .None => no_flags());
               sp_rir := __fm5.*.result_is_ref;
               sp_rimr := __fm5.*.result_is_mut_ref;
@@ -4755,7 +4753,7 @@ create_specialized_function_inline :: (
                 // unit-typed arg against a concrete non-unit declared param
                 // (`assert(flag : bool, ...)` emitted `void flag`;
                 // issues/repros/void-param-assert-open-env.yo).
-                declared_pt := match(sp_pt.get(spi), .Some(t) => t, .None => t_unit());
+                declared_pt := match(slot_pointee_at(&sp_pt, spi), .Some(t) => t, .None => t_unit());
                 // CLOSURE param: type the spec's param as the closure's
                 // CAPTURE STRUCT (get_closure_capture_info is the registry
                 // lookup for the wrapper SomeT's resolved concrete type —
@@ -4806,7 +4804,7 @@ create_specialized_function_inline :: (
                             (cw_gi : usize) = usize(0);
                             while(cw_gi < cw_cur_pt.len(), {
                               match(
-                                cw_cur_pt.get(cw_gi),
+                                slot_pointee_at(&cw_cur_pt, cw_gi),
                                 .Some(cw_gt) => if(get_all_some_types(&cw_gt).len() > usize(0), {
                                   cw_cur_generic = true;
                                 }),
@@ -4822,7 +4820,7 @@ create_specialized_function_inline :: (
                             extract_fn_trait_from_type(&declared_pt),
                             .Some(cw_ftt) => match(
                               cw_ftt,
-                              Rc(.FnTraitT(_, _, cw_cpt, cw_cres, _, _, _, _)) => {
+                              Rc(.FnTraitT(_, _, cw_cpt, cw_cres, _, _)) => {
                                 // Resolve the trait's generic occurrences by
                                 // NAME + OCCURRENCE-LEVEL from the inferred
                                 // forall_args (the ys_ret-bridge pattern):
@@ -4833,7 +4831,7 @@ create_specialized_function_inline :: (
                                 cw_s := subst_new();
                                 (cw_oi : usize) = usize(0);
                                 while(cw_oi < cw_cpt.len(), {
-                                  cw_ot := match(cw_cpt.get(cw_oi), .Some(x) => x, .None => t_unit());
+                                  cw_ot := match(slot_pointee_at(&cw_cpt, cw_oi), .Some(x) => x, .None => t_unit());
                                   cw_occ := get_all_some_types(&cw_ot);
                                   (cw_oj : usize) = usize(0);
                                   while(cw_oj < cw_occ.len(), {
@@ -4875,14 +4873,17 @@ create_specialized_function_inline :: (
                                 });
                                 cw_new_pts_b := ArrayList(TypeValue).new();
                                 (cw_all_conc : bool) = true;
+                                // The rebuilt signature keeps the existing
+                                // registration's parameter modes.
+                                cw_cur_slots := match(cw_cur, Rc(.Func({ param_types : cw_cs })) => cw_cs, _ => no_types());
                                 (cw_pi : usize) = usize(0);
                                 while(cw_pi < cw_cpt.len(), {
-                                  cw_pt0 := match(cw_cpt.get(cw_pi), .Some(x) => x, .None => t_unit());
+                                  cw_pt0 := match(slot_pointee_at(&cw_cpt, cw_pi), .Some(x) => x, .None => t_unit());
                                   cw_pt_res := substitute(&cw_s, &cw_pt0);
                                   if(get_all_some_types(&cw_pt_res).len() > usize(0), {
                                     cw_all_conc = false;
                                   });
-                                  cw_new_pts_b.push(cw_pt_res);
+                                  cw_new_pts_b.push(t_slot_like(&cw_cur_slots, cw_pi, &cw_pt_res));
                                   cw_pi = (cw_pi + usize(1));
                                 });
                                 cw_new_pts := shared_list(cw_new_pts_b);
@@ -4965,7 +4966,7 @@ create_specialized_function_inline :: (
                                   (cw_pvi : usize) = usize(0);
                                   while(cw_pvi < cc_fvd.*.params.len(), {
                                     cw_pn := match(cc_fvd.*.params.get(cw_pvi), .Some(x) => x, .None => String.new());
-                                    cw_pt2 := match(cw_new_pts.get(cw_pvi), .Some(x) => x, .None => t_unit());
+                                    cw_pt2 := match(slot_pointee_at(&cw_new_pts, cw_pvi), .Some(x) => x, .None => t_unit());
                                     _cwp := add_variable_to_env(
                                       &cw_benv,
                                       &cw_pn,
@@ -4985,7 +4986,7 @@ create_specialized_function_inline :: (
                                         cwp_var.is_parameter = true;
                                         // A `&T` parameter: a borrow
                                         // decision 33's markers pass bare.
-                                        if(!match(match(cw_cur, Rc(.Func({ meta : cw_fmr })) => cw_fmr.*.param_is_ref.get(cw_pvi), _ => Option(bool).None), .Some(b) => b, .None => false) && !match(match(cw_cur, Rc(.Func({ meta : cw_fmo })) => cw_fmo.*.param_is_owning.get(cw_pvi), _ => Option(bool).None), .Some(b) => b, .None => false), {
+                                        if(!fn_param_is_mut_ref(&cw_cur, cw_pvi) && !fn_param_is_by_value(&cw_cur, cw_pvi), {
                                           cwp_var.is_imm_borrow = true;
                                         });
                                       },
@@ -5154,7 +5155,7 @@ create_specialized_function_inline :: (
                 (ydb : usize) = usize(0);
                 while(ydb < sp_pt.len(), {
                   match(
-                    sp_pt.get(ydb),
+                    slot_pointee_at(&sp_pt, ydb),
                     .Some(ydb_dt) => match(
                       ydb_dt,
                       Rc(.SomeT(_, ydb_nm, ydb_lvl, _, _, _, _, _, _, _)) => {
@@ -5285,8 +5286,8 @@ create_specialized_function_inline :: (
                 .None => ()
               );
               // Filter the per-param meta arrays by the same comptime flags as
-              // the spec_param_types loop above — labels/is_ref/is_owning must
-              // stay index-aligned with the (comptime-filtered) param types.
+              // the spec_param_types loop above — labels and modes must stay
+              // index-aligned with the (comptime-filtered) param types.
               (sp_pl_f : ArrayList(String)) = ArrayList(String).new();
               (sp_pir_f : ArrayList(bool)) = ArrayList(bool).new();
               (sp_pio_f : ArrayList(bool)) = ArrayList(bool).new();
@@ -5304,10 +5305,23 @@ create_specialized_function_inline :: (
                   sp_mi = (sp_mi + usize(1));
                 });
               };
+              // Each specialized parameter type in its declared mode.
+              (spec_slots : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+              {
+                (sp_si : usize) = usize(0);
+                while(sp_si < spec_param_types.len(), {
+                  match(
+                    spec_param_types.get(sp_si),
+                    .Some(sp_st) => spec_slots.push(t_slot(&sp_st, match(sp_pir_f.get(sp_si), .Some(b) => b, .None => false), match(sp_pio_f.get(sp_si), .Some(b) => b, .None => false))),
+                    .None => ()
+                  );
+                  sp_si = (sp_si + usize(1));
+                });
+              };
               spec_type := rc(
                 TypeValueNode.Func(
                   no_types(),
-                  shared_list(spec_param_types),
+                  shared_list(spec_slots),
                   sp_it,
                   sp_wt,
                   spec_result,
@@ -5317,8 +5331,6 @@ create_specialized_function_inline :: (
                       param_labels : shared_list(sp_pl_f),
                       implicit_labels : sp_il,
                       result_is_comptime_only : sp_rico,
-                      param_is_ref : shared_list(sp_pir_f),
-                      param_is_owning : shared_list(sp_pio_f),
                       result_is_ref : sp_rir,
                       result_is_mut_ref : sp_rimr,
                       has_variadic : sp_hv,
@@ -6187,10 +6199,12 @@ resolve_param_types_from_expected :: (
     );
     fo_i = (fo_i + usize(1));
   });
+  // `out` is a slot list like `default_pts`: each resolved type keeps its
+  // parameter's mode.
   (pj : usize) = usize(0);
   while(pj < default_pts.len(), {
-    p_orig := match(default_pts.get(pj), .Some(t) => t, .None => t_unit());
-    out.push(evaluate_function_return_type_again(&p_orig, &resolved_env, ctx));
+    p_orig := match(slot_pointee_at(&default_pts, pj), .Some(t) => t, .None => t_unit());
+    out.push(t_slot_like(&default_pts, pj, evaluate_function_return_type_again(&p_orig, &resolved_env, ctx)));
     pj = (pj + usize(1));
   });
 });
@@ -6203,7 +6217,7 @@ _func_type_has_runtime_some_param :: (fn(t : &TypeValue) -> bool)(
       n := pts.len();
       while((i < n) && !found, {
         match(
-          pts.get(i),
+          slot_pointee_at(&pts, i),
           .Some(pt) => if(is_some_type(&pt) && !type_implements_future(&pt), {
             found = true;
           }),
@@ -6453,11 +6467,11 @@ collect_somes_with_fn_sigs :: (fn(t : &TypeValue) -> ArrayList(TypeValue))({
     extract_fn_trait_from_type(t),
     .Some(ftt) => match(
       ftt,
-      Rc(.FnTraitT(_, _, ftt_pts, ftt_res, _, _, _, _)) => {
+      Rc(.FnTraitT(_, _, ftt_pts, ftt_res, _, _)) => {
         ft_parts := ArrayList(TypeValue).new();
         (pi : usize) = usize(0);
         while(pi < ftt_pts.len(), {
-          match(ftt_pts.get(pi), .Some(x) => ft_parts.push(x), .None => ());
+          match(slot_pointee_at(&ftt_pts, pi), .Some(x) => ft_parts.push(x), .None => ());
           pi = (pi + usize(1));
         });
         ft_parts.push(ftt_res);
@@ -6507,7 +6521,7 @@ _mentions_forall_binder :: (fn(t : &TypeValue, forall_names : &ArrayList(String)
 /// (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
 fn_literal_arg_is_deferred :: (fn(args : &ArrayList(AstExpr), i : usize, n_p : usize, param_types : &ArrayList(TypeValue), forall_names : &ArrayList(String)) -> bool)({
   a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
-  pt := match(param_types.get(i), .Some(t) => t, .None => t_unit());
+  pt := match(param_types.get(i), .Some(t) => t_slot_pointee(&t), .None => t_unit());
   (i < n_p) && _is_fn_literal_arg(&a) && is_some_type(&pt) && extract_fn_trait_from_type(&pt).is_some() && _mentions_forall_binder(&pt, forall_names)
 });
 /// Step 7's parameter order: every parameter in order, the deferred function
@@ -6873,7 +6887,7 @@ try_to_call_function_with_arguments :: (
       extract_fn_trait_from_type(func_type),
       .Some(ftt) => match(
         ftt,
-        Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof)) => rc(
+        Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _)) => rc(
           TypeValueNode.Func(
             no_types(),
             cpt,
@@ -6886,8 +6900,6 @@ try_to_call_function_with_arguments :: (
                 param_labels : cpl,
                 implicit_labels : no_labels(),
                 result_is_comptime_only : false,
-                param_is_ref : cprf,
-                param_is_owning : cpof,
                 result_is_ref : false,
                 has_variadic : false,
                 is_extern : Option(String).None,
@@ -6958,9 +6970,9 @@ try_to_call_function_with_arguments :: (
     Rc(.Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b, meta : __fm8 })) => {
       fl := __fm8.*.forall_labels;
       pl := __fm8.*.param_labels;
-      pio := __fm8.*.param_is_owning;
+      pio := fn_param_by_value_flags(&norm_func_type2);
       pis := match(__fm8.*.param_is_sink, .Some(l) => l, .None => no_flags());
-      pref := __fm8.*.param_is_ref;
+      pref := fn_param_mut_ref_flags(&norm_func_type2);
       il := __fm8.*.implicit_labels;
       fn_has_variadic := __fm8.*.has_variadic;
       // Aliasing Stage 0: extern/builtin callees run no Yo code, so their
@@ -7270,7 +7282,7 @@ try_to_call_function_with_arguments :: (
         (sx_rest_ids : ArrayList(String)) = ArrayList(String).new();
         (sx_pi : usize) = usize(1);
         while(sx_pi < pt.len(), {
-          _sx_push_ids(match(pt.get(sx_pi), .Some(t) => t, .None => t_unit()), &mut sx_rest_ids);
+          _sx_push_ids(match(slot_pointee_at(&pt, sx_pi), .Some(t) => t, .None => t_unit()), &mut sx_rest_ids);
           sx_pi = (sx_pi + usize(1));
         });
         (sx_fi : usize) = usize(0);
@@ -7279,7 +7291,7 @@ try_to_call_function_with_arguments :: (
           sx_fi = (sx_fi + usize(1));
         });
         (sx_self_ids : ArrayList(String)) = ArrayList(String).new();
-        _sx_push_ids(match(pt.get(usize(0)), .Some(t) => t, .None => t_unit()), &mut sx_self_ids);
+        _sx_push_ids(match(slot_pointee_at(&pt, usize(0)), .Some(t) => t, .None => t_unit()), &mut sx_self_ids);
         (sx_si : usize) = usize(0);
         while(sx_si < sx_self_ids.len(), {
           sx_sid := match(sx_self_ids.get(sx_si), .Some(s) => s, .None => String.from(""));
@@ -8099,7 +8111,7 @@ try_to_call_function_with_arguments :: (
         s7_k = (s7_k + usize(1));
         s7_rt_before := rt_args.len();
         plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
-        ptype := match(pt.get(pi), .Some(t) => t, .None => t_unit());
+        ptype := match(slot_pointee_at(&pt, pi), .Some(t) => t, .None => t_unit());
         p_owning := match(pio.get(pi), .Some(o) => o, .None => false);
         p_sink := match(pis.get(pi), .Some(o) => o, .None => false);
         // Omitted optional parameter (no corresponding argument): clone the
@@ -8426,12 +8438,12 @@ try_to_call_function_with_arguments :: (
       );
       vrf_param_is_ref := match(
         func_type,
-        Rc(.Func({ meta : __fm10 })) => __fm10.*.param_is_ref,
+        Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&func_type),
         _ => no_flags()
       );
       vrf_param_is_owning := match(
         func_type,
-        Rc(.Func({ meta : __fm11 })) => __fm11.*.param_is_owning,
+        Rc(.Func({ result : _ })) => fn_param_by_value_flags(&func_type),
         _ => no_flags()
       );
       // §3.13 A2: for a future-PRODUCING callee the sibling-reachability
@@ -8616,7 +8628,7 @@ try_to_call_function_with_arguments :: (
           (s9_pi : usize) = usize(0);
           while(s9_pi < pt.len(), {
             match(
-              pt.get(s9_pi),
+              slot_pointee_at(&pt, s9_pi),
               .Some(s9_pt) => match(
                 s9_pt,
                 Rc(.SomeT(_, s9_pnm, _, _, _, _, _, _, _, _)) => {

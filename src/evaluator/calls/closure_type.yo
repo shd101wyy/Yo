@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
   add_variable_to_env,
   synthetic_token
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, shared_list, t_slot, slot_pointee_at, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { t_unit, t_with_resolution } :: import("../../types/creators.yo");
 { are_types_compatible }
 :: import("../../types/compatibility.yo");
@@ -120,22 +120,23 @@ try_to_implement_closure_by_fn_module_type :: (
   // Extract param names and types from the FnTraitT.
   param_labels := match(
     fn_module_type,
-    Rc(.FnTraitT(_, pls, _, _, _, _, _, _)) => pls,
+    Rc(.FnTraitT(_, pls, _, _, _, _)) => pls,
     _ => no_labels()
   );
   param_types := match(
     fn_module_type,
-    Rc(.FnTraitT(_, _, pts, _, _, _, _, _)) => pts,
+    Rc(.FnTraitT(_, _, pts, _, _, _)) => pts,
     _ => no_types()
   );
   result_type := match(
     fn_module_type,
-    Rc(.FnTraitT(_, _, _, rt_box, _, _, _, _)) => rt_box,
+    Rc(.FnTraitT(_, _, _, rt_box, _, _)) => rt_box,
     _ => t_unit()
   );
+  // The Fn trait's `&mut` call params (their slots).
   param_is_ref_flags := match(
     fn_module_type,
-    Rc(.FnTraitT(_, _, _, _, _, _, prf, _)) => prf,
+    Rc(.FnTraitT(base_name : _)) => fn_param_mut_ref_flags(fn_module_type),
     _ => no_flags()
   );
   // Push a new env frame for the closure parameters.
@@ -150,7 +151,7 @@ try_to_implement_closure_by_fn_module_type :: (
   (pi : usize) = usize(0);
   while(pi < n_params, {
     p_label := match(param_labels.get(pi), .Some(l) => l, .None => String.from("_p"));
-    p_type := match(param_types.get(pi), .Some(t) => t, .None => t_unit());
+    p_type := match(slot_pointee_at(&param_types, pi), .Some(t) => t, .None => t_unit());
     p_tok := synthetic_token(p_label.clone(), &env.module_path.*);
     p_var_opt := add_variable_to_env(
       &env,
@@ -190,11 +191,20 @@ try_to_implement_closure_by_fn_module_type :: (
   // This is needed because create_function_body_evaluation_context expects a Func type
   // to extract the return type for the expected-type context.
   result_type_copy := result_type.clone();
+  // The synthetic call type keeps only the `&mut` modes: every other
+  // parameter is a `&T` slot (no `own` params in a synthesized closure call
+  // type).
+  synthetic_slots := ArrayList(TypeValue).new();
+  (ssi : usize) = usize(0);
+  while(ssi < param_types.len(), {
+    match(slot_pointee_at(&param_types, ssi), .Some(sp) => synthetic_slots.push(t_slot(&sp, match(param_is_ref_flags.get(ssi), .Some(b) => b, .None => false), false)), .None => ());
+    ssi = (ssi + usize(1));
+  });
   synthetic_func_ty := rc(
     TypeValueNode.Func(
       no_types(),
       // forall_types
-      param_types.clone(),
+      shared_list(synthetic_slots),
       no_types(),
       // implicit_types
       no_types(),
@@ -206,10 +216,7 @@ try_to_implement_closure_by_fn_module_type :: (
           param_labels : param_labels.clone(),
           implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          // a runtime closure call type; `inout` call params carry through
-          param_is_ref : param_is_ref_flags.clone(),
-          param_is_owning : no_flags(),
-          // no `own` params in synthesized closure call type
+          // a runtime closure call type
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,

@@ -39,7 +39,7 @@ import("std/fmt");
 { Environment, get_variables_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_type_lists, no_label_lists, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_type_lists, no_label_lists, SharedList, slot_pointee_at } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
 {
@@ -704,7 +704,7 @@ evaluate_enum_type :: (
               n_tcp := fc_plabels.len();
               while(tci < n_tcp, {
                 p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
-                p_ty := match(fc_ptypes.get(tci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                p_ty := match(slot_pointee_at(&fc_ptypes, tci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
                 if(is_type_0(&p_ty), {
                   vars := get_variables_from_env(&env, &p_lbl);
@@ -730,7 +730,7 @@ evaluate_enum_type :: (
               (cti : usize) = usize(0);
               while(cti < fc_ptypes.len(), {
                 match(
-                  fc_ptypes.get(cti),
+                  slot_pointee_at(&fc_ptypes, cti),
                   .Some(pt) => if(is_type_0(&pt), {
                     n_comptime = (n_comptime + usize(1));
                   }),

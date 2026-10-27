@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, no_labels, slot_pointee_at } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
@@ -141,7 +141,7 @@ evaluate_comptime_fn :: (
   n_pt := param_types.len();
   (pti : usize) = usize(0);
   while(pti < n_pt, {
-    pt := match(param_types.get(pti), .Some(t) => t, .None => t_unit());
+    pt := match(slot_pointee_at(&param_types, pti), .Some(t) => t, .None => t_unit());
     if(type_prohibits_comptime_modifier(&pt), {
       exn.throw(
         dyn(

@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_flags, no_levels, t_refine_inner } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -228,7 +228,22 @@ type_has_computed_array_len :: (fn(t : &TypeValue) -> bool)(_type_has_computed_a
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
 // ---------------------------------------------------------------------------
+/// `types` as `&T` parameter slots: a synthesized signature carries no
+/// parameter mode, and every reader has always taken a mode-less parameter as
+/// a read-only borrow. A slot already present is replaced by its pointee's
+/// `&T` slot, so the caller may pass either a value type or another
+/// signature's slots.
+_borrow_slots :: (fn(types : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < types.len(), {
+    match(types.get(i), .Some(pt) => out.push(t_reference(t_slot_pointee(&pt), false)), .None => ());
+    i = (i + usize(1));
+  });
+  out
+});
 /// Create a simple function type (no generic, implicit, or where constraints).
+/// Every parameter is a `&T` slot (`_borrow_slots`).
 t_func_simple :: (
   fn(
     sink(param_labels) : ArrayList(String),
@@ -239,7 +254,7 @@ t_func_simple :: (
   rc(
     TypeValueNode.Func(
       no_types(),
-      shared_list(param_types),
+      shared_list(_borrow_slots(&param_types)),
       no_types(),
       no_types(),
       result,
@@ -250,10 +265,6 @@ t_func_simple :: (
           implicit_labels : no_labels(),
           result_is_comptime_only : false,
           // simple (runtime) function type
-          param_is_ref : no_flags(),
-          // no ref params in a synthesized type
-          param_is_owning : no_flags(),
-          // no own params in a synthesized type
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -377,12 +388,10 @@ t_fn_trait :: (
     sink(call_param_types) : ArrayList(TypeValue),
     call_result : &TypeValue,
     sink(implicit_labels) : ArrayList(String),
-    sink(implicit_types) : ArrayList(TypeValue),
-    sink(call_param_is_ref) : ArrayList(bool),
-    sink(call_param_is_owning) : ArrayList(bool)
+    sink(implicit_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name.clone(), shared_list(call_param_labels), shared_list(call_param_types), call_result, shared_list(implicit_labels), shared_list(implicit_types), shared_list(call_param_is_ref), shared_list(call_param_is_owning)))
+  rc(TypeValueNode.FnTraitT(base_name.clone(), shared_list(call_param_labels), shared_list(call_param_types), call_result, shared_list(implicit_labels), shared_list(implicit_types)))
 );
 t_fn_trait_simple :: (
   fn(
@@ -391,7 +400,7 @@ t_fn_trait_simple :: (
     call_result : &TypeValue
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name.clone(), no_labels(), shared_list(call_param_types), call_result, no_labels(), no_types(), no_flags(), no_flags()))
+  rc(TypeValueNode.FnTraitT(base_name.clone(), no_labels(), shared_list(_borrow_slots(&call_param_types)), call_result, no_labels(), no_types()))
 );
 t_future_trait :: (
   fn(
@@ -611,7 +620,10 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
     Rc(.FutureTraitT(base_name : _)) => TypeTag.TTrait,
     // V6 task 3: a refinement's tag IS its inner's tag (erasure).
     Rc(.RefineT(inner, _)) => type_value_tag(&inner),
-    Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque
+    Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque,
+    Rc(.Reference(_, _, _)) => TypeTag.TReference,
+    Rc(.OriginKind) => TypeTag.TOrigin,
+    Rc(.OriginSet(_, _)) => TypeTag.TOrigin
   )
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:

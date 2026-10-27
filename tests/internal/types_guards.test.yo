@@ -4,7 +4,7 @@
 //! Phase 2b stubs (returning false) are tested to confirm they return false —
 //! so a future implementation landing out of order gets caught.
 { String } :: import("std/string");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_flags, no_discriminants, no_type_lists, no_label_lists, SharedList } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_discriminants, no_type_lists, no_label_lists, SharedList } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../../src/types/creators.yo");
 { is_int_type, is_float_type } :: import("../../src/types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -352,8 +352,6 @@ test("is_function_type_generic: generic func is generic", {
           param_labels : no_labels(),
           implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : no_flags(),
-          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -388,8 +386,6 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
           param_labels : no_labels(),
           implicit_labels : shared_list(il),
           result_is_comptime_only : false,
-          param_is_ref : no_flags(),
-          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,

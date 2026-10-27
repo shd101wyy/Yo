@@ -247,14 +247,6 @@ FuncMeta :: struct(
   /// CTFE; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
   result_is_comptime_only : bool,
-  /// Per-parameter `ref` flags (parallel to param labels/types). `name : &mut T`
-  /// = by-reference borrow. Used by
-  /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
-  param_is_ref : SharedList(bool),
-  /// Per-parameter `own` flags. `own(name):T` = callee takes ownership of the
-  /// Rc value. Used by
-  /// `require_ref_own_argument_exclusivity`.
-  param_is_owning : SharedList(bool),
   /// True when the return is a borrow, `-> &T` or `-> &mut T`: a projection
   /// (decision 24). It returns `T*` at the C ABI; `result_is_mut_ref` tells
   /// the two modes apart. `is_flowable_expr` requires a flowable return.
@@ -371,9 +363,12 @@ TypeValueNode :: enum(
   /// field (empty `String` means positional). `field_types(i)` is the type.
   Tuple(field_labels : SharedList(String), field_types : SharedList(Rc(Self))),
   /// Function type. Phase 2b: generic type-vars, implicit (using) params,
-  /// and where-clause constraint types.
+  /// and where-clause constraint types. `param_types` holds parameter SLOTS:
+  /// a parameter's mode is its slot type (`T` by value, `Reference(T, ...)`
+  /// for `&T` / `&mut T`; see `t_slot`), so read a parameter's value type
+  /// through `t_slot_pointee`.
   /// Self-typed (recursive) fields stay inline; the non-recursive metadata
-  /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
+  /// (labels, result/variadic/extern/control flags) lives in `meta`
   /// (`Rc(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
   /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
   /// parallel to the label arrays in `meta`; `result` is the return type.
@@ -554,25 +549,18 @@ TypeValueNode :: enum(
     negative_trait_types : SharedList(Rc(Self)),
     negative_trait_levels : SharedList(usize)
   ),
-  /// Fn-trait type (Fn / FnMut / FnOnce).
+  /// Fn-trait type (Fn / FnMut / FnOnce). The call signature is flattened
+  /// into the variant; `call_param_types` holds parameter SLOTS, as
+  /// `Func.param_types` does, so `Fn(v : &mut T) -> R` binds `v` through a
+  /// pointer (the sync/mutex `with_lock` write-through failure was a mode
+  /// dropped on this path).
   FnTraitT(
     base_name : String,
     call_param_labels : SharedList(String),
     call_param_types : SharedList(Rc(Self)),
     call_result : Rc(Self),
     implicit_labels : SharedList(String),
-    implicit_types : SharedList(Rc(Self)),
-    /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
-    /// call signature is FLATTENED into the variant, and dropping this
-    /// flag made a closure typed against
-    /// `Impl(Fn(v : &mut T) -> R)` bind `v` BY VALUE (the sync/mutex
-    /// `with_lock` write-through failure). Empty = all by-value.
-    call_param_is_ref : SharedList(bool),
-    /// Per-call-param BY-VALUE flags (V3b's flip, decision 30): a plain
-    /// `Fn(x : T)` parameter is by value, `Fn(x : &T)` borrows, like a
-    /// `fn` type's `param_is_owning`. Empty = none by value (a closure type
-    /// synthesized without a written `Fn(...)`).
-    call_param_is_owning : SharedList(bool)
+    implicit_types : SharedList(Rc(Self))
   ),
   /// Future-trait type with associated output and effects.
   FutureTraitT(
@@ -611,6 +599,35 @@ TypeValueNode :: enum(
   ExternOpaqueT(
     name : String,
     c_name : String
+  ),
+  // References and origins (plans/VALUES_BY_DEFAULT.md decision 43 step 1;
+  // plans/backlog/REFERENCES_AND_ORIGINS.md O1) ------------------------------
+  /// The `Origin` kind: the type of an origin value, as `TypeUni` is the
+  /// type of a type. Nothing produces it yet; step 2's `generic(p : Origin)`
+  /// gives it a spelling.
+  OriginKind,
+  /// A value of the `Origin` kind: a set of places. `places` names them (a
+  /// reference parameter's own place is spelled by the parameter's name);
+  /// `is_elided` = written without an origin, which step 2's elision defaults
+  /// resolve. Step 1 builds only the one shared elided origin
+  /// (`t_origin_elided`).
+  OriginSet(
+    places : SharedList(String),
+    is_elided : bool
+  ),
+  /// `&T` (`mutable = false`) or `&mut T` (`mutable = true`) with its origin,
+  /// a value of the `Origin` kind. In step 1 only a parameter SLOT holds one
+  /// (`Func.param_types`, `FnTraitT.call_param_types`): the slot's mode IS
+  /// its type, and a by-value parameter's slot is the bare `T`. A reader
+  /// that wants the parameter's value type takes `t_slot_pointee`. The
+  /// origin is erased from every identity but the borrow checker's
+  /// (`type_key`, the memos, specialization keys and C type identity never
+  /// read it), and codegen lowers the slot to `T*` / `T` exactly as the
+  /// mode flags this replaced did.
+  Reference(
+    pointee : Rc(Self),
+    mutable : bool,
+    origin : Rc(Self)
   )
 );
 /// The Yo type universe: a shared, immutable handle to a `TypeValueNode`.
@@ -695,6 +712,128 @@ impl(i64, SharedListElem(no_list : no_discriminants));
 impl(SharedList(TypeValue), SharedListElem(no_list : no_type_lists));
 impl(SharedList(String), SharedListElem(no_list : no_label_lists));
 // ---------------------------------------------------------------------------
+// Parameter slots (plans/VALUES_BY_DEFAULT.md decision 43 step 1).
+// ---------------------------------------------------------------------------
+// A parameter's mode is its slot type: a by-value parameter's slot (`x : T`,
+// `sink(x) : T`) is `T`, a `x : &T` slot is `Reference(T, false, o)`, a
+// `x : &mut T` slot `Reference(T, true, o)`. A parameter with no mode to
+// speak of (a `Type`-valued, `quote` or `generic`/`using` one) borrows, as it
+// always has: it is a `&T` slot. Only `Func.param_types` and
+// `FnTraitT.call_param_types` hold slots; `forall_types`, `implicit_types`
+// and `variadic_types` hold plain types.
+(g_origin_elided : TypeValue) = rc(TypeValueNode.OriginSet(places : g_no_labels, is_elided : true));
+/// The origin of a reference written without one. Every origin step 1 builds
+/// is this one shared value.
+t_origin_elided :: (fn() -> TypeValue)(g_origin_elided);
+/// `&T` (`mutable = false`) or `&mut T`, with the elided origin.
+t_reference :: (fn(pointee : &TypeValue, mutable : bool) -> TypeValue)(
+  rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : g_origin_elided))
+);
+/// The slot of a parameter with the given mode: `&mut T` when `is_mut_ref`,
+/// else `T` when `is_by_value`, else `&T`.
+t_slot :: (fn(pointee : &TypeValue, is_mut_ref : bool, is_by_value : bool) -> TypeValue)(
+  cond(
+    is_mut_ref => t_reference(pointee, true),
+    is_by_value => pointee.clone(),
+    true => t_reference(pointee, false)
+  )
+);
+/// The value type a slot holds or lends: `T` for `T`, `&T` and `&mut T`.
+t_slot_pointee :: (fn(t : &TypeValue) -> TypeValue)(
+  match(
+    t,
+    Rc(.Reference(pointee, _, _)) => pointee,
+    _ => t
+  )
+);
+/// The slot is `&mut T`.
+t_slot_is_mut_ref :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference(_, mutable, _)) => mutable, _ => false));
+/// The slot borrows (`&T` or `&mut T`).
+t_slot_is_borrow :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference(_, _, _)) => true, _ => false));
+/// The slot takes its argument by value.
+t_slot_is_by_value :: (fn(t : &TypeValue) -> bool)(!t_slot_is_borrow(t));
+/// `slot` with its pointee replaced by `pointee`: the mode and the origin
+/// are kept.
+t_slot_with_pointee :: (fn(slot : &TypeValue, pointee : &TypeValue) -> TypeValue)(
+  match(
+    slot,
+    Rc(.Reference(_, mutable, origin)) => rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : origin)),
+    _ => pointee.clone()
+  )
+);
+/// The pointee of slot `i` of a parameter-slot list (`.None` past its end):
+/// a slot list's `get(i)` for a reader that wants the parameter's value type.
+slot_pointee_at :: (fn(slots : &SharedList(TypeValue), i : usize) -> Option(TypeValue))(
+  match(slots.get(i), .Some(s) => Option(TypeValue).Some(t_slot_pointee(&s)), .None => Option(TypeValue).None)
+);
+/// `pointee` in the mode of slot `i` of `slots`: a rebuilt signature that
+/// keeps another signature's parameter modes. Past the end of `slots`, the
+/// `&T` slot (a parameter with no recorded mode has always borrowed).
+t_slot_like :: (fn(slots : &SharedList(TypeValue), i : usize, pointee : &TypeValue) -> TypeValue)(
+  match(slots.get(i), .Some(s) => t_slot_with_pointee(&s, pointee), .None => t_reference(pointee, false))
+);
+/// The pointees of a parameter-slot list: the parameters' value types.
+slot_pointees :: (fn(slots : &SharedList(TypeValue)) -> ArrayList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < slots.len(), {
+    match(slots.get(i), .Some(s) => out.push(t_slot_pointee(&s)), .None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+/// The parameter slots of a `Func` or `FnTraitT` (empty for anything else).
+fn_param_slots :: (fn(ft : &TypeValue) -> SharedList(TypeValue))(
+  match(
+    ft,
+    Rc(.Func({ param_types : fps_pts })) => fps_pts,
+    Rc(.FnTraitT({ call_param_types : fps_cpts })) => fps_cpts,
+    _ => g_no_types
+  )
+);
+/// Parameter `i` of the `Func` / `FnTraitT` `ft` is `&mut T` (false past the
+/// last parameter).
+fn_param_is_mut_ref :: (fn(ft : &TypeValue, i : usize) -> bool)(
+  match(fn_param_slots(ft).get(i), .Some(s) => t_slot_is_mut_ref(&s), .None => false)
+);
+/// Parameter `i` of the `Func` / `FnTraitT` `ft` is by value (false past the
+/// last parameter).
+fn_param_is_by_value :: (fn(ft : &TypeValue, i : usize) -> bool)(
+  match(fn_param_slots(ft).get(i), .Some(s) => t_slot_is_by_value(&s), .None => false)
+);
+/// Is parameter `i` of `ft` `&mut T`; `.None` past the last parameter (a mode
+/// list's `get(i)`, for readers that keep their own default).
+fn_param_mut_ref_at :: (fn(ft : &TypeValue, i : usize) -> Option(bool))(
+  match(fn_param_slots(ft).get(i), .Some(s) => Option(bool).Some(t_slot_is_mut_ref(&s)), .None => Option(bool).None)
+);
+/// Is parameter `i` of `ft` by value; `.None` past the last parameter.
+fn_param_by_value_at :: (fn(ft : &TypeValue, i : usize) -> Option(bool))(
+  match(fn_param_slots(ft).get(i), .Some(s) => Option(bool).Some(t_slot_is_by_value(&s)), .None => Option(bool).None)
+);
+/// Per parameter of `ft`: is it `&mut T`. For a reader that threads the
+/// modes through helpers as a list (one entry per slot).
+fn_param_mut_ref_flags :: (fn(ft : &TypeValue) -> SharedList(bool))({
+  out := ArrayList(bool).new();
+  slots := fn_param_slots(ft);
+  (i : usize) = usize(0);
+  while(i < slots.len(), {
+    out.push(match(slots.get(i), .Some(s) => t_slot_is_mut_ref(&s), .None => false));
+    i = (i + usize(1));
+  });
+  shared_list(out)
+});
+/// Per parameter of `ft`: is it by value (one entry per slot).
+fn_param_by_value_flags :: (fn(ft : &TypeValue) -> SharedList(bool))({
+  out := ArrayList(bool).new();
+  slots := fn_param_slots(ft);
+  (i : usize) = usize(0);
+  while(i < slots.len(), {
+    out.push(match(slots.get(i), .Some(s) => t_slot_is_by_value(&s), .None => false));
+    i = (i + usize(1));
+  });
+  shared_list(out)
+});
+// ---------------------------------------------------------------------------
 // Struct per-field compile-time-only flags — side-table (Gap 1).
 // ---------------------------------------------------------------------------
 /// Side-table: struct id → per-field "is compile-time only" flags, parallel
@@ -720,3 +859,4 @@ get_struct_field_comptime_flags :: (
   g_struct_field_comptime_flags.with(m => m.get(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(t_origin_elided, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

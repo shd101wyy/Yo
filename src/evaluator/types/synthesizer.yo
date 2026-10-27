@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { type_key } :: import("../../types/type_key.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { in_def_time_trial } :: import("../context.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList, slot_pointee_at } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
 { type_value_tag, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
@@ -557,7 +557,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       i := usize(0);
       while((i < param_types.len()) && !res, {
         pt := match(
-          param_types.get(i),
+          slot_pointee_at(&param_types, i),
           .Some(t) => t,
           .None => {
             i = param_types.len();
@@ -598,12 +598,12 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       });
       res
     },
-    Rc(.FnTraitT(_, _, call_param_types, call_result, _, _, _, _)) => {
+    Rc(.FnTraitT(_, _, call_param_types, call_result, _, _)) => {
       (res : bool) = false;
       i := usize(0);
       while((i < call_param_types.len()) && !res, {
         pt := match(
-          call_param_types.get(i),
+          slot_pointee_at(&call_param_types, i),
           .Some(t) => t,
           .None => {
             i = call_param_types.len();
@@ -807,25 +807,25 @@ _synthesize_fn_traits :: (
   // `Future(i32,IoExn)` "Cannot unify unit and i32").
   exp_params := match(
     expected_ty,
-    Rc(.FnTraitT(_, _, pts, _, _, _, _, _)) => pts,
+    Rc(.FnTraitT(_, _, pts, _, _, _)) => pts,
     Rc(.Func({ param_types : pts })) => pts,
     _ => no_types()
   );
   giv_params := match(
     given_ty,
-    Rc(.FnTraitT(_, _, pts, _, _, _, _, _)) => pts,
+    Rc(.FnTraitT(_, _, pts, _, _, _)) => pts,
     Rc(.Func({ param_types : pts })) => pts,
     _ => no_types()
   );
   exp_result := match(
     expected_ty,
-    Rc(.FnTraitT(_, _, _, r, _, _, _, _)) => r,
+    Rc(.FnTraitT(_, _, _, r, _, _)) => r,
     Rc(.Func({ result : r })) => r,
     _ => rc(TypeValueNode.Unit)
   );
   giv_result := match(
     given_ty,
-    Rc(.FnTraitT(_, _, _, r, _, _, _, _)) => r,
+    Rc(.FnTraitT(_, _, _, r, _, _)) => r,
     Rc(.Func({ result : r })) => r,
     _ => rc(TypeValueNode.Unit)
   );
@@ -835,7 +835,7 @@ _synthesize_fn_traits :: (
   (i : usize) = usize(0);
   while(i < n, {
     et := match(
-      exp_params.get(i),
+      slot_pointee_at(&exp_params, i),
       .Some(t) => t,
       .None => {
         i = n;
@@ -843,7 +843,7 @@ _synthesize_fn_traits :: (
       }
     );
     gt := match(
-      giv_params.get(i),
+      slot_pointee_at(&giv_params, i),
       .Some(t) => t,
       .None => {
         i = n;
@@ -1594,7 +1594,7 @@ _synthesize_types_impl :: (
         gj = (gj + usize(1));
         same_kind := match(
           et,
-          Rc(.FnTraitT(eb, _, _, _, _, _, _, _)) => match(gt, Rc(.FnTraitT(gb, _, _, _, _, _, _, _)) => (eb == gb), _ => false),
+          Rc(.FnTraitT(eb, _, _, _, _, _)) => match(gt, Rc(.FnTraitT(gb, _, _, _, _, _)) => (eb == gb), _ => false),
           Rc(.FutureTraitT(_, _, _, _)) => is_future_trait_type(&gt),
           Rc(.TraitT(_, _, _, _, eid, _, _, _, _, _)) => match(gt, Rc(.TraitT(_, _, _, _, gid, _, _, _, _, _)) => (eid == gid), _ => false),
           _ => false
@@ -1702,7 +1702,7 @@ _synthesize_types_impl :: (
       (pi : usize) = usize(0);
       while(pi < n_p, {
         et := match(
-          exp_pt.get(pi),
+          slot_pointee_at(&exp_pt, pi),
           .Some(t) => t,
           .None => {
             pi = n_p;
@@ -1710,7 +1710,7 @@ _synthesize_types_impl :: (
           }
         );
         gt := match(
-          giv_pt.get(pi),
+          slot_pointee_at(&giv_pt, pi),
           .Some(t) => t,
           .None => {
             pi = n_p;

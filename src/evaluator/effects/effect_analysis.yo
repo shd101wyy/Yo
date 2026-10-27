@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
 { ExprInfo } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, slot_pointee_at } :: import("../../types/definitions.yo");
 {
   is_function_type,
   is_module_type,
@@ -382,7 +382,7 @@ is_transitive_effect_call_ :: (
     .Some(ftt) => {
       match(
         ftt,
-        Rc(.FnTraitT(_, _, _, _, implicit_labels, implicit_types, _, _)) => {
+        Rc(.FnTraitT(_, _, _, _, implicit_labels, implicit_types)) => {
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
           while(i2 < n2, {
@@ -473,7 +473,7 @@ detect_effect_expr_ :: (
             pi := usize(0);
             while(pi < pn, {
               pt := match(
-                param_types.get(pi),
+                slot_pointee_at(&param_types, pi),
                 .Some(t) => t,
                 .None => {
                   pi = (pi + usize(1));
@@ -575,7 +575,7 @@ detect_effect_expr_ :: (
               pi := usize(0);
               while(pi < pn, {
                 pt := match(
-                  param_types.get(pi),
+                  slot_pointee_at(&param_types, pi),
                   .Some(t) => t,
                   .None => {
                     pi = (pi + usize(1));

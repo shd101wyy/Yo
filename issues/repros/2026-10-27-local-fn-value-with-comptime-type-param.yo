@@ -1,0 +1,14 @@
+//! A local function value with a `comptime(V) : Type` parameter, called inside
+//! a generic function, is emitted as a C function-pointer call that passes the
+//! Type as a runtime argument
+//! (issues/2026-10-27-a-local-function-value-with-a-comptime-type-parameter-is-called-through-a-c-function-pointer.md).
+//! Expected when fixed: compiles and runs (rc 0).
+apply_q :: (fn(comptime(T) : Type, x : T) -> usize)({
+  helper := (fn(comptime(V) : Type, n : usize) -> usize)(n);
+  helper(T, usize(1))
+});
+main :: (fn() -> unit)({
+  _b := apply_q(bool, true);
+  ()
+});
+export(main);

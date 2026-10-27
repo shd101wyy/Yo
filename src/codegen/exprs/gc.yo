@@ -1,7 +1,7 @@
 //! `__yo_gc_collect()` / `__yo_gc_trace_child(...)` emitters.
 { String } :: import("std/string");
 { AstExpr } :: import("../../expr.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_pointer_type } :: import("../../types/guards.yo");
 { type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -65,7 +65,7 @@ generate_yo_gc_trace_child :: (fn(expr : &AstExpr, indent : &String, context : &
                 pts.len() > usize(0),
                 match(
                   pts.items.last(),
-                  .Some(pt) => match(pt, Rc(.Pointer(p2)) => p2, _ => pointee),
+                  .Some(pt) => match(t_slot_pointee(&pt), Rc(.Pointer(p2)) => p2, _ => pointee),
                   .None => pointee
                 ),
                 pointee

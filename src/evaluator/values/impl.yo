@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -169,7 +169,7 @@ _method_ty_skip_stamp :: (fn(ty : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       while((i < pts.len()) && !found, {
         match(
-          pts.get(i),
+          slot_pointee_at(&pts, i),
           .Some(pt) => if(is_expr_type(&pt), {
             found = true;
           }),
@@ -413,7 +413,7 @@ get_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
   match(
     trait_ty,
     Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
-    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name.clone(),
+    Rc(.FnTraitT(base_name, _, _, _, _, _)) => base_name.clone(),
     Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
   )
@@ -2126,6 +2126,9 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
       Rc(.TraitT(field_types : di_trfts)) => `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}`,
       Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
       Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee, depth + usize(1))})`,
+      // A parameter slot keys as its pointee: the coherence key never told
+      // parameter modes apart.
+      Rc(.Reference(di_rpointee, _, _)) => _decl_identity_key_of(&di_rpointee, depth),
       Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem, depth + usize(1))}]`,
       Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts.items, depth + usize(1))})`,
       Rc(.SomeT({ name : di_sn })) => `$${di_sn.clone()}`,
@@ -3478,8 +3481,6 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
               param_labels : shared_list(fv_params),
               implicit_labels : rw_m.*.implicit_labels,
               result_is_comptime_only : rw_m.*.result_is_comptime_only,
-              param_is_ref : rw_m.*.param_is_ref,
-              param_is_owning : rw_m.*.param_is_owning,
               param_is_sink : rw_m.*.param_is_sink,
               result_is_ref : rw_m.*.result_is_ref,
               result_is_mut_ref : rw_m.*.result_is_mut_ref,
@@ -3815,28 +3816,28 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
     actual,
     Rc(.Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts })) => match(
       expected,
-      Rc(.Func({ meta : emeta })) => {
-        fixed := ameta.*.clone();
-        owns := ArrayList(bool).new();
+      Rc(.Func({ param_types : epts })) => {
+        // The member with each such parameter's slot made `&T`.
+        fixed_slots := ArrayList(TypeValue).new();
         to_fix := ArrayList(String).new();
         (pi : usize) = usize(0);
         while(pi < apts.len(), pi = (pi + usize(1)), {
-          a_own := match(ameta.*.param_is_owning.get(pi), .Some(b) => b, .None => false);
-          e_own := match(emeta.*.param_is_owning.get(pi), .Some(b) => b, .None => false);
-          e_ref := match(emeta.*.param_is_ref.get(pi), .Some(b) => b, .None => false);
-          a_ref := match(ameta.*.param_is_ref.get(pi), .Some(b) => b, .None => false);
+          a_slot := match(apts.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          a_own := t_slot_is_by_value(&a_slot);
+          e_own := match(epts.get(pi), .Some(t) => t_slot_is_by_value(&t), .None => false);
+          e_ref := match(epts.get(pi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
+          a_ref := t_slot_is_mut_ref(&a_slot);
           if(a_own && !e_own && !e_ref && !a_ref, {
-            owns.push(false);
+            fixed_slots.push(t_reference(t_slot_pointee(&a_slot), false));
             to_fix.push(match(ameta.*.param_labels.get(pi), .Some(l) => l, .None => String.new()));
           }, {
-            owns.push(a_own);
+            fixed_slots.push(a_slot);
           });
         });
         if(to_fix.len() == usize(0), {
           return(false);
         });
-        fixed.param_is_owning = shared_list(owns);
-        if(!are_types_compatible(_with_receiver_mode_of(rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(fixed), avts)), expected), expected), {
+        if(!are_types_compatible(_with_receiver_mode_of(rc(TypeValueNode.Func(afts, shared_list(fixed_slots), aits, awts, aret, ameta, avts)), expected), expected), {
           return(false);
         });
         params := match(
@@ -3885,7 +3886,7 @@ _receiver_writes_where_trait_reads :: (fn(actual : &TypeValue, expected : &TypeV
       expected,
       Rc(.Func({ meta : emeta })) => (
         match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) &&
-          (match(ameta.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false) && !match(emeta.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false) && !match(emeta.*.param_is_owning.get(usize(0)), .Some(b) => b, .None => false))
+          (fn_param_is_mut_ref(actual, usize(0)) && !fn_param_is_mut_ref(expected, usize(0)) && !fn_param_is_by_value(expected, usize(0)))
       ),
       _ => false
     ),
@@ -3897,21 +3898,21 @@ _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> Typ
     actual,
     Rc(.Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts })) => match(
       expected,
-      Rc(.Func({ meta : emeta })) => cond(
+      Rc(.Func({ param_types : epts, meta : emeta })) => cond(
         (match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) => {
-          m := ameta.*.clone();
-          refs := ArrayList(bool).new();
-          owns := ArrayList(bool).new();
+          // The receiver's slot takes the expected receiver's mode; every
+          // other parameter keeps its own.
+          slots := ArrayList(TypeValue).new();
           (ri : usize) = usize(0);
           while(ri < apts.len(), {
-            src_meta := if(ri == usize(0), emeta, ameta);
-            refs.push(match(src_meta.*.param_is_ref.get(ri), .Some(b) => b, .None => false));
-            owns.push(match(src_meta.*.param_is_owning.get(ri), .Some(b) => b, .None => false));
+            match(
+              apts.get(ri),
+              .Some(a_slot) => slots.push(if(ri == usize(0), t_slot_like(&epts, usize(0), t_slot_pointee(&a_slot)), a_slot)),
+              .None => ()
+            );
             ri = (ri + usize(1));
           });
-          m.param_is_ref = shared_list(refs);
-          m.param_is_owning = shared_list(owns);
-          rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(m), avts))
+          rc(TypeValueNode.Func(afts, shared_list(slots), aits, awts, aret, ameta, avts))
         },
         true => actual
       ),
@@ -4084,7 +4085,7 @@ _c3_eval_colon_pair :: (
       match(
         current_trait_ty,
         .Some(dr_tt) => if((method_name == "drop") && (move_only_declaring_trait_name(&dr_tt, &st.env) == "Drop"), {
-          dr_mut := match(fi.ty, Rc(.Func({ meta : dr_m })) => match(dr_m.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => true);
+          dr_mut := match(fi.ty, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&fi.ty, usize(0)), .Some(b) => b, .None => false), _ => true);
           if(!dr_mut, {
             exn.throw(
               dyn(
@@ -5926,7 +5927,7 @@ evaluate_module_value :: (
                           // Self-substituted type the signature is emitted
                           // from. Pointer-ness travels through TWO channels
                           // (issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md):
-                          // the C signature from `FuncMeta.param_is_ref`, the
+                          // the C signature from the parameter slot's `&mut`, the
                           // body's `p` vs `(*p)` from `Variable.is_ref` on the
                           // binding the body's atoms record. Binding the
                           // params here with `is_ref` unset made every
@@ -5935,13 +5936,13 @@ evaluate_module_value :: (
                           // methods (issues/fixed/trait-default-inout-self-bound-by-value.md).
                           d_p_is_ref := match(
                             d_sub_ty,
-                            Rc(.Func({ meta : d_fm })) => d_fm.*.param_is_ref,
+                            Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&d_sub_ty),
                             _ => no_flags()
                           );
                           (d_pi : usize) = usize(0);
                           while(d_pi < d_fvd.*.params.len(), {
                             d_pn := match(d_fvd.*.params.get(d_pi), .Some(n) => n, .None => String.from(""));
-                            d_pt := match(d_pts.get(d_pi), .Some(t) => t, .None => t_unit());
+                            d_pt := match(slot_pointee_at(&d_pts, d_pi), .Some(t) => t, .None => t_unit());
                             ___dpv := add_variable_to_env(
                               &d_env,
                               &d_pn,
@@ -5968,7 +5969,7 @@ evaluate_module_value :: (
                                 });
                                 // A `&T` parameter: a borrow decision 33's
                                 // markers pass bare.
-                                if(!match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false) && !match(match(d_sub_ty, Rc(.Func({ meta : d_fmo })) => d_fmo.*.param_is_owning.get(d_pi), _ => Option(bool).None), .Some(b) => b, .None => false), {
+                                if(!match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false) && !match(match(d_sub_ty, Rc(.Func({ result : _ })) => fn_param_by_value_at(&d_sub_ty, d_pi), _ => Option(bool).None), .Some(b) => b, .None => false), {
                                   d_pvar.is_imm_borrow = true;
                                 });
                               },
