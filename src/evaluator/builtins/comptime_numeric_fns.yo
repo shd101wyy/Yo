@@ -430,7 +430,7 @@ evaluate_yo_comptime_numeric_functions :: (
     lhs_val := lhs_info.value;
     (cur_env : Environment) = expr_info_adopt_env(&lhs_info);
     (result_val : EvalValue) = EvalValue.UnitVal;
-    (result_ty : TypeValue) = numeric_type;
+    (result_ty : TypeValue) = Rc.clone(numeric_type);
     cond(
       (op_s == "neg") => {
         if(is_unsigned_integer_type(&numeric_type), {
@@ -561,7 +561,7 @@ evaluate_yo_comptime_numeric_functions :: (
     rhs_val := rhs_info.value;
     (cur_env : Environment) = expr_info_adopt_env(&rhs_info);
     (result_val : EvalValue) = EvalValue.UnitVal;
-    (result_ty : TypeValue) = numeric_type;
+    (result_ty : TypeValue) = Rc.clone(numeric_type);
     // ComptimeFloat must take the float path too — same `is_float_type`
     // gap as the unary-neg note above: every `__yo_comptime_float_*`
     // binary op otherwise fell into the integer branch and yielded

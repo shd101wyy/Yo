@@ -213,8 +213,8 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
     column : at.column,
     character : at.character,
     byte_offset : at.byte_offset,
-    module_path : at.module_path,
-    input : at.input
+    module_path : Rc.clone(at.module_path),
+    input : Rc.clone(at.input)
   );
   args := ArrayList(AstExpr).new();
   args.push(obj);
@@ -225,9 +225,9 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
 _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
   match(
     t,
-    Rc(.Tuple(labels, _)) => labels,
-    Rc(.Struct({ field_labels : labels })) => labels,
-    Rc(.Union(_, labels, _)) => labels,
+    Rc(.Tuple(labels, _)) => Rc.clone(labels),
+    Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
+    Rc(.Union(_, labels, _)) => Rc.clone(labels),
     _ => no_labels()
   )
 );
@@ -236,7 +236,7 @@ _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
 /// (`t`'s `Target`, its `Target`, …) has a field `label`, else `.Err` with
 /// the innermost payload type reached (for the E0406 message).
 _deref_chain_has_field :: (fn(t : &TypeValue, label : &String, env : &Environment) -> Result(unit, TypeValue))({
-  (cur : TypeValue) = t;
+  (cur : TypeValue) = Rc.clone(t);
   while(true, {
     match(
       deref_target_type(&cur, env),
@@ -572,14 +572,14 @@ evaluate_property_access :: (
                   TypeValueNode.EnumT(
                     en_id_1,
                     en_name_1,
-                    en_vnames_1,
-                    en_vfields_1,
+                    Rc.clone(en_vnames_1),
+                    Rc.clone(en_vfields_1),
                     Option(String).Some(variant_name_1.clone()),
-                    en_vflabels_1,
-                    en_discs_1,
+                    Rc.clone(en_vflabels_1),
+                    Rc.clone(en_discs_1),
                     en_irs_1,
                     en_iar_1,
-                    en_tas_1
+                    Rc.clone(en_tas_1)
                   )
                 );
                 has_fields_1 := match(
@@ -714,9 +714,9 @@ evaluate_property_access :: (
   // `.*` dereference
   // -------------------------------------------------------------------------
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*"), {
-    obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(oi.ty), .None => Option(TypeValue).None);
+    obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty)), .None => Option(TypeValue).None);
     match(
-      obj_ty_deref,
+      &obj_ty_deref,
       .Some(ot) => {
         // `h.*` on a cell handle (`cell_handle_view`, V5's `Rc`/`Arc`) names
         // its payload: the handle is a newtype over its cell, so this is the
@@ -728,12 +728,12 @@ evaluate_property_access :: (
           .Some(hv) => {
             (hv_payload : TypeValue) = cond(
               is_some_type(&hv.payload) => get_value_of_some_type_from_env(&env, &hv.payload),
-              true => hv.payload
+              true => Rc.clone(hv.payload)
             );
             hv_origin := match(
               match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(o) => o,
-              .None => ot
+              .None => Rc.clone(ot)
             );
             hv_pc := match(
               obj_info_opt,
@@ -785,7 +785,7 @@ Raw pointer operations may dereference invalid memory.`
               )
             );
           });
-          base_ty_deref := match(deref_box_payload, .Some(bp) => bp, .None => match(ot, Rc(.Pointer(pt)) => pt, _ => t_unit()));
+          base_ty_deref := match(deref_box_payload, .Some(bp) => Rc.clone(bp), .None => match(&ot, Rc(.Pointer(pt)) => Rc.clone(pt), _ => t_unit()));
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
             is_some_type(&base_ty_deref) => get_value_of_some_type_from_env(&env, &base_ty_deref),
@@ -832,7 +832,7 @@ Raw pointer operations may dereference invalid memory.`
                   out_ptr := new_expr_info(&env, &resolved_base);
                   out_ptr.value = Option(EvalValue).Some(deref_val);
                   expr_info_set_comptime_ref(&out_ptr, &deref_place);
-                  expr_info_set_origin_type(&out_ptr, Option(TypeValue).Some(ot));
+                  expr_info_set_origin_type(&out_ptr, Option(TypeValue).Some(Rc.clone(ot)));
                   out_ptr.is_accessing_property = Option(bool).Some(true);
                   out_ptr.source_variable = match(
                     obj_info_opt,
@@ -860,7 +860,7 @@ Raw pointer operations may dereference invalid memory.`
                     deref_unk := if(ptr_ro, create_runtime_unknown_val(&resolved_base), create_unknown_val(&resolved_base));
                     out_unk := new_expr_info(&env, &resolved_base);
                     out_unk.value = Option(EvalValue).Some(deref_unk);
-                    expr_info_set_origin_type(&out_unk, Option(TypeValue).Some(ot));
+                    expr_info_set_origin_type(&out_unk, Option(TypeValue).Some(Rc.clone(ot)));
                     out_unk.is_accessing_property = Option(bool).Some(true);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_unk);
@@ -874,7 +874,7 @@ Raw pointer operations may dereference invalid memory.`
           );
           // No compile-time pointer value — runtime dereference.
           out_rt := new_expr_info(&env, &resolved_base);
-          expr_info_set_origin_type(&out_rt, Option(TypeValue).Some(ot));
+          expr_info_set_origin_type(&out_rt, Option(TypeValue).Some(Rc.clone(ot)));
           out_rt.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_rt);
@@ -932,7 +932,7 @@ Raw pointer operations may dereference invalid memory.`
   if(is_type_value(&obj_val_opt), {
     type_val_inner := match(
       obj_val_opt,
-      .Some(.TypeVal(ty_box)) => ty_box,
+      .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
       .Some(_) => t_unit(),
       .None => t_unit()
     );
@@ -1161,14 +1161,14 @@ Raw pointer operations may dereference invalid memory.`
                 TypeValueNode.EnumT(
                   tv_en_id,
                   tv_en_name,
-                  tv_en_vnames,
-                  tv_en_vfields,
+                  Rc.clone(tv_en_vnames),
+                  Rc.clone(tv_en_vfields),
                   Option(String).Some(variant_name_tv.clone()),
-                  tv_en_vflabels,
-                  tv_en_discs,
+                  Rc.clone(tv_en_vflabels),
+                  Rc.clone(tv_en_discs),
                   tv_en_irs,
                   tv_en_iar,
-                  tv_en_tas
+                  Rc.clone(tv_en_tas)
                 )
               );
               has_fields_tv := match(
@@ -1217,15 +1217,15 @@ Raw pointer operations may dereference invalid memory.`
       });
       prop_name_su := ast_expr_token(&property_expr).value;
       su_labels := match(
-        type_val_inner,
-        Rc(.Struct({ field_labels : labels })) => labels,
-        Rc(.Union(_, labels, _)) => labels,
+        &type_val_inner,
+        Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
+        Rc(.Union(_, labels, _)) => Rc.clone(labels),
         _ => no_labels()
       );
       su_types := match(
-        type_val_inner,
-        Rc(.Struct({ field_types : types })) => types,
-        Rc(.Union(_, _, types)) => types,
+        &type_val_inner,
+        Rc(.Struct({ field_types : types })) => Rc.clone(types),
+        Rc(.Union(_, _, types)) => Rc.clone(types),
         _ => no_types()
       );
       // Search field_labels.
@@ -1381,13 +1381,13 @@ Raw pointer operations may dereference invalid memory.`
       });
       prop_name_mt := ast_expr_token(&property_expr).value;
       mt_labels := match(
-        type_val_inner,
-        Rc(.Struct({ field_labels : labels })) => labels,
+        &type_val_inner,
+        Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
         _ => no_labels()
       );
       mt_types := match(
         type_val_inner,
-        Rc(.Struct({ field_types : types })) => types,
+        Rc(.Struct({ field_types : types })) => Rc.clone(types),
         _ => no_types()
       );
       fidx_mt := find_first_field_index(&mt_labels.items, prop_name_mt.clone());
@@ -1409,7 +1409,7 @@ Raw pointer operations may dereference invalid memory.`
       );
     });
     // --- TypeVal + TraitT -------------------------------------------------
-    is_plain_trait_type := match(type_val_inner, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false);
+    is_plain_trait_type := match(&type_val_inner, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false);
     if(is_plain_trait_type, {
       if(!is_valid_variable_name(&property_expr), {
         exn.throw(
@@ -1434,8 +1434,8 @@ Raw pointer operations may dereference invalid memory.`
       // repro issues/repros/iso-witness-member-call.yo, whose prelude trait
       // was deleted on 2026-10-21).
       tt_recv_opt := match(
-        type_val_inner,
-        Rc(.TraitT(_, _, _, _, _, ic, _, _, _, _)) => ic,
+        &type_val_inner,
+        Rc(.TraitT(_, _, _, _, _, ic, _, _, _, _)) => ic.clone(),
         _ => Option(TypeValue).None
       );
       match(
@@ -1453,7 +1453,7 @@ Raw pointer operations may dereference invalid memory.`
           // emitted the fallback `__yo_tN.get_number` type-name call
           // (impl.test.yo DisambigPoint RED).
           tt_trait_id := match(
-            type_val_inner,
+            &type_val_inner,
             Rc(.TraitT(_, _, _, _, tt_own_id, _, _, _, _, _)) => tt_own_id.clone(),
             _ => String.from("")
           );
@@ -1505,7 +1505,7 @@ Raw pointer operations may dereference invalid memory.`
         .None => ()
       );
       tt_labels := match(
-        type_val_inner,
+        &type_val_inner,
         Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
         _ => ArrayList(String).new()
       );
@@ -1570,9 +1570,9 @@ Raw pointer operations may dereference invalid memory.`
           st_idx0 = (st_idx0 + usize(1));
         });
         match(
-          ctx.self_trait_type,
+          &ctx.self_trait_type,
           .Some(stt) => {
-            candidate_traits.push(stt);
+            candidate_traits.push(Rc.clone(stt));
           },
           .None => ()
         );
@@ -1583,7 +1583,7 @@ Raw pointer operations may dereference invalid memory.`
           st_trait := match(candidate_traits.get(st_idx), .Some(t) => t, .None => t_unit());
           if(is_trait_type(&st_trait), {
             st_labels := match(
-              st_trait,
+              &st_trait,
               Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
               _ => ArrayList(String).new()
             );
@@ -1608,7 +1608,7 @@ Raw pointer operations may dereference invalid memory.`
                 // field types never carry (the arm-26 split: env `Output#84`
                 // carried the constraint, field types carried `Output#85`
                 // with an empty required list).
-                (placeholder_ty : TypeValue) = st_ft;
+                (placeholder_ty : TypeValue) = Rc.clone(st_ft);
                 if(is_type_0(&st_ft), {
                   (st_env_bound : Option(TypeValue)) = Option(TypeValue).None;
                   st_env_vars := get_variables_from_env(&env, &st_prop_name);
@@ -1619,7 +1619,7 @@ Raw pointer operations may dereference invalid memory.`
                         st_ev.value.get(usize(0)),
                         .Some(.TypeVal(st_evt)) => {
                           if(is_some_type(&st_evt), {
-                            st_env_bound = Option(TypeValue).Some(st_evt);
+                            st_env_bound = Option(TypeValue).Some(Rc.clone(st_evt));
                           });
                         },
                         .Some(_) => (),
@@ -1630,7 +1630,7 @@ Raw pointer operations may dereference invalid memory.`
                   });
                   placeholder_ty = match(
                     st_env_bound,
-                    .Some(st_bt) => st_bt,
+                    .Some(st_bt) => Rc.clone(st_bt),
                     .None => t_some_t(st_prop_name.clone(), env.frames.len())
                   );
                 });
@@ -1662,15 +1662,15 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   // Runtime field access: dereference any pointer chain, then access field.
   // -------------------------------------------------------------------------
-  obj_ty_main := match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit());
-  original_obj_ty := obj_ty_main;
+  obj_ty_main := match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit());
+  original_obj_ty := Rc.clone(obj_ty_main);
   (base_ty : TypeValue) = obj_ty_main;
   // Dereference pointer chain.
   while(is_pointer_type(&base_ty), {
     match(
-      base_ty,
+      Rc.clone(base_ty),
       Rc(.Pointer(pt)) => {
-        base_ty = pt;
+        base_ty = Rc.clone(pt);
       },
       _ => ()
     );
@@ -1706,7 +1706,7 @@ Raw pointer operations may dereference invalid memory.`
   // capability to project). Identity is keyed on the io-builtin side table,
   // so a user struct that merely has an `io` field is untouched.
   if(is_struct_type(&base_ty) && ast_expr_is_atom(&property_expr) && (ast_expr_token(&property_expr).value == "io"), {
-    io_proj_sid := match(base_ty, Rc(.Struct({ id : ips })) => ips.clone(), _ => String.from(""));
+    io_proj_sid := match(&base_ty, Rc(.Struct({ id : ips })) => ips.clone(), _ => String.from(""));
     if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
       out_io := new_expr_info(&env, &base_ty);
       out_io.value = obj_val_main;
@@ -1727,24 +1727,24 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   if(is_tuple_type(&base_ty) || is_struct_type(&base_ty) || is_union_type(&base_ty), {
     fields_labels := match(
-      base_ty,
-      Rc(.Tuple(labels, _)) => labels,
-      Rc(.Struct({ field_labels : labels })) => labels,
-      Rc(.Union(_, labels, _)) => labels,
+      &base_ty,
+      Rc(.Tuple(labels, _)) => Rc.clone(labels),
+      Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
+      Rc(.Union(_, labels, _)) => Rc.clone(labels),
       _ => no_labels()
     );
     fields_types := match(
-      base_ty,
-      Rc(.Tuple(_, types)) => types,
-      Rc(.Struct({ field_types : types })) => types,
-      Rc(.Union(_, _, types)) => types,
+      &base_ty,
+      Rc(.Tuple(_, types)) => Rc.clone(types),
+      Rc(.Struct({ field_types : types })) => Rc.clone(types),
+      Rc(.Union(_, _, types)) => Rc.clone(types),
       _ => no_types()
     );
     // MEMBER VISIBILITY: the declared type behind this access, for the
     // `_`-prefixed field check below. Tuples and source-namespace module
     // structs have no declaring type and are never blocked.
     pa_vis_type_id := match(
-      base_ty,
+      &base_ty,
       Rc(.Struct({ id : pa_sid, is_source_namespace : pa_sns })) => cond(pa_sns => String.new(), true => pa_sid.clone()),
       Rc(.Union(pa_uid, _, _)) => pa_uid.clone(),
       _ => String.new()
@@ -1759,7 +1759,7 @@ Raw pointer operations may dereference invalid memory.`
       });
       // --- Integer index access (tuple fields only) -----------------------
       if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
-        if(!is_tuple_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
+        if(!is_tuple_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit())), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1856,7 +1856,7 @@ Raw pointer operations may dereference invalid memory.`
         match(
           field_idx_lbl,
           .None => {
-            if(is_module_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
+            if(is_module_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit())), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -2145,7 +2145,7 @@ Raw pointer operations may dereference invalid memory.`
         // top) gains a def-level edge; an ordered statement (empty stack)
         // degrades to the importer's ordered-read table.
         match(
-          base_ty,
+          &base_ty,
           Rc(.Struct({ id : pa3_sns, is_source_namespace : pa3_is_sns })) => if(pa3_is_sns, {
             match(
               sns_module_of(pa3_sns.clone()),
@@ -2156,20 +2156,20 @@ Raw pointer operations may dereference invalid memory.`
           _ => ()
         );
         mod_labels_rt := match(
-          base_ty,
-          Rc(.Struct({ field_labels : labels })) => labels,
+          &base_ty,
+          Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
           _ => no_labels()
         );
         mod_types_rt := match(
-          base_ty,
-          Rc(.Struct({ field_types : types })) => types,
+          &base_ty,
+          Rc(.Struct({ field_types : types })) => Rc.clone(types),
           _ => no_types()
         );
         mod_fidx := find_first_field_index(&mod_labels_rt.items, mod_label.clone());
         match(
           mod_fidx,
           .None => {
-            if(is_module_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
+            if(is_module_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit())), {
               // (No ModuleVal.isLoading check — there is no such field.)
               exn.throw(
                 dyn(

@@ -37,7 +37,7 @@ _is_reserved_dyn_label :: (fn(label : &String, trait_ty : Option(TypeValue)) -> 
 /// (`cell_handle_view`; the handle is a C-transparent newtype, so its value
 /// is the cell pointer), else the data type itself.
 _dyn_data_object_type :: (fn(data_type : &TypeValue) -> TypeValue)(
-  match(cell_handle_view(data_type), .Some(v) => v.cell, .None => data_type.clone())
+  match(cell_handle_view(data_type), .Some(v) => Rc.clone(v.cell), .None => data_type.clone())
 );
 /// Sanitized C field name of the single field of an Rc(T) data type ("*").
 /// A cell handle's is its cell's (`_dyn_data_object_type`).
@@ -291,7 +291,7 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
       (rbp_i : usize) = usize(0);
       while(rbp_i < rbp_ft.len(), {
         rbp_e := match(rbp_ft.get(rbp_i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
-        (rbp_r : TypeValue) = rbp_e;
+        (rbp_r : TypeValue) = Rc.clone(rbp_e);
         if(is_some_type(&rbp_e), {
           rbp_r = resolve_some_type_to_concrete(&rbp_e);
         });
@@ -302,16 +302,16 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
       (rbp_j : usize) = usize(0);
       while(rbp_j < rbp_ta.len(), {
         rbp_e2 := match(rbp_ta.get(rbp_j), .Some(x) => x, .None => rc(TypeValueNode.Unit));
-        (rbp_r2 : TypeValue) = rbp_e2;
+        (rbp_r2 : TypeValue) = Rc.clone(rbp_e2);
         if(is_some_type(&rbp_e2), {
           rbp_r2 = resolve_some_type_to_concrete(&rbp_e2);
         });
         rbp_new_ta.push(rbp_r2);
         rbp_j = (rbp_j + usize(1));
       });
-      rc(TypeValueNode.Struct(rbp_id.clone(), rbp_nm.clone(), rbp_fl, shared_list(rbp_new_ft), rbp_irs, rbp_iar, rbp_inw, rbp_cfid.clone(), shared_list(rbp_new_ta), rbp_isn))
+      rc(TypeValueNode.Struct(rbp_id.clone(), rbp_nm.clone(), Rc.clone(rbp_fl), shared_list(rbp_new_ft), rbp_irs, rbp_iar, rbp_inw, rbp_cfid.clone(), shared_list(rbp_new_ta), rbp_isn))
     },
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 /// C name for the boxed dyn payload: the raw recorded key first (the
@@ -474,7 +474,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
       .Some(impl_entry) => {
         data_type := impl_entry.data_type.clone();
         is_boxed := is_boxed_type(data_type.clone());
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => no_types());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => Rc.clone(required_trait_types), _ => no_types());
         nt := req_traits.len();
         // Pass 1: Fn synthetic `call` slot.
         (ti : usize) = usize(0);
@@ -566,7 +566,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                     // takes it at (`fn_abi_param_is_ptr`: a `&mut T` and a
                     // projection's `&T` are `T*`) where the slot's spelling
                     // differs (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
-                    pay_fn := match(fn_payload, .Some(pf) => pf, .None => rc(TypeValueNode.Unit));
+                    pay_fn := match(fn_payload, .Some(pf) => Rc.clone(pf), .None => rc(TypeValueNode.Unit));
                     pay_ptr := fn_abi_param_is_ptr(&pay_fn);
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
@@ -721,7 +721,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                               .Some(entry) => match(
                                 get_func_type(func_id.clone()),
                                 Rc(.Func({ param_types, result, meta : __fm1 })) => {
-                                  param_is_ref := __fm1.*.param_is_ref;
+                                  param_is_ref := Rc.clone(__fm1.*.param_is_ref);
                                   impl_cname := entry.c_name.clone();
                                   // The label is sanitized like the slot's field
                                   // name: an operator member (`LogicalNot`'s `!`)
@@ -735,8 +735,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // Future-returning method is the case that
                                   // differs: the impl returns its concrete future,
                                   // the trait the Future interface pointer.
-                                  slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt, _ => param_types.clone());
-                                  slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => sfm.*.param_is_ref, _ => param_is_ref.clone());
+                                  slot_params_tys := match(&slot_ty, .Some(Rc(.Func({ param_types : spt }))) => Rc.clone(spt), _ => param_types.clone());
+                                  slot_param_is_ref := match(&slot_ty, .Some(Rc(.Func({ meta : sfm }))) => Rc.clone(sfm.*.param_is_ref), _ => param_is_ref.clone());
                                   slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&sres, &context.base), _ => return_str.clone());
                                   params := _wrapper_params(slot_params_tys.items.clone(), slot_param_is_ref.items.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
@@ -931,7 +931,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
         // lists Clone (emitted with the wrappers), NULL for any other Dyn,
         // which is never copied through it (decision 7).
         em.emit_declaration_string_line(if(dyn_type_lists_clone(impl_entry.dyn_type.clone()), `  .__yo_clone = ${_dyn_clone_fn_name(&impl_key)},`, String.from("  .__yo_clone = NULL,")));
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => no_types());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => Rc.clone(required_trait_types), _ => no_types());
         nt := req_traits.len();
         processed := HashSet(String).new();
         (mi : usize) = usize(0);
@@ -946,7 +946,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
               processed.insert(String.from("call"));
             }, {
               match(
-                rt,
+                &rt,
                 Rc(.TraitT({ field_labels, field_types })) => {
                   nfl := field_labels.len();
                   (fi : usize) = usize(0);

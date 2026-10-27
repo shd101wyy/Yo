@@ -277,7 +277,7 @@ _gadt_refined_expected :: (
 )({
   exp_id := match(expected, Rc(.SomeT({ id : sid })) => sid.clone(), _ => String.new());
   if(exp_id.len() == usize(0), {
-    return(expected);
+    return(Rc.clone(expected));
   });
   (refined : Option(TypeValue)) = Option(TypeValue).None;
   (k : usize) = usize(0);
@@ -295,7 +295,7 @@ _gadt_refined_expected :: (
     });
     k = (k + usize(1));
   });
-  match(refined, .Some(r) => r, .None => expected)
+  match(refined, .Some(r) => Rc.clone(r), .None => Rc.clone(expected))
 });
 /// The error `_evaluate_guard_block` caught (its handler is capture-free, so
 /// a module-level channel, as `evaluate_expression_guarded`'s is).
@@ -391,8 +391,8 @@ _judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, body : Option(As
 _arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
   cond(
     match(ctx.expected_type, .Some(et) => (!type_contains_some_type(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-      match(ctx.expected_type, .Some(et) => et.ty, .None => body_ty),
-    true => body_ty
+      match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_ty)),
+    true => Rc.clone(body_ty)
   )
 );
 // ---------------------------------------------------------------------------
@@ -648,7 +648,7 @@ _decide_match_mode :: (
   ) -> u8
 )({
   scr := ast_expr_strip_borrow_marker(scr_raw);
-  ty := info.ty;
+  ty := Rc.clone(info.ty);
   root := _scrutinee_root_variable(&scr, env);
   is_atom := ast_expr_is_atom(&scr);
   if(marker == u8(2), {
@@ -868,8 +868,8 @@ _ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Envi
   tok := own.tok;
   name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*));
   own.counter = (own.counter + usize(1));
-  atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : tok.module_path, input : tok.input);
-  BindInfo(name : name, ty : ty, value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
+  atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
+  BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
 });
 _ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
@@ -889,7 +889,7 @@ _bind_ty_of :: (fn(own : &_ArmOwnership, name : &String) -> Option(TypeValue))({
     match(
       own.bind_tys.get(i),
       .Some(b) => if(b.name == name, {
-        return(Option(TypeValue).Some(b.ty));
+        return(Option(TypeValue).Some(Rc.clone(b.ty)));
       }),
       .None => ()
     );
@@ -958,7 +958,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           f = (f + usize(1));
         });
       });
-      v := Pattern.Variant(name : vname.clone(), idx : vidx, field_idx : new_idx, subs : new_subs, enum_ty : enum_ty, through_ptr : through_ptr, arity : arity);
+      v := Pattern.Variant(name : vname.clone(), idx : vidx, field_idx : new_idx, subs : new_subs, enum_ty : Rc.clone(enum_ty), through_ptr : through_ptr, arity : arity);
       cond(
         (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, v, env),
         true => v
@@ -1008,7 +1008,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         bad := cond(
           (in_cell || _names_contain(&own.borrowed, sn.clone())) => false,
           own.is_mut => true,
-          true => match(sty, .Some(t) => !type_is_bitwise_copy(t), .None => false)
+          true => match(&sty, .Some(t) => !type_is_bitwise_copy(Rc.clone(t)), .None => false)
         );
         if(bad, {
           exn.throw(
@@ -1032,7 +1032,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       Pattern.At(name : name.clone(), token : atok, atom : aatom, sub : box(new_sub))
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
-      tb := Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : box(recur(&sub, &inner_ty, true, own, env, exn)));
+      tb := Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : box(recur(&sub, &inner_ty, true, own, env, exn)));
       cond(
         (own.add_hidden && !in_cell && _part_has_drop(ty)) => _ownership_keep(own, ty, tb, env),
         true => tb
@@ -1051,7 +1051,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
       cell := (in_cell || pattern_position_is_cell(ty));
-      ftys := match(struct_ty, Rc(.Struct({ field_types : fts })) => fts, _ => no_types());
+      ftys := match(&struct_ty, Rc(.Struct({ field_types : fts })) => Rc.clone(fts), _ => no_types());
       new_idx := ArrayList(usize).new();
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
@@ -1081,7 +1081,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           f = (f + usize(1));
         });
       });
-      s := Pattern.Struct(struct_ty : struct_ty, field_idx : new_idx, subs : new_subs, arity : arity);
+      s := Pattern.Struct(struct_ty : Rc.clone(struct_ty), field_idx : new_idx, subs : new_subs, arity : arity);
       cond(
         (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, s, env),
         true => s
@@ -1283,13 +1283,13 @@ evaluate_match :: (
     local_borrows_active() => local_borrow_scrutinee_source(&scrutinee_expr, &env, ctx),
     true => Option(LocalBorrowInfo).None
   );
-  scrutinee_type := scr_info.ty;
+  scrutinee_type := Rc.clone(scr_info.ty);
   scrutinee_val_opt := scr_info.value;
   // Check pointer type — dereference one level
-  (matched_type : TypeValue) = scrutinee_type;
+  (matched_type : TypeValue) = Rc.clone(scrutinee_type);
   (is_ptr_match : bool) = false;
   if(is_pointer_type(&scrutinee_type), {
-    matched_type = match(scrutinee_type, Rc(.Pointer(inner)) => inner, _ => scrutinee_type);
+    matched_type = match(&scrutinee_type, Rc(.Pointer(inner)) => Rc.clone(inner), _ => Rc.clone(scrutinee_type));
     is_ptr_match = true;
   });
   // Resolve a leaked recursive-enum SELF-SHELL (an empty-variant EnumT whose id
@@ -1308,9 +1308,9 @@ evaluate_match :: (
   // compiler looks through one pointer level itself) with the shell resolved.
   position_type := cond(
     is_ptr_match => t_ptr(&matched_type),
-    true => matched_type
+    true => Rc.clone(matched_type)
   );
-  en_id := match(matched_type, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(), _ => String.new());
+  en_id := match(&matched_type, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(), _ => String.new());
   // GADT match detection: the enum is a GADT, an expected
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
@@ -1778,12 +1778,12 @@ evaluate_match :: (
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
-            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar, etas)),
-            _ => venum
+            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(vname.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
+            _ => Rc.clone(venum)
           );
           cond(is_ptr_match => t_ptr(&sel), true => sel)
         },
-        _ => scrutinee_type
+        _ => Rc.clone(scrutinee_type)
       );
       // Reuse the pattern node's ExprInfo when the compiler already stamped
       // one: for a top-level constant arm the pattern node IS the literal
@@ -1813,7 +1813,7 @@ evaluate_match :: (
         pattern_test_exprs(&arm.pattern, &mut tests);
         if(tests.len() > usize(0), {
           ptok := ast_expr_token(&arm_expr);
-          begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : ptok.module_path, input : ptok.input));
+          begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : Rc.clone(ptok.module_path), input : Rc.clone(ptok.input)));
           arm_info := new_expr_info(&env, t_unit());
           expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, tests, false, ptok)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&arm_expr), &arm_info);
@@ -1846,9 +1846,9 @@ evaluate_match :: (
       // (`expectedType: resultType ?? context.expectedType`).
       old_expected := ctx.expected_type;
       match(
-        result_type_em,
+        &result_type_em,
         .Some(rt) => {
-          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt, env : env));
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(rt), env : env));
         },
         .None => ()
       );
@@ -2078,16 +2078,16 @@ evaluate_match :: (
                 });
               });
               if(result_type_em.is_none(), {
-                result_type_em = Option(TypeValue).Some(ge.ty);
+                result_type_em = Option(TypeValue).Some(Rc.clone(ge.ty));
               });
             },
             .None => ()
           );
         }, {
           match(
-            result_type_em,
+            result_type_em.clone(),
             .None => {
-              result_type_em = Option(TypeValue).Some(body_info.ty);
+              result_type_em = Option(TypeValue).Some(Rc.clone(body_info.ty));
             },
             .Some(rt) => {
               if(!(are_types_compatible(&body_info.ty, &rt)), {
@@ -2096,7 +2096,7 @@ evaluate_match :: (
                 // previous comptime arm joins at this arm's concrete type
                 // (issues/fixed/cond-arm-type-unification-depends-on-arm-order.md).
                 if((((is_comptime_int_type(&rt) || is_comptime_float_type(&rt)) && are_types_compatible(&rt, &body_info.ty))) || are_types_compatible(&body_info.ty, &rt_rt), {
-                  result_type_em = Option(TypeValue).Some(body_info.ty);
+                  result_type_em = Option(TypeValue).Some(Rc.clone(body_info.ty));
                 }, {
                   exn.throw(
                     dyn(
@@ -2192,7 +2192,7 @@ evaluate_match :: (
               vname = an.clone();
               varity = aar;
               vptr = aptr;
-              vety = aety;
+              vety = Rc.clone(aety);
               grows.push(aa.pattern.clone());
               if(!(_variant_pattern_has_literal_sub(&aa.pattern)), {
                 has_unguarded_group_arm = true;
@@ -2337,7 +2337,7 @@ evaluate_match :: (
         result_type_em = Option(TypeValue).Some(t_unit());
       });
     });
-    rt_em := match(result_type_em, .Some(t) => t, .None => t_unit());
+    rt_em := match(result_type_em, .Some(t) => Rc.clone(t), .None => t_unit());
     // A `comptime_int` arm joined at a fixed-width integer type must fit it
     // (the cond twin in exprs/cond.yo).
     (ci_mi : usize) = usize(0);
@@ -2473,7 +2473,7 @@ evaluate_match :: (
     result_ty_final_em := cond(
       // GADT match: the result IS the (unrefined) expected type even though
       // it contains SomeT.
-      is_gadt_match_em => match(gadt_exp_em, .Some(ge_fin) => ge_fin.ty, .None => rt_em),
+      is_gadt_match_em => match(gadt_exp_em, .Some(ge_fin) => Rc.clone(ge_fin.ty), .None => rt_em),
       true => _arm_result_type(ctx, &rt_em)
     );
     (nb_mi : usize) = usize(0);
@@ -2520,7 +2520,7 @@ evaluate_match :: (
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&first_rb_em)),
             .Some(bi) => {
-              ret_type_em = Option(TypeValue).Some(bi.ty);
+              ret_type_em = Option(TypeValue).Some(Rc.clone(bi.ty));
             },
             .None => ()
           );
@@ -2534,13 +2534,13 @@ evaluate_match :: (
                 fctx.kind,
                 .FunctionBody => {
                   match(
-                    fctx.func_type,
+                    &fctx.func_type,
                     .None => (),
                     .Some(ft) => {
                       match(
                         ft,
                         Rc(.Func({ result : result_box, meta : rb_meta })) => {
-                          ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
+                          ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), Rc.clone(result_box)));
                         },
                         _ => ()
                       );
@@ -2557,7 +2557,7 @@ evaluate_match :: (
             ctx.expected_type,
             .None => (),
             .Some(et) => {
-              ret_type_em = Option(TypeValue).Some(et.ty);
+              ret_type_em = Option(TypeValue).Some(Rc.clone(et.ty));
             }
           );
         });
@@ -2585,7 +2585,7 @@ evaluate_match :: (
                 ctx.is_evaluating_function_body_or_async_block,
                 .None => false,
                 .Some(fctx) => match(
-                  fctx.func_type,
+                  &fctx.func_type,
                   .None => false,
                   .Some(ft) => is_function_type_and_returns_comptime_value(&ft)
                 )
@@ -2618,7 +2618,7 @@ evaluate_match :: (
           );
           return(expr);
         });
-        esc_ty_em := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
+        esc_ty_em := match(&ctx.enclosing_function_return_type, .Some(t) => Rc.clone(t), .None => t_unit());
         out_esc_em := new_expr_info(&env, &esc_ty_em);
         out_esc_em.control_flow = final_cf_em;
         if(is_primitive_switch, {

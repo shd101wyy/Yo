@@ -143,7 +143,7 @@ evaluate_binding :: (
   });
   user_defined_type := match(
     rhs_info.value,
-    .Some(.TypeVal(bt)) => bt,
+    .Some(.TypeVal(bt)) => Rc.clone(bt),
     .Some(_) => t_unit(),
     .None => t_unit()
   );
@@ -155,7 +155,7 @@ evaluate_binding :: (
   // Without this, the array.test.yo cee that EXPECTS this rejection
   // evaluated successfully and emptied the whole batch main.
   match(
-    user_defined_type,
+    &user_defined_type,
     Rc(.Array(_, _, udt_lvar)) => if(udt_lvar.starts_with("_array_length_"), {
       exn.throw(
         dyn(

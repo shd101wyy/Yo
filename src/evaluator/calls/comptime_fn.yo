@@ -128,8 +128,8 @@ _has_abstract_some :: (fn(ty : &TypeValue) -> bool)({
 /// A recursive declaration's self-shell shares both the id and the arguments
 /// (or records none), so it still unifies.
 _ctfe_same_id_type_args_agree :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> bool)({
-  a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
-  b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
+  a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+  b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
   if(a_ta.len() != b_ta.len(), {
     // One era recorded its arguments and the other did not (a pattern-era
     // copy): the id is all there is to go on.
@@ -163,8 +163,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
     a_cf := match(lookup_struct_ctor_fid(&a_sid), .Some(f) => f, .None => String.from(""));
     b_cf := match(lookup_struct_ctor_fid(&b_sid), .Some(f) => f, .None => String.from(""));
     if((a_cf.len() > usize(0)) && (a_cf == b_cf), {
-      a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, _ => no_types());
-      b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, _ => no_types());
+      a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+      b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), _ => no_types());
       if((a_ta.len() == b_ta.len()) && (a_ta.len() > usize(0)), {
         (tai : usize) = usize(0);
         (ta_ok : bool) = true;
@@ -188,8 +188,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
     a_ecf := lookup_enum_cfid(&a_eid);
     b_ecf := lookup_enum_cfid(&b_eid);
     if((a_ecf.len() > usize(0)) && (a_ecf == b_ecf), {
-      a_vf := match(aty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
-      b_vf := match(bty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
+      a_vf := match(aty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
+      b_vf := match(bty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
       if(a_vf.len() == b_vf.len(), {
         (vfi : usize) = usize(0);
         (vf_ok : bool) = true;
@@ -214,8 +214,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
         // Era instances of ONE instantiation also agree on its recorded
         // type arguments: `P(i32)` and `P(bool)` of a phantom-indexed enum
         // have identical variant fields and must still be two memo keys.
-        a_eta := match(aty, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
-        b_eta := match(bty, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
+        a_eta := match(aty, Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+        b_eta := match(bty, Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
         if(vf_ok && (a_eta.len() > usize(0)) && (a_eta.len() == b_eta.len()), {
           (etai : usize) = usize(0);
           while((etai < a_eta.len()) && vf_ok, {
@@ -245,8 +245,8 @@ _ctfe_args_equal :: (
     .TypeVal(aty_b) => match(
       given_av,
       .TypeVal(bty_b) => {
-        aty := aty_b;
-        bty := bty_b;
+        aty := Rc.clone(aty_b);
+        bty := Rc.clone(bty_b);
         a_is_some := is_some_type(&aty);
         b_is_some := is_some_type(&bty);
         // Type values are copies, not shared objects, so cached type args
@@ -258,8 +258,8 @@ _ctfe_args_equal :: (
         // and the post-definition `Option(RBNode(K, V))` (arg = stamped final)
         // land in SEPARATE memo entries, splitting one type into two
         // enum instances.
-        a_struct_id := match(aty, Rc(.Struct({ id : as_id })) => as_id.clone(), _ => String.from(""));
-        b_struct_id := match(bty, Rc(.Struct({ id : bs_id })) => bs_id.clone(), _ => String.from(""));
+        a_struct_id := match(&aty, Rc(.Struct({ id : as_id })) => as_id.clone(), _ => String.from(""));
+        b_struct_id := match(&bty, Rc(.Struct({ id : bs_id })) => bs_id.clone(), _ => String.from(""));
         // ENUM self-shells carry a `__self_shell` id SUFFIX (unlike struct
         // shells, which share the final's id exactly — see the comment
         // above). Strip it so `ArrayList(Self)` inside a recursive enum's
@@ -270,8 +270,8 @@ _ctfe_args_equal :: (
         // traverse/drop machinery cross-corrupted the heap (the
         // recursive-enum Rc(Self)+ArrayList(Self) OOM/segv,
         // issues/repros/recursive-enum-box-plus-arraylist-self.yo).
-        a_enum_id := match(aty, Rc(.EnumT(ae_id, _, _, _, _, _, _, _, _, _)) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
-        b_enum_id := match(bty, Rc(.EnumT(be_id, _, _, _, _, _, _, _, _, _)) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        a_enum_id := match(&aty, Rc(.EnumT(ae_id, _, _, _, _, _, _, _, _, _)) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        b_enum_id := match(&bty, Rc(.EnumT(be_id, _, _, _, _, _, _, _, _, _)) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         cond(
           ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),
           ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),
@@ -383,9 +383,9 @@ _resolved_type_of :: (fn(v : &EvalValue) -> Option(TypeValue))(
   match(
     v,
     .TypeVal(tb) => {
-      t := tb;
+      t := Rc.clone(tb);
       is_placeholder := match(
-        t,
+        &t,
         Rc(.SomeT(id : sid2)) => match(lookup_recursive_type_ref(&sid2), .Some(_) => true, .None => false),
         _ => false
       );
@@ -452,11 +452,11 @@ _arg_vals_equal :: (fn(a : &ArrayList(EvalValue), b : &ArrayList(EvalValue)) -> 
 canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
   sid := match(ty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
   if(sid.len() == usize(0), {
-    return(ty);
+    return(Rc.clone(ty));
   });
-  tyargs := match(ty, Rc(.Struct({ type_arguments : t })) => t, _ => no_types());
+  tyargs := match(ty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), _ => no_types());
   if(tyargs.len() == usize(0), {
-    return(ty);
+    return(Rc.clone(ty));
   });
   // The memo lookup key: each concrete type argument as a TypeVal argument.
   want_args := ArrayList(EvalValue).new();
@@ -468,12 +468,12 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
         tyargs.get(cvi),
         .Some(t2) => {
           if(type_contains_some_type(&t2), {
-            return(ty);
+            return(Rc.clone(ty));
           });
           want_args.push(EvalValue.TypeVal(t2));
         },
         .None => {
-          return(ty);
+          return(Rc.clone(ty));
         }
       );
       cvi = (cvi + usize(1));
@@ -485,7 +485,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
     .None => match(ty, Rc(.Struct({ constructor_func_id : c })) => c.clone(), _ => String.from(""))
   );
   if(cfid.len() == usize(0), {
-    return(ty);
+    return(Rc.clone(ty));
   });
   // Find the ctor's bucket, then an era-equal-arg entry with a resolved value.
   (canon_bucket : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
@@ -527,7 +527,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
     },
     .None => ()
   );
-  ty
+  Rc.clone(ty)
 });
 /// Resolve a recursion-placeholder `SomeT` to its actual type, in priority
 /// order: (1) the cache entry of the
@@ -591,9 +591,9 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   };
   // Strategy 2: ctx.self_type when it is a struct/object.
   match(
-    ctx.self_type,
+    &ctx.self_type,
     .Some(st) => if(is_struct_type(&st), {
-      return(Option(TypeValue).Some(st));
+      return(Option(TypeValue).Some(Rc.clone(st)));
     }),
     .None => ()
   );
@@ -640,7 +640,7 @@ _recursive_placeholder :: (
   cond(
     is_type_0(return_type) => {
       placeholder := t_some_t(`recur_${func_id}`, usize(0));
-      sid := match(placeholder, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
+      sid := match(&placeholder, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
       g_recursive_type_refs.with_mut(
         xs => xs.push(
           RecursiveTypeRef(some_id : sid.clone(), func_id : func_id.clone(), arg_values : arg_vals)
@@ -673,7 +673,7 @@ evaluate_comptime_fn_call :: (
   // Extract the return type from the function type.
   return_type := match(
     function_type,
-    Rc(.Func({ result : result_b })) => result_b,
+    Rc(.Func({ result : result_b })) => Rc.clone(result_b),
     _ => t_unit()
   );
   // Extract func_id and body from the FuncVal.
@@ -1173,7 +1173,7 @@ evaluate_comptime_fn_call :: (
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
-      func_type : Option(TypeValue).Some(function_type),
+      func_type : Option(TypeValue).Some(Rc.clone(function_type)),
       func_value : Option(EvalValue).Some(function_value),
       eval_env : snapshot_env(callee_env),
       ctfe_live : ctfe_live,
@@ -1299,7 +1299,7 @@ evaluate_comptime_fn_call :: (
         match(
           av,
           .TypeVal(tb) => {
-            inst_type_args_b.push(tb);
+            inst_type_args_b.push(Rc.clone(tb));
           },
           _ => {
             inst_type_args_b.push(rc(TypeValueNode.Unit));
@@ -1417,7 +1417,7 @@ evaluate_comptime_fn_call :: (
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
-          rc(TypeValueNode.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
+          rc(TypeValueNode.Struct(sid, stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
         )
       }, {
         if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
@@ -1435,7 +1435,7 @@ evaluate_comptime_fn_call :: (
       // instance that reports the same arguments.
       Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)) => if((etas.len() == usize(0)) && ((inst_type_args.len() > usize(0)) && !eid.starts_with("enum_decl_")), {
         stamp_enum_final_type_arguments(eid.clone(), &inst_type_args, ctor_phantom_flags(func_id_str.clone(), inst_type_args.len()));
-        EvalValue.TypeVal(rc(TypeValueNode.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, inst_type_args.clone())))
+        EvalValue.TypeVal(rc(TypeValueNode.EnumT(eid, enm, Rc.clone(evns), Rc.clone(evfs), esvn, Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone())))
       }, return_value),
       // Trait returns: record the constructor funcId so the generic-impl
       // registry can key `Eq(Rc(i32))` and `Eq(Rc(T))` into ONE bucket.

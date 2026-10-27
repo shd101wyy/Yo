@@ -120,22 +120,22 @@ try_to_implement_closure_by_fn_module_type :: (
   // Extract param names and types from the FnTraitT.
   param_labels := match(
     fn_module_type,
-    Rc(.FnTraitT(_, pls, _, _, _, _, _, _)) => pls,
+    Rc(.FnTraitT(_, pls, _, _, _, _, _, _)) => Rc.clone(pls),
     _ => no_labels()
   );
   param_types := match(
     fn_module_type,
-    Rc(.FnTraitT(_, _, pts, _, _, _, _, _)) => pts,
+    Rc(.FnTraitT(_, _, pts, _, _, _, _, _)) => Rc.clone(pts),
     _ => no_types()
   );
   result_type := match(
     fn_module_type,
-    Rc(.FnTraitT(_, _, _, rt_box, _, _, _, _)) => rt_box,
+    Rc(.FnTraitT(_, _, _, rt_box, _, _, _, _)) => Rc.clone(rt_box),
     _ => t_unit()
   );
   param_is_ref_flags := match(
     fn_module_type,
-    Rc(.FnTraitT(_, _, _, _, _, _, prf, _)) => prf,
+    Rc(.FnTraitT(_, _, _, _, _, _, prf, _)) => Rc.clone(prf),
     _ => no_flags()
   );
   // Push a new env frame for the closure parameters.
@@ -283,7 +283,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // Check return type compatibility.
   body_ty := match(
     body_info_opt,
-    .Some(bi) => bi.ty,
+    .Some(bi) => Rc.clone(bi.ty),
     .None => t_unit()
   );
   if(!are_types_compatible(&body_ty, &result_type), {
@@ -326,7 +326,7 @@ try_to_implement_closure_by_fn_module_type :: (
     &tok,
     closure_signature_key(&synthetic_func_ty)
   );
-  capture_ty := cap_result.capture_type;
+  capture_ty := cap_result.capture_type.clone();
   // Rules D4 + D9: the captured state's marker verdicts (anonymous_function.yo).
   record_closure_capture_verdicts(closure_id.clone(), &captured_vars_with_values_opt, &capture_ty, caller_env, ctx);
   // Validate that the capture struct implements every required non-Fn trait
@@ -355,7 +355,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // wrapper's id is shared by every closure checked against the same
   // annotation, so an entry keyed by it named the last closure's struct for
   // all of them (Phase 3 step 7 part 2).
-  final_ty := match(capture_ty.clone(), .Some(fct) => t_with_resolution(wrapper_type.clone(), &fct), .None => wrapper_type);
+  final_ty := match(capture_ty.clone(), .Some(fct) => t_with_resolution(wrapper_type.clone(), &fct), .None => Rc.clone(wrapper_type));
   // Build the ExprInfo for this closure expression.
   info := new_expr_info(&env, &final_ty);
   expr_info_set_capture_type(&info, &capture_ty);

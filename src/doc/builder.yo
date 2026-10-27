@@ -2869,7 +2869,7 @@ _resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeV
           Rc(.Func({ result })) => {
             is_type_uni_result := match(result, Rc(.TypeUni(_)) => true, _ => false);
             if(!is_type_uni_result, {
-              return(result);
+              return(Rc.clone(result));
             });
           },
           _ => ()
@@ -2877,9 +2877,9 @@ _resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeV
       },
       _ => ()
     );
-    return(field_type);
+    return(Rc.clone(field_type));
   });
-  field_type
+  Rc.clone(field_type)
 });
 /// Convert a Func type's value parameters to DocParams. Per-param comptime
 /// flags and defaults ride the func-id side tables (evaluator/types/function.yo)
@@ -2892,7 +2892,7 @@ _function_params_to_doc_params :: (
   match(
     func_type,
     Rc(.Func({ param_types, meta })) => {
-      labels := meta.*.param_labels;
+      labels := Rc.clone(meta.*.param_labels);
       origin := match(meta.*.origin_id, .Some(oid) => oid.clone(), .None => String.new());
       comptime_flags := get_func_param_comptime(&origin);
       defaults := get_func_param_defaults(&origin);
@@ -2951,7 +2951,7 @@ _forall_params_to_doc_params :: (
   match(
     func_type,
     Rc(.Func({ forall_types, meta })) => {
-      labels := meta.*.forall_labels;
+      labels := Rc.clone(meta.*.forall_labels);
       (i : usize) = usize(0);
       while((i < labels.len()) && (i < forall_types.len()), {
         label := match(labels.get(i), .Some(l) => l, .None => String.new());
@@ -3109,7 +3109,7 @@ _extract_methods :: (
     if(is_function_type(&entry.ty) && !entry.label.starts_with(String.from("___")), {
       (receiver_name : String) = type_name.clone();
       match(
-        entry.self_type,
+        &entry.self_type,
         .Some(st) => {
           st_name := _doc_type_name(&st);
           if(st_name.len() > usize(0), {
@@ -3423,8 +3423,8 @@ build_doc_module :: (
   match(
     module_type,
     Rc(.Struct({ field_labels, field_types })) => {
-      ns_field_labels = field_labels;
-      ns_field_types = field_types;
+      ns_field_labels = Rc.clone(field_labels);
+      ns_field_types = Rc.clone(field_types);
     },
     _ => ()
   );
@@ -3851,7 +3851,7 @@ build_doc_module :: (
             });
             (st_fields : ArrayList(DocField)) = ArrayList(DocField).new();
             match(
-              inner_type,
+              &inner_type,
               Rc(.Struct({ field_labels : sfl, field_types : sft })) => {
                 st_fields = _type_fields_to_doc_fields(&sfl.items, &sft.items, &doc_lookup);
               },
@@ -4059,7 +4059,7 @@ build_doc_module :: (
             // as trait-function and anything else falls through
             // to the unresolvable generic type constructor.
             is_hierarchy := match(
-              field_type,
+              &field_type,
               Rc(.Func({ result : fn_result })) => match(fn_result, Rc(.TypeUni(lvl)) => (lvl >= usize(1)), _ => false),
               _ => false
             );

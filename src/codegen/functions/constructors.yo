@@ -569,7 +569,7 @@ generate_ref_struct_traversal_functions :: (fn(context : &FunctionGenerationCont
     match(
       vals.next(),
       .Some(entry) => {
-        ty := entry.ty;
+        ty := Rc.clone(entry.ty);
         // Atomic objects don't participate in cycle GC — no traversal needed.
         if(is_reference_struct_type(&ty) && _traversal_fn_name(&ty, entry.c_name.clone()).is_some(), {
           _generate_one_ref_struct_traversal(&ty, entry.c_name.clone(), context);
@@ -690,7 +690,7 @@ generate_ref_enum_traversal_functions :: (fn(context : &FunctionGenerationContex
     match(
       vals.next(),
       .Some(entry) => {
-        ty := entry.ty;
+        ty := Rc.clone(entry.ty);
         // Atomic ref-enums never participate in cycle GC; generic enums skip.
         if(is_reference_enum_type(&ty) && _traversal_fn_name(&ty, entry.c_name.clone()).is_some(), {
           _generate_one_ref_enum_traversal(&ty, entry.c_name.clone(), context);

@@ -428,9 +428,9 @@ _type_binder_env_value :: (
     match(
       sig_some_ts.get(smi),
       .Some(st) => match(
-        st,
+        &st,
         Rc(.SomeT(_, st_name, _, _, _, _, _, _, _, _)) => if(st_name == name, {
-          sig_match = Option(TypeValue).Some(st);
+          sig_match = Option(TypeValue).Some(Rc.clone(st));
         }),
         _ => ()
       ),
@@ -463,10 +463,10 @@ _type_binder_env_value :: (
         );
         if(we.lhs_label == name, {
           if(we.is_negated, {
-            fs_neg.push(we.trait_ty);
+            fs_neg.push(Rc.clone(we.trait_ty));
             fs_neg_lv.push(usize(0));
           }, {
-            fs_req.push(we.trait_ty);
+            fs_req.push(Rc.clone(we.trait_ty));
             fs_req_lv.push(usize(0));
           });
         });
@@ -474,8 +474,8 @@ _type_binder_env_value :: (
       });
       stamped := match(
         fresh_some,
-        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2)),
-        other => other
+        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, Rc.clone(fs_parent), fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1.clone(), fs_r2.clone())),
+        other => Rc.clone(other)
       );
       Option(EvalValue).Some(create_type_value(&stamped))
     }
@@ -539,7 +539,7 @@ _record_ctor_phantom_positions :: (
     .None => rc(TypeValueNode.Unit)
   );
   match(
-    body_ty,
+    &body_ty,
     Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => (),
     _ => {
       return(());
@@ -649,7 +649,7 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
   });
   Environment(
     frames : rc(new_frames),
-    module_path : env.module_path,
+    module_path : Rc.clone(env.module_path),
     function_declaration_frame_level : env.function_declaration_frame_level,
     frozen : false
   )
@@ -864,10 +864,10 @@ _build_def_time_body_env :: (
                   rk_module_level(at) = rv.is_module_level;
                 },
                 .None => match(
-                  rv_bty,
+                  &rv_bty,
                   .Some(_) => {
                     rk_names.push(rv.name.clone());
-                    rk_tys.push(rv_bty);
+                    rk_tys.push(rv_bty.clone());
                     rk_reassign.push(rv.is_reassignable);
                     rk_module_level.push(rv.is_module_level);
                   },
@@ -980,8 +980,8 @@ _build_def_time_body_env :: (
   // Skipped when a parameter of the same name exists: the parameter loop is
   // authoritative for it (and runs after, so it would overwrite anyway).
   {
-    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => __fa_m.*.forall_labels, _ => no_labels());
-    fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => __fa_t, _ => no_types());
+    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => Rc.clone(__fa_m.*.forall_labels), _ => no_labels());
+    fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => Rc.clone(__fa_t), _ => no_types());
     (fa_i : usize) = usize(0);
     while(fa_i < fa_labels.len(), {
       fa_name := match(fa_labels.get(fa_i), .Some(n) => n, .None => String.from(""));
@@ -1207,11 +1207,11 @@ try_to_implement_function_by_function_type :: (
   match(
     function_type,
     Rc(.Func({ param_types, result : result_box, meta : __fm2 })) => {
-      forall_labels := __fm2.*.forall_labels;
-      param_labels := __fm2.*.param_labels;
-      implicit_labels := __fm2.*.implicit_labels;
-      param_is_ref := __fm2.*.param_is_ref;
-      param_is_owning := __fm2.*.param_is_owning;
+      forall_labels := Rc.clone(__fm2.*.forall_labels);
+      param_labels := Rc.clone(__fm2.*.param_labels);
+      implicit_labels := Rc.clone(__fm2.*.implicit_labels);
+      param_is_ref := Rc.clone(__fm2.*.param_is_ref);
+      param_is_owning := Rc.clone(__fm2.*.param_is_owning);
       result_is_ref := __fm2.*.result_is_ref;
       result_is_comptime_only := __fm2.*.result_is_comptime_only;
       tok := ast_expr_token(expr);
@@ -1417,7 +1417,7 @@ Result type: ${type_to_string(&result_box)}`
                     // the GATE-4 hole
                     // (issues/fixed/yo-self-check-misses-undefined-variable.md).
                     cv_is_extern_fn := match(
-                      cv.ty,
+                      &cv.ty,
                       Rc(.Func({ meta : __fcxm })) => __fcxm.*.is_extern.is_some(),
                       _ => false
                     );
@@ -1477,7 +1477,7 @@ Result type: ${type_to_string(&result_box)}`
       // SomeT) was NOT detected → the method was wrongly NOT deferred → its body
       // was def-time-evaluated with `T` unbound → "expected type for element,
       // got T" (field.yo:293). Use the deep predicate so such methods defer.
-      self_has_some_ft := match(ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(&st, ArrayList(String).new()), .None => false);
+      self_has_some_ft := match(&ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(&st, ArrayList(String).new()), .None => false);
       // COMPTIME VALUE-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
       // make the fn GENERIC — the body must DEFER like a
       // forall/SomeT one: def-time eval with `n` unresolved threw "Return
@@ -1750,7 +1750,7 @@ Result type: ${type_to_string(&result_box)}`
                 .None => Option(AstExpr).None
               ),
               return_label : get_func_return_label(fn_val_id.clone()),
-              table : ctx.expr_info_table,
+              table : ctx.expr_info_table.clone(),
               mode : vmode.clone(),
               func_val : func_val,
               // V6 task 5: an `assumed()` body is not walked, but its
@@ -1782,13 +1782,13 @@ Result type: ${type_to_string(&result_box)}`
       // comptime-executing body is EXPECTED to fail this analysis and must be left
       // exactly as it is.
       (final_func_val : EvalValue) = func_val;
-      (final_func_ty : TypeValue) = function_type;
+      (final_func_ty : TypeValue) = Rc.clone(function_type);
       if(ctx.is_analyzing_ctfe_capability || ctx.force_compile_time_bindings, {
         match(
           analyze_ctfe_capability(&func_val, function_type, caller_env, ctx),
           .Some(ctfe_ok) => {
             final_func_val = ctfe_ok.value;
-            final_func_ty = ctfe_ok.ty;
+            final_func_ty = Rc.clone(ctfe_ok.ty);
           },
           .None => ()
         );
@@ -1888,7 +1888,7 @@ Result type: ${type_to_string(&result_box)}`
               match(
                 def_where_entries.get(fwi),
                 .Some(fwe) => {
-                  fwe_id := match(fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid.clone(), _ => String.from(""));
+                  fwe_id := match(&fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid.clone(), _ => String.from(""));
                   if(fwe_id != "", {
                     flow_where_ids.push(fwe_id);
                   });
@@ -1985,9 +1985,9 @@ Result type: ${type_to_string(&result_box)}`
                   param_is_ref : param_is_ref.items.clone(),
                   param_is_owning : param_is_owning.items.clone(),
                   param_is_comptime : def_ct_flags.clone(),
-                  result_ty : result_box,
+                  result_ty : Rc.clone(result_box),
                   where_entries : def_where_entries,
-                  function_type : function_type,
+                  function_type : Rc.clone(function_type),
                   strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
                   attempts : usize(3),
                   param_decl_tokens : def_param_toks.clone(),
@@ -2078,12 +2078,12 @@ Result type: ${type_to_string(&result_box)}`
             .Some(ub_body) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ub_body)),
               .Some(ub_info) => {
-                ub_ty := ub_info.ty;
+                ub_ty := Rc.clone(ub_info.ty);
                 // A body that ends in a `never` expression (a panic, a call
                 // to a `-> never` function) adopts the declared result, so
                 // codegen can type its unreachable placeholder (Phase 3.6).
                 if(is_never_type(&ub_ty), {
-                  adopt_never_type(&ub_body, if(result_is_ref, t_ptr(&result_box), result_box), ctx);
+                  adopt_never_type(&ub_body, if(result_is_ref, t_ptr(&result_box), Rc.clone(result_box)), ctx);
                 });
                 // An `Impl(Trait)` result is judged by its traits, not by
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
@@ -2250,7 +2250,7 @@ Result type: ${type_to_string(&result_box)}`
                 .Some(dts_body) => match(
                   expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dts_body)),
                   .Some(dts_binfo) => {
-                    dts_bty := dts_binfo.ty;
+                    dts_bty := Rc.clone(dts_binfo.ty);
                     dts_hidden := cond(
                       !is_some_type(&dts_bty) => Option(TypeValue).Some(dts_bty.clone()),
                       true => some_resolution(&dts_bty)
@@ -2362,7 +2362,7 @@ Result type: ${type_to_string(&result_box)}`
                 match(
                   dg_where.get(dgw_i),
                   .Some(dgw_e) => {
-                    dgw_id := match(dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid.clone(), _ => String.from(""));
+                    dgw_id := match(&dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid.clone(), _ => String.from(""));
                     if(dgw_id != "", {
                       dg_where_ids.push(dgw_id);
                     });
@@ -2489,13 +2489,13 @@ Result type: ${type_to_string(&result_box)}`
                     dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !has_control_flow(dg_info.control_flow, .Return));
                     dg_expected := cond(
                       result_is_ref => t_ptr(&result_box),
-                      true => result_box
+                      true => Rc.clone(result_box)
                     );
                     // Expected bare SomeT that is NOT this fn's own forall: the
                     // generic var is bound by the CALL SITE (e.g. effect-handler
                     // `-> T`), so a concrete body is the correct shape.
                     dg_own_forall_skip := match(
-                      dg_expected,
+                      &dg_expected,
                       Rc(.SomeT({ name : dg_sname })) => {
                         (dg_found : bool) = false;
                         (dg_fi : usize) = usize(0);
@@ -2509,7 +2509,7 @@ Result type: ${type_to_string(&result_box)}`
                       },
                       _ => false
                     );
-                    dg_trial_ty := dg_info.ty;
+                    dg_trial_ty := Rc.clone(dg_info.ty);
                     // Only a FULLY CONCRETE trial result can convict — a trial
                     // type still carrying SomeTs unifies at specialization time
                     // (the prelude Box-Clone impl false-fired on an
