@@ -106,7 +106,7 @@ impl(
                 _flags : flags,
                 _pattern : pattern.clone(),
                 _n_groups : n_groups,
-                _group_names : gnames
+                _group_names : parser.group_names().clone()
               )
             )
           }
@@ -138,7 +138,7 @@ impl(
   /// untouched, so `Regex.new(Regex.escape(s)).unwrap().is_match(s)` and
   /// round-tripping a user string through a larger pattern are both safe.
   escape : (fn(s : &String) -> String)({
-    metas := ArrayList(u8).new();
+    mut(metas) := ArrayList(u8).new();
     metas.push(u8(92));
     metas.push(u8(94));
     metas.push(u8(36));
@@ -153,7 +153,7 @@ impl(
     metas.push(u8(93));
     metas.push(u8(123));
     metas.push(u8(125));
-    out := ArrayList(u8).new();
+    mut(out) := ArrayList(u8).new();
     b := &s;
     (mut(i) : usize) = usize(0);
     while(i < b.len(), {
@@ -167,7 +167,7 @@ impl(
     String.from_bytes(out)
   }),
   _extract_substring : (fn(self : &Self, bytes : &String, start : usize, end_pos : usize) -> String)({
-    result_bytes := ArrayList(u8).with_capacity(end_pos - start);
+    mut(result_bytes) := ArrayList(u8).with_capacity(end_pos - start);
     mut(i) := start;
     while(i < end_pos, i = (i + usize(1)), {
       result_bytes.push(bytes.byte_at(i));
@@ -232,8 +232,8 @@ impl(
     match_start_byte := slots(usize(0));
     match_end_byte := slots(usize(1));
     match_text := self._extract_substring(&bytes, match_start_byte, match_end_byte);
-    groups := ArrayList(Option(String)).new();
-    group_spans := ArrayList(Option(Range(usize))).new();
+    mut(groups) := ArrayList(Option(String)).new();
+    mut(group_spans) := ArrayList(Option(Range(usize))).new();
     mut(g) := usize(1);
     while(g <= self._n_groups, g = (g + usize(1)), {
       start_slot := (g * usize(2));
@@ -327,7 +327,7 @@ impl(
   /// Every non-overlapping match, collected — Rust's `find_iter().collect()`.
   /// `find_iter` is the lazy form and is what a `for` loop should use.
   find_all : (fn(self : &Self, input : &String) -> ArrayList(RegexMatch))({
-    matches := ArrayList(RegexMatch).new();
+    mut(matches) := ArrayList(RegexMatch).new();
     bytes := &input;
     input_len := bytes.len();
     vm := NfaVm.new(&self._program, self._flags, input);
@@ -563,7 +563,7 @@ impl(
   _apply_replacement : (fn(self : &Self, replacement : &String, m : &RegexMatch) -> String)({
     rep_bytes := &replacement;
     rep_len := rep_bytes.len();
-    result := ArrayList(u8).new();
+    mut(result) := ArrayList(u8).new();
     mut(i) := usize(0);
     while(i < rep_len, {
       b := rep_bytes.byte_at(i);
@@ -644,7 +644,7 @@ impl(
               });
               cond(
                 found_close => {
-                  name_bytes := ArrayList(u8).with_capacity(name_end - name_start);
+                  mut(name_bytes) := ArrayList(u8).with_capacity(name_end - name_start);
                   mut(ni) := name_start;
                   while(ni < name_end, ni = (ni + usize(1)), {
                     name_bytes.push(rep_bytes.byte_at(ni));
@@ -724,7 +724,7 @@ impl(
         match_start_byte := m.index();
         match_end_byte := (match_start_byte + m.value().len());
         // Build result: pre-match + replacement + post-match
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         mut(pi) := usize(0);
         while(pi < match_start_byte, pi = (pi + usize(1)), {
           out.push(input_bytes.byte_at(pi));
@@ -761,7 +761,7 @@ impl(
       (all_matches.len() == usize(0)) => input.clone(),
       true => {
         input_bytes := &input;
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
@@ -804,7 +804,7 @@ impl(
       .None => input.clone(),
       .Some(m) => {
         input_bytes := &input;
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         mut(pi) := usize(0);
         while(pi < m.index(), pi = (pi + usize(1)), {
           out.push(input_bytes.byte_at(pi));
@@ -832,7 +832,7 @@ impl(
       (all_matches.len() == usize(0)) => input.clone(),
       true => {
         input_bytes := &input;
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
@@ -883,7 +883,7 @@ impl(
   /// list. This is also the body behind `String.split(re)`, so the `Pattern`
   /// dispatch inherits both behaviours.
   split : (fn(self : &Self, input : &String) -> ArrayList(String))({
-    parts := ArrayList(String).new();
+    mut(parts) := ArrayList(String).new();
     all_matches := self.find_all(input);
     cond(
       (all_matches.len() == usize(0)) => {
@@ -899,7 +899,7 @@ impl(
           match_start_byte := m.index();
           match_end_byte := (match_start_byte + m.value().len());
           // Extract text from last_end_byte to match_start_byte
-          part_bytes := ArrayList(u8).new();
+          mut(part_bytes) := ArrayList(u8).new();
           mut(pi) := last_end_byte;
           while(pi < match_start_byte, pi = (pi + usize(1)), {
             part_bytes.push(input_bytes.byte_at(pi));
@@ -922,7 +922,7 @@ impl(
           last_end_byte = match_end_byte;
         });
         // Add remaining text after last match
-        remaining := ArrayList(u8).new();
+        mut(remaining) := ArrayList(u8).new();
         mut(pi) := last_end_byte;
         while(pi < input_bytes.len(), pi = (pi + usize(1)), {
           remaining.push(input_bytes.byte_at(pi));

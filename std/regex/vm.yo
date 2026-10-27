@@ -484,19 +484,15 @@ impl(
             );
           },
           .CharClass => {
-            class_opt := self._program.classes.get(st_instr.class_idx);
-            match(
-              class_opt,
-              .Some(cls) => {
-                cond(
-                  self._codepoint_in_class(sub_cp, &cls) => {
-                    new_t := st_thread.fork(st_thread.pc + usize(1));
-                    self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
-                  },
-                  true => ()
-                );
+            // The class is read in place: a copy per thread per step would
+            // clone its range list.
+            sub_cls_idx := st_instr.class_idx;
+            cond(
+              ((sub_cls_idx < self._program.classes.len()) && self._codepoint_in_class(sub_cp, &self._program.classes(sub_cls_idx))) => {
+                new_t := st_thread.fork(st_thread.pc + usize(1));
+                self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
               },
-              .None => ()
+              true => ()
             );
           },
           _ => ()
@@ -537,8 +533,8 @@ impl(
     // Reuse pre-allocated seen buffers from the VM
     mut(current) := ArrayList(NfaThread).new();
     mut(next) := ArrayList(NfaThread).new();
-    seen := self._seen;
-    next_seen := self._next_seen;
+    mut(seen) := self._seen.clone();
+    mut(next_seen) := self._next_seen.clone();
     mut(deferred) := ArrayList(DeferredThread).new();
     // Clear for this execution
     seen.fill_with_byte(int(0));
@@ -565,7 +561,7 @@ impl(
       seen.fill_with_byte(int(0));
       next_seen.fill_with_byte(int(0));
       // Process deferred threads targeting this byte_pos
-      new_deferred := ArrayList(DeferredThread).new();
+      mut(new_deferred) := ArrayList(DeferredThread).new();
       mut(di) := usize(0);
       while(di < deferred.len(), di = (di + usize(1)), {
         d := deferred(di);
@@ -624,19 +620,14 @@ impl(
           .CharClass => {
             cond(
               !at_end => {
-                class_opt := self._program.classes.get(instr.class_idx);
-                match(
-                  class_opt,
-                  .Some(cls) => {
-                    cond(
-                      self._codepoint_in_class(cur_cp, &cls) => {
-                        new_thread := thread.fork(thread.pc + usize(1));
-                        self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
-                      },
-                      true => ()
-                    );
+                // In place, as in the sub-match loop above.
+                cls_idx := instr.class_idx;
+                cond(
+                  ((cls_idx < self._program.classes.len()) && self._codepoint_in_class(cur_cp, &self._program.classes(cls_idx))) => {
+                    new_thread := thread.fork(thread.pc + usize(1));
+                    self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
                   },
-                  .None => ()
+                  true => ()
                 );
               },
               true => ()
