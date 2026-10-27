@@ -573,74 +573,21 @@ impl(
           self._ptr,
           .None => __yo_panic("ArrayList has length but no ptr"),
           .Some(_ptr) => {
-            // Collect the drained elements FIRST: get dups each one, so the
-            // shift below can drop the originals with balanced RCs. (ci, not
-            // i: the shift arms below redeclare i in their own scopes.)
+            // Move the drained elements out bitwise: `out` owns them now, and
+            // the list gives them up (B8: a value list is its elements' only
+            // owner, so no element is copied or dropped here).
             mut(ci) := usize(0);
             while(ci < count, ci = (ci + usize(1)), {
-              match(
-                self.get(r.start + ci),
-                .Some(e) => out.push(e),
-                .None => __yo_panic("ArrayList.drain: get failed inside bounds")
-              );
+              out.push(__yo_ptr_read(_ptr.add(r.start + ci)));
             });
-            // Shift remaining elements left to fill the gap
-            // We need to move elements from [r.start + count, length) to [r.start, ...)
-            elements_after := (self._length - r.start - count);
-            cond(
-              (elements_after > usize(0)) => {
-                src_ptr := _ptr.add(r.start + count);
-                dst_ptr := _ptr.add(r.start);
-                cond(
-                  Type.contains_rc_type(T) => {
-                    // For RC types, iterate and properly manage RC
-                    // The assignment dst.* = src.* will:
-                    // 1. Dup src.* (RC+1)
-                    // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
-                    // 3. Write to dst.*
-                    mut(i) := usize(0);
-                    while(i < elements_after, i = (i + usize(1)), {
-                      dst := dst_ptr.add(i);
-                      src := src_ptr.add(i);
-                      dst.* = src.*;
-                    });
-                    // Drop the non-overlapping tail stale pointers
-                    mut(j) := usize(0);
-                    tail_start := (r.start + elements_after);
-                    while(j < count, j = (j + usize(1)), {
-                      tail_ptr := _ptr.add(tail_start + j);
-                      drop_in_place(tail_ptr);
-                    });
-                  },
-                  true => {
-                    // For non-RC types, use fast memmove
-                    element_size := size_of(T);
-                    bytes_to_move := (elements_after * element_size);
-                    dst_void := (*void)(dst_ptr);
-                    src_void := (*void)(src_ptr);
-                    // SAFETY: dst_ptr and src_ptr both point into self._ptr's
-                    // contiguous element buffer. `elements_after = self._length - (r.start + count)`
-                    // counts elements still in-bounds after the drain range,
-                    // so `bytes_to_move = elements_after * sizeof(T)` stays within
-                    // the allocated buffer. memmove handles overlap.
-                    unsafe(memmove(dst_void, src_void, bytes_to_move));
-                  }
-                );
-              },
-              true => {
-                // No elements to shift, just drop the drained elements
-                cond(
-                  Type.contains_rc_type(T) => {
-                    mut(i) := usize(0);
-                    while(i < count, i = (i + usize(1)), {
-                      element_ptr := _ptr.add(r.start + i);
-                      drop_in_place(element_ptr);
-                    });
-                  },
-                  true => ()
-                );
-              }
-            );
+            // Shift the tail left over the gap — a bitwise move as well.
+            elements_after := ((self._length - r.start) - count);
+            if(elements_after > usize(0), {
+              // SAFETY: both ranges lie inside the list's buffer:
+              // `elements_after = self._length - (r.start + count)` elements
+              // start at `r.start + count`, and memmove handles the overlap.
+              unsafe(memmove((*void)(_ptr.add(r.start)), (*void)(_ptr.add(r.start + count)), elements_after * size_of(T)));
+            });
             // Update length
             self._length = (self._length - count);
             out
