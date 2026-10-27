@@ -64,18 +64,8 @@ register_dyn_upcast_targets :: (fn(context : &CodeGenContext) -> unit)({
   while(changed, {
     changed = false;
     keys := ArrayList(String).new();
-    kit := context.dyn_impls.keys();
-    (kdone : bool) = false;
-    while(!kdone, {
-      match(
-        kit.next(),
-        .Some(k) => {
-          keys.push(k);
-        },
-        .None => {
-          kdone = true;
-        }
-      );
+    for(&context.dyn_impls, (k, _v) => {
+      keys.push(k.clone());
     });
     (i : usize) = usize(0);
     while(i < keys.len(), {
@@ -114,18 +104,8 @@ fixup_dyn_impl_keys :: (fn(context : &CodeGenContext) -> unit)({
   new_map := HashMap(String, DynImplEntry).new();
   // Drain the current keys (Yo has no for-over-iterator).
   keys := ArrayList(String).new();
-  kit := context.dyn_impls.keys();
-  (kdone : bool) = false;
-  while(!kdone, {
-    match(
-      kit.next(),
-      .Some(k) => {
-        keys.push(k);
-      },
-      .None => {
-        kdone = true;
-      }
-    );
+  for(&context.dyn_impls, (k, _v) => {
+    keys.push(k.clone());
   });
   n := keys.len();
   (i : usize) = usize(0);

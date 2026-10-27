@@ -624,18 +624,12 @@ impl(
   /// True if any registered function already uses this C name (collision check
   /// for plain-name exports).
   has_function_with_c_name : (fn(self : &Self, c_name : &String) -> bool)({
-    vals := self.functions.values();
-    (found : bool) = false;
-    while(!found, {
-      match(
-        vals.next(),
-        .Some(entry) => if(entry.c_name == c_name, {
-          found = true;
-        }),
-        .None => return(found)
-      );
+    for(&self.functions, (_fid, entry) => {
+      if(entry.c_name == c_name, {
+        return(true);
+      });
     });
-    found
+    false
   }),
   /// Record an exported function's label → func_id mapping (stable C name).
   set_exported_function_label : (fn(self : &Self, func_id : &String, label : &String) -> unit)({
