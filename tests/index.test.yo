@@ -58,7 +58,7 @@ test("Test Index trait address-of", {
   assert(arr(usize(1)) == i32(999), "arr(1) should be 999 after mutation through pointer");
 });
 test("Test Index trait on ArrayList", {
-  (list : ArrayList(i32)) = ArrayList(i32).new();
+  (mut(list) : ArrayList(i32)) = ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
   list.push(i32(30));
@@ -68,7 +68,7 @@ test("Test Index trait on ArrayList", {
   assert(list(usize(2)) == i32(30), "list(2) should be 30");
 });
 test("Test Index trait address-of on ArrayList", {
-  (list : ArrayList(i32)) = ArrayList(i32).new();
+  (mut(list) : ArrayList(i32)) = ArrayList(i32).new();
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
@@ -233,7 +233,7 @@ test("String's Index reads a byte and has no IndexMut; byte_at / get_byte agree"
 test("Test Index on ArrayList(String) - RC dup on extract", {
   // Extracting a String from ArrayList via Index must dup the RC.
   // Without dup: drop(s) frees internal bytes, then drop(list) double-frees.
-  (list : ArrayList(String)) = ArrayList(String).new();
+  (mut(list) : ArrayList(String)) = ArrayList(String).new();
   list.push(`hello`);
   list.push(`world`);
   (s : String) = list(usize(0));
@@ -242,7 +242,7 @@ test("Test Index on ArrayList(String) - RC dup on extract", {
 });
 test("Test Index on ArrayList(String) - RC dup in loop", {
   // Loop extracting RC elements must dup each one correctly.
-  (list : ArrayList(String)) = ArrayList(String).new();
+  (mut(list) : ArrayList(String)) = ArrayList(String).new();
   list.push(`alpha`);
   list.push(`beta`);
   list.push(`gamma`);

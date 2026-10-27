@@ -133,7 +133,7 @@ test("std/log configuration and filtering are safe from several threads at once"
   // concurrently at level Off (nothing is written); it must neither crash nor
   // tear, and it ends in the state the last writer set. A canary rather than a
   // red-first witness: a data race has no deterministic observable natively.
-  threads := ArrayList(Thread(unit)).new();
+  mut(threads) := ArrayList(Thread(unit)).new();
   (mut(t) : i32) = i32(0);
   while(t < i32(4), t = (t + i32(1)), {
     threads.push(

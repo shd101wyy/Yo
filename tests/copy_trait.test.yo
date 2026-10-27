@@ -328,7 +328,7 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   assert(c.v == i32(7), "an impl(T, Copy()) type with derive(T, Clone)");
   pr := _CtPair(i32)(a : i32(1), b : i32(2));
   assert(pr.clone() == pr, "a generic Copy instance, through the where(T <: Copy) Eq impl");
-  xs := ArrayList(_CtPoint).new();
+  mut(xs) := ArrayList(_CtPoint).new();
   xs.push(p);
   ys := xs.clone();
   assert(match(ys.get(usize(0)), .Some(e) => (e == p), .None => false), "ArrayList.clone over a Copy element");

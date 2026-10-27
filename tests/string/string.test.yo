@@ -10,7 +10,7 @@ test("String.new creates empty string", {
   assert(s.len() == usize(0));
 });
 test("String.from_bytes creates string from byte array", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(72));
   bytes.push(u8(101));
   bytes.push(u8(108));
@@ -29,7 +29,7 @@ test("String.from creates string from str", {
 });
 // ===== ASCII String Tests =====
 test("String ASCII length", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(72));
   bytes.push(u8(101));
   bytes.push(u8(108));
@@ -39,7 +39,7 @@ test("String ASCII length", {
   assert(s.len() == usize(5));
 });
 test("String ASCII at() method", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   bytes.push(u8(66));
   bytes.push(u8(67));
@@ -55,7 +55,7 @@ test("String ASCII at() method", {
   assert(third.unwrap().to_u32() == u32(67));
 });
 test("String ASCII at() out of bounds", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   s := String.from_bytes(bytes);
   result := s.at(usize(5));
@@ -63,7 +63,7 @@ test("String ASCII at() out of bounds", {
 });
 // ===== UTF-8 2-byte Character Tests =====
 test("String UTF-8 2-byte character length", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xC2));
   bytes.push(u8(0xA9));
   s := String.from_bytes(bytes);
@@ -74,7 +74,7 @@ test("String UTF-8 2-byte character length", {
   assert(s.chars().count() == usize(1));
 });
 test("String UTF-8 2-byte character decode", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xC2));
   bytes.push(u8(0xA9));
   s := String.from_bytes(bytes);
@@ -83,7 +83,7 @@ test("String UTF-8 2-byte character decode", {
   assert(ch.unwrap().to_u32() == u32(0xA9));
 });
 test("String UTF-8 2-byte multiple characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xC3));
   bytes.push(u8(0xA9));
   bytes.push(u8(0xC3));
@@ -109,7 +109,7 @@ test("String UTF-8 2-byte multiple characters", {
 });
 // ===== UTF-8 3-byte Character Tests =====
 test("String UTF-8 3-byte character length", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xE4));
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
@@ -119,7 +119,7 @@ test("String UTF-8 3-byte character length", {
   assert(s.chars().count() == usize(1));
 });
 test("String UTF-8 3-byte character decode", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xE4));
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
@@ -129,7 +129,7 @@ test("String UTF-8 3-byte character decode", {
   assert(ch.unwrap().to_u32() == u32(0x4E2D));
 });
 test("String UTF-8 3-byte multiple characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xE4));
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
@@ -149,7 +149,7 @@ test("String UTF-8 3-byte multiple characters", {
 });
 // ===== UTF-8 4-byte Character Tests =====
 test("String UTF-8 4-byte character length", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xF0));
   bytes.push(u8(0x9F));
   bytes.push(u8(0x98));
@@ -160,7 +160,7 @@ test("String UTF-8 4-byte character length", {
   assert(s.chars().count() == usize(1));
 });
 test("String UTF-8 4-byte character decode", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xF0));
   bytes.push(u8(0x9F));
   bytes.push(u8(0x98));
@@ -171,7 +171,7 @@ test("String UTF-8 4-byte character decode", {
   assert(ch.unwrap().to_u32() == u32(0x1F600));
 });
 test("String UTF-8 4-byte multiple characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xF0));
   bytes.push(u8(0x9F));
   bytes.push(u8(0x98));
@@ -193,7 +193,7 @@ test("String UTF-8 4-byte multiple characters", {
 });
 // ===== Mixed UTF-8 Tests =====
 test("String mixed ASCII and UTF-8", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(72));
   bytes.push(u8(101));
   bytes.push(u8(0xE4));
@@ -216,7 +216,7 @@ test("String mixed ASCII and UTF-8", {
   assert(fourth.unwrap().to_u32() == u32(0x6587));
 });
 test("String mixed 1,2,3,4 byte characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   bytes.push(u8(0xC2));
   bytes.push(u8(0xA9));
@@ -242,10 +242,10 @@ test("String mixed 1,2,3,4 byte characters", {
 });
 // ===== Concat Tests =====
 test("String concat two ASCII strings", {
-  bytes1 := ArrayList(u8).new();
+  mut(bytes1) := ArrayList(u8).new();
   bytes1.push(u8(72));
   bytes1.push(u8(101));
-  bytes2 := ArrayList(u8).new();
+  mut(bytes2) := ArrayList(u8).new();
   bytes2.push(u8(108));
   bytes2.push(u8(111));
   str1 := String.from_bytes(bytes1);
@@ -259,7 +259,7 @@ test("String concat two ASCII strings", {
 });
 test("String concat empty with non-empty", {
   empty := String.new();
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   bytes.push(u8(66));
   s := String.from_bytes(bytes);
@@ -267,7 +267,7 @@ test("String concat empty with non-empty", {
   assert(result.len() == usize(2));
 });
 test("String concat non-empty with empty", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   bytes.push(u8(66));
   s := String.from_bytes(bytes);
@@ -282,11 +282,11 @@ test("String concat two empty strings", {
   assert(result.is_empty());
 });
 test("String concat UTF-8 strings", {
-  bytes1 := ArrayList(u8).new();
+  mut(bytes1) := ArrayList(u8).new();
   bytes1.push(u8(0xE4));
   bytes1.push(u8(0xB8));
   bytes1.push(u8(0xAD));
-  bytes2 := ArrayList(u8).new();
+  mut(bytes2) := ArrayList(u8).new();
   bytes2.push(u8(0xE6));
   bytes2.push(u8(0x96));
   bytes2.push(u8(0x87));
@@ -300,9 +300,9 @@ test("String concat UTF-8 strings", {
   assert(result.at(usize(3)).unwrap().to_u32() == u32(0x6587));
 });
 test("String concat preserves original strings", {
-  bytes1 := ArrayList(u8).new();
+  mut(bytes1) := ArrayList(u8).new();
   bytes1.push(u8(65));
-  bytes2 := ArrayList(u8).new();
+  mut(bytes2) := ArrayList(u8).new();
   bytes2.push(u8(66));
   str1 := String.from_bytes(bytes1);
   str2 := String.from_bytes(bytes2);
@@ -317,14 +317,14 @@ test("String is_empty on empty string", {
   assert(s.is_empty());
 });
 test("String is_empty on non-empty string", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   s := String.from_bytes(bytes);
   assert(not(s.is_empty()));
 });
 // ===== as_bytes Tests =====
 test("String as_bytes returns byte array", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(72));
   bytes.push(u8(101));
   s := String.from_bytes(bytes);
@@ -340,7 +340,7 @@ test("String as_bytes on empty string", {
 });
 // ===== Edge Cases =====
 test("String at() on single character", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   s := String.from_bytes(bytes);
   ch := s.at(usize(0));
@@ -350,7 +350,7 @@ test("String at() on single character", {
   assert(invalid.is_none());
 });
 test("String len counts bytes while chars().count() only counts rune starts", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xE4));
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
@@ -366,11 +366,11 @@ test("String len counts bytes while chars().count() only counts rune starts", {
   assert(s.chars().count() == usize(2));
 });
 test("String multiple concat operations", {
-  bytes1 := ArrayList(u8).new();
+  mut(bytes1) := ArrayList(u8).new();
   bytes1.push(u8(65));
-  bytes2 := ArrayList(u8).new();
+  mut(bytes2) := ArrayList(u8).new();
   bytes2.push(u8(66));
-  bytes3 := ArrayList(u8).new();
+  mut(bytes3) := ArrayList(u8).new();
   bytes3.push(u8(67));
   str1 := String.from_bytes(bytes1);
   str2 := String.from_bytes(bytes2);
@@ -382,7 +382,7 @@ test("String multiple concat operations", {
   assert(result.at(usize(2)).unwrap().to_u32() == u32(67));
 });
 test("String at() sequential access", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   bytes.push(u8(66));
   bytes.push(u8(67));
@@ -399,7 +399,7 @@ test("String at() sequential access", {
 });
 // ===== UTF-8 Validation Edge Cases =====
 test("String UTF-8 null byte in middle", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   bytes.push(u8(0));
   bytes.push(u8(66));
@@ -413,7 +413,7 @@ test("String UTF-8 null byte in middle", {
   assert(third.unwrap().to_u32() == u32(66));
 });
 test("String UTF-8 all ASCII control characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0));
   bytes.push(u8(9));
   bytes.push(u8(10));
@@ -500,7 +500,7 @@ test("String.from with emoji literal", {
 });
 // ===== Large String Tests =====
 test("String with many ASCII characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   mut(i) := usize(0);
   while(i < usize(100), i = (i + usize(1)), {
     bytes.push(u8(65));
@@ -520,7 +520,7 @@ test("String concat multiple times", {
 });
 // ===== String Byte Array Tests =====
 test("String as_bytes preserves UTF-8 encoding", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xE4));
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
@@ -532,7 +532,7 @@ test("String as_bytes preserves UTF-8 encoding", {
   assert(result.byte_at(usize(2)) == u8(0xAD));
 });
 test("String as_bytes returns copy not reference", {
-  original_bytes := ArrayList(u8).new();
+  mut(original_bytes) := ArrayList(u8).new();
   original_bytes.push(u8(65));
   original_bytes.push(u8(66));
   s := String.from_bytes(original_bytes);
@@ -541,7 +541,7 @@ test("String as_bytes returns copy not reference", {
 });
 // ===== Additional UTF-8 Character Tests =====
 test("String Greek characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xCE));
   bytes.push(u8(0xB1));
   bytes.push(u8(0xCE));
@@ -560,7 +560,7 @@ test("String Greek characters", {
   assert(gamma.unwrap().to_u32() == u32(0x3B3));
 });
 test("String Cyrillic characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xD0));
   bytes.push(u8(0x9F));
   bytes.push(u8(0xD1));
@@ -579,7 +579,7 @@ test("String Cyrillic characters", {
   assert(i.unwrap().to_u32() == u32(0x438));
 });
 test("String Arabic characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xD8));
   bytes.push(u8(0xA7));
   bytes.push(u8(0xD9));
@@ -594,7 +594,7 @@ test("String Arabic characters", {
   assert(lam.unwrap().to_u32() == u32(0x644));
 });
 test("String Hebrew characters", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xD7));
   bytes.push(u8(0xA9));
   bytes.push(u8(0xD7));
@@ -609,7 +609,7 @@ test("String Hebrew characters", {
   assert(lamed.unwrap().to_u32() == u32(0x5DC));
 });
 test("String Japanese Hiragana", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xE3));
   bytes.push(u8(0x81));
   bytes.push(u8(0x82));
@@ -626,7 +626,7 @@ test("String Japanese Hiragana", {
   assert(i.unwrap().to_u32() == u32(0x3044));
 });
 test("String Korean Hangul", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xED));
   bytes.push(u8(0x95));
   bytes.push(u8(0x9C));
@@ -644,7 +644,7 @@ test("String Korean Hangul", {
 });
 // ===== More Emoji Tests =====
 test("String various emojis", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0xF0));
   bytes.push(u8(0x9F));
   bytes.push(u8(0x98));
@@ -670,7 +670,7 @@ test("String various emojis", {
 });
 // ===== Whitespace and Special Character Tests =====
 test("String various whitespace", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(32));
   bytes.push(u8(9));
   bytes.push(u8(10));
@@ -867,7 +867,7 @@ test("String + and == operators combined", {
 });
 // ===== Performance and Stress Tests =====
 test("String with_capacity and repeated push", {
-  bytes := ArrayList(u8).with_capacity(usize(50));
+  mut(bytes) := ArrayList(u8).with_capacity(usize(50));
   mut(i) := usize(0);
   while(i < usize(50), i = (i + usize(1)), {
     bytes.push(u8((i % usize(26)) + usize(65)));
@@ -877,7 +877,7 @@ test("String with_capacity and repeated push", {
   assert(not(s.is_empty()));
 });
 test("String alternating ASCII and UTF-8", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(65));
   bytes.push(u8(0xE4));
   bytes.push(u8(0xB8));
@@ -1823,7 +1823,7 @@ test("String chars - multi-byte UTF-8 yields correct runes", {
   // "你好" - two 3-byte CJK characters
   s := `你好`;
   mut(count) := usize(0);
-  runes := ArrayList(u32).new();
+  mut(runes) := ArrayList(u32).new();
   for(s.chars(), ch => {
     runes.push(ch.to_u32());
     count = (count + usize(1));
@@ -1836,7 +1836,7 @@ test("String chars - 4-byte emoji characters", {
   // "😀😎" - two 4-byte emoji
   s := `😀😎`;
   mut(count) := usize(0);
-  runes := ArrayList(u32).new();
+  mut(runes) := ArrayList(u32).new();
   for(s.chars(), ch => {
     runes.push(ch.to_u32());
     count = (count + usize(1));
@@ -1867,7 +1867,7 @@ test("String bytes - empty string yields nothing", {
 test("String bytes - ASCII string yields raw bytes", {
   s := `ABC`;
   mut(count) := usize(0);
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   for(s.bytes(), b => {
     bytes.push(b);
     count = (count + usize(1));
@@ -1881,7 +1881,7 @@ test("String bytes - UTF-8 string yields all bytes", {
   // "你" is 3 bytes in UTF-8: 0xE4, 0xBD, 0xA0
   s := `你`;
   mut(count) := usize(0);
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   for(s.bytes(), b => {
     bytes.push(b);
     count = (count + usize(1));
