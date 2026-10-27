@@ -1,0 +1,123 @@
+//! `Rc(T).new`, `Box(T).new` and `Arc(T).new`, the handle constructors
+//! (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A2), and the cell `dyn(...)`
+//! synthesizes through them (A3). The prelude's `rc`/`box`/`arc` forward to
+//! these until Generation B; tests/rc.test.yo and tests/arc.test.yo pin those
+//! spellings.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ToString } :: import("std/fmt");
+{ GlobalAllocator } :: import("std/allocator");
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`).
+_Counts :: struct(live : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  cond(
+    ptr.is_none() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
+test("Rc(T).new builds a cell with one owner", {
+  a := Rc(i32).new(i32(42));
+  assert(a.* == i32(42), "the payload");
+  assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+  comptime_assert(Type.eq(type_of(a), Rc(i32)), "the result is an Rc(i32)");
+});
+test("Rc(T).new with alloc places the cell in the allocator and restores the scope", {
+  counts := _Counts(live : usize(0));
+  heap := _counting(addr_of(counts));
+  {
+    a := Rc(i32).new(i32(5), alloc : .Some(heap));
+    assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
+    // The construction's scope ends with it: a cell built after it is on the
+    // global allocator again.
+    g := Rc(i32)(i32(6));
+    d := Rc(i32).new(i32(7));
+    assert(counts.live == usize(1), "the cells after it are on the global allocator");
+    assert(((a.* + g.*) + d.*) == i32(18), "the payloads");
+  };
+  assert(counts.live == usize(0), "the last drop released the cell into the allocator");
+});
+test("Box(T).new with alloc places the cell, and a clone stays where its source lives", {
+  counts := _Counts(live : usize(0));
+  heap := _counting(addr_of(counts));
+  {
+    a := Box(i32).new(i32(7), alloc : .Some(heap));
+    assert(counts.live == usize(1), "the cell is in the allocator");
+    match(Box.allocator(a), .Some(o) => assert(o.same(heap), "Box.allocator reads it back"), .None => assert(false, "placed"));
+    c := Box.clone(a);
+    assert(counts.live == usize(2), "the clone is in the allocator too");
+    g := Box(i32).new(i32(1));
+    assert(Box.allocator(g).is_none(), "a default box is on the global allocator");
+    assert(((a.* + c.*) + g.*) == i32(15), "the payloads");
+  };
+  assert(counts.live == usize(0), "every placed box went back to the allocator");
+});
+test("Arc(T).new with alloc places the cell in the allocator and restores the scope", {
+  counts := _Counts(live : usize(0));
+  heap := _counting(addr_of(counts));
+  {
+    a := Arc(i32).new(i32(5), alloc : .Some(heap));
+    assert(counts.live == usize(1), "the cell is in the allocator");
+    assert(ref_count(a) == usize(1), "one handle");
+    g := Arc(i32).new(i32(6));
+    assert(counts.live == usize(1), "a default Arc is on the global allocator");
+    assert((a.* + g.*) == i32(11), "the payloads");
+  };
+  assert(counts.live == usize(0), "the last drop released the cell into the allocator");
+});
+test("rc, box and arc forward to the constructors", {
+  comptime_assert(Type.eq(type_of(rc(i32(1))), Rc(i32)), "rc builds an Rc");
+  comptime_assert(Type.eq(type_of(box(i32(1))), Box(i32)), "box builds a Box");
+  comptime_assert(Type.eq(type_of(arc(i32(1))), Arc(i32)), "arc builds an Arc");
+  counts := _Counts(live : usize(0));
+  heap := _counting(addr_of(counts));
+  {
+    a := rc(i32(1), alloc : .Some(heap));
+    b := box(i32(2), alloc : .Some(heap));
+    c := arc(i32(3), alloc : .Some(heap));
+    assert(counts.live == usize(3), "the alloc argument reaches the constructor");
+    assert(((a.* + b.*) + c.*) == i32(6), "the payloads");
+  };
+  assert(counts.live == usize(0), "every cell went back");
+});
+// `dyn(...)` around a payload that is not an object builds its cell through
+// the type's `new`: `Rc(T).new(v)`, or `Arc(T).new(v)` for a Send Dyn.
+test("dyn(i32(1)) boxes through Rc(i32).new", {
+  (d : Dyn(ToString)) = dyn(i32(1));
+  assert(d.to_string() == `1`, "the boxed payload");
+  (s : Dyn(ToString, Send)) = dyn(i32(2));
+  assert(s.to_string() == `2`, "the Send payload, boxed through Arc(i32).new");
+});
+_Detector :: struct(detect : Dyn(Fn(x : i32) -> i32));
+test("dyn(Rc.new(<closure>)) contextually types the closure, as dyn(rc(<closure>)) does", {
+  base := i32(10);
+  a := _Detector(detect : dyn(Rc.new(x => (x + base))));
+  b := _Detector(detect : dyn(rc(x => (x * base))));
+  c := _Detector(detect : dyn(Rc(Impl(Fn(x : i32) -> i32)).new(x => (x - base))));
+  assert(a.detect(i32(1)) == i32(11), "Rc.new: the closure's x is an i32");
+  assert(b.detect(i32(2)) == i32(20), "rc: unchanged");
+  assert(c.detect(i32(15)) == i32(5), "Rc(T).new: typed by T");
+});
