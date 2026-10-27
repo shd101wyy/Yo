@@ -564,3 +564,86 @@ test("FnOnce: a method call's result as an operand lends nothing of the receiver
   };
   assert(g_once_disposed == (before + i32(1)), "the holder's capture released once");
 });
+
+// --- a generic FnOnce sink parameter callable inside its own callee -----------
+// A generic callee's specialized body re-binds its closure parameter
+// non-owning; the one `FnOnce` call inside the body needs an owning binding
+// (decision 37), or it is a false E0901 "it is a borrowed parameter"
+// (issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md).
+_gen_run_once :: (fn(generic(R : Type), pre : String, sink(body) : Impl(FnOnce() -> R)) -> R)(
+  body()
+);
+_GenCell :: struct(s : String);
+impl(
+  _GenCell,
+  with_put : (fn(generic(R : Type), self : &mut Self, sink(body) : Impl(FnOnce(v : &mut String) -> R)) -> R)(
+    body(&mut self.s)
+  )
+);
+test("FnOnce: a generic FnOnce sink parameter is callable inside its own callee", {
+  s := String.from("ab");
+  assert(_gen_run_once(s.clone(), () => s.len()) == usize(2), "a plain-data closure literal is called once");
+  mut(c) := _GenCell(s : String.from("x"));
+  assert(
+    c.with_put(v => {
+      v.push_str("!");
+      v.len()
+    }) == usize(2),
+    "an impl method calls its sink parameter"
+  );
+  assert(c.s == String.from("x!"), "the body ran on the cell's field");
+});
+
+// --- an FnOnce closure literal at an impl-method call -------------------------
+// A generic method's closure-literal argument is deferred and typed as a bare
+// `fn(...)`; it moves into the by-value parameter as its capture struct, so
+// the caller does not release the captures the callee's call already did
+// (issues/fixed/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md).
+_OnceRunner :: struct(tag : String);
+impl(
+  _OnceRunner,
+  run_once : (fn(generic(R : Type), self : &Self, body : Impl(FnOnce() -> R)) -> R)(
+    body()
+  ),
+  run_sink : (fn(generic(R : Type), self : &Self, sink(body) : Impl(FnOnce() -> R)) -> R)(
+    body()
+  ),
+  skip_sink : (fn(generic(R : Type), self : &Self, sink(body) : Impl(FnOnce() -> R)) -> i32)(
+    i32(0)
+  )
+);
+test("FnOnce: a closure literal at an impl-method call releases its captures once", {
+  before := g_once_disposed;
+  r := _OnceRunner(tag : String.from("r"));
+  s2 := String.from("xy");
+  assert(r.run_once(() => s2.len()) == usize(2), "an implicit RC capture, by-value parameter");
+  assert(r.run_sink(() => s2.len()) == usize(2), "an implicit RC capture, sink parameter");
+  assert(s2 == String.from("xy"), "the caller's String is intact");
+  t := _OnceTok(n : i32(3));
+  assert(r.run_once({ t }() => _once_take(t)) == i32(3), "a capture-list move, by-value parameter");
+  assert(g_once_disposed == (before + i32(1)), "the moved capture disposed once, by _once_take");
+  u := _OnceTok(n : i32(4));
+  assert(r.run_sink({ u }() => u.n) == i32(4), "a capture-list read, sink parameter");
+  assert(g_once_disposed == (before + i32(2)), "the call's end disposed the unmoved capture once");
+  w := _OnceTok(n : i32(5));
+  assert(r.skip_sink({ w }() => w.n) == i32(0), "never called");
+  assert(g_once_disposed == (before + i32(3)), "the callee's owning parameter disposed it once");
+});
+_OnceCell :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(
+  generic(T : Type),
+  _OnceCell(T),
+  with_mut : (fn(generic(R : Type), self : &mut Self, sink(body) : Impl(FnOnce(v : &mut T) -> R)) -> R)(
+    body(&mut self.v)
+  )
+);
+test("FnOnce: a generic container's FnOnce sink method takes a capture-list move once", {
+  mut(c) := _OnceCell(ArrayList(String))(v : ArrayList(String).new());
+  s := String.from("k");
+  c.with_mut({ s }(xs) => xs.push(s));
+  t := String.from("t");
+  c.with_mut(xs => xs.push(t.clone()));
+  assert(c.v.len() == usize(2), "both bodies ran");
+  assert(c.v(usize(0)) == String.from("k"), "the moved capture landed in the list");
+  assert(t == String.from("t"), "the implicit capture is intact");
+});

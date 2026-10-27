@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -1129,6 +1129,40 @@ _is_callable_value_type :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// The type that decides who owns a closure-literal argument of a by-value
+/// `Impl(Fn(...))` parameter, when the argument's own type does not.
+///
+/// A parameter whose type mentions the function's type parameter defers its
+/// closure-literal argument (`fn_literal_arg_is_deferred`), which is then
+/// typed as a bare `fn(...)` with its capture struct on the side
+/// (`expr_info_capture_type`). A `fn(...)` type is bitwise-copyable, so the
+/// caller kept and released the closure while the callee's by-value
+/// parameter was bound non-owning: a move-only closure could not be moved on
+/// inside the callee (E0901). Every other closure argument is typed by its
+/// `Impl(Fn)` wrapper resolved to the capture struct, which is not
+/// bitwise-copyable, so the callee owns it
+/// (issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md).
+///
+/// Both argument loops judge the argument by it: the inline FuncVal arm
+/// (calls/function.yo) and `check_if_function_parameter_matches_argument`,
+/// which a METHOD call's arguments go through. Without the second, an
+/// `FnOnce` closure literal at a generic impl-method call stayed with the
+/// caller (released at its scope end) while the callee's owning parameter
+/// released it again
+/// (issues/fixed/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md).
+///
+/// Returns that capture struct when it carries something to own (it is not
+/// bitwise-copyable), `.None` when the argument's own type decides.
+closure_argument_owned_type :: (fn(arg_info : &ExprInfo, decl_pt : &TypeValue, by_value : bool) -> Option(TypeValue))({
+  if(!by_value || !is_function_type(&arg_info.ty) || extract_fn_trait_from_type(decl_pt).is_none(), {
+    return(Option(TypeValue).None);
+  });
+  match(
+    expr_info_capture_type(arg_info),
+    .Some(cap) => if(type_is_bitwise_copy(cap.clone()), Option(TypeValue).None, Option(TypeValue).Some(cap)),
+    .None => Option(TypeValue).None
+  )
+});
 /// Mark the dups a by-value parameter's share just put on `arg` so the
 /// dup/drop pair optimizer never cancels them against the caller's
 /// scope-end drop (that "move" would let the callee free a value the caller
@@ -1584,7 +1618,23 @@ check_if_function_parameter_matches_argument :: (
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
+  // A deferred closure literal of a by-value `Impl(Fn...)` parameter is
+  // judged by its capture struct, not by the bitwise `fn(...)` type it was
+  // given (`closure_argument_owned_type`): it moves into the parameter, and
+  // Step 9 binds the parameter at that struct, owning. The type is swapped
+  // for the transfer only; synthesis and the compatibility check below read
+  // the `fn(...)` type.
+  owned_cap_ty := closure_argument_owned_type(&arg_info, &resolved_pt, param_is_owning && !is_ct_only && !param_is_ref);
+  arg_ty_as_written := arg_info.ty;
+  match(
+    owned_cap_ty,
+    .Some(oct) => {
+      arg_info.ty = oct;
+    },
+    .None => ()
+  );
   s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot);
+  arg_info.ty = arg_ty_as_written;
   s0_drop_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(sh.0), .None => Option(AstExpr).None);
   s0_marked_arg_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(sh.1), .None => Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
@@ -1802,6 +1852,15 @@ ${ast_expr_to_string(&actual_arg)}`
   // own(value) : V) -> Rc(V))(Rc(V)(value))`), so every boxed value and
   // every `AnyError` payload leaked
   // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
+  // The caller moved a deferred closure literal in as its capture struct
+  // (Step 4 above): the callee owns it, so the parameter binds at that type.
+  match(
+    owned_cap_ty,
+    .Some(bind_cap_ty) => {
+      bind_pt = bind_cap_ty;
+    },
+    .None => ()
+  );
   bound_param_opt := bind_parameter(&callee_env_r, param_label, &bind_pt, &arg_value, is_ct_only, param_is_ref, param_is_owning, &param_tok, param_is_ptr_borrow);
   bound_param_opt;
   CheckParamResult(
@@ -4236,6 +4295,37 @@ create_specialized_function_inline :: (
                 }),
                 .None => ()
               );
+              // A closure parameter typed `FnOnce(...)` gets an OWNING twin
+              // beside the non-owning shadow (bound after it, so lookups
+              // still win as the shadow): the body's single call consumes it
+              // (decision 37), and both `consume_called_fnonce_closure` and
+              // a relay's capture move (`_owning_param_binding_for_capture_move`,
+              // `RefCell.with_mut`'s `{ body }` relay) need an owning binding
+              // in this frame — without one the call was a false E0901 "it
+              // is a borrowed parameter"
+              // (issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md).
+              // The call marks the twin consumed, so the parameters-frame
+              // scope-end pass skips its release; one the body never calls
+              // releases exactly as a concrete (non-generic) sink parameter
+              // drops at definition time (fn_once.test.yo's `_ignore_once`).
+              fnonce_closure_param := match(
+                extract_fn_trait_from_type(&bind_pt_cl),
+                .Some(Rc(.FnTraitT(base_name : rcb))) => (rcb == "FnOnce"),
+                _ => false
+              );
+              if(fnonce_closure_param && _owning_param_binding_for_capture_move(callee_env, &p_label).is_none(), {
+                _twin := bind_parameter(
+                  callee_env,
+                  &p_label,
+                  bind_pt_cl.clone(),
+                  Option(EvalValue).Some(create_unknown_val(&bind_pt_cl)),
+                  false,
+                  false,
+                  true,
+                  synthetic_token(&p_label, &callee_env.module_path.*)
+                );
+                _twin;
+              });
               _rbc := bind_parameter(
                 callee_env,
                 &p_label,
@@ -9546,6 +9636,7 @@ try_to_call_function_with_arguments :: (
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
+export(closure_argument_owned_type);
 export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
