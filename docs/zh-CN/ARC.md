@@ -153,7 +153,7 @@ a.with_lock(v => {
 });
 ```
 
-在丢弃最后一个能到达环的句柄之前，清除一条回边（在锁内执行 `v.peer = .None`）即可打破环。使用 `--allocator fixed --debug-heap` 编译可以看到泄漏的环：退出报告会统计仍然存活的块（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md#调试泄漏报告)）。
+在丢弃最后一个能到达环的句柄之前，清除一条回边（在锁内执行 `v.peer = .None`）即可打破环；或者让回边成为 `ArcWeak`（`peer : ArcWeak(Mutex(Self))`，用 `Arc.downgrade(&b)` 填入）：它不让载荷保持存活，单元会随最后一个 `Arc` 一起释放（[WEAK.md](./WEAK.md#arcweakt线程安全的形式)）。使用 `--allocator fixed --debug-heap` 编译可以看到泄漏的环：退出报告会统计仍然存活的块（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md#调试泄漏报告)）。
 
 ## 相关文档
 

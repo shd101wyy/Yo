@@ -55,6 +55,10 @@ test("a non-atomic cell is neither Send nor Sync", {
 test("atomic cells are Send and Sync", {
   comptime_assert(Type.impls(Arc(i32), Send), "Arc(i32) is Send");
   comptime_assert(Type.impls(Arc(i32), Sync), "Arc(i32) is Sync");
+  // An `ArcWeak`'s counts are atomic and an `Arc` payload is `Send` and
+  // `Sync` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.5).
+  comptime_assert(Type.impls(ArcWeak(i32), Send), "ArcWeak(i32) is Send");
+  comptime_assert(Type.impls(ArcWeak(i32), Sync), "ArcWeak(i32) is Sync");
   comptime_assert(Type.impls(AtomicI32, Sync), "AtomicI32 is Sync");
   comptime_assert(Type.impls(Mutex(i32), Sync), "Mutex(i32) is Sync");
   comptime_assert(Type.impls(Channel(i32), Send), "Channel(i32) is Send");

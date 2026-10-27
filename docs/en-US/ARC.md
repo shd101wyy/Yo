@@ -182,7 +182,9 @@ a.with_lock(v => {
 ```
 
 Break the cycle by clearing a back edge (`v.peer = .None` under the lock) before the last handle
-that reaches it is dropped. Compile with `--allocator fixed --debug-heap` to see a leaked cycle:
+that reaches it is dropped, or make the back edge an `ArcWeak` (`peer : ArcWeak(Mutex(Self))`,
+filled with `Arc.downgrade(&b)`): it does not keep the payload alive, so the cell is freed with its
+last `Arc` ([WEAK.md](./WEAK.md#arcweakt-the-thread-safe-form)). Compile with `--allocator fixed --debug-heap` to see a leaked cycle:
 the exit report counts the blocks still live
 ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md#debugging-the-leak-report)).
 

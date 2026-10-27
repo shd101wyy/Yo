@@ -3936,8 +3936,8 @@ export(main);
 `Arc(T)` 要求 `T <: (Send, Sync)`：要求 `Sync`，是因为每个句柄都在自己的线程上读取载荷；
 要求 `Send`，是因为最后一个句柄可能在任意线程上被释放（载荷也在那里被销毁）。因此它只包装可安全
 跨线程共享的值，在该约束下 `Arc(T)` 自身也是 `Send` 和 `Sync`。与 Rust 一样，载荷不必是
-`Acyclic`：原子引用计数不参与循环回收，所以 `Arc` 句柄形成的环除非先清除一条回边，否则会泄漏
-（[ARC.md](./ARC.md#环)）。
+`Acyclic`：原子引用计数不参与循环回收，所以 `Arc` 句柄形成的环除非先清除一条回边或让回边成为 `ArcWeak`（`Arc.downgrade(&h)`，
+[WEAK.md](./WEAK.md#arcweakt线程安全的形式)），否则会泄漏（[ARC.md](./ARC.md#环)）。
 当你想共享单个值时使用 `Arc(T)`；当你想定义自己的共享类型时使用
 `atomic(ref(struct(...)))`。
 

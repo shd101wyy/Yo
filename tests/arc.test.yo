@@ -231,3 +231,84 @@ test("Arc.make_mut clones a shared payload and writes a unique one in place", {
   Arc.make_mut(&mut a).b = i32(20);
   assert((a.b == i32(20)) && (b.b == i32(2)), "a was unique: written in place");
 });
+// --- ArcWeak (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3, W4): the W3 rows
+// across a thread ---
+(mut(g_arc_weak_dropped) : i32) = i32(0);
+_ArcWeakProbe :: struct(n : i32);
+impl(
+  _ArcWeakProbe,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_arc_weak_dropped = (g_arc_weak_dropped + i32(1));
+    })
+  )
+);
+test("ArcWeak.upgrade on another thread is .Some while an Arc is alive, .None after", {
+  a := arc(i32(7));
+  w := Arc.downgrade(&a);
+  w2 := ArcWeak.clone(&w);
+  assert(w.weak_count() == usize(2), "two weak handles");
+  t := Thread(unit).spawn({ w2 }(io) => {
+    n := match(w2.upgrade(), .Some(h) => h.*, .None => i32(0));
+    assert(n == i32(7), "the worker upgrades while a is alive");
+  });
+  t.join();
+  assert(ref_count(a) == usize(1), "the worker's upgraded handle was dropped");
+  assert(w.weak_count() == usize(1), "the worker's ArcWeak was dropped with its closure");
+  consume(a);
+  assert(w.upgrade().is_none(), "the last Arc is gone");
+  assert(w.strong_count() == usize(0), "no strong handle");
+  e := ArcWeak(i32).new();
+  assert(e.upgrade().is_none() && e.ptr_eq(&(ArcWeak(i32) <: Default).default()), "a dangling ArcWeak");
+});
+test("the last Arc dropped on another thread leaves the cell to the last ArcWeak", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  before := g_arc_weak_dropped;
+  w := {
+    a := arc(_ArcWeakProbe(n : i32(1)), alloc : .Some(heap));
+    w0 := Arc.downgrade(&a);
+    t := Thread(unit).spawn({ a }(io) => {
+      assert(a.n == i32(1), "the worker holds the last Arc");
+    });
+    consume(a);
+    t.join();
+    w0
+  };
+  assert(g_arc_weak_dropped == (before + i32(1)), "the worker's drop dropped the payload");
+  assert(counts.live == usize(1), "an ArcWeak keeps the cell's bytes");
+  assert(w.upgrade().is_none(), "the payload is gone");
+  consume(w);
+  assert(counts.live == usize(0), "the last ArcWeak freed the cell");
+});
+test("ArcWeak handles upgraded and dropped on several threads while the last Arc goes", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  before := g_arc_weak_dropped;
+  {
+    a := arc(_ArcWeakProbe(n : i32(3)), alloc : .Some(heap));
+    w1 := Arc.downgrade(&a);
+    w2 := Arc.downgrade(&a);
+    t1 := Thread(unit).spawn({ w1 }(io) => {
+      (mut(i) : i32) = i32(0);
+      while(i < i32(2000), {
+        match(w1.upgrade(), .Some(h) => assert(h.n == i32(3), "an upgraded handle reads the payload"), .None => ());
+        c := ArcWeak.clone(&w1);
+        consume(c);
+        i = (i + i32(1));
+      });
+    });
+    t2 := Thread(unit).spawn({ w2 }(io) => {
+      (mut(i) : i32) = i32(0);
+      while(i < i32(2000), {
+        match(w2.upgrade(), .Some(h) => assert(h.n == i32(3), "an upgraded handle reads the payload"), .None => ());
+        i = (i + i32(1));
+      });
+    });
+    consume(a);
+    t1.join();
+    t2.join();
+  };
+  assert(g_arc_weak_dropped == (before + i32(1)), "the payload was dropped once");
+  assert(counts.live == usize(0), "the cell was freed once, by whichever handle went last");
+});
