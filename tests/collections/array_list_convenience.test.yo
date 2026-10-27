@@ -229,12 +229,13 @@ test("sort and sort_by handle RC (String) elements", {
 test("retain over twenty thousand elements is one pass and leaves refcounts balanced", {
   // issues/fixed/array-list-retain-is-quadratic.md: the previous shape called
   // drain(i .. i + 1) per rejection — O(n²) and an allocation each. The
-  // survivors share ONE RC value so its refcount is the leak / double-drop
+  // survivors share ONE `Rc` so its refcount is the leak / double-drop
   // witness: every kept slot holds a reference, every dropped slot released
-  // one, and clear() takes it back to the baseline.
-  shared := `keep-shared`.to_string();
+  // one, and the final reject-all takes it back to the baseline. (A `String`
+  // is a value since B8, so the witness is an `Rc(String)`.)
+  shared := rc(`keep-shared`.to_string());
   base := ref_count(shared);
-  mut(list) := ArrayList(String).new();
+  mut(list) := ArrayList(Rc(String)).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(20000), i = (i + i32(1)), {
     cond(
@@ -242,15 +243,15 @@ test("retain over twenty thousand elements is one pass and leaves refcounts bala
         list.push(shared);
       },
       true => {
-        list.push(`drop-${i}`.to_string());
+        list.push(rc(`drop-${i}`.to_string()));
       }
     );
   });
   with_all := ref_count(shared);
   list.retain(v => v.starts_with(`keep`));
   assert(list.len() == usize(5000), "one in four kept");
-  assert(list(usize(0)) == `keep-shared`, "head kept");
-  assert(list(usize(4999)) == `keep-shared`, "tail kept");
+  assert(list(usize(0)).starts_with(`keep-shared`), "head kept");
+  assert(list(usize(4999)).starts_with(`keep-shared`), "tail kept");
   assert(ref_count(shared) == with_all, "every surviving slot still holds exactly one reference");
   list.retain(v => false);
   assert(list.len() == usize(0), "reject everything");
@@ -263,7 +264,7 @@ test("retain over twenty thousand elements is one pass and leaves refcounts bala
 _SortRec :: struct(key : i32, tag : i32);
 derive(_SortRec, Copy, Clone);
 test("sort_by is stable: equal keys keep their input order", {
-  xs := ArrayList(_SortRec).new();
+  mut(xs) := ArrayList(_SortRec).new();
   mut(i) := i32(0);
   while(i < i32(8), {
     xs.push(_SortRec(key : (i % i32(2)), tag : i));
@@ -271,7 +272,7 @@ test("sort_by is stable: equal keys keep their input order", {
   });
   xs.sort_by((a, b) => (a.key < b.key));
   // Keys ascending, and within each key the tags stay in insertion order.
-  expect_tags := ArrayList(i32).new();
+  mut(expect_tags) := ArrayList(i32).new();
   expect_tags.push(i32(0));
   expect_tags.push(i32(2));
   expect_tags.push(i32(4));
@@ -287,7 +288,7 @@ test("sort_by is stable: equal keys keep their input order", {
   });
 });
 test("sort orders correctly with duplicates", {
-  ns := ArrayList(i32).new();
+  mut(ns) := ArrayList(i32).new();
   ns.push(i32(5));
   ns.push(i32(1));
   ns.push(i32(4));
@@ -301,7 +302,7 @@ test("sort orders correctly with duplicates", {
   assert(ns(usize(4)) == i32(5), "4");
 });
 test("sort_unstable still sorts (heapsort path retained)", {
-  us := ArrayList(i32).new();
+  mut(us) := ArrayList(i32).new();
   us.push(i32(9));
   us.push(i32(2));
   us.push(i32(7));
@@ -313,7 +314,7 @@ test("sort_unstable still sorts (heapsort path retained)", {
   assert(us(usize(3)) == i32(9), "d");
 });
 test("sort_unstable_by sorts by a supplied comparator", {
-  us := ArrayList(i32).new();
+  mut(us) := ArrayList(i32).new();
   us.push(i32(1));
   us.push(i32(9));
   us.push(i32(5));
@@ -322,16 +323,16 @@ test("sort_unstable_by sorts by a supplied comparator", {
   assert(us(usize(2)) == i32(1), "descending tail");
 });
 test("sort of an empty or single-element list is a no-op", {
-  e := ArrayList(i32).new();
+  mut(e) := ArrayList(i32).new();
   e.sort();
   assert(e.len() == usize(0), "empty stays empty");
-  s := ArrayList(i32).new();
+  mut(s) := ArrayList(i32).new();
   s.push(i32(42));
   s.sort();
   assert((s.len() == usize(1)) && (s(usize(0)) == i32(42)), "single element preserved");
 });
 test("sort is stable across a larger run with many ties", {
-  xs := ArrayList(_SortRec).new();
+  mut(xs) := ArrayList(_SortRec).new();
   mut(i) := i32(0);
   while(i < i32(64), {
     xs.push(_SortRec(key : (i % i32(4)), tag : i));
