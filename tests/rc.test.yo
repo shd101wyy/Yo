@@ -1767,6 +1767,7 @@ test("a match or cond call argument is released on an explicit return", {
 // in an owned copy too
 // (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
 FwbNamed :: struct(s : String, n : i32);
+derive(FwbNamed, Clone);
 fwb_rename :: (fn(p : &FwbNamed) -> FwbNamed)({
   mut(q) := p.clone();
   q.s = String.from("renamed-string-long-enough-for-the-heap");
@@ -1811,7 +1812,6 @@ _cow_task :: (fn(w : &_CowLike, io : Io) -> Impl(Future(usize, Io)))(
     ref_count(w.b)
   })
 );
-derive(FwbNamed, Clone);
 _cow_local_copy :: (fn(w : &_CowLike) -> usize)({
   q := w.clone();
   ref_count(q.b)

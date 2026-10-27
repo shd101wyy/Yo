@@ -6090,10 +6090,10 @@ _mm_probe :: (fn(what : &String, io : Io) -> Impl(Future(bool, IoExn)))({
   })
 });
 _mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_url := url.clone();
+  url_owned := url.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    `^1.0.0(${__probe_url})`
+    `^1.0.0(${url_owned})`
   })
 });
 _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, IoExn)))({
@@ -6135,20 +6135,23 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
   })
 });
 _MmSrc :: enum(Git(url : String, tag : String), Path(p : String));
-_mm_tags_of :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))(
+derive(_MmSrc, Clone);
+_mm_tags_of :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  url_owned := url.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    `tags(${url})`
+    `tags(${url_owned})`
   })
-);
-_match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Future(String, IoExn)))(
+});
+_match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Future(String, IoExn)))({
+  __probe_srcs := srcs.clone();
   io.async((e : IoExn) => {
     mut(out) := String.new();
     (mut(i) : usize) = usize(0);
-    while(i < srcs.len(), {
-      src := srcs(i);
+    while(i < __probe_srcs.len(), {
+      src := __probe_srcs(i).clone();
       i = (i + usize(1));
-      requirement := match(src, .Git(_, t) => t.clone(), .Path(p) => p.clone());
+      requirement := match(&src, .Git(_, t) => t.clone(), .Path(p) => p.clone());
       url := match(src, .Git(u, _) => u, .Path(_) => String.from("local"));
       (mut(chosen) : String) = requirement.clone();
       if(requirement.len() == usize(0), {
@@ -6159,7 +6162,7 @@ _match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Futur
     });
     out
   })
-);
+});
 test("a nested arm that loops with an await runs its post-loop code for that arm only", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -6189,11 +6192,11 @@ test("a sibling arm's second-await binding is assigned when its continuation is 
 test("nested while loops in one async body with awaits before, inside and after the inner loop", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
-  arts := ArrayList(_NwArtifact).new();
-  m1 := ArrayList(String).new();
+  mut(arts) := ArrayList(_NwArtifact).new();
+  mut(m1) := ArrayList(String).new();
   m1.push(String.from("aa"));
   m1.push(String.from("b"));
-  m2 := ArrayList(String).new();
+  mut(m2) := ArrayList(String).new();
   m2.push(String.from("cc"));
   arts.push(_NwArtifact(name : String.from("AA"), mods : m1));
   arts.push(_NwArtifact(name : String.from("BB"), mods : m2));
@@ -6218,7 +6221,7 @@ test("two matches on the same match-bound local in one async body", {
 test("two matches on a loop local in an async while body", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
-  srcs := ArrayList(_MmSrc).new();
+  mut(srcs) := ArrayList(_MmSrc).new();
   srcs.push(_MmSrc.Git(String.from("u1"), String.new()));
   srcs.push(_MmSrc.Git(String.from("u2"), String.from("v2")));
   srcs.push(_MmSrc.Path(String.from("p")));
@@ -6380,12 +6383,13 @@ _cap_sm_opt :: (fn(o : &Option(_CapHandle), io : Io) -> Impl(Future(i32, IoExn))
   })
 );
 // state-machine body, a String captured and read after an await (a value-shaped capture)
-_cap_sm_str :: (fn(s : &String, io : Io) -> Impl(Future(String, IoExn)))(
+_cap_sm_str :: (fn(s : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  __probe_s := s.clone();
   io.async((e : IoExn) => {
     k := e.io.await(_cap_tick(e.io), e);
-    `${s}:${k.to_string()}`
+    `${__probe_s}:${k.to_string()}`
   })
-);
+});
 test("an io.async closure releases its captured values when the future dies", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -6428,12 +6432,13 @@ test("an io.async closure releases its captured values when the future dies", {
 _nb_size :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async((e : IoExn) => n)
 );
-_nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+_nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
+  __probe_sizes := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < sizes.len(), {
-      n := sizes(i);
+    while(i < __probe_sizes.len(), {
+      n := __probe_sizes(i);
       i = (i + usize(1));
       if(n == usize(0), {
         total = (total + usize(1000));
@@ -6446,13 +6451,14 @@ _nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize,
     });
     total
   })
-);
-_nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+});
+_nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
+  __probe_sizes := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < sizes.len(), {
-      n := sizes(i);
+    while(i < __probe_sizes.len(), {
+      n := __probe_sizes(i);
       i = (i + usize(1));
       if(n == usize(0), {
         total = (total + usize(1000));
@@ -6463,13 +6469,14 @@ _nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, I
     });
     total
   })
-);
-_nb_match_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+});
+_nb_match_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
+  __probe_sizes := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < sizes.len(), {
-      n := sizes(i);
+    while(i < __probe_sizes.len(), {
+      n := __probe_sizes(i);
       i = (i + usize(1));
       kind := if(n == usize(0), Option(usize).None, Option(usize).Some(n));
       match(
@@ -6487,7 +6494,7 @@ _nb_match_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize
     });
     total
   })
-);
+});
 _nb_top_nested :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(7);
@@ -6499,7 +6506,7 @@ _nb_top_nested :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   })
 );
 _nb_sizes :: (fn() -> ArrayList(usize))({
-  s := ArrayList(usize).new();
+  mut(s) := ArrayList(usize).new();
   s.push(usize(3));
   s.push(usize(0));
   s.push(usize(5));
@@ -6587,7 +6594,7 @@ test("return(io.await(...)) in a cond branch inside io.async", {
 _sm_ret_ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(io.async((io : Io) => true));
 _sm_ret_list :: (fn(early : bool, io : Io) -> Impl(Future(ArrayList(i32), Io)))(
   io.async((io : Io) => {
-    out := ArrayList(i32).new();
+    mut(out) := ArrayList(i32).new();
     out.push(i32(7));
     _ready := io.await(_sm_ret_ready(io), io);
     if(early, {
@@ -7372,7 +7379,7 @@ test("an inout binding written in a loop that awaits", {
 });
 _inout_arm :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     e.await(yield(e), e);
     mut(n) := i32(1);
@@ -7389,7 +7396,7 @@ test("an inout binding in an arm, written after an await in the arm", {
 });
 _inout_for :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     xs.push(i32(2));
     e.await(yield(e), e);
@@ -7613,7 +7620,7 @@ test("a borrowing future is awaited where it is made: never bound, spawned or ca
 // lend through the handle is E0919, and a place reached through any other cell
 // is still E0909.
 test("a borrowing future may hold a & place lent through an Rc deref, not a &mut one (decisions 38 D and 46, §3.13 A2)", {
-  items := ArrayList(i32).new();
+  mut(items) := ArrayList(i32).new();
   items.push(i32(1));
   r := rc(_A2Shared(items : items));
   assert(io.await(_a2_count(&r.*.items, io), io) == usize(1), "a & lend through the Rc deref crosses the await");
@@ -7693,7 +7700,7 @@ _A2Cells :: struct(cells : Array(i32, 2));
 // another handle can reallocate while the future waits
 // (issues/fixed/an-index-place-lent-to-a-borrowing-future-skips-the-shared-cell-check.md).
 test("a borrowing future cannot hold an element lent through an index (decision 38 D, §3.13 A2)", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   // The sibling-reachability rule defers to §3.13 A2 for a borrowing future
   // (the `io` sibling sits beside the borrow in every async call; A2 owns
