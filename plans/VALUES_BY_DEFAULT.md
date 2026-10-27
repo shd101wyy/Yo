@@ -8919,6 +8919,15 @@ and its macro deletion rides with step 4.
      specialization identity (REFERENCES_AND_ORIGINS O1): the variant
      carries the origin, the keys ignore it, and the gate's emit-diff is
      what proves it (added 2026-10-20).
+   - Status (2026-10-27, branch `vbd/d43-step1-reference-type`): done for
+     the parameter slots. A by-value slot is the bare `T`, a `&T` slot is
+     `Reference(T, false, elided)`, a `&mut T` slot is
+     `Reference(T, true, elided)`; a parameter with no mode (a `Type`-valued,
+     `quote` or `generic` one) keeps today's borrow, so it is a `&T` slot.
+     The emit-diff of `src/main.yo` and the language corpus is byte-identical.
+     Two things stay outside the type until step 2's return rule:
+     `FuncMeta.result_is_ref` / `result_is_mut_ref` (a `-> &T` result's
+     origin is O2's elision) and the caller-side `param_is_sink`.
 2. **Generation A: the kind and the rules in user code (N1).**
    - `generic(p : Origin)`; the `&(T, p)` / `&mut(T, p)` parse with its
      kind-directed disambiguation; `&(T, p)` bound (`r := &x` elides to
