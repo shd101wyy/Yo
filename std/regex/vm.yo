@@ -338,7 +338,7 @@ impl(
           },
           true => ()
         );
-        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots);
+        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots.clone());
         recur(self, list, &new_t, byte_pos, seen);
       },
       .AssertStart => {
@@ -537,8 +537,8 @@ impl(
     // Reuse pre-allocated seen buffers from the VM
     mut(current) := ArrayList(NfaThread).new();
     mut(next) := ArrayList(NfaThread).new();
-    seen := self._seen;
-    next_seen := self._next_seen;
+    seen := self._seen.clone();
+    next_seen := self._next_seen.clone();
     mut(deferred) := ArrayList(DeferredThread).new();
     // Clear for this execution
     seen.fill_with_byte(int(0));
