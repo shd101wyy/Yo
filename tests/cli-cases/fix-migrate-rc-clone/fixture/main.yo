@@ -13,6 +13,8 @@
 //! it on another path (`walk`). A last use (a move) is left alone; a value
 //! holding a handle whose type is not `Clone` is listed. A `match` on a
 //! `&` parameter already borrows and is left alone, in a loop too (`hits`).
+//! A record's shorthand field `{ sh }` names its source, so its clone is
+//! spelled `{ sh : Rc.clone(sh) }`.
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { RefCell } :: import("std/sync/refcell");
@@ -103,6 +105,8 @@ main :: (fn() -> unit)({
   q := ((last_of() + walk(rc(i32(1))).*) + if(refresh(.Some(rc(i32(11)))), i32(1), i32(0)));
   r := fill(Bag(h : rc(i32(1)), items : ArrayList(i32).new()));
   hs := hits(&Option(Rc(i32)).Some(rc(i32(2))), i32(3));
-  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p} ${pair.weight} ${v} ${q} ${r} ${hs}`);
+  sh := rc(i32(12));
+  rec := { sh };
+  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p} ${pair.weight} ${v} ${q} ${r} ${hs} ${rec.sh.*} ${sh.*}`);
 });
 export(main);

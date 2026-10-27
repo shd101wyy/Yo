@@ -3550,14 +3550,27 @@ _ic_in_generic :: (fn(ctx : &EvalContext, ty : &TypeValue) -> bool)(
 );
 /// How `yo fix --migrate rc-clone` spells the copy of a value of `ty`
 /// (`ExplicitCopySite.spelling`): `Rc`/`Arc` for a handle, `clone` for a
-/// `Clone` value holding one, `derive` for one that is not `Clone`.
-_rc_clone_spelling :: (fn(ty : &TypeValue) -> String)(
+/// `Clone` value holding one, `derive` for one that is not `Clone`. A cell
+/// handle of another constructor (`cell_handle_view`) is cloned through its
+/// own, `TRc.clone(h)`, when it is `Clone`, and listed when it is not.
+_rc_clone_spelling :: (fn(ty : &TypeValue) -> String)({
+  inner := t_refine_inner(ty);
+  prelude := if(is_arc_type(&inner), String.from("Arc"), String.from("Rc"));
+  ctor := match(
+    &inner,
+    Rc(.Struct({ name })) => match(name.index_of(&String.from("(")), .Some(i) => name.substring(usize(0), i), .None => name.clone()),
+    _ => prelude.clone()
+  );
   cond(
-    is_counted_handle_value_type(&t_refine_inner(ty)) => if(is_arc_type(&t_refine_inner(ty)), String.from("Arc"), String.from("Rc")),
+    is_counted_handle_value_type(&inner) => cond(
+      ((ctor == "Rc") || (ctor == "Arc") || ctor.is_empty()) => prelude,
+      type_lacks_clone(ty) => String.from("derive"),
+      true => ctor
+    ),
     type_lacks_clone(ty) => String.from("derive"),
     true => String.from("clone")
   )
-);
+});
 _ic_migrate_site :: (
   fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
 )(
