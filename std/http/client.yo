@@ -610,23 +610,23 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
 });
 // Open a new connection to the prepared target.
 _connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))({
-  __probe_prep := prep.clone();
+  prep_owned := prep.clone();
   io.async(e => {
     (mut(out) : Option(_Transport)) = Option(_Transport).None;
     cond(
-      __probe_prep.is_tls => {
-        tls := e.io.await(TlsStream.connect(__probe_prep.host.clone(), __probe_prep.port, e.io), e);
+      prep_owned.is_tls => {
+        tls := e.io.await(TlsStream.connect(prep_owned.host.clone(), prep_owned.port, e.io), e);
         out = Option(_Transport).Some(_Transport.Secure(tls));
       },
       true => {
-        addrs := e.io.await(lookup_host(&__probe_prep.host, e.io), e);
+        addrs := e.io.await(lookup_host(&prep_owned.host, e.io), e);
         cond(
           (addrs.len() == usize(0)) => {
-            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${__probe_prep.host}`)));
+            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${prep_owned.host}`)));
           },
           true => ()
         );
-        addr := SocketAddr.new(addrs(usize(0)), __probe_prep.port);
+        addr := SocketAddr.new(addrs(usize(0)), prep_owned.port);
         stream := e.io.await(TcpStream.connect(addr, e.io), e);
         out = Option(_Transport).Some(_Transport.Plain(stream));
       }
@@ -665,9 +665,9 @@ _fetch_once :: (
   fn(url_str : &String, opts : &FetchOptions, pool : Option(*_HttpClientState), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )({
-  __probe_url_str := url_str.clone();
+  url_str_owned := url_str.clone();
   io.async(e => {
-    prep := _prepare(&__probe_url_str, opts, pool.is_some(), e.exn);
+    prep := _prepare(&url_str_owned, opts, pool.is_some(), e.exn);
     idempotent := _is_idempotent(opts.method);
     (mut(out) : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done`/`attempt` pair rather than break/continue: an awaiting loop is
@@ -861,9 +861,9 @@ _fetch_follow :: (
   fn(url_str : &String, opts : &FetchOptions, pool : Option(*_HttpClientState), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )({
-  __probe_url_str := url_str.clone();
+  url_str_owned := url_str.clone();
   io.async(e => {
-    mut(current) := __probe_url_str.clone();
+    mut(current) := url_str_owned.clone();
     mut(hop_opts) := opts;
     mut(hops) := usize(0);
     (mut(result) : Option(HttpResponse)) = Option(HttpResponse).None;
@@ -956,13 +956,13 @@ _fetch_deadline :: (
   fn(url_str : &String, opts : &FetchOptions, pool : Option(*_HttpClientState), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )({
-  __probe_url_str := url_str.clone();
+  url_str_owned := url_str.clone();
   io.async(e => {
     (mut(result) : HttpResponse) = HttpResponse.new(StatusCode.OK(), ``);
     match(
       opts.timeout,
       .None => {
-        result = e.io.await(_fetch_follow(&__probe_url_str, opts, pool, e.io), e);
+        result = e.io.await(_fetch_follow(&url_str_owned, opts, pool, e.io), e);
       },
       .Some(limit) => {
         // Run the whole exchange as a spawned TASK raced against the
@@ -977,7 +977,7 @@ _fetch_deadline :: (
         //
         // A connection cut off here is owned by the aborted state machine, so
         // its `Drop` closes it — it never reaches the pool.
-        h := e.io.spawn(_fetch_follow(&__probe_url_str, opts, pool, e.io), e);
+        h := e.io.spawn(_fetch_follow(&url_str_owned, opts, pool, e.io), e);
         match(
           e.io.await(_deadline_join(h, limit, e.io), e.io),
           .Done(resp) => {
@@ -1018,11 +1018,11 @@ fetch_with :: (
   fn(url_str : &String, opts : &FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )({
-  __probe_url_str := url_str.clone();
+  url_str_owned := url_str.clone();
   io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
-    resp := e.io.await(_fetch_deadline(&__probe_url_str, opts, Option(*_HttpClientState).None, e.io), e);
+    resp := e.io.await(_fetch_deadline(&url_str_owned, opts, Option(*_HttpClientState).None, e.io), e);
     return(resp);
   })
 });
@@ -1040,11 +1040,11 @@ fetch :: (
   fn(url_str : &String, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )({
-  __probe_url_str := url_str.clone();
+  url_str_owned := url_str.clone();
   io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
-    resp := e.io.await(fetch_with(&__probe_url_str, FetchOptions.new(), e.io), e);
+    resp := e.io.await(fetch_with(&url_str_owned, FetchOptions.new(), e.io), e);
     return(resp);
   })
 });
