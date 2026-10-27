@@ -189,6 +189,8 @@ compute_needs_cycle_gc :: (fn(context : &CodeGenContext) -> unit)({
   if(context.cycle_collector_off, {
     return(());
   });
+  // The walk borrows `context.types`, so the flag is set after it.
+  (needs_gc : bool) = false;
   for(&context.types, (_tid, entry) => {
     ty := entry.ty;
     is_struct_root := (is_reference_struct_type(&ty) && !is_atomic_reference_struct_type(&ty) && !_struct_has_generic_field(&ty));
@@ -196,10 +198,11 @@ compute_needs_cycle_gc :: (fn(context : &CodeGenContext) -> unit)({
     // variant field), so it is a cycle root too.
     is_enum_root := (is_reference_enum_type(&ty) && !is_atomic_reference_enum_type(&ty) && !type_contains_some_type_deep(&ty));
     if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(&ty), {
-      context.needs_cycle_gc = true;
+      needs_gc = true;
       break;
     });
   });
+  context.needs_cycle_gc = needs_gc;
 });
 /// Emit the type-tag dispose dispatch function (lightweight RC only). Reads the
 /// dispose_type_ids side-table the object constructors populate and emits a
