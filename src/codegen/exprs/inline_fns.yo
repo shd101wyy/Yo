@@ -68,7 +68,7 @@
   ast_call_args_unmarked
 } :: import("../../expr.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ is_enum_type, is_reference_struct_type, is_reference_enum_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type, is_i8_type, is_i16_type, is_i32_type, is_i64_type, is_isize_type, is_u8_type, is_u16_type, is_u32_type, is_u64_type, is_usize_type } :: import("../../types/guards.yo");
+{ is_enum_type, is_reference_struct_type, is_reference_enum_type, is_counted_cell_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type, is_i8_type, is_i16_type, is_i32_type, is_i64_type, is_isize_type, is_u8_type, is_u16_type, is_u32_type, is_u64_type, is_usize_type } :: import("../../types/guards.yo");
 { is_target_windows, is_target_wasm } :: import("../../target.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -501,7 +501,9 @@ _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationC
 /// carries one. A value-rooted place has none: unique ownership checks it
 /// statically (plans/VALUES_BY_DEFAULT.md §3.10, "the borrowed-`for` guard
 /// splits by path"), so the builtin lowers to nothing. Casting the value to
-/// `void*` was invalid C.
+/// `void*` was invalid C. An `Rc` or `Arc` cell has none either: its payload
+/// is read-only through the handle, and those header bits are its weak count
+/// (`is_counted_cell_type`).
 _borrow_operand_has_flag :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   // Read through a call-site `&x` marker: the evaluator annotates the place
   // under it, not the marker node (`ast_call_args_unmarked`), so the raw
@@ -510,7 +512,7 @@ _borrow_operand_has_flag :: (fn(expr : &AstExpr, context : &FunctionGenerationCo
     ast_call_args_unmarked(expr).get(usize(0)),
     .Some(a0) => match(
       context.base.get_expr_info(&a0),
-      .Some(aei) => (is_reference_struct_type(&aei.ty) || is_reference_enum_type(&aei.ty)),
+      .Some(aei) => ((is_reference_struct_type(&aei.ty) || is_reference_enum_type(&aei.ty)) && !is_counted_cell_type(&aei.ty)),
       .None => true
     ),
     .None => true

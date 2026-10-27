@@ -3757,3 +3757,142 @@ test("a ref-handle field operand is read before a later operand writes it throug
     assert((p.a - p.b) == i32(2), "constructor");
   };
 });
+// === Weak(T) (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3, W3) ===
+// `g_weak_dropped` counts the `_WeakProbe` payloads dropped;
+// `g_weak_self_upgrade_none` records what a payload's own `Drop` saw when it
+// upgraded a `Weak` to its own cell.
+(mut(g_weak_dropped) : i32) = i32(0);
+(mut(g_weak_self_upgrade_none) : bool) = false;
+_WeakProbe :: struct(n : i32);
+impl(
+  _WeakProbe,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_weak_dropped = (g_weak_dropped + i32(1));
+    })
+  )
+);
+test("Weak.upgrade is .Some while an Rc is alive and .None after the last one", {
+  a := rc(i32(7));
+  w := Rc.downgrade(&a);
+  assert(w.strong_count() == usize(1), "one strong handle");
+  assert(w.weak_count() == usize(1), "one weak handle");
+  assert(ref_count(a) == usize(1), "downgrade does not raise the strong count");
+  match(
+    w.upgrade(),
+    .Some(b) => {
+      assert(b.* == i32(7), "the upgraded handle reads the payload");
+      assert(ref_count(a) == usize(2), "the upgraded handle is a second strong one");
+    },
+    .None => assert(false, "upgrade while a is alive")
+  );
+  assert(ref_count(a) == usize(1), "the upgraded handle was dropped");
+  consume(a);
+  assert(w.upgrade().is_none(), "the last Rc is gone");
+  assert(w.strong_count() == usize(0), "no strong handle");
+  assert(w.weak_count() == usize(0), "Rust's weak_count is 0 once the payload is gone");
+});
+test("Weak.new names no cell, and two of them are ptr_eq", {
+  w := Weak(i32).new();
+  assert(w.upgrade().is_none(), "nothing to upgrade to");
+  assert(w.strong_count() == usize(0), "no strong count");
+  assert(w.weak_count() == usize(0), "no weak count");
+  w2 := (Weak(i32) <: Default).default();
+  assert(w.ptr_eq(&w2), "two dangling Weaks compare equal");
+  a := rc(i32(1));
+  wa := Rc.downgrade(&a);
+  assert(!w.ptr_eq(&wa), "a dangling Weak is not a live one");
+  wb := Weak.clone(&wa);
+  assert(wa.ptr_eq(&wb), "a clone names the same cell");
+});
+test("Weak.clone and drop move the weak count", {
+  a := rc(i32(3));
+  w1 := Rc.downgrade(&a);
+  {
+    w2 := Weak.clone(&w1);
+    w3 := Rc.downgrade(&a);
+    assert(w1.weak_count() == usize(3), `three weak handles: ${w1.weak_count()}`);
+    assert(w2.upgrade().unwrap().* == i32(3), "a clone upgrades");
+    assert(w3.upgrade().is_some(), "a second downgrade upgrades");
+  };
+  assert(w1.weak_count() == usize(1), "the inner handles were dropped");
+  assert(ref_count(a) == usize(1), "weak handles never held a strong count");
+});
+test("the last Rc drops the payload, and the last Weak frees the cell", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  before := g_weak_dropped;
+  w := Rc.downgrade(&rc(_WeakProbe(n : i32(1)), alloc : .Some(heap)));
+  assert(g_weak_dropped == (before + i32(1)), "the only Rc was a temporary: the payload is dropped");
+  assert(counts.live == usize(1), "a Weak keeps the cell's bytes");
+  assert(w.upgrade().is_none(), "the payload is gone");
+  w2 := Weak.clone(&w);
+  consume(w);
+  assert(counts.live == usize(1), "another Weak still names the cell");
+  consume(w2);
+  assert(counts.live == usize(0), "the last Weak freed the cell");
+  assert(g_weak_dropped == (before + i32(1)), "the payload was dropped once");
+});
+test("a cell with no Weak left is freed by its last Rc", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  a := rc(_WeakProbe(n : i32(2)), alloc : .Some(heap));
+  {
+    w := Rc.downgrade(&a);
+    assert(w.upgrade().is_some(), "alive");
+  };
+  consume(a);
+  assert(counts.live == usize(0), "no Weak named the cell: the last Rc freed it");
+});
+_WeakSelf :: struct(me : Weak(RefCell(_WeakSelf)), n : i32);
+impl(
+  _WeakSelf,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_weak_self_upgrade_none = self.me.upgrade().is_none();
+    })
+  )
+);
+test("an upgrade from the payload's own Drop is .None, and the payload's Weak frees nothing early", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  g_weak_self_upgrade_none = false;
+  {
+    a := rc(RefCell(_WeakSelf).new(_WeakSelf(me : Weak(RefCell(_WeakSelf)).new(), n : i32(1))), alloc : .Some(heap));
+    me := Rc.downgrade(&a);
+    a.with_mut({ me }(s) => {
+      s.me = Weak.clone(&me);
+    });
+    assert(counts.live == usize(1), "one cell");
+  };
+  assert(g_weak_self_upgrade_none, "the payload's Drop saw no strong handle");
+  assert(counts.live == usize(0), "the payload's own Weak was the last handle: the cell is freed once");
+});
+// The weak count lives in the header bits a `ref` object's borrow marks use
+// (§3.2), so nothing may mark an `Rc` cell: not a borrowed `for` over it, not
+// an interior argument into it, not a function's entry check on an `Rc`
+// parameter (a second `downgrade` ran one, and saw the first `Weak` as a
+// live borrow).
+_weak_read :: (fn(x : &i32) -> i32)(x);
+_weak_list :: (fn() -> Rc(ArrayList(i32)))({
+  l := ArrayList(i32).new();
+  l.push(i32(1));
+  l.push(i32(2));
+  rc(l)
+});
+test("no borrow mark reaches an Rc cell's weak count", {
+  xs := _weak_list();
+  w := Rc.downgrade(&xs);
+  w2 := Rc.downgrade(&xs);
+  assert(w.weak_count() == usize(2), "two downgrades of one handle");
+  (mut(sum) : i32) = i32(0);
+  for(&xs, x => {
+    sum = (sum + x);
+    assert(w.weak_count() == usize(2), "a borrowed for over the Rc marks nothing");
+  });
+  assert(sum == i32(3), "the loop read the payload");
+  assert(_weak_read(&xs(usize(1))) == i32(2), "an interior argument through the Rc");
+  assert(w2.weak_count() == usize(2), "and marks nothing either");
+  consume(xs);
+  assert(w.upgrade().is_none(), "the last Rc is gone");
+});

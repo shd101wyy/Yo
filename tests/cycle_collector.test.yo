@@ -6,6 +6,8 @@ Gc :: import("std/gc");
 { HashMap } :: import("std/collections/hash_map");
 { String } :: import("std/string");
 { VList } :: import("./fixtures/owned_buffer.yo");
+{ RefCell } :: import("std/sync/refcell");
+{ counting_allocator, counting_live } :: import("./fixtures/counting_allocator.yo");
 // This file runs under both `--cycle-collector` modes
 // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §7 W1), with the leak expectations
 // flipped: under `auto` a garbage cycle is collected, under `off` nothing is
@@ -795,5 +797,97 @@ test("A value without a buffer still cannot implement Trace", {
       )
     ),
     "cannot implement \"Trace\""
+  );
+});
+// === Weak (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.4, W3) ===
+// A `Weak` is not an edge: a parent whose child points back through a `Weak`
+// is not a cycle, so neither cell is tracked under either mode and the pair
+// frees itself by reference counting.
+(mut(g_weak_pair_dropped) : i32) = i32(0);
+_WeakChild :: struct(parent : Weak(RefCell(_WeakParent)), tag : i32);
+_WeakParent :: struct(child : Option(Rc(_WeakChild)), tag : i32);
+impl(
+  _WeakChild,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_weak_pair_dropped = (g_weak_pair_dropped + i32(1));
+    })
+  )
+);
+impl(
+  _WeakParent,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_weak_pair_dropped = (g_weak_pair_dropped + i32(1));
+    })
+  )
+);
+test("a cycle closed through a Weak is untracked and frees itself", {
+  before_tracked := Gc.tracked_count();
+  before := g_weak_pair_dropped;
+  {
+    p := rc(RefCell(_WeakParent).new(_WeakParent(child : .None, tag : i32(1))));
+    c := rc(_WeakChild(parent : Rc.downgrade(&p), tag : i32(2)));
+    p.with_mut({ c }(v) => {
+      v.child = .Some(c);
+    });
+    assert(Gc.tracked_count() == before_tracked, "a weak back edge is not an edge: nothing is tracked");
+    assert(c.parent.upgrade().is_some(), "the child reaches its parent");
+    assert(p.with(v => match(&v.child, .Some(k) => k.tag, .None => i32(0))) == i32(2), "the parent owns its child");
+  };
+  assert(g_weak_pair_dropped == (before + i32(2)), "both payloads dropped by reference counting");
+});
+// An upgrade from a `Drop` the collector runs (its dispose pass) of a garbage
+// sibling is `.None`, and a garbage cell a `Weak` outside the cycle still
+// names is kept until that `Weak` goes.
+(mut(g_white_dropped) : i32) = i32(0);
+(mut(g_white_upgrade_none) : i32) = i32(0);
+_WhiteNode :: struct(other : Option(Rc(RefCell(_WhiteNode))), peer : Weak(RefCell(_WhiteNode)));
+impl(
+  _WhiteNode,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_white_dropped = (g_white_dropped + i32(1));
+      if(self.peer.upgrade().is_none(), {
+        g_white_upgrade_none = (g_white_upgrade_none + i32(1));
+      });
+    })
+  )
+);
+_white_node :: (fn() -> Rc(RefCell(_WhiteNode)))(
+  rc(RefCell(_WhiteNode).new(_WhiteNode(other : .None, peer : Weak(RefCell(_WhiteNode)).new())), alloc : .Some(counting_allocator()))
+);
+test("an upgrade from a Drop the collector runs is .None for a garbage sibling", {
+  before := g_white_dropped;
+  before_none := g_white_upgrade_none;
+  live_before := counting_live();
+  mut(outside) := Weak(RefCell(_WhiteNode)).new();
+  {
+    a := _white_node();
+    b := _white_node();
+    a.with_mut({ b }(v) => {
+      v.other = .Some(b);
+      v.peer = Rc.downgrade(&b);
+    });
+    b.with_mut({ a }(v) => {
+      v.other = .Some(a);
+      v.peer = Rc.downgrade(&a);
+    });
+    outside = Rc.downgrade(&b);
+  };
+  Gc.collect();
+  cond(
+    collector_off() => {
+      assert(g_white_dropped == before, "the cycle leaks under off");
+      assert(outside.upgrade().is_some(), "and its cells stay alive");
+    },
+    true => {
+      assert(g_white_dropped == (before + i32(2)), "the collector dropped both payloads");
+      assert(g_white_upgrade_none == (before_none + i32(2)), "each Drop's upgrade of its garbage sibling was .None");
+      assert(outside.upgrade().is_none(), "a Weak to a collected cell upgrades to .None");
+      assert(counting_live() == (live_before + usize(1)), "the cell the outside Weak names is kept for it");
+      outside = Weak(RefCell(_WhiteNode)).new();
+      assert(counting_live() == live_before, "the last Weak freed it");
+    }
   );
 });

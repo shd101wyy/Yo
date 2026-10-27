@@ -483,6 +483,26 @@ is_box_type :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// True if `t` is a counted cell whose payload is read-only through the
+/// handle (decision 46): the prelude's `Rc(T)` (`is_box_type`) and `Arc(T)`,
+/// or a cell handle (`cell_handle_view`, V5's `Rc` and `Arc`). The `Arc` is
+/// identified as `Box` is (`unique_box_payload_type`): the stamped name
+/// `Arc(V)` plus the `atomic(ref(struct((*) : V)))` shape. Such a cell carries
+/// no borrow marks, so codegen never emits a borrow primitive on it: the 16
+/// bits of its header's `borrow_count` are the cell's weak count
+/// (`Weak`/`ArcWeak`, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2).
+is_counted_cell_type :: (fn(t : &TypeValue) -> bool)(
+  is_box_type(&t_refine_inner(t))
+  || cell_handle_view(t).is_some()
+  || (
+    is_atomic_reference_struct_type(t)
+    && match(
+      t,
+      Rc(.Struct({ name, field_labels })) => (name.starts_with("Arc(") && ((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false))),
+      _ => false
+    )
+  )
+);
 /// The payload type of the prelude's unique cell (`Box(V)`,
 /// plans/VALUES_BY_DEFAULT.md §3.2, V1 step 2), or `.None` for any other
 /// type. A `Box` is a newtype over a raw pointer to its payload (its one field,
@@ -1196,6 +1216,7 @@ export(
   SharedCellNames,
   shared_cell_names_at,
   is_shared_cell_type_name,
+  is_counted_cell_type,
   shared_cell_type_name_of_constructor,
   shared_cell_canonical_names,
   is_fn_trait_type,

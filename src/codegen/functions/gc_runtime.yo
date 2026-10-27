@@ -384,6 +384,62 @@ static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
   );
 });
 // ---------------------------------------------------------------------------
+// _weak_count_primitives
+// ---------------------------------------------------------------------------
+/// The weak-count primitives `Weak(T)` calls (std/prelude.yo's extern "Yo"
+/// hooks), shared by both reference-counting runtimes: they read only the
+/// layout-agnostic header prefix. Header-only `static inline` functions, so
+/// under `--emit-chunks` they ride the RC primitives' shared-header range.
+_weak_count_primitives :: (fn() -> String)(
+  `// Weak(T) (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2-§3.4).
+// A counted cell's weak count lives in the 16 bits of \`borrow_count\`. A
+// cell never carries borrow marks there: codegen emits no borrow primitive on
+// an Rc or Arc cell (\`is_counted_cell_type\`, plans/VALUES_BY_DEFAULT.md
+// decision 46), and every other object's marks are back to 0 by its last
+// release. Bits 0-14 count the Weak handles and saturate at
+// __YO_WEAK_COUNT: a saturated cell is never freed (a leak, never a dangle).
+// Bit 15, __YO_WEAK_DEAD, says the payload is dropped and the strong side has
+// handed the allocation to the Weak handles: the last one frees it. Exactly
+// one side frees: the strong side sets the bit and frees when the count it
+// read back is 0; a Weak release frees when the word it left is the bit alone.
+#define __YO_WEAK_DEAD 0x8000u
+#define __YO_WEAK_COUNT 0x7fffu
+static inline void __yo_rc_weak_retain(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if ((h->borrow_count & __YO_WEAK_COUNT) != __YO_WEAK_COUNT) h->borrow_count++;
+}
+static inline void __yo_rc_weak_release(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  uint16_t w = h->borrow_count;
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return;
+  w = (uint16_t)(w - 1u);
+  h->borrow_count = w;
+  if (w == __YO_WEAK_DEAD) __yo_rc_free(ptr);
+}
+// The payload is alive while the strong count is non-zero and the cell is not
+// dead. The collector runs user code (a Drop in its dispose pass) only after
+// every live cell's count is restored, and a cell it is freeing has a strong
+// count of 0 then, so the count answers during a collection too.
+static inline bool __yo_rc_weak_upgrade(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if ((h->borrow_count & __YO_WEAK_DEAD) || (h->ref_count & __YO_RC_COUNT) == 0) return false;
+  h->ref_count++;
+  return true;
+}
+static inline size_t __yo_rc_weak_strong_count(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if (h->borrow_count & __YO_WEAK_DEAD) return 0;
+  return (size_t)(h->ref_count & __YO_RC_COUNT);
+}
+static inline size_t __yo_rc_weak_weak_count(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  uint16_t w = h->borrow_count;
+  if ((w & __YO_WEAK_DEAD) || (h->ref_count & __YO_RC_COUNT) == 0) return 0;
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
+  return (size_t)(w & __YO_WEAK_COUNT);
+}`
+);
+// ---------------------------------------------------------------------------
 // generate_lightweight_rc_functions
 // ---------------------------------------------------------------------------
 /// Emit lightweight RC functions when no type can form reference cycles.
@@ -398,14 +454,36 @@ generate_lightweight_rc_functions :: (fn(context : &FunctionGenerationContext) -
   // the object header, `__yo_rc_free` (a declaration-section static inline,
   // types/generation.yo) and the externally-declared `__yo_dispose_dispatch`.
   rc_lw_start := if(context.base.chunk_mode, em.code.len(), usize(0));
+  em.emit_string_line(_weak_count_primitives());
   em.emit_string_line(
     `// Lightweight reference counting — no cycle detection needed
 // Uses type_id dispatch instead of function pointer for dispose
 // (WASM: br_table ~2 cycles vs call_indirect ~20+ cycles)
+// The last strong handle of a cell some Weak still names: the payload is
+// dropped with the strong count at 0 (an upgrade from the payload's own Drop
+// finds no strong handle), then the allocation goes to the Weak handles, and
+// it is freed here only if the drop released the last of them.
+static inline void __yo_rc_release_weak_held(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  h->ref_count &= __YO_RC_TAG;
+  if (h->type_id) {
+    // A pooled state machine keeps its memory; no Weak names one.
+    if (__yo_dispose_dispatch(ptr)) return;
+    h->type_id = 0;
+  }
+  uint16_t w = (uint16_t)(h->borrow_count | __YO_WEAK_DEAD);
+  h->borrow_count = w;
+  if ((w & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
+}
+
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   if ((header->ref_count & __YO_RC_COUNT) == 1) {
+    if (header->borrow_count) {
+      __yo_rc_release_weak_held(ptr);
+      return;
+    }
     // A pooled state machine's memory goes back to its pool, not to free.
     if (header->type_id && __yo_dispose_dispatch(ptr)) {
       return;
@@ -562,8 +640,40 @@ static _Thread_local size_t __yo_gc_full_pct = 200;            // Full-scan grow
   // untracked FAST PATH is inlined; the tracked tail below reads the
   // thread-local GC state above, so it stays out-of-line in chunk 0.
   rc_prims_start := if(context.base.chunk_mode, em.code.len(), usize(0));
+  em.emit_string_line(_weak_count_primitives());
   em.emit_string_line(
-    `static inline void __yo_decr_rc(void* ptr) {
+    `// The last strong handle of a cell some Weak still names: the payload is
+// dropped with the strong count at 0 (an upgrade from the payload's own Drop
+// finds no strong handle), then the allocation goes to the Weak handles, and
+// it is freed here only if the drop released the last of them. A tracked
+// cell is off the collector's lists before this runs.
+static inline void __yo_rc_release_weak_held(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  h->ref_count &= __YO_RC_TAG;
+  void (*dispose)(void*) = h->dispose_fn;
+  h->dispose_fn = NULL;
+  if (dispose) dispose(ptr);
+  uint16_t w = (uint16_t)(h->borrow_count | __YO_WEAK_DEAD);
+  h->borrow_count = w;
+  if ((w & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
+}
+// A cell the collector found garbage, its payload already dropped: freed now,
+// or, while a Weak still names it, marked dead for the last Weak to free.
+static inline void __yo_gc_free_white(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if (h->borrow_count & __YO_WEAK_COUNT) {
+    // The payload's drop already ran: a strong release that still reaches
+    // the cell (a thread-exit sweep frees live cells too) must not run it
+    // again.
+    h->dispose_fn = NULL;
+    h->gc_flags &= (uint8_t)~__YO_GC_TRACKED;
+    h->borrow_count |= __YO_WEAK_DEAD;
+    return;
+  }
+  __yo_rc_free(ptr);
+}
+
+static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
 
@@ -579,6 +689,10 @@ static _Thread_local size_t __yo_gc_full_pct = 200;            // Full-scan grow
     GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)(header->ref_count & __YO_RC_COUNT), (size_t)((header->ref_count & __YO_RC_COUNT) - 1));
     if ((header->ref_count & __YO_RC_COUNT) == 1) {
       GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+      if (header->borrow_count) {
+        __yo_rc_release_weak_held(ptr);
+        return;
+      }
       if (header->dispose_fn) {
         header->dispose_fn(ptr);
       }
@@ -646,6 +760,10 @@ static void __yo_decr_rc_tracked(void* ptr) {
       __yo_gc_remove_root(ptr);
     }
     __yo_gc_unregister(ptr);
+    if (header->borrow_count) {
+      __yo_rc_release_weak_held(ptr);
+      return;
+    }
     if (header->dispose_fn) {
       header->dispose_fn(ptr);
     }
@@ -1107,7 +1225,7 @@ static void __yo_gc_collect_incremental() {
   for (size_t i = 0; i < nwhite; i++) {
     if (gc->gc_white[i]->gc_mark != __YO_GC_LIVE) continue; // resurrected: keep
     __yo_gc_unregister(gc->gc_white[i]);
-    __yo_rc_free(gc->gc_white[i]);
+    __yo_gc_free_white(gc->gc_white[i]);
   }
   gc->gc_white_count = 0;
   __yo_gc_collecting = 0;
@@ -1197,7 +1315,7 @@ static void __yo_gc_collect() {
       if (prev == NULL) gc->tracked_objects = next; else prev->gc_next = next;
       if (next != NULL) next->gc_prev = prev;
       gc->tracked_count--;
-      __yo_rc_free(current);
+      __yo_gc_free_white(current);
       current = next;
     } else {
       current->gc_mark = __YO_GC_UNMARKED;
@@ -1258,7 +1376,7 @@ static void __yo_cleanup_thread_gc() {
   while (current != NULL) {
     __yo_ref_header_t* next = current->gc_next;
     GC_DEBUG("CleanupThread: Freeing object ptr=%p\\n", current);
-    __yo_rc_free(current);
+    __yo_gc_free_white(current);
     current = next;
   }
 

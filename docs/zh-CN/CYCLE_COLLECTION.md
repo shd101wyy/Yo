@@ -391,7 +391,8 @@ exe :: build.executable({
 - 计数、`Drop` 及其顺序、分配器、`RefCell` 和 `Arc` 都不变。能在 `auto` 下编译的
   程序也能在 `off` 下编译；区别只在于泄漏。
 - 垃圾环永远不会被释放，环上单元的 `Drop` 也永远不会运行。要找出它，用固定区域
-  分配器的泄漏检查构建：退出时的报告会统计仍然存活的块。
+  分配器的泄漏检查构建：退出时的报告会统计仍然存活的块。改用 `Weak`
+  （[WEAK.md](./WEAK.md)）闭合回边，结构就能自行释放。
 - `yo test` 的泄漏判定也会看到同样的泄漏。在构建 AddressSanitizer 测试二进制的
   运行中，丢弃了一个环的测试会以 `Memory leak detected:` 失败。
   `YO_TEST_LEAK_VERDICT=0` 关闭该判定（CI 会设置它），`--allocator fixed --debug-heap`
@@ -556,6 +557,7 @@ visit : (fn(generic(T : Type), self : Self, slot : *T) -> unit)
 2. 始终传入**指向槽位的指针**，绝不按值传入元素。
 3. 你无需自己递归进入元素——`visit` 会组合式地处理槽位中持有的任何内容（受管句柄、值结构体、嵌套
    `Option` 等）。
+4. 绝不访问 `Weak`（[WEAK.md](./WEAK.md)）：它不是边，自动派生的遍历也不访问它。
 
 ## 与其他方案的对比
 

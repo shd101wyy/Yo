@@ -13,7 +13,13 @@ thread APIs carry no `Acyclic` bound, and the sync containers' declared
 `Acyclic` impls are gone (the marker is derived). ARC.md and DESIGN.md lost
 the `Acyclic` sentence and gained a Cycles section that breaks a cycle by
 clearing its back edge; §2's "gain the ArcWeak one" moves to W4, since
-`ArcWeak` does not exist before it. The other phases have not started.
+`ArcWeak` does not exist before it. **W3 is implemented (2026-10-27,
+`feat/w3-weak`):** `Weak(T)` in the prelude, the weak count and dead bit in
+the `Rc` header, the two free paths and the collector's weak-held cells
+("As built" notes in §3.2 and §3.4). It landed before V2c (lookahead D15's
+soft dependency): a `Weak` has a `Drop`, so it is explicit-copy without
+V2c's rule (the probe: `~/Workspace/Yo-wt/vbd-logs/w3/PROBE.md`). The other
+phases have not started.
 
 ## 0. Verdict
 
@@ -190,6 +196,23 @@ header grows; the memory-reduction ratchet (`EVALUATOR_MEMORY_REDUCTION.md`)
 is untouched. The `Arc` header's counts are atomic and gain the same field
 with atomic access. Open question 3 records the 32-bit alternative.
 
+**As built (W3).** Bit 15 of the 16 is the dead flag, so the count saturates
+at 32767, not 65535: `weak_count()` reports `usize.MAX` there, and the cell
+is never freed. The flag lives in the count's own word, not in `gc_flags`,
+for two reasons: the lightweight runtime's header has no `gc_flags` byte
+(`type_id` sits there), and W4's atomic form needs the flag and the count in
+one atomic word, so that exactly one side frees. The strong side, after the
+payload's drop, sets the flag and frees iff the count it reads back is 0; a
+`Weak` release frees iff the word it leaves is the flag alone. "No borrow
+marks on an `Rc`" was proved and then made structural ("guard first",
+lookahead §5 PR 4): four codegen sites could still mark or check a counted
+cell's `borrow_count` (a borrowed `for` guard, an interior `&` argument, the
+method-entry assert on a parameter the body may mutate, and the
+realloc/free assert inside a method), and the seed's code for
+`Rc.downgrade` itself carried the entry assert, which would have panicked
+on a second `downgrade`. Each site now skips `is_counted_cell_type` (`Rc`
+and `Arc` cells, `src/types/guards.yo`); `tests/rc.test.yo` pins it.
+
 ### 3.3 Semantics (Rust's)
 
 - `downgrade`: `weak += 1`, returns a handle to the same allocation.
@@ -229,6 +252,21 @@ with atomic access. Open question 3 records the 32-bit alternative.
   an `upgrade` of a black one succeeds and is an ordinary strong handle.
   The resurrection re-check (`CYCLE_COLLECTION.md`, PEP 442) is unchanged:
   it looks at strong counts, which `upgrade` on a dead cell never raises.
+
+**As built (W3).** `upgrade` succeeds iff the strong count is non-zero and
+the dead flag is clear, in both runtimes. No user code runs before the
+dispose pass, every live cell's count is restored by then, and every white
+cell's count is 0, so the count gives §3.4's answers without a separate
+pre-dispose mark: a white sibling upgrades to `.None`, a black one
+succeeds. The one difference from marking every white cell dead first is a
+white cell that a `Drop` in the same pass resurrects with a strong store:
+its count is then non-zero, so an `upgrade` of it succeeds. The collector
+keeps it either way (the resurrection re-check reads the same count), so
+the handle is valid. The free passes (incremental, full and the thread-exit
+sweep) route through `__yo_gc_free_white`: a cell with weak handles left
+loses its `dispose_fn` and tracked flag, gets the dead flag, and stays
+allocated for its last `Weak`. `--debug-heap` reports it as an ordinary
+live block until then (no separate listing).
 
 ### 3.5 With the rest of the model
 

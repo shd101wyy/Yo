@@ -400,7 +400,8 @@ Under `off`:
   its leaks differ.
 - A garbage cycle is never freed, and its cells' `Drop` never runs. To find
   one, build with the fixed-region allocator's leak oracle: the report at exit
-  counts the blocks still live.
+  counts the blocks still live. Close a back edge with a `Weak`
+  ([WEAK.md](./WEAK.md)) instead, and the structure frees itself.
 - `yo test`'s leak verdict sees the same leak. In a run that builds the
   AddressSanitizer test binary, a test that drops a cycle fails with
   `Memory leak detected:`. `YO_TEST_LEAK_VERDICT=0` turns the verdict off
@@ -584,6 +585,8 @@ When implementing `Trace` for a new container, the rules are simply:
 2. Always pass a **pointer to the slot**, never the element by value.
 3. You do not recurse into the elements yourself — `visit` handles whatever a slot holds
    (a managed handle, a value struct, a nested `Option`, …) compositionally.
+4. Never visit a `Weak` ([WEAK.md](./WEAK.md)): it is not an edge, and the auto-derived
+   walk does not visit one either.
 
 ## Comparison with Other Approaches
 
