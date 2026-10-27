@@ -11185,7 +11185,7 @@ export(TryInto);
 __BorrowGuard :: (fn(comptime(C) : Type) -> comptime(Type))(
   ref(
     struct(
-      _c : *(C)
+      _c : *C
     )
   )
 );
@@ -11198,7 +11198,7 @@ impl(
     })
   )
 );
-__borrow_guard :: (fn(generic(C : Type), c : *(C)) -> __BorrowGuard(C))({
+__borrow_guard :: (fn(generic(C : Type), c : *C) -> __BorrowGuard(C))({
   __yo_borrow_acquire(&c.*);
   __BorrowGuard(C)(_c : c)
 });
