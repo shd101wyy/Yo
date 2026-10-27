@@ -559,6 +559,9 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         ty,
         // Recurse into pointer / slice / array.
         Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(_substitute_at(s, &inner, false))),
+        // A reference (a parameter slot) substitutes its pointee; the mode and
+        // the origin are carried (step 2 substitutes origin parameters).
+        Rc(.Reference(r_inner, r_mut, r_origin)) => rc(TypeValueNode.Reference(_substitute_at(s, &r_inner, false), r_mut, r_origin)),
         // The element type substitutes like any other child; the LENGTH is a
         // value binder, resolved from the const-generic side map when the
         // impl's `generic(N : usize)` was bound at match time. Unbound (or

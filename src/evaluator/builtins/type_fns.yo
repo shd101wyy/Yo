@@ -1224,6 +1224,12 @@ evaluate_yo_type_get_info :: (
       cn := _ti_bind_type(&local_env, &pointee_box, ctx);
       String.from("TypeInfo.Ptr(") + cn + String.from(")")
     },
+    Rc(.Reference(ref_pointee, ref_mut, ref_origin)) => {
+      rpn := _ti_bind_type(&local_env, &ref_pointee, ctx);
+      ron := _ti_bind_type(&local_env, &ref_origin, ctx);
+      `TypeInfo.Reference(${rpn}, ${if(ref_mut, "true", "false")}, ${ron})`
+    },
+    Rc(.OriginKind) => String.from("TypeInfo.Origin"),
     Rc(.Array(element_box, length, _)) => {
       cn := _ti_bind_type(&local_env, &element_box, ctx);
       String.from("TypeInfo.Array(") + cn + String.from(", ") + length.to_string() + String.from(")")

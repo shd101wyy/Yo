@@ -611,7 +611,10 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
     Rc(.FutureTraitT(base_name : _)) => TypeTag.TTrait,
     // V6 task 3: a refinement's tag IS its inner's tag (erasure).
     Rc(.RefineT(inner, _)) => type_value_tag(&inner),
-    Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque
+    Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque,
+    Rc(.Reference(_, _, _)) => TypeTag.TReference,
+    Rc(.OriginKind) => TypeTag.TOrigin,
+    Rc(.OriginSet(_, _)) => TypeTag.TOrigin
   )
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:

@@ -425,7 +425,30 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         );
         `refine(${recur(&inner, _d + usize(1), visited)}, ${tag})`
       },
-      Rc(.ExternOpaqueT(eo_nm, _)) => eo_nm.clone()
+      Rc(.ExternOpaqueT(eo_nm, _)) => eo_nm.clone(),
+      // A reference prints without its origin: `type_key` falls back to this
+      // rendering, and origins are kept out of every key (decision 43 step 1).
+      Rc(.Reference(r_pointee, r_mut, _)) => {
+        r_ts := recur(&r_pointee, _d + usize(1), visited);
+        r_sig := if(r_ts.starts_with("fn(") || r_ts.starts_with("ctl("), `(${r_ts})`, r_ts);
+        if(r_mut, `&mut ${r_sig}`, `&${r_sig}`)
+      },
+      Rc(.OriginKind) => `Origin`,
+      Rc(.OriginSet(o_places, o_elided)) => cond(
+        o_elided => `origin(_)`,
+        true => {
+          o_body := String.from("");
+          (oi : usize) = usize(0);
+          while(oi < o_places.len(), {
+            if(oi > usize(0), {
+              o_body = `${o_body}, `;
+            });
+            o_body = `${o_body}${match(o_places.get(oi), .Some(op) => op, .None => String.from(""))}`;
+            oi = (oi + usize(1));
+          });
+          `origin(${o_body})`
+        }
+      )
     )
   )
 );

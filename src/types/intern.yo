@@ -667,6 +667,23 @@ _intern_key_into :: (
       Rc(.ExternOpaqueT(_, eo_c)) => {
         sb.write_str("Ex:");
         sb.write_string(&eo_c);
+      },
+      // The intern table decides node SHARING, so the key carries the
+      // origin: two references that differ only in origin are one type for
+      // `type_key` and every memo, but must stay two nodes for the borrow
+      // checker (decision 43 step 1; every step-1 origin is the elided one).
+      Rc(.Reference(r_pointee, r_mut, r_origin)) => {
+        sb.write_str(if(r_mut, "Ref:m", "Ref:i"));
+        recur(&r_pointee, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        recur(&r_origin, sb, depth + usize(1), visited);
+      },
+      Rc(.OriginKind) => sb.write_str("OrK"),
+      Rc(.OriginSet(o_places, o_elided)) => {
+        sb.write_str("OrS:");
+        _append_b(sb, o_elided);
+        _append_strings(sb, &o_places);
+        sb.write_str(";");
       }
     )
   )

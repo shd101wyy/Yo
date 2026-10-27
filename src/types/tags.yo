@@ -66,7 +66,11 @@ TypeTag :: enum(
   // Dynamic dispatch
   TDyn,
   // An opaque C type (`extern("Yo", X : Type)`, a `c_include` `X : Type`)
-  TExternOpaque
+  TExternOpaque,
+  // `&T` / `&mut T` (decision 43 step 1: a parameter slot)
+  TReference,
+  // The `Origin` kind and its values
+  TOrigin
 );
 derive(TypeTag, Eq(TypeTag), Hash, Clone, Copy);
 /// Short string name for a tag, suitable for diagnostics.
@@ -118,7 +122,9 @@ type_tag_name :: (fn(t : TypeTag) -> String)(
     .TComptimeList => `ComptimeList`,
     .TTypeApplication => `TypeApplication`,
     .TDyn => `Dyn`,
-    .TExternOpaque => `extern opaque`
+    .TExternOpaque => `extern opaque`,
+    .TReference => `Reference`,
+    .TOrigin => `Origin`
   )
 );
 export(TypeTag, type_tag_name);

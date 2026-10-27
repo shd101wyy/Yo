@@ -748,6 +748,16 @@ _compat_impl :: (
       Rc(.Pointer(einner)) => recur(&ainner, &einner, _exact_mode(mode), visited),
       _ => false
     ),
+    // A reference: same mode, and the pointee compared exactly through a
+    // `&mut` (invariant), by `mode` through a `&` (REFERENCES_AND_ORIGINS O3).
+    // The origin is not compared: origins are erased from type identity
+    // (decision 43 step 1). A parameter slot never reaches here — the `Func`
+    // and `FnTraitT` arms compare slot modes and pointees themselves.
+    Rc(.Reference(ar_pointee, ar_mut, _)) => match(
+      expected,
+      Rc(.Reference(er_pointee, er_mut, _)) => ((ar_mut == er_mut) && recur(&ar_pointee, &er_pointee, if(ar_mut, _exact_mode(mode), mode), visited)),
+      _ => false
+    ),
     Rc(.Array(ainner, alen, alvar)) => match(
       expected,
       Rc(.Array(einner, elen, elvar)) => {
