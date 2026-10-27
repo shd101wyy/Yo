@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
-{ evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows } :: import("./begin.yo");
+{ evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows, _subtree_assigns_variable } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
   Pattern,
@@ -429,7 +429,7 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
                 .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level && !rv.is_compile_time_only
                 && !match_scrutinee_is_capture(&rv, env, ctx)
                 && type_holds_counted_handle_ignoring_migration(&rv.ty), {
-                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty);
+                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty, clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx));
                 }),
                 .None => ()
               );
@@ -508,6 +508,26 @@ _record_nested_scrutinee_borrows :: (fn(body : &AstExpr, name : &String, var_id 
         );
       });
     }
+  )
+);
+/// `yo fix --migrate rc-clone`: does any arm of the `match` node `whole`
+/// write `name`, the scrutinee's variable (an assignment, a `&mut` lend, a
+/// `&mut self` call: `_subtree_assigns_variable`)? Then a `&name` scrutinee
+/// would freeze the place the arm writes (E0911), so the migration clones the
+/// scrutinee instead.
+_scrutinee_written_in_arms :: (fn(whole : &AstExpr, name : &String, ctx : &EvalContext) -> bool)(
+  match(
+    whole,
+    .FnCall(_, _, args, _, _) => {
+      (ai : usize) = usize(1);
+      while(ai < args.len(), ai = (ai + usize(1)), {
+        if(_subtree_assigns_variable(&args(ai), name.clone(), ctx), {
+          return(true);
+        });
+      });
+      false
+    },
+    .Atom(_, _) => false
   )
 );
 /// The scrutinee is a projection of a variable: a field chain (`x.f`), a
@@ -715,7 +735,7 @@ _decide_match_mode :: (
         migrate_rc_clone_borrow_scrutinee(
           &scr,
           &ty,
-          clone_scrutinee : (is_atom && match(root, .Some(rv) => rv.is_module_level, .None => false))
+          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false))
         );
       });
       // A plain local the rule would consume: the branch below runs only
@@ -738,7 +758,7 @@ _decide_match_mode :: (
       if((!unmovable && plain_local), {
         match(
           root,
-          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty),
+          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty, clone_scrutinee : _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)),
           .None => ()
         );
       });

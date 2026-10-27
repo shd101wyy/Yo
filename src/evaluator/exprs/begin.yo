@@ -2273,7 +2273,7 @@ _migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(
                 ci = (ci + usize(1));
               });
               if(acc.later, {
-                migrate_rc_clone_borrow_scrutinee(&pb.scr, &pb.ty);
+                migrate_rc_clone_borrow_scrutinee(&pb.scr, &pb.ty, clone_scrutinee : pb.clone_scrutinee);
               });
             },
             .None => ()
@@ -2317,7 +2317,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
-export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows);
+export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows, _subtree_assigns_variable);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(

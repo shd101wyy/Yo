@@ -3605,12 +3605,14 @@ _ic_migrate_site :: (
 /// have to rewrite to a borrow, judged against the declaring block's later
 /// reads at its epilogue (`_migrate_judge_scrutinee_borrows`,
 /// exprs/begin.yo): the scrutinee node (for the rewrite) and its type.
-PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue);
+/// `clone_scrutinee`: an arm writes the scrutinee variable, so the judge
+/// spells its clone instead of `&` (`migrate_rc_clone_borrow_scrutinee`).
+PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue, clone_scrutinee : bool);
 (g_pending_scrutinee_borrows : RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow)))) = RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow))).new(HashMap(usize, ArrayList(PendingScrutineeBorrow)).new());
-record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue) -> unit)({
+record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
   g_pending_scrutinee_borrows.with_mut(m => {
     xs := match(m.get(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new());
-    xs.push(PendingScrutineeBorrow(scr : scr, ty : Rc.clone(ty)));
+    xs.push(PendingScrutineeBorrow(scr : scr, ty : Rc.clone(ty), clone_scrutinee : clone_scrutinee));
     m.insert(var_id, xs);
   });
 });
@@ -3619,10 +3621,13 @@ record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &Typ
 take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScrutineeBorrow))(
   g_pending_scrutinee_borrows.with_mut(m => match(m.remove(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new()))
 );
-/// With `clone_scrutinee` (a module-level binding) and a `Clone` type the
-/// scrutinee's `.clone()` is spelled instead (`clone`): a `match(&G, …)`
-/// binding borrows a module-level place, which may not be live across a call
-/// (E0911), and an arm's `Rc.clone` of the binding is one.
+/// With `clone_scrutinee` and a `Clone` type the scrutinee's clone is spelled
+/// instead (`Rc.clone(x)` / `Arc.clone(x)` / `x.clone()`, `_rc_clone_spelling`):
+/// for a module-level binding, because a `match(&G, …)` binding borrows a
+/// module-level place, which may not be live across a call (E0911) and an
+/// arm's `Rc.clone` of the binding is one; and for a local an arm writes
+/// (`x = Rc.clone(y)` with `y` bound below `&x`), because a `&` borrow freezes
+/// its place while a binding through it is live (E0911).
 migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
   if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
@@ -3646,7 +3651,7 @@ migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone
       capture_label : String.new(),
       ty_value : ty.clone(),
       lacks_clone_at_copy : type_lacks_clone(ty),
-      spelling : if(clone_scrutinee && !type_lacks_clone(ty), String.from("clone"), String.from("borrow")),
+      spelling : if(clone_scrutinee && !type_lacks_clone(ty), _rc_clone_spelling(ty), String.from("borrow")),
       capture_names : String.new()
     )
   );
