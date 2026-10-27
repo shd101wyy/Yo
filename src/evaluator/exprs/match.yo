@@ -708,7 +708,15 @@ _decide_match_mode :: (
         _scrutinee_is_projection(&scr, env)
       );
       if(unmovable, {
-        migrate_rc_clone_borrow_scrutinee(&scr, &ty);
+        // A module-level scrutinee is cloned rather than borrowed: a
+        // `match(&G, …)` binding borrows a module-level place, which may not
+        // be live across a call (E0911, decision 18 rule 3), and the arms'
+        // `Rc.clone` of a binding is such a call.
+        migrate_rc_clone_borrow_scrutinee(
+          &scr,
+          &ty,
+          clone_scrutinee : (is_atom && match(root, .Some(rv) => rv.is_module_level, .None => false))
+        );
       });
       // A plain local the rule would consume: the branch below runs only
       // with the rule on, so the block's epilogue judges the pending borrow

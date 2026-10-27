@@ -2156,6 +2156,14 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
               sites.get(si),
               .Some(site) => {
                 acc := _ic_new_scan();
+                // `yo fix --migrate rc-clone` judges a copy as decision 17's
+                // rule judges the move it would be: a write after the copy
+                // ends the scan, and a loop runs the copy again only when the
+                // next iteration reads the variable before writing it
+                // (`_ic_next_iteration_reads`), so a copy inside a loop whose
+                // variable the loop also reassigns is not a last use when an
+                // iteration reaches a read first.
+                acc.stop_at_write = migrate_rc_clone_on();
                 (ci : usize) = usize(0);
                 while((ci < begin_args.len()) && !acc.later, {
                   match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &acc, ctx), .None => ());
@@ -2252,6 +2260,7 @@ _migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(
             pendings.get(pi),
             .Some(pb) => {
               acc := _ic_new_scan();
+              acc.stop_at_write = true;
               site := ImplicitCopyPending(
                 line : String.new(),
                 module_path : ast_expr_token(&pb.scr).module_path.*.clone(),
