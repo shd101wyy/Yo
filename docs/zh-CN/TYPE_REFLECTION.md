@@ -75,7 +75,14 @@ TypeInfo :: enum(
   ComptimeList(element : Type),
   // === 元编程（无字段）===
   Expr,
-  TypeApplication
+  TypeApplication,
+  // === 引用（决策 43）===
+  // `&T`（`mutable = false`）或 `&mut T`，带其来源（`Origin` 类型的值）。
+  // 目前只有函数参数的槽位是引用，而 `ParamInfo.param_type` 报告的是被指向的
+  // 类型，因此用户代码暂时还到达不了这两个变体。
+  Reference(pointee : Type, mutable : bool, origin : Type),
+  // `Origin` 类型：来源值的类型。
+  Origin
 );
 ```
 

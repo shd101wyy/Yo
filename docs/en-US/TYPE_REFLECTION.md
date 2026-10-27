@@ -75,7 +75,15 @@ TypeInfo :: enum(
   ComptimeList(element : Type),
   // === Metaprogramming (fieldless) ===
   Expr,
-  TypeApplication
+  TypeApplication,
+  // === References (decision 43) ===
+  // `&T` (`mutable = false`) or `&mut T`, with its origin (a value of the
+  // `Origin` kind). Today only a function parameter's slot is a reference,
+  // and `ParamInfo.param_type` reports the pointee, so neither variant is
+  // reachable from user code yet.
+  Reference(pointee : Type, mutable : bool, origin : Type),
+  // The `Origin` kind: the type of an origin value.
+  Origin
 );
 ```
 
