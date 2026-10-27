@@ -1032,7 +1032,9 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 /// (`scope_release_set_table`), so `check`, `test`'s evaluation and the LSP
 /// never record or release.
 (mut(g_scope_mode) : usize) = usize(0);
-(mut(g_scope_table) : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
+/// A cell rather than a `mut` global, so a read lends no mutable module-level
+/// binding (E0916).
+(g_scope_table : RefCell(Option(ExprInfoTable))) = RefCell(Option(ExprInfoTable)).new(Option(ExprInfoTable).None);
 (mut(g_scope_depth) : usize) = usize(0);
 (g_scope_log_infos : RefCell(ArrayList(ExprInfo))) = RefCell(ArrayList(ExprInfo)).new(ArrayList(ExprInfo).new());
 (g_scope_log_ids : RefCell(ArrayList(ExprId))) = RefCell(ArrayList(ExprId)).new(ArrayList(ExprId).new());
@@ -1068,7 +1070,7 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 (mut(g_scope_logged_unreleased) : usize) = usize(0);
 /// Turn the release on for `compile`'s shared table (or off with `.None`).
 scope_release_set_table :: (fn(t : &Option(ExprInfoTable)) -> unit)({
-  g_scope_table = t.clone();
+  _prev_table := g_scope_table.replace(t.clone());
   g_scope_mode = match(t, .Some(_) => g_scope_mode_wanted, .None => usize(0));
 });
 scope_release_active :: (fn() -> bool)(g_scope_mode != usize(0));
@@ -1369,7 +1371,7 @@ _scope_has_id :: (fn(vs : &ArrayList(Variable), id : usize) -> bool)({
 });
 /// What the records say for (`key`, `name`); `husk` is the body's entry env.
 _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -> ArrayList(Variable))({
-  info_opt := match(g_scope_table.clone(), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+  info_opt := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
   match(
     info_opt,
     .Some(info) => match(
@@ -1442,7 +1444,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
   // Released only while the table still holds the object that was released:
   // a later unlogged write replaces it with an info that keeps its env (as
   // release mode would read it).
-  cur_info := match(g_scope_table.clone(), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+  cur_info := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
   still_released := match(
     g_scope_shadow_objs.with(m => m.get(&key)),
     .Some(o) => match(cur_info, .Some(ci) => unsafe(__yo_ptr_eq(&o, &ci)), .None => false),
@@ -1468,7 +1470,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         g_scope_mismatch = (g_scope_mismatch + usize(1));
         pk := match(g_scope_path, usize(1) => "sv", usize(2) => "exc", usize(3) => "rec", _ => "fallback");
         tk := if(name.starts_with(String.from("_file_")), "temp", "named");
-        kinfo := match(g_scope_table.clone(), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+        kinfo := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
         has_cf := match(kinfo, .Some(ki) => has_any_control_flow(ki.control_flow), .None => false);
         has_vn := match(kinfo, .Some(ki) => ki.variable_name.is_some(), .None => false);
         has_pc := match(kinfo, .Some(ki) => (ki.path_collection.len() > usize(0)), .None => false);
