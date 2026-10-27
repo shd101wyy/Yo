@@ -393,7 +393,7 @@ test("move-only: an assignment statement drops the old value at the assignment",
 });
 // A value moved and then reassigned in every arm that continues is
 // initialized where the arms meet; reassigned in only some, it stays moved
-// (issues/2026-10-27-a-value-reassigned-in-every-arm-after-a-move-is-still-moved.md).
+// (issues/fixed/2026-10-27-a-value-reassigned-in-every-arm-after-a-move-is-still-moved.md).
 _mo_reinit_every_arm :: (fn(c : bool) -> i32)({
   mut(x) := _MoFd(n : i32(1));
   y := x;
@@ -406,7 +406,10 @@ _mo_reinit_every_arm :: (fn(c : bool) -> i32)({
 });
 _mo_reinit_after_moving_arm :: (fn(c : bool) -> i32)({
   mut(x) := _MoFd(n : i32(1));
-  k := if(c, { y := x; y.n }, i32(0));
+  k := if(c, {
+    y := x;
+    y.n
+  }, i32(0));
   if(c, {
     x = _MoFd(n : i32(4));
   }, {
@@ -959,6 +962,21 @@ test("a move inside an operator's operand moves once", {
   e := _MoFd(n : i32(1));
   assert((i32(1) + _mo_take(e)) == i32(2), "inside an assert's condition");
   assert(g_mo_disposed == (before + i32(2)), "each value disposed once, by the callee");
+});
+// issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md:
+// `!`, unary `-` and `not` pick among their `Call` candidates by trial-calling
+// each one on the operand, which recorded the operand's move, and the real
+// evaluation then reported E0901 at the move itself.
+_mo_not_three :: (fn(o : Option(_MoFd)) -> bool)(!match(o, .Some(f) => (f.n == i32(3)), .None => false));
+_mo_neg_n :: (fn(o : Option(_MoFd)) -> i32)(-match(o, .Some(f) => f.n, .None => i32(0)));
+test("a move inside a unary operator's operand moves once", {
+  before := g_mo_disposed;
+  assert(_mo_not_three(.Some(_MoFd(n : i32(4)))), "`!` ran its operand once");
+  assert(!_mo_not_three(.Some(_MoFd(n : i32(3)))), "and negated it");
+  assert(_mo_neg_n(.Some(_MoFd(n : i32(6)))) == i32(-6), "unary `-` ran its operand once");
+  o := Option(_MoFd).Some(_MoFd(n : i32(1)));
+  assert(not(match(o, .Some(f) => (f.n == i32(2)), .None => false)), "`not` too");
+  assert(g_mo_disposed == (before + i32(4)), "each value disposed once, by its arm");
 });
 // issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md:
 // Aliasing Stage 0 gave the element a caller-owned "+1" for a callee that is

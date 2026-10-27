@@ -1649,7 +1649,16 @@ _trial_call_overload_candidate :: (
   });
   cloned_call := clone_expr_fresh_ids(call_expr);
   clone_hi := next_global_expr_id();
+  // The trial evaluates the arguments in the caller's environment, and the
+  // real call evaluates them again: a move the trial records
+  // (`!match(o, …)` consumes `o`) would make that second evaluation a use of
+  // a moved value (E0901), so every binding's move state is put back
+  // (issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md).
+  saved_vars := ArrayList(Variable).new();
+  saved_moves := ArrayList(Option(Token)).new();
+  _save_move_states(callee_env, &mut saved_vars, &mut saved_moves);
   _run_overload_trial(fn_val, fn_ty, &cloned_call, func_expr, &cloned_args, callee_env, ctx, ok_out);
+  _restore_move_states(&saved_vars, &saved_moves);
   // Only the verdict survives the trial: the clones' own metadata is dead
   // either way (the real call evaluates the originals). Specializations the
   // trial created have ids past `clone_hi` and stay.
@@ -6934,6 +6943,14 @@ _try_eval_operand_type :: (
   // (issues/fixed/a-move-inside-an-overloaded-operators-operand-is-a-use-after-move.md).
   saved_vars := ArrayList(Variable).new();
   saved_moves := ArrayList(Option(Token)).new();
+  _save_move_states(env, &mut saved_vars, &mut saved_moves);
+  _probe_operand_type(arg, env, ctx, out);
+  _restore_move_states(&saved_vars, &saved_moves);
+});
+/// Record every binding of `env` with its move state (`consumed_at_token`),
+/// for `_restore_move_states` to put back after a probe or a trial that
+/// evaluates an expression the real call evaluates again.
+_save_move_states :: (fn(env : &Environment, saved_vars : &mut ArrayList(Variable), saved_moves : &mut ArrayList(Option(Token))) -> unit)({
   (fi : usize) = usize(0);
   while(fi < env.frames.len(), fi = (fi + usize(1)), {
     match(
@@ -6954,7 +6971,8 @@ _try_eval_operand_type :: (
       .None => ()
     );
   });
-  _probe_operand_type(arg, env, ctx, out);
+});
+_restore_move_states :: (fn(saved_vars : &ArrayList(Variable), saved_moves : &ArrayList(Option(Token))) -> unit)({
   (ri : usize) = usize(0);
   while(ri < saved_vars.len(), ri = (ri + usize(1)), {
     match(
