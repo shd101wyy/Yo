@@ -140,7 +140,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, set_migrate_rc_clone, take_migrate_mut_scrutinees, explicit_copy_type_is_collection, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, take_copying_accessor_sites } :: import("./evaluator/utils.yo");
+{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, set_migrate_rc_clone, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, explicit_copy_type_is_collection, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, take_copying_accessor_sites } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -4011,7 +4011,6 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
   });
   set_migrate_rc_clone(false);
   sites := take_explicit_copy_sites();
-  mut_scrutinees := take_migrate_mut_scrutinees();
   skipped_tests := take_skipped_test_bodies();
   // The sharing guards' tables are not read here: drain them.
   _writes := take_copy_writes();
@@ -4141,7 +4140,7 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
             // A consuming `match` on a place the rule cannot move: match
             // through a borrow.
             // An arm writes through one of the match's bindings: `&mut`.
-            sigil := if(mut_scrutinees.contains(`${canon}:${st.row.to_string()}:${st.col.to_string()}`), String.from("&mut "), String.from("&"));
+            sigil := if(migrate_mut_scrutinee_at(`${canon}:${st.row.to_string()}:${st.col.to_string()}`), String.from("&mut "), String.from("&"));
             bare_b := _parse_or_none(`${sigil}${cand}`, file.clone());
             wrapped_b := _parse_or_none(`${sigil}(${cand})`, file.clone());
             (parens_b : bool) = match(
@@ -4371,6 +4370,7 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
   });
   verb := if(dry_run, String.from("would insert"), String.from("inserted"));
   tests_note := if(n_skipped_tests > usize(0), `; ${n_skipped_tests.to_string()} test body(ies) did not evaluate (listed above)`, String.new());
+  clear_migrate_mut_scrutinees();
   borrows_note := if(n_borrows > usize(0), ` and ${n_borrows.to_string()} \`&\` before a \`match\` scrutinee`, String.new());
   println(`fix: ${verb} ${n_inserted.to_string()} clone(s) and ${n_captures.to_string()} capture list(s)${borrows_note}; ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {

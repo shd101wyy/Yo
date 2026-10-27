@@ -3625,13 +3625,11 @@ note_migrate_mut_scrutinee :: (fn(scr : &AstExpr) -> unit)({
   key := `${canonical_module_path(&lt.module_path.*)}:${lt.row.to_string()}:${lt.column.to_string()}`;
   g_migrate_mut_scrutinees.with_mut(s => s.insert(key));
 });
-take_migrate_mut_scrutinees :: (fn() -> HashSet(String))(
-  g_migrate_mut_scrutinees.with_mut(s => {
-    out := s.clone();
-    s.clear();
-    out
-  })
-);
+/// Whether `key` (`<canonical module>:<row>:<col>`) is such a position.
+migrate_mut_scrutinee_at :: (fn(key : &String) -> bool)(g_migrate_mut_scrutinees.with(s => s.contains(key.clone())));
+clear_migrate_mut_scrutinees :: (fn() -> unit)({
+  g_migrate_mut_scrutinees.with_mut(s => s.clear());
+});
 /// Remove and return the pending scrutinee borrows of `var_id` (an empty
 /// list when it has none): the caller judges them once.
 take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScrutineeBorrow))(
@@ -7949,7 +7947,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   out
 });
 export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args);
-export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, take_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
+export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
   LocalBorrowInfo,
