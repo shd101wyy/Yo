@@ -268,6 +268,15 @@ loses its `dispose_fn` and tracked flag, gets the dead flag, and stays
 allocated for its last `Weak`. `--debug-heap` reports it as an ordinary
 live block until then (no separate listing).
 
+Neither walk follows a `Weak`: its one field is `?*V`, the cell's address
+typed by the payload (so a `Weak(RefCell(Self))` field's `Self` is fixed up
+with its declaration), which `traverse_fn` does not visit, and the type-level
+cycle walk skips it by name (`is_weak_handle_type`; the constructor stamps
+`Weak(…)` as it stamps `Box(…)`). `tests/cycle_collector.test.yo` pins the
+CollectWhite row on a cycle closed through a `ref(struct)`: an
+`Rc(RefCell(Node))` cycle is not collected at all yet
+(`issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`).
+
 ### 3.5 With the rest of the model
 
 - **Ownership.** `Weak` is an explicit-copy value (V2c's rule for handles),
