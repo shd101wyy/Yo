@@ -101,6 +101,7 @@ TlsError :: enum(
   /// operation that needed data.
   Closed
 );
+derive(TlsError, Clone);
 /// `_throw_tls` boxes a `TlsError` into an `AnyError` (`Dyn(Error)`), which
 /// requires the `Error` marker — D1's "an error type is a real enum
 /// implementing `Error()`" — so this derive supplies it alongside the
@@ -123,7 +124,7 @@ _ssl_err_string :: (fn() -> String)({
   String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown TLS error`.to_string())
 });
 _throw_tls :: (fn(err : &TlsError, exn : Exception) -> unit)(
-  exn.throw(dyn(err))
+  exn.throw(dyn(err.clone()))
 );
 /// The socket and the OpenSSL objects behind a `TlsStream`'s `Box`. Its
 /// `Drop` releases both unless `close`/`close_sync` already did: a
@@ -217,13 +218,14 @@ impl(
   /// Connect to `host:port` and complete a TLS handshake. Certificate
   /// verification and hostname checking are ON (the system trust store via
   /// `SSL_CTX_set_default_verify_paths`); SNI is sent.
-  connect : (fn(host : &String, port : u16, io : Io) -> Impl(Future(TlsStream, IoExn)))(
+  connect : (fn(host : &String, port : u16, io : Io) -> Impl(Future(TlsStream, IoExn)))({
+    __probe_host := host.clone();
     io.async(e => {
       // 1. TCP.
-      addrs := e.io.await(lookup_host(host, e.io), e);
+      addrs := e.io.await(lookup_host(&__probe_host, e.io), e);
       cond(
         (addrs.len() == usize(0)) => {
-          _throw_tls(TlsError.Connect(host : host.clone()), e.exn);
+          _throw_tls(TlsError.Connect(host : __probe_host.clone()), e.exn);
         },
         true => ()
       );
@@ -231,7 +233,7 @@ impl(
       tcp := e.io.await(TcpStream.connect(addr, e.io), e);
       // 2. Backend objects (verify + trust store + SNI + hostname pin are
       // configured inside __yo_tls_ssl_new).
-      host_c := match(host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+      host_c := match(__probe_host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       ctx_opt := unsafe(__yo_tls_ctx_new());
       if(ctx_opt.is_none(), {
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
@@ -283,7 +285,7 @@ impl(
       });
       return(s);
     })
-  ),
+  }),
   /// The record pumps' handles (see `_TlsIo`).
   _io : (fn(self : &Self) -> _TlsIo)(
     _TlsIo(_fd : self._cell._tcp.fd(), _ssl : self._cell._ssl, _rbio : self._cell._rbio, _wbio : self._cell._wbio)

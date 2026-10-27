@@ -761,7 +761,7 @@ impl(
   /// brackets, so the result stays unambiguous (`[::1]:8080`).
   host_port : (fn(self : &Self) -> Option(String))(
     match(
-      self._host,
+      &self._host,
       .None => .None,
       .Some(h) =>
         match(
@@ -781,7 +781,7 @@ impl(
   /// scheme rather than the opaque `"null"` that HTML specifies.
   origin : (fn(self : &Self) -> String)(
     match(
-      self._host,
+      &self._host,
       .None => self._scheme.clone(),
       .Some(h) =>
         match(
@@ -1037,10 +1037,10 @@ _merge_paths :: (fn(base : &Url, ref_path : &String) -> String)(
 /// The base's authority as RFC 3986 spells it — `[userinfo@]host[:port]`.
 _authority_of :: (fn(u : &Url) -> Option(String))(
   match(
-    u._host,
+    &u._host,
     .None => Option(String).None,
     .Some(h) => {
-      a := match(u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h.clone());
+      a := match(&u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h.clone());
       Option(String).Some(match(u._port, .Some(p) => `${a}:${p}`, .None => a))
     }
   )
@@ -1071,11 +1071,11 @@ impl(
     // authority is validated by the one parser rather than a second copy.
     out := StringBuilder.new();
     match(
-      r.scheme,
+      &r.scheme,
       .Some(sch) => {
         out.write_string(`${sch}:`);
         match(
-          r.authority,
+          &r.authority,
           .Some(a) => {
             out.write_string(`//${a}`);
           },
@@ -1086,7 +1086,7 @@ impl(
       .None => {
         out.write_string(`${self._scheme}:`);
         match(
-          r.authority,
+          &r.authority,
           .Some(a) => {
             out.write_string(`//${a}`);
             out.write_string(_remove_dot_segments(&r.path));
@@ -1118,7 +1118,7 @@ impl(
     // from the base only for the one case §5.3 singles out: an empty
     // reference with no query of its own.
     eff_query := match(
-      r.query,
+      &r.query,
       .Some(q) => Option(String).Some(q.clone()),
       .None => cond(
         (r.scheme.is_none() && r.authority.is_none() && (r.path.len() == usize(0))) => self._query.clone(),
@@ -1135,7 +1135,7 @@ impl(
     // The fragment is ALWAYS the reference's — a base fragment never carries
     // over, which is why `join("")` drops it.
     match(
-      r.fragment,
+      &r.fragment,
       .Some(f) => {
         out.write_string(`#${f}`);
       },
@@ -1186,7 +1186,7 @@ impl(
   /// Order and duplicates are preserved: `?a=1&a=2` is two pairs.
   query_pairs : (fn(self : &Self) -> ArrayList(Tuple(String, String)))({
     out := ArrayList(Tuple(String, String)).new();
-    q := match(self._query, .Some(v) => v.clone(), .None => String.new());
+    q := match(&self._query, .Some(v) => v.clone(), .None => String.new());
     if(q.len() == usize(0), {
       return(out);
     });
@@ -1219,11 +1219,11 @@ impl(
       self -> {
         mut(result) := `${self._scheme}:`;
         match(
-          self._host,
+          &self._host,
           .Some(h) => {
             result = result.concat(`//`);
             match(
-              self._userinfo,
+              &self._userinfo,
               .Some(ui) => {
                 result = result.concat(&ui).concat(`@`);
               },
@@ -1242,14 +1242,14 @@ impl(
         );
         result = result.concat(&self._path);
         match(
-          self._query,
+          &self._query,
           .Some(q) => {
             result = result.concat(`?`).concat(&q);
           },
           .None => ()
         );
         match(
-          self._fragment,
+          &self._fragment,
           .Some(f) => {
             result = result.concat(`#`).concat(&f);
           },

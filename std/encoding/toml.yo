@@ -257,6 +257,7 @@ TomlValue :: enum(
   /// A TOML table, keys in insertion order.
   Table(keys : ArrayList(String), values : ArrayList(Self))
 );
+derive(TomlValue, Clone);
 impl(
   TomlValue,
   /// Create a new empty table.
@@ -276,7 +277,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(Option(TomlValue).Some(values(i)));
+              return(Option(TomlValue).Some(values(i).clone()));
             },
             true => ()
           );
@@ -306,7 +307,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              old := values(i);
+              old := values(i).clone();
               values(i) = value;
               return(Option(TomlValue).Some(old));
             },
@@ -366,7 +367,7 @@ impl(
   ),
   /// Extract the array items, or `.None` if not an `Array`.
   as_array : (fn(self : &Self) -> Option(ArrayList(TomlValue)))(
-    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items), _ => Option(ArrayList(TomlValue)).None)
+    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items.clone()), _ => Option(ArrayList(TomlValue)).None)
   ),
   /// True for a TOML string.
   is_string : (fn(self : &Self) -> bool)(
@@ -474,7 +475,7 @@ impl(
   _Parser,
   new : (fn(src : &ArrayList(u8)) -> Self)({
     p := Self(
-      src : src,
+      src : src.clone(),
       pos : usize(0),
       cur : ArrayList(_Step).new(),
       cur_path : String.new(),
@@ -2666,7 +2667,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
     .Table(keys, values) => {
       mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
-        v := values(i);
+        v := values(i).clone();
         cond(
           (v.is_table() || _is_array_of_tables(&v)) => (),
           true => {
@@ -2679,7 +2680,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
       });
       mut(j) := usize(0);
       while(j < keys.len(), j = (j + usize(1)), {
-        v2 := values(j);
+        v2 := values(j).clone();
         key_text := _key_string(&keys(j));
         child_prefix := cond(
           prefix.is_empty() => key_text,

@@ -419,7 +419,7 @@ _spawn_with_fds :: (
   // as `storage`: it must be an Rc value the capture struct can own, and it
   // must stay alive until the spawn call reads it.
   cwd_cstr := match(
-    self._cwd,
+    &self._cwd,
     .Some(cd) => Option(ArrayList(u8)).Some(cd.to_cstr()),
     .None => Option(ArrayList(u8)).None
   );
@@ -505,7 +505,7 @@ _spawn_with_fds :: (
     });
     (mut(cwd_ptr) : ?*u8) = .None;
     match(
-      cwd_cstr,
+      &cwd_cstr,
       .Some(cc) => {
         cwd_ptr = cc.ptr();
       },
