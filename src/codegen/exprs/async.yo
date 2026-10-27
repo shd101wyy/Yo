@@ -3016,7 +3016,7 @@ _make_sm_captured_variable :: (fn(id : &String, name : &String, ty : &TypeValue,
 /// without mutating the source map.
 _copy_string_map :: (fn(src : &HashMap(String, String)) -> HashMap(String, String))({
   out := HashMap(String, String).new();
-  it := src.into_iter();
+  it := src.clone().into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -3230,7 +3230,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(sm_var_map);
   // Merged field aliases: await_future_N + slot_N + closure-param slot fields.
   merged_aliases := _copy_string_map(&await_future_temp_var_aliases);
-  osa_it := overlapping_slot_aliases.into_iter();
+  osa_it := overlapping_slot_aliases.clone().into_iter();
   (ogo : bool) = true;
   while(ogo, {
     match(
