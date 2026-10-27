@@ -1212,7 +1212,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*);
+                result = .Some(__probe_dup(&((data_ptr.add(self._index)).*)));
               },
               true => ()
             );
@@ -1383,7 +1383,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.key);
+                result = .Some(__probe_dup(&((data_ptr.add(self._index)).*.key)));
               },
               true => ()
             );
@@ -1434,7 +1434,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.value);
+                result = .Some(__probe_dup(&((data_ptr.add(self._index)).*.value)));
               },
               true => ()
             );

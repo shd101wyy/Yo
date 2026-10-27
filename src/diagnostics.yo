@@ -670,7 +670,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
       .Some(line) => {
         if(mi == usize(0), {
           match(
-            d.code,
+            &d.code,
             .Some(c) => out.push(`${_colorize(`${prefix}[${c}]`, sev_ansi, color)}: ${line}`),
             .None => out.push(`${_colorize(&prefix, sev_ansi, color)}: ${line}`)
           );
@@ -705,7 +705,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   });
   if(d.help.is_some(), {
     h := match(
-      d.help,
+      &d.help,
       .Some(hh) => hh.clone(),
       .None => String.new()
     );
@@ -713,7 +713,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   });
   if(d.code.is_some(), {
     c := match(
-      d.code,
+      &d.code,
       .Some(cc) => cc.clone(),
       .None => String.new()
     );
@@ -776,7 +776,7 @@ render_diagnostics_short :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
         prefix := _severity_prefix(d.severity);
         head := _first_message_line(&d.message);
         match(
-          d.code,
+          &d.code,
           .Some(c) => out.push(
             `${_display_path(&d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
           ),
@@ -823,7 +823,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("code"));
         vals.push(
           match(
-            d.code,
+            &d.code,
             .Some(c) => JsonValue.Str(value : c.clone()),
             .None => JsonValue.Null
           )
@@ -841,7 +841,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("repair"));
         vals.push(
           match(
-            d.repair,
+            &d.repair,
             .Some(r) => {
               rk := ArrayList(String).new();
               rv := ArrayList(JsonValue).new();
@@ -865,7 +865,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("help"));
         vals.push(
           match(
-            d.help,
+            &d.help,
             .Some(h) => JsonValue.Str(value : h.clone()),
             .None => JsonValue.Null
           )
@@ -911,7 +911,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
     match(
       diagnostics.get(ri),
       .Some(d) => match(
-        d.code,
+        &d.code,
         .Some(c) => {
           (seen : bool) = false;
           (ki : usize) = usize(0);
@@ -960,7 +960,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
         keys := ArrayList(String).new();
         vals := ArrayList(JsonValue).new();
         match(
-          d.code,
+          &d.code,
           .Some(c) => {
             keys.push(String.from("ruleId"));
             vals.push(JsonValue.Str(value : c.clone()));
@@ -1006,7 +1006,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
           vals.push(JsonValue.Array(items : locs));
         });
         match(
-          d.repair,
+          &d.repair,
           .Some(r) => {
             fkeys := ArrayList(String).new();
             fvals := ArrayList(JsonValue).new();
