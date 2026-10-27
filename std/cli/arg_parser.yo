@@ -70,6 +70,7 @@ ArgDef :: ref(
     _required : bool
   )
 );
+impl(ArgDef, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// Result of parsing command-line arguments.
 ParsedArgs :: ref(
   struct(
@@ -149,11 +150,11 @@ impl(
     (mut(result) : Option(String)) = .None;
     while(i < len, i = (i + usize(1)), {
       match(
-        names.get(i),
+        names.get_cloned(i),
         .Some(n) => {
           cond(
             (n == name) => {
-              result = values.get(i);
+              result = values.get_cloned(i);
               i = len;
             },
             true => ()
@@ -198,7 +199,7 @@ impl(
   /// variadic tail. Subcommand names are NOT in this list; they and
   /// everything after them belong to `get_subcommand_args`.
   get_positional_at : (fn(self : &Self, index : usize) -> Option(String))(
-    self._positionals.get(index)
+    self._positionals.get_cloned(index)
   )
 );
 impl(
@@ -237,7 +238,7 @@ impl(
     (mut(result) : Option(usize)) = .None;
     while((i < len) && result.is_none(), i = (i + usize(1)), {
       match(
-        self._subcommand_names.get(i),
+        self._subcommand_names.get_cloned(i),
         .Some(n) => {
           cond(
             (n == name) => {
@@ -332,7 +333,7 @@ impl(
     (mut(result) : Option(usize)) = .None;
     while(i < len, i = (i + usize(1)), {
       match(
-        self._args.get(i),
+        self._args.get_cloned(i),
         .Some(arg_def) => {
           cond(
             ((arg_def._long_name == name) || (arg_def._short_name == name)) => {
@@ -368,7 +369,7 @@ impl(
     len := self._args.len();
     while(i < len, i = (i + usize(1)), {
       match(
-        self._args.get(i),
+        self._args.get_cloned(i),
         .Some(arg_def) => {
           match(
             &arg_def._kind,
@@ -392,7 +393,7 @@ impl(
         mut(j) := usize(0);
         while(j < len, j = (j + usize(1)), {
           match(
-            self._args.get(j),
+            self._args.get_cloned(j),
             .Some(arg_def) => {
               match(
                 &arg_def._kind,
@@ -416,7 +417,7 @@ impl(
         mut(k) := usize(0);
         while(k < len, k = (k + usize(1)), {
           match(
-            self._args.get(k),
+            self._args.get_cloned(k),
             .Some(arg_def) => {
               match(
                 &arg_def._kind,
@@ -466,10 +467,10 @@ impl(
         mut(s) := usize(0);
         while(s < sub_count, s = (s + usize(1)), {
           match(
-            self._subcommand_names.get(s),
+            self._subcommand_names.get_cloned(s),
             .Some(sn) => {
               match(
-                self._subcommand_descriptions.get(s),
+                self._subcommand_descriptions.get_cloned(s),
                 .Some(sd) => {
                   text = text.concat(`  ${sn}\t${sd}\n`);
                 },
@@ -543,7 +544,7 @@ impl(
     (mut(err_msg) : Option(String)) = .None;
     while((idx < args_len) && err_msg.is_none(), {
       match(
-        args.get(idx),
+        args.get_cloned(idx),
         .Some(current_arg) => {
           cond(
             ((current_arg == `--help`) || (current_arg == `-h`)) => {
@@ -554,7 +555,7 @@ impl(
                 self._find_arg_index(&current_arg),
                 .Some(arg_idx) => {
                   match(
-                    self._args.get(arg_idx),
+                    self._args.get_cloned(arg_idx),
                     .Some(def) => {
                       match(
                         &def._kind,
@@ -566,7 +567,7 @@ impl(
                           cond(
                             (idx < args_len) => {
                               match(
-                                args.get(idx),
+                                args.get_cloned(idx),
                                 .Some(val) => {
                                   parsed._option_names.push(def._long_name.clone());
                                   parsed._option_values.push(val);
@@ -604,9 +605,9 @@ impl(
                         self._subcommand_parsers.get(sub_idx),
                         .Some(sub_parser) => {
                           // Build new args list: [program_name, ...remaining args after subcommand name].
-                          sub_args := ArrayList(String).new();
+                          mut(sub_args) := ArrayList(String).new();
                           match(
-                            args.get(usize(0)),
+                            args.get_cloned(usize(0)),
                             .Some(prog) => {
                               sub_args.push(prog);
                             },
@@ -617,7 +618,7 @@ impl(
                           mut(j) := (idx + usize(1));
                           while(j < args_len, j = (j + usize(1)), {
                             match(
-                              args.get(j),
+                              args.get_cloned(j),
                               .Some(a) => {
                                 sub_args.push(a);
                               },
@@ -654,7 +655,7 @@ impl(
                   mut(p_count) := usize(0);
                   while(p_idx < arg_defs_len, p_idx = (p_idx + usize(1)), {
                     match(
-                      self._args.get(p_idx),
+                      self._args.get_cloned(p_idx),
                       .Some(p_def) => {
                         match(
                           &p_def._kind,
@@ -697,7 +698,7 @@ impl(
     mut(def_i) := usize(0);
     while(def_i < arg_defs_len, def_i = (def_i + usize(1)), {
       match(
-        self._args.get(def_i),
+        self._args.get_cloned(def_i),
         .Some(def) => {
           match(
             &def._kind,
