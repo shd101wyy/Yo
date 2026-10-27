@@ -3556,14 +3556,14 @@ _ic_in_generic :: (fn(ctx : &EvalContext, ty : &TypeValue) -> bool)(
 _rc_clone_spelling :: (fn(ty : &TypeValue) -> String)({
   inner := t_refine_inner(ty);
   prelude := if(is_arc_type(&inner), String.from("Arc"), String.from("Rc"));
-  ctor := match(
-    &inner,
-    Rc(.Struct({ name })) => match(name.index_of(&String.from("(")), .Some(i) => name.substring(usize(0), i), .None => name.clone()),
-    _ => prelude.clone()
-  );
+  // The constructor as the type is written (`TRc(i32)` -> `TRc`): a newtype
+  // handle's stamped `name` may be empty, its display is not.
+  shown := type_to_string(&inner);
+  ctor := match(shown.index_of(&String.from("(")), .Some(i) => shown.substring(usize(0), i), .None => shown.clone());
+  plain_ctor := (!ctor.is_empty() && !ctor.contains(&String.from(" ")) && !ctor.contains(&String.from("<")));
   cond(
     is_counted_handle_value_type(&inner) => cond(
-      ((ctor == "Rc") || (ctor == "Arc") || ctor.is_empty()) => prelude,
+      ((ctor == "Rc") || (ctor == "Arc") || !plain_ctor) => prelude,
       type_lacks_clone(ty) => String.from("derive"),
       true => ctor
     ),

@@ -2262,6 +2262,54 @@ _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, 
 _is_word_rune :: (fn(r : rune) -> bool)(
   r.is_digit() || (r.char == u32(0x5F)) || ((r.char >= u32(0x41)) && (r.char <= u32(0x5A))) || ((r.char >= u32(0x61)) && (r.char <= u32(0x7A))) || (r.char > u32(0x7F))
 );
+/// `runes[start, end)` is a whole entry of a brace group, a record's or a
+/// capture list's shorthand field `x` (`{ x }`, `{ a, x }`): the entry names
+/// the field and its source together, so `yo fix --migrate rc-clone` spells
+/// its clone `x : Rc.clone(x)`. The entry is an identifier between a `{` or
+/// `,` and a `}` or `,`, and the innermost bracket around it is a `{`.
+_is_brace_shorthand_entry :: (fn(runes : &ArrayList(rune), start : usize, end : usize) -> bool)({
+  if((start >= end) || (end > runes.len()) || runes(start).is_digit(), {
+    return(false);
+  });
+  (k : usize) = start;
+  while(k < end, k = (k + usize(1)), {
+    if(!_is_word_rune(runes(k)), {
+      return(false);
+    });
+  });
+  (b : usize) = start;
+  while((b > usize(0)) && runes(b - usize(1)).is_whitespace(), {
+    b = (b - usize(1));
+  });
+  if((b == usize(0)) || !((runes(b - usize(1)).char == u32(0x7B)) || (runes(b - usize(1)).char == u32(0x2C))), {
+    return(false);
+  });
+  (a : usize) = end;
+  while((a < runes.len()) && runes(a).is_whitespace(), {
+    a = (a + usize(1));
+  });
+  if((a >= runes.len()) || !((runes(a).char == u32(0x7D)) || (runes(a).char == u32(0x2C))), {
+    return(false);
+  });
+  (depth : i64) = i64(0);
+  (j : usize) = start;
+  while(j > usize(0), j = (j - usize(1)), {
+    c := runes(j - usize(1)).char;
+    cond(
+      ((c == u32(0x29)) || (c == u32(0x5D)) || (c == u32(0x7D))) => {
+        depth = (depth + i64(1));
+      },
+      ((c == u32(0x28)) || (c == u32(0x5B)) || (c == u32(0x7B))) => {
+        if(depth == i64(0), {
+          return(c == u32(0x7B));
+        });
+        depth = (depth - i64(1));
+      },
+      true => ()
+    );
+  });
+  false
+});
 /// The rune span `[col, end)` of `line` that is the `&x` expression the
 /// evaluator printed as `expect`, or `.None`. Grammar-agnostic: every end on
 /// the line where the brackets balance is parsed, and the first whose AST
@@ -4167,7 +4215,11 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
           while(k < end, k = (k + usize(1)), {
             cand.push_rune(runes(k));
           });
-          label_prefix := if(st.capture_label.is_empty(), String.new(), `${st.capture_label} : `);
+          label_prefix := cond(
+            !st.capture_label.is_empty() => `${st.capture_label} : `,
+            _is_brace_shorthand_entry(&runes, start, end) => `${cand} : `,
+            true => String.new()
+          );
           if((st.spelling == "borrow") || st.spelling.starts_with("marker"), {
             // A consuming `match` on a place the rule cannot move: match
             // through a borrow.
