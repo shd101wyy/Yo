@@ -16,7 +16,7 @@
 {
   AstExpr,
   ExprId,
-  ast_expr_token,
+  ast_expr_token, ast_expr_text,
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_fn_call_of,
@@ -297,7 +297,7 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, e
             );
             nm := match(
               ba.get(usize(0)),
-              .Some(n0) => ast_expr_token(&n0).value,
+              .Some(n0) => ast_expr_text(&n0),
               .None => String.new()
             );
             rhs := match(
@@ -700,7 +700,7 @@ _evaluate_spec_collection :: (
   // append / singles / add / str_bytes) take the FIRST argument's type
   // (Seq(T)/Set(T)/Multiset(T) are erased aliases); counts are i64;
   // contains is bool; nth is u8 (str-content iteration).
-  head := ast_expr_token(expr).value;
+  head := ast_expr_text(expr);
   arg1_ty := t_bool();
   match(
     args.get(usize(0)),
@@ -914,7 +914,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     );
     bn := match(
       ba.get(usize(0)),
-      .Some(n0) => ast_expr_token(&n0).value,
+      .Some(n0) => ast_expr_text(&n0),
       .None => String.from("_")
     );
     binder_names.push(bn.clone());
@@ -2628,7 +2628,7 @@ _arg1_string_atom :: (fn(a : &ArrayList(AstExpr)) -> String)(
   match(
     a.get(usize(1)),
     .Some(m_arg) => cond(
-      ast_expr_is_atom(&m_arg) => ast_expr_token(&m_arg).value,
+      ast_expr_is_atom(&m_arg) => ast_expr_text(&m_arg),
       true => String.new()
     ),
     .None => String.new()
@@ -2768,7 +2768,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
     ),
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(&head), {
-        hn := ast_expr_token(&head).value;
+        hn := ast_expr_text(&head);
         if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
           return(false);
         });

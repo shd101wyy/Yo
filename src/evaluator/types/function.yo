@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 {
   AstExpr,
-  ast_expr_token,
+  ast_expr_token, ast_expr_text,
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_atom,
@@ -1339,7 +1339,7 @@ extract_comptime_parameter_info :: (
   });
   .Some(
     ExtractComptimeResult(
-      ast_expr_token(&name_expr).value,
+      ast_expr_text(&name_expr),
       type_e,
       ast_expr_token(&name_expr)
     )
@@ -1678,7 +1678,7 @@ evaluate_function_parameter :: (
       if(ast_expr_token(&lhs_mut).value == "mut", {
         exn.throw(dyn(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut")))));
       });
-      label = .Some(ast_expr_token(&lhs_mut).value);
+      label = .Some(ast_expr_text(&lhs_mut));
       label_expr = .Some(lhs_mut);
     },
     .None => ()
@@ -2506,7 +2506,7 @@ apply_single_trait_constraint :: (
   // Resolve LHS to a SomeType
   (some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
   if(ast_expr_is_atom(lhs_expr), {
-    var_name := ast_expr_token(lhs_expr).value;
+    var_name := ast_expr_text(lhs_expr);
     existing_vars := get_variables_from_env(env_mut, &var_name);
     if(existing_vars.len() == usize(0), {
       return(false);
@@ -2697,7 +2697,7 @@ parse_where_clause_constraints :: (
     (is_concrete_type : bool) = false;
     (skip_constraint : bool) = false;
     if(ast_expr_is_atom(&lhs_expr), {
-      var_name := ast_expr_token(&lhs_expr).value;
+      var_name := ast_expr_text(&lhs_expr);
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.last(), .Some(v) => v, .None => return(pending_traits));
@@ -3032,7 +3032,7 @@ prepare_where_clause_variables :: (
     lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     // Ensure LHS variable exists — create SomeType if needed
     if(ast_expr_is_atom(&lhs_expr), {
-      var_name := ast_expr_token(&lhs_expr).value;
+      var_name := ast_expr_text(&lhs_expr);
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() == usize(0), {
         // Create new SomeType for this variable
@@ -3708,7 +3708,7 @@ evaluate_function_parameters :: (
           if(ast_expr_is_fn_call_of(&vlhs_arg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-            vparam_name = ast_expr_token(&vlabel_expr).value;
+            vparam_name = ast_expr_text(&vlabel_expr);
           }, {
             // Inner LHS may be `quote(name)` (literal "quote") or
             // `:(name)` (unary `:`) — both are the unary quote macro,
@@ -3721,11 +3721,11 @@ evaluate_function_parameters :: (
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_token(&vlabel_expr).value;
+              vparam_name = ast_expr_text(&vlabel_expr);
             }, {
               if(ast_expr_is_atom(&vlhs_arg) && is_valid_variable_name(&vlhs_arg), {
                 vlabel_expr = vlhs_arg;
-                vparam_name = ast_expr_token(&vlhs_arg).value;
+                vparam_name = ast_expr_text(&vlhs_arg);
               }, {
                 exn.throw(
                   dyn(
@@ -3760,7 +3760,7 @@ evaluate_function_parameters :: (
           if(ast_expr_is_fn_call_of(&varg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-            vparam_name = ast_expr_token(&vlabel_expr).value;
+            vparam_name = ast_expr_text(&vlabel_expr);
             vparam_type = rc(TypeValueNode.ComptimeListT(t_type()));
           }, {
             // ...(quote(name)) or ...(:(name)) — the unary quote
@@ -3773,12 +3773,12 @@ evaluate_function_parameters :: (
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_token(&vlabel_expr).value;
+              vparam_name = ast_expr_text(&vlabel_expr);
               vparam_type = t_comptime_list(t_expr_t());
             }, {
               if(ast_expr_is_atom(&varg) && is_valid_variable_name(&varg), {
                 vlabel_expr = varg;
-                vparam_name = ast_expr_token(&varg).value;
+                vparam_name = ast_expr_text(&varg);
                 exn.throw(
                   dyn(
                     format_error_message(
@@ -4139,7 +4139,7 @@ evaluate_function_type :: (
         )
       );
     });
-    return_label = .Some(ast_expr_token(&rl_expr).value);
+    return_label = .Some(ast_expr_text(&rl_expr));
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr) or a projection's
     // -> &T / -> &mut T (decision 24).
