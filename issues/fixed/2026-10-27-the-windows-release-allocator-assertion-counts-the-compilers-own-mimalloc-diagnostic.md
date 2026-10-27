@@ -17,3 +17,14 @@ Measured on the 6ec7f5064 tree's stage-2 C: the system-linked rebuild (`-I scrip
 ## Fix
 
 Match only the prefixes mimalloc's own `options.c` emits, `mimalloc: error: ` and `mimalloc: warning: `. The same two binaries count **0** and **2**. No `src/` or `std/` file contains either prefix.
+
+## Why no battery caught it, and the guard added
+
+Every `test.yml` leg builds its compiler mimalloc-flavored, Windows suite legs included. On those binaries the old check passes. The failing case, a system-linked compiler, was built only by `release.yml`.
+
+The check is now one script, `scripts/assert-binary-allocator.sh`, used by both workflows. `test.yml` runs it on both arms in every develop battery:
+
+- the memory-ratchet job checks the mimalloc stage-2 binary (`mimalloc`) and its libc-heap rebuild (`system`);
+- the Windows suite legs check their PE binary (`mimalloc`).
+
+A compiler string that breaks the discrimination now fails a battery instead of a release.
