@@ -463,20 +463,10 @@ collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
     // Snapshot registered struct TypeValues FIRST (collect_type mutates the map;
     // do not call it while iterating context.types.values()).
     snapshot := ArrayList(TypeValue).new();
-    vit := context.types.values();
-    (done : bool) = false;
-    while(!done, {
-      match(
-        vit.next(),
-        .Some(entry) => {
-          if(is_struct_type(&entry.ty), {
-            snapshot.push(entry.ty);
-          });
-        },
-        .None => {
-          done = true;
-        }
-      );
+    for(&context.types, (_tid, entry) => {
+      if(is_struct_type(&entry.ty), {
+        snapshot.push(entry.ty);
+      });
     });
     n := snapshot.len();
     (i : usize) = usize(0);
@@ -711,18 +701,8 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenConte
   while(found_new, {
     found_new = false;
     keys := ArrayList(String).new();
-    kit := context.functions.keys();
-    (kdone : bool) = false;
-    while(!kdone, {
-      match(
-        kit.next(),
-        .Some(k) => {
-          keys.push(k);
-        },
-        .None => {
-          kdone = true;
-        }
-      );
+    for(&context.functions, (k, _v) => {
+      keys.push(k.clone());
     });
     nk := keys.len();
     (ki : usize) = usize(0);
