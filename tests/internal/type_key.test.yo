@@ -69,6 +69,14 @@ test("type_key: a reference slot keys as its spelling, without its origin", {
   assert(type_key(t_slot_pointee(t_i32())) == type_key(t_i32()), "pointee of a by-value slot");
   assert(t_slot_is_mut_ref(t_reference(t_i32(), true)) && !t_slot_is_mut_ref(t_reference(t_i32(), false)), "mut flag");
   assert(t_slot_is_by_value(t_i32()) && !t_slot_is_by_value(t_reference(t_i32(), false)), "by-value flag");
+  // Two references that differ ONLY in their origin share every key: a named
+  // origin (`p`, not elided) keys exactly as the elided one. Step 1 builds no
+  // such origin; this pins the rule before step 2 does.
+  places := ArrayList(String).new();
+  places.push(`p`);
+  named := rc(TypeValueNode.OriginSet(places : shared_list(places), is_elided : false));
+  r_named := rc(TypeValueNode.Reference(pointee : t_i32(), mutable : true, origin : named));
+  assert(type_key(&r_named) == type_key(t_reference(t_i32(), true)), "the origin is not in the key");
   // A fn type prints each parameter's mode from its slot, the pointee after it.
   ps := ArrayList(String).new();
   ps.push(`a`);
