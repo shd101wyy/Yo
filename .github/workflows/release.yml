@@ -844,9 +844,17 @@ jobs:
           # path. Those land in .rdata in any object format. Verified locally:
           # 0 hits for a system-linked binary, 4 for a mimalloc-linked one,
           # with sizes 33 KB vs 315 KB.
-          HITS=$(grep -a -c "mimalloc: " yo-seed.exe || true)
+          #
+          # Match ONLY the prefixes mimalloc's own options.c emits
+          # ("mimalloc: error: ", "mimalloc: warning: "), never the bare
+          # "mimalloc: ": the compiler itself embeds the text of the emitted
+          # C's `#error "--allocator mimalloc: mimalloc.h not found ..."`
+          # (#1600, src/codegen/c/collection.yo), so every yo.exe carries one
+          # "mimalloc: " literal whatever heap it links — v0.2.71's first
+          # release run failed both system-allocator Windows legs on it.
+          HITS=$(grep -a -c -e "mimalloc: error: " -e "mimalloc: warning: " yo-seed.exe || true)
           BYTES=$(wc -c < yo-seed.exe)
-          echo "requested=$ALLOC  'mimalloc: ' literal hits=$HITS  size=$BYTES bytes"
+          echo "requested=$ALLOC  mimalloc message-literal hits=$HITS  size=$BYTES bytes"
           if [ "$ALLOC" = "mimalloc" ]; then
             [ "$HITS" -gt 0 ] || {
               echo "::error::asked for mimalloc but the binary carries no mimalloc literals — static.c is missing from the link line"
