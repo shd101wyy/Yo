@@ -58,10 +58,12 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
 - **The weak count saturates** at 32767 handles to one cell. A saturated cell
   stops counting and is never freed: a leak, never a dangling handle.
   `weak_count()` reports `usize.MAX` then.
-- **`Rc.make_mut`** clones the payload into a fresh cell when a `Weak` names the
-  cell, as when another `Rc` does, so the write never reaches a `Weak`'s later
-  `upgrade` (Rust's "disassociates" the `Weak` handles). `Rc.try_unwrap`
-  succeeds with `Weak` handles alive; they upgrade to `.None` afterwards.
+- **`Rc.try_unwrap`** succeeds with `Weak` handles alive; they upgrade to `.None`
+  afterwards. **`Rc.make_mut`** on the only `Rc` writes in place even when a
+  `Weak` names the cell, so the `Weak`'s later `upgrade` sees the write. Rust's
+  `make_mut` disassociates the `Weak` handles instead; Yo follows once the seed
+  compiler carries the weak-count runtime
+  (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ## What a `Weak` is not
 

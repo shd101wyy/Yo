@@ -3907,12 +3907,9 @@ test("a Weak is explicit-copy: a copy moves it, Weak.clone copies it", {
 });
 _WeakPair :: struct(a : i32, b : i32);
 derive(_WeakPair, Copy, Clone);
-test("Rc.make_mut clones when a Weak names the cell, and try_unwrap leaves the Weak dangling", {
-  mut(b) := rc(_WeakPair(a : i32(1), b : i32(2)));
-  w := Rc.downgrade(&b);
-  Rc.make_mut(&mut b).a = i32(10);
-  assert(b.a == i32(10), "the write landed in a fresh cell");
-  assert(w.upgrade().is_none(), "the Weak's cell lost its last Rc: the write never reaches it");
+// `Rc.make_mut`'s Rust disassociation of `Weak` handles is seed-gated
+// (plans/backlog/SEED_VERSION_AUTOMATION.md, "`make_mut` disassociates `Weak`").
+test("Rc.try_unwrap succeeds with a Weak alive and leaves the Weak dangling", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   c := rc(_WeakPair(a : i32(3), b : i32(4)), alloc : .Some(heap));

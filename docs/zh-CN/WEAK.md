@@ -51,9 +51,10 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
 - **计数与 Rust 的读法一致。** 载荷消失后 `strong_count` 为 0；`weak_count` 包括当前句柄，载荷消失后为 0。
 - **弱计数会饱和**，上限是指向同一单元的 32767 个句柄。饱和的单元停止计数且永不释放：这是泄漏，绝不会
   产生悬垂句柄。此时 `weak_count()` 报告 `usize.MAX`。
-- **`Rc.make_mut`** 在有 `Weak` 指向单元时，与有其他 `Rc` 时一样，先把载荷克隆到新单元，因此写入不会被
-  `Weak` 之后的 `upgrade` 看到（即 Rust 所说的"解除关联" `Weak` 句柄）。`Rc.try_unwrap` 在仍有
-  `Weak` 时也会成功，之后这些 `Weak` 升级为 `.None`。
+- **`Rc.try_unwrap`** 在仍有 `Weak` 时也会成功，之后这些 `Weak` 升级为 `.None`。**`Rc.make_mut`** 作用于唯一的
+  `Rc` 时，即使有 `Weak` 指向该单元也会原地写入，因此该 `Weak` 之后的 `upgrade` 能看到写入。Rust 的 `make_mut`
+  会解除这些 `Weak` 句柄的关联；待种子编译器带上弱计数运行时后 Yo 会跟进
+  （`plans/backlog/SEED_VERSION_AUTOMATION.md`）。
 
 ## `Weak` 不是什么
 

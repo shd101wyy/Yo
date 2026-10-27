@@ -9879,10 +9879,11 @@ impl(
   Rc(T),
   /// The payload, written (a mutable projection): when another handle shares
   /// the cell, `self` first moves to a fresh cell holding a clone of the
-  /// payload, so the write never reaches the other handles. A `Weak` to the
-  /// cell counts as one: its later `upgrade` must not see the write (Rust's
-  /// `make_mut` disassociates the `Weak` handles). Rust's `Rc::make_mut`;
-  /// the clone is spelled in the name (§0.1 of the plan).
+  /// payload, so the write never reaches the other handles. Rust's
+  /// `Rc::make_mut`; the clone is spelled in the name (§0.1 of the plan).
+  /// Unlike Rust's, it does not yet disassociate `Weak` handles: a `Weak` to
+  /// the only `Rc`'s cell sees the write (plans/backlog/SEED_VERSION_AUTOMATION.md,
+  /// "`make_mut` disassociates `Weak`").
   ///
   /// ```yo
   /// a := rc(i32(1));
@@ -9891,8 +9892,7 @@ impl(
   /// assert(a.* == i32(1), "a is unchanged");
   /// ```
   make_mut : (fn(self : &mut Self) -> &mut T)({
-    // SAFETY: an `Rc` handle is the address of its live cell.
-    if((ref_count(self) != usize(1)) || (__yo_rc_weak_weak_count(unsafe(unsafe.cast(self, *void))) != usize(0)), {
+    if(ref_count(self) != usize(1), {
       self = rc(self.*.clone());
     });
     addr_of(self.*)
