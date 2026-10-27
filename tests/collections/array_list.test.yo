@@ -1293,7 +1293,7 @@ test("binary_search_by searches without constructing a T", {
 });
 // ===== chunks / windows =====
 _drain_lens :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := ArrayList(i32)))) -> ArrayList(usize))({
-  out := ArrayList(usize).new();
+  mut(out) := ArrayList(usize).new();
   mut(iter) := it;
   while(true, {
     match(
@@ -1338,7 +1338,7 @@ test("a chunk is a COPY — mutating it does not touch the source", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
-  mut(it) := xs.chunks(usize(2));
+  mut(it) := xs.clone().chunks(usize(2));
   c := match(it.next(), .Some(x) => x, .None => ArrayList(i32).new());
   c(usize(0)) = i32(99);
   assert(xs(usize(0)) == i32(1), "the source list is unchanged");
@@ -1360,7 +1360,7 @@ test("windows are overlapping and always exactly the requested size", {
   while(i < i32(5), i = (i + i32(1)), {
     xs.push(i);
   });
-  lens := _drain_lens(xs.windows(usize(3)));
+  lens := _drain_lens(xs.clone().windows(usize(3)));
   assert(lens.len() == usize(3), "5 elements gives 3 windows of 3");
   assert(lens(usize(0)) == usize(3), "each window is full");
   assert(lens(usize(2)) == usize(3), "including the last");
@@ -1376,8 +1376,8 @@ test("windows at or beyond the length", {
   xs.push(i32(1));
   xs.push(i32(2));
   xs.push(i32(3));
-  assert(_drain_lens(xs.windows(usize(3))).len() == usize(1), "a window the size of the list yields exactly one");
-  assert(_drain_lens(xs.windows(usize(4))).len() == usize(0), "a window longer than the list yields none");
+  assert(_drain_lens(xs.clone().windows(usize(3))).len() == usize(1), "a window the size of the list yields exactly one");
+  assert(_drain_lens(xs.clone().windows(usize(4))).len() == usize(0), "a window longer than the list yields none");
   assert(_drain_lens(xs.windows(usize(1))).len() == usize(3), "windows of one yield one per element");
 });
 // ===== Explicit allocators (plans/archive/EXPLICIT_ALLOCATORS.md P1) =====
@@ -1561,7 +1561,7 @@ test("clone inside a borrowed for does not trip the flag, for a list in an expli
     mut(xs) := ArrayList(i32).new(alloc : .Some(_counting(addr_of(counts))));
     xs.push(i32(1));
     xs.push(i32(2));
-    ys := xs;
+    ys := xs.clone();
     (mut(total) : usize) = usize(0);
     for(&mut xs, x => {
       s := ys.clone();
@@ -1673,12 +1673,12 @@ test("extend consumes the other list; extend_cloned keeps it", {
   // handle keeps its elements (lookahead D21, until B8).
   mut(e) := ArrayList(i32).new();
   e.push(i32(7));
-  shared := e;
-  f := ArrayList(i32).new();
+  shared := e.clone();
+  mut(f) := ArrayList(i32).new();
   f.extend(e);
   assert((f.len() == usize(1)) && (f(usize(0)) == i32(7)), "copied in");
   assert((shared.len() == usize(1)) && (shared(usize(0)) == i32(7)), "the sharing handle keeps its element");
-  g := ArrayList(i32).new();
+  mut(g) := ArrayList(i32).new();
   g.extend(ArrayList(i32).new());
   assert(g.len() == usize(0), "an empty list adds nothing");
 });
