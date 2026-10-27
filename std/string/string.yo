@@ -88,14 +88,14 @@ _release_bytes :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
 /// NOT immutable: every mutator (`push_str`, `push_string`, `push_byte`,
 /// `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`,
 /// `remove`, `pop`) takes `self : &mut Self` and writes in place. `clone()` copies
-/// the bytes (O(n)): the clone is independent of the original. A plain copy
-/// (`t := s`) still shares a non-empty buffer; VALUES_BY_DEFAULT V2b makes it
-/// a move or an error naming `clone()` (plans/STRING_VALUE_SEMANTICS.md §0).
+/// the bytes (O(n)): the clone is independent of the original. A string is a
+/// value (B8, plans/STRING_VALUE_SEMANTICS.md §0): it is the only owner of its
+/// buffer, so a plain `t := s` moves it, and a copy is spelled `s.clone()`.
 /// The bytes are copied (`to_bytes`) or moved (`into_bytes`), never lent.
 /// Operators such as `+` return a new string. For a mutable text buffer that
 /// several owners share, see `StringBuilder` (a reference-semantics type).
 ///
-/// Empty strings use zero allocation (represented as `Option.None` internally).
+/// An empty string allocates nothing (its `ArrayList(u8)` has no buffer yet).
 String :: newtype(
   _bytes : ArrayList(u8)
 );
