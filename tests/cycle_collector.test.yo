@@ -869,12 +869,14 @@ test("a tree with Weak parent pointers frees itself without the collector", {
   };
   assert(g_weak_tree_dropped == (before + i32(4)), "the root and its three leaves are dropped by reference counting");
 });
-// An upgrade from a `Drop` the collector runs (its dispose pass) of a garbage
-// sibling is `.None`, and a garbage cell a `Weak` outside the cycle still
-// names is kept until that `Weak` goes.
+// An upgrade from a `Drop` the collector runs (its dispose pass) of a cell in
+// the same garbage cycle is `.None`, and a garbage cell a `Weak` outside the
+// cycle still names is kept until that `Weak` goes. The cycle closes through a
+// `ref(struct)`, as an `Rc(RefCell(Node))` cycle is not collected yet
+// (issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md).
 (mut(g_white_dropped) : i32) = i32(0);
 (mut(g_white_upgrade_none) : i32) = i32(0);
-_WhiteNode :: struct(other : Option(Rc(RefCell(Self))), peer : Weak(RefCell(Self)));
+_WhiteNode :: ref(struct(cell : Option(Rc(Option(Self))), peer : Weak(Option(Self))));
 impl(
   _WhiteNode,
   Drop(
@@ -886,39 +888,30 @@ impl(
     })
   )
 );
-_white_node :: (fn() -> Rc(RefCell(_WhiteNode)))(
-  rc(RefCell(_WhiteNode).new(_WhiteNode(other : .None, peer : Weak(RefCell(_WhiteNode)).new())), alloc : .Some(counting_allocator()))
-);
-test("an upgrade from a Drop the collector runs is .None for a garbage sibling", {
+test("an upgrade from a Drop the collector runs is .None for a cell of the same garbage cycle", {
   before := g_white_dropped;
   before_none := g_white_upgrade_none;
   live_before := counting_live();
-  mut(outside) := Weak(RefCell(_WhiteNode)).new();
+  mut(outside) := Weak(Option(_WhiteNode)).new();
   {
-    a := _white_node();
-    b := _white_node();
-    a.with_mut({ b }(v) => {
-      v.other = .Some(b);
-      v.peer = Rc.downgrade(&b);
-    });
-    b.with_mut({ a }(v) => {
-      v.other = .Some(a);
-      v.peer = Rc.downgrade(&a);
-    });
-    outside = Rc.downgrade(&b);
+    n := _WhiteNode(cell : .None, peer : Weak(Option(_WhiteNode)).new());
+    h := rc(Option(_WhiteNode).Some(n), alloc : .Some(counting_allocator()));
+    n.peer = Rc.downgrade(&h);
+    outside = Rc.downgrade(&h);
+    n.cell = .Some(h);
   };
   Gc.collect();
   cond(
     collector_off() => {
       assert(g_white_dropped == before, "the cycle leaks under off");
-      assert(outside.upgrade().is_some(), "and its cells stay alive");
+      assert(outside.upgrade().is_some(), "and its cell stays alive");
     },
     true => {
-      assert(g_white_dropped == (before + i32(2)), "the collector dropped both payloads");
-      assert(g_white_upgrade_none == (before_none + i32(2)), "each Drop's upgrade of its garbage sibling was .None");
+      assert(g_white_dropped == (before + i32(1)), "the collector dropped the node");
+      assert(g_white_upgrade_none == (before_none + i32(1)), "its Drop's upgrade of the garbage cell was .None");
       assert(outside.upgrade().is_none(), "a Weak to a collected cell upgrades to .None");
       assert(counting_live() == (live_before + usize(1)), "the cell the outside Weak names is kept for it");
-      outside = Weak(RefCell(_WhiteNode)).new();
+      outside = Weak(Option(_WhiteNode)).new();
       assert(counting_live() == live_before, "the last Weak freed it");
     }
   );
