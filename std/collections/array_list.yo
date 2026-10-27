@@ -216,7 +216,7 @@ impl(
   /// refcounted `T`), so the result is independent of the source.
   slice_copy : (fn(self : &Self, r : Range(usize)) -> Self)({
     e := cond((r.end > self.len()) => self.len(), true => r.end);
-    out := Self.new();
+    mut(out) := Self.new();
     mut(i) := r.start;
     while(i < e, i = (i + usize(1)), {
       match(
@@ -232,7 +232,7 @@ impl(
   /// Inclusive-range companion of `slice_copy` (`list(a..=b)`).
   slice_copy_inclusive : (fn(self : &Self, r : RangeInclusive(usize)) -> Self)({
     last := cond((r.end >= self.len()) => self.len(), true => (r.end + usize(1)));
-    out := Self.new();
+    mut(out) := Self.new();
     mut(i) := r.start;
     while(i < last, i = (i + usize(1)), {
       match(
@@ -257,7 +257,7 @@ impl(
     // At least one slot, so the buffer exists even for `N == 0` and the move
     // below takes no branch (a move on one arm only is E0907 for a
     // move-only `T`).
-    out := Self.with_capacity(cond((N == usize(0)) => usize(1), true => N));
+    mut(out) := Self.with_capacity(cond((N == usize(0)) => usize(1), true => N));
     // The whole array moves into the buffer bitwise — an `Array(T, N)` is `N`
     // contiguous `T`s, the buffer's layout — so no element is copied and none
     // is dropped, and a move-only `T` moves like any other.
@@ -563,7 +563,7 @@ impl(
       __yo_panic("ArrayList.drain: invalid range for this length");
     });
     count := (r.end - r.start);
-    out := Self.new();
+    mut(out) := Self.new();
     cond(
       (count == usize(0)) => out,
       true =>
@@ -893,7 +893,7 @@ impl(
               .None => __yo_panic("ArrayList has length but no ptr"),
               .Some(src_ptr) => {
                 // Create new ArrayList with exact capacity
-                new_list := Self.with_capacity(slice_length);
+                mut(new_list) := Self.with_capacity(slice_length);
                 match(
                   new_list._ptr,
                   .None => .Err(.AllocError(.OutOfMemory)),
@@ -1668,8 +1668,8 @@ _merge_sort_indices :: (
 _stable_sort_by :: (
   fn(generic(T : Type), ptr : &*T, n : usize, less : &Impl(Fn(a : &T, b : &T) -> bool)) -> unit
 )({
-  order := ArrayList(usize).new();
-  scratch := ArrayList(usize).new();
+  mut(order) := ArrayList(usize).new();
+  mut(scratch) := ArrayList(usize).new();
   (mut(k) : usize) = usize(0);
   while(k < n, {
     order.push(k);
@@ -1802,7 +1802,7 @@ impl(
   // allocator).
   _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
     n := self.len();
-    result := Self.with_capacity(n, alloc : alloc);
+    mut(result) := Self.with_capacity(n, alloc : alloc);
     // Each element is cloned in place through the `&T` projection
     // `self(i)`; copying it out first (`self.get(i)`) is E0901 for a
     // move-only `T` (issues/fixed/arraylist-clone-copies-elements-out-through-get.md).
@@ -1903,7 +1903,7 @@ impl(
   /// clamped to `N`, so an over-long range yields a short list.
   slice_copy : (fn(self : &Array(T, N), r : Range(usize)) -> ArrayList(T))({
     e := cond((r.end > N) => N, true => r.end);
-    out := ArrayList(T).new();
+    mut(out) := ArrayList(T).new();
     mut(i) := r.start;
     while(i < e, i = (i + usize(1)), {
       out.push(self(i));
@@ -1913,7 +1913,7 @@ impl(
   /// Inclusive-range companion of `slice_copy` (`arr(a..=b)`).
   slice_copy_inclusive : (fn(self : &Array(T, N), r : RangeInclusive(usize)) -> ArrayList(T))({
     last := cond((r.end >= N) => N, true => (r.end + usize(1)));
-    out := ArrayList(T).new();
+    mut(out) := ArrayList(T).new();
     mut(i) := r.start;
     while(i < last, i = (i + usize(1)), {
       out.push(self(i));
@@ -1933,8 +1933,9 @@ impl(
       ArrayList(T).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &T) -> Self)({
-      acc.push(item);
-      acc
+      mut(out) := acc;
+      out.push(item);
+      out
     })
   )
 );
@@ -2054,7 +2055,7 @@ impl(
   /// (issues/fixed/array-list-retain-is-quadratic.md).
   retain : (fn(self : &mut Self, pred : &Impl(Fn(v : &T) -> bool)) -> unit)({
     n := self._length;
-    kept := Self.with_capacity(n);
+    mut(kept) := Self.with_capacity(n);
     (mut(i) : usize) = usize(0);
     while(i < n, i = (i + usize(1)), {
       v := self(i);
@@ -2072,36 +2073,22 @@ impl(
   /// `Vec::extend(other)`. `extend_cloned(&other)` appends clones and keeps
   /// `other`.
   ///
-  /// When `other` is the only handle to its list, the elements MOVE: one
-  /// `memcpy`, and the emptied list is freed. While `ArrayList` is still a
-  /// shared handle (until plans/VALUES_BY_DEFAULT.md's B8), another handle
-  /// may share the list; the elements are then copied, so the other handle
-  /// keeps them (lookahead D21's rule for the consuming iterators). That
-  /// copy is decision 20's check, so a move-only `T` is E0901 here until B8.
-  extend : (fn(self : &mut Self, other : ArrayList(T)) -> unit)(
-    cond(
-      (ref_count(other) > usize(1)) => {
-        (mut(i) : usize) = usize(0);
-        n := other.len();
-        while(i < n, i = (i + usize(1)), {
-          self.push(other(i));
-        });
+  /// `other` is the only owner of its buffer (B8), so the elements MOVE: one
+  /// `memcpy`, and the emptied list is freed.
+  extend : (fn(self : &mut Self, other : ArrayList(T)) -> unit)({
+    mut(src_list) := other;
+    match(
+      src_list._ptr,
+      .Some(src) => {
+        // SAFETY: `src_list` owns its buffer outright, and `self` is a
+        // different list. The elements move bitwise; `src_list` then owns
+        // none of them, so dropping it frees only the buffer.
+        self.extend_from_ptr(src, src_list._length);
+        src_list._length = usize(0);
       },
-      true =>
-        match(
-          other._ptr,
-          .Some(src) => {
-            // SAFETY: `other` is the only handle, so no other list shares
-            // its buffer (and `self`, a live handle of its own, is not
-            // it). The elements move bitwise; `other` then owns none of
-            // them, so dropping it frees only the buffer.
-            self.extend_from_ptr(src, other._length);
-            other._length = usize(0);
-          },
-          .None => ()
-        )
-    )
-  )
+      .None => ()
+    );
+  })
 );
 impl(
   generic(T : Type),
