@@ -220,13 +220,13 @@ impl(
   /// verification and hostname checking are ON (the system trust store via
   /// `SSL_CTX_set_default_verify_paths`); SNI is sent.
   connect : (fn(host : &String, port : u16, io : Io) -> Impl(Future(TlsStream, IoExn)))({
-    __probe_host := host.clone();
+    host_owned := host.clone();
     io.async(e => {
       // 1. TCP.
-      addrs := e.io.await(lookup_host(&__probe_host, e.io), e);
+      addrs := e.io.await(lookup_host(&host_owned, e.io), e);
       cond(
         (addrs.len() == usize(0)) => {
-          _throw_tls(TlsError.Connect(host : __probe_host.clone()), e.exn);
+          _throw_tls(TlsError.Connect(host : host_owned.clone()), e.exn);
         },
         true => ()
       );
@@ -234,7 +234,7 @@ impl(
       tcp := e.io.await(TcpStream.connect(addr, e.io), e);
       // 2. Backend objects (verify + trust store + SNI + hostname pin are
       // configured inside __yo_tls_ssl_new).
-      host_c := match(__probe_host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+      host_c := match(host_owned.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       ctx_opt := unsafe(__yo_tls_ctx_new());
       if(ctx_opt.is_none(), {
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
