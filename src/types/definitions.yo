@@ -23,6 +23,16 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList, ArrayListIter } :: import("std/collections/array_list");
+/// Probe stand-in for V2c's handle-copy `ArrayList(Rc(T)).clone()`: a fresh list of
+/// element copies (an `Rc` element is the refcount share, a `String` a clone).
+__probe_copy_list :: (fn(generic(T : Type), xs : &ArrayList(T)) -> ArrayList(T))({
+  mut(out) := ArrayList(T).with_capacity(xs.len());
+  mut(i) := usize(0);
+  while(i < xs.len(), i = (i + usize(1)), {
+    out.push(__probe_dup(&xs(i)));
+  });
+  out
+});
 { HashMap } :: import("std/collections/hash_map");
 { RefCell } :: import("std/sync/refcell");
 /// The payload of a `SharedList`: one list, never written after it is built.
