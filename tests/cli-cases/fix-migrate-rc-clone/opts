@@ -6,9 +6,12 @@
 # for a capture list's shorthand entry, and a capture list for a closure that
 # captures a handle implicitly (not for one lent to `RefCell.with`, which
 # borrows its captures), and `&` before a `match` scrutinee that is a field
-# holding a handle (`match(&h.slot, ...)`). A last use (`moved := last`) is
-# a move and is left alone; `Bare` holds a handle and is not `Clone`, so its
-# copy is listed.
+# holding a handle (`match(&h.slot, ...)`), `&mut` when an arm writes through
+# a binding (`fill`), and a clone of a module-level scrutinee or one an arm
+# writes (`last_of`, `refresh`). A copy in a loop whose next iteration reads
+# the source is cloned (`walk`); a `match` on a `&` parameter is left alone
+# (`hits`). A last use (`moved := last`) is a move and is left alone; `Bare`
+# holds a handle and is not `Clone`, so its copy is listed.
 # The expected_tree pins the rewritten main.yo.
 stdout_keep=^fix:
 timeout=240
