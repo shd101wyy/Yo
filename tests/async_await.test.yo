@@ -6027,24 +6027,26 @@ _mm_probe :: (fn(what : &String, io : Io) -> Impl(Future(bool, IoExn)))({
     __probe_what.len() > usize(1)
   })
 });
-_mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))(
+_mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    `^1.0.0(${url})`
+    `^1.0.0(${__probe_url})`
   })
-);
-_match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, IoExn)))(
+});
+_match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  __probe_spec := spec.clone();
   io.async((e : IoExn) => {
     parsed := match(
-      spec.starts_with("./"),
-      true => _MmParsed.Path(String.from("mylib"), spec.clone()),
-      false => _MmParsed.Git(String.from("repo"), spec.clone())
+      __probe_spec.starts_with("./"),
+      true => _MmParsed.Path(String.from("mylib"), __probe_spec.clone()),
+      false => _MmParsed.Git(String.from("repo"), __probe_spec.clone())
     );
     (mut(name) : String) = String.new();
     (mut(url) : String) = String.new();
     (mut(needs_latest) : bool) = false;
     match(
-      parsed,
+      &parsed,
       .Path(n, rel) => {
         name = n.clone();
         url = rel.clone();
@@ -6055,7 +6057,7 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
         needs_latest = true;
       }
     );
-    is_path := match(parsed, .Path(_, _) => true, .Git(_, _) => false);
+    is_path := match(&parsed, .Path(_, _) => true, .Git(_, _) => false);
     (mut(version) : String) = String.new();
     (mut(present) : bool) = false;
     if(is_path, {
@@ -6069,7 +6071,7 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
     kind := match(parsed, .Path(_, _) => "path", .Git(_, _) => "git");
     `${kind} ${name} ${url} ${version} ${present.to_string()}`
   })
-);
+});
 _MmSrc :: enum(Git(url : String, tag : String), Path(p : String));
 _mm_tags_of :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
