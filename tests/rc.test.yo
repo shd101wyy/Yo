@@ -612,11 +612,14 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
 // reach the arm's dup through the raw macro-call args (branch-blind), cancel
 // the pair, and mark the variable consumed — leaking one reference on every
 // path that did not take the arm (issues/fixed/where-constraints-arraylist-96b-leak.md).
-CondMoveHolder :: struct(items : ArrayList(i32));
-mut(g_cond_move_seen) := ArrayList(ArrayList(i32)).new();
-cond_move_make_fresh :: (fn() -> ArrayList(i32))({
-  l := ArrayList(i32).new();
-  g_cond_move_seen.push(l);
+// The local is an `Rc`: since B8 an `ArrayList` is a value with no count, so
+// the shared handle the regression watches is spelled explicitly.
+CondMoveHolder :: struct(items : Rc(ArrayList(i32)));
+(g_cond_move_seen : RefCell(ArrayList(Rc(ArrayList(i32))))) = RefCell(ArrayList(Rc(ArrayList(i32)))).new(ArrayList(Rc(ArrayList(i32))).new());
+cond_move_make_fresh :: (fn() -> Rc(ArrayList(i32)))({
+  l := rc(ArrayList(i32).new());
+  seen := Rc.clone(&l);
+  g_cond_move_seen.with_mut({ seen }(xs) => xs.push(seen));
   l
 });
 cond_move_work :: (fn(flag : bool) -> unit)({
@@ -629,8 +632,8 @@ cond_move_work :: (fn(flag : bool) -> unit)({
 test("Conditional move into a struct field balances both paths", {
   cond_move_work(true);
   cond_move_work(false);
-  taken := match(g_cond_move_seen.get(usize(0)), .Some(l) => l, .None => ArrayList(i32).new());
-  skipped := match(g_cond_move_seen.get(usize(1)), .Some(l) => l, .None => ArrayList(i32).new());
+  taken := g_cond_move_seen.with(xs => Rc.clone(&xs(usize(0))));
+  skipped := g_cond_move_seen.with(xs => Rc.clone(&xs(usize(1))));
   assert(
     ref_count(taken) == ref_count(skipped),
     "skipped-branch call must not retain an extra reference"
@@ -684,23 +687,25 @@ test("Loop traversal keeps ownership when the loop mutates the structure", {
 // undeclared identifier '___'`), and reordering must still drop the
 // discarded value (issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md,
 // follow-up commit).
-g_discard_seen := ArrayList(ArrayList(i32)).new();
-discard_make_tracked :: (fn() -> ArrayList(i32))({
-  l := ArrayList(i32).new();
-  g_discard_seen.push(l);
+// The tracked value is an `Rc`: since B8 an `ArrayList` is a value with no
+// count to observe.
+(g_discard_seen : RefCell(ArrayList(Rc(ArrayList(i32))))) = RefCell(ArrayList(Rc(ArrayList(i32)))).new(ArrayList(Rc(ArrayList(i32))).new());
+discard_make_tracked :: (fn() -> Rc(ArrayList(i32)))({
+  l := rc(ArrayList(i32).new());
+  seen := Rc.clone(&l);
+  g_discard_seen.with_mut({ seen }(xs) => xs.push(seen));
   l
 });
 discard_stmt_body :: (fn() -> unit)(___ := discard_make_tracked());
 test("Bare discard-statement fn body compiles and drops the discarded value", {
   discard_stmt_body();
-  survivor := match(g_discard_seen.get(usize(0)), .Some(l) => l, .None => ArrayList(i32).new());
-  // rc = 3: the g_discard_seen element, the match-arm extraction, and
-  // `survivor` itself. Before the fix the discarded value kept a 4th ref
-  // (and, under the self-hosted compiler, this file did not even compile —
-  // `use of undeclared identifier '___'`).
+  survivor := g_discard_seen.with(xs => Rc.clone(&xs(usize(0))));
+  // rc = 2: the g_discard_seen element and `survivor` itself. Before the fix
+  // the discarded value kept a 3rd ref (and, under the self-hosted compiler,
+  // this file did not even compile — `use of undeclared identifier '___'`).
   assert(
-    ref_count(survivor) == 3,
-    "discarded value must be dropped (rc 3, not 4)"
+    ref_count(survivor) == 2,
+    "discarded value must be dropped (rc 2, not 3)"
   );
 });
 // Regression (issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md,

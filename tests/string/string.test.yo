@@ -93,7 +93,7 @@ test("String UTF-8 2-byte multiple characters", {
   s := String.from_bytes(bytes);
   // é ç ñ — three 2-byte runes at byte offsets 0, 2, 4.
   assert(s.len() == usize(6));
-  assert(s.chars().count() == usize(3));
+  assert(s.clone().chars().count() == usize(3));
   first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0xE9));
@@ -139,7 +139,7 @@ test("String UTF-8 3-byte multiple characters", {
   s := String.from_bytes(bytes);
   // 中 文 — two 3-byte runes at byte offsets 0 and 3.
   assert(s.len() == usize(6));
-  assert(s.chars().count() == usize(2));
+  assert(s.clone().chars().count() == usize(2));
   first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0x4E2D));
@@ -183,7 +183,7 @@ test("String UTF-8 4-byte multiple characters", {
   s := String.from_bytes(bytes);
   // 😀 😁 — two 4-byte runes at byte offsets 0 and 4.
   assert(s.len() == usize(8));
-  assert(s.chars().count() == usize(2));
+  assert(s.clone().chars().count() == usize(2));
   first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0x1F600));
@@ -205,7 +205,7 @@ test("String mixed ASCII and UTF-8", {
   s := String.from_bytes(bytes);
   // "He中文" — H@0 e@1 中@2..5 文@5..8.
   assert(s.len() == usize(8));
-  assert(s.chars().count() == usize(4));
+  assert(s.clone().chars().count() == usize(4));
   first := s.at(usize(0));
   assert(first.unwrap().to_u32() == u32(72));
   second := s.at(usize(1));
@@ -230,7 +230,7 @@ test("String mixed 1,2,3,4 byte characters", {
   s := String.from_bytes(bytes);
   // "A©中😀" — A@0 (1B), ©@1 (2B), 中@3 (3B), 😀@6 (4B); 10 bytes, 4 runes.
   assert(s.len() == usize(10));
-  assert(s.chars().count() == usize(4));
+  assert(s.clone().chars().count() == usize(4));
   char0 := s.at(usize(0));
   assert(char0.unwrap().to_u32() == u32(65));
   char1 := s.at(usize(1));
@@ -295,7 +295,7 @@ test("String concat UTF-8 strings", {
   result := str1.concat(&str2);
   // 中 @0, 文 @3.
   assert(result.len() == usize(6));
-  assert(result.chars().count() == usize(2));
+  assert(result.clone().chars().count() == usize(2));
   assert(result.at(usize(0)).unwrap().to_u32() == u32(0x4E2D));
   assert(result.at(usize(3)).unwrap().to_u32() == u32(0x6587));
 });
@@ -494,7 +494,7 @@ test("String.from with UTF-8 literal", {
 test("String.from with emoji literal", {
   s := String.from("😀😁");
   assert(s.len() == usize(8));
-  assert(s.chars().count() == usize(2));
+  assert(s.clone().chars().count() == usize(2));
   assert(s.at(usize(0)).unwrap().to_u32() == u32(0x1F600));
   assert(s.at(usize(4)).unwrap().to_u32() == u32(0x1F601));
 });
@@ -551,7 +551,7 @@ test("String Greek characters", {
   s := String.from_bytes(bytes);
   // α β γ — three 2-byte runes at byte offsets 0, 2, 4.
   assert(s.len() == usize(6));
-  assert(s.chars().count() == usize(3));
+  assert(s.clone().chars().count() == usize(3));
   alpha := s.at(usize(0));
   assert(alpha.unwrap().to_u32() == u32(0x3B1));
   beta := s.at(usize(2));
@@ -570,7 +570,7 @@ test("String Cyrillic characters", {
   s := String.from_bytes(bytes);
   // П р и — three 2-byte runes at byte offsets 0, 2, 4.
   assert(s.len() == usize(6));
-  assert(s.chars().count() == usize(3));
+  assert(s.clone().chars().count() == usize(3));
   p := s.at(usize(0));
   assert(p.unwrap().to_u32() == u32(0x41F));
   r := s.at(usize(2));
@@ -587,7 +587,7 @@ test("String Arabic characters", {
   s := String.from_bytes(bytes);
   // ا ل — two 2-byte runes at byte offsets 0 and 2.
   assert(s.len() == usize(4));
-  assert(s.chars().count() == usize(2));
+  assert(s.clone().chars().count() == usize(2));
   alef := s.at(usize(0));
   assert(alef.unwrap().to_u32() == u32(0x627));
   lam := s.at(usize(2));
@@ -602,7 +602,7 @@ test("String Hebrew characters", {
   s := String.from_bytes(bytes);
   // ש ל — two 2-byte runes at byte offsets 0 and 2.
   assert(s.len() == usize(4));
-  assert(s.chars().count() == usize(2));
+  assert(s.clone().chars().count() == usize(2));
   shin := s.at(usize(0));
   assert(shin.unwrap().to_u32() == u32(0x5E9));
   lamed := s.at(usize(2));
@@ -619,7 +619,7 @@ test("String Japanese Hiragana", {
   s := String.from_bytes(bytes);
   // あ い — two 3-byte runes at byte offsets 0 and 3.
   assert(s.len() == usize(6));
-  assert(s.chars().count() == usize(2));
+  assert(s.clone().chars().count() == usize(2));
   a := s.at(usize(0));
   assert(a.unwrap().to_u32() == u32(0x3042));
   i := s.at(usize(3));
@@ -636,7 +636,7 @@ test("String Korean Hangul", {
   s := String.from_bytes(bytes);
   // 한 글 — two 3-byte runes at byte offsets 0 and 3.
   assert(s.len() == usize(6));
-  assert(s.chars().count() == usize(2));
+  assert(s.clone().chars().count() == usize(2));
   han := s.at(usize(0));
   assert(han.unwrap().to_u32() == u32(0xD55C));
   gul := s.at(usize(3));
@@ -660,7 +660,7 @@ test("String various emojis", {
   s := String.from_bytes(bytes);
   // 😀 👍 🎉 — three 4-byte runes at byte offsets 0, 4, 8.
   assert(s.len() == usize(12));
-  assert(s.chars().count() == usize(3));
+  assert(s.clone().chars().count() == usize(3));
   grinning := s.at(usize(0));
   assert(grinning.unwrap().to_u32() == u32(0x1F600));
   thumbsup := s.at(usize(4));
@@ -775,7 +775,7 @@ test("String + operator chain", {
 test("String + operator preserves original strings", {
   str1 := String.from("Hello");
   str2 := String.from(" world");
-  result := (str1 + str2);
+  result := (str1.clone() + str2.clone());
   assert(str1.len() == usize(5));
   assert(str2.len() == usize(6));
   assert(result.len() == usize(11));
@@ -890,7 +890,7 @@ test("String alternating ASCII and UTF-8", {
   s := String.from_bytes(bytes);
   // "A中B文C" — A@0, 中@1..4, B@4, 文@5..8, C@8; 9 bytes, 5 runes.
   assert(s.len() == usize(9));
-  assert(s.chars().count() == usize(5));
+  assert(s.clone().chars().count() == usize(5));
   assert(s.at(usize(0)).unwrap().to_u32() == u32(65));
   assert(s.at(usize(1)).unwrap().to_u32() == u32(0x4E2D));
   assert(s.at(usize(4)).unwrap().to_u32() == u32(66));
@@ -2350,7 +2350,7 @@ test("push_rune appends a UTF-8 encoded rune", {
   s.push_rune(rune(65));
   s.push_rune(rune(0x00E9));
   assert(s.len() == usize(3), "one ASCII byte plus a two-byte rune");
-  assert(s.chars().count() == usize(2), "but two runes");
+  assert(s.clone().chars().count() == usize(2), "but two runes");
   assert(s.starts_with(`A`), "the ASCII rune came first");
 });
 test("insert_str shifts the tail right", {
@@ -2466,7 +2466,7 @@ _append_own :: (fn(sink(out) : String) -> String)({
   o
 });
 _append_local :: (fn(out : &String) -> String)({
-  mut(q) := out;
+  mut(q) := out.clone();
   q.push_str("!");
   q
 });
@@ -2494,7 +2494,7 @@ test("Writing a String through inout, own or a local copy is accepted (E0908 ext
   assert(_append_own(String.from("x")) == "x!", "own moves the string in");
   assert(_append_local(String.from("y")) == "y!", "a local copy is the callee's own");
   assert(_first_byte(String.from("abc")) == u8(97), "clone and index read through a borrow");
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.new());
   xs.push(String.from("n"));
   for(&mut xs, s => {
