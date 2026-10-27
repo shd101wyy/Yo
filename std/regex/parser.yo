@@ -142,19 +142,17 @@ impl(
   /// The `(?<name>...)` declarations, in the order they were opened. Valid
   /// after `parse`, for the same reason as `group_count`.
   ///
-  /// Returns the parser's own list, not a copy — it travels into the compiled
-  /// program and out to `RegexMatch.named_group`, and nobody mutates it after
-  /// the parse.
-  group_names : (fn(self : &Self) -> ArrayList(GroupNameEntry))(
-    self._group_names
+  /// Returns the parser's own list, borrowed — the compiler clones it into
+  /// the compiled program, which carries it out to `RegexMatch.named_group`.
+  group_names : (fn(self : &Self) -> &ArrayList(GroupNameEntry))(
+    &self._group_names
   ),
   _lookup_group_name : (fn(self : &Self, name : &String) -> Option(usize))({
     mut(i) := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
-      entry := self._group_names(i);
       cond(
-        (entry.name == name) => {
-          return(.Some(entry.index));
+        (self._group_names(i).name == name) => {
+          return(.Some(self._group_names(i).index));
         },
         true => ()
       );
@@ -221,12 +219,12 @@ impl(
     true
   }),
   _make_digit_ranges : (fn(self : &Self) -> ArrayList(CharRange))({
-    r := ArrayList(CharRange).new();
+    mut(r) := ArrayList(CharRange).new();
     r.push(CharRange(low : u32(48), high : u32(57)));
     r
   }),
   _make_word_ranges : (fn(self : &Self) -> ArrayList(CharRange))({
-    r := ArrayList(CharRange).new();
+    mut(r) := ArrayList(CharRange).new();
     r.push(CharRange(low : u32(48), high : u32(57)));
     r.push(CharRange(low : u32(65), high : u32(90)));
     r.push(CharRange(low : u32(95), high : u32(95)));
@@ -234,7 +232,7 @@ impl(
     r
   }),
   _make_space_ranges : (fn(self : &Self) -> ArrayList(CharRange))({
-    r := ArrayList(CharRange).new();
+    mut(r) := ArrayList(CharRange).new();
     r.push(CharRange(low : u32(9), high : u32(13)));
     r.push(CharRange(low : u32(32), high : u32(32)));
     r
@@ -273,14 +271,14 @@ impl(
         cond(
           (ch == u8(100)) => .Ok(self._make_digit_ranges()),
           (ch == u8(68)) => {
-            r := ArrayList(CharRange).new();
+            mut(r) := ArrayList(CharRange).new();
             r.push(CharRange(low : u32(0), high : u32(47)));
             r.push(CharRange(low : u32(58), high : u32(0x10FFFF)));
             .Ok(r)
           },
           (ch == u8(119)) => .Ok(self._make_word_ranges()),
           (ch == u8(87)) => {
-            r := ArrayList(CharRange).new();
+            mut(r) := ArrayList(CharRange).new();
             r.push(CharRange(low : u32(0), high : u32(47)));
             r.push(CharRange(low : u32(58), high : u32(64)));
             r.push(CharRange(low : u32(91), high : u32(94)));
@@ -290,14 +288,14 @@ impl(
           },
           (ch == u8(115)) => .Ok(self._make_space_ranges()),
           (ch == u8(83)) => {
-            r := ArrayList(CharRange).new();
+            mut(r) := ArrayList(CharRange).new();
             r.push(CharRange(low : u32(0), high : u32(8)));
             r.push(CharRange(low : u32(14), high : u32(31)));
             r.push(CharRange(low : u32(33), high : u32(0x10FFFF)));
             .Ok(r)
           },
           (ch == u8(120)) => {
-            r := ArrayList(CharRange).new();
+            mut(r) := ArrayList(CharRange).new();
             match(
               self._parse_hex_byte(),
               .Some(v) => r.push(CharRange(low : v, high : v)),
@@ -306,7 +304,7 @@ impl(
             .Ok(r)
           },
           true => {
-            r := ArrayList(CharRange).new();
+            mut(r) := ArrayList(CharRange).new();
             codepoint := self._escape_char_codepoint(ch);
             r.push(CharRange(low : codepoint, high : codepoint));
             .Ok(r)
@@ -423,7 +421,7 @@ impl(
     .Ok(())
   }),
   _parse_char_class : (fn(self : &Self) -> Result(RegexNode, RegexError))({
-    ranges := ArrayList(CharRange).new();
+    mut(ranges) := ArrayList(CharRange).new();
     mut(negated) := false;
     // Check for negation '^'
     pk := self._peek();
@@ -483,7 +481,7 @@ impl(
     );
     self._pos = (self._pos + usize(1));
     // Read property name until '}'
-    name_bytes := ArrayList(u8).new();
+    mut(name_bytes) := ArrayList(u8).new();
     while(!self._at_end(), {
       nb := self._peek();
       nb_val := match(
@@ -552,7 +550,7 @@ impl(
               true => ()
             );
             self._pos = (self._pos + usize(1));
-            name_bytes := ArrayList(u8).new();
+            mut(name_bytes) := ArrayList(u8).new();
             while(!self._at_end(), {
               nb := self._peek();
               nb_val := match(

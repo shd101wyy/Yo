@@ -65,7 +65,7 @@ impl(
   /// root is kept whole in `_prefix`. `//a/b` is NOT a UNC path — on POSIX
   /// that is an ordinary root with a redundant separator.
   new : (fn(path_str : &String) -> Self)({
-    segments := ArrayList(String).new();
+    mut(segments) := ArrayList(String).new();
     (mut(prefix) : String) = String.new();
     (mut(is_abs) : bool) = false;
     // Handle empty path early
@@ -116,7 +116,7 @@ impl(
     // Process each part
     mut(i) := usize(0);
     while(i < parts.len(), i = (i + usize(1)), {
-      part_opt := parts.get(i);
+      part_opt := parts.get_cloned(i);
       match(
         part_opt,
         .Some(part) => {
@@ -185,11 +185,11 @@ impl(
       true => ()
     );
     // Otherwise, concatenate segments
-    new_segments := ArrayList(String).with_capacity(self._segments.len() + other._segments.len());
+    mut(new_segments) := ArrayList(String).with_capacity(self._segments.len() + other._segments.len());
     // Copy self segments
     mut(i) := usize(0);
     while(i < self._segments.len(), i = (i + usize(1)), {
-      seg := self._segments.get(i);
+      seg := self._segments.get_cloned(i);
       match(
         seg,
         .Some(s) => {
@@ -201,7 +201,7 @@ impl(
     // Copy other segments
     mut(j) := usize(0);
     while(j < other._segments.len(), j = (j + usize(1)), {
-      seg := other._segments.get(j);
+      seg := other._segments.get_cloned(j);
       match(
         seg,
         .Some(s) => {
@@ -225,11 +225,11 @@ impl(
   /// a non-escaping one. On an ABSOLUTE path it folds away, because `/..` is
   /// `/`; a drive or UNC root (`_prefix`) is never popped either.
   normalize : (fn(self : &Self) -> Self)({
-    out := ArrayList(String).with_capacity(self._segments.len());
+    mut(out) := ArrayList(String).with_capacity(self._segments.len());
     dotdot := String.from("..");
     mut(i) := usize(0);
     while(i < self._segments.len(), i = (i + usize(1)), {
-      seg := self._segments.get(i).unwrap_or(String.new());
+      seg := self._segments.get_cloned(i).unwrap_or(String.new());
       cond(
         (seg == dotdot) => {
           // Only a NORMAL component can be popped; a `..` already on the
@@ -237,7 +237,7 @@ impl(
           (mut(top_is_dotdot) : bool) = false;
           cond(
             (out.len() > usize(0)) => {
-              top_is_dotdot = (out.last().unwrap_or(String.new()) == dotdot);
+              top_is_dotdot = (out.last_cloned().unwrap_or(String.new()) == dotdot);
             },
             true => ()
           );
@@ -267,10 +267,10 @@ impl(
       },
       true => ()
     );
-    new_segments := ArrayList(String).with_capacity(self._segments.len() - usize(1));
+    mut(new_segments) := ArrayList(String).with_capacity(self._segments.len() - usize(1));
     mut(i) := usize(0);
     while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
-      seg := self._segments.get(i);
+      seg := self._segments.get_cloned(i);
       match(
         seg,
         .Some(s) => {
@@ -289,7 +289,7 @@ impl(
       },
       true => ()
     );
-    return(self._segments.last());
+    return(self._segments.last_cloned());
   }),
   /// Get the filename without its extension, or `.None` for empty paths.
   file_stem : (fn(self : &Self) -> Option(String))({
@@ -374,10 +374,10 @@ impl(
         dot := String.from(".");
         new_name := stem.concat(&dot).concat(ext);
         // Replace the last segment
-        new_segments := ArrayList(String).with_capacity(self._segments.len());
+        mut(new_segments) := ArrayList(String).with_capacity(self._segments.len());
         mut(i) := usize(0);
         while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
-          seg := self._segments.get(i);
+          seg := self._segments.get_cloned(i);
           match(
             seg,
             .Some(s) => {
@@ -399,17 +399,17 @@ impl(
     cond(
       (self._segments.len() == usize(0)) => {
         // Empty path, just return a new path with the name
-        segments := ArrayList(String).new();
+        mut(segments) := ArrayList(String).new();
         segments.push(name.clone());
         return(Self(_prefix : self._prefix.clone(), _segments : segments, _is_absolute : self._is_absolute));
       },
       true => ()
     );
     // Replace the last segment
-    new_segments := ArrayList(String).with_capacity(self._segments.len());
+    mut(new_segments) := ArrayList(String).with_capacity(self._segments.len());
     mut(i) := usize(0);
     while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
-      seg := self._segments.get(i);
+      seg := self._segments.get_cloned(i);
       match(
         seg,
         .Some(s) => {
@@ -446,8 +446,8 @@ impl(
     // Check if all base segments match
     mut(i) := usize(0);
     while(i < base._segments.len(), i = (i + usize(1)), {
-      self_seg_opt := self._segments.get(i);
-      base_seg_opt := base._segments.get(i);
+      self_seg_opt := self._segments.get_cloned(i);
+      base_seg_opt := base._segments.get_cloned(i);
       match(
         self_seg_opt,
         .Some(self_seg) => match(
@@ -510,8 +510,8 @@ impl(
     offset := (self_len - suffix_len);
     mut(i) := usize(0);
     while(i < suffix_len, i = (i + usize(1)), {
-      self_seg_opt := self._segments.get(offset + i);
-      suffix_seg_opt := suffix._segments.get(i);
+      self_seg_opt := self._segments.get_cloned(offset + i);
+      suffix_seg_opt := suffix._segments.get_cloned(i);
       match(
         self_seg_opt,
         .Some(self_seg) => match(
@@ -539,7 +539,7 @@ impl(
   /// there is one: the drive / UNC share for a prefixed path, `"/"` for a
   /// plain absolute path, nothing for a relative one.
   components : (fn(self : &Self) -> ArrayList(String))({
-    result := ArrayList(String).with_capacity(self._segments.len() + usize(1));
+    mut(result) := ArrayList(String).with_capacity(self._segments.len() + usize(1));
     // Add the root component: the drive / UNC share when there is one (it IS
     // the root), otherwise `/` for a plain absolute path.
     cond(
@@ -554,7 +554,7 @@ impl(
     // Add all segments
     mut(i) := usize(0);
     while(i < self._segments.len(), i = (i + usize(1)), {
-      seg := self._segments.get(i);
+      seg := self._segments.get_cloned(i);
       match(
         seg,
         .Some(s) => {
@@ -586,11 +586,11 @@ impl(
       },
       true => ()
     );
-    segments := ArrayList(String).new();
+    mut(segments) := ArrayList(String).new();
     (mut(j) : usize) = base._segments.len();
     while(j < self._segments.len(), {
       match(
-        self._segments.get(j),
+        self._segments.get_cloned(j),
         .Some(seg) => {
           segments.push(seg);
         },
@@ -626,8 +626,8 @@ impl(
     (mut(common) : usize) = usize(0);
     (mut(matching) : bool) = true;
     while(matching && (common < base._segments.len()) && (common < self._segments.len()), {
-      b := match(base._segments.get(common), .Some(x) => x, .None => String.new());
-      t := match(self._segments.get(common), .Some(x) => x, .None => String.new());
+      b := match(base._segments.get_cloned(common), .Some(x) => x, .None => String.new());
+      t := match(self._segments.get_cloned(common), .Some(x) => x, .None => String.new());
       cond(
         (b == t) => {
           common = (common + usize(1));
@@ -637,7 +637,7 @@ impl(
         }
       );
     });
-    segments := ArrayList(String).new();
+    mut(segments) := ArrayList(String).new();
     (mut(i) : usize) = common;
     while(i < base._segments.len(), {
       segments.push(String.from(".."));
@@ -646,7 +646,7 @@ impl(
     (mut(j) : usize) = common;
     while(j < self._segments.len(), {
       match(
-        self._segments.get(j),
+        self._segments.get_cloned(j),
         .Some(seg) => {
           segments.push(seg);
         },
@@ -697,7 +697,7 @@ impl(
         mut(i) := usize(0);
         segments_len := segments.len();
         while(i < segments_len, i = (i + usize(1)), {
-          seg := segments.get(i);
+          seg := segments.get_cloned(i);
           match(
             seg,
             .Some(s) => {
@@ -747,8 +747,8 @@ impl(
         // Compare each segment
         mut(i) := usize(0);
         while(i < self._segments.len(), i = (i + usize(1)), {
-          self_seg_opt := self._segments.get(i);
-          other_seg_opt := other._segments.get(i);
+          self_seg_opt := self._segments.get_cloned(i);
+          other_seg_opt := other._segments.get_cloned(i);
           match(
             self_seg_opt,
             .Some(self_seg) => match(
@@ -782,7 +782,7 @@ impl(
   Path,
   Clone(
     clone : (fn(self : &Self) -> Self)({
-      segments := ArrayList(String).with_capacity(self._segments.len());
+      mut(segments) := ArrayList(String).with_capacity(self._segments.len());
       (n : usize) = self._segments.len();
       (mut(i) : usize) = usize(0);
       // Cloned in place through the `&String` projection, never copied out
@@ -814,7 +814,7 @@ impl(
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          self._segments.get(i),
+          self._segments.get_cloned(i),
           .Some(seg) => {
             match(
               seg.ptr(),
@@ -872,7 +872,7 @@ impl(
 impl(
   Path,
   ancestors : (fn(self : &Self) -> ArrayList(Self))({
-    out := ArrayList(Self).new();
+    mut(out) := ArrayList(Self).new();
     mut(cur) := self.clone();
     out.push(cur.clone());
     while(true, {
@@ -920,10 +920,10 @@ export(Path);
 /// Windows) into its `Path` components. Empty segments are dropped.
 split_paths :: (fn(s : &String) -> ArrayList(Path))({
   parts := s.split(rune(u32(PATH_DELIMITER)));
-  out := ArrayList(Path).new();
+  mut(out) := ArrayList(Path).new();
   mut(i) := usize(0);
   while(i < parts.len(), i = (i + usize(1)), {
-    part := parts.get(i).unwrap_or(String.new());
+    part := parts.get_cloned(i).unwrap_or(String.new());
     cond(
       part.is_empty() => (),
       true => {
@@ -938,7 +938,7 @@ join_paths :: (fn(paths : &ArrayList(Path)) -> String)({
   mut(out) := String.new();
   mut(i) := usize(0);
   while(i < paths.len(), i = (i + usize(1)), {
-    p := paths.get(i).unwrap_or(Path.new(String.new()));
+    p := paths.get_cloned(i).unwrap_or(Path.new(String.new()));
     if(i > usize(0), {
       _c := out.push_byte(u8(PATH_DELIMITER));
     });

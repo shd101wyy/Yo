@@ -129,7 +129,7 @@ impl(
   /// the field is absent — which is what makes `Set-Cookie` usable.
   get_all : (fn(self : &Self, name : &String) -> ArrayList(String))({
     lower := name.to_lowercase();
-    out := ArrayList(String).new();
+    mut(out) := ArrayList(String).new();
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
       h := self._entries(i);
@@ -163,7 +163,7 @@ impl(
   /// Remove every value for `name`, returning how many field lines went.
   remove : (fn(self : &mut Self, name : &String) -> usize)({
     lower := name.to_lowercase();
-    kept := ArrayList(HttpHeader).new();
+    mut(kept) := ArrayList(HttpHeader).new();
     (mut(removed) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
@@ -183,7 +183,7 @@ impl(
   /// The field lines in order — for serialization and iteration. The list is a
   /// snapshot: pushing to it does not change the map.
   entries : (fn(self : &Self) -> ArrayList(HttpHeader))({
-    out := ArrayList(HttpHeader).new();
+    mut(out) := ArrayList(HttpHeader).new();
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
       out.push(self._entries(i));
@@ -574,7 +574,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
       raw_b := &raw;
-      body_b := ArrayList(u8).new();
+      mut(body_b) := ArrayList(u8).new();
       mut(bi) := (header_end + usize(4));
       while(bi < raw_b.len(), {
         body_b.push(raw_b.byte_at(bi));
@@ -671,7 +671,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
       raw_b := &raw;
-      body_b := ArrayList(u8).new();
+      mut(body_b) := ArrayList(u8).new();
       mut(bi) := (header_end + usize(4));
       while(bi < raw_b.len(), {
         body_b.push(raw_b.byte_at(bi));

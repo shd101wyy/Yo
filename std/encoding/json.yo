@@ -156,7 +156,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(.Some(values(i)));
+              return(.Some(values(i).clone()));
             },
             true => ()
           );
@@ -1484,7 +1484,7 @@ _json_clone :: (fn(v : &JsonValue) -> JsonValue)(
     .Int(i) => JsonValue.Int(i),
     .Str(s) => JsonValue.Str(s.clone()),
     .Array(items) => {
-      out := ArrayList(JsonValue).new();
+      mut(out) := ArrayList(JsonValue).new();
       mut(i) := usize(0);
       while(i < items.len(), i = (i + usize(1)), {
         out.push(_json_clone(&items(i)));
@@ -1492,8 +1492,8 @@ _json_clone :: (fn(v : &JsonValue) -> JsonValue)(
       JsonValue.Array(out)
     },
     .Object(keys, values) => {
-      out_keys := ArrayList(String).new();
-      out_values := ArrayList(JsonValue).new();
+      mut(out_keys) := ArrayList(String).new();
+      mut(out_values) := ArrayList(JsonValue).new();
       mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
         out_keys.push(keys(i).clone());
