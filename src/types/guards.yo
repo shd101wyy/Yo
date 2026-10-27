@@ -372,13 +372,16 @@ is_str_type :: (fn(t : &TypeValue) -> bool)(
 // The prelude's shared, counted cell, by name
 // ---------------------------------------------------------------------------
 /// One spelling of the prelude's shared, counted cell: its type constructor
-/// (`Rc`) and its value constructor (`rc`).
+/// (`Rc`) and its generic value constructor (`rc`). The compiler synthesizes
+/// only the type's `new` (`Rc(T).new(v)`); `constructor` is read by
+/// `dyn(rc(<closure>))`'s recognition alone, and goes with the prelude's `rc`
+/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, B3).
 SharedCellNames :: struct(type_name : str, constructor : str);
 derive(SharedCellNames, Copy, Clone);
 /// The shared cell's CANONICAL spelling: the one the compiler synthesizes
 /// itself — the cell `dyn(...)` wraps around a payload that is not an object
-/// (`dyn(i32(1))` builds `rc(i32(1))`, `values/dyn.yo`). It was `Box`/`box`
-/// until V1 step 1's Generation B made it `Rc`/`rc`.
+/// (`dyn(i32(1))` builds `Rc(i32).new(i32(1))`, `values/dyn.yo`). It was
+/// `Box`/`box` until V1 step 1's Generation B made it `Rc`/`rc`.
 shared_cell_canonical_names :: (fn() -> SharedCellNames)(
   SharedCellNames(type_name : "Rc", constructor : "rc")
 );
