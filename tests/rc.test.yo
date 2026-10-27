@@ -3778,14 +3778,18 @@ test("Weak.upgrade is .Some while an Rc is alive and .None after the last one", 
   assert(w.strong_count() == usize(1), "one strong handle");
   assert(w.weak_count() == usize(1), "one weak handle");
   assert(ref_count(a) == usize(1), "downgrade does not raise the strong count");
-  match(
-    w.upgrade(),
-    .Some(b) => {
-      assert(b.* == i32(7), "the upgraded handle reads the payload");
-      assert(ref_count(a) == usize(2), "the upgraded handle is a second strong one");
-    },
-    .None => assert(false, "upgrade while a is alive")
-  );
+  // The block ends the scrutinee temporary's life, and with it the
+  // upgraded handle's.
+  {
+    match(
+      w.upgrade(),
+      .Some(b) => {
+        assert(b.* == i32(7), "the upgraded handle reads the payload");
+        assert(ref_count(a) == usize(2), "the upgraded handle is a second strong one");
+      },
+      .None => assert(false, "upgrade while a is alive")
+    );
+  };
   assert(ref_count(a) == usize(1), "the upgraded handle was dropped");
   consume(a);
   assert(w.upgrade().is_none(), "the last Rc is gone");
@@ -3822,8 +3826,10 @@ test("the last Rc drops the payload, and the last Weak frees the cell", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   before := g_weak_dropped;
-  w := Rc.downgrade(&rc(_WeakProbe(n : i32(1)), alloc : .Some(heap)));
-  assert(g_weak_dropped == (before + i32(1)), "the only Rc was a temporary: the payload is dropped");
+  a := rc(_WeakProbe(n : i32(1)), alloc : .Some(heap));
+  w := Rc.downgrade(&a);
+  consume(a);
+  assert(g_weak_dropped == (before + i32(1)), "the last Rc dropped the payload");
   assert(counts.live == usize(1), "a Weak keeps the cell's bytes");
   assert(w.upgrade().is_none(), "the payload is gone");
   w2 := Weak.clone(&w);
