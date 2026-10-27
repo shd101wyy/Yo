@@ -3278,7 +3278,7 @@ take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
   g_copy_loop_ids.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var);
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, take_migrate_mut_scrutinees, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -3607,17 +3607,31 @@ _ic_migrate_site :: (
 /// exprs/begin.yo): the scrutinee node (for the rewrite) and its type.
 /// `clone_scrutinee`: an arm writes the scrutinee variable, so the judge
 /// spells its clone instead of `&` (`migrate_rc_clone_borrow_scrutinee`).
-/// `mut_borrow`: an arm writes through one of its bindings, so the borrow
-/// is `&mut`.
-PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue, clone_scrutinee : bool, mut_borrow : bool);
+PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue, clone_scrutinee : bool);
 (g_pending_scrutinee_borrows : RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow)))) = RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow))).new(HashMap(usize, ArrayList(PendingScrutineeBorrow)).new());
-record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false, (mut_borrow : bool) ?= false) -> unit)({
+record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
   g_pending_scrutinee_borrows.with_mut(m => {
     xs := match(m.get(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new());
-    xs.push(PendingScrutineeBorrow(scr : scr, ty : Rc.clone(ty), clone_scrutinee : clone_scrutinee, mut_borrow : mut_borrow));
+    xs.push(PendingScrutineeBorrow(scr : scr, ty : Rc.clone(ty), clone_scrutinee : clone_scrutinee));
     m.insert(var_id, xs);
   });
 });
+/// The scrutinee positions (`<canonical module>:<row>:<col>` of the leftmost
+/// token) of matches whose arms write through a binding: the rc-clone driver
+/// spells a `borrow` there as `&mut`.
+(g_migrate_mut_scrutinees : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+note_migrate_mut_scrutinee :: (fn(scr : &AstExpr) -> unit)({
+  lt := _ic_leftmost_token(&ast_expr_strip_borrow_marker(scr));
+  key := `${canonical_module_path(&lt.module_path.*)}:${lt.row.to_string()}:${lt.column.to_string()}`;
+  g_migrate_mut_scrutinees.with_mut(s => s.insert(key));
+});
+take_migrate_mut_scrutinees :: (fn() -> HashSet(String))(
+  g_migrate_mut_scrutinees.with_mut(s => {
+    out := s.clone();
+    s.clear();
+    out
+  })
+);
 /// Remove and return the pending scrutinee borrows of `var_id` (an empty
 /// list when it has none): the caller judges them once.
 take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScrutineeBorrow))(
@@ -3630,10 +3644,9 @@ take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScruti
 /// arm's `Rc.clone` of the binding is one; and for a local an arm writes
 /// (`x = Rc.clone(y)` with `y` bound below `&x`), because a `&` borrow freezes
 /// its place while a binding through it is live (E0911).
-/// With `mut_borrow` (an arm writes through a binding: `cw.push(x)` on a
-/// field bound below the scrutinee) the borrow is `&mut`, spelled `borrow-mut`:
-/// a binding through `&x` is read-only (E0908).
-migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false, (mut_borrow : bool) ?= false) -> unit)({
+/// The driver spells a `borrow` as `&mut` when an arm wrote through one of
+/// its bindings (`note_migrate_mut_scrutinee`).
+migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
   if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
   });
@@ -3656,11 +3669,7 @@ migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone
       capture_label : String.new(),
       ty_value : ty.clone(),
       lacks_clone_at_copy : type_lacks_clone(ty),
-      spelling : cond(
-        (clone_scrutinee && !type_lacks_clone(ty)) => _rc_clone_spelling(ty),
-        mut_borrow => String.from("borrow-mut"),
-        true => String.from("borrow")
-      ),
+      spelling : if(clone_scrutinee && !type_lacks_clone(ty), _rc_clone_spelling(ty), String.from("borrow")),
       capture_names : String.new()
     )
   );

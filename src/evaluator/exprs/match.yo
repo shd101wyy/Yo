@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl } :: import("../utils.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows, _subtree_assigns_variable } :: import("./begin.yo");
@@ -350,7 +350,7 @@ _commit_guard_copies :: (fn(env : &Environment, arm_frame : usize) -> unit)({
 /// committed when it was evaluated (`_commit_guard_copies`).
 /// The unique `Dyn`'s pending copies of the bindings are judged the same way
 /// (`judge_dyn_copies`, exprs/begin.yo).
-_judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, body : Option(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
+_judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, body : Option(AstExpr), ctx : &EvalContext, exn : Exception, scr : &AstExpr) -> unit)({
   if(!audit_pending_copies_enabled() && !dyn_copy_pending_exists() && !migrate_rc_clone_on(), {
     return(());
   });
@@ -366,6 +366,24 @@ _judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, body : Option(As
   // too: a single-expression arm has no block epilogue of its own.
   if(migrate_rc_clone_on(), {
     match(env.frames.get(arm_frame), .Some(fr) => _migrate_judge_scrutinee_borrows(&fr, &scanned, ctx), .None => ());
+    // An arm that writes through one of its bindings (`xs.push(v)` on a
+    // field bound by `{ items : xs }`) needs a `&mut` scrutinee if the
+    // migration borrows it: a binding through `&x` is read-only (E0908).
+    // Judged here, after the body is evaluated: whether a method writes its
+    // receiver is known only from the call's resolved callee.
+    match(
+      env.frames.get(arm_frame),
+      .Some(afr) => {
+        (bvi : usize) = usize(0);
+        while(bvi < afr.variables.len(), bvi = (bvi + usize(1)), {
+          bname := afr.variables(bvi).name.clone();
+          if(match(&body, .Some(b) => _subtree_assigns_variable(b, bname.clone(), ctx), .None => false), {
+            note_migrate_mut_scrutinee(scr);
+          });
+        });
+      },
+      .None => ()
+    );
   });
 });
 /// The result type of a body given the running expected type (the arm's
@@ -429,7 +447,7 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
                 .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level && !rv.is_compile_time_only
                 && !match_scrutinee_is_capture(&rv, env, ctx)
                 && type_holds_counted_handle_ignoring_migration(&rv.ty), {
-                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty, clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx), mut_borrow : _arms_write_through_bindings(e, ctx));
+                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty, clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx));
                 }),
                 .None => ()
               );
@@ -524,54 +542,6 @@ _scrutinee_written_in_arms :: (fn(whole : &AstExpr, name : &String, ctx : &EvalC
         if(_subtree_assigns_variable(&args(ai), name.clone(), ctx), {
           return(true);
         });
-      });
-      false
-    },
-    .Atom(_, _) => false
-  )
-);
-/// The identifiers a pattern `head` may bind (every identifier atom in it;
-/// a constructor name or `_` is never written in an arm, so over-collecting
-/// is harmless for `_arms_write_through_bindings`).
-_pattern_identifiers :: (fn(head : &AstExpr, out : &mut ArrayList(String)) -> unit)(
-  match(
-    head,
-    .Atom(_, t) => if((t.kind == TokenKind.Identifier) && (t.value != "_"), {
-      out.push(t.value.clone());
-    }),
-    .FnCall(_, callee, args, _, _) => {
-      _pattern_identifiers(&callee, out);
-      (i : usize) = usize(0);
-      while(i < args.len(), i = (i + usize(1)), {
-        _pattern_identifiers(&args(i), out);
-      });
-    }
-  )
-);
-/// `yo fix --migrate rc-clone`: does an arm of the `match` node `whole` write
-/// through one of its own bindings (an assignment, a `&mut` lend, a
-/// `&mut self` call: `_subtree_assigns_variable`)? A binding through a `&x`
-/// scrutinee is read-only (E0908), so the migration borrows with `&mut x`.
-_arms_write_through_bindings :: (fn(whole : &AstExpr, ctx : &EvalContext) -> bool)(
-  match(
-    whole,
-    .FnCall(_, _, args, _, _) => {
-      (ai : usize) = usize(1);
-      while(ai < args.len(), ai = (ai + usize(1)), {
-        match(
-          &args(ai),
-          .FnCall(_, _, arm_args, _, _) => if(ast_expr_is_fn_call_of(&args(ai), "=>", Option(usize).Some(usize(2))), {
-            names := ArrayList(String).new();
-            _pattern_identifiers(&arm_args(usize(0)), &mut names);
-            (ni : usize) = usize(0);
-            while(ni < names.len(), ni = (ni + usize(1)), {
-              if(_subtree_assigns_variable(&arm_args(usize(1)), names(ni).clone(), ctx), {
-                return(true);
-              });
-            });
-          }),
-          _ => ()
-        );
       });
       false
     },
@@ -783,8 +753,7 @@ _decide_match_mode :: (
         migrate_rc_clone_borrow_scrutinee(
           &scr,
           &ty,
-          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false)),
-          mut_borrow : _arms_write_through_bindings(whole, ctx)
+          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false))
         );
       });
       // A plain local the rule would consume: the branch below runs only
@@ -807,7 +776,7 @@ _decide_match_mode :: (
       if((!unmovable && plain_local), {
         match(
           root,
-          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty, clone_scrutinee : _scrutinee_written_in_arms(whole, rv.name.clone(), ctx), mut_borrow : _arms_write_through_bindings(whole, ctx)),
+          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty, clone_scrutinee : _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)),
           .None => ()
         );
       });
@@ -1777,7 +1746,7 @@ evaluate_match :: (
     guard_false := match(guard_val, .Some(b) => !(b), .None => false);
     should_process := ((gadt_reachable && !(ct_variant_miss)) && !(guard_false));
     if(!(should_process), {
-      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).None, ctx, exn);
+      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).None, ctx, exn, &scrutinee_expr);
       while(env.frames.len() > base_frame_count, {
         env.pop_frame_nonmutating();
       });
@@ -1946,7 +1915,7 @@ evaluate_match :: (
       });
       ctx.expected_type = old_expected;
       ctx.is_executing = old_executing;
-      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).Some(body_ast), ctx, exn);
+      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).Some(body_ast), ctx, exn, &scrutinee_expr);
       while(env.frames.len() > base_frame_count, {
         env.pop_frame_nonmutating();
       });
