@@ -4,7 +4,7 @@
 /// indirectly, so pin the key's determinism and distinctness here.
 { String } :: import("std/string");
 import("std/fmt");
-{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, t_reference, t_slot, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("../../src/types/definitions.yo");
 {
   t_func_simple,
   t_some_t,
@@ -54,6 +54,27 @@ test("type_key: function types keyed by params and result", {
     !(type_key(&f_i32_to_bool) == type_key(&f_i32_to_i32)),
     "fn keys differ on result type"
   );
+});
+// Decision 43 step 1: a parameter's mode is its slot type, and a reference's
+// origin is not part of any key (type_key, the memos, specialization keys).
+test("type_key: a reference slot keys as its spelling, without its origin", {
+  assert(type_key(t_reference(t_i32(), false)) == `&i32`, "&i32");
+  assert(type_key(t_reference(t_i32(), true)) == `&mut i32`, "&mut i32");
+  assert(!(type_key(t_reference(t_i32(), false)) == type_key(t_i32())), "&i32 vs i32");
+  // `t_slot`: `&mut` wins, then by value (the bare type), else `&T`.
+  assert(type_key(t_slot(t_i32(), true, true)) == `&mut i32`, "mut wins");
+  assert(type_key(t_slot(t_i32(), false, true)) == type_key(t_i32()), "by value is the bare type");
+  assert(type_key(t_slot(t_i32(), false, false)) == `&i32`, "no mode borrows");
+  assert(type_key(t_slot_pointee(t_reference(t_i32(), true))) == type_key(t_i32()), "pointee of &mut i32");
+  assert(type_key(t_slot_pointee(t_i32())) == type_key(t_i32()), "pointee of a by-value slot");
+  assert(t_slot_is_mut_ref(t_reference(t_i32(), true)) && !t_slot_is_mut_ref(t_reference(t_i32(), false)), "mut flag");
+  assert(t_slot_is_by_value(t_i32()) && !t_slot_is_by_value(t_reference(t_i32(), false)), "by-value flag");
+  // A fn type prints each parameter's mode from its slot, the pointee after it.
+  ps := ArrayList(String).new();
+  ps.push(`a`);
+  ts := ArrayList(TypeValue).new();
+  ts.push(t_i32());
+  assert(type_key(t_func_simple(ps.clone(), ts.clone(), t_bool())) == `fn(a : &i32) -> bool`, "fn(a : &i32) -> bool");
 });
 test("type_key: SomeT distinct from concrete", {
   st := t_some_t(`T`, usize(0));
