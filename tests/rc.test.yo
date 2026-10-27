@@ -1774,7 +1774,7 @@ fwb_rename :: (fn(p : &FwbNamed) -> FwbNamed)({
   q
 });
 fwb_scratch :: (fn(p : &FwbNamed) -> i32)({
-  mut(q) := p;
+  mut(q) := p.clone();
   q.n = (q.n + i32(1));
   q.n
 });
@@ -1787,9 +1787,9 @@ test("a borrowed value is changed through an owned copy", {
   assert(orig.n == i32(1), "the write changes only the local copy");
   o := Option(FwbNamed).Some(orig);
   from_arm := match(
-    o,
+    &o,
     .Some(d) => {
-      mut(q) := d;
+      mut(q) := d.clone();
       q.s = String.from("from-an-arm-long-enough-for-the-heap");
       q.s.clone()
     },
@@ -1827,7 +1827,7 @@ test("ref_count: copies of a value holding RC data are counted in every position
   w3 := w.clone();
   assert(ref_count(w.b) == usize(2), "a same-scope copy counts");
   assert(_cow_local_copy(&w) >= usize(3), "a callee's local copy of a parameter counts");
-  h := ArrayList(_CowLike).new();
+  mut(h) := ArrayList(_CowLike).new();
   h.push(w.clone());
   assert(ref_count(w.b) >= usize(3), "a list element counts");
   (f : Impl(Fn() -> usize)) = ({ w : w.clone() }() => ref_count(w.b));
@@ -1992,10 +1992,10 @@ test("ref_count(x) reads the count of every cell shape", {
   };
   assert(ref_count(a1) == usize(1), "ref_count(a1) == 1");
   // ArrayList (a ref struct): the list handle's own count.
-  l1 := ArrayList(i32).new();
+  mut(l1) := ArrayList(i32).new();
   l1.push(i32(1));
   {
-    l2 := l1;
+    l2 := l1.clone();
     {
       l3 := l2;
       assert(ref_count(l1) == usize(2), "ref_count(l1) == 2");
@@ -2135,7 +2135,7 @@ impl(
 test("a local moved into a tuple argument of a call is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
-    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
     inner := TupleElemHandle(tag : i32(1));
     ys.push((i32(0), inner));
     // Over-drop canary: the read after the push must still see the object.
@@ -2150,7 +2150,7 @@ test("a local moved into a tuple argument of a call is disposed exactly once", {
 test("a fresh constructor inside a tuple argument is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
-    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
     ys.push((i32(0), TupleElemHandle(tag : i32(2))));
     assert(ys(usize(0)).1.tag == i32(2), "the fresh handle is stored");
   };
@@ -2162,7 +2162,7 @@ test("a fresh constructor inside a tuple argument is disposed exactly once", {
 test("one local pushed in two tuple arguments is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
-    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
     shared := TupleElemHandle(tag : i32(3));
     ys.push((i32(0), shared));
     ys.push((i32(1), shared));
@@ -2177,7 +2177,7 @@ test("one local pushed in two tuple arguments is disposed exactly once", {
 test("a tuple argument nested inside another tuple argument is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
-    ys := ArrayList(Tuple(Tuple(i32, i32), TupleElemHandle)).new();
+    mut(ys) := ArrayList(Tuple(Tuple(i32, i32), TupleElemHandle)).new();
     inner := TupleElemHandle(tag : i32(4));
     ys.push(((i32(0), i32(1)), inner));
     assert(ys(usize(0)).1.tag == i32(4), "the nested tuple's handle is stored");
@@ -2194,7 +2194,7 @@ test("a tuple argument nested inside another tuple argument is disposed exactly 
 test("a named tuple binding pushed into a container is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
-    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
     inner := TupleElemHandle(tag : i32(5));
     p := (i32(0), inner);
     ys.push(p);
@@ -2876,7 +2876,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
   heap := _counting(addr_of(counts));
   {
     shared := rc(i32(42), alloc : .Some(heap));
-    holder := ArrayList(Rc(i32)).new();
+    mut(holder) := ArrayList(Rc(i32)).new();
     holder.push(Rc.clone(shared));
     assert(ref_count(shared) == usize(2), "two handles, one cell");
     assert(counts.live == usize(1), "one cell, two handles");
@@ -3144,6 +3144,7 @@ impl(
     })
   )
 );
+derive(_RcvCell, Clone);
 impl(
   _RcvCell,
   peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> i32)({
@@ -3152,53 +3153,59 @@ impl(
   })
 );
 _RcvField :: struct(r : Rc(_RcvCell));
-_RcvHolder :: struct(xs : ArrayList(Rc(_RcvCell)));
-impl(_RcvHolder, first : (fn(self : &Self) -> &Rc(_RcvCell))(&self.xs(usize(0))));
+derive(_RcvField, Clone);
+// The aliased list the receiver is reached through. An `ArrayList` is a value
+// since B8, so a second handle to ONE list is spelled with a `ref` object
+// around it; `hs2 := hs` shares the object, and `hs2.xs.clear()` empties the
+// list the receiver borrows from.
+_RcvBag :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(xs : ArrayList(T))));
+_RcvHolder :: struct(bag : _RcvBag(Rc(_RcvCell)));
+impl(_RcvHolder, first : (fn(self : &Self) -> &Rc(_RcvCell))(&self.bag.xs(usize(0))));
 _rcv_peek :: (fn(c : &_RcvCell, act : &Impl(Fn() -> unit)) -> i32)({
   act();
   _rcv_drops + (c.n - c.n)
 });
 test("a receiver reached through an Rc element outlives a closure that drops the last other handle", {
   _rcv_drops = i32(0);
-  hs := ArrayList(Rc(_RcvCell)).new();
-  hs.push(rc(_RcvCell(n : i32(1))));
+  hs := _RcvBag(Rc(_RcvCell))(xs : ArrayList(Rc(_RcvCell)).new());
+  hs.xs.push(rc(_RcvCell(n : i32(1))));
   hs2 := hs;
   assert(
-    hs(usize(0)).peek(() => {
-      hs2.clear();
+    hs.xs(usize(0)).peek(() => {
+      hs2.xs.clear();
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
-  hs.push(rc(_RcvCell(n : i32(2))));
+  hs.xs.push(rc(_RcvCell(n : i32(2))));
   assert(
-    hs(usize(0)).*.peek(() => {
-      hs2.clear();
+    hs.xs(usize(0)).*.peek(() => {
+      hs2.xs.clear();
     }) == i32(1),
     "written `.*` receiver"
   );
   assert(_rcv_drops == i32(2), "destroyed once");
-  hs.push(rc(_RcvCell(n : i32(3))));
+  hs.xs.push(rc(_RcvCell(n : i32(3))));
   assert(
-    _rcv_peek(&hs(usize(0)).*, () => {
-      hs2.clear();
+    _rcv_peek(&hs.xs(usize(0)).*, () => {
+      hs2.xs.clear();
     }) == i32(2),
     "a `&` argument through the handle"
   );
   assert(_rcv_drops == i32(3), "destroyed once");
-  h := _RcvHolder(xs : hs);
-  hs.push(rc(_RcvCell(n : i32(4))));
+  h := _RcvHolder(bag : hs);
+  hs2.xs.push(rc(_RcvCell(n : i32(4))));
   assert(
-    h.xs(usize(0)).peek(() => {
-      hs2.clear();
+    h.bag.xs(usize(0)).peek(() => {
+      hs2.xs.clear();
     }) == i32(3),
     "an element of a field"
   );
   assert(_rcv_drops == i32(4), "destroyed once");
-  hs.push(rc(_RcvCell(n : i32(5))));
+  hs2.xs.push(rc(_RcvCell(n : i32(5))));
   assert(
     h.first().peek(() => {
-      hs2.clear();
+      hs2.xs.clear();
     }) == i32(4),
     "a handle returned by a projection call"
   );
@@ -3206,42 +3213,42 @@ test("a receiver reached through an Rc element outlives a closure that drops the
 });
 test("a receiver behind a field, nested handles or an Arc outlives the closure too", {
   _rcv_drops = i32(0);
-  fs := ArrayList(_RcvField).new();
-  fs.push(_RcvField(r : rc(_RcvCell(n : i32(1)))));
+  fs := _RcvBag(_RcvField)(xs : ArrayList(_RcvField).new());
+  fs.xs.push(_RcvField(r : rc(_RcvCell(n : i32(1)))));
   fs2 := fs;
   assert(
-    fs(usize(0)).r.peek(() => {
-      fs2.clear();
+    fs.xs(usize(0)).r.peek(() => {
+      fs2.xs.clear();
     }) == i32(0),
     "an Rc field of an element"
   );
   assert(_rcv_drops == i32(1), "destroyed once");
-  nested := ArrayList(Rc(Rc(_RcvCell))).new();
-  nested.push(rc(rc(_RcvCell(n : i32(2)))));
+  nested := _RcvBag(Rc(Rc(_RcvCell)))(xs : ArrayList(Rc(Rc(_RcvCell))).new());
+  nested.xs.push(rc(rc(_RcvCell(n : i32(2)))));
   nested2 := nested;
   assert(
-    nested(usize(0)).peek(() => {
-      nested2.clear();
+    nested.xs(usize(0)).peek(() => {
+      nested2.xs.clear();
     }) == i32(1),
     "Rc(Rc(T)): the inner handle holds the payload"
   );
   assert(_rcv_drops == i32(2), "destroyed once");
-  boxed := ArrayList(Rc(Box(_RcvCell))).new();
-  boxed.push(rc(box(_RcvCell(n : i32(3)))));
+  boxed := _RcvBag(Rc(Box(_RcvCell)))(xs : ArrayList(Rc(Box(_RcvCell))).new());
+  boxed.xs.push(rc(box(_RcvCell(n : i32(3)))));
   boxed2 := boxed;
   assert(
-    boxed(usize(0)).peek(() => {
-      boxed2.clear();
+    boxed.xs(usize(0)).peek(() => {
+      boxed2.xs.clear();
     }) == i32(2),
     "Rc(Box(T)): the Rc owns the box"
   );
   assert(_rcv_drops == i32(3), "destroyed once");
-  shared := ArrayList(Arc(_RcvCell)).new();
-  shared.push(arc(_RcvCell(n : i32(4))));
+  shared := _RcvBag(Arc(_RcvCell))(xs : ArrayList(Arc(_RcvCell)).new());
+  shared.xs.push(arc(_RcvCell(n : i32(4))));
   shared2 := shared;
   assert(
-    shared(usize(0)).peek(() => {
-      shared2.clear();
+    shared.xs(usize(0)).peek(() => {
+      shared2.xs.clear();
     }) == i32(3),
     "an Arc element"
   );
@@ -3251,12 +3258,12 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
 // state machine's path too, across the awaits around the call.
 _rcv_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    hs := ArrayList(Rc(_RcvCell)).new();
-    hs.push(rc(_RcvCell(n : i32(1))));
+    hs := _RcvBag(Rc(_RcvCell))(xs : ArrayList(Rc(_RcvCell)).new());
+    hs.xs.push(rc(_RcvCell(n : i32(1))));
     hs2 := hs;
     io.await(yield(io), io);
-    seen := hs(usize(0)).peek(() => {
-      hs2.clear();
+    seen := hs.xs(usize(0)).peek(() => {
+      hs2.xs.clear();
     });
     io.await(yield(io), io);
     seen
@@ -3278,34 +3285,34 @@ impl(
 );
 _RcvTextField :: struct(t : _RcvText);
 test("a copyable receiver behind a Box or a value field of an element keeps its value", {
-  bs := ArrayList(Box(_RcvText)).new();
-  bs.push(box(_RcvText(s : String.from("hello"))));
+  bs := _RcvBag(Box(_RcvText))(xs : ArrayList(Box(_RcvText)).new());
+  bs.xs.push(box(_RcvText(s : String.from("hello"))));
   bs2 := bs;
   assert(
-    bs(usize(0)).peek_len(() => {
-      bs2.clear();
+    bs.xs(usize(0)).peek_len(() => {
+      bs2.xs.clear();
     }) == usize(5),
     "Box element"
   );
-  vs := ArrayList(_RcvTextField).new();
-  vs.push(_RcvTextField(t : _RcvText(s : String.from("hello"))));
+  vs := _RcvBag(_RcvTextField)(xs : ArrayList(_RcvTextField).new());
+  vs.xs.push(_RcvTextField(t : _RcvText(s : String.from("hello"))));
   vs2 := vs;
   assert(
-    vs(usize(0)).t.peek_len(() => {
-      vs2.clear();
+    vs.xs(usize(0)).t.peek_len(() => {
+      vs2.xs.clear();
     }) == usize(5),
     "a value field of an element"
   );
 });
 test("a closure naming the container a receiver is lent from is E0910", {
   comptime_expect_error({
-    hs := ArrayList(Rc(_RcvCell)).new();
+    mut(hs) := ArrayList(Rc(_RcvCell)).new();
     hs(usize(0)).peek(() => {
       hs.clear();
     })
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
-    fs := ArrayList(_RcvField).new();
+    mut(fs) := ArrayList(_RcvField).new();
     fs(usize(0)).r.peek(() => {
       fs.clear();
     })
@@ -3317,7 +3324,7 @@ test("a closure naming the container a receiver is lent from is E0910", {
     })
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
-    ts := ArrayList(_RcvText).new();
+    mut(ts) := ArrayList(_RcvText).new();
     ts(usize(0)).peek_len(() => {
       ts.clear();
     })
@@ -3366,7 +3373,7 @@ _rcv_exit_unwind :: (fn(hs : &ArrayList(Rc(_RcvCell)), k : i32) -> i32)({
 });
 _rcv_exit_task :: (fn(o : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    hs := ArrayList(Rc(_RcvCell)).new();
+    mut(hs) := ArrayList(Rc(_RcvCell)).new();
     hs.push(rc(_RcvCell(n : i32(1))));
     io.await(yield(io), io);
     r := hs(usize(0)).peek_k(match(o, .Some(v) => v, .None => return(i32(5))), () => ());
@@ -3376,7 +3383,7 @@ _rcv_exit_task :: (fn(o : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
 );
 test("an exit from a later argument releases the share a receiver took through an Rc", {
   _rcv_drops = i32(0);
-  hs := ArrayList(Rc(_RcvCell)).new();
+  mut(hs) := ArrayList(Rc(_RcvCell)).new();
   hs.push(rc(_RcvCell(n : i32(1))));
   assert(_rcv_exit_return(&hs, .None) == i32(-1), "return from a later argument");
   assert(_rcv_exit_return(&hs, .Some(i32(2))) == i32(3), "no exit");
@@ -3385,7 +3392,7 @@ test("an exit from a later argument releases the share a receiver took through a
   assert(_rcv_exit_unwind(&hs, i32(2)) == i32(3), "no unwind");
   hs.clear();
   assert(_rcv_drops == i32(1), "every exit released its share");
-  fs := ArrayList(_RcvField).new();
+  mut(fs) := ArrayList(_RcvField).new();
   fs.push(_RcvField(r : rc(_RcvCell(n : i32(1)))));
   assert(_rcv_exit_return_field(&fs, .None) == i32(-1), "return, Rc field of an element");
   fs.clear();
@@ -3411,9 +3418,9 @@ _rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : &mut ArrayList(Rc(_R
 );
 test("an exit inside a later argument or its closure keeps the receiver's share", {
   _rcv_drops = i32(0);
-  hs := ArrayList(Rc(_RcvCell)).new();
+  mut(hs) := ArrayList(Rc(_RcvCell)).new();
   hs.push(rc(_RcvCell(n : i32(1))));
-  mut(hs2) := hs;
+  mut(hs2) := hs.clone();
   assert(_rcv_exit_inner(&hs, &mut hs2) == i32(4), "the cell outlives the call");
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
 });
