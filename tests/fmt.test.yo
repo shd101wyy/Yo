@@ -293,11 +293,11 @@ test("StringBuilder.write_hex renders lowercase hexadecimal", {
   w.write_hex(u64(3735928559));
   assert(w.to_string() == `deadbeef`, "and the classic one");
 });
-// A template of two or more parts builds ONE String: the first part is
-// rendered owned, every later part is appended to it through
-// `ToString.append_to` (`String` and `str` append their bytes by borrow)
-// instead of `part.to_string()` joined with `+`
-// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D10).
+// A template of two or more parts builds ONE String: an empty builder, then
+// every part appended to it through `ToString.append_to` (`String` and `str`
+// append their bytes by borrow) instead of `part.to_string()` joined with `+`
+// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D10). A one-part template is
+// still `part.to_string()`.
 _D10Plain :: struct(n : i32);
 impl(_D10Plain, ToString(to_string : (fn(self : &Self) -> String)(`p${self.n}`)));
 _D10Custom :: struct(n : i32);
@@ -324,12 +324,21 @@ test("D10: a String part is appended by borrow and stays usable", {
   assert(s == `<ab>ab`, "both String parts rendered");
   assert(word == `ab`, "the interpolated String is untouched");
   t := `${word}${word}`;
-  assert(t == `abab`, "a String first part and a String later part");
+  assert(t == `abab`, "two String parts");
+  assert(word == `ab`, "a String FIRST part is not the builder: nothing is appended into it");
+  // The case that caught the first draft, whose builder started as the first
+  // part's `to_string()`: while a `String` copy shares its buffer, every
+  // later part was appended into `a` itself.
+  a := String.from("a");
+  n := i32(7);
+  long := `${a}${n}${a}${n}`;
+  assert((long == `a7a7`) && (a == `a`), "the first String part keeps its bytes");
 });
 test("D10: a later part uses the trait's append_to, default or overridden", {
   assert(`x ${_D10Plain(n : i32(4))} y` == `x p4 y`, "the default append_to renders through to_string");
   assert(`x ${_D10Custom(n : i32(4))} y` == `x append_to y`, "an overriding append_to is the one a later part calls");
-  assert(`${_D10Custom(n : i32(4))} y` == `to_string y`, "the first part is rendered by to_string");
+  assert(`${_D10Custom(n : i32(4))} y` == `append_to y`, "the first part is appended too");
+  assert(`${_D10Custom(n : i32(4))}` == `to_string`, "a one-part template is rendered by to_string");
 });
 test("D10: nested templates, specs and literal-only templates", {
   x := i32(5);

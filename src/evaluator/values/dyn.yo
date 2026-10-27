@@ -27,10 +27,10 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, shared_list, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, shared_cell_type_name_of_constructor, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
-{ resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
+{ resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -764,27 +764,62 @@ _monomorphize_default_fv :: (
     (default_fid == String.new()) => fv,
     match(fv, .FuncVal(__mfv, _) => (__mfv.*.func_id == default_fid), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
-      self_args := ArrayList(ArgEntry).new();
-      self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));
-      // Every parameter after `self` is a runtime argument of its declared
-      // type (`Self` read as the receiver): with only `self` supplied, a
-      // default such as `append_to : (fn(self : &Self, out : &mut String))`
-      // evaluated its body with `out` unbound, `Variable "out" not found`
+      // Every parameter is a runtime argument of its declared type, `Self`
+      // read as the receiver. `create_specialized_function_inline` takes the
+      // parameters' BINDINGS from the environment it is given (a call binds
+      // them first), so they are bound here, in a scratch frame, the way the
+      // per-impl default materialization binds them (`impl.yo`). With nothing
+      // bound, a default with a parameter after `self`, such as
+      // `append_to : (fn(self : &Self, out : &mut String))`, failed with
+      // `Variable "out" not found`
       // (issues/fixed/2026-10-27-a-dyn-of-a-type-variable-fails-on-a-trait-default-with-a-parameter.md).
       sub_ft := _substitute_self_in_method_ty(&default_ft, value_type);
       sub_pts := match(sub_ft, Rc(.Func({ param_types : sp })) => sp, _ => no_types());
-      (spi : usize) = usize(1);
-      while(spi < sub_pts.len(), {
+      sub_is_ref := match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&sub_ft), _ => no_flags());
+      param_labels := match(fv, .FuncVal(__plfv, _) => __plfv.*.params.clone(), _ => ArrayList(String).new());
+      spec_args := ArrayList(ArgEntry).new();
+      ___mdf := caller_env.push_frame(false);
+      (spi : usize) = usize(0);
+      while(spi < param_labels.len(), {
+        sp_label := match(param_labels.get(spi), .Some(l) => l, .None => String.new());
+        sp_ty := cond(
+          (spi == usize(0)) => value_type.clone(),
+          true => match(slot_pointee_at(&sub_pts, spi), .Some(t) => t, .None => value_type.clone())
+        );
+        spec_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : sp_ty.clone(), arg_type : sp_ty.clone()));
+        sp_is_ref := match(sub_is_ref.get(spi), .Some(b) => b, .None => false);
         match(
-          sub_pts.get(spi),
-          .Some(spt) => self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : spt.clone(), arg_type : spt.clone())),
+          add_variable_to_env(
+            caller_env,
+            &sp_label,
+            &sp_ty,
+            Option(EvalValue).Some(create_unknown_val(&sp_ty)),
+            false,
+            false,
+            false,
+            false,
+            synthetic_token(&sp_label, &caller_env.module_path.*)
+          ),
+          .Some(sp_var) => {
+            sp_var.is_parameter = true;
+            if(sp_is_ref, {
+              sp_var.is_ref = true;
+              sp_var.is_reassignable = true;
+            });
+            if(fn_param_is_ptr_borrow(&sub_ft, spi), {
+              sp_var.is_ref = true;
+            });
+            if(!sp_is_ref && !match(match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_by_value_at(&sub_ft, spi), _ => Option(bool).None), .Some(b) => b, .None => false), {
+              sp_var.is_imm_borrow = true;
+            });
+          },
           .None => ()
         );
         spi = (spi + usize(1));
       });
       spec_argvals := ArgValues(
         forall_args : ArrayList(ArgEntry).new(),
-        args : self_args,
+        args : spec_args,
         implicit_args : Option(ArrayList(ArgEntry)).None,
         variadic_args : ArrayList(VarArgEntry).new()
       );
@@ -792,6 +827,7 @@ _monomorphize_default_fv :: (
       ctx.self_type = Option(TypeValue).Some(value_type.clone());
       spec_fv := create_specialized_function_inline(fv, &default_ft, &spec_argvals, caller_env, caller_env, ctx, exn);
       ctx.self_type = saved_self_ty;
+      caller_env.pop_frame();
       spec_fv
     },
     true => fv
