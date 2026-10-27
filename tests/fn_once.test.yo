@@ -583,8 +583,14 @@ impl(
 test("FnOnce: a generic FnOnce sink parameter is callable inside its own callee", {
   s := String.from("ab");
   assert(_gen_run_once(s.clone(), () => s.len()) == usize(2), "a plain-data closure literal is called once");
-  c := _GenCell(s : String.from("x"));
-  assert(c.with_put(v => v.push_str(&String.from("!"))) == usize(2), "an impl method calls its sink parameter");
+  mut(c) := _GenCell(s : String.from("x"));
+  assert(
+    c.with_put(v => {
+      v.push_str("!");
+      v.len()
+    }) == usize(2),
+    "an impl method calls its sink parameter"
+  );
   assert(c.s == String.from("x!"), "the body ran on the cell's field");
 });
 
