@@ -3678,7 +3678,9 @@ create_specialized_function_inline :: (
               original_func_value : original_func_val,
               impl_bindings_sig : push_bindings_sig,
               is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys),
-              in_std : is_std_module_path(&ast_expr_token(&body).module_path.*, ctx.std_path.clone()),
+              // `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges std generic bodies too
+              // (measures what dropping decision 17's std-generic exemption costs).
+              in_std : (is_std_module_path(&ast_expr_token(&body).module_path.*, ctx.std_path.clone()) && debug_knob(`YO_DEBUG_V2C_JUDGE_STD_GENERIC`).is_none()),
               is_generic_body : spec_generic_body
             )
           );

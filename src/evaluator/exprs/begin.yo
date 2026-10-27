@@ -112,6 +112,7 @@ pragma(Pragma.AllowUnsafe);
   migrate_rc_clone_on,
   migrate_rc_clone_borrow_scrutinee,
   take_pending_scrutinee_borrows,
+  _lb_mentions,
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
   take_dyn_copy_pending,
@@ -1988,6 +1989,13 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
           },
           .None => ()
         );
+        // `yo fix --migrate rc-clone`: a closure that borrows its captures
+        // (one lent to a `with_mut`/`for` body) has no deferred dup, but under
+        // decision 17's rule its read of the variable still follows the copy
+        // or the consuming `match`, so the copy is not the variable's last use.
+        if(migrate_rc_clone_on() && _lb_mentions(e, v.name.clone()), {
+          _ic_read(&tok, site, acc);
+        });
         return(());
       });
     },

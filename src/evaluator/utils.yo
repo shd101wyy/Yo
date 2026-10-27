@@ -2788,6 +2788,7 @@ ExplicitCopySite :: struct(
   spelling : String,
   capture_names : String
 );
+derive(ExplicitCopySite, Clone);
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
 /// callee may write, a `&mut` local borrow), recorded while the migration
@@ -2859,6 +2860,7 @@ CopyingAccessorSite :: struct(
   at_offset : u32,
   in_generic : bool
 );
+derive(CopyingAccessorSite, Clone);
 (mut(g_migrate_cloned_accessors) : bool) = false;
 (g_copying_accessor_sites : RefCell(ArrayList(CopyingAccessorSite))) = RefCell(ArrayList(CopyingAccessorSite)).new(ArrayList(CopyingAccessorSite).new());
 (g_copying_accessor_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
