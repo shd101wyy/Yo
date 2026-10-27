@@ -1,0 +1,175 @@
+//! Static-argument inference (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2):
+//! a static method called through an UNAPPLIED type constructor, `G.m(a1, …)`,
+//! is `G(A…).m(a1, …)`, its `A…` bound by every argument whose parameter's
+//! declared type mentions the impl's binders. A method whose first parameter
+//! is `Self` keeps decision 32: the receiver is the first argument
+//! (tests/unapplied_constructor_method.test.yo).
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+mv :: import("./member_visibility/counter.yo");
+{ Cell } :: mv;
+_Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(
+  generic(A : Type, B : Type),
+  _Pair(A, B),
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b)),
+  left : (fn(a : A) -> A)(a)
+);
+_Box1 :: (fn(comptime(A) : Type) -> comptime(Type))(
+  struct(a : A)
+);
+impl(
+  generic(A : Type),
+  _Box1(A),
+  mk : (fn(a : A) -> Self)(Self(a : a))
+);
+/// A type whose parameter no field mentions: each method binds it through a
+/// differently nested parameter type.
+_Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(n : usize)
+);
+impl(
+  generic(T : Type),
+  _Wrap(T),
+  of_list : (fn(xs : &ArrayList(T)) -> Self)(Self(n : xs.len())),
+  of_option : (fn(o : Option(T)) -> Self)(Self(n : cond(o.is_some() => usize(1), true => usize(0)))),
+  of_ptr : (fn(p : *T) -> Self)(Self(n : usize(3))),
+  of_ref : (fn(r : &T) -> Self)(Self(n : usize(4))),
+  of_two : (fn(a : T, b : T) -> Self)(Self(n : usize(2))),
+  lazy : (fn(f : Impl(Fn() -> T)) -> Self)(Self(n : usize(0)))
+);
+/// One generic body, two specializations: the call infers `T` in each.
+_wrap_of :: (fn(generic(T : Type), x : &T) -> _Wrap(T))(_Wrap.of_ref(x));
+test("a static method binds the constructor's parameters from its arguments", {
+  p := _Box1.mk(i32(2));
+  comptime_assert(Type.eq(type_of(p), _Box1(i32)), "_Box1.mk(i32(2)) is _Box1(i32)");
+  assert(p.a == i32(2), "the payload");
+  q := _Pair.make(i32(1), true);
+  comptime_assert(Type.eq(type_of(q), _Pair(i32, bool)), "_Pair.make(i32(1), true) is _Pair(i32, bool)");
+  assert(q.b, "B := bool");
+});
+test("a binder nested in the parameter type: ArrayList(T), Option(T), *T and &T", {
+  xs := ArrayList(String).new();
+  xs.push(`a`);
+  w := _Wrap.of_list(&xs);
+  comptime_assert(Type.eq(type_of(w), _Wrap(String)), "ArrayList(T) given ArrayList(String)");
+  assert(w.n == usize(1), "the list's length");
+  comptime_assert(Type.eq(type_of(_Wrap.of_option(Option(u8).Some(u8(1)))), _Wrap(u8)), "Option(T)");
+  x := i64(5);
+  comptime_assert(Type.eq(type_of(_Wrap.of_ptr(addr_of(x))), _Wrap(i64)), "*T");
+  comptime_assert(Type.eq(type_of(_Wrap.of_ref(&x)), _Wrap(i64)), "&T");
+});
+test("a comptime literal binds its default type", {
+  r := Rc.new(42);
+  comptime_assert(Type.eq(type_of(r), Rc(i32)), "Rc.new(42) is Rc(i32), like rc(42)");
+  assert(r.* == i32(42), "the payload");
+  comptime_assert(Type.eq(type_of(_Wrap.of_two(u8(1), 2)), _Wrap(u8)), "a typed argument wins over a literal");
+});
+test("an instance argument of a static method is a payload, not the receiver", {
+  q := _Box1(i32)(a : i32(1));
+  p := _Box1.mk(q);
+  comptime_assert(Type.eq(type_of(p), _Box1(_Box1(i32))), "_Box1.mk(q) is _Box1(_Box1(i32)); decision 32 alone made it E0601");
+  r := Rc.new(rc(i32(1)));
+  comptime_assert(Type.eq(type_of(r), Rc(Rc(i32))), "Rc.new(some_rc) is Rc(Rc(i32)), as Rust's Rc::new(rc)");
+});
+test("two arguments binding one parameter to different types are E0601", {
+  comptime_expect_error(_Wrap.of_two(i32(1), u8(2)), "Incompatible types for type parameter \"T\" of `_Wrap`: it is i32 from argument 1 but u8 from argument 2");
+});
+test("a parameter no consulted argument mentions is E0613 naming it", {
+  comptime_expect_error(_Pair.left(i32(1)), "Cannot infer the type parameter `B` of `_Pair`");
+  comptime_expect_error(_Pair.left(i32(1)), "write the type arguments: `_Pair(...).left(...)`");
+  comptime_expect_error(Rc.new(.None), "Cannot infer the type parameter `T` of `Rc`");
+  comptime_expect_error(Rc.new(.None), "write the type arguments: `Rc(...).new(...)`");
+  comptime_expect_error(_Wrap.lazy(() => i32(1)), "Cannot infer the type parameter `T` of `_Wrap`");
+  w := _Wrap(i32).lazy(() => i32(1));
+  assert(w.n == usize(0), "the written type arguments call it");
+});
+// Two impls on `_Two(i32, B)` and `_Two(u8, B)` both declare `pick`.
+_Two :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(generic(B : Type), _Two(i32, B), pick : (fn(b : B) -> Self)(Self(a : i32(1), b : b)));
+impl(generic(B : Type), _Two(u8, B), pick : (fn(b : B) -> Self)(Self(a : u8(2), b : b)));
+test("two impls the arguments fit are ambiguous (E0613)", {
+  comptime_expect_error(_Two.pick(true), "ambiguous");
+  t := _Two(u8, bool).pick(true);
+  assert(t.a == u8(2), "the written type arguments pick one");
+});
+test("a module-qualified constructor, in a generic body specialized twice", {
+  c := mv.Cell.wrap(i32(7));
+  comptime_assert(Type.eq(type_of(c), Cell(i32)), "mv.Cell.wrap(i32(7)) is Cell(i32)");
+  assert(c.get() == i32(7), "the payload");
+  comptime_assert(Type.eq(type_of(_wrap_of(&i32(1))), _Wrap(i32)), "T := i32");
+  comptime_assert(Type.eq(type_of(_wrap_of(&true)), _Wrap(bool)), "T := bool");
+  assert(_wrap_of(&true).n == usize(4), "the specialized body runs");
+});
+_Loud :: trait(id := "sai_Loud");
+_Quiet :: trait(id := "sai_Quiet");
+impl(i32, _Loud());
+impl(bool, _Quiet());
+_Loudly :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : T)
+);
+impl(generic(T : Type), where(T <: _Loud), _Loudly(T), mk : (fn(v : T) -> Self)(Self(v : v)));
+/// Two inherent impls over different bounds declare `mk`; the bound decides
+/// which receiver the arguments bind.
+_Sel :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(tag : i32)
+);
+impl(generic(T : Type), where(T <: _Loud), _Sel(T), mk : (fn(x : T) -> Self)(Self(tag : i32(1))));
+impl(generic(T : Type), where(T <: _Quiet), _Sel(Option(T)), mk : (fn(x : T) -> Self)(Self(tag : i32(2))));
+/// A binder only a where-clause mentions.
+_Count :: struct(n : i32);
+impl(
+  _Count,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))({
+      self.n = (self.n + i32(1));
+      .Some(self.n)
+    })
+  )
+);
+_Iw :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(it : I)
+);
+impl(generic(I : Type, A : Type), where(I <: Iterator(Item := A)), _Iw(I), wrap : (fn(it : I) -> Self)(Self(it : it)));
+test("where-clauses: a failed bound is the bound's error, a bound selects the impl, and a where-only binder is bound", {
+  comptime_expect_error(_Loudly.mk(true), "Type bool does not implement required trait _Loud");
+  comptime_assert(Type.eq(type_of(_Loudly.mk(i32(1))), _Loudly(i32)), "the bound holds for i32");
+  comptime_assert(Type.eq(type_of(_Sel.mk(i32(1))), _Sel(i32)), "i32 is _Loud: the first impl");
+  comptime_assert(Type.eq(type_of(_Sel.mk(true)), _Sel(Option(bool))), "bool is _Quiet: the second impl");
+  w := _Iw.wrap(_Count(n : i32(0)));
+  comptime_assert(Type.eq(type_of(w), _Iw(_Count)), "I := _Count, A bound by the where-clause");
+  assert(w.it.n == i32(0), "the payload");
+});
+test("an impl placed below its call is found (lazy impls)", {
+  p := _Box1.mk2(i32(5));
+  comptime_assert(Type.eq(type_of(p), _Box1(i32)), "_Box1.mk2 is declared below this test");
+  assert(p.a == i32(5), "the payload");
+});
+impl(
+  generic(A : Type),
+  _Box1(A),
+  mk2 : (fn(a : A) -> Self)(Self(a : a))
+);
+_Same :: trait(
+  same : (fn(lhs : &Self, rhs : &Self) -> bool)
+);
+impl(generic(A : Type), _Box1(A), _Same(same : ((lhs, rhs) -> true)));
+test("a trait method whose first parameter is `lhs : &Self` keeps decision 32", {
+  p := _Box1(i32)(a : i32(1));
+  q := _Box1(i32)(a : i32(2));
+  assert(_Box1.same(p, q), "the receiver is the first argument");
+  comptime_expect_error(_Box1.same(i32(1), i32(2)), "not an instance of `_Box1`");
+});
+_take_list :: (fn(xs : ArrayList(i32)) -> usize)(xs.len());
+test("a call with no arguments stays E0613, even where its type is expected", {
+  comptime_expect_error(ArrayList.new(), "this call has none");
+  comptime_expect_error(Rc.default(), "this call has none");
+  comptime_expect_error(_take_list(ArrayList.new()), "this call has none");
+  assert(_take_list(ArrayList(i32).new()) == usize(0), "the written type arguments");
+});

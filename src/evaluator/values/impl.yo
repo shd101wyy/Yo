@@ -270,6 +270,11 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 // stale entries here are a PER-KEYSTROKE cost: every candidate scan in
 // `find_methods_from_generic_impls` walks them.
 (g_impl_registry_entry_owners : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
+// Static-argument inference's candidate index (`impls_of_constructor_method`,
+// at the end of this file): the concrete impls' methods on instances of a type
+// constructor, and the generic candidates per `(constructor fid, method)`.
+(g_ctor_concrete_methods : RefCell(ArrayList(_CtorConcreteMethod))) = RefCell(ArrayList(_CtorConcreteMethod)).new(ArrayList(_CtorConcreteMethod).new());
+(g_ctor_method_cache : RefCell(HashMap(String, _CtorMethodCacheEntry))) = RefCell(HashMap(String, _CtorMethodCacheEntry)).new(HashMap(String, _CtorMethodCacheEntry).new());
 /// ENV-THREADING variant of the hook. `TraitCheckResult` lives in
 /// trait_checking.yo (importing it here would be circular), so the adapter
 /// writes the post-constraint bindings into the caller's env IN PLACE and
@@ -6792,11 +6797,9 @@ CtorMethodImpl :: struct(
 /// A method a CONCRETE impl registered on an instance of a type constructor
 /// (`impl(Pair(i32), m : …)`): the generic registry holds no entry for it.
 _CtorConcreteMethod :: struct(ctor_fid : String, method : String, receiver_ty : TypeValue, method_ty : TypeValue, site : String);
-(g_ctor_concrete_methods : RefCell(ArrayList(_CtorConcreteMethod))) = RefCell(ArrayList(_CtorConcreteMethod)).new(ArrayList(_CtorConcreteMethod).new());
 /// The generic candidates of one `(constructor fid, method)` key, valid while
 /// the trait-impl epoch they were collected at stands.
 _CtorMethodCacheEntry :: struct(epoch : u64, impls : ArrayList(CtorMethodImpl));
-(g_ctor_method_cache : RefCell(HashMap(String, _CtorMethodCacheEntry))) = RefCell(HashMap(String, _CtorMethodCacheEntry)).new(HashMap(String, _CtorMethodCacheEntry).new());
 /// Records a concrete impl's method for `impls_of_constructor_method`: called
 /// where a non-generic impl registers it.
 note_concrete_ctor_method :: (fn(receiver_ty : &TypeValue, method : &String, method_ty : &TypeValue, site : &String) -> unit)({
