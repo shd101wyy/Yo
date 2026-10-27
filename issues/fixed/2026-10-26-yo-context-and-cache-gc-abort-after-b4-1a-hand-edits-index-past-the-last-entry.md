@@ -37,7 +37,7 @@ the last iteration reads `xs(len)` — the panicking index.
 `ci`, so the argument to `context_index_ensure` faults before any index is built (which is why
 no `Building the context index …` line appears):
 
-```yo
+```yo ignore
 while(ci < corpora.len(), {
   ci = (ci + usize(1));                                        // moved up by the hand edit
   key := context_index_ensure(&corpora(ci).root, …, &corpora(ci).prefix, io, exn);
@@ -47,7 +47,7 @@ while(ci < corpora.len(), {
 `src/fetch.yo`, `_sweep_dir` — `entries(i).name` was read before the increment but
 `entries(i).file_type` after it:
 
-```yo
+```yo ignore
 while(i < entries.len(), {
   name := entries(i).name.clone();
   i = (i + usize(1));                                          // between the two reads
