@@ -92,7 +92,7 @@ _apply_width :: (
   // `width` is a CHARACTER count (the field doc says so, and Rust counts
   // chars here too), so the measurement is a rune count — otherwise
   // D4's byte flip would silently start padding `é` to two columns.
-  len := text.chars().count();
+  len := text.clone().chars().count();
   cond(
     (len >= width) => text,
     true => {
@@ -236,7 +236,7 @@ impl(
       // whole (STD_API_AUDIT_D4_PLAN §5.2 S2).
       .Some(p) =>
         match(
-          body.char_indices().nth(p),
+          body.clone().char_indices().nth(p),
           .Some(pair) => body.substring(usize(0), pair._0),
           .None => body.clone()
         ),
@@ -251,8 +251,8 @@ impl(
   pad_numeric : (fn(self : Self, sign : &String, prefix : &String, digits : &String) -> String)({
     // Same CHARACTER basis as `_apply_width` — the two are compared against
     // the same `self.width`, so they must measure the same thing.
-    head_len := (sign.chars().count() + prefix.chars().count());
-    total_len := (head_len + digits.chars().count());
+    head_len := (sign.clone().chars().count() + prefix.clone().chars().count());
+    total_len := (head_len + digits.clone().chars().count());
     use_zero := (self.zero && self.align.is_none());
     cond(
       (use_zero && (self.width > total_len)) => {
