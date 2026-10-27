@@ -273,9 +273,9 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
   develop → 1).
 - The flip is blocked by TWO evaluator bugs the probes missed (P-B tested a
   concrete local helper, not the impl-method shape):
-  `issues/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md`
+  `issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md`
   (S2, false E0901 — fixed and verified on `vbd/b4-0b-full-state`) and
-  `issues/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md`
+  `issues/fixed/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md`
   (S1, silent double release — src's ~767 capturing `with_mut` lambdas would
   all take the shape, so a self-compiled compiler corrupts its own heap).
 - The flip is also Generation B, not a same-PR std change: the v0.2.70 seed
@@ -283,6 +283,13 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
   capture-free lambda), so the release could not build the tree. A
   seed-compatible relay spelling (`{ body }` as `Thread.spawn`'s wrapper)
   lives on `vbd/b4-0b-full-state`; it survives the S2 fix but not the S1 one.
+- **2026-10-27 (v0.2.72 piece 1.2, branch `fix/b4-0b-fnonce-compiler-half`):**
+  both evaluator bugs are fixed — the S2 with the full-state branch's
+  `env.yo`/`calls/helper.yo` hunks, the S1 by judging a method call's
+  deferred closure literal by its capture struct
+  (`closure_argument_owned_type`, shared with the free-fn path). Parts 1 and
+  3 (the `with_mut` flip and the 82 capture-list conversions) remain
+  Generation B: they wait for a seed carrying the fix.
 - None of the 82 sites were converted; the B4 directory PRs' dry runs
   re-list them unchanged (with_mut stays `&Impl(Fn)` on develop).
 

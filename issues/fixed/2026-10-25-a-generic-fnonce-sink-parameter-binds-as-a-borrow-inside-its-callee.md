@@ -41,29 +41,32 @@ Probe P-B of plans/handover/VBD_LOOKAHEAD_2026-10-23.md (§8) tested only a
 CONCRETE local helper, which is why the handover's "Seed: none" claim missed
 this.
 
-## The fix (verified on branch `vbd/b4-0b-full-state`, not landed)
+## The fix
+
+**Status:** fixed 2026-10-27 (branch `fix/b4-0b-fnonce-compiler-half`, cherry-picked
+from `vbd/b4-0b-full-state` @2aa8bc1fe), together with the sibling S1 it would
+otherwise have exposed at runtime
+(`issues/fixed/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md`).
 
 - `src/env.yo` `bind_parameter`: a closure or function value is exempt from
   the bitwise carve-out — it always moves into a by-value parameter and an
-  `FnOnce` call consumes it, so its parameter binding must stay owning even
-  when the capture struct is plain data (shape 1).
+  `FnOnce` call consumes it, so its parameter binding stays owning even when
+  the capture struct is plain data (shape 1).
 - `src/evaluator/calls/helper.yo` (the specialization re-bind loop): a
   closure parameter whose declared type's fn-trait base is `FnOnce` and for
   which no owning binding is visible gets an OWNING twin bound beside the
   non-owning shadow, which the call (or a relay's capture move) consumes, so
   the parameters-frame scope-end pass skips its release (shape 2).
+  `_owning_param_binding_for_capture_move` (`src/evaluator/utils.yo`) is
+  exported for that lookup.
 
-Both are on `vbd/b4-0b-full-state` (build verified: every
-`sink*`/`ub*`/`pb` probe checks clean; the free-fn shapes also run clean).
-They are NOT landed with B4-0b's tool PR because the shape they unlock hits
-the sibling bug below at RUNTIME: an FnOnce closure literal at a METHOD call
-is released twice (`issues/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md`)
-— landing them alone would turn that shape's compile error into silent heap
-corruption. They land with (or after) that fix, together with the
-`RefCell.with_mut` flip.
+The `RefCell.with_mut` flip to `sink(body) : Impl(FnOnce(...))` is NOT part of
+this fix: it is Generation B (the v0.2.70 seed rejects every caller of such a
+`with_mut`), so it waits for a seed that carries this fix.
 
 ## The test
 
 `tests/fn_once.test.yo`, "a generic FnOnce sink parameter is callable inside
-its own callee" (on `vbd/b4-0b-full-state`): a free generic fn and an impl
-method, each calling its `FnOnce` sink parameter once.
+its own callee": a free generic fn and an impl method, each calling its
+`FnOnce` sink parameter once. Both are a false E0901 at check before the fix
+and pass after it.
