@@ -664,7 +664,7 @@ impl(
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
-      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.value),
+      .Some(index) => .Some(__probe_dup(&((Self._data_ptr(self).add(index)).*.value))),
       .None => .None
     )
   }),
