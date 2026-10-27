@@ -507,7 +507,7 @@ run_doc :: (
       .Some(file) => match(
         document_one_file(&file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
         .Some(df) => {
-          modules.push(df.doc_module);
+          modules.push(df.doc_module.clone());
           if(df.degraded, {
             degraded.push(_module_name_from_path(file.clone(), base_path.clone()));
           });
@@ -566,7 +566,7 @@ run_doc :: (
   );
   model := DocModel(
     name : project_name,
-    modules : modules,
+    modules : modules.clone(),
     version : resolved_version,
     logo : if(options.logo.len() == usize(0), Option(String).None, Option(String).Some(options.logo.clone())),
     favicon : if(options.favicon.len() == usize(0), Option(String).None, Option(String).Some(options.favicon.clone()))

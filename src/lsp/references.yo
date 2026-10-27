@@ -493,7 +493,7 @@ handle_references :: (
         if(include_declaration || !is_decl, {
           // RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
           out.push(
-            jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.chars().count())).obj()
+            jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.clone().chars().count())).obj()
           );
         });
       },
@@ -551,7 +551,7 @@ handle_document_highlight :: (
         // DocumentHighlightKind: 1 Text, 3 Write.
         kind := cond(is_decl => usize(3), true => usize(1));
         out.push(
-          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.chars().count())).put("kind", jnum(kind)).obj()
+          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.clone().chars().count())).put("kind", jnum(kind)).obj()
         );
       },
       .None => ()

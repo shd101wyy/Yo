@@ -104,7 +104,7 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
                 usize(name_tok.row),
                 usize(name_tok.column),
                 usize(name_tok.row),
-                usize(name_tok.column) + name_tok.value.chars().count()
+                usize(name_tok.column) + name_tok.value.clone().chars().count()
               );
               Option(SymbolEntry).Some(
                 SymbolEntry(name : name_tok.value.clone(), kind : usize(13), range : rng)
@@ -162,7 +162,7 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                   usize(t.column),
                   usize(t.row),
                   // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-                  usize(t.column) + t.value.chars().count()
+                  usize(t.column) + t.value.clone().chars().count()
                 );
                 return(
                   Option(SymbolEntry).Some(SymbolEntry(name : t.value.clone(), kind : usize(13), range : rng))
@@ -199,7 +199,7 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                             usize(t.row),
                             usize(t.column),
                             usize(t.row),
-                            usize(t.column) + t.value.chars().count()
+                            usize(t.column) + t.value.clone().chars().count()
                           );
                           return(
                             Option(SymbolEntry).Some(
@@ -253,7 +253,7 @@ collect_document_symbols :: (
               usize(name_tok.column),
               usize(name_tok.row),
               // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-              usize(name_tok.column) + name_tok.value.chars().count()
+              usize(name_tok.column) + name_tok.value.clone().chars().count()
             );
             out.push(
               SymbolEntry(name : name_tok.value.clone(), kind : _symbol_kind_of(&value_expr), range : rng)
@@ -462,7 +462,7 @@ handle_implementations :: (
                       usize(itok.row),
                       usize(itok.column),
                       usize(itok.row),
-                      usize(itok.column) + itok.value.chars().count()
+                      usize(itok.column) + itok.value.clone().chars().count()
                     )
                   ).obj()
                 );

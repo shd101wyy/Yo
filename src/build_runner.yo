@@ -583,7 +583,7 @@ _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(St
 _namespaced_defines :: (fn(dep_name : &String, defines : &HashMap(String, String)) -> HashMap(String, String))({
   out := HashMap(String, String).new();
   prefix := dep_name.concat(String.from("."));
-  iter := defines.keys();
+  iter := defines.clone().keys();
   more := true;
   while(more, {
     match(
@@ -3154,7 +3154,7 @@ print_options :: (fn(registry : &BuildRegistry) -> unit)({
 /// in `-Dstrip=true` look like a build that ignored you (the plan's B4).
 undeclared_options :: (fn(registry : &BuildRegistry) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iter := registry.cli_options.keys();
+  iter := registry.cli_options.clone().keys();
   more := true;
   while(more, {
     match(
