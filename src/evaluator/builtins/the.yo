@@ -81,7 +81,7 @@ evaluate_the :: (
   // First argument must be a TypeVal.
   expected_type := match(
     type_info.value,
-    .Some(.TypeVal(tv)) => tv,
+    .Some(.TypeVal(tv)) => Rc.clone(tv),
     .Some(_) => {
       exn.throw(
         dyn(
@@ -108,7 +108,7 @@ evaluate_the :: (
   // Evaluate the value expression with the expected type.
   saved_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(
-    ExpectedTypeCtx(ty : expected_type, env : cur_env)
+    ExpectedTypeCtx(ty : Rc.clone(expected_type), env : cur_env)
   );
   eval_val_gout := ArrayList(AstExpr).new();
   eval_val_gerr := evaluate_expression_guarded(&value_arg, &cur_env, ctx, &mut eval_val_gout);

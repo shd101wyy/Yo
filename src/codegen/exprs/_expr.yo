@@ -53,7 +53,7 @@ call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContex
         // function type; its type is recorded under the call's id.
         match(
           context.base.get_expr_info(&pc_callee),
-          .Some(cei) => if(is_function_type(&cei.ty), Option(TypeValue).Some(cei.ty), lookup_method_callee_type(ast_expr_id(expr))),
+          .Some(cei) => if(is_function_type(&cei.ty), Option(TypeValue).Some(Rc.clone(cei.ty)), lookup_method_callee_type(ast_expr_id(expr))),
           .None => lookup_method_callee_type(ast_expr_id(expr))
         ),
         .Some(pc_ty) => match(pc_ty, Rc(.Func({ meta : pc_m })) => if(pc_m.*.result_is_ref, Option(bool).Some(pc_m.*.result_is_mut_ref), Option(bool).None), _ => Option(bool).None),

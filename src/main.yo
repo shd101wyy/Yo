@@ -334,7 +334,7 @@ try_populate_expr_info_table :: (
     true,
     local_exn
   );
-  Option(ExprInfoTable).Some(ctx.expr_info_table)
+  Option(ExprInfoTable).Some(ctx.expr_info_table.clone())
 });
 /// Extract the test name string from a `test("name", { body })` expression.
 /// Returns None if the expression is not a 2-arg test call.
@@ -3287,7 +3287,7 @@ _run_migrate_explicit_copy :: (
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
-        st := sites(si);
+        st := sites(si).clone();
         key := `${st.row.to_string()}:${st.col.to_string()}`;
         if(st.in_generic, {
           in_generic.insert(key.clone());
@@ -3351,7 +3351,7 @@ _run_migrate_explicit_copy :: (
     at_close := ArrayList(bool).new();
     (mi : usize) = usize(0);
     while(mi < mine.len(), mi = (mi + usize(1)), {
-      st := mine(mi);
+      st := mine(mi).clone();
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       // A copy inside a `Clone` impl's member is the depth that impl
       // chose: `AstExpr`'s shares its children on purpose, `Pattern`'s
@@ -3761,7 +3761,7 @@ _run_migrate_cloned_accessors :: (
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
-        st := sites(si);
+        st := sites(si).clone();
         key := `${st.row.to_string()}:${st.col.to_string()}`;
         if(st.in_generic, {
           in_generic.insert(key.clone());
@@ -3819,7 +3819,7 @@ _run_migrate_cloned_accessors :: (
     at_text := ArrayList(String).new();
     (mi : usize) = usize(0);
     while(mi < mine.len(), mi = (mi + usize(1)), {
-      st := mine(mi);
+      st := mine(mi).clone();
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       if(generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
@@ -4075,12 +4075,12 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
-        st := sites(si);
+        st := sites(si).clone();
         if(st.copy_path == "capture", {
           ckey := `${st.row.to_string()}:${st.col.to_string()}`;
           prev := match(closure_copied.get(ckey.clone()), .Some(p) => p, .None => String.new());
           if(prev.is_empty(), {
-            closures.push(st);
+            closures.push(st.clone());
           });
           closure_copied.insert(ckey, `${prev}|${st.expect}=${st.spelling}`);
           continue;
@@ -4135,7 +4135,7 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
     at_close := ArrayList(bool).new();
     (mi : usize) = usize(0);
     while(mi < mine.len(), mi = (mi + usize(1)), {
-      st := mine(mi);
+      st := mine(mi).clone();
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       if(conflicting.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
@@ -4251,7 +4251,7 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
     // list names every value it captures, the copied ones as their clone.
     (ci : usize) = usize(0);
     while(ci < closures.len(), ci = (ci + usize(1)), {
-      st := closures(ci);
+      st := closures(ci).clone();
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       copied := match(closure_copied.get(`${st.row.to_string()}:${st.col.to_string()}`), .Some(c) => c, .None => String.new());
       arrow := match(line_starts.get(st.row), .Some(ls) => (ls + st.col), .None => runes.len());
@@ -8560,7 +8560,7 @@ run_compile :: (
     // The table goes in through its own handle (written back after): passing
     // `&mut ctx.expr_info_table` beside `&ctx` lends one place twice, which
     // decision 28's value-root rule rejects once it lands with V2b.
-    info_table := ctx.expr_info_table;
+    info_table := ctx.expr_info_table.clone();
     (c_spilled_bytes : usize) = usize(0);
     c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, cycle_collector == "off", &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
     ctx.expr_info_table = info_table;
@@ -11402,10 +11402,10 @@ run_effects :: (
     (labels : SharedList(String)) = no_labels();
     (types : SharedList(TypeValue)) = no_types();
     match(
-      outcome.module_type,
+      &outcome.module_type,
       Rc(.Struct({ field_labels, field_types })) => {
-        labels = field_labels;
-        types = field_types;
+        labels = Rc.clone(field_labels);
+        types = Rc.clone(field_types);
       },
       _ => ()
     );
@@ -11440,7 +11440,7 @@ run_effects :: (
           fn_sep := if(seen_fns < n_fns, String.from(","), String.new());
           entries := ArrayList(String).new();
           json_entries := ArrayList(String).new();
-          param_labels := meta.*.param_labels;
+          param_labels := Rc.clone(meta.*.param_labels);
           (pi : usize) = usize(0);
           while((pi < param_labels.len()) && (pi < param_types.len()), {
             plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
@@ -11452,7 +11452,7 @@ run_effects :: (
               json_entries.push(`{"param":"${_json_escape(plabel.clone())}","type":"${_json_escape(type_to_string(&pty))}","via":"param","kinds":[${_json_string_list(&kinds)}]}`);
             });
           });
-          implicit_labels := meta.*.implicit_labels;
+          implicit_labels := Rc.clone(meta.*.implicit_labels);
           (ii : usize) = usize(0);
           while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
             ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
@@ -11530,7 +11530,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
         fty := match(field_types.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         fi = (fi + usize(1));
         match(
-          fty,
+          &fty,
           Rc(.Func({ meta : fmeta })) => {
             if(fmeta.*.is_control, {
               has_ctl = true;
@@ -11576,7 +11576,7 @@ _collect_future_effects :: (
       (i : usize) = usize(0);
       while((i < effect_labels.len()) && (i < effect_types.len()), {
         labels.push(effect_labels(i).clone());
-        types.push(effect_types(i));
+        types.push(Rc.clone(effect_types(i)));
         i = (i + usize(1));
       });
     },

@@ -158,17 +158,17 @@ get_trace_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerat
 /// Gap-6-deferred — no such field exists).
 resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValue, context : &FunctionGenerationContext) -> TypeValue)({
   if(!is_some_type(value_type), {
-    return(value_type);
+    return(Rc.clone(value_type));
   });
   if(!ast_expr_is_atom(value_arg), {
-    return(value_type);
+    return(Rc.clone(value_type));
   });
-  ft := match(context.current_function_type, .Some(t) => t, .None => return(value_type));
+  ft := match(&context.current_function_type, .Some(t) => Rc.clone(t), .None => return(Rc.clone(value_type)));
   var_name := ast_expr_token(value_arg).value;
   match(
     ft,
     Rc(.Func({ param_types : pts, meta : __fm1 })) => {
-      pls := __fm1.*.param_labels;
+      pls := Rc.clone(__fm1.*.param_labels);
       n := pls.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -190,7 +190,7 @@ resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValu
     },
     _ => ()
   );
-  value_type
+  Rc.clone(value_type)
 });
 /// A closure value's static type is its `Impl(Fn(...))` SomeT, but the C value
 /// IS the capture struct (`get_type_string` renders it, the call site casts
@@ -210,7 +210,7 @@ resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValu
 _closure_value_type :: (fn(t : &TypeValue) -> TypeValue)({
   if(is_bound_closure_identity(t), return(resolve_cell_chain(t)));
   cvt_r := resolve_cell_chain(t);
-  if(is_closure_capture_struct(&cvt_r), cvt_r, t)
+  if(is_closure_capture_struct(&cvt_r), cvt_r, Rc.clone(t))
 });
 /// The C name of the per-type drop (`is_drop`) or dup function of a TAGGED
 /// value enum, generating it on first use.
@@ -587,7 +587,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
       out
     },
     is_array_type(&concrete_type) => match(
-      concrete_type,
+      &concrete_type,
       Rc(.Array(element, length, length_var)) => {
         if(length_var.len() > usize(0), {
           return(String.from("/* Error: array has non-constant length */"));
@@ -629,7 +629,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
       _ => value_code.clone()
     ),
     is_tuple_type(&concrete_type) => match(
-      concrete_type,
+      &concrete_type,
       Rc(.Tuple({ field_types : fts })) => {
         temp_var := fresh_local_name(String.from("temp_dup_tuple_"), &context.base.current_function_name);
         tuple_c_name := get_type_string(&concrete_type, &context.base);
@@ -1247,7 +1247,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
                   fallback_code_2 = fallback_code.clone();
                 },
                 true => {
-                  eff_ty := match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty);
+                  eff_ty := match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty));
                   decl0 := indent.clone();
                   decl0.push_string(get_variable_type_string(&eff_ty, src_c_name.clone(), &context.base));
                   decl0.push_str(" = ");

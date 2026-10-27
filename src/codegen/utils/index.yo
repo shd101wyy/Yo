@@ -389,7 +389,7 @@ impl(
       array_struct_types : HashMap(String, ArrayStructInfo).new(),
       c_includes : HashSet(String).new(),
       emitter : emitter,
-      info_table : info_table,
+      info_table : info_table.clone(),
       target_info : target_info,
       allocator : allocator.clone(),
       heap_size : heap_size,
@@ -523,7 +523,7 @@ impl(
   register_type : (
     fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
-    self.types.insert(id.clone(), CodegenTypeEntry(ty : ty, c_name : c_name.clone(), c_include : c_include.clone()));
+    self.types.insert(id.clone(), CodegenTypeEntry(ty : Rc.clone(ty), c_name : c_name.clone(), c_include : c_include.clone()));
     ()
   }),
   /// Alias an EVOLVED type_key render to an already-registered key (the
@@ -659,7 +659,7 @@ impl(
       });
       i = (i + usize(1));
     });
-    targets.push(tgt);
+    targets.push(Rc.clone(tgt));
     self.dyn_upcasts.insert(src_key, targets);
     ()
   }),
@@ -671,7 +671,7 @@ impl(
   register_extern_function : (
     fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
-    self.extern_functions.insert(id.clone(), CodegenExternFnEntry(ty : ty, c_name : c_name.clone(), c_include : c_include.clone()));
+    self.extern_functions.insert(id.clone(), CodegenExternFnEntry(ty : Rc.clone(ty), c_name : c_name.clone(), c_include : c_include.clone()));
     ()
   }),
   /// Register an array struct type (idempotent).
@@ -1607,9 +1607,9 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
         match(
           eft_rtts.get(eft_i),
           .Some(eft_rt) => match(
-            eft_rt,
+            &eft_rt,
             Rc(.FutureTraitT(_, _, _, _)) => {
-              eft_found = Option(TypeValue).Some(eft_rt);
+              eft_found = Option(TypeValue).Some(Rc.clone(eft_rt));
             },
             _ => ()
           ),
@@ -1818,7 +1818,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
         // started stamping the resolution.
         if(_some_t_requires_future(t), {
           match(
-            rct,
+            &rct,
             Rc(.ExternOpaqueT(_, gts_ec)) => {
               return(`${gts_ec.clone()}*`);
             },
@@ -1999,7 +1999,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(variable.ty, Rc(.Func({ meta : __fm1 })) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable.ty, Rc(.Func({ meta : __fm1 })) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2478,14 +2478,14 @@ is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
 /// or `.None`. Such a payload is a bare code pointer, not a closure's capture
 /// struct.
 dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
-  (cur : TypeValue) = t;
+  (cur : TypeValue) = Rc.clone(t);
   seen := HashSet(String).new();
   (go : bool) = true;
   while(go, {
     match(
-      cur,
+      Rc.clone(cur),
       Rc(.SomeT({ id : dcf_id, resolution : .Some(dcf_r) })) => if(seen.insert(dcf_id.clone()), {
-        cur = dcf_r;
+        cur = Rc.clone(dcf_r);
       }, {
         go = false;
       }),
@@ -2494,7 +2494,7 @@ dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
       }
     );
   });
-  match(cur, Rc(.Func({})) => Option(TypeValue).Some(cur), _ => Option(TypeValue).None)
+  match(&cur, Rc(.Func({})) => Option(TypeValue).Some(Rc.clone(cur)), _ => Option(TypeValue).None)
 });
 /// The C name of a `dyn(...)` impl's CONCRETE type: its registered C type
 /// name, else, for a `fn(...)` payload (`dyn(f)` of a named function, which has

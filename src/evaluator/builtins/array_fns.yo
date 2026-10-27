@@ -86,12 +86,12 @@ evaluate_yo_array_fill :: (
   // Validate: must be TypeVal containing an Array type.
   at_tv_opt := match(
     at_info.value,
-    .Some(v) => match(v, .TypeVal(ty) => Option(TypeValue).Some(ty), _ => Option(TypeValue).None),
+    .Some(v) => match(v, .TypeVal(ty) => Option(TypeValue).Some(Rc.clone(ty)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   array_type_tv := match(
     at_tv_opt,
-    .Some(ty) => ty,
+    .Some(ty) => Rc.clone(ty),
     .None => {
       exn.throw(
         dyn(
@@ -116,16 +116,16 @@ evaluate_yo_array_fill :: (
   });
   // Destructure Array(element_box, length).
   (element_box, length) := match(
-    array_type_tv,
-    Rc(.Array(eb, l, _)) => (eb, l),
+    &array_type_tv,
+    Rc(.Array(eb, l, _)) => (Rc.clone(eb), l),
     _ => {
       return(expr);
     }
   );
-  element_type := element_box;
+  element_type := Rc.clone(element_box);
   // Evaluate the fill value argument with expected element type.
   old_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : element_type, env : cur_env));
+  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(element_type), env : cur_env));
   eval_fv_arg_gout := ArrayList(AstExpr).new();
   eval_fv_arg_gerr := evaluate_expression_guarded(&fill_value_arg, &cur_env, ctx, &mut eval_fv_arg_gout);
   ctx.expected_type = old_expected;

@@ -259,7 +259,7 @@ impl(
       exn : Exception
     ) -> Self
   )({
-    toks := tokenize_shared(input_string, module_path, exn);
+    toks := tokenize_shared(Rc.clone(input_string), Rc.clone(module_path), exn);
     Parser(
       input_string : input_string,
       module_path : module_path,
@@ -292,7 +292,7 @@ impl(
       exn : Exception
     ) -> Self
   )({
-    toks := tokenize_span(input_string, module_path, start_byte, end_byte, base_row, base_col, base_char, exn);
+    toks := tokenize_span(Rc.clone(input_string), Rc.clone(module_path), start_byte, end_byte, base_row, base_col, base_char, exn);
     Parser(
       input_string : input_string,
       module_path : module_path,
@@ -316,8 +316,8 @@ impl(
       row : u32(0),
       column : u32(0),
       character : u32(0),
-      module_path : self.module_path,
-      input : self.input_string
+      module_path : Rc.clone(self.module_path),
+      input : Rc.clone(self.input_string)
     )
   ),
   make_unit_call : (fn(self : &mut Self, ref_tok : &Token) -> AstExpr)({
@@ -328,8 +328,8 @@ impl(
       column : ref_tok.column,
       character : ref_tok.character,
       byte_offset : ref_tok.byte_offset,
-      module_path : ref_tok.module_path,
-      input : ref_tok.input
+      module_path : Rc.clone(ref_tok.module_path),
+      input : Rc.clone(ref_tok.input)
     );
     .FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok)
   }),
@@ -704,8 +704,8 @@ impl(
             body_origins.get(expr_ordinal),
             .Some(o) => cond(
               (((o.byte + sp.expr_text.len()) <= tok.input.*.len()) && (tok.input.*.substring(o.byte, o.byte + sp.expr_text.len()) == sp.expr_text)) => Parser.new_span(
-                tok.input,
-                self.module_path,
+                Rc.clone(tok.input),
+                Rc.clone(self.module_path),
                 o.byte,
                 o.byte + sp.expr_text.len(),
                 o.row,
@@ -713,9 +713,9 @@ impl(
                 o.ch,
                 exn
               ),
-              true => Parser.new_shared(rc(sp.expr_text.clone()), self.module_path, exn)
+              true => Parser.new_shared(rc(sp.expr_text.clone()), Rc.clone(self.module_path), exn)
             ),
-            .None => Parser.new_shared(rc(sp.expr_text.clone()), self.module_path, exn)
+            .None => Parser.new_shared(rc(sp.expr_text.clone()), Rc.clone(self.module_path), exn)
           );
           expr_ordinal = (expr_ordinal + usize(1));
           (inner_prog : ArrayList(AstExpr)) = sub_parser.get_expression_program(exn);
@@ -742,8 +742,8 @@ impl(
                 column : tok.column,
                 character : tok.character,
                 byte_offset : tok.byte_offset,
-                module_path : tok.module_path,
-                input : tok.input
+                module_path : Rc.clone(tok.module_path),
+                input : Rc.clone(tok.input)
               );
               make_ts_spec_call(
                 &inner_expr,
@@ -772,8 +772,8 @@ impl(
             column : tok.column,
             character : tok.character,
             byte_offset : tok.byte_offset,
-            module_path : tok.module_path,
-            input : tok.input
+            module_path : Rc.clone(tok.module_path),
+            input : Rc.clone(tok.input)
           );
           make_ts_call(.Atom(self.alloc_id(), str_tok), &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
         }
@@ -906,8 +906,8 @@ impl(
         column : tok.column,
         character : tok.character,
         byte_offset : tok.byte_offset,
-        module_path : tok.module_path,
-        input : tok.input
+        module_path : Rc.clone(tok.module_path),
+        input : Rc.clone(tok.input)
       );
       return(
         ParseResult(
@@ -997,8 +997,8 @@ impl(
       column : tok.column,
       character : tok.character,
       byte_offset : tok.byte_offset,
-      module_path : tok.module_path,
-      input : tok.input
+      module_path : Rc.clone(tok.module_path),
+      input : Rc.clone(tok.input)
     );
     ParseResult(
       expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), args, false, func_tok),
@@ -1093,8 +1093,8 @@ impl(
       column : tok.column,
       character : tok.character,
       byte_offset : tok.byte_offset,
-      module_path : tok.module_path,
-      input : tok.input
+      module_path : Rc.clone(tok.module_path),
+      input : Rc.clone(tok.input)
     );
     ParseResult(
       expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), args, false, func_tok),
@@ -1207,8 +1207,8 @@ impl(
             column : last_tok.column,
             character : last_tok.character,
             byte_offset : last_tok.byte_offset,
-            module_path : last_tok.module_path,
-            input : last_tok.input
+            module_path : Rc.clone(last_tok.module_path),
+            input : Rc.clone(last_tok.input)
           );
           args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
         });
@@ -1284,8 +1284,8 @@ impl(
                     column : tok.column,
                     character : tok.character,
                     byte_offset : tok.byte_offset,
-                    module_path : tok.module_path,
-                    input : tok.input
+                    module_path : Rc.clone(tok.module_path),
+                    input : Rc.clone(tok.input)
                   );
                   arg_copy := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
                   pair_args := ArrayList(AstExpr).with_capacity(usize(2));
@@ -1307,8 +1307,8 @@ impl(
           column : tok.column,
           character : tok.character,
           byte_offset : tok.byte_offset,
-          module_path : tok.module_path,
-          input : tok.input
+          module_path : Rc.clone(tok.module_path),
+          input : Rc.clone(tok.input)
         );
         ParseResult(
           expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), anon_tok), final_args, false, tok),
@@ -1324,8 +1324,8 @@ impl(
           column : tok.column,
           character : tok.character,
           byte_offset : tok.byte_offset,
-          module_path : tok.module_path,
-          input : tok.input
+          module_path : Rc.clone(tok.module_path),
+          input : Rc.clone(tok.input)
         );
         ParseResult(
           expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), args, false, begin_tok),
@@ -2095,8 +2095,8 @@ impl(
               column : last_tok.column,
               character : last_tok.character,
               byte_offset : last_tok.byte_offset,
-              module_path : last_tok.module_path,
-              input : last_tok.input
+              module_path : Rc.clone(last_tok.module_path),
+              input : Rc.clone(last_tok.input)
             );
             exprs.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
           });
@@ -2126,8 +2126,8 @@ impl(
         row : u32(0),
         column : u32(0),
         character : u32(0),
-        module_path : self.module_path,
-        input : self.input_string
+        module_path : Rc.clone(self.module_path),
+        input : Rc.clone(self.input_string)
       );
       str_tok := Token(
         kind : TokenKind.StringLit,
@@ -2135,8 +2135,8 @@ impl(
         row : u32(0),
         column : u32(0),
         character : u32(0),
-        module_path : self.module_path,
-        input : self.input_string
+        module_path : Rc.clone(self.module_path),
+        input : Rc.clone(self.input_string)
       );
       (import_atom : AstExpr) = .Atom(self.alloc_id(), import_tok);
       (str_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);

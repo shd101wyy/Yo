@@ -87,14 +87,14 @@ _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
 /// Returns `.None` when the return type cannot be promoted, which is one of the
 /// ways CTFE is simply not available for a function.
 create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue))({
-  forall_labels := match(func_type, Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels, _ => no_labels());
-  forall_types := match(func_type, Rc(.Func({ forall_types : ft })) => ft, _ => no_types());
-  param_labels := match(func_type, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels, _ => no_labels());
-  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
-  implicit_labels := match(func_type, Rc(.Func({ meta : __fm3 })) => __fm3.*.implicit_labels, _ => no_labels());
-  implicit_types := match(func_type, Rc(.Func({ implicit_types : it })) => it, _ => no_types());
-  where_types := match(func_type, Rc(.Func({ where_types : wt })) => wt, _ => no_types());
-  result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
+  forall_labels := match(func_type, Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.*.forall_labels), _ => no_labels());
+  forall_types := match(func_type, Rc(.Func({ forall_types : ft })) => Rc.clone(ft), _ => no_types());
+  param_labels := match(func_type, Rc(.Func({ meta : __fm2 })) => Rc.clone(__fm2.*.param_labels), _ => no_labels());
+  param_types := match(func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
+  implicit_labels := match(func_type, Rc(.Func({ meta : __fm3 })) => Rc.clone(__fm3.*.implicit_labels), _ => no_labels());
+  implicit_types := match(func_type, Rc(.Func({ implicit_types : it })) => Rc.clone(it), _ => no_types());
+  where_types := match(func_type, Rc(.Func({ where_types : wt })) => Rc.clone(wt), _ => no_types());
+  result_box := match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => t_unit());
   match(
     _to_comptime_type(&result_box),
     .None => Option(TypeValue).None,
@@ -114,7 +114,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
               result_is_comptime_only : true,
               param_is_ref : no_flags(),
               // preserve the original's metadata below
-              param_is_owning : match(func_type, Rc(.Func({ meta : m })) => m.*.param_is_owning, _ => no_flags()),
+              param_is_owning : match(func_type, Rc(.Func({ meta : m })) => Rc.clone(m.*.param_is_owning), _ => no_flags()),
               result_is_ref : false,
               has_variadic : match(func_type, Rc(.Func({ meta : m })) => m.*.has_variadic, _ => false),
               is_extern : match(func_type, Rc(.Func({ meta : m })) => m.*.is_extern.clone(), _ => Option(String).None),
@@ -155,7 +155,7 @@ _eval_body_for_ctfe :: (
   ) -> bool
 )({
   // Build a fresh environment: add captured variables, then push a frame.
-  (ctfe_env : Environment) = Environment.new(env.module_path);
+  (ctfe_env : Environment) = Environment.new(Rc.clone(env.module_path));
   n_cap := cap_names.len();
   (cap_i : usize) = usize(0);
   while(cap_i < n_cap, {
@@ -228,7 +228,7 @@ _eval_body_for_ctfe :: (
   ctx_p.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
-      func_type : Option(TypeValue).Some(func_type),
+      func_type : Option(TypeValue).Some(Rc.clone(func_type)),
       func_value : Option(EvalValue).Some(func_value),
       eval_env : snapshot_env(&ctfe_env)
     )
@@ -407,9 +407,9 @@ analyze_ctfe_capability :: (
     _ => false
   );
   // Skip generic functions — they need specialisation first.
-  forall_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.forall_labels, _ => no_labels());
-  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
-  result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
+  forall_labels := match(func_type, Rc(.Func({ meta : m })) => Rc.clone(m.*.forall_labels), _ => no_labels());
+  param_types := match(func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
+  result_box := match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => t_unit());
   // Any param type or the return type prohibiting the comptime modifier
   // (runtime-only types like Ptr, Slice, Void) rules CTFE out.
   (prohibited : bool) = type_prohibits_comptime_modifier(&result_box);
@@ -455,7 +455,7 @@ analyze_ctfe_capability :: (
           // The body sees every capture's value; the clone keeps the original's
           // (empty when it reads its handles, §0.16).
           cap_val_list := match(func_value, .FuncVal(__fvd4, cv4) => fv_capture_vals(&__fvd4.*, &cv4), _ => ArrayList(EvalValue).new());
-          param_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.param_labels, _ => no_labels());
+          param_labels := match(func_type, Rc(.Func({ meta : m })) => Rc.clone(m.*.param_labels), _ => no_labels());
           ok := ArrayList(bool).new();
           // SAVE/RESTORE THE CTFE CONTEXT FLAGS HERE, not only inside
           // `_eval_body_for_ctfe`. That function restores them after the body

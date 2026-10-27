@@ -79,7 +79,7 @@ _extract_type_val :: (
     },
     .Some(v) => match(
       v,
-      .TypeVal(tv) => tv,
+      .TypeVal(tv) => Rc.clone(tv),
       _ => {
         exn.throw(
           dyn(
@@ -219,13 +219,13 @@ evaluate_yo_are_types_compatible :: (
   );
   // Evaluate expected type (clear expected_type and self_type for arg eval).
   saved_expected := ctx.expected_type;
-  saved_self := ctx.self_type;
+  saved_self := ctx.self_type.clone();
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
   eval_0_gout := ArrayList(AstExpr).new();
   eval_0_gerr := evaluate_expression_guarded(&arg0, env, ctx, &mut eval_0_gout);
   ctx.expected_type = saved_expected;
-  ctx.self_type = saved_self;
+  ctx.self_type = saved_self.clone();
   match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(&eval_0_ge), .None => ());
   eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
   info_0 := match(
@@ -335,13 +335,13 @@ evaluate_yo_are_types_equal :: (
     }
   );
   saved_expected := ctx.expected_type;
-  saved_self := ctx.self_type;
+  saved_self := ctx.self_type.clone();
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
   eval_0_gout := ArrayList(AstExpr).new();
   eval_0_gerr := evaluate_expression_guarded(&arg0, env, ctx, &mut eval_0_gout);
   ctx.expected_type = saved_expected;
-  ctx.self_type = saved_self;
+  ctx.self_type = saved_self.clone();
   match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(&eval_0_ge), .None => ());
   eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
   info_0 := match(
@@ -598,23 +598,23 @@ evaluate_yo_type_impls :: (
   trait_type_opt := match(
     info1.value,
     .Some(v) => if(is_type_val(&v), {
-      tv := match(v, .TypeVal(b) => b, _ => t_unit());
+      tv := match(v, .TypeVal(b) => Rc.clone(b), _ => t_unit());
       if(is_trait_type(&tv), Option(TypeValue).Some(tv), Option(TypeValue).None)
     }, Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   // If not found via value, check if the type itself is a trait type.
   trait_type_opt2 := match(
-    trait_type_opt,
-    .Some(_) => trait_type_opt,
+    &trait_type_opt,
+    .Some(_) => trait_type_opt.clone(),
     .None => if(
       is_trait_type(&info1.ty),
-      Option(TypeValue).Some(info1.ty),
+      Option(TypeValue).Some(Rc.clone(info1.ty)),
       Option(TypeValue).None
     )
   );
   // If still not found, check if it's a generic unknown (TypeUni → return unknown bool).
-  if(match(trait_type_opt2, .None => is_type_hierarchy_type(&info1.ty), .Some(_) => false), {
+  if(match(&trait_type_opt2, .None => is_type_hierarchy_type(&info1.ty), .Some(_) => false), {
     out := new_expr_info(&cur_env, t_bool());
     out.value = .Some(create_unknown_val(t_bool()));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -622,7 +622,7 @@ evaluate_yo_type_impls :: (
   });
   trait_type := match(
     trait_type_opt2,
-    .Some(tt) => tt,
+    .Some(tt) => Rc.clone(tt),
     .None => {
       exn.throw(
         dyn(
@@ -687,7 +687,7 @@ _ti_bind_type :: (
     env_ptr,
     name_str.clone(),
     t_type(),
-    Option(EvalValue).Some(EvalValue.TypeVal(ty)),
+    Option(EvalValue).Some(EvalValue.TypeVal(Rc.clone(ty))),
     true,
     false,
     false,
@@ -757,7 +757,7 @@ _ti_bind_comptime_list :: (
     env_adopt(&env_ptr, &type_info.env);
     match(
       type_info.value,
-      .Some(v) => match(v, .TypeVal(tv) => tv, _ => t_unit()),
+      .Some(v) => match(v, .TypeVal(tv) => Rc.clone(tv), _ => t_unit()),
       .None => t_unit()
     )
   };
@@ -1035,7 +1035,7 @@ _ti_bind_function_info :: (
   // value's fields (see `_ti_bind_comptime_list`).
   fni_declared_ty := match(
     _ti_eval_code(env_ptr, String.from("FunctionInfo"), ctx, exn),
-    .Some(fni_tv) => match(fni_tv, .TypeVal(fni_tb) => Option(TypeValue).Some(fni_tb), _ => Option(TypeValue).None),
+    .Some(fni_tv) => match(fni_tv, .TypeVal(fni_tb) => Option(TypeValue).Some(Rc.clone(fni_tb)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   match(
@@ -1044,7 +1044,7 @@ _ti_bind_function_info :: (
       _add := add_variable_to_env(
         env_ptr,
         fni_name.clone(),
-        match(fni_declared_ty, .Some(dt) => dt, .None => type_of_eval_value(&v)),
+        match(fni_declared_ty, .Some(dt) => Rc.clone(dt), .None => type_of_eval_value(&v)),
         Option(EvalValue).Some(v),
         true,
         false,
@@ -1167,7 +1167,7 @@ evaluate_yo_type_get_info :: (
       .Some(i) => i,
       .None => new_expr_info(&local_env, t_unit())
     );
-    ti_ty := unit_info.ty;
+    ti_ty := Rc.clone(unit_info.ty);
     unknown_val := create_unknown_val(&ti_ty);
     out := new_expr_info(&local_env, &ti_ty);
     out.value = Option(EvalValue).Some(unknown_val);
@@ -1176,7 +1176,7 @@ evaluate_yo_type_get_info :: (
   });
   // Build code string for each TypeValue variant.
   code := match(
-    type_val,
+    &type_val,
     Rc(.Unit) => String.from("TypeInfo.Unit"),
     Rc(.BoolT) => String.from("TypeInfo.Bool"),
     Rc(.Void) => String.from("TypeInfo.Void"),
@@ -1778,13 +1778,13 @@ evaluate_type_join_fields :: (
   );
   // Collect struct field label/type lists.
   struct_labels := match(
-    target_type,
-    Rc(.Struct({ field_labels : ls })) => ls,
+    &target_type,
+    Rc(.Struct({ field_labels : ls })) => Rc.clone(ls),
     _ => no_labels()
   );
   struct_types := match(
     target_type,
-    Rc(.Struct({ field_types : ts })) => ts,
+    Rc(.Struct({ field_types : ts })) => Rc.clone(ts),
     _ => no_types()
   );
   n_fields := struct_labels.len();
@@ -1805,7 +1805,7 @@ evaluate_type_join_fields :: (
   // `evaluate_type_map_variants` below.
   fi_declared_ty_opt := match(
     _ti_eval_code(&local_env, String.from("FieldInfo"), ctx, exn),
-    .Some(fi_tv) => match(fi_tv, .TypeVal(fi_tb) => Option(TypeValue).Some(fi_tb), _ => Option(TypeValue).None),
+    .Some(fi_tv) => match(fi_tv, .TypeVal(fi_tb) => Option(TypeValue).Some(Rc.clone(fi_tb)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   result_exprs := ArrayList(AstExpr).new();
@@ -1819,7 +1819,7 @@ evaluate_type_join_fields :: (
     fi_code := (String.from("FieldInfo(\"") + escaped_label + String.from("\", ") + ft_name + String.from(")"));
     fi_val_opt := _ti_eval_code(&local_env, &fi_code, ctx, exn);
     fi_val := match(fi_val_opt, .Some(v) => v, .None => EvalValue.UnitVal);
-    fi_type := match(fi_declared_ty_opt, .Some(dt) => dt, .None => type_of_eval_value(&fi_val));
+    fi_type := match(&fi_declared_ty_opt, .Some(dt) => Rc.clone(dt), .None => type_of_eval_value(&fi_val));
     // Bind FieldInfo to temp var, then call mapper(fi_name).
     fi_name := stable_module_id(String.from("__da_"), &local_env.module_path.*);
     _add_fi := add_variable_to_env(
@@ -2033,9 +2033,9 @@ evaluate_type_map_variants :: (
     synthetic_token(mapper_name.clone(), &local_env.module_path.*)
   );
   // Extract enum variant data.
-  variant_names := match(target_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => no_labels());
-  variant_fields := match(target_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
-  variant_field_labels := match(target_type, Rc(.EnumT(_, _, _, _, _, vfl, _, _, _, _)) => vfl, _ => no_label_lists());
+  variant_names := match(&target_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => Rc.clone(vn), _ => no_labels());
+  variant_fields := match(&target_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
+  variant_field_labels := match(&target_type, Rc(.EnumT(_, _, _, _, _, vfl, _, _, _, _)) => Rc.clone(vfl), _ => no_label_lists());
   // Resolve the DECLARED `VariantInfo` struct type from the env once — the
   // type each per-variant temp var is bound with. EvalValues do not carry
   // their evaluated type, and the `type_of_eval_value(vi_val)` stand-in
@@ -2047,7 +2047,7 @@ evaluate_type_map_variants :: (
   // if the name is not resolvable here.
   vi_declared_ty_opt := match(
     _ti_eval_code(&local_env, String.from("VariantInfo"), ctx, exn),
-    .Some(vi_tv) => match(vi_tv, .TypeVal(vi_tb) => Option(TypeValue).Some(vi_tb), _ => Option(TypeValue).None),
+    .Some(vi_tv) => match(vi_tv, .TypeVal(vi_tb) => Option(TypeValue).Some(Rc.clone(vi_tb)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   result_vals := ArrayList(EvalValue).new();
@@ -2059,7 +2059,7 @@ evaluate_type_map_variants :: (
     v_field_labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
     // Build VariantInfo value.
     vi_val := _ti_build_variant_info(&local_env, &v_name, &v_field_labels.items, &v_fields.items, &target_type, vi, ctx, exn);
-    vi_type := match(vi_declared_ty_opt, .Some(dt) => dt, .None => type_of_eval_value(&vi_val));
+    vi_type := match(&vi_declared_ty_opt, .Some(dt) => Rc.clone(dt), .None => type_of_eval_value(&vi_val));
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := stable_module_id(String.from("__dvi_"), &local_env.module_path.*);
     _add_vi := add_variable_to_env(

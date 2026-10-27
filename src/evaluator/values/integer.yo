@@ -115,9 +115,9 @@ comptime_numeric_slot_type :: (
         .Some(v) => match(v, .IntLit(raw) => check_comptime_int_value_fits(&raw, slot_ty, tok, exn), _ => ()),
         .None => ()
       );
-      Option(TypeValue).Some(slot_ty)
+      Option(TypeValue).Some(Rc.clone(slot_ty))
     },
-    ((is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty)) && is_float_type(slot_ty)) => Option(TypeValue).Some(slot_ty),
+    ((is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty)) && is_float_type(slot_ty)) => Option(TypeValue).Some(Rc.clone(slot_ty)),
     true => Option(TypeValue).None
   )
 );

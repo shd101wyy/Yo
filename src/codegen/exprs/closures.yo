@@ -84,7 +84,7 @@ check_variable_is_closure_captured :: (
 /// (or no resolution / a self-cycle). The resolved concrete is the value's
 /// own `SomeT.resolution` (`some_resolution`, expr_info.yo).
 resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
-  (cur : TypeValue) = t;
+  (cur : TypeValue) = Rc.clone(t);
   (go : bool) = true;
   // Cycle guard by VISITED SomeT id — not by type_key equality: type_key's
   // SomeT arm hops through the resolution, so a resolved SomeT keys
@@ -94,7 +94,7 @@ resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
   // fn-pointer-cast miss).
   (rsc_seen : ArrayList(String)) = ArrayList(String).new();
   while(go && is_some_type(&cur), {
-    sid := match(cur, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
+    sid := match(&cur, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
     (rsc_revisit : bool) = false;
     (rsc_i : usize) = usize(0);
     while(rsc_i < rsc_seen.len(), {
@@ -162,11 +162,11 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &F
   cf_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
-  recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => ri.ty, .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
+  recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => Rc.clone(ri.ty), .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
   (through_ptr : bool) = false;
   (cap : TypeValue) = resolve_some_type_to_concrete(&recv_ty);
   match(
-    cap,
+    Rc.clone(cap),
     Rc(.Pointer(pointee)) => {
       through_ptr = true;
       cap = resolve_some_type_to_concrete(&pointee);
@@ -175,7 +175,7 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &F
   );
   idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   label := match(
-    cap,
+    &cap,
     Rc(.Struct({ field_labels : cf_labels })) => match(cf_labels.get(idx), .Some(l) => l, .None => return(codegen_fatal_expr(String.from("__yo_capture_field: index out of range")))),
     _ => return(codegen_fatal_expr(`__yo_capture_field: ${type_to_string(&cap)} is not a capture record`))
   );
@@ -216,11 +216,11 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   });
   // Resolve the capture struct + its fields.
   capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => rc(TypeValueNode.Unit));
-  field_labels := match(capture_ty, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+  field_labels := match(&capture_ty, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
   call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.
-    struct_id := match(capture_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
+    struct_id := match(&capture_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
     // Look up by the FULL type_key, not the bare struct id: the registry is
     // keyed by type_key(t), and for a cfid-empty struct with field types the
     // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
@@ -434,7 +434,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // Impl closure WITHOUT captures — empty capture struct value; still static
     // dispatch (register by the resolved concrete capture/SomeT id).
     concrete := resolve_some_type_to_concrete(&ei.ty);
-    concrete_id := match(concrete, Rc(.Struct({ id : kid })) => kid.clone(), Rc(.SomeT({ id : sid })) => sid.clone(), _ => type_key(&ei.ty));
+    concrete_id := match(&concrete, Rc(.Struct({ id : kid })) => kid.clone(), Rc(.SomeT({ id : sid })) => sid.clone(), _ => type_key(&ei.ty));
     // The compound literal's type must be the CAPTURE STRUCT — take it from
     // the closure's registered capture info (keyed by fid; always present,
     // an empty struct for capture-free closures). The ExprInfo ty here can be

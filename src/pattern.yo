@@ -95,22 +95,22 @@ impl(
         self,
         .Wildcard => Pattern.Wildcard,
         .Bind(name, token, atom) => Pattern.Bind(name : name.clone(), token : token, atom : atom),
-        .Const(value, ty, src, subject, test) => Pattern.Const(value : value, ty : ty, src : src, subject : subject.clone(), test : test),
-        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : src, subject : subject.clone(), test : test, ty : ty, lo : lo, hi : hi, inclusive : inclusive),
+        .Const(value, ty, src, subject, test) => Pattern.Const(value : value, ty : Rc.clone(ty), src : src, subject : subject.clone(), test : test),
+        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : src, subject : subject.clone(), test : test, ty : Rc.clone(ty), lo : lo, hi : hi, inclusive : inclusive),
         .Variant(name, idx, field_idx, subs, enum_ty, through_ptr, arity) => Pattern.Variant(
           name : name.clone(),
           idx : idx,
           field_idx : field_idx.clone(),
           subs : clone_patterns(&subs),
-          enum_ty : enum_ty,
+          enum_ty : Rc.clone(enum_ty),
           through_ptr : through_ptr,
           arity : arity
         ),
         .Or(alts) => Pattern.Or(alts : clone_patterns(&alts)),
         .At(name, token, atom, sub) => Pattern.At(name : name.clone(), token : token, atom : atom, sub : Box.clone(sub)),
-        .ThroughBox(box_ty, inner_ty, sub) => Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : Box.clone(sub)),
+        .ThroughBox(box_ty, inner_ty, sub) => Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : Box.clone(sub)),
         .Tuple(subs, elem_tys) => Pattern.Tuple(subs : clone_patterns(&subs), elem_tys : elem_tys.clone()),
-        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : struct_ty, field_idx : field_idx.clone(), subs : clone_patterns(&subs), arity : arity)
+        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : Rc.clone(struct_ty), field_idx : field_idx.clone(), subs : clone_patterns(&subs), arity : arity)
       )
     )
   )
@@ -283,7 +283,7 @@ match_arms_entry_count :: (fn() -> usize)(g_match_arms.with(m => m.len()));
 /// Resolve a GADT type-constructor arg through the SomeT resolution channel
 /// (the SomeT's own resolution first, then the id-keyed registry).
 gadt_resolve_tca_entry :: (fn(t : &TypeValue) -> TypeValue)(
-  match(some_resolution(t), .Some(rt_r) => rt_r, .None => t)
+  match(some_resolution(t), .Some(rt_r) => rt_r, .None => Rc.clone(t))
 );
 /// A variant is UNREACHABLE when the enum is instantiated with concrete type
 /// args that do not match the variant's `-> recur(...)` return-type args.
@@ -333,7 +333,7 @@ is_pattern_cell_type :: (fn(t : &TypeValue) -> bool)(
 /// self-shell resolved. A cell position is presented as its inner type to the
 /// constructor reasoning (the wrapper is transparent for coverage).
 norm_position_type :: (fn(t : &TypeValue) -> TypeValue)({
-  inner := match(t, Rc(.Pointer(p)) => p, _ => t);
+  inner := match(t, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(t));
   inner2 := match(
     is_pattern_cell_type(&inner),
     true => match(box_inner_type(&inner), .Some(bi) => bi, .None => inner),
@@ -360,7 +360,7 @@ box_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
     .Some(p) => Option(TypeValue).Some(p),
     .None => match(
       cell_handle_view(t),
-      .Some(v) => Option(TypeValue).Some(v.payload),
+      .Some(v) => Option(TypeValue).Some(Rc.clone(v.payload)),
       .None => _rc_inner_type(t)
     )
   )
@@ -419,7 +419,7 @@ variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeV
 _struct_field_tys :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
   match(
     t,
-    Rc(.Struct({ field_types : fts })) => fts,
+    Rc(.Struct({ field_types : fts })) => Rc.clone(fts),
     _ => no_types()
   )
 );
@@ -427,7 +427,7 @@ _struct_field_tys :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
 _struct_field_labels :: (fn(t : &TypeValue) -> SharedList(String))(
   match(
     t,
-    Rc(.Struct({ field_labels : fls })) => fls,
+    Rc(.Struct({ field_labels : fls })) => Rc.clone(fls),
     _ => no_labels()
   )
 );
@@ -443,12 +443,12 @@ _struct_type_name :: (fn(t : &TypeValue) -> String)(
 _tuple_elem_tys :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
   match(
     t,
-    Rc(.Tuple({ field_types : fts })) => fts,
+    Rc(.Tuple({ field_types : fts })) => Rc.clone(fts),
     _ => no_types()
   )
 );
 _enum_variant_names :: (fn(enum_ty : &TypeValue) -> SharedList(String))(
-  match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns, _ => no_labels())
+  match(enum_ty, Rc(.EnumT({ variant_names : vns })) => Rc.clone(vns), _ => no_labels())
 );
 _enum_id :: (fn(enum_ty : &TypeValue) -> String)(
   match(enum_ty, Rc(.EnumT({ id : eid })) => eid.clone(), _ => String.new())
@@ -1211,7 +1211,7 @@ _PresentVariant :: struct(name : String, idx : usize, enum_ty : TypeValue, arity
 _present_variant_of :: (fn(head : &Pattern) -> Option(_PresentVariant))(
   match(
     head,
-    .Variant(hn, hidx, _, _, henum, _, harity) => Option(_PresentVariant).Some(_PresentVariant(name : hn.clone(), idx : hidx, enum_ty : henum, arity : harity)),
+    .Variant(hn, hidx, _, _, henum, _, harity) => Option(_PresentVariant).Some(_PresentVariant(name : hn.clone(), idx : hidx, enum_ty : Rc.clone(henum), arity : harity)),
     _ => Option(_PresentVariant).None
   )
 );
@@ -1528,7 +1528,7 @@ _useful :: (
 /// 31): `Rc` or `Arc` for a cell a pattern must name, else `.None`. A unique
 /// `Box` is still looked through implicitly, so its witness stays bare.
 _witness_cell_name :: (fn(t : &TypeValue) -> Option(String))({
-  inner := match(t, Rc(.Pointer(p)) => p, _ => t);
+  inner := match(t, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(t));
   cond(
     match(cell_handle_view(&inner), .Some(v) => v.is_atomic, .None => false) => Option(String).Some(String.from("Arc")),
     is_box_type(&inner) => Option(String).Some(String.from("Rc")),
@@ -1878,7 +1878,7 @@ variant_group_covers :: (
     idx : idx,
     field_idx : fidx,
     subs : qsubs,
-    enum_ty : enum_ty,
+    enum_ty : Rc.clone(enum_ty),
     through_ptr : through_ptr,
     arity : arity
   );
@@ -1891,7 +1891,7 @@ variant_group_covers :: (
     j = (j + usize(1));
   });
   tys := ArrayList(TypeValue).new();
-  tys.push(scrutinee_ty);
+  tys.push(Rc.clone(scrutinee_ty));
   _useful(&matrix, &qrow, &tys, true).is_none()
 });
 /// The rows that count toward COVERAGE: the arms before `upto`, unguarded
@@ -1921,7 +1921,7 @@ _coverage_rows :: (fn(arms : &ArrayList(Arm), upto : usize, count_guarded : bool
 match_missing_witness :: (fn(arms : &ArrayList(Arm), scrutinee_ty : &TypeValue, count_guarded : bool) -> Option(String))({
   rows := _coverage_rows(arms, arms.len(), count_guarded);
   tys := ArrayList(TypeValue).new();
-  tys.push(scrutinee_ty);
+  tys.push(Rc.clone(scrutinee_ty));
   match(
     _useful(&rows, _row_of(Pattern.Wildcard), &tys, true),
     .Some(w) => match(w.get(usize(0)), .Some(s) => Option(String).Some(s), .None => Option(String).Some(String.from("_"))),
@@ -2014,7 +2014,7 @@ arm_reachability :: (fn(arms : &ArrayList(Arm), i : usize, scrutinee_ty : &TypeV
     });
   });
   tys := ArrayList(TypeValue).new();
-  tys.push(scrutinee_ty);
+  tys.push(Rc.clone(scrutinee_ty));
   rows := _coverage_rows(arms, i, false);
   verdict_all := _part_reach(&arm.pattern, true, &rows, &tys, gadt_exact);
   if(match(&verdict_all, .Reachable => false, _ => true), {
