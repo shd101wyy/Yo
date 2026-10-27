@@ -155,8 +155,13 @@ legacy `Box(T)` keeps the same definition and impls until part 2 deletes it.
 The compiler recognises the shared cell BY NAME in a few places (the instance-name
 stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(<ctor>(<closure>))`);
 every such check reads the one list `shared_cell_names_at` (`src/types/guards.yo`),
-never a literal `"Box"`. `dyn(v)` on a non-object still synthesizes the canonical
-`rc(v)` (`shared_cell_canonical_names`). As a prelude name it cannot be redefined: a module-level or local
+never a literal `"Box"`. **`Rc(T).new(v, alloc :)`, `Box(T).new` and `Arc(T).new` are the
+handle constructors** (plans/backlog/STATIC_ARGUMENT_INFERENCE.md A2): the bodies live there, and
+`rc`/`box`/`arc` forward to them with the type argument written until that plan's Generation B.
+`dyn(v)` on a non-object synthesizes `Rc(T).new(v)` (`Arc(T).new` for a Send Dyn) with a
+receiver node preset to the cell type (`_synthesized_cell_new_call`, `values/dyn.yo`), so no name
+is looked up and a parameter named `rc` cannot capture it; `dyn(Rc.new(<closure>))` and
+`dyn(Rc(T).new(<closure>))` are recognized beside `dyn(rc(<closure>))`. As a prelude name `rc` cannot be redefined: a module-level or local
 binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
 named `rc` shadows it in its scope. `ref_count` is not in
 `is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local

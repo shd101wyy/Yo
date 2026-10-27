@@ -131,7 +131,7 @@ d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn 
 
 ## dyn(...) 的引用语义类型要求
 
-**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动包装成 `rc(value)`。
+**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动包装进由 `Rc(T).new(value)` 构造的单元。
 
 **原因**：`Dyn` 中的 `data` 字段必须指向引用计数的内存。这确保了安全的内存管理，而无需为 `Dyn` 本身添加 ref_header。
 
@@ -149,7 +149,7 @@ dyn(42); // 42 自动变为 rc(42)
 dyn(true); // true 自动变为 rc(true)
 ```
 
-**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `arc` 而不是 `rc` 装箱值类型。非原子的引用载荷是错误：
+**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `Arc(T).new` 而不是 `Rc(T).new` 装箱值类型。非原子的引用载荷是错误：
 
 ```yo
 (d : Dyn(Fn() -> unit, Send)) = dyn(k); // OK：k 用 arc 装箱

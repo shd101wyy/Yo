@@ -6,10 +6,16 @@
 //! - a function PARAMETER or a match-pattern binding named `rc` is allowed and
 //!   wins inside its scope: a call `rc(x)` there calls the parameter.
 { assert } :: import("std/assert");
+{ ToString } :: import("std/fmt");
+{ String } :: import("std/string");
 // A module-level `rc` collides with the prelude's.
 comptime_expect_error(rc :: (fn(x : i32) -> i32)(x + i32(1)));
 _apply :: (fn(rc : &Impl(Fn(v : i32) -> i32), x : i32) -> i32)(rc(x));
 _status_plus_one :: (fn(rc : i32) -> i32)(rc + i32(1));
+// `dyn(rc)` boxes the parameter through the cell constructor the compiler
+// names itself, `Rc(i32).new`, which no binding can capture
+// (issues/fixed/2026-10-27-dyn-of-a-value-under-a-parameter-named-rc-calls-the-parameter.md).
+_boxed_under_rc_param :: (fn(rc : i32) -> Dyn(ToString))(dyn(rc));
 test("the prelude rc(v) builds a cell with ref_count 1", {
   b := rc(i32(7));
   assert(b.* == i32(7), "the cell holds the value");
@@ -43,4 +49,8 @@ test("a match-pattern binding named rc shadows the prelude rc inside its arm", {
   assert(y == i32(6), "the arm reads the bound payload");
   c := rc(i32(9));
   assert(c.* == i32(9), "outside the arm rc is the prelude constructor again");
+});
+test("a parameter named rc does not capture the cell dyn(...) builds", {
+  d := _boxed_under_rc_param(i32(5));
+  assert(d.to_string() == `5`, "the parameter is boxed through Rc(i32).new");
 });

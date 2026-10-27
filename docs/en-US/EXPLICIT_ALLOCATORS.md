@@ -75,7 +75,8 @@ export(main);
 
 ## Placement: the `alloc` argument
 
-`box`, `rc` and `arc` take an optional `alloc : Option(Allocator)`. `.Some(a)`
+`box`, `rc` and `arc`, and the constructors they forward to (`Box(T).new`,
+`Rc(T).new`, `Arc(T).new`), take an optional `alloc : Option(Allocator)`. `.Some(a)`
 places the cell in `a`; the default, `.None`, places it on the global
 allocator. The cell is freed through the allocator that placed it, on
 whichever thread drops the last handle. Yo does not wrap a value into an

@@ -149,7 +149,7 @@ written: `d.get()` could not say which trait's method it means.
 
 ## Reference-Semantics Type Requirement for dyn(...)
 
-**Rule**: `dyn(value)` requires `value` to have an **reference-semantics type** (pointer to RC'd data). If it's a value type then it is automatically wrapped in `rc(value)`.
+**Rule**: `dyn(value)` requires `value` to have an **reference-semantics type** (pointer to RC'd data). If it's a value type then it is automatically wrapped in a cell built by `Rc(T).new(value)`.
 
 **Rationale**: The `data` field in `Dyn` must point to reference-counted memory. This ensures safe memory management without adding a ref_header to `Dyn` itself.
 
@@ -169,7 +169,7 @@ dyn(true); // true becomes rc(true) automatically
 
 **A `Send` Dyn's payload is atomic.** Every copy of a `Dyn(Trait, Send)` may live on another
 thread and retains and releases the same `data` object from there, so its count must be atomic.
-For a `Send` target, `dyn(v)` of a value type boxes it with `arc`, not `rc`. A non-atomic
+For a `Send` target, `dyn(v)` of a value type boxes it with `Arc(T).new`, not `Rc(T).new`. A non-atomic
 reference payload is an error:
 
 ```yo
