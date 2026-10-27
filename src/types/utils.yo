@@ -493,8 +493,7 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
   (i : usize) = usize(0);
   while(i < borrows.len(), {
     // Bounds are owned by the loop guard, so the element is read in place
-    // (CaptureBorrow has no Clone; the copy out was never needed — `is_mut`
-    // is a field read).
+    // (the copy out was never needed — `is_mut` is a field read).
     if(borrows(i).is_mut, {
       g_move_only_possible = true;
     });
