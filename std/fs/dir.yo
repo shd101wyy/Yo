@@ -94,6 +94,7 @@ DirEntry :: struct(
   /// reason. It is the path as GIVEN to `read_dir`, not a canonical one.
   parent : Path
 );
+derive(DirEntry, Clone);
 impl(
   DirEntry,
   /// The full path of this entry: the scanned directory joined with the
@@ -291,7 +292,7 @@ read_link :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))(
         e.exn.throw(dyn(IoError.from_errno(i32(0) - n)))
       },
       true => {
-        target_bytes := ArrayList(u8).with_capacity(usize(n));
+        mut(target_bytes) := ArrayList(u8).with_capacity(usize(n));
         (mut(rli) : usize) = usize(0);
         while(rli < usize(n), rli = (rli + usize(1)), {
           target_bytes.push((buf.add(rli)).*);
@@ -392,7 +393,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
     // arm) is the async state-machine shape
     // issues/fixed/async-nested-cond-await-duplicate-while-labels.md warns about.
     // The mapping — and the stat — happen in pass 2, one loop up.
-    raw := ArrayList(struct(name : String, dt : u8, ino : u64)).new();
+    mut(raw) := ArrayList(struct(name : String, dt : u8, ino : u64)).new();
     buf_size := u32(4096);
     buf := (*u8)(malloc(usize(buf_size)).unwrap());
     while(true, {
@@ -431,7 +432,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
     free(.Some((*void)(buf)));
     e.io.await(IO_file.close(fd), e.io);
     // Pass 2 — `d_type` to `FileType`.
-    entries := ArrayList(DirEntry).new();
+    mut(entries) := ArrayList(DirEntry).new();
     (mut(i) : usize) = usize(0);
     while(i < raw.len(), {
       // The entry's fields are read where they live in `raw`; only the name
