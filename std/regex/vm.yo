@@ -54,6 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { NfaProgram, ClassEntry } :: import("./compiler.yo");
 { RegexFlags } :: import("./flags.yo");
+{ replace } :: import("../mem.yo");
 utf8 :: import("../encoding/utf8.yo");
 /// One live NFA thread — a position in the program plus the captures it has
 /// recorded so far. Reference-counted, but never shared: `fork` copies the
@@ -338,7 +339,11 @@ impl(
           },
           true => ()
         );
-        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots.clone());
+        // The slot list moves on to the thread that follows: the thread
+        // before the Save is dead (no caller reads it after `_add_thread`),
+        // so a copy in the matcher's hot loop would buy nothing (B8,
+        // decision 19's `replace`).
+        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : replace(&mut thread.slots, ArrayList(usize).new()));
         recur(self, list, &new_t, byte_pos, seen);
       },
       .AssertStart => {
@@ -533,8 +538,10 @@ impl(
     // Reuse pre-allocated seen buffers from the VM
     mut(current) := ArrayList(NfaThread).new();
     mut(next) := ArrayList(NfaThread).new();
-    mut(seen) := self._seen.clone();
-    mut(next_seen) := self._next_seen.clone();
+    // Borrow the VM's preallocated buffers for this run: taken here and
+    // stored back at the end (B8, decision 19's `replace`), not copied.
+    mut(seen) := replace(&mut self._seen, ArrayList(bool).new());
+    mut(next_seen) := replace(&mut self._next_seen, ArrayList(bool).new());
     mut(deferred) := ArrayList(DeferredThread).new();
     // Clear for this execution
     seen.fill_with_byte(int(0));
