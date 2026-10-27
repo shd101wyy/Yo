@@ -144,6 +144,10 @@ RegexNode :: ref(
     anchor : AnchorKind
   )
 );
+// A node is a shared handle (`ref`), so its clone is another handle to the
+// same node, as its implicit copy is: `ArrayList(RegexNode).clone()` (a
+// `sequence` of a borrowed list) needs `Clone` on the element.
+impl(RegexNode, Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(
   RegexNode,
   /// A node matching exactly the code point `cp`.
@@ -217,7 +221,7 @@ impl(
   sequence : (fn(nodes : &ArrayList(RegexNode)) -> Self)(
     Self(
       kind : .Sequence,
-      children : nodes,
+      children : nodes.clone(),
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
       negated : false,
@@ -232,7 +236,7 @@ impl(
   /// nested alternations, and the compiler's `Split` lowering assumes exactly
   /// two children.
   alternation : (fn(left : &RegexNode, right : &RegexNode) -> Self)({
-    kids := ArrayList(RegexNode).new();
+    mut(kids) := ArrayList(RegexNode).new();
     kids.push(left);
     kids.push(right);
     Self(
@@ -254,7 +258,7 @@ impl(
   /// `{m,}`, so it does not mean "zero times". `greedy : false` is the `?`
   /// suffix (`a*?`), which only reorders the alternatives the compiler emits.
   quantifier : (fn(child : &RegexNode, min_val : usize, max_val : usize, greedy : bool) -> Self)({
-    kids := ArrayList(RegexNode).new();
+    mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
       kind : .Quantifier,
@@ -273,7 +277,7 @@ impl(
   /// parser assigned by opening-parenthesis order, which is what `\1`, `$1`
   /// and `RegexMatch.group(i)` all count in.
   group : (fn(child : &RegexNode, index : usize) -> Self)({
-    kids := ArrayList(RegexNode).new();
+    mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
       kind : .Group,
@@ -292,7 +296,7 @@ impl(
   /// number. Kept as a distinct kind rather than collapsed into its child so
   /// that a quantifier can wrap the group rather than the last atom in it.
   non_capturing_group : (fn(child : &RegexNode) -> Self)({
-    kids := ArrayList(RegexNode).new();
+    mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
       kind : .NonCapturingGroup,
@@ -329,7 +333,7 @@ impl(
   /// stored INVERTED, as the struct's `negated` field. Zero-width: the VM runs
   /// the child, keeps only the yes/no answer, and resumes where it started.
   lookahead : (fn(child : &RegexNode, positive : bool) -> Self)({
-    kids := ArrayList(RegexNode).new();
+    mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
       kind : .Lookahead,
@@ -348,7 +352,7 @@ impl(
   /// zero-width contract as `lookahead`, matched backwards from the current
   /// position. `positive` is stored inverted, as `negated`.
   lookbehind : (fn(child : &RegexNode, positive : bool) -> Self)({
-    kids := ArrayList(RegexNode).new();
+    mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
       kind : .Lookbehind,
