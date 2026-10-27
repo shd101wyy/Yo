@@ -48,12 +48,17 @@ test("a non-atomic cell is neither Send nor Sync", {
   comptime_assert(!Type.impls(Weak(i32), Sync), "Weak is not Sync");
   comptime_assert(!Type.impls(SsCell, Send), "a ref(struct) is not Send");
   comptime_assert(!Type.impls(SsCell, Sync), "a ref(struct) is not Sync");
-  // Until V2b gives String and the collections unique buffers, their buffer
-  // is a shared, non-atomically counted cell, so moving one is not yet safe:
-  // a copy left on the sending thread would race on the count. V2b flips
-  // these with no compiler change (the walk then sees a plain buffer).
-  comptime_assert(!Type.impls(String, Send), "String is not Send until V2b");
-  comptime_assert(!Type.impls(ArrayList(i32), Send), "ArrayList is not Send until V2b");
+});
+test("a value String or ArrayList owns its buffer, so it is Send and Sync (B8)", {
+  // B8 (plans/VALUES_BY_DEFAULT.md): the buffer has one owner, so moving the
+  // value moves the buffer; `ArrayList(T)` is `Send`/`Sync` exactly when `T`
+  // is (std/collections/array_list.yo).
+  comptime_assert(Type.impls(String, Send), "String is Send");
+  comptime_assert(Type.impls(String, Sync), "String is Sync");
+  comptime_assert(Type.impls(ArrayList(i32), Send), "ArrayList(i32) is Send");
+  comptime_assert(Type.impls(ArrayList(String), Sync), "ArrayList(String) is Sync");
+  comptime_assert(!Type.impls(ArrayList(Rc(i32)), Send), "ArrayList(Rc(i32)) is not Send");
+  comptime_assert(!Type.impls(ArrayList(Rc(i32)), Sync), "ArrayList(Rc(i32)) is not Sync");
 });
 test("atomic cells are Send and Sync", {
   comptime_assert(Type.impls(Arc(i32), Send), "Arc(i32) is Send");
@@ -152,7 +157,7 @@ test("a closure over plain data is Sync", {
 });
 // D1 covers a Sync slot as well as a Send one: a closure that may run on
 // several threads may not reach a non-Sync module-level global.
-(g_ss_names : ArrayList(i32)) = ArrayList(i32).new();
+(g_ss_names : ArrayList(Rc(i32))) = ArrayList(Rc(i32)).new();
 comptime_expect_error({
   _sync_reaches_global :: (fn() -> i32)(_run_sync(() => i32(g_ss_names.len())));
   _sync_reaches_global();
