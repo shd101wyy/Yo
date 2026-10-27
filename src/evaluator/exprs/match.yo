@@ -444,7 +444,10 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
             if(ast_expr_is_atom(&loop_scr) && (ast_expr_token(&loop_scr).kind == TokenKind.Identifier), {
               match(
                 get_variables_from_env(env, ast_expr_token(&loop_scr).value.clone()).last(),
+                // A `&`/`&mut` borrow (a `x : &T` parameter) is never
+                // consumed by a match: it already borrows.
                 .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level && !rv.is_compile_time_only
+                && !_variable_is_imm_borrow(&rv) && !_variable_is_mut_borrow(&rv)
                 && !match_scrutinee_is_capture(&rv, env, ctx)
                 && type_holds_counted_handle_ignoring_migration(&rv.ty), {
                   migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty, clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx));
