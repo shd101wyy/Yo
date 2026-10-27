@@ -3,9 +3,15 @@
 //! `Rc.clone(h)` / `Arc.clone(h)`, a copy of a value holding one `.clone()`,
 //! and a closure that captures a handle the caller reads again gets a capture
 //! list, unless the closure is lent to a borrowing parameter (it borrows its
-//! captures). A `match` on a field holding a handle borrows it. A last use (a
-//! move) is left alone; a value holding a handle whose type is not `Clone` is
-//! listed.
+//! captures), or one whose later read is inside a closure that borrows its
+//! captures (`w.with(c => … cell.* …)`). A `match` on a field holding a handle
+//! borrows it, with `&mut` when an arm writes through a binding (`fill`); a
+//! `match` on a module-level binding clones it (`last_of`: a borrow of a
+//! module-level place may not live across the arm's calls), and so does one
+//! whose arm writes the scrutinee (`refresh`). A copy inside a loop whose
+//! next iteration reads the source is cloned even when the loop body writes
+//! it on another path (`walk`). A last use (a move) is left alone; a value
+//! holding a handle whose type is not `Clone` is listed.
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { RefCell } :: import("std/sync/refcell");
@@ -32,6 +38,17 @@ walk :: (fn(start : Rc(i32)) -> Rc(i32))({
     });
   });
   out
+});
+Bag :: struct(h : Rc(i32), items : ArrayList(i32));
+fill :: (fn(b : Bag) -> usize)({
+  mut(bb) := b;
+  match(
+    bb,
+    { items : xs } => {
+      xs.push(i32(1));
+    }
+  );
+  bb.items.len() + usize(bb.h.*)
 });
 refresh :: (fn(o : Option(Rc(i32))) -> bool)({
   mut(x) := o;
@@ -71,6 +88,7 @@ main :: (fn() -> unit)({
   pair := Node(label : cell, weight : i32(0));
   v := w.with(c => (c + cell.*));
   q := ((last_of() + walk(rc(i32(1))).*) + if(refresh(.Some(rc(i32(11)))), i32(1), i32(0)));
-  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p} ${pair.weight} ${v} ${q}`);
+  r := fill(Bag(h : rc(i32(1)), items : ArrayList(i32).new()));
+  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p} ${pair.weight} ${v} ${q} ${r}`);
 });
 export(main);
