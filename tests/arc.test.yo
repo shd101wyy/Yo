@@ -259,7 +259,8 @@ test("ArcWeak.upgrade on another thread is .Some while an Arc is alive, .None af
   assert(w.upgrade().is_none(), "the last Arc is gone");
   assert(w.strong_count() == usize(0), "no strong handle");
   e := ArcWeak(i32).new();
-  assert(e.upgrade().is_none() && e.ptr_eq(&(ArcWeak(i32) <: Default).default()), "a dangling ArcWeak");
+  d := (ArcWeak(i32) <: Default).default();
+  assert(e.upgrade().is_none() && e.ptr_eq(&d), "a dangling ArcWeak");
 });
 test("the last Arc dropped on another thread leaves the cell to the last ArcWeak", {
   counts := _counts();
