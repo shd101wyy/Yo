@@ -2783,17 +2783,14 @@ done to the clone is visible through the original, and the reverse, whether or
 not the original was empty. Every mutator takes `self : &mut Self` and writes in
 place, and an empty `String` allocates nothing until its first write.
 
-A plain copy (`t := s`, a struct copy, a value read out of a collection) still
-copies only the handle. A non-empty buffer is shared, so a write through the
-copy is visible through the original. An empty string has no buffer yet, so
-the copy's first write allocates one of its own, and the original never sees
-it.
-
-**Known defect (S1, `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).**
-That split is the open half of the issue. `plans/VALUES_BY_DEFAULT.md` V2b
-closes it by making `String` uniquely owned: `t := s` becomes a move, or an
-error naming `s.clone()` when `s` is used again. Until then, do not write
-through a plain copy.
+A `String` owns its bytes uniquely (`newtype(_bytes : ArrayList(u8))`, with
+`ArrayList` a value). A plain copy is therefore a move: `t := s`, a struct
+built from `s`, or `s` passed by value gives the string away, and a later use
+of `s` is E0901, whose help names `s.clone()`. A value read out of a
+collection is borrowed in place or cloned (`xs.get_cloned(i)`). Nothing shares
+a buffer, so no write can reach a string through another name
+(`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
+fixed by this).
 
 A write lands where it is written:
 

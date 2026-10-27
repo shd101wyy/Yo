@@ -509,7 +509,7 @@ _DGeneric :: struct(tag : Option(i32), items : ArrayList(i32), name : String);
 derive(_DGeneric, ToJson(_DGeneric));
 derive(_DGeneric, FromJson(_DGeneric));
 test("derived roundtrip with Option and ArrayList fields", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   v := _DGeneric(tag : Option(i32).Some(i32(5)), items : xs, name : `g`);
@@ -539,7 +539,7 @@ test("derived roundtrip with a None Option field", {
 // parser stopped at the end of the first value and never checked it had
 // consumed the input, so `[1,2][3,4]` came back `.Ok([1,2])`.
 test("json_parse_result rejects content after the top-level value", {
-  cases := ArrayList(String).new();
+  mut(cases) := ArrayList(String).new();
   cases.push(`[1,2][3,4]`.to_string());
   cases.push(`1 garbage`.to_string());
   cases.push(`[1,2]]]]`.to_string());
