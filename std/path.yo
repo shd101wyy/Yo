@@ -237,7 +237,7 @@ impl(
           (mut(top_is_dotdot) : bool) = false;
           cond(
             (out.len() > usize(0)) => {
-              top_is_dotdot = (out.last_cloned().unwrap_or(String.new()) == dotdot);
+              top_is_dotdot = (out(out.len() - usize(1)) == dotdot);
             },
             true => ()
           );
@@ -446,25 +446,10 @@ impl(
     // Check if all base segments match
     mut(i) := usize(0);
     while(i < base._segments.len(), i = (i + usize(1)), {
-      self_seg_opt := self._segments.get_cloned(i);
-      base_seg_opt := base._segments.get_cloned(i);
-      match(
-        self_seg_opt,
-        .Some(self_seg) => match(
-          base_seg_opt,
-          .Some(base_seg) => {
-            cond(
-              (self_seg == base_seg) => (),
-              true => {
-                return(false);
-              }
-            );
-          },
-          .None => {
-            return(false);
-          }
-        ),
-        .None => {
+      // Compared in place: `i` is in range of both lists (checked above).
+      cond(
+        (self._segments(i) == base._segments(i)) => (),
+        true => {
           return(false);
         }
       );
@@ -510,25 +495,10 @@ impl(
     offset := (self_len - suffix_len);
     mut(i) := usize(0);
     while(i < suffix_len, i = (i + usize(1)), {
-      self_seg_opt := self._segments.get_cloned(offset + i);
-      suffix_seg_opt := suffix._segments.get_cloned(i);
-      match(
-        self_seg_opt,
-        .Some(self_seg) => match(
-          suffix_seg_opt,
-          .Some(suffix_seg) => {
-            cond(
-              (self_seg == suffix_seg) => (),
-              true => {
-                return(false);
-              }
-            );
-          },
-          .None => {
-            return(false);
-          }
-        ),
-        .None => {
+      // Compared in place: both indices are in range (checked above).
+      cond(
+        (self._segments(offset + i) == suffix._segments(i)) => (),
+        true => {
           return(false);
         }
       );
@@ -626,10 +596,9 @@ impl(
     (mut(common) : usize) = usize(0);
     (mut(matching) : bool) = true;
     while(matching && (common < base._segments.len()) && (common < self._segments.len()), {
-      b := match(base._segments.get_cloned(common), .Some(x) => x, .None => String.new());
-      t := match(self._segments.get_cloned(common), .Some(x) => x, .None => String.new());
+      // Compared in place: `common` is in range of both (the loop's guard).
       cond(
-        (b == t) => {
+        (base._segments(common) == self._segments(common)) => {
           common = (common + usize(1));
         },
         true => {
@@ -747,25 +716,10 @@ impl(
         // Compare each segment
         mut(i) := usize(0);
         while(i < self._segments.len(), i = (i + usize(1)), {
-          self_seg_opt := self._segments.get_cloned(i);
-          other_seg_opt := other._segments.get_cloned(i);
-          match(
-            self_seg_opt,
-            .Some(self_seg) => match(
-              other_seg_opt,
-              .Some(other_seg) => {
-                cond(
-                  (self_seg == other_seg) => (),
-                  true => {
-                    return(false);
-                  }
-                );
-              },
-              .None => {
-                return(false);
-              }
-            ),
-            .None => {
+          // Compared in place: the lengths are equal (checked above).
+          cond(
+            (self._segments(i) == other._segments(i)) => (),
+            true => {
               return(false);
             }
           );
