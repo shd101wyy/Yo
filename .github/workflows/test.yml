@@ -1439,21 +1439,26 @@ jobs:
           - target: macos-x64
             yo_target: x86_64-apple-darwin
             allocator: system
-          # The Windows legs receive MIMALLOC-flavored C. Since the vendored
-          # v3.5.1 bump, plain-C11 mimalloc compiles under clang on both
-          # Windows triples (issues/fixed/
-          # windows-arm64-mimalloc-msvc-arm-intrinsics.md), so the per-PR
-          # native suite exercises it on windows-x64 AND windows-11-arm —
+          # The Windows legs are system-flavored too, since 2026-10-27: the
+          # shipped Windows bundles are system builds on both triples
+          # (plans/reference/WINDOWS_ALLOCATOR_DECISION.md), and a suite leg
+          # should test the configuration that ships. Until then they built a
+          # mimalloc suite compiler, so no battery ever ran the shipped
+          # Windows heap, and v0.2.71's first release run was the first place
+          # a system-allocator Windows binary met the allocator assertion
+          # (run 40462960329, #1637/#1638). mimalloc on Windows stays
+          # CI-exercised for USER programs: test-native's "--allocator
+          # mimalloc on Windows" step compiles and runs a test file with it
+          # (plain-C11 v3.5.1 under clang, on windows-x64 AND windows-11-arm,
           # whose clang 22 treats the incompatible-pointer-types class that
-          # killed v3.5.0 as a hard ERROR. test-native links static.c on
-          # those legs only, which is why the allocator travels with the
-          # matrix row.
+          # killed v3.5.0 as a hard ERROR; issues/fixed/
+          # windows-arm64-mimalloc-msvc-arm-intrinsics.md).
           - target: windows-x64
             yo_target: x86_64-pc-windows-msvc
-            allocator: mimalloc
+            allocator: system
           - target: windows-arm64
             yo_target: aarch64-pc-windows-msvc
-            allocator: mimalloc
+            allocator: system
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1489,7 +1494,7 @@ jobs:
           yo: ./yo-candidate
 
       # The allocator travels with the matrix row (see the matrix comment):
-      # system for macOS, mimalloc for the Windows native legs.
+      # system on every leg, the allocator the macOS and Windows bundles ship.
       - name: "Cross-emit the suite compiler C (${{ matrix.yo_target }})"
         env:
           YO_MAIN_STACK_MB: "4096"
@@ -1643,19 +1648,18 @@ jobs:
               windows-x64)   CT=x86_64-pc-windows-msvc ;;
               windows-arm64) CT=aarch64-pc-windows-msvc ;;
             esac
-            # Windows C arrives mimalloc-flavored (see the suite-cross-emit
-            # matrix): it needs the vendored include path and static.c.
+            # Windows C arrives system-flavored, like the shipped bundles (see
+            # the suite-cross-emit matrix), so nothing from vendor/mimalloc
+            # joins the link line.
             clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               --target=$CT \
               "cross/yo-${{ matrix.target }}.c" \
-              vendor/mimalloc/src/static.c \
-              -Ivendor/mimalloc/include -DMI_BUILD_RELEASE \
               -lws2_32 -lbcrypt -ladvapi32 -lsecur32 -lcrypt32 \
               -o yo-suite.exe
             ./yo-suite.exe --version
-            # The same allocator proof release.yml runs on the shipped bundles
-            # (this arm is mimalloc-flavored; the ratchet job covers system).
-            bash scripts/assert-binary-allocator.sh yo-suite.exe mimalloc
+            # The same allocator proof release.yml runs on the shipped bundles,
+            # on the same (system) arm; the ratchet job covers mimalloc.
+            bash scripts/assert-binary-allocator.sh yo-suite.exe system
           else
             # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
             # and symbols into the macOS cross C; the runner's brew openssl@3
@@ -1725,6 +1729,30 @@ jobs:
             # YO_TEST_LEAK_VERDICT says (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11).
             "$YO" test ./tests/debug_allocator.test.yo --allocator debug --bail --verbose --c-compiler clang $TEST_SAN_FLAG
           fi
+
+      # The suite compiler above is a system-allocator build, like the shipped
+      # Windows bundles, so the corpus never links mimalloc on Windows. A
+      # user's `--allocator mimalloc` still has to work there: this compiles
+      # and runs one allocation-heavy test file with it (the vendored v3.5.1
+      # static.c, found as `<std>/../vendor/mimalloc`, which is this
+      # checkout's submodule because YO_STD points at ./std). Once per leg
+      # (shard 0, like the std tests above). It replaces the coverage the
+      # mimalloc-flavored suite compilers gave before 2026-10-27
+      # (plans/reference/WINDOWS_ALLOCATOR_DECISION.md). When allocator
+      # placement's step C deletes `--allocator`, this becomes a test root
+      # declaring `global_allocator :: heap.Mimalloc;`
+      # (plans/backlog/ALLOCATOR_PLACEMENT.md, step C).
+      - name: "--allocator mimalloc on Windows (a user program)"
+        if: ${{ runner.os == 'Windows' && (!matrix.shards || matrix.shard == 0) }}
+        shell: bash
+        run: |
+          # Same sanitizer split as "Run tests": windows-arm64 has no aarch64
+          # ASan runtime.
+          case "${{ matrix.target }}" in
+            windows-arm64) TEST_SAN_FLAG="--disable-sanitize" ;;
+            *) TEST_SAN_FLAG="" ;;
+          esac
+          ./yo-suite.exe test ./tests/collections/hash_map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang $TEST_SAN_FLAG
 
   # Stage 1 built ONCE per battery and shared. Before this job, five Linux jobs
   # (bootstrap-fixpoint, bootstrap-self-test, compiler-internal-tests-selfhosted,
@@ -2236,10 +2264,11 @@ jobs:
           cc -O2 -shared -fPIC -o /tmp/alloc_count.so scripts/bootstrap/alloc_count.c
           nm -D --undefined-only /tmp/yo-stage2-libc | grep -E ' (malloc|calloc|realloc|free|aligned_alloc)(@|$)'
 
-      # The release's Windows bundles are SYSTEM-allocator builds; every suite
-      # leg builds mimalloc. This is the one place a battery builds both arms
-      # of one compiler, so it is where release.yml's allocator proof
-      # (scripts/assert-binary-allocator.sh) is shown to tell them apart.
+      # The release's Windows bundles are SYSTEM-allocator builds, and so are
+      # the Windows suite legs' compilers (since 2026-10-27). This is the one
+      # place a battery builds both arms of one compiler, so it is where
+      # release.yml's allocator proof (scripts/assert-binary-allocator.sh) is
+      # shown to tell them apart.
       # Before it, a compiler string containing "mimalloc: " (#1600) failed
       # only the release (v0.2.71's run 40462960329).
       - name: "Allocator proof: the release assertion tells the two arms apart"

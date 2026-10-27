@@ -379,10 +379,23 @@ be verified in the PR.
   declared allocator, and `__yo_aligned_free` takes the alignment (§10.1 C3).
 - **Generation B (on that seed).**
   - `src/main.yo` declares its allocator, and `build.yo` drops `host_allocator` (`build.yo:39-53`).
+  - **OPEN (2026-10-27): the compiler's per-target allocator has no home after the deletion.** `host_allocator`
+    picks mimalloc on Linux (`x86_64` and `aarch64`, gnu and musl) and system on macOS and Windows, the split the
+    shipped bundles follow (`plans/reference/WINDOWS_ALLOCATOR_DECISION.md`). One `global_allocator ::
+    heap.Mimalloc;` in `src/main.yo` would lose it. When step C deletes `host_allocator`, the root declaration
+    must express the per-target choice itself, in one of two ways. The first is a comptime conditional on the
+    compilation target; it must not be the build host, which is what `host_allocator` reads today
+    (`build.target_host`). The second is a std `heap.PlatformDefault` that resolves to `heap.Mimalloc` on Linux
+    and the system heap elsewhere. Generation A's declaration rules (a comptime value, §11.2) must admit whichever
+    is picked.
+  - **With it:** `test.yml`'s `test-native` step "--allocator mimalloc on Windows (a user program)" was added on
+    2026-10-27, when the Windows suite legs moved to the system allocator the bundles ship. Since then it is
+    the only CI coverage of mimalloc on Windows. The sweep below converts it rather than deleting it: it becomes
+    a test root declaring `global_allocator :: heap.Mimalloc;`, compiled and run on each Windows leg.
   - Deleted: `--allocator` on compile and build, `--heap-size`, `--debug-heap`, `build.AllocatorKind`
     (`std/build.yo:57-78`, default `:146`) and the ten-argument arity.
   - Kept: `yo test --allocator debug`, the one surviving spelling.
-  - The sweep covers 13 `--allocator` uses in `test.yml`, 10 in `release.yml` and 2 in `fixpoint-arm64.yml`, 16
+  - The sweep covers 13 `--allocator` uses in `test.yml` (counted before 2026-10-27; add the Windows mimalloc step above), 10 in `release.yml` and 2 in `fixpoint-arm64.yml`, 16
     cli-cases, 6 docs files per language, 2 instruction files and 3 skills. `markdown_yo`'s `build.yo` drops its
     two `AllocatorKind.System` lines (16 and 25) in a companion release.
 - **Seed steps.** `release.yml:623` and `:1090` run the seed with `--allocator mimalloc`. They keep the flag until

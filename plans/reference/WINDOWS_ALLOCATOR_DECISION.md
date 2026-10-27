@@ -26,6 +26,22 @@ Linux keeps mimalloc. macOS already used `system`.
 >    **`system` stays** (user, 2026-09-04) — see "The cost" below for the
 >    full tables.
 
+> **2026-10-27 note: the per-PR Windows legs now exercise the shipped configuration.** Until this date,
+> `test.yml`'s `suite-cross-emit` built the Windows suite compilers with `--allocator mimalloc`. Item 1 above
+> relied on that for its "the per-PR Windows native suite legs compile and run it", but it also meant no battery
+> ever ran the heap the Windows bundles ship. v0.2.71's first release run (40462960329) was the first place a
+> system-allocator Windows compiler met the release's allocator assertion, and that assertion failed both Windows
+> bundles on a false positive. #1637 fixed the assertion
+> (`issues/fixed/2026-10-27-the-windows-release-allocator-assertion-counts-the-compilers-own-mimalloc-diagnostic.md`),
+> and #1638 made it one script, `scripts/assert-binary-allocator.sh`, which every battery runs on both arms.
+> The Windows rows of `suite-cross-emit` are now `allocator: system` (maintainer, 2026-10-27). The suite compile
+> links nothing from `vendor/mimalloc`, and its proof is `assert-binary-allocator.sh yo-suite.exe system`. The
+> 2026-09-04 mimalloc coverage moves to a user-program step: on each Windows leg (shard 0), `test-native` runs
+> `tests/collections/hash_map.test.yo` with `--allocator mimalloc`. mimalloc therefore stays CI-guarded on both
+> Windows targets for users who opt in. Allocator placement's step C (after v0.2.75) deletes `--allocator` on
+> compile and build, and that step then becomes a test root declaring `global_allocator :: heap.Mimalloc;`
+> (`plans/backlog/ALLOCATOR_PLACEMENT.md`, step C).
+
 Recorded because the decision is **not** "mimalloc was broken so we removed it".
 On x64 mimalloc worked. It was removed for consistency, and this file exists so
 that a future reader does not rediscover the working x64 build and assume the
