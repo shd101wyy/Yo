@@ -4202,11 +4202,11 @@ _run_migrate_mut_markers :: (
       });
       name_text := String.new();
       (k : usize) = st.col;
-      while((k < runes.len()) && (k < (st.col + st.expect.chars().count())), k = (k + usize(1)), {
+      while((k < runes.len()) && (k < (st.col + st.expect.clone().chars().count())), k = (k + usize(1)), {
         name_text.push_rune(runes(k));
       });
       if(name_text == st.expect, {
-        spans.push(_PendingFix(row : st.row, col : st.col, len : st.expect.chars().count(), replacement : `mut(${st.expect})`, description : at));
+        spans.push(_PendingFix(row : st.row, col : st.col, len : st.expect.clone().chars().count(), replacement : `mut(${st.expect})`, description : at));
       }, {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: the source text there is not \`${st.expect}\`; left as written`);
