@@ -181,7 +181,7 @@ impl(generic(A : Type), _Box1(A), _Same(same : ((lhs, rhs) -> true)));
 test("a trait method whose first parameter is `lhs : &Self` keeps decision 32", {
   p := _Box1(i32)(a : i32(1));
   q := _Box1(i32)(a : i32(2));
-  assert(_Box1.same(p, q), "the receiver is the first argument");
+  assert(_Box1.same(&p, &q), "the receiver is the first argument");
   comptime_expect_error(_Box1.same(i32(1), i32(2)), "not an instance of `_Box1`");
 });
 _take_list :: (fn(xs : ArrayList(i32)) -> usize)(xs.len());
