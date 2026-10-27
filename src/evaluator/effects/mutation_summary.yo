@@ -34,6 +34,7 @@
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
   ast_expr_token,
+  ast_expr_text,
   BF_DOT,
   BK_COLON,
   BK_BORROW_MUT,
@@ -1073,7 +1074,7 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
     }),
     .None => ()
   );
-  name := ast_expr_token(atom).value;
+  name := ast_expr_text(atom);
   // A payload-less variant (`.None`) constructs a value holding nothing.
   if(name.starts_with("."), {
     return(_msp_root(MSP_NONE));
@@ -1110,7 +1111,7 @@ _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))(
   if(!_msp_type_may_root(&info.ty), {
     return(Option(String).None);
   });
-  name := ast_expr_token(atom).value;
+  name := ast_expr_text(atom);
   vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
   if(vars.len() == usize(0), {
     return(Option(String).None);

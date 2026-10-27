@@ -77,7 +77,7 @@ _span_of_token :: (fn(token : &Token) -> Span)(
     path : token.module_path.*.clone(),
     row : usize(token.row),
     col : usize(token.column),
-    len : token.value.chars().count()
+    len : token.value.clone().chars().count()
   )
 );
 /// The source line at the token's row ("" when the row is out of range).
@@ -838,7 +838,7 @@ get_line_at_token :: (fn(token : &Token) -> String)({
   // so the half-width offset added to it has to be a rune count too — say so,
   // rather than inheriting whatever basis `len()` happens to have
   // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S7).
-  caret_col := (usize(token.column) + (token.value.chars().count() / usize(2)));
+  caret_col := (usize(token.column) + (token.value.clone().chars().count() / usize(2)));
   spaces := String.from(" ").repeat(caret_col);
   row_plus1 := (usize(token.row) + usize(1));
   col_plus1 := (usize(token.column) + usize(1));
