@@ -1746,13 +1746,11 @@ jobs:
         if: ${{ runner.os == 'Windows' && (!matrix.shards || matrix.shard == 0) }}
         shell: bash
         run: |
-          # Same sanitizer split as "Run tests": windows-arm64 has no aarch64
-          # ASan runtime.
-          case "${{ matrix.target }}" in
-            windows-arm64) TEST_SAN_FLAG="--disable-sanitize" ;;
-            *) TEST_SAN_FLAG="" ;;
-          esac
-          ./yo-suite.exe test ./tests/collections/hash_map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          # Sanitizer off on both arches: this step proves a user program
+          # builds and runs on the vendored mimalloc. ASan coverage is "Run
+          # tests"' job, and ASan + static mimalloc on windows-x64 has never
+          # been exercised (a second malloc interposer under ASan's).
+          ./yo-suite.exe test ./tests/collections/hash_map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang --disable-sanitize
 
   # Stage 1 built ONCE per battery and shared. Before this job, five Linux jobs
   # (bootstrap-fixpoint, bootstrap-self-test, compiler-internal-tests-selfhosted,
