@@ -3471,8 +3471,12 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > list, `{ a : Rc.clone(a) }() => a.*`. `yo fix <path> --migrate rc-clone`
 > spells the clones in existing code. The clone is spelled through the type,
 > `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`
-> (decision 32). Copies inside a generic body, where the handle is a `T`
-> (`ArrayList(Rc(T)).get(i)`), still share it implicitly.
+> (decision 32). A generic body is judged at each instantiation, so a copy
+> of a `T` that is a handle needs `.clone()` there too (`where(T <: Clone)`).
+> std's generic bodies are the exception for now: their readers copy the
+> element through `T` (`ArrayList(Rc(T)).get(i)`, `HashMap.get`), so a copy
+> made inside std still shares the handle implicitly until code reads handle
+> elements through B6's accessors (`get_cloned`, `xs(i)` in place, `with`).
 >
 > Reference counting is Yo's *universal* object model, not one container's
 > opt-in policy: every `ref(struct(...))` is reference counted, and `Rc` is

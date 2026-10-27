@@ -1175,11 +1175,14 @@ set_counted_handle_rule :: (fn(on : bool) -> unit)({
 /// The evaluator is specializing a generic function or method defined in std
 /// (`sync_counted_handle_std_generic`, evaluator/context.yo). Its copies of a
 /// `T` that is a handle (`ArrayList(T).get`'s element, `Option(T).unwrap`'s
-/// payload) are not judged by decision 17 until B6's accessors give std's
-/// generic readers a spelling that does not copy (plans/VALUES_BY_DEFAULT.md
-/// V2c, as built): a specialization's types are concrete, so a copy of a `T`
-/// cannot be told from a copy of an `Rc(U)` there, and the whole body is
-/// exempt.
+/// payload) are not judged by decision 17 (plans/VALUES_BY_DEFAULT.md V2c, as
+/// built): a specialization's types are concrete, so a copy of a `T` cannot
+/// be told from a copy of an `Rc(U)` there, and the whole body is exempt.
+/// Measured 2026-10-28 with `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` (which judges
+/// these bodies): std itself is clean, and `check ./src` fails 238 of 276
+/// files, every one at `HashMap.get` or `ArrayList.get` instantiated at a
+/// handle element. The exemption goes once src reads handle elements through
+/// B6's accessors (`get_cloned`, `xs(i)` in place, `with`).
 (mut(g_counted_handle_std_generic) : bool) = false;
 set_counted_handle_std_generic :: (fn(on : bool) -> unit)({
   g_counted_handle_std_generic = on;
@@ -1196,9 +1199,10 @@ type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(t
 /// implicitly until V5 and B12), at a closure (judged by its capture record,
 /// decision 36: one owning an `Rc` is not `Copy`) and at a type variable. A
 /// generic body's copy of a `T` is judged as decision 36's flip judges it,
-/// implicitly: std's generic readers (`ArrayList(T).get`, `Option(T)`'s
-/// combinators) copy their element through `T`, and B6's accessors give them
-/// a spelling that does not copy.
+/// at each instantiation, except inside std (`set_counted_handle_std_generic`):
+/// std's generic readers (`ArrayList(T).get`, `Option(T)`'s combinators) copy
+/// their element through `T`, and B6's accessors are the spelling that does
+/// not copy.
 ///
 /// `yo fix --migrate rc-clone` suspends the rule while it records the copies
 /// it spells (`set_counted_handle_rule`): the tree it migrates still copies
