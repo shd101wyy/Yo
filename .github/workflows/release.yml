@@ -518,9 +518,11 @@ jobs:
             # Vendored mimalloc v3.5.1 DOES build on Windows — both targets,
             # plain C11 under clang, no local patches; the clang blockers
             # (v3.3.2 arm64 __ldar64/__stlr64, v3.5.0 x64 pointer-type errors)
-            # are fixed upstream as of v3.5.1 and the per-PR native suite
-            # compiles AND runs it on both Windows runners (test.yml
-            # test-native). The allocator CHOICE is nonetheless `system`, now
+            # are fixed upstream as of v3.5.1, and every battery compiles AND
+            # runs a user program with it on both Windows runners (test.yml
+            # test-native's "--allocator mimalloc on Windows" step; the suite
+            # compiler itself is a system build like this bundle since
+            # 2026-10-27). The allocator CHOICE is nonetheless `system`, now
             # on Windows-measured grounds: the 2026-09-04 A/B on the
             # canonical heavy workloads had system 25%/28% faster on wall
             # (check ./src, full-tree emit; non-overlapping spreads), with
@@ -539,8 +541,8 @@ jobs:
           # that once motivated experimental-only status is
           # issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md), and
           # the 2026-09-04 x64 A/B that re-affirmed `system` on wall time
-          # applies here too — mimalloc stays CI-exercised per-PR for users
-          # who opt in via --allocator mimalloc.
+          # applies here too — mimalloc stays CI-exercised every battery for
+          # users who opt in via --allocator mimalloc (test.yml test-native).
           #
           # The question is SETTLED: Windows uses the system allocator on both
           # targets by decision, not by breakage — the full record (including
