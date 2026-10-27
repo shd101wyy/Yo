@@ -1372,8 +1372,9 @@ impl(
 // advances a COPY of the field, so `_index` never moved and manual
 // `it.next()` loops yielded the first key forever (`for(...)` masked it).
 // Scan directly instead, mirroring `HashMapIterPtr`.
-/// Iterator over a map's keys, in bucket order — what `keys()` returns. The
-/// keys are yielded by value, so a refcounted `K` is dup'd.
+/// Iterator over a map's keys, in bucket order — what `keys()` returns. Each
+/// key is yielded as a clone (`K <: Clone`): a `String` key owns its bytes
+/// since B8, so the map keeps its own.
 HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1382,7 +1383,7 @@ HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
+  where(K <: (Eq(K), Hash, Clone)),
   HashMapKeys(K, V),
   Iterator(
     Item : K,
@@ -1397,7 +1398,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.key);
+                result = .Some((data_ptr.add(self._index)).*.key.clone());
               },
               true => ()
             );
@@ -1424,7 +1425,7 @@ impl(
 // NOTE: Same direct-scan structure as `HashMapKeys` — see the note there for
 // why the wrapped-`_inner` delegation form was replaced.
 /// Iterator over a map's values, in bucket order — what `values()` returns.
-/// The values are yielded by value, so a refcounted `V` is dup'd.
+/// Each value is yielded as a clone (`V <: Clone`), as `HashMapKeys` does.
 HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1433,7 +1434,7 @@ HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
+  where(K <: (Eq(K), Hash), V <: Clone),
   HashMapValues(K, V),
   Iterator(
     Item : V,
@@ -1448,7 +1449,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.value);
+                result = .Some((data_ptr.add(self._index)).*.value.clone());
               },
               true => ()
             );

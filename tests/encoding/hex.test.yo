@@ -11,13 +11,13 @@ test("hex.encode empty input", {
   assert(result == "", "empty input should produce empty string");
 });
 test("hex.encode single byte", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(0xFF));
   result := hex.encode(&data);
   assert(result == "ff", "0xFF should encode to ff");
 });
 test("hex.encode multiple bytes", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(0xDE));
   data.push(u8(0xAD));
   data.push(u8(0xBE));
@@ -28,14 +28,14 @@ test("hex.encode multiple bytes", {
   assert(hex.hex_encode(&data) == result, "hex_encode alias delegates to hex.encode");
 });
 test("hex.encode zero bytes", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(0x00));
   data.push(u8(0x00));
   result := hex.encode(&data);
   assert(result == "0000", "zero bytes should encode to 0000");
 });
 test("hex.encode sequential bytes", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(0x01));
   data.push(u8(0x23));
   data.push(u8(0x45));
@@ -93,7 +93,7 @@ test("hex.decode_exn still throws for callers inside an effect scope", {
 });
 // ===== Roundtrip Tests =====
 test("hex roundtrip", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(0x48));
   data.push(u8(0x65));
   data.push(u8(0x6C));

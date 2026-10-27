@@ -293,7 +293,7 @@ test("Copy: Copy requires Clone, and derive(T, Copy) alone names derive(T, Copy,
   comptime_assert(!Type.impls(_CtBare, Copy), "the rejected impls registered nothing (the derive's rejection is pinned at module level)");
 });
 test("Copy: an impl over a part that is not Copy names that part", {
-  comptime_expect_error(impl(_CtLabel, Copy()), "its field `name` has type `String`");
+  comptime_expect_error(impl(_CtLabel, Copy()), "holds a move-only value in its field `name` (`String`)");
   comptime_expect_error(impl(_CtPlainHolder, Copy()), "its field `inner` has type `_CtPlain`");
   comptime_expect_error(impl(generic(T : Type), _CtOpen(T), Copy()), "its field `item` has type `T`");
 });
