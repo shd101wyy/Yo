@@ -3499,8 +3499,8 @@ places it on the global allocator
 ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
 
 The type's own constructor is `Rc(T).new(value, alloc : …)`, with the same
-parameters; `rc(v)` forwards to it, as `box(v)` forwards to `Box(T).new` and
-`arc(v)` to `Arc(T).new`. `dyn(v)` builds its cell through `Rc(T).new` (or
+parameters: `rc(v)` is `Rc(T).new(v)`, as `box(v)` is `Box(T).new(v)` and
+`arc(v)` is `Arc(T).new(v)`. `dyn(v)` builds its cell through `Rc(T).new` (or
 `Arc(T).new` for a `Send` target).
 
 ### Usage Examples

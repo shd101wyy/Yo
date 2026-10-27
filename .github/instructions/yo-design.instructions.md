@@ -156,8 +156,13 @@ The compiler recognises the shared cell BY NAME in a few places (the instance-na
 stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(<ctor>(<closure>))`);
 every such check reads the one list `shared_cell_names_at` (`src/types/guards.yo`),
 never a literal `"Box"`. **`Rc(T).new(v, alloc :)`, `Box(T).new` and `Arc(T).new` are the
-handle constructors** (plans/backlog/STATIC_ARGUMENT_INFERENCE.md A2): the bodies live there, and
-`rc`/`box`/`arc` forward to them with the type argument written until that plan's Generation B.
+handle constructors** (plans/backlog/STATIC_ARGUMENT_INFERENCE.md A2). `box` forwards to `Box(V).new`;
+`rc` and `arc` keep a copy of the body until a seed carries A3, because the v0.2.70 seed's `dyn`
+synthesizes `rc(<closure>)` and a forwarded `Rc(V).new(...)` result has a second C type (the open
+`issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
+`Rc.new`/`Arc.new` declare `-> Rc(T)`/`-> Arc(T)`, not `-> Self`: a written return type is
+evaluated again per specialization, which types the capture-struct cell `dyn` builds; the baked
+`Self` did not.
 `dyn(v)` on a non-object synthesizes `Rc(T).new(v)` (`Arc(T).new` for a Send Dyn) with a
 receiver node preset to the cell type (`_synthesized_cell_new_call`, `values/dyn.yo`), so no name
 is looked up and a parameter named `rc` cannot capture it; `dyn(Rc.new(<closure>))` and
