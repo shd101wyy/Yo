@@ -896,6 +896,27 @@ impl(
         .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(block_args), false, begin_tok)
       }
     );
+    (final_expr : AstExpr) = cond(
+      (tpl_stmts.len() == usize(0)) => first_expr,
+      true => {
+        // `mut(__yo_tpl_N) := p0`
+        mut_args := ArrayList(AstExpr).new();
+        mut_args.push(.Atom(self.alloc_id(), tpl_name_tok));
+        bind_args := ArrayList(AstExpr).new();
+        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_mut_tok), mut_args, false, tpl_mut_tok));
+        bind_args.push(first_expr);
+        block_args := ArrayList(AstExpr).new();
+        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_bind_tok), bind_args, true, tpl_bind_tok));
+        si := usize(0);
+        while(si < tpl_stmts.len(), {
+          match(tpl_stmts.get(si), .Some(st) => block_args.push(st), .None => ());
+          si = (si + usize(1));
+        });
+        block_args.push(.Atom(self.alloc_id(), tpl_name_tok));
+        begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
+        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), block_args, false, begin_tok)
+      }
+    );
     ParseResult(expr : final_expr, index : (index + usize(1)))
   }),
   parse_fn_args : (
