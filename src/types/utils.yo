@@ -2338,16 +2338,23 @@ type_is_bitwise_copy :: (fn(ty : TypeValue) -> bool)(
 /// src/evaluator/values/impl.yo) gates on this wider question.
 type_mentions_some_type :: (fn(ty : &TypeValue) -> bool)({
   visited_ids := ArrayList(String).new();
-  _mentions_some_type_into(ty, &mut visited_ids)
+  _mentions_some_type_into(ty, &Option(String).None, &mut visited_ids)
 });
-_mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList(String)) -> bool)({
+/// Does `ty` mention the type variable named `name`, by the same walk as
+/// `type_mentions_some_type`? Static-argument inference asks it of an impl's
+/// receiver pattern (`_Wrap(T)` = `struct(n : usize)` needs `T`).
+type_mentions_some_type_named :: (fn(ty : &TypeValue, name : &String) -> bool)({
+  visited_ids := ArrayList(String).new();
+  _mentions_some_type_into(ty, &Option(String).Some(name.clone()), &mut visited_ids)
+});
+_mentions_some_type_into :: (fn(ty_in : &TypeValue, name : &Option(String), visited_ids : &mut ArrayList(String)) -> bool)({
   // Same shell/refine conventions and cycle guards as
   // `_collect_some_types_into` above (its sixth-shell comment).
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   ty = t_refine_inner(&ty);
   match(
     ty,
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => true,
+    Rc(.SomeT({ name : st_name })) => match(name, .Some(n) => (st_name == n), .None => true),
     Rc(.Struct({ id : st_id, field_types : st_fts, type_arguments : st_tas })) => {
       if(_id_already_visited(visited_ids, &st_id), {
         return(false);
@@ -2357,14 +2364,14 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
       });
       (tai : usize) = usize(0);
       while(tai < st_tas.len(), {
-        if(recur(match(st_tas.get(tai), .Some(a) => a, .None => rc(TypeValueNode.Unit)), visited_ids), {
+        if(recur(match(st_tas.get(tai), .Some(a) => a, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
           return(true);
         });
         tai = (tai + usize(1));
       });
       (tfi : usize) = usize(0);
       while(tfi < st_fts.len(), {
-        if(recur(match(st_fts.get(tfi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), visited_ids), {
+        if(recur(match(st_fts.get(tfi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
           return(true);
         });
         tfi = (tfi + usize(1));
@@ -2380,7 +2387,7 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
       });
       (eai : usize) = usize(0);
       while(eai < en_tas.len(), {
-        if(recur(match(en_tas.get(eai), .Some(a) => a, .None => rc(TypeValueNode.Unit)), visited_ids), {
+        if(recur(match(en_tas.get(eai), .Some(a) => a, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
           return(true);
         });
         eai = (eai + usize(1));
@@ -2390,7 +2397,7 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
         vf := match(en_vfs.get(evi), .Some(fl) => fl, .None => no_types());
         (efi : usize) = usize(0);
         while(efi < vf.len(), {
-          if(recur(match(vf.get(efi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), visited_ids), {
+          if(recur(match(vf.get(efi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
             return(true);
           });
           efi = (efi + usize(1));
@@ -2399,16 +2406,16 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
       });
       false
     },
-    Rc(.Pointer(pt)) => recur(&pt, visited_ids),
-    Rc(.Reference(pointee : rpt)) => recur(&rpt, visited_ids),
-    Rc(.Array(element : el, _, _)) => recur(&el, visited_ids),
+    Rc(.Pointer(pt)) => recur(&pt, name, visited_ids),
+    Rc(.Reference(pointee : rpt)) => recur(&rpt, name, visited_ids),
+    Rc(.Array(element : el, _, _)) => recur(&el, name, visited_ids),
     Rc(.TypeAppT(constructor : con, args : cargs)) => {
-      if(recur(&con, visited_ids), {
+      if(recur(&con, name, visited_ids), {
         return(true);
       });
       (cai : usize) = usize(0);
       while(cai < cargs.len(), {
-        if(recur(match(cargs.get(cai), .Some(a) => a, .None => rc(TypeValueNode.Unit)), visited_ids), {
+        if(recur(match(cargs.get(cai), .Some(a) => a, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
           return(true);
         });
         cai = (cai + usize(1));
@@ -2418,24 +2425,24 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
     Rc(.Func({ forall_types : ftys, param_types : ptys, result : res })) => {
       (fi2 : usize) = usize(0);
       while(fi2 < ftys.len(), {
-        if(recur(match(ftys.get(fi2), .Some(f) => f, .None => rc(TypeValueNode.Unit)), visited_ids), {
+        if(recur(match(ftys.get(fi2), .Some(f) => f, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
           return(true);
         });
         fi2 = (fi2 + usize(1));
       });
       (pi2 : usize) = usize(0);
       while(pi2 < ptys.len(), {
-        if(recur(match(ptys.get(pi2), .Some(p) => p, .None => rc(TypeValueNode.Unit)), visited_ids), {
+        if(recur(match(ptys.get(pi2), .Some(p) => p, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
           return(true);
         });
         pi2 = (pi2 + usize(1));
       });
-      recur(&res, visited_ids)
+      recur(&res, name, visited_ids)
     },
     Rc(.Tuple(_, field_types : tt_fts)) => {
       (ti : usize) = usize(0);
       while(ti < tt_fts.len(), {
-        if(recur(match(tt_fts.get(ti), .Some(f) => f, .None => rc(TypeValueNode.Unit)), visited_ids), {
+        if(recur(match(tt_fts.get(ti), .Some(f) => f, .None => rc(TypeValueNode.Unit)), name, visited_ids), {
           return(true);
         });
         ti = (ti + usize(1));
@@ -3770,7 +3777,7 @@ export(type_is_control_bound);
 export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, buffer_element_types, value_acyclic_obligations, value_type_owns_buffer, value_type_owns_buffer_outright, _type_refs_back_to_cyclic);
 export(type_requires_inference);
 export(type_contains_some_type);
-export(get_all_some_types, type_mentions_some_type, type_is_bitwise_copy);
+export(get_all_some_types, type_mentions_some_type, type_mentions_some_type_named, type_is_bitwise_copy);
 /// True when any PARAM of this `Func` type still contains a SomeT under a RAW
 /// scan — the SomeT's own resolution is deliberately NOT consulted
 /// (unlike `type_contains_some_type`). Used to recognise the def-era ORIGINAL

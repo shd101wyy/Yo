@@ -2636,6 +2636,10 @@ find_methods_from_generic_impls :: (
   ) -> ArrayList(MethodCandidate)
 )({
   results := ArrayList(MethodCandidate).new();
+  // Each result's registry slot (bucket, entry) and its impl's bindings, read
+  // back by the where-clause tie-break below.
+  result_slots := ArrayList(Tuple(usize, usize)).new();
+  result_bindings := ArrayList(ArrayList(TypeValue)).new();
   // Resolve SomeT.
   (resolved : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
@@ -2870,6 +2874,8 @@ find_methods_from_generic_impls :: (
                   owner : fmg_owner.clone()
                 )
               );
+              result_slots.push((ki, ei));
+              result_bindings.push(match_bindings.clone());
             });
             fi = (fi + usize(1));
           });
@@ -2879,7 +2885,70 @@ find_methods_from_generic_impls :: (
     });
     ki = (ki + usize(1));
   });
-  results
+  _drop_where_failed_candidates(results, &result_slots, &result_bindings, env)
+});
+/// When several generic impls declare the method for one receiver, the ones
+/// whose where-clause demonstrably fails for their bindings drop out, as long
+/// as one whose clauses hold remains: coherence allows inherent impls over
+/// disjoint bounds (`impl(generic(T), where(T <: Loud), W(T), mk : …)` beside
+/// `where(T <: Quiet)`), and the first one registered answered for both. A
+/// clause is judged as `first_failed_impl_where` judges it (a marker bound,
+/// or one whose trait mentions none of the impl's binders). A lone candidate
+/// is kept whatever its clauses say: dispatch does not enforce a constructed
+/// pattern's clauses (`try_match_generic_impl`'s `enforce_all_where`).
+_drop_where_failed_candidates :: (
+  fn(results : ArrayList(MethodCandidate), slots : &ArrayList(Tuple(usize, usize)), bindings : &ArrayList(ArrayList(TypeValue)), env : &Environment) -> ArrayList(MethodCandidate)
+)({
+  if(results.len() < usize(2), {
+    return(results);
+  });
+  fails := ArrayList(bool).new();
+  (any_holds : bool) = false;
+  (any_fails : bool) = false;
+  (ci : usize) = usize(0);
+  while(ci < results.len(), ci = (ci + usize(1)), {
+    failed := match(
+      slots.get(ci),
+      .Some((sk, se)) => match(
+        g_impl_registry_entry_lists.with(xs => xs.get(sk)),
+        .Some(sl) => match(
+          sl.get(se),
+          .Some(en) => cond(
+            (en.where_constraint_some_types.len() == usize(0)) => false,
+            true => {
+              opt := ArrayList(Option(TypeValue)).new();
+              (bj : usize) = usize(0);
+              bs := match(bindings.get(ci), .Some(b) => b, .None => ArrayList(TypeValue).new());
+              while(bj < bs.len(), bj = (bj + usize(1)), {
+                opt.push(bs.get(bj));
+              });
+              first_failed_impl_where(&en, &opt, env).is_some()
+            }
+          ),
+          .None => false
+        ),
+        .None => false
+      ),
+      .None => false
+    );
+    if(failed, {
+      any_fails = true;
+    }, {
+      any_holds = true;
+    });
+    fails.push(failed);
+  });
+  if(!(any_fails && any_holds), {
+    return(results);
+  });
+  kept := ArrayList(MethodCandidate).new();
+  (ki : usize) = usize(0);
+  while(ki < results.len(), ki = (ki + usize(1)), {
+    if(!match(fails.get(ki), .Some(f) => f, .None => false), {
+      match(results.get(ki), .Some(c) => kept.push(c), .None => ());
+    });
+  });
+  kept
 });
 /// Find an associated type from generic impls for a concrete type — e.g.
 /// resolve `Item` for a type whose `Iterator` comes from

@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
+{ get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -1652,16 +1652,9 @@ _sai_mentions_binder :: (fn(ty : &TypeValue, names : &ArrayList(String)) -> bool
   });
   found
 });
-/// Does `ty` mention the binder `name`?
-_sai_mentions_binder_named :: (fn(ty : &TypeValue, name : &String) -> bool)({
-  all := get_all_some_types(ty);
-  (found : bool) = false;
-  (ai : usize) = usize(0);
-  while((ai < all.len()) && !found, ai = (ai + usize(1)), {
-    found = match(all.get(ai), .Some(Rc(.SomeT({ name : a_name }))) => (a_name == name), _ => false);
-  });
-  found
-});
+/// Does `ty` mention the binder `name`? Through an instantiation's type
+/// arguments too: `_Wrap(T)` = `struct(n : usize)` mentions `T` only there.
+_sai_mentions_binder_named :: (fn(ty : &TypeValue, name : &String) -> bool)(type_mentions_some_type_named(ty, name));
 /// One candidate's verdict (§2 steps 3 and 4): bind its binders from the
 /// consulted arguments, check its where-clauses, and build `G(A…)`.
 _sai_try_candidate :: (

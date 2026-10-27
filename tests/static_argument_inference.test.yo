@@ -147,6 +147,20 @@ test("where-clauses: a failed bound is the bound's error, a bound selects the im
   comptime_assert(Type.eq(type_of(w), _Iw(_Count)), "I := _Count, A bound by the where-clause");
   assert(w.it.n == i32(0), "the payload");
 });
+/// Two inherent impls on ONE pattern over disjoint bounds.
+_Pick :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : T, tag : i32)
+);
+impl(generic(T : Type), where(T <: _Loud), _Pick(T), mk : (fn(x : T) -> Self)(Self(v : x, tag : i32(1))));
+impl(generic(T : Type), where(T <: _Quiet), _Pick(T), mk : (fn(x : T) -> Self)(Self(v : x, tag : i32(2))));
+// issues/fixed/2026-10-27-a-written-instantiation-dispatches-to-the-first-same-named-impl-whatever-its-where-clause.md
+test("the written form selects among same-named impls by where-clause too", {
+  assert(_Pick(i32).mk(i32(1)).tag == i32(1), "i32 is _Loud");
+  assert(_Pick(bool).mk(true).tag == i32(2), "bool is _Quiet: the second impl's body runs");
+  assert(_Sel(Option(bool)).mk(true).tag == i32(2), "_Sel(T) matches the pattern, but Option(bool) is not _Loud");
+  assert(_Pick.mk(true).tag == i32(2), "the inferred form agrees");
+  assert(_Sel.mk(true).tag == i32(2), "the inferred form agrees");
+});
 test("an impl placed below its call is found (lazy impls)", {
   p := _Box1.mk2(i32(5));
   comptime_assert(Type.eq(type_of(p), _Box1(i32)), "_Box1.mk2 is declared below this test");
