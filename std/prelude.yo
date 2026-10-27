@@ -10388,9 +10388,11 @@ extern(
 /// assert(w.upgrade().is_none(), "the last Arc dropped the payload");
 /// ```
 ArcWeak :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
-  // The cell's address, `.None` for `ArcWeak.new()`; a raw pointer to no
-  // particular type, as for `Weak`.
-  newtype(_cell : ?*void)
+  // The cell's address, `.None` for `ArcWeak.new()`. As for `Weak`, it points
+  // at the cell's header, is never dereferenced here, and is typed by the
+  // payload so that an `ArcWeak(Mutex(Self))` field's `Self` is fixed up with
+  // its declaration; the cycle walk does not follow it.
+  newtype(_cell : ?*V)
 );
 // The counts are atomic and the payload is `Send` and `Sync`, so any thread
 // may hold, upgrade or drop the handle. The raw `_cell` field derives
@@ -10405,8 +10407,8 @@ impl(
   /// `Arc.downgrade(&h)`, as `Arc.try_unwrap` is.
   downgrade : (fn(self : &Self) -> ArcWeak(T))({
     // SAFETY: an `Arc` handle is the address of its live cell.
-    cell := unsafe(unsafe.cast(self, *void));
-    __yo_arc_weak_retain(cell);
+    cell := unsafe(unsafe.cast(self, *T));
+    __yo_arc_weak_retain((*void)(cell));
     ArcWeak(T)(.Some(cell))
   })
 );
@@ -10423,7 +10425,7 @@ impl(
       .Some(cell) => cond(
         // SAFETY: the upgrade raised the strong count for the handle built
         // here, which owns that count (`__yo_rc_own`: no second one).
-        __yo_arc_weak_upgrade(cell) => .Some(__yo_rc_own(unsafe(unsafe.cast(&cell, Arc(T))))),
+        __yo_arc_weak_upgrade((*void)(cell)) => .Some(__yo_rc_own(unsafe(unsafe.cast(&cell, Arc(T))))),
         true => .None
       ),
       .None => .None
@@ -10432,13 +10434,13 @@ impl(
   /// The number of `Arc` handles to the cell: 0 once the payload is gone,
   /// and for `ArcWeak.new()`. Another thread may change it at any time.
   strong_count : (fn(self : &Self) -> usize)(
-    match(self._cell, .Some(cell) => __yo_arc_weak_strong_count(cell), .None => usize(0))
+    match(self._cell, .Some(cell) => __yo_arc_weak_strong_count((*void)(cell)), .None => usize(0))
   ),
   /// The number of `ArcWeak` handles to the cell, this one included: 0 once
   /// the payload is gone, and for `ArcWeak.new()`; `usize.MAX` when the count
   /// saturated. Another thread may change it at any time.
   weak_count : (fn(self : &Self) -> usize)(
-    match(self._cell, .Some(cell) => __yo_arc_weak_weak_count(cell), .None => usize(0))
+    match(self._cell, .Some(cell) => __yo_arc_weak_weak_count((*void)(cell)), .None => usize(0))
   ),
   /// Whether `self` and `other` name the same cell (two `ArcWeak.new()` do).
   ptr_eq : (fn(self : &Self, other : &Self) -> bool)(
@@ -10456,7 +10458,7 @@ impl(
   ArcWeak(T),
   Clone(
     clone : (fn(self : &Self) -> Self)({
-      match(self._cell, .Some(cell) => __yo_arc_weak_retain(cell), .None => ());
+      match(self._cell, .Some(cell) => __yo_arc_weak_retain((*void)(cell)), .None => ());
       ArcWeak(T)(self._cell)
     })
   )
@@ -10478,7 +10480,7 @@ impl(
     /// One `ArcWeak` fewer; the cell is freed when its payload is gone and
     /// this was the last handle. A zeroed handle names no cell.
     drop : (fn(self : &mut Self) -> unit)(
-      match(self._cell, .Some(cell) => __yo_arc_weak_release(cell), .None => ())
+      match(self._cell, .Some(cell) => __yo_arc_weak_release((*void)(cell)), .None => ())
     )
   )
 );

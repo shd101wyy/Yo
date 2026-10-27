@@ -313,3 +313,18 @@ test("ArcWeak handles upgraded and dropped on several threads while the last Arc
   assert(g_arc_weak_dropped == (before + i32(1)), "the payload was dropped once");
   assert(counts.live == usize(0), "the cell was freed once, by whichever handle went last");
 });
+// A recursive payload whose edge back to its own type is an `ArcWeak`: the
+// `Self` in the field is fixed up with the declaration, and the upgraded
+// handle is the payload's own `Arc` (one C type,
+// issues/fixed/2026-10-27-a-generic-method-returning-rc-of-its-parameter-over-a-recursive-struct-gets-a-second-c-type.md).
+_ArcWeakNode :: struct(parent : ArcWeak(Self), tag : i32);
+test("an ArcWeak parent pointer in a recursive payload upgrades on another thread", {
+  root := arc(_ArcWeakNode(parent : ArcWeak(_ArcWeakNode).new(), tag : i32(1)));
+  leaf := arc(_ArcWeakNode(parent : Arc.downgrade(&root), tag : i32(2)));
+  t := Thread(unit).spawn({ leaf }(io) => {
+    n := match(leaf.parent.upgrade(), .Some(p) => p.tag, .None => i32(0));
+    assert(n == i32(1), "the leaf reaches its parent");
+  });
+  t.join();
+  assert(root.parent.upgrade().is_none(), "the root has no parent");
+});
