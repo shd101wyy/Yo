@@ -6824,33 +6824,24 @@ note_concrete_ctor_method :: (fn(receiver_ty : &TypeValue, method : &String, met
 impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> ArrayList(CtorMethodImpl))({
   key := `${ctor_fid}.${method}`;
   epoch := trait_impl_epoch();
-  out := match(
-    g_ctor_method_cache.with(m => m.get(&key)),
-    .Some(ce) => cond(
-      (ce.epoch == epoch) => ce.impls,
-      true => _collect_generic_ctor_method_impls(ctor_fid, method)
-    ),
-    .None => _collect_generic_ctor_method_impls(ctor_fid, method)
-  );
-  g_ctor_method_cache.with_mut(m => m.insert(key, _CtorMethodCacheEntry(epoch : epoch, impls : out.clone())));
-  // Visibility is the reader's module's, so it is judged per call.
-  visible := ArrayList(CtorMethodImpl).new();
-  (vi : usize) = usize(0);
-  while(vi < out.len(), vi = (vi + usize(1)), {
-    match(out.get(vi), .Some(c) => visible.push(c), .None => ());
+  fresh := match(g_ctor_method_cache.with(m => m.get(&key)), .Some(ce) => (ce.epoch == epoch), .None => false);
+  if(!fresh, {
+    collected := _collect_generic_ctor_method_impls(ctor_fid, method);
+    g_ctor_method_cache.with_mut(m => m.insert(key.clone(), _CtorMethodCacheEntry(epoch : epoch, impls : collected)));
   });
+  out := match(g_ctor_method_cache.with(m => m.get(&key)), .Some(ce) => ce.impls, .None => ArrayList(CtorMethodImpl).new());
   n_conc := g_ctor_concrete_methods.with(xs => xs.len());
   (ci : usize) = usize(0);
   while(ci < n_conc, ci = (ci + usize(1)), {
     match(
       g_ctor_concrete_methods.with(xs => xs.get(ci)),
       .Some(cm) => if((cm.ctor_fid == ctor_fid) && (cm.method == method) && (get_visible_type_trait_methods_by_name(type_id_or_empty(&cm.receiver_ty), method.clone()).len() > usize(0)), {
-        visible.push(CtorMethodImpl(binder_names : ArrayList(String).new(), binder_types : ArrayList(TypeValue).new(), receiver_pattern : cm.receiver_ty.clone(), method_ty : cm.method_ty.clone(), generic_entry : .None, site : cm.site.clone()));
+        out.push(CtorMethodImpl(binder_names : ArrayList(String).new(), binder_types : ArrayList(TypeValue).new(), receiver_pattern : cm.receiver_ty, method_ty : cm.method_ty, generic_entry : .None, site : cm.site));
       }),
       .None => ()
     );
   });
-  visible
+  out
 });
 /// The generic registry's entries for `(ctor_fid, method)`: one scan of every
 /// bucket, run once per key and epoch. An impl the current module cannot
@@ -6879,16 +6870,11 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
             .Some(mty) => {
               owner := match(g_impl_registry_entry_owners.with(xs => xs.get(ki)), .Some(ol) => match(ol.get(ei), .Some(o) => o.clone(), .None => String.new()), .None => String.new());
               if(is_function_type(&mty) && (instance_constructor_fid(&entry.receiver_type_pattern) == ctor_fid) && owner_visible_from_current(&owner), {
-                out.push(
-                  CtorMethodImpl(
-                    binder_names : entry.forall_names.clone(),
-                    binder_types : entry.forall_some_types.clone(),
-                    receiver_pattern : entry.receiver_type_pattern.clone(),
-                    method_ty : mty,
-                    generic_entry : .Some(entry.clone()),
-                    site : entry.site.clone()
-                  )
-                );
+                names := entry.forall_names.clone();
+                somes := entry.forall_some_types.clone();
+                pattern := entry.receiver_type_pattern.clone();
+                site := entry.site.clone();
+                out.push(CtorMethodImpl(binder_names : names, binder_types : somes, receiver_pattern : pattern, method_ty : mty, generic_entry : .Some(entry), site : site));
               });
             },
             .None => ()
