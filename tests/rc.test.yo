@@ -3844,7 +3844,7 @@ test("a cell with no Weak left is freed by its last Rc", {
   consume(a);
   assert(counts.live == usize(0), "no Weak named the cell: the last Rc freed it");
 });
-_WeakSelf :: struct(me : Weak(RefCell(_WeakSelf)), n : i32);
+_WeakSelf :: struct(me : Weak(RefCell(Self)), n : i32);
 impl(
   _WeakSelf,
   Drop(
@@ -3895,4 +3895,32 @@ test("no borrow mark reaches an Rc cell's weak count", {
   assert(w2.weak_count() == usize(2), "and marks nothing either");
   consume(xs);
   assert(w.upgrade().is_none(), "the last Rc is gone");
+});
+test("a Weak is explicit-copy: a copy moves it, Weak.clone copies it", {
+  a := rc(i32(5));
+  w := Rc.downgrade(&a);
+  w2 := w;
+  comptime_expect_error(w.upgrade(), "use of moved value");
+  w3 := Weak.clone(&w2);
+  assert(w2.weak_count() == usize(2), "the move kept one handle; the clone made a second");
+  assert(w3.upgrade().is_some(), "the clone upgrades");
+});
+_WeakPair :: struct(a : i32, b : i32);
+derive(_WeakPair, Copy, Clone);
+test("Rc.make_mut clones when a Weak names the cell, and try_unwrap leaves the Weak dangling", {
+  mut(b) := rc(_WeakPair(a : i32(1), b : i32(2)));
+  w := Rc.downgrade(&b);
+  Rc.make_mut(&mut b).a = i32(10);
+  assert(b.a == i32(10), "the write landed in a fresh cell");
+  assert(w.upgrade().is_none(), "the Weak's cell lost its last Rc: the write never reaches it");
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  c := rc(_WeakPair(a : i32(3), b : i32(4)), alloc : .Some(heap));
+  wc := Rc.downgrade(&c);
+  n := match(Rc.try_unwrap(c), .Ok(p) => p.a, .Err(_) => i32(0));
+  assert(n == i32(3), "the only Rc unwraps with a Weak alive");
+  assert(wc.upgrade().is_none(), "the Weak upgrades to .None afterwards");
+  assert(counts.live == usize(1), "the Weak keeps the cell's bytes");
+  consume(wc);
+  assert(counts.live == usize(0), "the last Weak freed the cell");
 });

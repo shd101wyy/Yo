@@ -800,49 +800,81 @@ test("A value without a buffer still cannot implement Trace", {
   );
 });
 // === Weak (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.4, W3) ===
-// A `Weak` is not an edge: a parent whose child points back through a `Weak`
-// is not a cycle, so neither cell is tracked under either mode and the pair
-// frees itself by reference counting.
-(mut(g_weak_pair_dropped) : i32) = i32(0);
-_WeakChild :: struct(parent : Weak(RefCell(_WeakParent)), tag : i32);
-_WeakParent :: struct(child : Option(Rc(_WeakChild)), tag : i32);
+// A `Weak` is not an edge. A type whose only edge back to itself is a `Weak`
+// is acyclic, so its cells are never tracked, and a cycle closed through the
+// `Weak` frees itself by reference counting under both modes.
+(mut(g_weak_loop_dropped) : i32) = i32(0);
+_WeakLoop :: struct(me : Weak(RefCell(Self)), tag : i32);
 impl(
-  _WeakChild,
+  _WeakLoop,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      g_weak_pair_dropped = (g_weak_pair_dropped + i32(1));
-    })
-  )
-);
-impl(
-  _WeakParent,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      g_weak_pair_dropped = (g_weak_pair_dropped + i32(1));
+      g_weak_loop_dropped = (g_weak_loop_dropped + i32(1));
     })
   )
 );
 test("a cycle closed through a Weak is untracked and frees itself", {
   before_tracked := Gc.tracked_count();
-  before := g_weak_pair_dropped;
+  before := g_weak_loop_dropped;
+  live_before := counting_live();
   {
-    p := rc(RefCell(_WeakParent).new(_WeakParent(child : .None, tag : i32(1))));
-    c := rc(_WeakChild(parent : Rc.downgrade(&p), tag : i32(2)));
-    p.with_mut({ c }(v) => {
-      v.child = .Some(c);
+    a := rc(RefCell(_WeakLoop).new(_WeakLoop(me : Weak(RefCell(_WeakLoop)).new(), tag : i32(1))), alloc : .Some(counting_allocator()));
+    w := Rc.downgrade(&a);
+    a.with_mut({ w }(v) => {
+      v.me = Weak.clone(&w);
     });
     assert(Gc.tracked_count() == before_tracked, "a weak back edge is not an edge: nothing is tracked");
-    assert(c.parent.upgrade().is_some(), "the child reaches its parent");
-    assert(p.with(v => match(&v.child, .Some(k) => k.tag, .None => i32(0))) == i32(2), "the parent owns its child");
+    assert(a.with(v => v.me.upgrade().is_some()), "the cell reaches itself through its Weak");
   };
-  assert(g_weak_pair_dropped == (before + i32(2)), "both payloads dropped by reference counting");
+  assert(g_weak_loop_dropped == (before + i32(1)), "the payload is dropped by reference counting");
+  assert(counting_live() == live_before, "and the cell is freed");
+});
+// The Rust shape for a parent pointer: strong children, a weak parent. The
+// type can form a cycle through its children, so its cells are tracked under
+// `auto`, but no instance closes one, so the tree frees itself under both
+// modes without a collection.
+(mut(g_weak_tree_dropped) : i32) = i32(0);
+_WeakTree :: struct(parent : Weak(RefCell(Self)), children : ArrayList(Rc(RefCell(Self))), tag : i32);
+impl(
+  _WeakTree,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_weak_tree_dropped = (g_weak_tree_dropped + i32(1));
+    })
+  )
+);
+_weak_tree_node :: (fn(parent : Weak(RefCell(_WeakTree)), tag : i32) -> Rc(RefCell(_WeakTree)))(
+  rc(RefCell(_WeakTree).new(_WeakTree(parent : parent, children : ArrayList(Rc(RefCell(_WeakTree))).new(), tag : tag)))
+);
+test("a tree with Weak parent pointers frees itself without the collector", {
+  before := g_weak_tree_dropped;
+  {
+    root := _weak_tree_node(Weak(RefCell(_WeakTree)).new(), i32(1));
+    (mut(i) : i32) = i32(2);
+    while(i <= i32(4), {
+      leaf := _weak_tree_node(Rc.downgrade(&root), i);
+      root.with_mut({ leaf }(v) => {
+        v.children.push(leaf);
+      });
+      i = (i + i32(1));
+    });
+    sum := root.with(v => {
+      (mut(acc) : i32) = i32(0);
+      for(&v.children, c => {
+        acc = (acc + c.with(cv => match(cv.parent.upgrade(), .Some(p) => p.with(pv => pv.tag), .None => i32(0))));
+      });
+      acc
+    });
+    assert(sum == i32(3), "each of the three leaves reaches its parent");
+  };
+  assert(g_weak_tree_dropped == (before + i32(4)), "the root and its three leaves are dropped by reference counting");
 });
 // An upgrade from a `Drop` the collector runs (its dispose pass) of a garbage
 // sibling is `.None`, and a garbage cell a `Weak` outside the cycle still
 // names is kept until that `Weak` goes.
 (mut(g_white_dropped) : i32) = i32(0);
 (mut(g_white_upgrade_none) : i32) = i32(0);
-_WhiteNode :: struct(other : Option(Rc(RefCell(_WhiteNode))), peer : Weak(RefCell(_WhiteNode)));
+_WhiteNode :: struct(other : Option(Rc(RefCell(Self))), peer : Weak(RefCell(Self)));
 impl(
   _WhiteNode,
   Drop(
