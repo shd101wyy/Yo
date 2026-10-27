@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, shared_cell_type_name_of_constructor, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
-{ resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, type_somes_all_resolve_concrete, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
+{ resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -166,13 +166,14 @@ _mark_preset_receiver :: (fn(recv : &Option(usize), on : bool) -> unit)(
 ///
 /// It is `Rc(T).new(value)`: the receiver is a fresh node whose ExprInfo is
 /// `.TypeVal(cell_ty)` before the call is evaluated, the written
-/// `Rc(T).new(value)`. A payload over an OPEN type parameter (`dyn(f)` for
-/// `f : Impl(Fn(...))` in a body checked at its definition) has no `new` to
-/// dispatch: an impl does not match an instantiation over an unresolved
-/// type parameter outside a definition-time trial
-/// (issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
-/// That payload is boxed by the prelude's generic constructor (`rc`, `arc`)
-/// as before, its function value bound to the callee node, so no name is
+/// `Rc(T).new(value)`. A payload whose type mentions a type variable
+/// (`_is_open_payload`: `dyn(f)` for `f : Impl(Fn(...))`, a closure literal)
+/// is boxed by the prelude's generic constructor (`rc`, `arc`) as before: an
+/// impl does not match an instantiation over an unresolved type parameter
+/// outside a definition-time trial
+/// (issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md),
+/// and over a resolved one the cell keeps the variable in its type. The
+/// constructor's function value is bound to the callee node, so no name is
 /// looked up either way and a binding named `rc` cannot capture the call.
 _synthesized_cell_call :: (
   fn(cell_ty : &TypeValue, cell_name : &String, payload_ty : &TypeValue, value : AstExpr, at : &Token, env : &Environment, ctx : &EvalContext) -> Tuple(AstExpr, usize)
@@ -213,11 +214,16 @@ _synthesized_cell_call :: (
     }
   )
 });
-/// Is `payload_ty` over an open type parameter, one no impl matches an
-/// instantiation over outside a definition-time trial? A closure's own type
-/// carries its capture struct and is not open.
+/// Does `payload_ty` mention a type variable: an `Impl(...)` parameter, or
+/// the `Dyn`-carrying variable a closure literal is evaluated under? Such a
+/// payload is boxed by the prelude's generic constructor. An unresolved
+/// variable has no `new` to dispatch outside a definition-time trial (the
+/// issue `_synthesized_cell_call` cites); for a resolved one the generic
+/// function binds the concrete type (the closure's capture struct), where
+/// `Rc(T).new` on a receiver built over the variable keeps the variable in
+/// the cell's type: a second C type, with the cycle-capable header.
 _is_open_payload :: (fn(payload_ty : &TypeValue) -> bool)(
-  (is_some_type(payload_ty) || (get_all_some_types(payload_ty).len() > usize(0))) && !type_somes_all_resolve_concrete(payload_ty)
+  is_some_type(payload_ty) || (get_all_some_types(payload_ty).len() > usize(0))
 );
 /// A fresh callee node bound to the prelude's generic constructor of
 /// `cell_name` by value (its ExprInfo carries the function value, so the
