@@ -2092,6 +2092,18 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         if(!taken && exhaustive && (n_arms > usize(0)) && (n_done == n_arms), {
           acc.done = true;
         });
+        // `yo fix --migrate rc-clone`: a copy of `v` inside an arm of a
+        // `match` on `v` itself is never a move. The match either borrows
+        // `v` (`match(&v, …)`, as the migration spells a scrutinee its arms
+        // mention), which freezes `v` while the arm runs, or consumes it, and
+        // then the arm reads a moved value; `cur = match(&cur, …, _ => cur)`
+        // needs `Rc.clone(cur)` in the arm.
+        if(taken && migrate_rc_clone_on() && ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+          scr_m := ast_expr_strip_borrow_marker(&first);
+          if(ast_expr_is_atom(&scr_m) && (ast_expr_token(&scr_m).value == v.name), {
+            acc.later = true;
+          });
+        });
         return(());
       });
       // Leaving the function: nothing after a `return` on a path through
