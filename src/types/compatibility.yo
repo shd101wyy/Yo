@@ -11,7 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
@@ -80,7 +80,7 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
     Rc(.FnTraitT({ call_param_types : cpts, call_result : cr })) => {
       (i : usize) = usize(0);
       while(i < cpts.len(), {
-        match(cpts.get(i), .Some(t) => parts.push(t), .None => ());
+        match(cpts.get(i), .Some(t) => parts.push(t_slot_pointee(&t)), .None => ());
         i = (i + usize(1));
       });
       parts.push(cr);
@@ -137,7 +137,7 @@ _wrapper_carrier_args_concrete :: (fn(rtts : &ArrayList(TypeValue)) -> bool)({
         while((j < cc_pts.len()) && ok, {
           match(
             cc_pts.get(j),
-            .Some(pt) => if(get_all_some_types(&pt).len() > usize(0), {
+            .Some(pt) => if(get_all_some_types(t_slot_pointee(&pt)).len() > usize(0), {
               ok = false;
             }),
             .None => ()
@@ -824,10 +824,12 @@ _compat_impl :: (
         });
         (mi : usize) = usize(0);
         while(mi < apts.len(), {
-          a_ref := match(ameta.*.param_is_ref.get(mi), .Some(b) => b, .None => false);
-          e_ref := match(emeta.*.param_is_ref.get(mi), .Some(b) => b, .None => false);
-          a_own := match(ameta.*.param_is_owning.get(mi), .Some(b) => b, .None => false);
-          e_own := match(emeta.*.param_is_owning.get(mi), .Some(b) => b, .None => false);
+          // The modes are the slots' types: compared here, before any
+          // pointee is unified, as the mode flags were.
+          a_ref := match(apts.get(mi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
+          e_ref := match(epts.get(mi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
+          a_own := match(apts.get(mi), .Some(t) => t_slot_is_by_value(&t), .None => false);
+          e_own := match(epts.get(mi), .Some(t) => t_slot_is_by_value(&t), .None => false);
           if((a_ref != e_ref) || (a_own != e_own), {
             return(false);
           });
@@ -859,8 +861,8 @@ _compat_impl :: (
         e_sig := ArrayList(TypeValue).new();
         (si : usize) = usize(0);
         while(si < apts.len(), {
-          match(apts.get(si), .Some(v) => a_sig.push(v), .None => ());
-          match(epts.get(si), .Some(v) => e_sig.push(v), .None => ());
+          match(apts.get(si), .Some(v) => a_sig.push(t_slot_pointee(&v)), .None => ());
+          match(epts.get(si), .Some(v) => e_sig.push(t_slot_pointee(&v)), .None => ());
           si = (si + usize(1));
         });
         a_sig.push(aret);
@@ -869,8 +871,8 @@ _compat_impl :: (
         (func_ok : bool) = true;
         i = usize(0);
         while((i < apts.len()) && func_ok, {
-          at := match(apts.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
-          et := match(epts.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+          at := match(apts.get(i), .Some(v) => t_slot_pointee(&v), .None => rc(TypeValueNode.Unit));
+          et := match(epts.get(i), .Some(v) => t_slot_pointee(&v), .None => rc(TypeValueNode.Unit));
           if(!recur(&at, &et, mode, visited), {
             func_ok = false;
           });
@@ -1571,9 +1573,9 @@ _compat_impl :: (
     // result. `Fn` implies `FnOnce` (plans/VALUES_BY_DEFAULT.md decision 37):
     // a borrowing call also serves for one call, so an `Fn` is accepted where
     // an `FnOnce` is expected; never the other way round.
-    Rc(.FnTraitT(base_name : abn, call_param_types : apts, call_result : aret, call_param_is_ref : arefs, call_param_is_owning : aowns)) => match(
+    Rc(.FnTraitT(base_name : abn, call_param_types : apts, call_result : aret)) => match(
       expected,
-      Rc(.FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret, call_param_is_ref : erefs, call_param_is_owning : eowns)) => {
+      Rc(.FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret)) => {
         if((abn != ebn) && !((abn == "Fn") && (ebn == "FnOnce")), {
           return(false);
         });
@@ -1583,23 +1585,21 @@ _compat_impl :: (
         // Parameter modes are part of the call signature, as they are of a
         // `fn(...)` type (the `.Func` arm above): a closure typed
         // `Fn(s : String)` owns and drops its argument, so it cannot stand
-        // where `Fn(s : &String)` lends one. Judged when both carriers
-        // record every flag (a closure type no `Fn(...)` was written for
-        // records none).
-        if((arefs.len() == apts.len()) && (erefs.len() == epts.len()) && (aowns.len() == apts.len()) && (eowns.len() == epts.len()), {
-          (fmi : usize) = usize(0);
-          while(fmi < apts.len(), {
-            if((match(arefs.get(fmi), .Some(b) => b, .None => false) != match(erefs.get(fmi), .Some(b) => b, .None => false))
-            || (match(aowns.get(fmi), .Some(b) => b, .None => false) != match(eowns.get(fmi), .Some(b) => b, .None => false)), {
-              return(false);
-            });
-            fmi = (fmi + usize(1));
+        // where `Fn(s : &String)` lends one. The modes are the slots' types,
+        // compared before any pointee is unified.
+        (fmi : usize) = usize(0);
+        while(fmi < apts.len(), {
+          a_slot := match(apts.get(fmi), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+          e_slot := match(epts.get(fmi), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+          if((t_slot_is_mut_ref(&a_slot) != t_slot_is_mut_ref(&e_slot)) || (t_slot_is_by_value(&a_slot) != t_slot_is_by_value(&e_slot)), {
+            return(false);
           });
+          fmi = (fmi + usize(1));
         });
         i := usize(0);
         while(i < apts.len(), {
-          at := match(apts.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
-          et := match(epts.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+          at := match(apts.get(i), .Some(v) => t_slot_pointee(&v), .None => rc(TypeValueNode.Unit));
+          et := match(epts.get(i), .Some(v) => t_slot_pointee(&v), .None => rc(TypeValueNode.Unit));
           if(!recur(&at, &et, mode, visited), {
             return(false);
           });

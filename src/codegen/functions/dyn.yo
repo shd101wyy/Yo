@@ -12,7 +12,7 @@
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { Emitter } :: import("../../emitter.yo");
 { should_skip_function_codegen, generate_function_prototype } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -330,9 +330,9 @@ _boxed_c_name :: (fn(data_type_in : &TypeValue, context : &FunctionGenerationCon
   )
 });
 /// Build the wrapper signature param list: `void* self_ptr` plus one `argN` per
-/// impl parameter after the receiver, typed from `param_types[start..]` (an
-/// `inout` one, per `param_is_ref`, as `T*`: the vtable slot's spelling).
-_wrapper_params :: (fn(param_types : &ArrayList(TypeValue), param_is_ref : &ArrayList(bool), start : usize, context : &FunctionGenerationContext) -> String)({
+/// impl parameter after the receiver, typed from the parameter slots
+/// `param_types[start..]` (a `&mut T` one as `T*`: the vtable slot's spelling).
+_wrapper_params :: (fn(param_types : &ArrayList(TypeValue), start : usize, context : &FunctionGenerationContext) -> String)({
   out := String.from("void* self_ptr");
   n := param_types.len();
   (j : usize) = start;
@@ -341,7 +341,7 @@ _wrapper_params :: (fn(param_types : &ArrayList(TypeValue), param_is_ref : &Arra
       param_types.get(j),
       .Some(pt) => {
         out.push_str(", ");
-        out.push_string(dyn_slot_param_type_string(Option(TypeValue).Some(pt), param_is_ref.get(j), &context.base));
+        out.push_string(dyn_slot_param_type_string(Option(TypeValue).Some(pt), &context.base));
         out.push_str(" arg");
         // arg index is 1-based from the first non-self param.
         out.push_string(((j - start) + usize(1)).to_string());
@@ -410,7 +410,7 @@ _emit_dyn_clone_function :: (
       // `self : &Self` reaches the impl as `T` or as `T*` (`fn_abi_param_is_ptr`).
       (self_by_ptr : bool) = match(
         get_func_type(clone_fid.clone()),
-        Rc(.Func({ param_types : cpts, meta : cfm })) => (match(cpts.get(usize(0)), .Some(p0) => is_pointer_type(&p0), .None => false) || match(cfm.*.param_is_ref.get(usize(0)), .Some(r) => r, .None => false)),
+        Rc(.Func({ param_types : cpts })) => match(cpts.get(usize(0)), .Some(p0) => (is_pointer_type(&t_slot_pointee(&p0)) || t_slot_is_mut_ref(&p0)), .None => false),
         _ => false
       );
       (receiver : String) = String.new();
@@ -484,13 +484,13 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
               match(
                 rt,
-                Rc(.FnTraitT({ base_name : fn_base, call_param_types, call_result, call_param_is_ref })) => {
+                Rc(.FnTraitT({ base_name : fn_base, call_param_types, call_result })) => {
                   return_str := get_type_string(&call_result, &context.base);
                   // A `Dyn(FnOnce(...))` call consumes the Dyn (decision 37):
                   // the wrapper releases the box after the call.
                   is_call_once := (fn_base == "FnOnce");
                   wrapper := `__yo_wrap_${impl_key}_call`;
-                  params := _wrapper_params(call_param_types.items.clone(), call_param_is_ref.items.clone(), usize(0), context);
+                  params := _wrapper_params(call_param_types.items.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
                   // A `unit` result lowers to C `void` too: the call is a
@@ -585,7 +585,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                       if(fai > usize(0), {
                         call.push_str(", ");
                       });
-                      slot_is_ptr := match(call_param_is_ref.get(fai), .Some(b) => b, .None => false);
+                      slot_is_ptr := match(call_param_types.get(fai), .Some(b) => t_slot_is_mut_ref(&b), .None => false);
                       fn_is_ptr := match(pay_ptr.get(fai), .Some(b) => b, .None => false);
                       call.push_string(
                         cond(
@@ -720,8 +720,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                               context.base.get_function_entry(func_id.clone()),
                               .Some(entry) => match(
                                 get_func_type(func_id.clone()),
-                                Rc(.Func({ param_types, result, meta : __fm1 })) => {
-                                  param_is_ref := __fm1.*.param_is_ref;
+                                Rc(.Func({ param_types, result })) => {
                                   impl_cname := entry.c_name.clone();
                                   // The label is sanitized like the slot's field
                                   // name: an operator member (`LogicalNot`'s `!`)
@@ -736,19 +735,18 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // differs: the impl returns its concrete future,
                                   // the trait the Future interface pointer.
                                   slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt, _ => param_types.clone());
-                                  slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => sfm.*.param_is_ref, _ => param_is_ref.clone());
                                   slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&sres, &context.base), _ => return_str.clone());
-                                  params := _wrapper_params(slot_params_tys.items.clone(), slot_param_is_ref.items.clone(), usize(1), context);
+                                  params := _wrapper_params(slot_params_tys.items.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
                                   (ac_j : usize) = usize(1);
                                   while(ac_j < param_types.len(), {
-                                    impl_pt := match(param_types.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), param_is_ref.get(ac_j), &context.base), .None => String.new());
-                                    slot_pt := match(slot_params_tys.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), slot_param_is_ref.get(ac_j), &context.base), .None => String.new());
+                                    impl_pt := match(param_types.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), &context.base), .None => String.new());
+                                    slot_pt := match(slot_params_tys.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), &context.base), .None => String.new());
                                     arg_casts.push(if(impl_pt == slot_pt, String.new(), impl_pt));
                                     ac_j = (ac_j + usize(1));
                                   });
                                   ret_cast := if(slot_ret == return_str, String.new(), slot_ret.clone());
-                                  pbp := (match(param_types.get(usize(0)), .Some(p0) => is_pointer_type(&p0), .None => false) || match(param_is_ref.get(usize(0)), .Some(r) => r, .None => false));
+                                  pbp := match(param_types.get(usize(0)), .Some(p0) => (is_pointer_type(&t_slot_pointee(&p0)) || t_slot_is_mut_ref(&p0)), .None => false);
                                   // A by-value `self` (`LogicalNot`'s `(!)`, decision 34
                                   // as amended 2026-10-11) is OWNED by the impl, which
                                   // drops it at its end, while the Dyn keeps owning its
@@ -759,7 +757,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // evaluator rejects boxing it behind a by-value slot.
                                   // Emitted before the wrapper, whose body follows in
                                   // the declarations buffer.
-                                  self_owned := match(__fm1.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => false);
+                                  self_owned := match(param_types.get(usize(0)), .Some(o) => t_slot_is_by_value(&o), .None => false);
                                   self_concrete := resolve_some_type_to_concrete(impl_entry.concrete_type.clone());
                                   (self_copy_fn : Option(String)) = Option(String).None;
                                   if(!pbp && self_owned && type_contains_rc_cell_or_move_only(&self_concrete), {

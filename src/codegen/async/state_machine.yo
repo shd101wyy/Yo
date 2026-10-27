@@ -7,7 +7,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_flags, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_macro_expansion, lookup_method_callee_value, expr_info_deferred_dup_expressions, some_resolution, scope_variables, scope_release_note_hard, lookup_local_borrow_step_pin, is_fnonce_capture_drop } :: import("../../expr_info.yo");
@@ -280,7 +280,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
       .Some(ci) => match(
         ci.ty,
         Rc(.Func({ result : _ })) => fn_abi_param_is_ptr(&ci.ty),
-        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, cprf, _))) => cprf.items, _ => ArrayList(bool).new())
+        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(sm_ft) => fn_param_mut_ref_flags(&sm_ft).items.clone(), .None => ArrayList(bool).new())
       ),
       .None => ArrayList(bool).new()
     )

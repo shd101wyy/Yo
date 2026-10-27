@@ -98,7 +98,7 @@ env_mod :: import("std/env");
 { purge_specialization_caches_owned_by, specialization_recording_begin, specialization_recording_take } :: import("./evaluator/calls/helper.yo");
 { purge_match_arms } :: import("./pattern.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
-{ TypeValue, TypeValueNode } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, slot_pointee_at } :: import("./types/definitions.yo");
 { clear_type_display_names, type_to_string } :: import("./types/string.yo");
 { render_any_error, stash_error_diagnostics, format_error_message } :: import("./error.yo");
 { get_func_type } :: import("./function_value.yo");
@@ -2709,7 +2709,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                     (pi : usize) = usize(0);
                     while(pi < __main_pts.len(), {
                       match(
-                        __main_pts.get(pi),
+                        slot_pointee_at(&__main_pts, pi),
                         .Some(pt) => {
                           pt_is_io := match(
                             pt,

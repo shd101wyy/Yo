@@ -30,7 +30,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64, stable_id_module_path } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 {
   is_reference_struct_type,
   is_pointer_type,
@@ -1876,6 +1876,10 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     ),
     Rc(.FnTraitT({})) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
     Rc(.FutureTraitT({})) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
+    // A `&T` / `&mut T` is a parameter slot's mode (decision 43 step 1): every
+    // reader of a slot takes its pointee first, so one reaching codegen is
+    // an internal compiler error, not a C type.
+    Rc(.Reference(_, _, _)) => __yo_panic("get_type_string: a reference type reached codegen (a parameter slot read without t_slot_pointee)"),
     // Comptime-only / type-level types should not reach codegen.
     _ => {
       fallback := String.from("// Unknown type: ");
@@ -2516,16 +2520,17 @@ dyn_concrete_c_name :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(
   )
 );
 /// The C type of one parameter of a Dyn vtable slot and of the wrapper the
-/// slot points at. An `inout` parameter is `T*`, exactly as the function
+/// slot points at. A `&mut T` slot is `T*`, exactly as the function
 /// prototype spells it (`functions/declarations.yo`): the call site hands the
 /// slot the address of the place, and the impl or closure the wrapper forwards
 /// to takes a `T*` (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
-dyn_slot_param_type_string :: (fn(t : &Option(TypeValue), is_ref : Option(bool), context : &CodeGenContext) -> String)(
+dyn_slot_param_type_string :: (fn(t : &Option(TypeValue), context : &CodeGenContext) -> String)(
   match(
     t,
-    .Some(pt) => {
+    .Some(slot) => {
+      pt := t_slot_pointee(&slot);
       pts := get_type_string(&pt, context);
-      if(match(is_ref, .Some(r) => r, .None => false), {
+      if(t_slot_is_mut_ref(&slot), {
         pts.push_str("*");
       });
       pts

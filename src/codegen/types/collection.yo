@@ -18,7 +18,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { profile_enabled, fnv1a64 } :: import("../../utils.yo");
-{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, slot_pointee_at } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
 { ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings, expr_info_capture_type, expr_info_capture_field_inits, expr_info_closure_function_value, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
@@ -393,7 +393,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
               Rc(.Func({ param_types : __mpt, result : __mres })) => {
                 (__mpi : usize) = usize(0);
                 while(__mpi < __mpt.len(), {
-                  match(__mpt.get(__mpi), .Some(__pt) => recur(&__pt, context), .None => ());
+                  match(slot_pointee_at(&__mpt, __mpi), .Some(__pt) => recur(&__pt, context), .None => ());
                   __mpi = (__mpi + usize(1));
                 });
                 recur(&__mres, context);
@@ -511,7 +511,7 @@ collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &C
       np := param_types.len();
       (pi : usize) = usize(0);
       while(pi < np, {
-        match(param_types.get(pi), .Some(pt) => collect_type(&pt, context), .None => ());
+        match(slot_pointee_at(&param_types, pi), .Some(pt) => collect_type(&pt, context), .None => ());
         pi = (pi + usize(1));
       });
       nf := forall_types.len();

@@ -6,7 +6,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("./definitions.yo");
 { RefCell } :: import("std/sync/refcell");
 
 // ---------------------------------------------------------------------------
@@ -200,13 +200,14 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
             body = `${body}, `;
           });
           label := match(plabels.get(i), .Some(s) => s, .None => `""`);
-          ts := match(ptypes.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
+          ts := match(ptypes.get(i), .Some(t2) => recur(t_slot_pointee(&t2), _d + usize(1), visited), .None => `?`);
           // The parameter mode is part of the type
           // (plans/reference/TYPE_IDENTITY.md), and this rendering is also
           // the codegen key of a fn type (`type_key`'s fallback), so an
-          // `inout` and a by-value fn type must never print alike.
-          p_is_ref := match(__fm1.*.param_is_ref.get(i), .Some(b) => b, .None => false);
-          p_is_own := match(__fm1.*.param_is_owning.get(i), .Some(b) => b, .None => false);
+          // `inout` and a by-value fn type must never print alike. A missing
+          // slot prints as a borrow, as a missing mode flag did.
+          p_is_ref := match(ptypes.get(i), .Some(t2) => t_slot_is_mut_ref(&t2), .None => false);
+          p_is_own := match(ptypes.get(i), .Some(t2) => t_slot_is_by_value(&t2), .None => false);
           if(label.len() > usize(0), {
             // After the flip (decision 30) a plain parameter is by value:
             // the by-value mode prints bare, the borrows print their words.
@@ -395,7 +396,9 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           if(i > usize(0), {
             body = `${body}, `;
           });
-          ts := match(cpts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
+          // The slot's pointee only: an `Fn(...)` type prints without its
+          // parameter modes.
+          ts := match(cpts.get(i), .Some(t2) => recur(t_slot_pointee(&t2), _d + usize(1), visited), .None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });

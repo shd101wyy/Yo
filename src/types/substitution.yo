@@ -561,7 +561,15 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(_substitute_at(s, &inner, false))),
         // A reference (a parameter slot) substitutes its pointee; the mode and
         // the origin are carried (step 2 substitutes origin parameters).
-        Rc(.Reference(r_inner, r_mut, r_origin)) => rc(TypeValueNode.Reference(_substitute_at(s, &r_inner, false), r_mut, r_origin)),
+        // An unchanged pointee keeps the slot node, as an unchanged leaf
+        // keeps its own (so `_subst_list` shares an unchanged slot list).
+        Rc(.Reference(r_inner, r_mut, r_origin)) => {
+          r_new := _substitute_at(s, &r_inner, false);
+          cond(
+            __yo_ptr_eq(&r_new, &r_inner) => ty,
+            true => rc(TypeValueNode.Reference(r_new, r_mut, r_origin))
+          )
+        },
         // The element type substitutes like any other child; the LENGTH is a
         // value binder, resolved from the const-generic side map when the
         // impl's `generic(N : usize)` was bound at match time. Unbound (or
@@ -778,10 +786,10 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             match(_subst_list_changed(s, &ntt), .Some(l) => l, .None => ntt.items.clone()),
             ntl.items.clone()
           ),
-        Rc(.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf, call_param_is_owning : cpof)) => {
+        Rc(.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its)) => {
           new_cpts := _subst_list(s, &cpts);
           new_its := _subst_list(s, &its);
-          rc(TypeValueNode.FnTraitT(base_name : bn.clone(), call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf, call_param_is_owning : cpof))
+          rc(TypeValueNode.FnTraitT(base_name : bn.clone(), call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : ils, implicit_types : new_its))
         },
         Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets)) => {
           new_ets := _subst_list(s, &ets);

@@ -79,14 +79,6 @@ _append_strings :: (fn(sb : &mut StringBuilder, xs : &SharedList(String)) -> uni
     i = (i + usize(1));
   });
 });
-_append_bools :: (fn(sb : &mut StringBuilder, xs : &SharedList(bool)) -> unit)({
-  n := xs.len();
-  (i : usize) = usize(0);
-  while(i < n, {
-    _append_b(sb, match(xs.get(i), .Some(b) => b, .None => false));
-    i = (i + usize(1));
-  });
-});
 _append_i64s :: (fn(sb : &mut StringBuilder, xs : &SharedList(i64)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
@@ -113,9 +105,7 @@ _append_meta_key :: (fn(sb : &mut StringBuilder, m : &FuncMeta) -> unit)({
   _append_strings(sb, &m.implicit_labels);
   sb.write_str(";");
   _append_b(sb, m.result_is_comptime_only);
-  _append_bools(sb, &m.param_is_ref);
-  sb.write_str(";");
-  _append_bools(sb, &m.param_is_owning);
+  // The parameter modes are the param slots' types, rendered with them.
   sb.write_str(";");
   _append_b(sb, m.result_is_ref);
   _append_b(sb, m.result_is_mut_ref);
@@ -607,7 +597,7 @@ _intern_key_into :: (
         _append_usizes(sb, &dntl);
         sb.write_str("]");
       },
-      Rc(.FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, call_param_is_ref : fncprf, call_param_is_owning : fncpo })) => {
+      Rc(.FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit })) => {
         sb.write_str("FT:");
         sb.write_string(&fnbn);
         sb.write_str("[");
@@ -632,10 +622,6 @@ _intern_key_into :: (
           sb.write_str(",");
           ifi = (ifi + usize(1));
         });
-        sb.write_str("|");
-        _append_bools(sb, &fncprf);
-        sb.write_str("|");
-        _append_bools(sb, &fncpo);
         sb.write_str("]");
       },
       Rc(.FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet })) => {

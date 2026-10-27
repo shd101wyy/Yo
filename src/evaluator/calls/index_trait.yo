@@ -17,7 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type } :: import("../../types/guards.yo");
 {
@@ -463,11 +463,11 @@ _IndexShape :: struct(is_projection : bool, is_mut : bool, output : TypeValue);
 _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Option(_IndexShape))(
   match(
     method_type,
-    Rc(.Func({ param_types, result : result_box, meta : __fm1 })) => cond(
+    Rc(.Func({ param_types, result : result_box })) => cond(
       (param_types.len() != usize(2)) => Option(_IndexShape).None,
       true => {
-        p0_is_ref := match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false);
-        p0_is_ptr := is_pointer_type(&param_types(usize(0)));
+        p0_is_ref := t_slot_is_mut_ref(&param_types(usize(0)));
+        p0_is_ptr := is_pointer_type(t_slot_pointee(&param_types(usize(0))));
         // `are_types_compatible(actual, expected)` — the ARGUMENT's type is the
         // actual, the parameter's declared type is the expected. Passing
         // them the other way round made the parameter type the "actual",
@@ -476,7 +476,7 @@ _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Optio
         // `actual` — never fired: `l(0)` on a `ComptimeIndex(usize)` impl was
         // rejected with "Type does not implement Index for the given argument
         // type" while `l(usize(0))` worked.
-        p1_compatible := are_types_compatible(arg_type, &param_types(usize(1)));
+        p1_compatible := are_types_compatible(arg_type, t_slot_pointee(&param_types(usize(1))));
         cond(
           !p1_compatible => Option(_IndexShape).None,
           // A projection: `&Self` for `index`, `&mut Self` for `index_mut`.
@@ -538,7 +538,7 @@ _find_index_mut_method :: (
     m := methods(i);
     match(
       _index_shape_of(&m.method_type, arg_type),
-      .Some(sh) => if(sh.is_projection && sh.is_mut && match(m.method_type, Rc(.Func({ meta : imm_fm })) => match(imm_fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), {
+      .Some(sh) => if(sh.is_projection && sh.is_mut && match(m.method_type, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&m.method_type, usize(0)), .Some(b) => b, .None => false), _ => false), {
         return(Option(_IndexMethodEntry).Some(m));
       }),
       .None => ()
@@ -1225,14 +1225,14 @@ _find_comptime_index_method :: (
       .Some(m) => {
         match(
           m.method_type,
-          Rc(.Func({ param_types, result : ci_result, meta : __cifm1 })) => {
-            ci_param_is_ref := __cifm1.*.param_is_ref;
+          Rc(.Func({ param_types, result : ci_result })) => {
+            ci_param_is_ref := fn_param_mut_ref_flags(&m.method_type);
             if(param_types.len() == usize(2), {
               match(
-                param_types.get(usize(0)),
+                slot_pointee_at(&param_types, usize(0)),
                 .Some(p0) => {
                   match(
-                    param_types.get(usize(1)),
+                    slot_pointee_at(&param_types, usize(1)),
                     .Some(p1) => {
                       p0_is_ptr := is_pointer_type(&p0);
                       p0_is_ref := match(
@@ -1390,12 +1390,12 @@ _try_comptime_custom_type_index :: (
   self_ptr_value := EvalValue.PtrVal(self_ptr_cell, usize(0), .None);
   ct_p0_ty := match(
     ct_fn_type,
-    Rc(.Func({ param_types : ct_pts0 })) => match(ct_pts0.get(usize(0)), .Some(t) => t, .None => t_unit()),
+    Rc(.Func({ param_types : ct_pts0 })) => match(slot_pointee_at(&ct_pts0, usize(0)), .Some(t) => t, .None => t_unit()),
     _ => t_unit()
   );
   ct_p1_ty := match(
     ct_fn_type,
-    Rc(.Func({ param_types : ct_pts1 })) => match(ct_pts1.get(usize(1)), .Some(t) => t, .None => t_unit()),
+    Rc(.Func({ param_types : ct_pts1 })) => match(slot_pointee_at(&ct_pts1, usize(1)), .Some(t) => t, .None => t_unit()),
     _ => t_unit()
   );
   ct_p0_label := match(
@@ -1774,9 +1774,9 @@ try_to_call_with_index_trait :: (
   // mode flags here and is skipped, exactly as a normal call would.
   match(
     method.method_type,
-    Rc(.Func({ meta : __ibv_fm })) => {
-      __ibv_ref := match(__ibv_fm.*.param_is_ref.get(usize(1)), .Some(b) => b, .None => false);
-      __ibv_own := match(__ibv_fm.*.param_is_owning.get(usize(1)), .Some(b) => b, .None => false);
+    Rc(.Func({ param_types : __ibv_pts })) => {
+      __ibv_ref := match(__ibv_pts.get(usize(1)), .Some(s) => t_slot_is_mut_ref(&s), .None => false);
+      __ibv_own := match(__ibv_pts.get(usize(1)), .Some(s) => t_slot_is_by_value(&s), .None => false);
       if(!__ibv_ref, {
         _ibv_drop := consume_argument_for_parameter(
           &evaluated_arg,

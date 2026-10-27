@@ -29,7 +29,7 @@
 } :: import("./model.yo");
 { DocExtractionResult } :: import("./extractor.yo");
 { parse_doc_comment } :: import("./sections.yo");
-{ TypeValue, no_types, no_labels, SharedList } :: import("../types/definitions.yo");
+{ TypeValue, no_types, no_labels, SharedList, slot_pointee_at } :: import("../types/definitions.yo");
 {
   is_struct_type,
   is_enum_type,
@@ -2900,7 +2900,7 @@ _function_params_to_doc_params :: (
       while((i < labels.len()) && (i < param_types.len()), {
         label := match(labels.get(i), .Some(l) => l, .None => String.new());
         ty := match(
-          param_types.get(i),
+          slot_pointee_at(&param_types, i),
           .Some(t) => t,
           .None => {
             i = (i + usize(1));

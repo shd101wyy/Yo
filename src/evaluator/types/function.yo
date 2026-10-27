@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -328,7 +328,7 @@ get_func_param_assigned_values :: (fn(func_id : &String) -> ArrayList(Option(Eva
 );
 // Per-parameter `is_compile_time_only` flags (the `comptime(name) : T` param
 // modifier). `TypeValue.Func`/`FuncMeta` do NOT carry a per-param comptime bit
-// (only `param_is_ref`/`param_is_owning`), so — like the defaults above — it
+// (a parameter's mode is its slot type), so — like the defaults above — it
 // rides a func-id-keyed side table. The call site (helper.yo) reads it for
 // the comptime→runtime argument-type conversion guard: a RUNTIME parameter
 // that receives a
@@ -889,10 +889,13 @@ _collect_where_constraints_from_some_t :: (
 /// Processed function parameter.
 FuncParam :: struct(
   label : String,
+  /// A regular parameter's SLOT: its mode is its type (`T` by value,
+  /// `Reference(T, ...)` for `&T` / `&mut T`; `t_slot`), and it becomes the
+  /// Func type's `param_types` entry as is. A `generic`/`using` parameter
+  /// and the variadic one hold their plain type: those lists carry no mode.
   ty : TypeValue,
   is_compile_time_only : bool,
   is_quote : bool,
-  is_owning_rc_value : bool,
   is_implicit : bool,
   // The parameter's evaluated `?= default` value, or `.None` for a
   // required parameter. Collected into a func-id-keyed side-table (the
@@ -900,10 +903,6 @@ FuncParam :: struct(
   // matching can treat trailing defaulted params as optional AND bind an
   // omitted argument to the recorded default value.
   default_value : Option(EvalValue),
-  /// True when the parameter was declared `name : &mut T` (a by-reference
-  /// borrow). Recorded so the Func type's `param_is_ref` can be populated for
-  /// the `inout(T)`-flow soundness check (`is_flowable_expr`).
-  is_ref : bool,
   /// The parameter's `?= default` value EXPRESSION (the raw AST), or `.None`
   /// for a required parameter. Parallel to `default_value` (the evaluated
   /// value): codegen must EMIT an omitted default as a C argument, so the
@@ -932,6 +931,12 @@ FuncParam :: struct(
   /// a `sink` parameter always takes the value. Only the caller reads it: the
   /// callee owns the parameter either way, so it is not part of the type.
   (is_sink : bool) ?= false
+);
+/// The `FuncParam.ty` of a parameter: a regular parameter's slot (its mode is
+/// its type, `t_slot`); a `generic`/`using` parameter's plain type (their
+/// lists carry no mode).
+_param_slot :: (fn(ty : &TypeValue, is_param_ref : bool, is_owning : bool, is_comptime_by_default : bool) -> TypeValue)(
+  if(is_comptime_by_default, ty.clone(), t_slot(ty, is_param_ref, is_owning))
 );
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
@@ -1603,7 +1608,7 @@ evaluate_function_parameter :: (
       });
       _reject_old_param_mode(&lhs_mut, exn);
       // `mut(x)` — strip the wrapper and record the `ref` flag (consumed
-      // into the Func type's `param_is_ref` for the flow-soundness check).
+      // into the parameter's `&mut T` slot for the flow-soundness check).
       if(ast_expr_is_inout_mode_call(&lhs_mut, Option(usize).None), {
         r_args := _fn_call_args(&lhs_mut);
         if(!(r_args.len() == usize(1)), {
@@ -2055,13 +2060,11 @@ use_id :: (fn(generic(T : Type),
       .None => return(
         FuncParam(
           label_str,
-          final_param_type,
+          _param_slot(&final_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default),
           is_compile_time_only,
           is_quote,
-          is_owning_rc_value,
           false,
           captured_default_value,
-          is_param_ref,
           default_value_expr,
           type_expr
         )
@@ -2239,13 +2242,11 @@ use_id :: (fn(generic(T : Type),
   );
   FuncParam(
     label_str,
-    actual_param_type,
+    _param_slot(&actual_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default),
     is_compile_time_only,
     is_quote,
-    is_owning_rc_value,
     false,
     captured_default_value,
-    is_param_ref,
     default_value_expr,
     type_expr,
     assigned_value,
@@ -3161,9 +3162,7 @@ evaluate_function_parameters :: (
     false,
     false,
     false,
-    false,
     Option(EvalValue).None,
-    false,
     Option(AstExpr).None,
     Option(AstExpr).None
   );
@@ -3323,15 +3322,14 @@ evaluate_function_parameters :: (
           )
         );
       });
+      // An implicit parameter's list carries no mode: its plain type.
       impl_param := FuncParam(
         param.label.clone(),
-        param.ty,
+        t_slot_pointee(&param.ty),
         true,
         param.is_quote,
-        param.is_owning_rc_value,
         true,
         Option(EvalValue).None,
-        false,
         Option(AstExpr).None,
         Option(AstExpr).None
       );
@@ -3807,9 +3805,7 @@ evaluate_function_parameters :: (
         is_vcomptime,
         is_vquote,
         false,
-        false,
         Option(EvalValue).None,
-        false,
         Option(AstExpr).None,
         Option(AstExpr).None
       );
@@ -3909,7 +3905,7 @@ evaluate_function_parameters :: (
       }
     );
     _eli_tok := ast_expr_token(match(param_exprs.get(eli), .Some(e) => e, .None => make_err_expr()));
-    if(p.is_quote && is_expr_list_type(&p.ty), {
+    if(p.is_quote && is_expr_list_type(t_slot_pointee(&p.ty)), {
       if(!(eli == (params.len() - usize(1))), {
         exn.throw(
           dyn(
@@ -4387,8 +4383,6 @@ evaluate_function_type :: (
   forall_types := ArrayList(TypeValue).new();
   param_labels := ArrayList(String).new();
   param_types := ArrayList(TypeValue).new();
-  param_is_ref := ArrayList(bool).new();
-  param_is_owning := ArrayList(bool).new();
   param_is_sink := ArrayList(bool).new();
   implicit_labels := ArrayList(String).new();
   implicit_types := ArrayList(TypeValue).new();
@@ -4429,7 +4423,7 @@ evaluate_function_type :: (
     // a length is inferred only from a bare binder or a bare projection (I1
     // of plans/backlog/ATS_STYLE_INDEXED_TYPES.md; the DML "index pattern"
     // rule). Without this rejection the marker would match any length.
-    if(type_has_computed_array_len(&pp.ty), {
+    if(type_has_computed_array_len(t_slot_pointee(&pp.ty)), {
       exn.throw(
         dyn(
           format_error_message(
@@ -4440,9 +4434,8 @@ evaluate_function_type :: (
       );
     });
     param_labels.push(pp.label.clone());
+    // The slot: the parameter's mode rides in its type.
     param_types.push(pp.ty);
-    param_is_ref.push(pp.is_ref);
-    param_is_owning.push(pp.is_owning_rc_value);
     param_is_sink.push(pp.is_sink);
     param_defaults.push(pp.default_value);
     param_default_exprs.push(pp.default_value_expr);
@@ -4509,7 +4502,7 @@ evaluate_function_type :: (
     match(
       params_result.params.get(rp2_i),
       .Some(fp) => match(
-        fp.ty,
+        t_slot_pointee(&fp.ty),
         Rc(.RefineT(_, pred_fid)) => {
           pred_here = pred_fid.clone();
         },
@@ -4662,10 +4655,8 @@ evaluate_function_type :: (
           // result_is_comptime_only — set from the `comptime(...)` wrapper on
           // the declared return.
           result_is_comptime_only : is_return_comptime_only,
-          // param_is_ref / param_is_owning / result_is_ref — the per-parameter
-          // ref/own flags and the return ref flag.
-          param_is_ref : shared_list(param_is_ref),
-          param_is_owning : shared_list(param_is_owning),
+          // result_is_ref — the return ref flag (the parameters' modes are
+          // their slots in `param_types`).
           result_is_ref : is_return_type_ref,
           result_is_mut_ref : is_return_type_mut_ref,
           // has_variadic — set from the trailing `...` marker (C-style
@@ -5239,7 +5230,7 @@ _collect_type_arg_somes :: (
     Rc(.Func({ param_types : cta_pts, result : cta_res })) => {
       (cta_p : usize) = usize(0);
       while(cta_p < cta_pts.len(), {
-        match(cta_pts.get(cta_p), .Some(cta_pt) => recur(&cta_pt, acc, visited_ids), .None => ());
+        match(slot_pointee_at(&cta_pts, cta_p), .Some(cta_pt) => recur(&cta_pt, acc, visited_ids), .None => ());
         cta_p = (cta_p + usize(1));
       });
       recur(&cta_res, acc, visited_ids);

@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { panic } :: import("std/assert");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list, slot_pointee_at, slot_pointees, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -182,7 +182,7 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
-    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name.clone(),
+    Rc(.FnTraitT(base_name, _, _, _, _, _)) => base_name.clone(),
     Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
   )
@@ -1438,7 +1438,7 @@ type_implements_trait :: (
   if(is_fn_trait_type(trait_type) && is_function_type(&target), {
     fn_trait_call_ty := match(
       trait_type,
-      Rc(.FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns)) => rc(
+      Rc(.FnTraitT(_, param_labels, param_types, result, _, _)) => rc(
         TypeValueNode.Func(
           no_types(),
           param_types,
@@ -1451,9 +1451,8 @@ type_implements_trait :: (
               param_labels : param_labels,
               implicit_labels : no_labels(),
               result_is_comptime_only : false,
-              // Fn-trait call type (runtime)
-              param_is_ref : ft_refs,
-              param_is_owning : ft_owns,
+              // Fn-trait call type (runtime); the call params' slots carry
+              // their modes
               result_is_ref : false,
               has_variadic : false,
               is_extern : Option(String).None,
@@ -2522,22 +2521,26 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 // ---------------------------------------------------------------------------
 /// The parameter modes of a function SIGNATURE: a `fn(...)` type's, or the
 /// call signature of the `Fn(...)` trait a type carries (`Impl(Fn(...))`, a
-/// named closure). `complete` is false when the per-parameter flags are not
-/// all recorded (a closure type no `Fn(...)` was written for), so nothing
-/// can be said about its modes.
+/// named closure). `types` are the parameters' value types (the slots'
+/// pointees), `refs`/`owns` the slots' modes. `complete` is always true now
+/// that every slot carries its mode.
 _SigModes :: struct(labels : SharedList(String), types : SharedList(TypeValue), refs : SharedList(bool), owns : SharedList(bool), n : usize, complete : bool);
 _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
   match(
     ty,
     Rc(.Func({ param_types : sm_pts, meta : sm_meta })) => Option(_SigModes).Some(
-      _SigModes(labels : sm_meta.*.param_labels.clone(), types : sm_pts.clone(), refs : sm_meta.*.param_is_ref.clone(), owns : sm_meta.*.param_is_owning.clone(), n : sm_pts.len(), complete : true)
+      _SigModes(labels : sm_meta.*.param_labels.clone(), types : shared_list(slot_pointees(&sm_pts)), refs : fn_param_mut_ref_flags(ty), owns : fn_param_by_value_flags(ty), n : sm_pts.len(), complete : true)
     ),
     _ => match(
       extract_fn_trait_from_type(ty),
-      .Some(Rc(.FnTraitT({ call_param_labels : sm_l, call_param_types : sm_t, call_param_is_ref : sm_r, call_param_is_owning : sm_o }))) => Option(_SigModes).Some(
-        _SigModes(labels : sm_l.clone(), types : sm_t.clone(), refs : sm_r.clone(), owns : sm_o.clone(), n : sm_t.len(), complete : ((sm_r.len() == sm_t.len()) && (sm_o.len() == sm_t.len())))
+      .Some(sm_ft) => match(
+        sm_ft,
+        Rc(.FnTraitT({ call_param_labels : sm_l, call_param_types : sm_t })) => Option(_SigModes).Some(
+          _SigModes(labels : sm_l.clone(), types : shared_list(slot_pointees(&sm_t)), refs : fn_param_mut_ref_flags(&sm_ft), owns : fn_param_by_value_flags(&sm_ft), n : sm_t.len(), complete : true)
+        ),
+        _ => Option(_SigModes).None
       ),
-      _ => Option(_SigModes).None
+      .None => Option(_SigModes).None
     )
   )
 );
@@ -2926,7 +2929,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {
-        pt := match(param_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        pt := match(slot_pointee_at(&param_types, i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(recur(&pt, checked_ids), {
           found = true;
         });

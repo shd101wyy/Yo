@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, no_types } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
-{ t_refine_inner } :: import("./definitions.yo");
+{ t_refine_inner, slot_pointee_at } :: import("./definitions.yo");
 { BK_YO_CELL, BK_YO_ATOMIC_CELL } :: import("../expr.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
@@ -843,7 +843,7 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
           n := pts.len();
           while(i < n, {
             match(
-              pts.get(i),
+              slot_pointee_at(&pts, i),
               .Some(pt) => match(
                 pt,
                 // Future-implementing SomeT params are exempt.
@@ -884,7 +884,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
           n := pts.len();
           while(i < n, {
             match(
-              pts.get(i),
+              slot_pointee_at(&pts, i),
               .Some(pt) => match(
                 pt,
                 Rc(.SomeT({ resolution : hg_res })) => {

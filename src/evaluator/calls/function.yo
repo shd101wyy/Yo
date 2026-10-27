@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -816,7 +816,7 @@ _reject_class1_panic_method_call :: (
     true => match(
       c1_mi.method_ty,
       Rc(.Func({ param_types : c1_pts })) => match(
-        c1_pts.get(usize(0)),
+        slot_pointee_at(&c1_pts, usize(0)),
         .Some(c1_p0) => is_class1_panic_receiver_type(&c1_p0),
         .None => false
       ),
@@ -2239,7 +2239,7 @@ ${ast_expr_to_string(call_expr)}`
           (found_ct : bool) = false;
           (pi2 : usize) = usize(0);
           while((pi2 < s_pts.len()) && !found_ct, {
-            pt2 := match(s_pts.get(pi2), .Some(p) => p, .None => t_unit());
+            pt2 := match(slot_pointee_at(&s_pts, pi2), .Some(p) => p, .None => t_unit());
             if(is_comptime_int_type(&pt2) || is_comptime_float_type(&pt2) || is_comptime_string_type(&pt2), {
               found_ct = true;
             });
@@ -2924,7 +2924,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
       cft,
       Rc(.Func({ param_types : opt, meta : om })) => {
         labels = om.*.param_labels;
-        self_ty = opt.get(usize(0));
+        self_ty = slot_pointee_at(&opt, usize(0));
       },
       _ => ()
     ),
@@ -3364,7 +3364,7 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
     ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))) => {
       recv_mut := match(
         lookup_method_callee_value(ast_expr_id(e)),
-        .Some(.FuncVal(mfv, _)) => match(get_func_type(&mfv.*.func_id), Rc(.Func({ meta : mm })) => match(mm.*.param_is_ref.get(usize(0)), .Some(r) => r, .None => false), _ => false),
+        .Some(.FuncVal(mfv, _)) => match(get_func_type(&mfv.*.func_id), Rc(.Func({ param_types : mm_pts })) => match(mm_pts.get(usize(0)), .Some(mm_s) => t_slot_is_mut_ref(&mm_s), .None => false), _ => false),
         _ => false
       );
       recv := match(callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
@@ -3584,9 +3584,9 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
       lookup_method_callee_value(ast_expr_id(call)),
       .Some(.FuncVal(mfv, _)) => match(
         get_func_type(&mfv.*.func_id),
-        Rc(.Func({ param_types : mpt, meta : mm })) => if(((op_args.len() + usize(1)) <= mpt.len()) && !match(mm.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => true), {
+        Rc(.Func({ param_types : mpt })) => if(((op_args.len() + usize(1)) <= mpt.len()) && !match(mpt.get(usize(0)), .Some(mp0) => t_slot_is_by_value(&mp0), .None => true), {
           recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-          recv_mut := match(mm.*.param_is_ref.get(usize(0)), .Some(r) => r, .None => false);
+          recv_mut := match(mpt.get(usize(0)), .Some(mp0) => t_slot_is_mut_ref(&mp0), .None => false);
           out.push(
             _CallLend(
               place : recv.clone(),
@@ -3850,8 +3850,8 @@ _operator_operand_is_lent :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
     .Some(ci) => match(
       ci.ty,
-      Rc(.Func({ meta : om })) => om.*.param_is_owning,
-      _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, cpof))) => cpof, _ => return(none))
+      Rc(.Func({ result : _ })) => fn_param_by_value_flags(&ci.ty),
+      _ => match(extract_fn_trait_from_type(&ci.ty), .Some(ftt_op) => match(ftt_op, Rc(.FnTraitT(base_name : _)) => fn_param_by_value_flags(&ftt_op), _ => return(none)), .None => return(none))
     ),
     .None => return(none)
   );
@@ -4234,10 +4234,10 @@ _gc_collect_binder_sites :: (
               ri = (ri + usize(1));
             });
           },
-          Rc(.FnTraitT(_, _, fcp, fcr, _, fit, _, _)) => {
+          Rc(.FnTraitT(_, _, fcp, fcr, _, fit)) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
-              match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
+              match(slot_pointee_at(&fcp, fi), .Some(fp) => work.push(fp), .None => ());
               fi = (fi + usize(1));
             });
             work.push(fcr);
@@ -4428,7 +4428,7 @@ _freshen_generic_closure_callee :: (
       (gc_i : usize) = usize(0);
       while((gc_i < gc_pts.len()) && !gc_hit, {
         match(
-          gc_pts.get(gc_i),
+          slot_pointee_at(&gc_pts, gc_i),
           .Some(gc_pt) => match(
             extract_fn_trait_from_type(&gc_pt),
             .Some(_) => {
@@ -4483,7 +4483,7 @@ _func_type_has_closure_param :: (fn(ft : &TypeValue) -> bool)(
       (found : bool) = false;
       while((i < n) && !found, {
         match(
-          param_types.get(i),
+          slot_pointee_at(&param_types, i),
           .Some(pt) => if(is_some_type(pt.clone()), {
             match(
               extract_fn_trait_from_type(&pt),
@@ -4527,9 +4527,9 @@ _funcval_try_synthesize_param :: (
 _fv_fn_trait_with_result :: (fn(ftt : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ftt,
-    Rc(.FnTraitT(bn, cpl, cpt, cr, il, it, cpr, cpo)) => if(
+    Rc(.FnTraitT(bn, cpl, cpt, cr, il, it)) => if(
       is_some_type(&cr) || (get_all_some_types(&cr).len() > usize(0)),
-      rc(TypeValueNode.FnTraitT(bn.clone(), cpl, cpt, result, il, it, cpr, cpo)),
+      rc(TypeValueNode.FnTraitT(bn.clone(), cpl, cpt, result, il, it)),
       ftt
     ),
     _ => ftt
@@ -4578,7 +4578,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           });
           rc(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, rf_pt, new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft, rf_rc))
         },
-        Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _fv_fn_trait_with_result(&info.ty, &body),
+        Rc(.FnTraitT(_, _, _, _, _, _)) => _fv_fn_trait_with_result(&info.ty, &body),
         _ => info.ty
       )
     ),
@@ -4938,7 +4938,7 @@ _fv_refine_closure_expected :: (
           while(sq < info_arg_idx.len(), {
             sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
             s_info := match(infos.get(sq), .Some(i) => i, .None => new_expr_info(env, t_unit()));
-            s_dpt := match(declared_param_types.get(sp), .Some(t) => t, .None => t_unit());
+            s_dpt := match(declared_param_types.get(sp), .Some(t) => t_slot_pointee(&t), .None => t_unit());
             // Function-typed arguments are provisional here (see the
             // composite cross-check); only value arguments inform.
             if(!(is_function_type(&s_info.ty) || is_fn_trait_type(&s_info.ty) || is_some_type(&s_info.ty)), {
@@ -5297,7 +5297,7 @@ _funcval_bind_foralls :: (
             later_info := match(evaled_arg_infos.get(ptn_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             later_ty := _funcval_infer_forall_ty(
               &later_info.ty,
-              match(expected_param_types.get(ptn_i), .Some(t) => t, .None => t_unit()),
+              match(expected_param_types.get(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
               match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
               env
             );
@@ -5319,7 +5319,7 @@ _funcval_bind_foralls :: (
         // `_funcval_infer_forall_ty`'s.
         fa_infer_ty := _funcval_infer_forall_ty(
           &arg_info.ty,
-          match(expected_param_types.get(ptn_i), .Some(t) => t, .None => t_unit()),
+          match(expected_param_types.get(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
           match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
           env
         );
@@ -5354,7 +5354,7 @@ _funcval_bind_foralls :: (
         .Some(fa_prev) => {
           (pp_i : usize) = usize(0);
           while(pp_i < declared_param_types.len(), {
-            pp_decl := match(declared_param_types.get(pp_i), .Some(t) => t, .None => t_unit());
+            pp_decl := match(slot_pointee_at(&declared_param_types, pp_i), .Some(t) => t, .None => t_unit());
             pp_arg := match(evaled_arg_infos.get(pp_i), .Some(i) => i.ty, .None => t_unit());
             pp_found := ArrayList(TypeValue).new();
             _phantom_binder_args(&pp_decl, &pp_arg, fa_name.clone(), &mut pp_found);
@@ -5401,7 +5401,7 @@ _funcval_bind_foralls :: (
           se_seen_lens := ArrayList(String).new();
           (sp_i : usize) = usize(0);
           while(sp_i < n_dp, {
-            dpt := match(declared_param_types.get(sp_i), .Some(t) => t, .None => t_unit());
+            dpt := match(slot_pointee_at(&declared_param_types, sp_i), .Some(t) => t, .None => t_unit());
             sp_info := match(
               evaled_arg_infos.get(sp_i),
               .Some(i) => i,
@@ -5668,7 +5668,7 @@ _funcval_bind_foralls :: (
   if(fa_bound_names.len() > usize(0), {
     (cx_p : usize) = usize(0);
     while(cx_p < declared_param_types.len(), {
-      cx_dpt := match(declared_param_types.get(cx_p), .Some(t) => t, .None => t_unit());
+      cx_dpt := match(slot_pointee_at(&declared_param_types, cx_p), .Some(t) => t, .None => t_unit());
       cx_ptn := match(param_type_names.get(cx_p), .Some(n) => n, .None => String.new());
       cx_i := cx_p;
       cx_p = (cx_p + usize(1));
@@ -5763,10 +5763,10 @@ _rre_binder_ids :: (
               ri = (ri + usize(1));
             });
           },
-          Rc(.FnTraitT(_, _, fcp, fcr, _, fit, _, _)) => {
+          Rc(.FnTraitT(_, _, fcp, fcr, _, fit)) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
-              match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
+              match(slot_pointee_at(&fcp, fi), .Some(fp) => work.push(fp), .None => ());
               fi = (fi + usize(1));
             });
             work.push(fcr);
@@ -5853,10 +5853,10 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
               ri = (ri + usize(1));
             });
           },
-          Rc(.FnTraitT(_, _, fcp, fcr, _, fit, _, _)) => {
+          Rc(.FnTraitT(_, _, fcp, fcr, _, fit)) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
-              match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
+              match(slot_pointee_at(&fcp, fi), .Some(fp) => work.push(fp), .None => ());
               fi = (fi + usize(1));
             });
             work.push(fcr);
@@ -5966,7 +5966,7 @@ _evaluate_funcval_runtime_call :: (
             .Some(_ac_ai) => {
               _ac_aty := match(expr_info_capture_type(&_ac_ai), .Some(_ac_ct) => _ac_ct, .None => _ac_ai.ty);
               match(
-                _ac_pts.get(_ac_i),
+                slot_pointee_at(&_ac_pts, _ac_i),
                 .Some(_ac_pty) => {
                   // A FUNCTION-typed parameter is a callback slot: its forall
                   // vars sit INSIDE the Func (`fn(e : E2) -> T2`) and
@@ -6410,7 +6410,7 @@ _evaluate_funcval_runtime_call :: (
         ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p, _ => no_types());
         (ou_sg_i : usize) = usize(0);
         while(ou_sg_i < ou_sg_pts.len(), {
-          ou_sg_pt := match(ou_sg_pts.get(ou_sg_i), .Some(t) => t, .None => t_unit());
+          ou_sg_pt := match(slot_pointee_at(&ou_sg_pts, ou_sg_i), .Some(t) => t, .None => t_unit());
           if(get_all_some_types(&ou_sg_pt).len() > usize(0), {
             ou_sg_aty := match(evaled_arg_infos.get(ou_sg_i), .Some(ai) => ai.ty, .None => t_unit());
             if(get_all_some_types(&ou_sg_aty).len() > usize(0), {
@@ -7954,7 +7954,7 @@ _evaluate_function_call_unanchored :: (
               ocand := match(op_methods.get(osi), .Some(m) => m, .None => first_m_0);
               ocand_p1 := match(
                 ocand.ty,
-                Rc(.Func({ param_types : ocpt })) => match(ocpt.get(usize(1)), .Some(t) => t, .None => t_unit()),
+                Rc(.Func({ param_types : ocpt })) => match(slot_pointee_at(&ocpt, usize(1)), .Some(t) => t, .None => t_unit()),
                 _ => t_unit()
               );
               if(are_types_compatible(&snd_ty, &ocand_p1), {
@@ -8570,7 +8570,7 @@ Fix: wrap the call:
             try_to_implement_function_by_function_type(expr, &func_type, &callee_env, ctx, exn)
           },
           // FnTraitT (Fn(A, B) -> C as a type) — try closure creation.
-          Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => {
+          Rc(.FnTraitT(_, _, _, _, _, _)) => {
             result_opt := try_to_implement_closure_by_fn_module_type(
               expr,
               &func_type,
@@ -9317,22 +9317,19 @@ Fix: wrap the call:
             pa_new_labels := ArrayList(String).new();
             pa_new_types := ArrayList(TypeValue).new();
             pa_new_ct := ArrayList(bool).new();
-            pa_new_flags := ArrayList(bool).new();
-            pa_new_own := ArrayList(bool).new();
             pa_ptn := ArrayList(String).new();
             pa_body_args := ArrayList(AstExpr).new();
             pa_orig_ct := get_func_param_comptime(func_id_fv.clone());
             (pa_i2 : usize) = usize(0);
             while(pa_i2 < n_a, {
               pa_arg := match(args.get(pa_i2), .Some(a) => a, .None => make_err_expr());
-              pa_pty := match(pa_pt.get(pa_i2), .Some(t) => t, .None => t_unit());
+              pa_pty := match(slot_pointee_at(&pa_pt, pa_i2), .Some(t) => t, .None => t_unit());
               if(ast_expr_is_atom_of(&pa_arg, "_"), {
                 pa_pname := `__pa_${pa_i2}_${pa_id}`;
                 pa_new_labels.push(pa_pname.clone());
-                pa_new_types.push(pa_pty);
+                // A partial application's remaining parameters borrow.
+                pa_new_types.push(t_reference(&pa_pty, false));
                 pa_new_ct.push(match(pa_orig_ct.get(pa_i2), .Some(f) => f, .None => true));
-                pa_new_flags.push(false);
-                pa_new_own.push(false);
                 pa_ptn.push(String.new());
                 pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&pa_pname, &env.module_path.*)));
               }, {
@@ -9371,8 +9368,6 @@ Fix: wrap the call:
                     param_labels : pa_new_labels_s.clone(),
                     implicit_labels : no_labels(),
                     result_is_comptime_only : true,
-                    param_is_ref : shared_list(pa_new_flags),
-                    param_is_owning : shared_list(pa_new_own),
                     result_is_ref : false,
                     has_variadic : false,
                     is_extern : Option(String).None,
@@ -9498,7 +9493,7 @@ Fix: wrap the call:
           Rc(.Func({ param_types : fpts })) => fpts,
           _ => match(
             extract_fn_trait_from_type(&fv_callee_ty),
-            .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _, _, _))) => fv_cpt,
+            .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _))) => fv_cpt,
             _ => no_types()
           )
         );
@@ -9516,7 +9511,7 @@ Fix: wrap the call:
             Rc(.Func({ meta : __fm5 })) => __fm5.*.param_labels,
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _, _, _))) => fv_cpl,
+              .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _))) => fv_cpl,
               _ => no_labels()
             )
           ),
@@ -9526,7 +9521,7 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            Rc(.Func({ meta : __fm6 })) => __fm6.*.param_is_ref,
+            Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&ci.ty),
             // Closure callee: the variable's type is the Fn TRAIT (or a SomeT
             // wrapping it), not a Func — read the trait's `inout` call-param
             // flags so `body(self._value)` inside a specialized method binds
@@ -9534,8 +9529,7 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(Rc(.FnTraitT(_, _, _, _, _, _, fv_cprf, _))) => fv_cprf,
-              .Some(_) => no_flags(),
+              .Some(fv_rft) => match(fv_rft, Rc(.FnTraitT(base_name : _)) => fn_param_mut_ref_flags(&fv_rft), _ => no_flags()),
               .None => no_flags()
             )
           ),
@@ -9556,11 +9550,11 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            Rc(.Func({ meta : __fm7 })) => __fm7.*.param_is_owning,
+            Rc(.Func({ result : _ })) => fn_param_by_value_flags(&ci.ty),
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, fv_cpof))) => fv_cpof,
-              _ => no_flags()
+              .Some(fv_oft) => match(fv_oft, Rc(.FnTraitT(base_name : _)) => fn_param_by_value_flags(&fv_oft), _ => no_flags()),
+              .None => no_flags()
             )
           ),
           .None => no_flags()
@@ -9880,13 +9874,13 @@ Fix: wrap the call:
                 (vs_ci : usize) = usize(0);
                 while((vs_ci < vs_ct_flags.len()) && !vs_has_ct_type, {
                   vs_is_ct := match(vs_ct_flags.get(vs_ci), .Some(b) => b, .None => false);
-                  vs_pt := match(fv_param_types.get(vs_ci), .Some(t) => t, .None => t_unit());
+                  vs_pt := match(slot_pointee_at(&fv_param_types, vs_ci), .Some(t) => t, .None => t_unit());
                   if(vs_is_ct && is_type_hierarchy_type(&vs_pt), {
                     vs_has_ct_type = true;
                   });
                   vs_ci = (vs_ci + usize(1));
                 });
-                vs_decl_pt := match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit());
+                vs_decl_pt := match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit());
                 if(vs_has_ct_type && !extract_fn_trait_from_type(&vs_decl_pt).is_some(), {
                   vs_exprs := get_func_param_type_exprs(func_id_fv.clone());
                   match(
@@ -9947,7 +9941,7 @@ Fix: wrap the call:
             // widening this regressed codegen-bootstrap/closure_where_clause_param
             // twice before.
             if(vs_override.is_none() && (ai < n_p), {
-              lp_decl := match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit());
+              lp_decl := match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit());
               lp_go := (
                 is_function_boundary_arrow(&arg_expr_eff) && is_function_type(&lp_decl)
                 && (get_all_some_types(&lp_decl).len() > usize(0))
@@ -9958,7 +9952,7 @@ Fix: wrap the call:
                 lp_ct_flags := get_func_param_comptime(func_id_fv.clone());
                 (lp_j : usize) = usize(0);
                 while(lp_j < ai, {
-                  lp_dpt := match(fv_param_types.get(lp_j), .Some(t) => t, .None => t_unit());
+                  lp_dpt := match(slot_pointee_at(&fv_param_types, lp_j), .Some(t) => t, .None => t_unit());
                   match(
                     evaled_arg_infos.get(lp_j),
                     .Some(lp_info) => {
@@ -10053,11 +10047,11 @@ Fix: wrap the call:
               .None => match(
                 cond(
                   (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types.items, &forall_names)) => match(
-                    resolved_param_types.get(ai),
+                    slot_pointee_at(&resolved_param_types, ai),
                     .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(&r_apt, &forall_names, &param_type_names, &fv_param_types.items, &evaled_arg_infos, &fv_eai_idx, &fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
                     .None => Option(TypeValue).None
                   ),
-                  true => resolved_param_types.get(ai)
+                  true => slot_pointee_at(&resolved_param_types, ai)
                 ),
                 .Some(apt) => cond(
                   // Skip Type params (constructor args) AND unresolved
@@ -10099,7 +10093,7 @@ Fix: wrap the call:
               call_promote_index_places_for_write(&evaled_arg, &arg_eval_env, ctx, exn);
               // Decision 46 (E0919): an `Rc`'s payload is read-only through
               // the handle.
-              reject_write_through_rc(&evaled_arg, if(match(fv_param_labels.get(ai), .Some(l) => (l == "self"), .None => false), "mut-recv", "mut-arg"), resolved_param_types.get(ai), ctx, exn);
+              reject_write_through_rc(&evaled_arg, if(match(fv_param_labels.get(ai), .Some(l) => (l == "self"), .None => false), "mut-recv", "mut-arg"), slot_pointee_at(&resolved_param_types, ai), ctx, exn);
             });
             arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
             arg_info := match(
@@ -10149,7 +10143,7 @@ Fix: wrap the call:
             fv_p_sink := match(fv_param_is_sink.get(ai), .Some(o) => o, .None => false);
             fv_p_is_ct := (
               match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
-              || match(resolved_param_types.get(ai), .Some(apt2) => is_type_hierarchy_type(&apt2), .None => false)
+              || match(slot_pointee_at(&resolved_param_types, ai), .Some(apt2) => is_type_hierarchy_type(&apt2), .None => false)
             );
             fv_p_is_ref := match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false);
             // D3: an `inout` argument rooted in an atomic object — recorded
@@ -10179,7 +10173,7 @@ Fix: wrap the call:
                   _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),
                   &arg_expr_eff,
                   match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new()),
-                  match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit()),
+                  match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit()),
                   fv_p_is_ref,
                   fv_p_owning,
                   fv_p_is_ct,
@@ -10192,7 +10186,7 @@ Fix: wrap the call:
               // parameter, before the move and decision 38's escape check.
               if(!fv_p_is_ct, {
                 reject_bare_callable_into_dyn_fn(
-                  match(resolved_param_types.get(ai), .Some(t) => t, .None => t_unit()),
+                  match(slot_pointee_at(&resolved_param_types, ai), .Some(t) => t, .None => t_unit()),
                   &arg_info.ty,
                   _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),
                   `the argument for parameter "${match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new())}"`,
@@ -10209,7 +10203,7 @@ Fix: wrap the call:
               // the `fn(...)` type.
               fv_arg_ty_as_written := arg_info.ty;
               match(
-                _fv_closure_argument_owned_type(&arg_info, match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit()), fv_p_owning && !fv_p_is_ct && !fv_p_is_ref),
+                _fv_closure_argument_owned_type(&arg_info, match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit()), fv_p_owning && !fv_p_is_ct && !fv_p_is_ref),
                 .Some(fv_cap_ty) => {
                   arg_info.ty = fv_cap_ty;
                   fv_closure_moved_args.push(ai);
@@ -10232,7 +10226,7 @@ Fix: wrap the call:
                   fv_p_sink,
                   _param_accepts_second_class(
                     expr,
-                    match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit()),
+                    match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit()),
                     match(fv_callee_ty, Rc(.Func({ result : fv_res_sc })) => fv_res_sc, _ => t_unit()),
                     match(fv_callee_ty, Rc(.Func({ forall_types : fv_ft_sc })) => (fv_ft_sc.len() > usize(0)), _ => false),
                     ctx
@@ -10325,7 +10319,7 @@ Fix: wrap the call:
                 // Same expected-type policy as the supplied-arg loop above.
                 def_saved_expected := ctx.expected_type;
                 ctx.expected_type = match(
-                  resolved_param_types.get(dpi),
+                  slot_pointee_at(&resolved_param_types, dpi),
                   .Some(apt) => cond(
                     is_type_hierarchy_type(&apt) => Option(ExpectedTypeCtx).None,
                     is_some_type(&apt) => match(
@@ -10619,7 +10613,7 @@ Fix: wrap the call:
           if(pi < n_supplied_reg, {
             arg_info = match(evaled_arg_infos.get(pi), .Some(i) => i, .None => new_expr_info(env, t_unit()));
           }, {
-            p_ty := match(fv_param_types.get(pi), .Some(t) => t, .None => t_unit());
+            p_ty := match(slot_pointee_at(&fv_param_types, pi), .Some(t) => t, .None => t_unit());
             arg_info = new_expr_info(env, &p_ty);
             (omitted_val : EvalValue) = create_unknown_val(&p_ty);
             match(
@@ -10651,7 +10645,7 @@ Fix: wrap the call:
           // touching comptime type-parameter args (e.g.
           // a `(fn(comptime(T):Type)->…)(Option(*(T)))`-style alias), which must keep
           // their `Type` value so `*(T)` resolves.
-          bind_decl_pt := match(fv_param_types.get(pi), .Some(t) => t, .None => t_unit());
+          bind_decl_pt := match(slot_pointee_at(&fv_param_types, pi), .Some(t) => t, .None => t_unit());
           // Resolve a generic-`SomeT` declared param type to its concrete binding
           // BY NAME via fa_bound_names/types (built in the inference loop just
           // above — e.g. `T`→`str`). A frame-keyed env lookup misses here because
@@ -11762,7 +11756,7 @@ Fix: wrap the call:
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
                 match(args.get(usize(0)), .Some(a0) => uc_head.push(a0), .None => ());
-                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts.items, &uc_fm.*.param_is_ref.items, &uc_fm.*.param_is_owning.items, &uc_fm.*.param_labels.items, false, exn);
+                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts.items, &fn_param_mut_ref_flags(&method_info.method_ty).items, &fn_param_by_value_flags(&method_info.method_ty).items, &uc_fm.*.param_labels.items, false, exn);
                 uc_out := ArrayList(AstExpr).new();
                 (uci : usize) = usize(0);
                 while(uci < args.len(), {

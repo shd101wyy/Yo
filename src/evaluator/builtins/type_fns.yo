@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
   create_type_value,
   type_of_eval_value
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, no_label_lists, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, no_label_lists, SharedList, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_type, t_comptime_string, t_comptime_int, t_comptime_float, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { is_some_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { is_type_hierarchy_type, is_trait_type } :: import("../../types/guards.yo");
@@ -957,7 +957,7 @@ _ti_bind_function_info :: (
     n := param_types.len();
     while(i < n, {
       lbl := match(param_labels.get(i), .Some(l) => l, .None => String.new());
-      pty := match(param_types.get(i), .Some(t) => t, .None => t_unit());
+      pty := match(param_types.get(i), .Some(t) => t_slot_pointee(&t), .None => t_unit());
       param_vals.push(_ti_build_param_info(env_ptr, &lbl, &pty, false, false, ctx, exn));
       i = (i + usize(1));
     });
@@ -1308,7 +1308,7 @@ evaluate_yo_type_get_info :: (
         tc
       }
     },
-    Rc(.FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _, _)) => {
+    Rc(.FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes)) => {
       fni_name := _ti_bind_function_info(
         &local_env,
         &ft_plabels.items,

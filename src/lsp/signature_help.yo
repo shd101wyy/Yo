@@ -11,7 +11,7 @@ import("std/error");
 { Token, TokenKind } :: import("../token.yo");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_text } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
-{ TypeValue, TypeValueNode } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_reference, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("../types/definitions.yo");
 { type_to_string, format_param_with_mode } :: import("../types/string.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, jnum } :: import("./protocol.yo");
@@ -167,12 +167,14 @@ handle_signature_help :: (
       params := ArrayList(JsonValue).new();
       (pi : usize) = usize(0);
       while(pi < param_types.len(), {
-        pt := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        sh_unit := rc(TypeValueNode.Unit);
+        p_slot := match(param_types.get(pi), .Some(t) => t, .None => t_reference(&sh_unit, false));
+        pt := t_slot_pointee(&p_slot);
         plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
         // Spelled as the signature label spells it (decision 42), so the
         // client finds the parameter inside the signature.
-        p_ref := match(meta.*.param_is_ref.get(pi), .Some(b) => b, .None => false);
-        p_own := match(meta.*.param_is_owning.get(pi), .Some(b) => b, .None => false);
+        p_ref := t_slot_is_mut_ref(&p_slot);
+        p_own := t_slot_is_by_value(&p_slot);
         params.push(
           jb().put("label", jstr(format_param_with_mode(&plabel, type_to_string(&pt), p_ref, p_own))).obj()
         );

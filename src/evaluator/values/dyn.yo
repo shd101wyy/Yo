@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode, no_types, no_levels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
@@ -87,7 +87,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
     box_fv,
     .None => Option(TypeValue).None,
     .Some(bfv) => {
-      param0_ty := match(box_ft, Rc(.Func({ param_types : pts })) => match(pts.get(usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
+      param0_ty := match(box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts, usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
       param0_label := match(box_ft, Rc(.Func({ meta : bm })) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = env;
       _cfr := cenv.push_frame(false);
@@ -422,7 +422,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
           while(j < fts.len(), {
             ft := match(fts.get(j), .Some(f) => f, .None => rc(TypeValueNode.Unit));
             if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
-              owned := match(ft, Rc(.Func({ meta : m })) => match(m.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => false), _ => false);
+              owned := match(ft, Rc(.Func({ result : _ })) => match(fn_param_by_value_at(&ft, usize(0)), .Some(o) => o, .None => false), _ => false);
               if(owned, {
                 label := match(fls.get(j), .Some(l) => l, .None => String.from("?"));
                 return(Option(String).Some(`${tn}.${label}`));
@@ -889,7 +889,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
             // C wrapper for the synthetic `call` slot resolves the closure fn
             // via the impl_closure_call_map (capture-struct id → closure C
             // name).
-            Rc(.FnTraitT(fn_base, _, _, _, _, _, _, _)) => {
+            Rc(.FnTraitT(fn_base, _, _, _, _, _)) => {
               trait_vals.push(
                 EvalValue.TraitVal(
                   fn_base.clone(),

@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 // `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
 // push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
 // direct call as env.yo / std/string/string.yo).
-{ TypeValue, TypeValueNode, no_types } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, slot_pointee_at } :: import("./types/definitions.yo");
 { type_intern_probe_record, type_intern_probe_report } :: import("./types/intern.yo");
 { get_all_some_types, type_is_control_bound } :: import("./types/utils.yo");
 { is_some_type, is_function_type } :: import("./types/guards.yo");
@@ -1176,7 +1176,7 @@ _scope_type_installs :: (fn(t : &TypeValue) -> bool)(
       });
       (i : usize) = usize(0);
       while(i < pts.len(), {
-        pt := pts.get(i).unwrap();
+        pt := slot_pointee_at(&pts, i).unwrap();
         if(is_function_type(&pt) || type_is_control_bound(&pt), {
           return(true);
         });
