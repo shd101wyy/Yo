@@ -81,12 +81,14 @@ assert(copied == i32(42), "inner value is 42");
 
 ### 复制
 
-复制 `Arc` 会递增引用计数，并继续共享同一份底层值：
+`Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出
+（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决定 17）：源值之后仍被使用的隐式拷贝是 E0901，句柄的最后一次
+使用会移动它。`yo fix <path> --migrate rc-clone` 为已有代码写出这些克隆。
 
 ```yo
 a := arc(i32(42));
-b := a;
-c := b;
+b := Arc.clone(a);
+c := Arc.clone(b);
 
 assert(a.* == b.*, "same shared value");
 assert(b.* == c.*, "same shared value");
@@ -99,7 +101,7 @@ assert(b.* == c.*, "same shared value");
 
 shared := arc(i32(42));
 
-t := Thread(unit).spawn(io => {
+t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
   assert(shared.* == i32(42), "thread sees shared value");
 });
 
@@ -116,7 +118,7 @@ assert(shared.* == i32(42), "main still sees shared value");
 
 ```yo
 a := arc(i32(1));
-b := a;
+b := Arc.clone(a);
 Arc.make_mut(&mut b) = i32(2); // b 得到自己的单元
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ```
@@ -132,10 +134,11 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ## 语义
 
 - **原子引用计数**：`Arc` 使用原子递增/递减操作。
-- **共享所有权**：复制 `Arc` 不会复制底层分配，只会共享它。
+- **共享所有权**：`Arc.clone(a)` 共享底层分配；源值之后仍被使用的句柄隐式拷贝是 E0901。
 - **借用解引用**：`.*` 提供对内部值的借用访问。
 - **销毁行为**：最后一个引用被释放时，会先 drop 内部值，再释放分配。
-- **闭包捕获**：闭包捕获 `Arc` 时会复制这份共享引用。
+- **闭包捕获**：捕获 `Arc` 的闭包会把句柄移动进去；调用方之后仍要读取时，闭包在捕获列表里取得自己的句柄：
+  `{ a : Arc.clone(a) }(...) => ...`。
 
 ## 环
 
@@ -147,7 +150,7 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 
 a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
-b := a;
+b := Arc.clone(a);
 a.with_lock(v => {
   v.peer = .Some(b); // a -> mutex -> node -> a：这个单元永远不会被释放
 });

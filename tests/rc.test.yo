@@ -48,6 +48,7 @@ _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), 
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
+derive(Wrapper, Clone);
 test("Test 'ref_count' function", {
   // Value type
   {
@@ -1747,6 +1748,8 @@ test("a borrowed value is changed through an owned copy", {
 // a value-with-RC pair ("both copies need their own drop"), unlike the
 // reference-type alias above that legitimately shares one count.
 _CowLike :: struct(b : Rc(i32), n : i32);
+// Decision 17: a value holding an `Rc` is copied explicitly, by its `Clone`.
+derive(_CowLike, Clone);
 _cow_task :: (fn(w : &_CowLike, io : Io) -> Impl(Future(usize, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
@@ -3952,4 +3955,85 @@ test("Weak.upgrade over a recursive payload reads the cell", {
   w := Rc.downgrade(&a);
   t := match(w.upgrade(), .Some(p) => p.with(v => v.tag), .None => i32(0));
   assert(t == i32(9), "the upgraded handle reads the payload");
+});
+// ---------------------------------------------------------------------------
+// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc` needs
+// `.clone()`. A second handle is a new owner, spelled `Rc.clone(h)`; a
+// handle's last use moves it.
+// ---------------------------------------------------------------------------
+_V2cNode :: struct(label : Rc(i32), weight : i32);
+derive(_V2cNode, Clone);
+_V2cBare :: struct(h : Rc(i32));
+_v2c_keep :: (fn(h : &Rc(i32)) -> Rc(i32))(Rc.clone(h));
+_v2c_peek :: (fn(h : &Rc(i32)) -> i32)(h.*);
+_v2c_take :: (fn(h : Rc(i32)) -> i32)(h.*);
+_v2c_first :: (fn(xs : &ArrayList(Rc(i32))) -> Rc(i32))(match(xs.get(usize(0)), .Some(h) => h, .None => rc(i32(0))));
+_v2c_some :: (fn() -> Option(Rc(i32)))(.Some(rc(i32(5))));
+test("Rc.clone is a second handle to the same cell, whatever the payload", {
+  a := rc(i32(1));
+  b := Rc.clone(a);
+  assert(ref_count(a) == usize(2), "two handles");
+  assert(b.* == a.*, "one value");
+  c := rc(_V2cBare(h : rc(i32(2))));
+  d := Rc.clone(c);
+  assert(ref_count(c) == usize(2), "a payload that is not Clone shares its cell too");
+  assert(d.h.* == i32(2), "through the second handle");
+  assert(ref_count(_v2c_keep(&a)) == usize(3), "a clone of a borrowed handle");
+  assert(ref_count(a) == usize(2), "the temporary clone is released");
+});
+test("a handle's last use moves it, and a copy whose source is used again is E0901", {
+  a := rc(i32(1));
+  assert(_v2c_peek(&a) == i32(1), "a `&Rc(T)` parameter borrows the handle");
+  assert(_v2c_take(Rc.clone(a)) == i32(1), "a clone into a by-value parameter");
+  b := a;
+  assert(ref_count(b) == usize(1), "the last use moved the handle: no second count");
+  comptime_expect_error(a.*, "use of moved value");
+  c := rc(i32(2));
+  comptime_expect_error({
+    d := c;
+    c.* + d.*
+  }, "Rc.clone(c)");
+});
+test("a handle copied out of a borrow, a field or a module-level binding is E0901", {
+  comptime_expect_error((fn(h : &Rc(i32)) -> Rc(i32))(h), "is a counted handle, copied only explicitly");
+  comptime_expect_error((fn(n : &_V2cNode) -> Rc(i32))(n.label), "Rc.clone(...)");
+  n := _V2cNode(label : rc(i32(3)), weight : i32(1));
+  l := Rc.clone(n.label);
+  assert(ref_count(l) == usize(2), "a field's handle, cloned");
+});
+test("a value holding a handle copies with .clone(), which clones each handle", {
+  n := _V2cNode(label : rc(i32(3)), weight : i32(1));
+  m := n.clone();
+  assert(ref_count(n.label) == usize(2), "the derived clone took a second handle");
+  assert(m.weight == n.weight, "the plain field is copied");
+  comptime_expect_error({
+    k := n;
+    k.weight + n.weight
+  }, "n.clone()");
+  o := Option(Rc(i32)).Some(rc(i32(4)));
+  o2 := o.clone();
+  assert(o.is_some() && o2.is_some(), "an Option(Rc(T)) clones its handle");
+  bare := _V2cBare(h : rc(i32(5)));
+  comptime_expect_error({
+    bare2 := bare;
+    bare.h.* + bare2.h.*
+  }, "derive(_V2cBare, Clone)");
+});
+test("a closure takes a second handle in its capture list", {
+  a := rc(i32(6));
+  (f : Impl(Fn() -> i32)) = ({ a : Rc.clone(a) }() => a.*);
+  assert(f() == a.*, "the closure and the caller each hold a handle");
+  assert(ref_count(a) == usize(2), "the capture is a second handle");
+  (g : Impl(Fn() -> i32)) = (() => a.*);
+  assert(g() == i32(6), "an implicit capture moves the handle in");
+  comptime_expect_error(a.*, "use of moved value");
+});
+test("a generic body copies a handle that is its T implicitly", {
+  xs := ArrayList(Rc(i32)).new();
+  xs.push(rc(i32(7)));
+  h := _v2c_first(&xs);
+  assert(h.* == i32(7), "ArrayList(Rc(T)).get copies through T");
+  assert(ref_count(h) == usize(2), "the list and the caller each hold a handle");
+  o := match(_v2c_some(), .Some(v) => v, .None => rc(i32(0)));
+  assert(ref_count(o) == usize(1), "a match binding of a temporary moves");
 });

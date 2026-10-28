@@ -328,3 +328,16 @@ test("an ArcWeak parent pointer in a recursive payload upgrades on another threa
   t.join();
   assert(root.parent.upgrade().is_none(), "the root has no parent");
 });
+// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Arc` needs
+// `.clone()`, as in Rust.
+test("Arc.clone is a second handle, and an implicit copy whose source is used again is E0901", {
+  a := arc(i32(8));
+  b := Arc.clone(a);
+  assert(ref_count(a) == usize(2), "two handles to one cell");
+  comptime_expect_error({
+    c := a;
+    a.* + c.*
+  }, "Arc.clone(a)");
+  d := b;
+  assert(ref_count(d) == usize(2), "the last use moved b: still two handles");
+});

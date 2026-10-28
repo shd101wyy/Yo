@@ -328,6 +328,27 @@ some of the body's copies may be left unmigrated, so review it by hand.
 
 A clone the move checker later finds redundant is for decision 27's lint.
 
+`yo fix <path> --migrate rc-clone` spells decision 17's counted-handle copies.
+Copying an `Rc` or `Arc` needs `.clone()`, as in Rust: a second handle is a new
+owner, so an implicit copy of a handle, or of a value holding one, whose source
+is used again is E0901, and a handle's last use moves it. The migration
+evaluates each file with that rule suspended and writes the copies it would
+reject: `Rc.clone(h)` / `Arc.clone(h)` for a handle (through the type, so a
+payload's own `clone` never answers, decision 32), `e.clone()` for a value
+holding one, `{ h : Rc.clone(h) }` for a capture list's shorthand entry. A
+closure that captures a handle implicitly while its source is read again gets
+a capture list naming every value it captures, the handle as
+`h : Rc.clone(h)` (a capture list is exhaustive). `Rc.clone` is the count bump
+the implicit copy made, so none of the sharing guards above apply. Left as
+written and listed: a value holding a handle whose type is not `Clone` (give
+it `derive(T, Clone)`), a copy in a generic body (where the copied value may
+be a type parameter), a position copied at two
+spellings, a site whose source text does not print as the evaluated
+expression, a closure whose parameter list is not found, and a `test(...)`
+body that does not evaluate. A copy inside a generic body where the handle is
+a type parameter (`ArrayList(Rc(T)).get(i)` copies a `T`) is not judged by the
+rule.
+
 ## Warnings
 
 `check`, `compile` and `build` also carry warning-severity diagnostics for
