@@ -181,14 +181,16 @@ Progress:
     outside src/std, `YO_AUDIT_MUT_BINDINGS` and
     `yo fix --migrate mut-bindings`, with the tests/ sweep (§6
     "Decision 47" step 2's "as built").
+  - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
+    --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
+    with it (V2c's "As built").
 - **In progress:**
-  - V3's remaining async work (§3.13): A6's `Rc`-field half (V2c). A4's
-    std half (`timeout`/`select` over futures) landed 2026-10-20, see A4's
-    "As built".
+  - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
+    over futures) landed 2026-10-20, see A4's "As built".
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
-  (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
+  (§6, after V2b), decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -8679,6 +8681,39 @@ heavy run, the command is given in item 2.
         because a bundle cannot hold owned state;
       - lending the bundle (`e : &E`), because there is no borrowed state
         to lend, and `&` would mark every effect parameter again.
+- **As built (2026-10-28, one PR, branch `vbd/v2c-rc-clone`).**
+  - **The rule** is E0901 for an implicit copy of a value holding a counted
+    handle whose source is used again (`type_holds_counted_handle`,
+    `src/types/utils.yo`), with the moves, borrows and capture lists of
+    decisions 26, 30, 33 and 35 unchanged. The repair the diagnostic names
+    is `Rc.clone(h)` / `Arc.clone(h)`, `.clone()` for an aggregate, or a
+    capture-list entry.
+  - **`yo fix <path> --migrate rc-clone`** suspends the rule and records
+    every copy it would reject. It spells `Rc.clone`/`Arc.clone`/`.clone()`,
+    capture-list entries, decision 33's call-site markers a capture list
+    makes necessary, and `&`/`&mut` before a `match` scrutinee the rule
+    would consume. A module-level scrutinee, or one an arm writes, is cloned
+    instead (a borrow of it cannot be live across the arm's calls or
+    writes). The migration is two-phase: a `&x` scrutinee is decided at the
+    block epilogue, after its arm bindings' copies were judged as moves, so
+    a second pass spells the copies of the now-borrowing bindings. The sweep
+    runs passes until one inserts nothing (three for `src/`).
+  - **The sweep:** `std/` 3 clones (`std/http`); `src/` 2,452 clones, 2
+    capture lists, 652 `&` scrutinees and 2 call-site markers in 177
+    files, 0 sites listed and no hand edit; `tests/`: TESTS_SWEEP_NUMBERS.
+  - **std's generic bodies stay exempt** (`set_counted_handle_std_generic`,
+    the knob `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges them). Measured on
+    the swept tree: `std/` is clean, and `check ./src` fails 238 of 276
+    files, every one at `HashMap.get` or `ArrayList.get` instantiated at a
+    handle element (the readers copy their element through `T`). The
+    exemption goes once `src/` reads handle elements through B6's
+    accessors (`get_cloned`, `xs(i)` in place, `with`). User generic bodies
+    are judged at each instantiation.
+  - **Bugs the sweep found,** both pre-existing and fixed in the PR: a value
+    reassigned in every arm after a move stayed moved where the arms meet
+    (`issues/fixed/2026-10-27-a-value-reassigned-in-every-arm-after-a-move-is-still-moved.md`),
+    and a move inside a unary operator's operand was a use after move
+    (`!match(o, …)`; `issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md`).
 
 **After V2b: the allocator interface, version 2** (queued by the maintainer
 2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
