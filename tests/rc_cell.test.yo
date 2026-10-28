@@ -55,7 +55,7 @@ test("ref_count reads an Rc's count", {
   a := rc(i32(5));
   assert(ref_count(a) == usize(1), "a fresh cell has one owner");
   {
-    a2 := a;
+    a2 := Rc.clone(a);
     {
       a3 := a2;
       assert(ref_count(a) == usize(2), "a copy in an inner scope shares the cell");

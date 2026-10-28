@@ -44,7 +44,7 @@ test("Test JoinHandle state while suspended", {
 // ---------------------------------------------------------------------------
 test("Test JoinHandle abort returns None", {
   ran := rc(RefCell(bool).new(false));
-  fut := io.async((io : Io) => {
+  fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.with_mut(cur => {
       cur = true;
@@ -65,7 +65,7 @@ test("Test JoinHandle abort returns None", {
 // ---------------------------------------------------------------------------
 test("Test aborted task pending completion is safe", {
   ran2 := rc(RefCell(bool).new(false));
-  fut := io.async((io : Io) => {
+  fut := io.async({ ran2 : Rc.clone(ran2) }(io : Io) => {
     io.await(sleep(u64(10)), io);
     ran2.with_mut(cur => {
       cur = true;
@@ -167,7 +167,7 @@ test("abort of a directly spawned raw IoFuture stays Aborted after the operation
 });
 test("aborting a task aborts the named child future it awaits", {
   ran := rc(RefCell(bool).new(false));
-  child := io.async((io : Io) => {
+  child := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.with_mut(cur => {
       cur = true;
@@ -187,7 +187,7 @@ test("aborting a task aborts the named child future it awaits", {
 });
 test("aborting a task leaves a task it joins running", {
   ran := rc(RefCell(bool).new(false));
-  shared := io.async((io : Io) => {
+  shared := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(20)), io);
     ran.with_mut(cur => {
       cur = true;
@@ -308,7 +308,7 @@ test("a dropped handle detaches its task, which runs to the end", {
   ran := rc(RefCell(bool).new(false));
   {
     _h := io.spawn(
-      io.async((io : Io) => {
+      io.async({ ran : Rc.clone(ran) }(io : Io) => {
         io.await(sleep(u64(10)), io);
         ran.with_mut(cur => {
           cur = true;
