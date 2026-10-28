@@ -38,7 +38,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
   // Extract child type from ComptimeListT(child).
   expected_element_type := match(
     comptime_list_type,
-    Rc(.ComptimeListT(child)) => child,
+    Rc(.ComptimeListT(child)) => Rc.clone(child),
     _ => rc(TypeValueNode.Unit)
   );
   (env : Environment) = caller_env;
@@ -50,7 +50,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     saved_expected := ctx.expected_type;
     ctx.expected_type = Option(ExpectedTypeCtx).Some(
       ExpectedTypeCtx(
-        ty : expected_element_type,
+        ty : Rc.clone(expected_element_type),
         env : env
       )
     );

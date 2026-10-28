@@ -154,7 +154,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
 /// The `begin` block generation.
 generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
-  value_type := ei.ty;
+  value_type := Rc.clone(ei.ty);
   em := context.base.emitter;
   indent2 := indent.clone();
   indent2.push_str("  ");

@@ -38,7 +38,7 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
   variant_names.push(String.from("Some"));
   none_fields := ArrayList(TypeValue).new();
   some_fields := ArrayList(TypeValue).new();
-  some_fields.push(inner_type);
+  some_fields.push(Rc.clone(inner_type));
   variant_fields := ArrayList(SharedList(TypeValue)).new();
   variant_fields.push(shared_list(none_fields));
   variant_fields.push(shared_list(some_fields));
@@ -313,7 +313,7 @@ evaluate_yo_dup_array_element :: (
   info0 := _eval_arg("evaluate_yo_dup_array_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_dup_array_element", expr, &info0.env, ctx, usize(1), exn);
   info1;
-  array_type := info0.ty;
+  array_type := Rc.clone(info0.ty);
   if(!is_array_type(&array_type), {
     tok := match(
       expr,
@@ -329,7 +329,7 @@ evaluate_yo_dup_array_element :: (
       )
     );
   });
-  element_type := match(array_type, Rc(.Array(child_box, _, _)) => child_box, _ => t_unit());
+  element_type := match(array_type, Rc(.Array(child_box, _, _)) => Rc.clone(child_box), _ => t_unit());
   out := new_expr_info(&info0.env, &element_type);
   out.value = .None;
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -345,7 +345,7 @@ evaluate_yo_dup_tuple_element :: (
 )({
   info0 := _eval_arg("evaluate_yo_dup_tuple_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_dup_tuple_element", expr, &info0.env, ctx, usize(1), exn);
-  tuple_type := info0.ty;
+  tuple_type := Rc.clone(info0.ty);
   if(!is_tuple_type(&tuple_type), {
     tok := match(
       expr,
@@ -368,7 +368,7 @@ evaluate_yo_dup_tuple_element :: (
   );
   index_i64 := match(index_raw.parse_i64(), .Some(v) => v, .None => i64(0));
   index_usize := usize(index_i64);
-  field_types := match(tuple_type, Rc(.Tuple(_, fts)) => fts, _ => no_types());
+  field_types := match(tuple_type, Rc(.Tuple(_, fts)) => Rc.clone(fts), _ => no_types());
   element_type := match(
     field_types.get(index_usize),
     .Some(ft) => ft,

@@ -182,8 +182,8 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
 /// capture struct. Resolves each fn field from SM captures, caller evidence
 /// params, or `given` bindings.
 emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_type : &TypeValue, future_var : &String, indent : &String, context : &FunctionGenerationContext, expr : &AstExpr) -> unit)({
-  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
-  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
+  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
+  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
     flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
@@ -258,7 +258,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
 emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
-  future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return());
+  future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return());
   ft := match(extract_future_trait_from_type(&future_arg_type), .Some(t) => t, .None => return());
   effect := match(_first_future_effect(&ft), .Some(e) => e, .None => return());
   bundle_arg := match(args.get(usize(1)), .Some(a) => a, .None => return());
@@ -272,11 +272,11 @@ emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, ind
   cast_type := match(
     context.base.get_expr_info(&bundle_arg),
     .Some(ei) => cond(
-      (is_module_type(&ei.ty) || is_struct_type(&ei.ty)) => ei.ty,
-      (is_module_type(&effect.ty) || is_struct_type(&effect.ty)) => effect.ty,
-      true => ei.ty
+      (is_module_type(&ei.ty) || is_struct_type(&ei.ty)) => Rc.clone(ei.ty),
+      (is_module_type(&effect.ty) || is_struct_type(&effect.ty)) => Rc.clone(effect.ty),
+      true => Rc.clone(ei.ty)
     ),
-    .None => effect.ty
+    .None => Rc.clone(effect.ty)
   );
   bundle_type := get_type_string(&cast_type, &context.base);
   tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
@@ -294,7 +294,7 @@ emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, ind
 emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
-  future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return());
+  future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return());
   ft := match(extract_future_trait_from_type(&future_arg_type), .Some(t) => t, .None => return());
   effect := match(_first_future_effect(&ft), .Some(e) => e, .None => return());
   em := context.base.emitter;
@@ -318,8 +318,8 @@ emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, in
         // arg's type is not a concrete struct/module.
         bundle_cast_ty := match(
           context.base.get_expr_info(&bundle_arg),
-          .Some(bae) => if(is_module_type(&bae.ty) || is_struct_type(&bae.ty), bae.ty, effect.ty),
-          .None => effect.ty
+          .Some(bae) => if(is_module_type(&bae.ty) || is_struct_type(&bae.ty), Rc.clone(bae.ty), Rc.clone(effect.ty)),
+          .None => Rc.clone(effect.ty)
         );
         bundle_type := get_type_string(&bundle_cast_ty, &context.base);
         tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
@@ -351,7 +351,7 @@ emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, in
 generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
-  future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
+  future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
   if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("await argument must be a Future type")));
   });
@@ -368,7 +368,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     return(codegen_fatal_expr(String.from("await should only be used inside async blocks")));
   });
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("await missing ExprInfo"))));
-  expr_type := expr_ei.ty;
+  expr_type := Rc.clone(expr_ei.ty);
   future_code := _call_generate_expr(&future_arg, indent.clone(), context);
   future_type_name := get_type_string(&future_type, &context.base);
   // Result type (resolve SomeType to concrete): read the await
@@ -382,19 +382,19 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // then the legacy sid globals, are fallbacks only.
   // (The poisoned-global order emitted `int32_t r0 = ;` — the await returned
   // "" as unit while the binding knew i32.)
-  (result_type : TypeValue) = match(future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => Rc.clone(future_type));
   if(is_some_type(&result_type), {
-    own_cell := match(result_type, Rc(.SomeT({ resolution : orc })) => orc, _ => Option(TypeValue).None);
+    own_cell := match(&result_type, Rc(.SomeT({ resolution : orc })) => orc.clone(), _ => Option(TypeValue).None);
     cond(
       !is_some_type(&expr_type) => {
-        result_type = expr_type;
+        result_type = Rc.clone(expr_type);
       },
       true => {
-        expr_cell := match(expr_type, Rc(.SomeT({ resolution : erc })) => erc, _ => Option(TypeValue).None);
+        expr_cell := match(&expr_type, Rc(.SomeT({ resolution : erc })) => erc.clone(), _ => Option(TypeValue).None);
         match(
           match(
             expr_cell,
-            .Some(ec) => Option(TypeValue).Some(ec),
+            .Some(ec) => Option(TypeValue).Some(Rc.clone(ec)),
             .None => own_cell
           ),
           .Some(rt) => {
@@ -421,12 +421,12 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
           Rc(.SomeT({ resolution : res_out_cell })) => match(
             res_out_cell,
             .Some(final_out) => {
-              result_type = final_out;
+              result_type = Rc.clone(final_out);
             },
             .None => ()
           ),
           _ => {
-            result_type = res_out;
+            result_type = Rc.clone(res_out);
           }
         ),
         _ => ()
@@ -504,7 +504,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     );
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
     context.pending_deferred_drops = saved_drops;
-    return_type := match(context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(r), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(Rc.clone(r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
     // Caught here only when the handler that unwound was installed in THIS
     // function, so the value has this function's return type. Deciding by the
     // effect bundle (a bundle built here counted as an installation) let a
@@ -518,7 +518,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         em.emit_string_line(`${indent.clone()}      __yo_unwind_target = 0;`);
         em.emit_string_line(`${indent.clone()}      __yo_effect_escaped = 0;`);
         match(
-          return_type,
+          &return_type,
           .Some(rt) => if(!is_unit_type(&rt), {
             caller_c_type := get_type_string(&rt, &context.base);
             if(caller_c_type != "void", {
@@ -582,7 +582,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
 generate_state :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
-  future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
+  future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
   if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("io.state argument must be a Future type")));
   });
@@ -658,16 +658,16 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   handle_is_value := match(context.base.get_expr_info(&handle_arg), .Some(hei) => join_handle_is_value_struct(&hei.ty), .None => false);
   jh_member := if(handle_is_value, String.from(".__future"), String.from("->__future"));
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("JoinHandle.await missing ExprInfo"))));
-  option_type := expr_ei.ty;
+  option_type := Rc.clone(expr_ei.ty);
   if(!is_enum_type(&option_type), {
     return(codegen_fatal_expr(String.from("JoinHandle.await return type must be Option(T)")));
   });
   option_type_name := get_type_string(&option_type, &context.base);
   // Extract T from Option(T): the .Some variant's first field type.
   result_type_opt := _option_some_field_type(&option_type);
-  is_result_unit := match(result_type_opt, .Some(t) => is_unit_type(&t), .None => true);
+  is_result_unit := match(&result_type_opt, .Some(t) => is_unit_type(&t), .None => true);
   result_type_name := match(
-    result_type_opt,
+    &result_type_opt,
     .Some(t) => if(is_unit_type(&t), String.from("uint8_t"), get_type_string(&t, &context.base)),
     .None => String.from("uint8_t")
   );
@@ -703,7 +703,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   if(is_result_unit, {
     em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
-    rt := match(result_type_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    rt := match(result_type_opt, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit));
     if(handle_is_value && type_contains_rc_cell_or_move_only(&rt), {
       // A value handle is consumed (§3.13 A3): the result moves out of the
       // task, which no longer drops it (`-3`, result taken; the same

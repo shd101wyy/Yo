@@ -807,7 +807,7 @@ _evaluate_expression :: (
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT, .None)) => match(
           ctx.expected_type,
           .Some(et) => {
-            et_ty := et.ty;
+            et_ty := Rc.clone(et.ty);
             // Scope: reroute for EVERY
             // concrete expected STRUCT — named or anonymous — not just
             // unnamed ones. The named-struct narrowing existed for two
@@ -819,7 +819,7 @@ _evaluate_expression :: (
             // re-application. Source-namespace structs (modules) keep the
             // fallback.
             expected_is_anon_struct := match(
-              et_ty,
+              &et_ty,
               Rc(.Struct({ is_source_namespace : et_sns })) => !et_sns,
               // Patch D: an expected FUNC type reroutes too — `is_even =
               // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->

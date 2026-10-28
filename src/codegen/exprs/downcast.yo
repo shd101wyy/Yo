@@ -47,7 +47,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
   });
   dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
-  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value, .Some(v) => match(v, .TypeVal(t) => t, _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
+  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value, .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
   target_type_c_name := get_type_string(&target_type, &context.base);
   // Register the typeid static for the target type (address = canonical id).
   tid := type_key(&target_type);
@@ -113,7 +113,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       if((type_key(&de.dyn_type) == dyn_tkey) && (type_key(resolve_some_type_to_concrete(&de.concrete_type)) == tkey), {
         // A cell handle's data is its cell (`cell_handle_view`): the
         // handle is a C-transparent newtype over the cell pointer.
-        box_opt = Option(TypeValue).Some(match(cell_handle_view(&de.data_type), .Some(v) => v.cell, .None => de.data_type));
+        box_opt = Option(TypeValue).Some(match(cell_handle_view(&de.data_type), .Some(v) => Rc.clone(v.cell), .None => Rc.clone(de.data_type)));
         break;
       });
     });
@@ -188,7 +188,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     )
   });
   // Result Option type.
-  option_type := ei.ty;
+  option_type := Rc.clone(ei.ty);
   if(!is_enum_type(&option_type), {
     return(String.from("/* ERROR: downcast expected Option enum as result type */"));
   });

@@ -372,7 +372,7 @@ _evaluate_inout_local_binding :: (
   if(root_is_type, {
     exn.throw(dyn(format_error_message(&root_tok, place_recipe.clone())));
   });
-  place_type := rhs_info.ty;
+  place_type := Rc.clone(rhs_info.ty);
   // A `unit` local has no C storage (its declaration emits nothing), so there
   // is no address to alias; reject instead of lowering `&()`.
   if(is_unit_type(&place_type), {
@@ -390,7 +390,7 @@ _evaluate_inout_local_binding :: (
       ann_val := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_ann)), .Some(ai) => ai.value, .None => Option(EvalValue).None);
       ann_ty := match(
         ann_val,
-        .Some(.TypeVal(at)) => at,
+        .Some(.TypeVal(at)) => Rc.clone(at),
         _ => {
           exn.throw(dyn(format_error_message(ast_expr_token(&ann), `A local borrow's annotation is a type (\`(y : ${sig}T) = ${sig}place\`), got ${ast_expr_to_string(&ann)}.`)));
           t_unit()
@@ -438,10 +438,10 @@ _evaluate_inout_local_binding :: (
       (pk + usize(1)) < hops.len(),
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)),
-        .Some(ri) => ri.ty,
+        .Some(ri) => Rc.clone(ri.ty),
         .None => t_unit()
       ),
-      root_var.ty
+      Rc.clone(root_var.ty)
     );
     if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
@@ -613,7 +613,7 @@ _bind_projection_result :: (
       new_expr_info(env, t_unit())
     }
   );
-  place_type := rhs_info.ty;
+  place_type := Rc.clone(rhs_info.ty);
   // The places the result borrows: a `&mut` projection's place is reached
   // from its `&mut` arguments alone (its body's root rule), a `&` one's from
   // any borrowed argument.
@@ -889,7 +889,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
       root_atom
     );
-    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => ri.ty, .None => root_var.ty);
+    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root_var.ty));
     if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
       pin_type = recv_type;
@@ -1354,7 +1354,7 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     // Determine the LHS type.
     rhs_type_opt := match(
       rhs_info_opt,
-      .Some(ri) => Option(TypeValue).Some(ri.ty),
+      .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty)),
       .None => Option(TypeValue).None
     );
     actual_lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&actual_lhs));
@@ -1367,8 +1367,8 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     // More precise: check whether ExprInfo was created with a type annotation —
     // if ExprInfo for actual_lhs has a non-unit type we treat it as pre-annotated.
     (lhs_type : TypeValue) = match(
-      rhs_type_opt,
-      .Some(rt) => rt,
+      &rhs_type_opt,
+      .Some(rt) => Rc.clone(rt),
       .None => t_unit()
     );
     if(!has_predefined_type, {
@@ -1386,7 +1386,7 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
           );
         },
         .Some(rt) => {
-          lhs_type = rt;
+          lhs_type = Rc.clone(rt);
           if(effective_should_convert_to_runtime, {
             lhs_type = convert_comptime_type_to_runtime_type(&rt, &env);
           });
@@ -1399,12 +1399,12 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
       // User annotated a type — synthesize and check compatibility.
       pre_type := match(
         actual_lhs_info_opt,
-        .Some(ali) => ali.ty,
+        .Some(ali) => Rc.clone(ali.ty),
         .None => t_unit()
       );
       synth := synthesize_expr_and_type(&rhs, &pre_type, &env, ctx);
       rhs = synth.expr;
-      rhs_type_opt = Option(TypeValue).Some(synth.ty);
+      rhs_type_opt = Option(TypeValue).Some(Rc.clone(synth.ty));
       env_adopt(&env, &synth.env);
       // Re-read rhs_info for the updated rhs.
       rhs_info_opt = expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs));
@@ -1542,7 +1542,7 @@ ${rhs_str}`
                 register_type_display_name(st_id.clone(), binding_name.clone());
                 register_type_binding_name(st_id.clone(), binding_name.clone());
                 Option(TypeValue).Some(
-                  rc(TypeValueNode.Struct(st_id.clone(), binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid.clone(), st_ta, st_sns))
+                  rc(TypeValueNode.Struct(st_id.clone(), binding_name, Rc.clone(st_fls), Rc.clone(st_fts), st_ref, st_at, st_nt, st_cfid.clone(), Rc.clone(st_ta), st_sns))
                 )
               },
               true => Option(TypeValue).None
@@ -1554,14 +1554,14 @@ ${rhs_str}`
                 register_type_binding_name(en_id.clone(), binding_name.clone());
                 register_type_binding_name(`${en_id}__self_shell`, binding_name.clone());
                 Option(TypeValue).Some(
-                  rc(TypeValueNode.EnumT(en_id.clone(), binding_name, en_vns, en_vfs, en_sel.clone(), en_vfl, en_vd, en_irs, en_iar, en_tas))
+                  rc(TypeValueNode.EnumT(en_id.clone(), binding_name, Rc.clone(en_vns), Rc.clone(en_vfs), en_sel.clone(), Rc.clone(en_vfl), Rc.clone(en_vd), en_irs, en_iar, Rc.clone(en_tas)))
                 )
               },
               true => Option(TypeValue).None
             ),
             Rc(.Union(un_name, un_fls, un_fts)) => cond(
               (un_name.len() == usize(0)) => Option(TypeValue).Some(
-                rc(TypeValueNode.Union(binding_name, un_fls, un_fts))
+                rc(TypeValueNode.Union(binding_name, Rc.clone(un_fls), Rc.clone(un_fts)))
               ),
               // A union's `name` is its identity (`union_<module>_<binding>_r…`),
               // so it is never renamed. The FIRST binding becomes its display
@@ -1582,7 +1582,7 @@ ${rhs_str}`
             // the where-clause "does not implement required trait" error.
             Rc(.TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct)) => cond(
               (tr_name.len() == usize(0)) => Option(TypeValue).Some(
-                rc(TypeValueNode.TraitT(binding_name, tr_atns.clone(), tr_fls.clone(), tr_fts.clone(), tr_id.clone(), tr_conc, tr_sc.clone(), tr_nsc.clone(), tr_atcl, tr_atct))
+                rc(TypeValueNode.TraitT(binding_name, tr_atns.clone(), tr_fls.clone(), tr_fts.clone(), tr_id.clone(), tr_conc.clone(), tr_sc.clone(), tr_nsc.clone(), Rc.clone(tr_atcl), Rc.clone(tr_atct)))
               ),
               true => Option(TypeValue).None
             ),
@@ -1590,7 +1590,7 @@ ${rhs_str}`
           );
           match(
             stamped_ty,
-            .Some(new_ty) => Option(EvalValue).Some(EvalValue.TypeVal(new_ty)),
+            .Some(new_ty) => Option(EvalValue).Some(EvalValue.TypeVal(Rc.clone(new_ty))),
             .None => rhs_value_opt
           )
         },
@@ -1622,7 +1622,7 @@ ${rhs_str}`
       .Some(ali) => ali,
       .None => new_expr_info(&env, &lhs_type)
     );
-    actual_lhs_info.ty = lhs_type;
+    actual_lhs_info.ty = Rc.clone(lhs_type);
     actual_lhs_info.env = env;
     actual_lhs_info.value = lhs_value_opt;
     actual_lhs_info.path_collection = path_collection_new();
@@ -1718,7 +1718,7 @@ Use \`::\` for compile-time definitions inside impl.`
     new_var_opt := match(
       prebound_opt,
       .Some(pb) => {
-        pb.ty = final_lhs_type;
+        pb.ty = Rc.clone(final_lhs_type);
         match(
           lhs_value_opt,
           .Some(pb_v) => if(pb.value.len() > usize(0), {

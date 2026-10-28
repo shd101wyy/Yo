@@ -56,7 +56,7 @@ evaluate_tuple_elements_type :: (
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(&arg, i, &env, ctx, for_type, exn);
-    field := result.field;
+    field := result.field.clone();
     // Check for duplicate labels (only when the field has an explicit label).
     if(field.label.len() > usize(0), {
       (dup_idx : usize) = usize(0);
@@ -86,7 +86,7 @@ evaluate_tuple_elements_type :: (
       });
     });
     field_labels.push(field.label.clone());
-    field_types.push(field.ty);
+    field_types.push(Rc.clone(field.ty));
     fields.push(field);
     env_adopt(&env, &result.env);
     i = (i + usize(1));

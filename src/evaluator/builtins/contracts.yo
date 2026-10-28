@@ -491,7 +491,7 @@ ${ast_expr_to_string(expr)}`
               v,
               .TypeVal(tv) => {
                 if(ai == usize(0), {
-                  inner_ty = tv;
+                  inner_ty = Rc.clone(tv);
                   matched = true;
                 });
               },
@@ -556,7 +556,7 @@ ${ast_expr_to_string(expr)}`
   // registration reads it onto the fn's FuncVal id for the verifier. The
   // ERASURE happens at the binding (env.yo unwraps to `inner`) and in the
   // guards/tag/sizes, so runtime cost stays zero.
-  refined := rc(TypeValueNode.RefineT(inner : inner_ty, predicate_func_id : pred_fid.clone()));
+  refined := rc(TypeValueNode.RefineT(inner : Rc.clone(inner_ty), predicate_func_id : pred_fid.clone()));
   // Composition (FORMAL_VERIFICATION.md §7): refine(refine(T, p), q) acts
   // as the CONJUNCTION p(x) && q(x). The nested shape stays distinct at the
   // type level (no flattening — that would need a synthesized conjunction
@@ -709,7 +709,7 @@ _evaluate_spec_collection :: (
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a0)),
         .Some(a0i) => {
-          arg1_ty = a0i.ty;
+          arg1_ty = Rc.clone(a0i.ty);
         },
         .None => ()
       );
@@ -723,7 +723,7 @@ _evaluate_spec_collection :: (
     (head == "seq_nth") => match(
       t_refine_inner(&arg1_ty),
       Rc(.Struct({ type_arguments : sn_targs, is_reference_semantics : sn_ref })) => cond(
-        (sn_ref && (sn_targs.len() == usize(1))) => sn_targs(usize(0)),
+        (sn_ref && (sn_targs.len() == usize(1))) => Rc.clone(sn_targs(usize(0))),
         true => t_u8()
       ),
       _ => t_u8()
@@ -889,7 +889,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     cur_env = expr_info_adopt_env(&ty_info);
     bt := match(
       ty_info.value,
-      .Some(.TypeVal(tv)) => tv,
+      .Some(.TypeVal(tv)) => Rc.clone(tv),
       .Some(_) => {
         exn.throw(
           dyn(
@@ -1099,8 +1099,8 @@ _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstEx
       column : src_tok.column,
       character : src_tok.character,
       byte_offset : src_tok.byte_offset,
-      module_path : src_tok.module_path,
-      input : src_tok.input
+      module_path : Rc.clone(src_tok.module_path),
+      input : Rc.clone(src_tok.input)
     )
   )
 );
@@ -1275,8 +1275,8 @@ _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &
     column : src_tok.column,
     character : src_tok.character,
     byte_offset : src_tok.byte_offset,
-    module_path : src_tok.module_path,
-    input : src_tok.input
+    module_path : Rc.clone(src_tok.module_path),
+    input : Rc.clone(src_tok.input)
   );
   args := ArrayList(AstExpr).new();
   args.push(_synth_atom(name, TokenKind.Identifier, src_tok));
@@ -1764,7 +1764,7 @@ register_impl_inheritance_task :: (
           requires_exprs : evh_reqs,
           ensures_exprs : evh_enss,
           return_label : __t_ret,
-          table : ctx.expr_info_table,
+          table : ctx.expr_info_table.clone(),
           mode : __mode.clone(),
           func_val : method_val,
           requires_enforced : ArrayList(bool).new()
@@ -2473,7 +2473,7 @@ register_impl_variance_task :: (
       requires_exprs : ev_t_reqs,
       ensures_exprs : ArrayList(AstExpr).new(),
       return_label : Option(String).None,
-      table : ctx.expr_info_table,
+      table : ctx.expr_info_table.clone(),
       mode : __mode.clone(),
       func_val : EvalValue.UnitVal,
       requires_enforced : ArrayList(bool).new()
@@ -3154,7 +3154,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
       info.value,
-      .Some(v) => match(v, .TypeVal(t) => t, _ => t_unit()),
+      .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => t_unit()),
       .None => t_unit()
     ),
     .None => t_unit()
@@ -3314,7 +3314,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
       requires_exprs : ev_reqs,
       ensures_exprs : ev_enss,
       return_label : Option(String).None,
-      table : ctx.expr_info_table,
+      table : ctx.expr_info_table.clone(),
       mode : law_mode.clone(),
       func_val : EvalValue.UnitVal,
       requires_enforced : ArrayList(bool).new()
