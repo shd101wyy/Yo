@@ -162,10 +162,10 @@ _clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone())
 test("auto-deref: a trait-bound call at a wrapper instantiation is not the clash", {
   b := rc(_mk(i32(3)));
   c := _clone_any(&b);
-  // A write through `c` would be E0919 (decision 46), so the fresh cell
-  // shows in the counts: neither handle shares the other's.
+  // The bound's `clone` at `T := Rc(_P)` is the Rc's own: a second handle
+  // to the same cell (decision 17), which the counts show.
   assert(c.n == i32(3), "T := Rc(_P): the clone reads the payload");
-  assert((ref_count(b) == usize(1)) && (ref_count(c) == usize(1)), "T := Rc(_P): the Rc's own clone, a new cell");
+  assert((ref_count(b) == usize(2)) && (ref_count(c) == usize(2)), "T := Rc(_P): the Rc's own clone, a second handle");
 });
 // derive(Clone) spells a wrapper field's clone through its Clone impl, so a
 // struct holding an `Rc` derives Clone with no clash.

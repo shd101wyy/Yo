@@ -46,4 +46,4 @@ Measured with the yo-r5 build (branch `vbd/v2c-rc-clone`, tree `5a793dce9`): `ch
 
 ## Fix
 
-The walk stops at a counted handle: after `type_has_user_clone_impl` (a user-written `Clone` on the handle type itself still loses the exemption), `is_counted_handle_type(&ty)` returns true — the handle's `Clone` cannot run payload code. This is the same reasoning the prelude's `Rc`/`Arc` `Clone` (V2c) already embodies for decision 17.
+The walk stops at the prelude's counted handle: after `type_has_user_clone_impl` (a user-written `Clone` on the handle type itself still loses the exemption), `is_counted_handle_value_type` (`Rc(V)`, `Arc(V)`) returns true — the handle's `Clone` cannot run payload code. This is the same reasoning the prelude's `Rc`/`Arc` `Clone` (V2c) already embodies for decision 17. A first version stopped at every `ref` object (`is_counted_handle_type`), which exempted a collection whose `Clone` clones user-`Clone` elements; `tests/global_lend.test.yo`'s `mut(_gl_mlouds)` (an `ArrayList(_GlLoud)`) expectation caught it.
