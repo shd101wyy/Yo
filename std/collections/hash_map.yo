@@ -828,7 +828,7 @@ impl(
             !keep(&bucket_ptr.*.key, &bucket_ptr.*.value) => {
               // Dropped in place: the scan already knows the bucket, so
               // there is nothing to probe for, and nothing is copied.
-              ___drop(bucket_ptr.*);
+              drop_in_place(bucket_ptr);
               self._vacate(i);
             },
             true => ()
@@ -894,7 +894,7 @@ impl(
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
               bucket_ptr := data_ptr.add(i);
-              ___drop(bucket_ptr.*);
+              drop_in_place(bucket_ptr);
             },
             true => ()
           );
@@ -1036,7 +1036,7 @@ impl(
                     cond(
                       ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                         bucket_ptr := data_ptr.add(i);
-                        ___drop(bucket_ptr.*);
+                        drop_in_place(bucket_ptr);
                       },
                       true => ()
                     );

@@ -451,6 +451,14 @@ forms, `Drop`). Gate: `yo build --std-path ./std` with the new seed, then
 canary) and `tests/async_await.test.yo`, `tests/deref_auto.test.yo`,
 `tests/collections/*.test.yo`, `tests/sync/channel.test.yo`.
 
+**Generation B DONE 2026-10-28** on the v0.2.72 seed (which carries
+Generation A): the seven remaining sites moved — `ArrayList._free_elements`
+and both `drain` arms, `HashMap.retain`/`clear`/`Drop`, `Deque`'s `Drop`.
+`Channel`'s `Drop` already called `drop_in_place`, and its two `recv` forms
+no longer drop in place: #1584 made them move the value out with
+`__yo_ptr_read`. `___drop` now appears in `std/` only inside
+`drop_in_place` itself.
+
 ## Seed-gated follow-up (2026-10-17): a generic derive over a container of its parameter
 
 `derive(generic(A : Type), where(A <: Clone), T(A), Clone)` failed with
