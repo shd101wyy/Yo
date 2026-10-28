@@ -383,15 +383,15 @@ test("Test generic functions", {
     );
   };
   {
+    // No `Rc(i32)` instantiation: `id` copies its `&T` into a `T`, which
+    // decision 17 rejects for a counted handle (E0901, `Rc.clone(val)`).
     id :: (fn(comptime(T) : Type, val : &T) -> T)(val);
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
-    assert(b.* == 123);
   };
   {
     id :: (fn(comptime(T) : Type, val : &T) -> T)({
@@ -401,11 +401,9 @@ test("Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
-    assert(b.* == 123);
   };
   {
     id :: (fn(comptime(T) : Type, val : &T) -> T)({
@@ -415,11 +413,9 @@ test("Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
-    assert(b.* == 123);
   };
   {
     comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)(x + y);
