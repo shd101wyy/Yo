@@ -111,6 +111,34 @@ test("box, arc and a dyn over a placed rc are placed by their alloc argument", {
   };
   assert(counts.live == usize(0), "every kind routed its release back");
 });
+// `Box`'s layout (plans/backlog/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
+// layout"): an 8-byte flags word in front of the payload, its placed bit set
+// only by an `alloc` argument, and the owner prefix only on a placed cell.
+_box_flags :: (fn(b : &Box(i64)) -> u64)({
+  // SAFETY: a `Box(V)` is one `*V`, and its cell's flags word is the 8 bytes
+  // in front of the payload.
+  cell := unsafe(unsafe.cast(b, *u8));
+  unsafe((*u64)(cell.sub(usize(8))).*)
+});
+test("A placed Box carries the owner prefix and its flags word; a global one only the flags word", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    placed := box(i64(7), alloc : .Some(heap));
+    // The owner prefix (16), the flags word (8), the payload (8).
+    assert(counts.bytes == usize(32), `a placed Box(i64) asks for 32 bytes: ${counts.bytes}`);
+    assert(_box_flags(&placed) == u64(1), "the placed bit");
+    assert(Box.allocator(placed).unwrap().same(heap), "the owner prefix names the allocator");
+    global := box(i64(8));
+    assert(_box_flags(&global) == u64(0), "a global cell's flags word is clear");
+    assert(Box.allocator(global).is_none(), "and it has no owner");
+    assert((placed.* + global.*) == i64(15), "payloads");
+    copy := Box.clone(placed);
+    assert(Box.allocator(copy).unwrap().same(heap), "a clone lives where its source lives");
+    assert(counts.live == usize(2), `the source and its clone: ${counts.live}`);
+  };
+  assert(counts.live == usize(0), `both placed cells went back: ${counts.live}`);
+});
 // An `Rc` cell placed by `rc`'s explicit `alloc` closes the cycle: the
 // collector, not a drop, releases it, and it goes back to the allocator.
 _RcCons :: ref(
