@@ -263,12 +263,14 @@ _raw_of :: (fn(ptr : *void, align : usize) -> *void)(
   // SAFETY: as `_prefix_of`; the prefix is `_span(align)` bytes.
   (*void)(unsafe((*u8)(ptr).sub(_span(align))))
 );
-// Write the owner record into a raw block with a `span`-byte prefix and return
-// the caller's pointer.
-_stamp :: (fn(raw : *void, span : usize, ctx : ?*void, vtable : *AllocatorVTable) -> ?*void)({
+// Write `owner` into the owner record of a raw block with a `span`-byte prefix
+// and return the caller's pointer. The owner arrives as an `Allocator`, a value
+// the mutation summary treats as inert, so a block stamped here stays fresh
+// storage (issues/fixed/2026-10-29-a-container-constructor-that-may-place-its-buffer-returns-a-shell.md).
+_stamp :: (fn(raw : *void, span : usize, owner : Allocator) -> ?*void)({
   p := (*void)(unsafe((*u8)(raw).add(span)));
   // SAFETY: `raw` is a fresh block of at least `span` bytes, `span >= 16`.
-  unsafe(_prefix_of(p).* = _AllocPrefix(ctx : ctx, vtable : vtable));
+  unsafe(_prefix_of(p).* = _AllocPrefix(ctx : owner.ctx, vtable : owner.vtable));
   .Some(p)
 });
 impl(
@@ -287,7 +289,7 @@ impl(
       (size > (SIZE_MAX - _span(align))) => .None,
       true => match(
         self.vtable.*.alloc(self.ctx, size + _span(align), _span(align)),
-        .Some(raw) => _stamp(raw, _span(align), self.ctx, self.vtable),
+        .Some(raw) => _stamp(raw, _span(align), self),
         .None => .None
       )
     )
@@ -304,7 +306,7 @@ impl(
         span := _span(align);
         match(
           owner.vtable.*.realloc(owner.ctx, .Some(_raw_of(ptr, align)), old_size + span, new_size + span, span),
-          .Some(raw) => _stamp(raw, span, owner.ctx, owner.vtable),
+          .Some(raw) => _stamp(raw, span, Allocator(ctx : owner.ctx, vtable : owner.vtable)),
           .None => .None
         )
       }
