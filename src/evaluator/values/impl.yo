@@ -7029,7 +7029,10 @@ synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(Ty
     out.push(
       match(
         _resolve_one_forall_binding_from(&synth.expected_env, &sm, &nm, unify_base - usize(1)),
-        .Some(b) => if(is_some_type(&b), Option(TypeValue).None, Option(TypeValue).Some(b)),
+        // A type variable stays open, except an `Impl(Fn(...))` parameter's
+        // type, which is a type in its own right (`_is_open_fn_param_slot`):
+        // `Rc.new(f)` is `Rc(type_of(f)).new(f)`.
+        .Some(b) => if(is_some_type(&b) && !_is_open_fn_param_slot(&b), Option(TypeValue).None, Option(TypeValue).Some(b)),
         .None => Option(TypeValue).None
       )
     );

@@ -34,7 +34,7 @@ error[E0610]: No method "make" on _Holder(Impl(Fn(i32) -> i32)): the type has no
 
 ## Fix
 
-`_is_open_fn_param_slot` (`src/evaluator/values/impl.yo`): an unresolved `Impl` annotation wrapper whose required traits include an Fn trait, the type of an `f : Impl(Fn(...))` parameter in its non-deferred body. `_abstract_binding_ok(b)` is `_abstract_bindings_ok() || _is_open_fn_param_slot(b)`, and it replaces `_abstract_bindings_ok()` at the two live different-id acceptance sites: the frame-scoped resolver `_resolve_one_forall_binding_from` (a field mentioning `T`) and `_bind_forall_from_type_args` (a parameter only `type_arguments` carry). Not changed: the nameless `dyn(...)` coercion wrapper and a resolved variable (a closure identity, already bound through its resolution), the unscoped `_resolve_one_forall_binding` (no caller), and the durable assoc-type registration (still skipped only inside a trial).
+`_is_open_fn_param_slot` (`src/evaluator/values/impl.yo`): an unresolved `Impl` annotation wrapper whose required traits include an Fn trait, the type of an `f : Impl(Fn(...))` parameter in its non-deferred body. `_abstract_binding_ok(b)` is `_abstract_bindings_ok() || _is_open_fn_param_slot(b)`, and it replaces `_abstract_bindings_ok()` at the two live different-id acceptance sites: the frame-scoped resolver `_resolve_one_forall_binding_from` (a field mentioning `T`) and `_bind_forall_from_type_args` (a parameter only `type_arguments` carry). Static-argument inference had the same gap one step earlier: `synthesize_impl_binders` dropped every type-variable binding, so the unapplied `Rc.new(f)` (the spelling `yo fix --migrate handle-ctors` writes for `rc(f)`) was E0613 "Cannot infer the type parameter `T`" in the same bodies. It now keeps a binding that `_is_open_fn_param_slot` accepts. Not changed: the nameless `dyn(...)` coercion wrapper and a resolved variable (a closure identity, already bound through its resolution), the unscoped `_resolve_one_forall_binding` (no caller), and the durable assoc-type registration (still skipped only inside a trial).
 
 Codegen needed nothing. The definition-time body of a function with an `Impl(Fn(...))` parameter is not emitted. Each call's specialization re-evaluates it with the closure's type and dispatches concretely, the same way the `rc(f)` definition-time specialization was never emitted.
 
@@ -42,8 +42,8 @@ Codegen needed nothing. The definition-time body of a function with an `Impl(Fn(
 
 ## Regression tests
 
-- `tests/impl.test.yo` — "a static method over an Impl(Fn) parameter's type dispatches, per closure": the reproducer (`_OpenHolder`, a phantom parameter), plus `_OpenKeep` (a field mentions the parameter), each called with two closure types. E0610 before the fix.
-- `tests/handle_constructors.test.yo` — "Rc(type_of(f)).new(f) of an Impl(Fn) parameter dispatches, per closure": the shape B3's `dyn(f)` will synthesize, `Rc(type_of(f)).new(f)` wrapped in `Box(type_of(r)).new(r)`. E0610 before the fix.
+- `tests/impl.test.yo` — "a static method over an Impl(Fn) parameter's type dispatches, per closure": the reproducer (`_OpenHolder`, a phantom parameter), plus `_OpenKeep` (a field mentions the parameter), each called with two closure types, and `_OpenKeep.keep(f, n)` (inferred). E0610 / E0613 before the fix.
+- `tests/handle_constructors.test.yo` — "Rc(type_of(f)).new(f) of an Impl(Fn) parameter dispatches, per closure": the shape B3's `dyn(f)` will synthesize, `Rc(type_of(f)).new(f)` wrapped in `Box(type_of(r)).new(r)`, and the unapplied `Rc.new(f)` / `Box.new(r)` / `Arc.new(f)` (a `Send` closure). E0610 / E0613 before the fix.
 
 ## Related
 
