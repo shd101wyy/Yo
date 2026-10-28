@@ -18,7 +18,6 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
 { AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
-Gc :: import("std/gc");
 { HashMap } :: import("std/collections/hash_map");
 { Deque } :: import("std/collections/deque");
 { String, StringBuilder } :: import("std/string");
@@ -106,26 +105,6 @@ test("box, arc and a dyn over a placed rc are placed by their alloc argument", {
     assert(counts.live == usize(3), `the dyn's data object is the placed cell: ${counts.live}`);
   };
   assert(counts.live == usize(0), "every kind routed its release back");
-});
-// An `Rc` cell placed by `rc`'s explicit `alloc` closes the cycle: the
-// collector, not a drop, releases it, and it goes back to the allocator.
-_RcCons :: ref(
-  enum(
-    Nil,
-    Cons(head : i32, tail : Rc(Self))
-  )
-);
-_make_rc_cycle :: (fn(a : Allocator) -> unit)({
-  c := _RcCons.Cons(i32(1), rc(_RcCons.Nil, alloc : .Some(a)));
-  c.tail = rc(c, alloc : .Some(a));
-});
-test("A cycle closed through an Rc that rc's alloc placed is collected into its allocator", {
-  counts := _counts();
-  heap := _counting(addr_of(counts));
-  _make_rc_cycle(heap);
-  assert(counts.live == usize(1), `the cycle keeps its Rc cell; the replaced tail went back: ${counts.live}`);
-  Gc.collect();
-  assert(counts.live == usize(0), `the collector freed it into its allocator: ${counts.live}`);
 });
 test("An alloc argument takes any Allocator value", {
   counts := _counts();

@@ -720,12 +720,14 @@ field (`a.child = .Some(a)` where the codegen elides the incr+decr) produces no
 and reclaims those; it also runs on demand. So the design is a hybrid: cheap
 incremental on the hot (auto) path, thorough full-heap on the explicit path.
 
-This keeps the collector on by default with no env override (the `YO_GC_THRESHOLD`
-knob remains as a floor/disable). It is correctness-critical (it touches the free
-path) and is validated against the cycle-collector tests
-(`tests/cycle_collector.test.yo`, `tests/codegen-bootstrap/*_self_cycle.yo`,
-`ref_enum_cycle.yo`) — 16/16 plus the `arc` / `closure_capture_rc_leak` /
-`continue_rc_cleanup` / `ref_enum` suites — under AddressSanitizer.
+This kept the collector on with no env override (the `YO_GC_THRESHOLD`
+knob remains as a floor/disable) until `--cycle-collector off` became the
+default in v0.2.73. It is correctness-critical (it touches the free
+path) and was validated against the cycle-collector tests
+(`tests/cycle_collector.test.yo` and the codegen corpus's `*_self_cycle.yo` and
+`ref_enum_cycle.yo` programs, deleted with the default flip) — 16/16 plus the
+`arc` / `closure_capture_rc_leak` / `continue_rc_cleanup` / `ref_enum` suites —
+under AddressSanitizer.
 
 ## Summary
 

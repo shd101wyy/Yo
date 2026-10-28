@@ -661,10 +661,10 @@ S1）。因此两个回收器都在 dispose 遍**之后**复查每个白色单�
 路径（`__yo_gc_collect`）仍是全堆试删扫描，可回收这类环，也可按需运行。因此该设计是混合
 式：热（自动）路径用廉价的增量回收，显式路径用彻底的全堆回收。
 
-这使回收器默认开启且无需环境变量覆盖（`YO_GC_THRESHOLD` 开关保留作下限/禁用）。这是一项
-关乎正确性的改动（涉及释放路径），已在 AddressSanitizer 下针对环回收测试
-（`tests/cycle_collector.test.yo`、`tests/codegen-bootstrap/*_self_cycle.yo`、
-`ref_enum_cycle.yo`，16/16，外加 `arc` / `closure_capture_rc_leak` /
+这使回收器在无需环境变量覆盖的情况下保持开启（`YO_GC_THRESHOLD` 开关保留作下限/禁用），直到 v0.2.73
+把 `--cycle-collector off` 设为默认。这是一项关乎正确性的改动（涉及释放路径），曾在 AddressSanitizer 下
+针对环回收测试（`tests/cycle_collector.test.yo`，以及代码生成语料中的 `*_self_cycle.yo` 和
+`ref_enum_cycle.yo` 程序——它们随默认值的切换一并删除；16/16，外加 `arc` / `closure_capture_rc_leak` /
 `continue_rc_cleanup` / `ref_enum` 套件）验证。
 
 ## 总结
