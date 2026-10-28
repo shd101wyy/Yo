@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
   is_reference_struct_type,
   is_reference_enum_type,
   is_primitive_type,
-  is_counted_handle_type,
+  is_counted_handle_value_type,
   unique_box_payload_type,
   cell_handle_view
 } :: import("../types/guards.yo");
@@ -943,7 +943,7 @@ _type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
 /// `Box`'s payload. A hand-written `Clone` outside std anywhere inside
 /// (`type_has_user_clone_impl`) runs user code, which can reach the global
 /// while the clone holds it; so does a `Dyn` or a closure, whose clone is not
-/// known here. A counted handle (`Rc(V)`, `Arc(V)`, a cell handle) stops the
+/// known here. The prelude's counted handle (`Rc(V)`, `Arc(V)`) stops the
 /// walk: its `Clone` is the prelude's count bump, which never touches the
 /// payload, so a hand-written `Clone` inside `V` cannot run — judging the
 /// payload kept `env.yo`'s `g_synthetic_token_last.clone()`
@@ -982,10 +982,11 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
   if(type_has_user_clone_impl(&ty, clone_tt), {
     return(false);
   });
-  // A counted handle clones as a count bump (the prelude's `Clone`,
-  // decision 17): the payload is never touched, so the walk stops here
-  // instead of judging the handle's storage field.
-  if(is_counted_handle_type(&ty), {
+  // The prelude's `Rc`/`Arc` clones as a count bump (decision 17): the
+  // payload is never touched, so the walk stops here instead of judging the
+  // handle's storage field. Not every `ref` object: a collection's `Clone`
+  // still clones its elements (`ArrayList(_GlLoud)`, tests/global_lend.test.yo).
+  if(is_counted_handle_value_type(&t_refine_inner(&ty)), {
     return(true);
   });
   match(
