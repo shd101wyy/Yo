@@ -218,6 +218,7 @@ ReceiverMethodResult :: struct(
   // array is kept for overload resolution.
   all_hits : ArrayList(MethodEntry)
 );
+derive(ReceiverMethodResult, Clone);
 // ---------------------------------------------------------------------------
 // _try_find_receiver_method — when the callee is a property-access expression
 // `.(receiver, method_name)` with no ExprInfo, look up the method via env.yo's
@@ -2223,7 +2224,16 @@ _trial_call_overload_candidate :: (
   });
   cloned_call := clone_expr_fresh_ids(call_expr);
   clone_hi := next_global_expr_id();
+  // The trial evaluates the arguments in the caller's environment, and the
+  // real call evaluates them again: a move the trial records
+  // (`!match(o, …)` consumes `o`) would make that second evaluation a use of
+  // a moved value (E0901), so every binding's move state is put back
+  // (issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md).
+  saved_vars := ArrayList(Variable).new();
+  saved_moves := ArrayList(Option(Token)).new();
+  _save_move_states(callee_env, &mut saved_vars, &mut saved_moves);
   _run_overload_trial(fn_val, fn_ty, &cloned_call, func_expr, &cloned_args, callee_env, ctx, ok_out);
+  _restore_move_states(&saved_vars, &saved_moves);
   // Only the verdict survives the trial: the clones' own metadata is dead
   // either way (the real call evaluates the originals). Specializations the
   // trial created have ids past `clone_hi` and stay.
@@ -3143,8 +3153,11 @@ _note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &Array
 /// §3.13 A6: `io.spawn` and a cold `io.await` copy the effect bundle into the
 /// future bitwise, since one bundle starts many futures. A field that is not
 /// implicitly copyable (move-only, or plain data without `Copy`) would be
-/// copied by that, so it is an error at the site; shared state goes in an
-/// `Rc` field.
+/// copied by that, so it is an error at the site. A counted handle is one
+/// since decision 17 (V2c): a bundle holds no owned value, and shared state
+/// reaches a task through its capture list (`{ st : Rc.clone(st) }`) or a
+/// handler as an argument of the effect call (plans/VALUES_BY_DEFAULT.md,
+/// "A6, the bundle").
 _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
   if(!(is_io_await_call(expr) || is_io_spawn_call(expr)), {
     return(());
@@ -3164,7 +3177,7 @@ _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ct
               format_error_message_with_help(
                 ast_expr_token(&bundle),
                 `The effect bundle's field \`${label}\` (\`${type_to_string(&fty)}\`) is not implicitly copyable, and \`${if(is_io_spawn_call(expr), "io.spawn", "io.await")}\` copies the bundle into the future it starts (one bundle starts many futures, plans/VALUES_BY_DEFAULT.md §3.13 A6).`,
-                Option(String).Some(`keep shared state in an \`Rc\` field of the bundle, or pass the value to the task through its capture list instead`)
+                Option(String).Some(`a bundle holds no owned value: pass shared state to the task through its capture list (\`io.async({ st : Rc.clone(st) }(e : Io) => ...)\`), or to a handler as an argument of the effect call`)
               ),
               E_USE_OF_MOVED_VALUE
             ),
@@ -7479,6 +7492,14 @@ _try_eval_operand_type :: (
   // (issues/fixed/a-move-inside-an-overloaded-operators-operand-is-a-use-after-move.md).
   saved_vars := ArrayList(Variable).new();
   saved_moves := ArrayList(Option(Token)).new();
+  _save_move_states(env, &mut saved_vars, &mut saved_moves);
+  _probe_operand_type(arg, env, ctx, out);
+  _restore_move_states(&saved_vars, &saved_moves);
+});
+/// Record every binding of `env` with its move state (`consumed_at_token`),
+/// for `_restore_move_states` to put back after a probe or a trial that
+/// evaluates an expression the real call evaluates again.
+_save_move_states :: (fn(env : &Environment, saved_vars : &mut ArrayList(Variable), saved_moves : &mut ArrayList(Option(Token))) -> unit)({
   (fi : usize) = usize(0);
   while(fi < env.frames.len(), fi = (fi + usize(1)), {
     match(
@@ -7499,7 +7520,8 @@ _try_eval_operand_type :: (
       .None => ()
     );
   });
-  _probe_operand_type(arg, env, ctx, out);
+});
+_restore_move_states :: (fn(saved_vars : &ArrayList(Variable), saved_moves : &ArrayList(Option(Token))) -> unit)({
   (ri : usize) = usize(0);
   while(ri < saved_vars.len(), ri = (ri + usize(1)), {
     match(
