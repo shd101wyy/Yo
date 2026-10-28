@@ -915,7 +915,7 @@ _fetch_follow :: (
 _DeadlineOutcome :: enum(Done(response : HttpResponse), Elapsed, Aborted);
 _deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -> Impl(Future(_DeadlineOutcome, Io)))({
   ms := Rc(u64)(u64(limit.as_millis()));
-  io.async({ h, ms }(io : Io) => {
+  io.async({ h, ms : Rc.clone(ms) }(io : Io) => {
     // Scoped before the first suspension: the future is awaited where it is
     // made, so nothing can drop it between the spawn and this line.
     mut(child) := _scope(h);

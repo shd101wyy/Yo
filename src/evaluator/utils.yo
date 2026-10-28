@@ -205,9 +205,9 @@ attach_temp_variable_to_expr :: (
         expr_info_capture_type(&info),
         .Some(cap_ty) => cond(
           (type_contains_rc_type(&cap_ty) && is_owning_the_rc_value) => cap_ty,
-          true => info.ty
+          true => Rc.clone(info.ty)
         ),
-        .None => info.ty
+        .None => Rc.clone(info.ty)
       );
       // Only mark as owning if the effective type actually contains RC.
       _is_owning_rc := (is_owning_the_rc_value && type_contains_rc_type(&effective_ty));
@@ -240,7 +240,7 @@ attach_temp_variable_to_expr :: (
               !existing_var.is_owning_the_rc_value => false,
               true => _is_owning_rc
             );
-            existing_var.ty = effective_ty;
+            existing_var.ty = Rc.clone(effective_ty);
             existing_var.value = value_cell_of(cond(preserved_rc => Option(EvalValue).None, true => var_value));
             existing_var.is_compile_time_only = cond(preserved_rc => false, true => is_ctonly);
             existing_var.is_owning_the_rc_value = preserved_rc;
@@ -1374,7 +1374,7 @@ place_cell_hops :: (fn(ev : &AstExpr, ctx : &EvalContext) -> PlaceCellHops)({
     if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
       recv := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       fld := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit));
+      recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => rc(TypeValueNode.Unit));
       // A cell handle (`cell_handle_view`) is a value: only its deref `h.*`
       // crosses the cell; `h._cell` is a field of the handle itself.
       recv_is_view := cell_handle_view(&recv_ty).is_some();
@@ -1404,7 +1404,7 @@ place_cell_hops :: (fn(ev : &AstExpr, ctx : &EvalContext) -> PlaceCellHops)({
         base,
         .Some(b) => {
           via_index_trait := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => false);
-          base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)), .Some(bi) => bi.ty, .None => rc(TypeValueNode.Unit));
+          base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)), .Some(bi) => Rc.clone(bi.ty), .None => rc(TypeValueNode.Unit));
           cond(
             is_array_type(&base_ty) => {
               cur = b;
@@ -1962,7 +1962,7 @@ require_capture_borrow_exclusivity :: (
     a_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a));
     carries_mut := match(a_info, .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false);
     by_value := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
-    copied := (by_value && match(a_info, .Some(inf) => (type_is_bitwise_copy(inf.ty) && !type_is_second_class(&inf.ty)), .None => false));
+    copied := (by_value && match(a_info, .Some(inf) => (type_is_bitwise_copy(Rc.clone(inf.ty)) && !type_is_second_class(&inf.ty)), .None => false));
     excl.push(is_ref_param || carries_mut);
     named.push(!copied);
     ai = (ai + usize(1));
@@ -2046,7 +2046,7 @@ set_expr_as_consumed :: (
       // (decision 30) every plain parameter owns its value, so a `usize`
       // parameter returned from one `cond` arm would otherwise read as moved
       // there and not in the others (E0907).
-      type_is_bitwise_copy(info.ty) => (),
+      type_is_bitwise_copy(Rc.clone(info.ty)) => (),
       true => match(
         info.variable_name,
         // Step 2: no variable name → nothing to consume.
@@ -2587,7 +2587,7 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
       .Atom(_, _) => cur
     );
     if(!ast_expr_is_fn_call_of(&cur, BK_COLON, Option(usize).Some(usize(2))), {
-      obj_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&next)), .Some(oi) => oi.ty, .None => return(Option(Variable).None));
+      obj_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&next)), .Some(oi) => Rc.clone(oi.ty), .None => return(Option(Variable).None));
       // A cell handle's `h.*` is behind the handle, as a `ref` object's
       // fields are (`is_cell_handle_deref_step`).
       in_storage := if(
@@ -2620,7 +2620,7 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
     return(());
   });
   if(handle_ok, {
-    place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => pi.ty, .None => rv.ty.clone());
+    place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => Rc.clone(pi.ty), .None => rv.ty.clone());
     if(_lb_is_cell_type(&place_ty), {
       return(());
     });
@@ -2813,7 +2813,7 @@ record_explicit_copy_site :: (fn(site : ExplicitCopySite) -> unit)({
   if(!g_explicit_copy_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
-  g_explicit_copy_sites.with_mut(xs => xs.push(site));
+  g_explicit_copy_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
   out := g_explicit_copy_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -2868,7 +2868,7 @@ record_copying_accessor_site :: (fn(site : CopyingAccessorSite) -> unit)({
   if(!g_copying_accessor_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_copying_accessor_sites.with_mut(xs => xs.push(site));
+  g_copying_accessor_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_copying_accessor_sites :: (fn() -> ArrayList(CopyingAccessorSite))({
   out := g_copying_accessor_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3446,7 +3446,7 @@ audit_print_implicit_copy :: (fn(line : &String) -> unit)({
 /// insertion for `yo fix --migrate explicit-copy`.
 audit_report_implicit_copy :: (fn(site : &ImplicitCopyPending) -> unit)({
   audit_print_implicit_copy(&site.line);
-  match(site.migrate_site, .Some(ms) => record_explicit_copy_site(ms), .None => ());
+  match(&site.migrate_site, .Some(ms) => record_explicit_copy_site(ms.clone()), .None => ());
 });
 /// The first token of `e` as written: the receiver of a `.` access or an
 /// infix operator's left operand, a call's callee.
@@ -3499,8 +3499,8 @@ ic_clone_comes_from_derive :: (fn(ty : &TypeValue, (depth : u32) ?= u32(0)) -> b
   });
   targs := match(
     ty,
-    Rc(.Struct({ type_arguments : sta })) => sta,
-    Rc(.EnumT({ type_arguments : eta })) => eta,
+    Rc(.Struct({ type_arguments : sta })) => Rc.clone(sta),
+    Rc(.EnumT({ type_arguments : eta })) => Rc.clone(eta),
     _ => no_types()
   );
   (i : usize) = usize(0);
@@ -3811,7 +3811,7 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
     Rc(.Union(name : _, field_labels : _, field_types : ufs)) => _implicit_copy_via(_implicit_copy_first_member(&ufs.items, depth)),
     Rc(.Array(element : el, length : _, length_var : _)) => {
       els := ArrayList(TypeValue).new();
-      els.push(el);
+      els.push(Rc.clone(el));
       _implicit_copy_via(_implicit_copy_first_member(&els, depth))
     },
     Rc(.Func({ result : _ })) => String.from("closure"),
@@ -3967,11 +3967,11 @@ audit_record_implicit_copy :: (
     .None => {
       audit_print_implicit_copy(&line);
       match(
-        migrate_site,
+        &migrate_site,
         .Some(ms) => match(
           temp_binding_id,
-          .Some(bid) => _audit_hold_implicit_copy(bid, ImplicitCopyPending(line : String.new(), module_path : site_tok.module_path.*.clone(), byte_offset : site_tok.byte_offset, migrate_site : Option(ExplicitCopySite).Some(ms))),
-          .None => record_explicit_copy_site(ms)
+          .Some(bid) => _audit_hold_implicit_copy(bid, ImplicitCopyPending(line : String.new(), module_path : site_tok.module_path.*.clone(), byte_offset : site_tok.byte_offset, migrate_site : Option(ExplicitCopySite).Some(ms.clone()))),
+          .None => record_explicit_copy_site(ms.clone())
         ),
         .None => ()
       );
@@ -4775,7 +4775,7 @@ borrowed_place_read_only_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Opt
     if(!ast_expr_is_atom(&fld), {
       return(Option(AstExpr).None);
     });
-    base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => bi.ty, .None => return(Option(AstExpr).None));
+    base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => Rc.clone(bi.ty), .None => return(Option(AstExpr).None));
     is_deref := ast_expr_is_atom_of(&fld, "*");
     cond(
       (is_deref && handle_payload_is_read_only(&base_ty)) => {
@@ -5207,8 +5207,8 @@ _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExp
     column : (last.column + u32(1)),
     character : (last.character + u32(1)),
     byte_offset : (last.byte_offset + u32(1)),
-    module_path : last.module_path,
-    input : last.input
+    module_path : Rc.clone(last.module_path),
+    input : Rc.clone(last.input)
   );
   v.consumed_at_token = Option(Token).Some(end.clone());
   variable_note_arm_move(v, &end, &Option(Token).Some(note));
@@ -5455,7 +5455,7 @@ _drop_in_arms_that_keep :: (
     return(true);
   });
   if(match(
-    v.ty,
+    &v.ty,
     Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
     _ => false
   ), {
@@ -5537,7 +5537,7 @@ _arm_closure_capture_struct :: (fn(info : &ExprInfo) -> Option(TypeValue))(
     .Some(cap) => Option(TypeValue).Some(cap),
     .None => cond(
       is_bound_closure_identity(&info.ty) => Option(TypeValue).Some(resolve_cell_chain(&info.ty)),
-      is_closure_capture_struct(&info.ty) => Option(TypeValue).Some(info.ty),
+      is_closure_capture_struct(&info.ty) => Option(TypeValue).Some(Rc.clone(info.ty)),
       true => Option(TypeValue).None
     )
   )
@@ -5866,11 +5866,11 @@ merge_and_check_envs :: (
                       get_branch_init_record(cb_ri),
                       .Some(cb_rec) => if((cb_rec.var_id == base_var.id) && match(cb_rec.kind, .Assign => true, _ => false), {
                         if(cb_found, {
-                          cb_tys(cb_tys.len() - usize(1)) = cb_rec.ty;
-                          cb_caps(cb_caps.len() - usize(1)) = cb_rec.capture;
+                          cb_tys(cb_tys.len() - usize(1)) = Rc.clone(cb_rec.ty);
+                          cb_caps(cb_caps.len() - usize(1)) = cb_rec.capture.clone();
                         }, {
-                          cb_tys.push(cb_rec.ty);
-                          cb_caps.push(cb_rec.capture);
+                          cb_tys.push(Rc.clone(cb_rec.ty));
+                          cb_caps.push(cb_rec.capture.clone());
                           cb_body_idx.push(cb_i);
                           cb_found = true;
                         });
@@ -5900,7 +5900,7 @@ merge_and_check_envs :: (
                 // DIFFERENT concrete (capture) types must be rejected.
                 (cb_impl_conflict : bool) = false;
                 match(
-                  cb_first_cap,
+                  &cb_first_cap,
                   .Some(cb_fc) => match(
                     cb_cur_cap,
                     .Some(cb_cc) => {
@@ -5910,9 +5910,9 @@ merge_and_check_envs :: (
                       // capture one i32) — compare struct IDs; the
                       // structural compat check wrongly accepts them.
                       cb_id_conflict := match(
-                        cb_fc,
+                        &cb_fc,
                         Rc(.Struct({ id : cb_fid2 })) => match(
-                          cb_cc,
+                          &cb_cc,
                           Rc(.Struct({ id : cb_cid2 })) => ((cb_fid2.len() > usize(0)) && (cb_fid2 != cb_cid2)),
                           _ => false
                         ),
@@ -6304,7 +6304,7 @@ _get_last_var_type :: (fn(vars : &ArrayList(Variable)) -> Option(TypeValue))(
     true => match(
       vars.last(),
       .None => Option(TypeValue).None,
-      .Some(last) => Option(TypeValue).Some(last.ty)
+      .Some(last) => Option(TypeValue).Some(Rc.clone(last.ty))
     )
   )
 );
@@ -6436,7 +6436,7 @@ adopt_never_type :: (fn(e : &AstExpr, ty : &TypeValue, ctx : &EvalContext) -> un
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
     .Some(info) => if(is_never_type(&info.ty), {
-      info.ty = ty;
+      info.ty = Rc.clone(ty);
       match(
         e,
         .FnCall(_, _, nargs, _, _) => cond(
@@ -6505,7 +6505,7 @@ in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
               // Unregistered value: fall back to the context's type, which is
               // the declared one for every site that evaluates a user body.
               is_unit_type(&declared) => match(
-                fctx.func_type,
+                &fctx.func_type,
                 .Some(ft) => is_function_type_and_returns_comptime_value(&ft),
                 .None => false
               ),
@@ -6825,8 +6825,8 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
     step := match(steps.get(k), .Some(s) => s, .None => String.from("?"));
     recv_ty := match(
       recvs.get(k),
-      .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => root.ty),
-      .None => root.ty
+      .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
+      .None => Rc.clone(root.ty)
     );
     cond(
       _lb_is_cell_type(&recv_ty) => {
@@ -7898,7 +7898,7 @@ projection_call_callee_type :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(T
     e,
     .FnCall(_, pt_callee, _, _, _) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&pt_callee)),
-      .Some(cei) => if(is_function_type(&cei.ty), Option(TypeValue).Some(cei.ty), lookup_method_callee_type(ast_expr_id(e))),
+      .Some(cei) => if(is_function_type(&cei.ty), Option(TypeValue).Some(Rc.clone(cei.ty)), lookup_method_callee_type(ast_expr_id(e))),
       .None => lookup_method_callee_type(ast_expr_id(e))
     ),
     .Atom(_, _) => Option(TypeValue).None
@@ -7929,7 +7929,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   (param_is_ref : SharedList(bool)) = no_flags();
   (param_is_owning : SharedList(bool)) = no_flags();
   match(
-    meta_ty,
+    &meta_ty,
     Rc(.Func({ result : _ })) => {
       param_is_ref = fn_param_mut_ref_flags(&meta_ty);
       param_is_owning = fn_param_by_value_flags(&meta_ty);

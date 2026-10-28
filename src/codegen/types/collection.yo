@@ -205,7 +205,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   type := resolve_struct_shell(resolve_enum_shell(type_in));
   // A `&T` / `&mut T` is a parameter slot's mode (decision 43 step 1), never
   // a C type: a slot read without `t_slot_pointee` is an internal error.
-  if(match(type, Rc(.Reference(_, _, _)) => true, _ => false), {
+  if(match(&type, Rc(.Reference(_, _, _)) => true, _ => false), {
     __yo_panic("collect_type: a reference type reached codegen (a parameter slot read without t_slot_pointee)");
   });
   if(context.get_type_entry(type_key(&type)).is_some(), {
@@ -235,7 +235,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // collection, so the typedef is emitted before any reference; also collect
   // the element type.
   if(is_array_type(&type), {
-    match(type, Rc(.Array({ element })) => recur(&element, context), _ => ());
+    match(&type, Rc(.Array({ element })) => recur(&element, context), _ => ());
     _gs := get_type_string(&type, context);
     return(());
   });
@@ -297,7 +297,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     // Future trait interface: collect the OUTPUT type (T in Future(T)) — its
     // C name appears as the interface struct's `result` field.
     match(
-      type,
+      &type,
       Rc(.FutureTraitT({ output : ftc_out })) => if(!is_some_type(&ftc_out), {
         recur(&ftc_out, context);
       }),
@@ -305,7 +305,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     );
     // Struct fields (skip function-typed fields — emitted inline at call sites).
     match(
-      type,
+      &type,
       Rc(.Struct({})) => {
         runtime_fields := get_runtime_struct_fields(&type);
         n := runtime_fields.len();
@@ -325,7 +325,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     );
     // Enum variant fields.
     match(
-      type,
+      &type,
       Rc(.EnumT({ variant_fields })) => {
         nv := variant_fields.len();
         (vi : usize) = usize(0);
@@ -350,7 +350,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     );
     // Union fields.
     match(
-      type,
+      &type,
       Rc(.Union({ field_types })) => {
         n := field_types.len();
         (i : usize) = usize(0);
@@ -363,7 +363,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     );
     // Dyn required traits.
     match(
-      type,
+      &type,
       Rc(.DynT({ required_trait_types })) => {
         n := required_trait_types.len();
         (i : usize) = usize(0);
@@ -394,7 +394,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
           match(
             field_types.get(i),
             .Some(ft) => match(
-              ft,
+              &ft,
               Rc(.Func({ param_types : __mpt, result : __mres })) => {
                 (__mpi : usize) = usize(0);
                 while(__mpi < __mpt.len(), {
@@ -470,7 +470,7 @@ collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
     snapshot := ArrayList(TypeValue).new();
     for(&context.types, (_tid, entry) => {
       if(is_struct_type(&entry.ty), {
-        snapshot.push(entry.ty);
+        snapshot.push(Rc.clone(entry.ty));
       });
     });
     n := snapshot.len();

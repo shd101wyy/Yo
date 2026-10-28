@@ -442,7 +442,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   match(
     expr_info_runtime_destructurings(&ei),
     .Some(destructurings) => {
-      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => rei.ty, .None => rc(TypeValueNode.Unit));
+      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => Rc.clone(rei.ty), .None => rc(TypeValueNode.Unit));
       _emit_destructurings(&destructurings, &rhs, &lhs, &rhs_type, &ei.env, indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },
@@ -606,7 +606,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
             rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value, Option(Environment).Some(rei.env))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
-              effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => rei.ty);
+              effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => Rc.clone(rei.ty));
               // A UNIT-typed RHS has no value to hold. `_call_generate_expr`
               // has already emitted the call as a STATEMENT (so the side effect
               // is preserved) and returned "", so declaring a temp for it

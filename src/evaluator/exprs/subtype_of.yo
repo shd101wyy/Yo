@@ -114,7 +114,7 @@ evaluate_subtype_of :: (
   );
   lhs_ty := match(
     lhs_type_val,
-    .TypeVal(b) => b,
+    .TypeVal(b) => Rc.clone(b),
     _ => t_unit()
   );
   // In a where clause, the LHS must be a SomeType (type parameter).
@@ -220,7 +220,7 @@ evaluate_subtype_of :: (
       te_info.value,
       .Some(v) => match(
         v,
-        .TypeVal(b) => if(is_trait_type(&b), b, {
+        .TypeVal(b) => if(is_trait_type(&b), Rc.clone(b), {
           exn.throw(
             dyn(
               format_error_message(
@@ -361,10 +361,10 @@ evaluate_subtype_of :: (
     // the where-clause branch above. Consuming it in only one arm tripped the
     // flow-checker ("consumed in some cases but not in other cases").
     trait_with_receiver := match(
-      trait_ty,
+      &trait_ty,
       Rc(.TraitT(name, assoc_type_names, field_labels, field_types, id, _, self_constraints, neg_self_constraints, atc_labels, atc_types)) =>
-        rc(TypeValueNode.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(TypeValue).Some(lhs_ty.clone()), self_constraints, neg_self_constraints, atc_labels, atc_types)),
-      _ => trait_ty
+        rc(TypeValueNode.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(TypeValue).Some(lhs_ty.clone()), self_constraints, neg_self_constraints, Rc.clone(atc_labels), Rc.clone(atc_types))),
+      _ => Rc.clone(trait_ty)
     );
     trait_with_receiver_clone := trait_with_receiver.clone();
     trait_type_val := EvalValue.TypeVal(trait_with_receiver);
