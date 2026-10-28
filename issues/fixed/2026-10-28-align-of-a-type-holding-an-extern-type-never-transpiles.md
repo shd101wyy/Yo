@@ -59,6 +59,6 @@ Generation B keeps `Box`'s placed request at alignment 16 instead of
 
 ## Test
 
-`tests/allocator.test.yo`, "align_of of an extern C type, and of a struct
-holding one, is the C compiler's alignment": the program above, plus a placed
+`tests/allocator.test.yo`, "size_of and align_of of an extern C type, and
+align_of of a struct holding one, are the C compiler's": the program above, plus a placed
 `ArrayList` of the struct. It fails to compile (E1301) before the fix.

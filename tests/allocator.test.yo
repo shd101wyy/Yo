@@ -196,8 +196,11 @@ test("sizeof of a resolved Impl type is its lowered C type", {
 // untranspiled: E1301 in `main`, and a poisoned specialization inside a std
 // generic such as a placed container's buffer request
 // (issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md).
+// `size_of` of an extern type lowered its argument through the collected-type
+// registry, which never holds one
+// (issues/fixed/2026-10-28-sizeof-of-an-extern-opaque-type-has-no-c-type-name.md).
 _HoldsExtern :: struct(flag : u8, n : atomic_llong);
-test("align_of of an extern C type, and of a struct holding one, is the C compiler's alignment", {
+test("size_of and align_of of an extern C type, and align_of of a struct holding one, are the C compiler's", {
   assert(align_of(atomic_int) == size_of(atomic_int), "atomic_int is aligned to its size");
   a := align_of(atomic_llong);
   assert((a != usize(0)) && ((a & (a - usize(1))) == usize(0)), "a power of two");
