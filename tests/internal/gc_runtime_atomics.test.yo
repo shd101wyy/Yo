@@ -167,6 +167,32 @@ test("every full-GC visitor tests TRACKED through the prefix before a full-heade
   assert_tracked_first(&c, "static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {");
   assert_tracked_first(&c, "static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {");
 });
+// The uniqueness lock behind Arc.make_mut and Arc.try_unwrap is one CAS of
+// the strong count from 1 to 0, acquire on success, and gives the count back
+// with release; the end of a locked cell sets the dead bit in one acq_rel RMW
+// (issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md).
+// Both runtimes emit the same text.
+/// Pin: the uniqueness-lock primitives in the runtime `full` selects.
+assert_unique_lock :: (fn(full : bool) -> unit)({
+  c := emit_rc_runtime(full);
+  lock := fn_body(&c, "static inline bool __yo_arc_lock_unique(void* ptr) {");
+  assert(lock.contains("if ((cur & __YO_RC_COUNT) != 1u) return false;"), "the lock takes only a count of 1");
+  assert(
+    lock.contains("atomic_compare_exchange_weak_explicit(rc, &cur, cur & __YO_RC_TAG, memory_order_acquire, memory_order_relaxed)"),
+    "the lock CASes the count to 0, keeping the tag, acquire on success"
+  );
+  unlock := fn_body(&c, "static inline void __yo_arc_unlock_unique(void* ptr) {");
+  assert(unlock.contains("ref_count, 1u, memory_order_release)"), "the unlock gives the count back with release");
+  raw := fn_body(&c, "static inline size_t __yo_arc_weak_count_raw(void* ptr) {");
+  assert(!raw.contains("strong_count"), "the raw weak count does not consult the strong count");
+  dead := fn_body(&c, "static inline void __yo_arc_release_locked(void* slot) {");
+  assert(dead.contains("*(void**)slot = NULL;"), "the end of a locked cell clears the holder's handle");
+  assert(dead.contains("(uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel)"), "the dead bit is set in one acq_rel RMW");
+});
+test("the Arc uniqueness lock is a CAS from 1 to 0 with acquire, the unlock a release", {
+  assert_unique_lock(false);
+  assert_unique_lock(true);
+});
 /// Pin: a cycle-GC `dispose_fn` slot holds a `void*` thunk, never the typed
 /// `___dispose` behind a cast. The runtime calls the slot as `void (*)(void*)`,
 /// and a typed function called that way is UB, which UBSan's

@@ -4,6 +4,12 @@
 
 **Found:** 2026-10-28, landing `make_mut`'s disassociation of `Weak` (W3 Generation B, branch `vbd/make-mut-weak-gen-b`).
 
+**Status:** Generation A landed 2026-10-29 (`fix/arc-unique-lock-gen-a`):
+the runtime emits the lock primitives below, and `tests/arc.test.yo` drives
+them directly. The prelude still races until Generation B, which calls them
+from `make_mut` and `try_unwrap` once a seed emits them; its text is parked
+in `plans/backlog/SEED_VERSION_AUTOMATION.md`.
+
 ## Symptom
 
 Both methods decide "`self` is the cell's only handle" with plain loads of

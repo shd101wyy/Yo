@@ -382,6 +382,93 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-29): `Arc.make_mut` and `Arc.try_unwrap` take the uniqueness lock
+
+`Arc.make_mut` and `Arc.try_unwrap` decide that `self` is the cell's only
+handle with plain loads of the counts, so an `ArcWeak.upgrade` on another
+thread can take a strong count between the check and the write or the
+move-out
+(`issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`,
+S1). The fix is Rust's: a CAS of the strong count from 1 to 0, which a
+concurrent `upgrade` refuses. That CAS is a runtime primitive, and `src/`
+instantiates `Arc.make_mut`, so the prelude may call it only once the seed
+emits it (the same gate as W3's `__yo_rc_weak_weak_count` above).
+
+**Generation A DONE 2026-10-29 (`fix/arc-unique-lock-gen-a`):** four
+primitives in `_weak_count_primitives` (`src/codegen/functions/gc_runtime.yo`),
+emitted by both runtimes: `__yo_arc_lock_unique(cell) -> bool` (CAS strong
+1 → 0, acquire), `__yo_arc_unlock_unique(cell)` (the count of 1 back,
+release), `__yo_arc_weak_count_raw(cell) -> usize` (the weak word itself:
+`__yo_arc_weak_weak_count` answers 0 for the zero strong count a lock
+leaves) and `__yo_arc_release_locked(slot)` (the end of a locked cell whose
+payload was moved out: the dead bit in one `fetch_or`, the free when no
+`ArcWeak` is left, and the holder's handle, at `slot`, cleared to NULL so
+that its own release is a no-op; an `Arc` is a copyable handle, so the
+prelude cannot forget it). `tests/arc.test.yo` drives them through an
+`extern("Yo", ...)` block; `tests/internal/gc_runtime_atomics.test.yo` pins
+their orderings.
+
+**Generation B (once `SEED_VERSION` carries Generation A, v0.2.73 or
+later):** in `std/prelude.yo`, declare the four primitives in an
+`extern("Yo", ...)` block beside `__yo_arc_weak_*`'s, and replace the two
+bodies:
+
+```yo ignore
+  try_unwrap : (fn(sink(self) : Self) -> Result(T, Self))({
+    // SAFETY: an `Arc` handle is the address of its live cell.
+    cell := (*void)(unsafe(unsafe.cast(&self, *T)));
+    cond(
+      __yo_arc_lock_unique(cell) => {
+        // SAFETY: the lock left a strong count of 0, so `self` is the cell's
+        // only strong handle on every thread and no `ArcWeak` upgrades: the
+        // payload is moved out bitwise, and the cell goes to the `ArcWeak`
+        // handles as dead (freed now if there is none) without dropping it.
+        payload := __yo_ptr_read(addr_of(self.*));
+        __yo_arc_release_locked((*void)(addr_of(self)));
+        .Ok(payload)
+      },
+      true => .Err(self)
+    )
+  })
+```
+
+```yo ignore
+  make_mut : (fn(self : &mut Self) -> &mut T)({
+    // SAFETY: an `Arc` handle is the address of its live cell.
+    cell := (*void)(unsafe(unsafe.cast(self, *T)));
+    cond(
+      __yo_arc_lock_unique(cell) => {
+        // The weak count is read while no upgrade can succeed. Zero stays
+        // zero after the unlock: a new `ArcWeak` takes a strong handle
+        // (only `self`) or another `ArcWeak`.
+        weak := __yo_arc_weak_count_raw(cell);
+        __yo_arc_unlock_unique(cell);
+        if(weak != usize(0), {
+          self = arc(self.*.clone());
+        });
+      },
+      true => {
+        self = arc(self.*.clone());
+      }
+    );
+    // SAFETY: `self` is now the cell's only handle on every thread, so the
+    // write the caller makes through the projection is exclusive.
+    addr_of(self.*)
+  })
+```
+
+`make_mut` keeps cloning when an `ArcWeak` shares the cell (Yo's §3.3
+choice, as `Rc.make_mut` does) rather than moving the payload out as Rust's
+does; the clone after the unlock is sound because an `upgrade` that lands
+then reads the old cell, which nothing writes. Drop the race sentence from
+`make_mut`'s doc comment, add the issue's stress loop
+(`issues/repros/2026-10-28-arc-make-mut-races-an-arcweak-upgrade.yo`) as a
+row of `tests/arc.test.yo` for the TSan job, and move the issue to
+`issues/fixed/`. Gate: `yo build --std-path ./std` on the new seed, `check
+./src`/`./std`, `tests/arc.test.yo`, `tests/rc.test.yo`,
+`tests/send_sync.test.yo`, `tests/thread.test.yo`, the TSan corpus and the
+stress repro under `--sanitize thread`.
+
 ## Seed-gated follow-up (2026-10-24): a cli-case for the borrow-spelling migration over a lexer error
 
 `_raw_parse_or_none` (`src/main.yo`) calls `Parser.new(src, file, local_exn)`,
