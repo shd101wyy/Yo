@@ -43,7 +43,7 @@ Codegen needed nothing. The definition-time body of a function with an `Impl(Fn(
 ## Regression tests
 
 - `tests/impl.test.yo` — "a static method over an Impl(Fn) parameter's type dispatches, per closure": the reproducer (`_OpenHolder`, a phantom parameter), plus `_OpenKeep` (a field mentions the parameter), each called with two closure types, and `_OpenKeep.keep(f, n)` (inferred). E0610 / E0613 before the fix.
-- `tests/handle_constructors.test.yo` — "Rc(type_of(f)).new(f) of an Impl(Fn) parameter dispatches, per closure": the shape B3's `dyn(f)` will synthesize, `Rc(type_of(f)).new(f)` wrapped in `Box(type_of(r)).new(r)`, and the unapplied `Rc.new(f)` / `Box.new(r)` / `Arc.new(f)` (a `Send` closure). E0610 / E0613 before the fix.
+- `tests/handle_constructors.test.yo` — "Rc(type_of(f)).new(f) of an Impl(Fn) parameter dispatches, per closure": the shape B3's `dyn(f)` will synthesize, `Rc(type_of(f)).new(f)` wrapped in `Box(type_of(r)).new(r)`, and the unapplied `Rc.new(f)` / `Box.new(r)` / `Arc.new(f)` (a `Send` + `Sync` closure). E0610 / E0613 before the fix.
 
 ## Related
 
