@@ -279,6 +279,12 @@ impl(
 ThrownErr :: struct(detail : String, r : ThrownRes);
 impl(ThrownErr, ToString(to_string : (fn(self : &Self) -> String)(self.detail.clone())));
 impl(ThrownErr, Error());
+impl(
+  ThrownErr,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(ThrownErr(detail : self.detail.clone(), r : self.r))
+  )
+);
 _throw_payload :: (fn(exn : Exception) -> i32)(
   exn.throw(dyn(ThrownErr(detail : `boom`, r : ThrownRes(tag : i32(1)))))
 );
