@@ -1,0 +1,14 @@
+// A module whose path is in the content-addressed store, as a fetched
+// dependency's is: decision 47's locals rule still exempts the store, and the
+// unique `Dyn` rule (decision 7) no longer does (B13).
+{ println } :: import("std/fmt");
+{ ToString } :: import("std/fmt/to_string");
+Cat :: struct(n : i32);
+impl(Cat, ToString(to_string : (fn(self : &Self) -> String)(`cat ${self.n}`)));
+main :: (fn() -> unit)({
+  (d : Dyn(ToString)) = dyn(Cat(n : i32(3)));
+  e := d;
+  println(e.to_string());
+  println(d.to_string());
+});
+export(main);
