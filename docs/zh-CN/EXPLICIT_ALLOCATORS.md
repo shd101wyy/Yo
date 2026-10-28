@@ -66,7 +66,8 @@ export(main);
 
 ## 放置：`alloc` 参数
 
-`box`、`rc` 和 `arc` 接受可选的 `alloc : Option(Allocator)`。`.Some(a)` 把单元放在 `a`
+`box`、`rc` 和 `arc`，以及它们对应的类型构造函数（`Box(T).new`、`Rc(T).new`、
+`Arc(T).new`），接受可选的 `alloc : Option(Allocator)`。`.Some(a)` 把单元放在 `a`
 中；默认值 `.None` 把它放在全局分配器上。单元通过放置它的分配器释放，无论最后一个
 句柄在哪个线程上被 drop。Yo 不会把值自动包装成 `Option`，所以调用方要写
 `.Some(...)`：

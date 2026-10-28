@@ -3331,6 +3331,10 @@ rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .No
 `alloc : .Some(a)` 把单元放到分配器 `a` 中；默认值 `.None` 把它放到全局分配器
 （[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
 
+类型自身的构造函数是 `Rc(T).new(value, alloc : …)`，参数相同：`rc(v)` 就是
+`Rc(T).new(v)`，正如 `box(v)` 就是 `Box(T).new(v)`、`arc(v)` 就是 `Arc(T).new(v)`。`dyn(v)` 通过
+`Rc(T).new`（`Send` 目标则是 `Arc(T).new`）构造它的单元。
+
 ### 使用示例
 
 ```yo

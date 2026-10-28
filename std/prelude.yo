@@ -9769,6 +9769,13 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 /// assert(b.* == i32(42), "a copy shares the cell");
 /// ```
 rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
+  // `Rc.new`'s body, kept here rather than forwarded until a seed carries
+  // static-argument inference A3 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md
+  // §5): the v0.2.70 seed's `dyn(...)` synthesizes `rc(<closure>)`, and a
+  // forwarded `Rc(V).new(...)` result is the concrete cell over the capture
+  // struct while this specialization keeps its declared `Rc(V)`, two C types
+  // (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md).
+  //
   // The cell constructor allocates from the thread's current scope, so an
   // explicit allocator is that scope for the one construction, as in `arc`
   // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_cell`, the explicit
@@ -9793,6 +9800,58 @@ rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .No
   );
   cell
 });
+/// The constructor of `Rc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
+/// `Rc(T).new(value)` is `rc(value)`, which keeps its own copy of the body
+/// for one generation (see `rc`).
+impl(
+  generic(T : Type),
+  Rc(T),
+  /// Move `value` into a fresh reference-counted cell whose `ref_count` is 1.
+  /// `alloc : .Some(a)` places the cell in `a`; the default, `.None`, places
+  /// it on the global allocator. The last handle's drop frees the cell through
+  /// that allocator. Panics when the allocator is out of memory. As with
+  /// `Arc.new`, and unlike `Box.new`, `a` is the thread's allocation scope for
+  /// the construction, so `a`'s callbacks must not create a
+  /// reference-counted object without an `alloc` argument
+  /// (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own allocator").
+  ///
+  /// ```yo
+  /// a := Rc(i32).new(i32(42));
+  /// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+  /// ```
+  new : (fn(sink(value) : T, (alloc : Option(Allocator)) ?= .None) -> Rc(T))({
+    // The result is written `Rc(T)`, not `Self`: a specialization evaluates a
+    // written return type again, which gives `dyn(...)`'s synthesized
+    // `Rc(T).new(<closure>)` the concrete cell over the closure's capture
+    // struct, the type the body builds; the baked-in `Self` kept the cell
+    // over the unbound `T`, a second C type
+    // (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md).
+    //
+    // The cell constructor allocates from the thread's current scope, so an
+    // explicit allocator is that scope for the one construction, as in
+    // `Arc.new` (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_cell`, the
+    // explicit path goes through the scope). Nothing between the two sets can
+    // unwind: an allocation failure aborts.
+    //
+    // The `match` is bound, not the body's tail: a tail `match` takes the
+    // declared result as its type, and for a `dyn(...)` closure that captures
+    // a parameter of a generic function that type is unbound, a second C type
+    // for the result (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
+    cell := match(
+      alloc,
+      .Some(a) => {
+        saved_ctx := __yo_scope_ctx();
+        saved_vtable := __yo_scope_vtable();
+        __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+        placed := Rc(T)(value);
+        __yo_scope_set(saved_ctx, saved_vtable);
+        placed
+      },
+      .None => Rc(T)(value)
+    );
+    cell
+  })
+);
 impl(
   generic(T : Type),
   where(T <: Hash),
@@ -10118,23 +10177,44 @@ _box_owner_of :: (fn(cell : *void) -> *_BoxOwner)(
 /// assert(e.* == i32(1), "the payload");
 /// ```
 box :: (fn(generic(V : Type), value : V, (alloc : Option(Allocator)) ?= .None) -> Box(V))({
-  owner := match(
-    alloc,
-    .Some(a) => _BoxOwner(ctx : a.ctx, vtable : .Some(a.vtable)),
-    .None => _BoxOwner(ctx : .None, vtable : .None)
-  );
-  size := (size_of(V) + _BOX_PREFIX_SIZE);
-  block := match(
-    match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size), .None => __yo_malloc(size)),
-    .Some(b) => b,
-    .None => __yo_panic("box: out of memory")
-  );
-  // SAFETY: `block` is a fresh, 16-aligned allocation of `size` bytes.
-  unsafe(consume((*_BoxOwner)(block).* = owner));
-  cell := (*V)(unsafe((*u8)(block).add(_BOX_PREFIX_SIZE)));
-  unsafe(consume(cell.* = value));
-  Box(V)(cell)
+  // `Box.new` holds the body; `box` forwards to it with the type argument
+  // written (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A2).
+  cell := Box(V).new(value, alloc : alloc);
+  cell
 });
+/// The constructor of `Box` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
+/// `Box(T).new(value)` is the spelling `box(value)` forwards to.
+impl(
+  generic(T : Type),
+  Box(T),
+  /// Move `value` into a new uniquely owned cell. `alloc : .Some(a)` places
+  /// the cell in `a`; the default, `.None`, places it on the global allocator.
+  /// The cell is freed through that allocator when the box is dropped. Panics
+  /// when the allocator is out of memory.
+  ///
+  /// ```yo
+  /// e := Box(i32).new(i32(1));
+  /// assert(e.* == i32(1), "the payload");
+  /// ```
+  new : (fn(value : T, (alloc : Option(Allocator)) ?= .None) -> Self)({
+    owner := match(
+      alloc,
+      .Some(a) => _BoxOwner(ctx : a.ctx, vtable : .Some(a.vtable)),
+      .None => _BoxOwner(ctx : .None, vtable : .None)
+    );
+    size := (size_of(T) + _BOX_PREFIX_SIZE);
+    block := match(
+      match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size), .None => __yo_malloc(size)),
+      .Some(b) => b,
+      .None => __yo_panic("Box.new: out of memory")
+    );
+    // SAFETY: `block` is a fresh, 16-aligned allocation of `size` bytes.
+    unsafe(consume((*_BoxOwner)(block).* = owner));
+    cell := (*T)(unsafe((*u8)(block).add(_BOX_PREFIX_SIZE)));
+    unsafe(consume(cell.* = value));
+    Box(T)(cell)
+  })
+);
 impl(
   generic(T : Type),
   Box(T),
@@ -10273,6 +10353,9 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
 /// assert(a.* == i32(42), "the payload");
 /// ```
 arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))({
+  // `Arc.new`'s body, kept here for `rc`'s reason: the seed's `dyn(...)`
+  // synthesizes `arc(<closure>)` for a Send target.
+  //
   // The cell constructor allocates from the thread's current scope, so an
   // explicit allocator is that scope for the one construction
   // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_atomic_cell`, the
@@ -10295,6 +10378,55 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
   );
   cell
 });
+/// The constructor of `Arc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
+/// `Arc(T).new(value)` is `arc(value)`, which keeps its own copy of the body
+/// for one generation (see `rc`).
+impl(
+  generic(T : Type),
+  where(T <: (Send, Sync)),
+  Arc(T),
+  /// Move `value` into a new atomically counted cell, returning a handle
+  /// whose `ref_count` is 1. `alloc : .Some(a)` places the cell in `a`; the
+  /// default, `.None`, places it on the global allocator. The last handle's
+  /// drop, on whichever thread, frees the cell through that allocator. Panics
+  /// when the allocator is out of memory.
+  ///
+  /// Unlike `Box.new`, which calls `a`'s `alloc` directly, `Arc.new` makes
+  /// `a` the thread's allocation scope for the construction, so `a`'s
+  /// callbacks must not create a reference-counted object without an `alloc`
+  /// argument (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own
+  /// allocator").
+  ///
+  /// ```yo
+  /// a := Arc(i32).new(i32(42));
+  /// assert(a.* == i32(42), "the payload");
+  /// ```
+  new : (fn(sink(value) : T, (alloc : Option(Allocator)) ?= .None) -> Arc(T))({
+    // `Arc(T)`, not `Self`, for `Rc.new`'s reason.
+    //
+    // The cell constructor allocates from the thread's current scope, so an
+    // explicit allocator is that scope for the one construction
+    // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_atomic_cell`, the
+    // explicit path goes through the scope). Nothing between the two sets
+    // can unwind: an allocation failure aborts.
+    //
+    // The `match` is bound, not the body's tail, for `Rc.new`'s reason
+    // (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
+    cell := match(
+      alloc,
+      .Some(a) => {
+        saved_ctx := __yo_scope_ctx();
+        saved_vtable := __yo_scope_vtable();
+        __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+        placed := Arc(T)(value);
+        __yo_scope_set(saved_ctx, saved_vtable);
+        placed
+      },
+      .None => Arc(T)(value)
+    );
+    cell
+  })
+);
 // `Sync` because every handle reads the payload from its own thread; `Send`
 // because the last handle may be dropped on any thread, and the payload's
 // `Drop` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's

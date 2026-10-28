@@ -155,8 +155,28 @@ legacy `Box(T)` keeps the same definition and impls until part 2 deletes it.
 The compiler recognises the shared cell BY NAME in a few places (the instance-name
 stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(<ctor>(<closure>))`);
 every such check reads the one list `shared_cell_names_at` (`src/types/guards.yo`),
-never a literal `"Box"`. `dyn(v)` on a non-object still synthesizes the canonical
-`rc(v)` (`shared_cell_canonical_names`). As a prelude name it cannot be redefined: a module-level or local
+never a literal `"Box"`. **`Rc(T).new(v, alloc :)`, `Box(T).new` and `Arc(T).new` are the
+handle constructors** (plans/backlog/STATIC_ARGUMENT_INFERENCE.md A2). `box` forwards to `Box(V).new`;
+`rc` and `arc` keep a copy of the body until a seed carries A3, because the v0.2.70 seed's `dyn`
+synthesizes `rc(<closure>)` and a forwarded `Rc(V).new(...)` result has a second C type (the open
+`issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
+`Rc.new`/`Arc.new` declare `-> Rc(T)`/`-> Arc(T)`, not `-> Self`: a written return type is
+evaluated again per specialization, which types the capture-struct cell `dyn` builds; the baked
+`Self` did not.
+`dyn(v)` on a non-object synthesizes `Rc(T).new(v)` (`Arc(T).new` for a Send Dyn) with a
+receiver node preset to the cell type (`_synthesized_cell_call`, `values/dyn.yo`). A payload whose
+type mentions a type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) is boxed by the
+prelude's `rc`/`arc` FUNCTION VALUE bound to the callee node: an unresolved variable cannot dispatch
+`new` outside a def-time trial
+(`issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md`),
+and a cell built as `Rc(T).new` over a resolved one keeps the variable in its type (a second C type
+with the cycle-capable header, measured by the emit-diff), where the generic `rc` binds the capture
+struct. Either way no
+name is looked up and a parameter named `rc` cannot capture the call. `dyn(Rc.new(<closure>))` is
+recognized beside `dyn(rc(<closure>))`; the applied `Rc(T).new(<closure>)` is not (a closure's type
+cannot be written as `T`). The recognized cell is `Rc(W)` over the Dyn's Fn-carrying wrapper `W`, an
+type variable, so that call too becomes the prelude `rc` value bound to the callee; its receiver is
+preset to `.TypeVal(Rc(W))` only when `W` mentions no type variable. As a prelude name `rc` cannot be redefined: a module-level or local
 binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
 named `rc` shadows it in its scope. `ref_count` is not in
 `is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local
