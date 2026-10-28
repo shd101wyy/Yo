@@ -5,9 +5,9 @@
 Node :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
 test("an Arc(Mutex(Node)) cycle broken before the last handle goes", {
   a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
-  b := a;
+  b := Arc.clone(a);
   a.with_lock(v => {
-    v = Node(id : i32(1), peer : .Some(b));
+    v = Node(id : i32(1), peer : .Some(Arc.clone(b)));
   });
   a.with_lock(v => {
     v = Node(id : i32(1), peer : .None);

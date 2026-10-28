@@ -10,9 +10,9 @@ Node :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
 test("an Arc(Mutex(Node)) cycle is left closed", {
   comptime_assert(!Type.impls(Node, Acyclic), "the node reaches itself");
   a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
-  b := a;
+  b := Arc.clone(a);
   a.with_lock(v => {
-    v = Node(id : i32(1), peer : .Some(b));
+    v = Node(id : i32(1), peer : .Some(Arc.clone(b)));
   });
   assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
 });
