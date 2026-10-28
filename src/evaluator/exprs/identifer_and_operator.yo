@@ -179,9 +179,9 @@ evaluate_identifier_and_operator :: (
   // Self — check context.self_type BEFORE looking up variables.
   // If Self is a SomeType that is bound in the env, resolve the concrete type.
   // ------------------------------------------------------------------
-  self_type_opt := ctx.self_type;
+  self_type_opt := ctx.self_type.clone();
   if((identifier == "Self") && self_type_opt.is_some(), {
-    self_tv := match(self_type_opt, .Some(tv) => tv, .None => t_unit());
+    self_tv := match(self_type_opt, .Some(tv) => Rc.clone(tv), .None => t_unit());
     resolved := if(is_some_type(&self_tv), {
       bound := get_value_of_some_type_from_env(env, &self_tv);
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
@@ -202,9 +202,9 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // SelfTrait — refers to the trait type currently being defined
   // ------------------------------------------------------------------
-  self_trait_opt := ctx.self_trait_type;
+  self_trait_opt := ctx.self_trait_type.clone();
   if((identifier == "SelfTrait") && self_trait_opt.is_some(), {
-    trait_tv := match(self_trait_opt, .Some(tv) => tv, .None => t_unit());
+    trait_tv := match(self_trait_opt, .Some(tv) => Rc.clone(tv), .None => t_unit());
     ev := create_type_value(&trait_tv);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
@@ -214,9 +214,9 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // SelfModule — refers to the module type currently being defined
   // ------------------------------------------------------------------
-  self_module_opt := ctx.self_module_type;
+  self_module_opt := ctx.self_module_type.clone();
   if((identifier == "SelfModule") && self_module_opt.is_some(), {
-    module_tv := match(self_module_opt, .Some(tv) => tv, .None => t_unit());
+    module_tv := match(self_module_opt, .Some(tv) => Rc.clone(tv), .None => t_unit());
     ev := create_type_value(&module_tv);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
@@ -467,7 +467,7 @@ evaluate_identifier_and_operator :: (
   // Build ExprInfo
   info := new_expr_info(env, &variable.ty);
   info.value = resolved_value;
-  expr_info_set_origin_type(&info, Option(TypeValue).Some(variable.ty));
+  expr_info_set_origin_type(&info, Option(TypeValue).Some(Rc.clone(variable.ty)));
   info.variable_name = Option(String).Some(variable.name.clone());
   info.source_variable = Option(Variable).Some(variable);
   // path_collection = [[variable.name]], shared per name.
@@ -477,7 +477,7 @@ evaluate_identifier_and_operator :: (
   // `source_variable`; codegen still resolves the symbol by name through
   // the atom, so the scope release records the name (cheap gates first:
   // this path runs for every identifier).
-  if(match(variable.ty, Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable.ty) && is_extern_c_global(variable.name.clone()))), {
+  if(match(&variable.ty, Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable.ty) && is_extern_c_global(variable.name.clone()))), {
     scope_release_note_query(ast_expr_id(expr), variable.name.clone());
   });
   // ------------------------------------------------------------------

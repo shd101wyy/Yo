@@ -55,12 +55,12 @@ try_to_implement_module_with_arguments_by_module_type :: (
   // Extract field labels and types from the source-namespace Struct.
   field_labels := match(
     module_type,
-    Rc(.Struct({ field_labels : labels })) => labels,
+    Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
     _ => no_labels()
   );
   field_types := match(
     module_type,
-    Rc(.Struct({ field_types : types })) => types,
+    Rc(.Struct({ field_types : types })) => Rc.clone(types),
     _ => no_types()
   );
   sns_ty_id := match(
@@ -94,7 +94,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     field_label_opt := field_labels.get(i);
     field_type_opt := field_types.get(i);
     field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
-    field_type := match(field_type_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    field_type := match(field_type_opt, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit));
     (found_arg : bool) = false;
     (j : usize) = usize(0);
     while(j < n_args, {
@@ -172,7 +172,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         found_arg = true;
         // Evaluate the value sub-expression with expected type = field_type.
         saved_expected := ctx.expected_type;
-        ctx.expected_type = .Some(ExpectedTypeCtx(ty : field_type, env : caller_env));
+        ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : caller_env));
         evaluated_arg_gout := ArrayList(AstExpr).new();
         evaluated_arg_gerr := evaluate_expression_guarded(&value_sub, &caller_env, ctx, &mut evaluated_arg_gout);
         ctx.expected_type = saved_expected;
@@ -193,7 +193,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         reject_second_class_escape(&arg_info.ty, String.from("stored in a module member"), ast_expr_token(&value_sub), ctx, exn);
         set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
         caller_env = expr_info_adopt_env(&arg_info);
-        arg_type := arg_info.ty;
+        arg_type := Rc.clone(arg_info.ty);
         if(!are_types_compatible(&arg_type, &field_type), {
           exn.throw(
             dyn(

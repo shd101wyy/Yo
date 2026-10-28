@@ -199,7 +199,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // carry no `is_extern` slot in `TypeValue` and are never called, so the
     // gate does not need them. `ioBuiltin` is codegen-only and stays skipped.
     field_ty_with_extern := match(
-      result.field_type,
+      &result.field_type,
       Rc(
         .Func({
           forall_types : fts,
@@ -211,11 +211,11 @@ User code should normally call stdlib wrappers (e.g. functions in
         })
       ) => rc(
         TypeValueNode.Func(
-          fts,
-          pts,
-          its,
-          wts,
-          ret,
+          Rc.clone(fts),
+          Rc.clone(pts),
+          Rc.clone(its),
+          Rc.clone(wts),
+          Rc.clone(ret),
           rc(
             FuncMeta(
               forall_labels : m.*.forall_labels.clone(),
@@ -235,16 +235,16 @@ User code should normally call stdlib wrappers (e.g. functions in
           no_types()
         )
       ),
-      _ => result.field_type
+      _ => Rc.clone(result.field_type)
     );
     field_labels.push(result.label.clone());
-    field_types.push(field_ty_with_extern);
+    field_types.push(Rc.clone(field_ty_with_extern));
     env_adopt(&env, &result.env);
     // An `extern("Yo", X : Type)` member declares an opaque FFI type: its
     // value IS that type, a nominal `ExternOpaqueT` (types/definitions.yo),
     // not a placeholder the uses turn into a SomeT.
     field_val := match(
-      result.field_type,
+      &result.field_type,
       Rc(.TypeUni(fv_lvl)) => cond(
         (fv_lvl == usize(0)) => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), String.new())),
         true => create_unknown_val_with_name(&field_ty_with_extern, result.label.clone())

@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 get_derive_rule_type :: (fn(name : &String) -> Option(TypeValue))(
   match(
     g_derive_rule_types.with(m => m.get(name)),
-    .Some(v) => match(v, .TypeVal(t) => Option(TypeValue).Some(t), _ => Option(TypeValue).None),
+    .Some(v) => match(v, .TypeVal(t) => Option(TypeValue).Some(Rc.clone(t)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   )
 );
@@ -153,7 +153,7 @@ evaluate_derive_rule :: (
   });
   // Store in the global registry (value + Func type).
   g_derive_rules.with_mut(m => m.insert(key.clone(), derive_fn_val));
-  g_derive_rule_types.with_mut(m => m.insert(key.clone(), EvalValue.TypeVal(derive_fn_info.ty)));
+  g_derive_rule_types.with_mut(m => m.insert(key.clone(), EvalValue.TypeVal(Rc.clone(derive_fn_info.ty))));
   out := new_expr_info(env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);

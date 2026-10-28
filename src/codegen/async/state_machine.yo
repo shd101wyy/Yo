@@ -278,7 +278,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
     _ => match(
       context.base.get_expr_info(callee),
       .Some(ci) => match(
-        ci.ty,
+        &ci.ty,
         Rc(.Func({ result : _ })) => fn_abi_param_is_ptr(&ci.ty),
         _ => match(extract_fn_trait_from_type(&ci.ty), .Some(sm_ft) => fn_param_mut_ref_flags(&sm_ft).items.clone(), .None => ArrayList(bool).new())
       ),
@@ -975,7 +975,7 @@ compute_overlapping_slots :: (
             nm := match(
               _find_captured_by_id(&eligible, gid.clone()),
               .Some(fv) => {
-                slot_ty = fv.base.ty;
+                slot_ty = Rc.clone(fv.base.ty);
                 fv.base.name.clone()
               },
               .None => gid.clone()
@@ -1008,7 +1008,7 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
     some_resolution(future_type),
     .Some(resolved) => {
       if(is_some_type(&resolved), {
-        rcid := match(resolved, Rc(.SomeT({ id })) => id, _ => String.from(""));
+        rcid := match(&resolved, Rc(.SomeT({ id })) => id, _ => String.from(""));
         if(context.base.types.contains_key(&rcid), {
           return(false);
         });
@@ -1016,7 +1016,7 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
       if(is_struct_type(&resolved), {
         capture_id := match(resolved, Rc(.Struct({ id })) => id, _ => String.from(""));
         for(&context.base.types, (_tid, entry) => {
-          ety := entry.ty;
+          ety := Rc.clone(entry.ty);
           if(is_some_type(&ety) && type_implements_future(&ety), {
             match(
               some_resolution(&ety),
@@ -1136,8 +1136,8 @@ _build_combined_sm_variables :: (
   match(
     capture_type,
     .Some(ct) => {
-      flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
-      ftypes := match(ct, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
+      flabels := match(&ct, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
+      ftypes := match(ct, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
         lbl := match(flabels.get(j), .Some(l) => l, .None => String.from(""));
@@ -1173,7 +1173,7 @@ find_bundle_field_name :: (
     state_machine_field_aliases : &Option(HashMap(String, String))
   ) -> Option(String)
 )({
-  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => no_types());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => Rc.clone(et), _ => no_types());
   (eff_id : Option(String)) = Option(String).None;
   (ei : usize) = usize(0);
   while((ei < eff_types.len()) && eff_id.is_none(), {
@@ -1202,7 +1202,7 @@ find_bundle_field_name :: (
               smvar := b.value;
               is_outer := match(smvar.kind, .Outer => true, .Local => false);
               if(!is_outer, {
-                svid := match(smvar.base.ty, Rc(.Struct({ id })) => id, _ => String.from(""));
+                svid := match(&smvar.base.ty, Rc(.Struct({ id })) => id, _ => String.from(""));
                 if(svid == target_id, {
                   aliased := match(state_machine_field_aliases, .Some(al) => al.get_cloned(smvar.base.id.to_string()), .None => Option(String).None);
                   match(
@@ -1241,8 +1241,8 @@ emit_effect_record_injection_for_sm :: (
     expr : &AstExpr
   ) -> unit
 )({
-  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
-  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
+  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
+  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
   (fi : usize) = usize(0);
   while(fi < field_labels.len(), {
     flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
@@ -1408,12 +1408,12 @@ emit_effect_injection_for_sm :: (
     .Some(fut_arg) => match(
       context.base.get_expr_info(&fut_arg),
       .Some(fei) => {
-        fut_ty := fei.ty;
+        fut_ty := Rc.clone(fei.ty);
         match(
           extract_future_trait_from_type(&fut_ty),
           .Some(ftrait) => {
-            eff_labels := match(ftrait, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => no_labels());
-            eff_types := match(ftrait, Rc(.FutureTraitT({ effect_types : et })) => et, _ => no_types());
+            eff_labels := match(&ftrait, Rc(.FutureTraitT({ effect_labels : el })) => Rc.clone(el), _ => no_labels());
+            eff_types := match(&ftrait, Rc(.FutureTraitT({ effect_types : et })) => Rc.clone(et), _ => no_types());
             (i : usize) = usize(0);
             while(i < eff_labels.len(), {
               elabel := match(eff_labels.get(i), .Some(l) => l, .None => String.from(""));
@@ -1446,7 +1446,7 @@ emit_effect_injection_for_sm :: (
                       bundle_code := _call_generate_expr(&bundle_arg, indent.clone(), context);
                       bundle_cast_ty := match(
                         context.base.get_expr_info(&bundle_arg),
-                        .Some(bae) => if(is_struct_type(&bae.ty), bae.ty, etype),
+                        .Some(bae) => if(is_struct_type(&bae.ty), Rc.clone(bae.ty), etype),
                         .None => etype
                       );
                       bundle_type := get_type_string(&bundle_cast_ty, &context.base);
@@ -1602,7 +1602,7 @@ _inline_await_result_type :: (fn(expr : &AstExpr, analysis : &Option(AwaitAnalys
         match(
           a.await_points.get(i),
           .Some(ap) => if(ast_expr_id(&ap.base.expr) == eid, {
-            return(ap.result_type);
+            return(Rc.clone(ap.result_type));
           }),
           .None => ()
         );
@@ -1610,7 +1610,7 @@ _inline_await_result_type :: (fn(expr : &AstExpr, analysis : &Option(AwaitAnalys
     },
     .None => ()
   );
-  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => rc(TypeValueNode.Unit))
+  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty), .None => rc(TypeValueNode.Unit))
 });
 
 /// Whether `t` is a unit result (or an unresolved Future SomeType): no field.
@@ -1632,7 +1632,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
   add := (fn(e : &AstExpr, t : &TypeValue, out : &mut ArrayList(InlineAwaitResultField), seen : &mut HashSet(usize), prefix : &String) -> unit)({
     if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.with(s => s.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
-      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
+      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : Rc.clone(t), expr : e));
     });
   });
   (i : usize) = usize(0);
@@ -1747,7 +1747,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   );
   future_ty := match(
     context.base.get_expr_info(&future_arg),
-    .Some(ei) => ei.ty,
+    .Some(ei) => Rc.clone(ei.ty),
     .None => {
       codegen_fatal(String.from("await argument without type information"));
       return(String.from(""));
@@ -1914,7 +1914,7 @@ generate_async_block_resume_function_inline :: (
   p_vr := context.variable_id_remapping;
   p_pdd := context.pending_deferred_drops;
   context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
-  context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+  context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : Rc.clone(future_type)));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
   pdd := ArrayList(AstExpr).new();

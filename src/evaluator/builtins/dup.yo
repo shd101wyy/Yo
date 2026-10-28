@@ -70,16 +70,16 @@ evaluate_dup :: (
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&arg_info);
-  arg_type := arg_info.ty;
+  arg_type := Rc.clone(arg_info.ty);
   // Resolve a SomeT that carries a resolution.
-  (concrete_type : TypeValue) = arg_type;
+  (concrete_type : TypeValue) = Rc.clone(arg_type);
   if(is_some_type(&concrete_type), {
     match(
-      concrete_type,
+      Rc.clone(concrete_type),
       Rc(.SomeT({ resolution : dup_rc_cell })) => match(
         dup_rc_cell,
         .Some(dup_rc_inner) => {
-          concrete_type = dup_rc_inner;
+          concrete_type = Rc.clone(dup_rc_inner);
         },
         .None => ()
       ),
@@ -105,7 +105,7 @@ evaluate_dup :: (
     if(dup_var_name.len() > usize(0), {
       (dup_calls : ArrayList(String)) = ArrayList(String).new();
       if(is_tuple_type(&concrete_type), {
-        tup_fts := match(concrete_type, Rc(.Tuple(_, fts)) => fts, _ => no_types());
+        tup_fts := match(&concrete_type, Rc(.Tuple(_, fts)) => Rc.clone(fts), _ => no_types());
         (dti : usize) = usize(0);
         while(dti < tup_fts.len(), {
           ft := match(tup_fts.get(dti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -118,7 +118,7 @@ evaluate_dup :: (
       if(is_array_type(&concrete_type), {
         (arr_elem, arr_len, arr_lvar) := match(
           concrete_type,
-          Rc(.Array(e, l, lv)) => (e, l, lv),
+          Rc(.Array(e, l, lv)) => (Rc.clone(e), l, lv),
           _ => (rc(TypeValueNode.Unit), usize(0), String.new())
         );
         // Only compile-time-known lengths; a

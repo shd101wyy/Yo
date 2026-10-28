@@ -66,8 +66,8 @@ evaluate_array_value :: (
     ctx.expected_type,
     .Some(et) => cond(
       is_array_type(&et.ty) => match(
-        et.ty,
-        Rc(.Array(box_elem, _, _)) => Option(TypeValue).Some(box_elem),
+        &et.ty,
+        Rc(.Array(box_elem, _, _)) => Option(TypeValue).Some(Rc.clone(box_elem)),
         _ => Option(TypeValue).None
       ),
       true => Option(TypeValue).None
@@ -85,8 +85,8 @@ evaluate_array_value :: (
     // Save/restore expected_type around element evaluation.
     old_expected := ctx.expected_type;
     ctx.expected_type = match(
-      expected_elem_type_opt,
-      .Some(et) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : et, env : env_loop)),
+      &expected_elem_type_opt,
+      .Some(et) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(et), env : env_loop)),
       .None => Option(ExpectedTypeCtx).None
     );
     evaluated_elem_gout := ArrayList(AstExpr).new();
@@ -114,15 +114,15 @@ evaluate_array_value :: (
     env_loop = expr_info_adopt_env(&elem_info);
     element_values.push(elem_info.value);
     runtime_arg_exprs.push(evaluated_elem);
-    elem_ty := elem_info.ty;
+    elem_ty := Rc.clone(elem_info.ty);
     // Determine or type-check the running array element type.
     array_elem_type_opt = match(
-      array_elem_type_opt,
+      &array_elem_type_opt,
       // First element: adopt expected hint or inferred type.
       .None => Option(TypeValue).Some(
         match(
-          expected_elem_type_opt,
-          .Some(et) => et,
+          &expected_elem_type_opt,
+          .Some(et) => Rc.clone(et),
           .None => elem_ty
         )
       ),
@@ -130,7 +130,7 @@ evaluate_array_value :: (
       .Some(inferred_ty) => {
         compat := are_types_compatible(&elem_ty, &inferred_ty);
         cond(
-          compat => Option(TypeValue).Some(inferred_ty),
+          compat => Option(TypeValue).Some(Rc.clone(inferred_ty)),
           true => {
             // Try promoting comptime type to runtime type (e.g. comptime_int → i32).
             converted := convert_comptime_type_to_runtime_type(&inferred_ty, &env_loop);
@@ -148,7 +148,7 @@ evaluate_array_value :: (
                     )
                   )
                 );
-                Option(TypeValue).Some(inferred_ty) // unreachable
+                Option(TypeValue).Some(Rc.clone(inferred_ty)) // unreachable
               }
             )
           }
@@ -160,7 +160,7 @@ evaluate_array_value :: (
   // Unwrap the final element type (always set after the loop since array_len > 0).
   array_elem_type := match(
     array_elem_type_opt,
-    .Some(ty) => ty,
+    .Some(ty) => Rc.clone(ty),
     .None => {
       exn.throw(
         dyn(
