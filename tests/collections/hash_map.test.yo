@@ -800,7 +800,7 @@ test("entry's body is an FnOnce: it moves a capture out of its body", {
   s := String.from("first");
   r := m.entry(i32(1), { s }(e) => {
     n := _hm_len_of(s);
-    e.or_insert(n)
+    e.or_insert(&n)
   });
   assert(r == usize(5), "the body consumed its captured String");
   assert(m.get(i32(1)).unwrap() == usize(5), "the map holds the inserted value");
