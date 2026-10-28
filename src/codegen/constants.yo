@@ -16,6 +16,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { Exception, AnyError } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 { TypeTag } :: import("../types/tags.yo");
 { Token } :: import("../token.yo");
 { format_error_message, format_coded_error } :: import("../error.yo");
@@ -194,28 +195,26 @@ is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
 /// used to hold the driver's `Exception` itself; a stored handler can
 /// outlive the frame that installed it, so a module-level binding of one is
 /// rejected (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.5).
-(mut(g_codegen_error) : Option(AnyError)) = Option(AnyError).None;
+/// A `RefCell` rather than a `mut` global: a `mut` global holding a `Dyn` can
+/// be neither lent nor copied (decisions 7 and 18), and the cell's
+/// `with`/`replace` read and take it.
+(g_codegen_error : RefCell(Option(AnyError))) = RefCell(Option(AnyError)).new(Option(AnyError).None);
 _record_codegen_error :: (fn(err : &AnyError) -> unit)(
-  match(
-    g_codegen_error,
-    .None => {
-      g_codegen_error = Option(AnyError).Some(err);
-    },
-    .Some(_) => ()
-  )
+  if(g_codegen_error.with(o => o.is_none()), {
+    g_codegen_error.replace(Option(AnyError).Some(err.clone()));
+  })
 );
 /// Forget an error a previous compile recorded but never raised (it threw
 /// before its emission phase ended).
 clear_codegen_error :: (fn() -> unit)({
-  g_codegen_error = Option(AnyError).None;
+  g_codegen_error.replace(Option(AnyError).None);
 });
 /// Throw the recorded codegen error, if any, through `exn` (the caller's
 /// handler, alive in the caller's frame).
 raise_codegen_error :: (fn(exn : Exception) -> unit)(
   match(
-    g_codegen_error,
+    g_codegen_error.replace(Option(AnyError).None),
     .Some(err) => {
-      g_codegen_error = Option(AnyError).None;
       exn.throw(&err);
       ()
     },
