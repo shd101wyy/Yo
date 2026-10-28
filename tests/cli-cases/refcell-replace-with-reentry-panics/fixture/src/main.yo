@@ -6,7 +6,7 @@
 { RefCell } :: import("std/sync/refcell");
 main :: (fn() -> unit)({
   a := rc(RefCell(i32).new(i32(1)));
-  b := a;
+  b := Rc.clone(a);
   a.replace_with(v => {
     println(`computing from ${v.to_string()}`);
     v + b.with(w => w)
