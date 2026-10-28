@@ -7,6 +7,7 @@
 { TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue, intern_token_str } :: import("./token.yo");
 { format_lexer_error } :: import("./error.yo");
 { UnicodeEscape, scan_unicode_escape, surrogate_escape_error_message, interpolation_body_end } :: import("./utils.yo");
+{ step_len } :: import("std/encoding/utf8");
 /// One shared value String per fixed punctuation token. A backtick literal
 /// builds a fresh String per evaluation, so each `(`, `,`, `}` … token held
 /// its own one-byte buffer: with the unshared `.` and number tokens, the
@@ -108,35 +109,40 @@ tokenize_span :: (
   // index into `input` now that `String` is byte-indexed — every consumer
   // that slices `input` reads `Token.byte_offset` instead
   // (issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
-  // One `char_indices()` pass fills both lists; `chars()` and `char_indices()`
-  // stop at the same byte on malformed input, so they stay in lockstep.
+  // One pass fills both lists. It walks `[start_byte, end_byte)` of `input`
+  // in place, through the shared cell: a `char_indices()` iterator owns its
+  // string, so it would copy the whole file once `String` is a value
+  // (plans/VALUES_BY_DEFAULT.md B8). It yields the runes `char_indices()` over
+  // the span yields and stops where it stops: each step is the lead byte's
+  // `step_len`, and the walk ends at the first sequence that does not decode
+  // or that the span's end cuts short.
   char_byte_offsets := ArrayList(usize).new();
   {
-    span := cond(
-      ((start_byte == usize(0)) && (end_byte == input.*.len())) => input.*,
-      true => input.*.substring(start_byte, end_byte)
-    );
-    c_iter := span.char_indices();
-    while(true, {
+    (mut(b) : usize) = start_byte;
+    while(b < end_byte, {
+      w := step_len(input.*.byte_at(b));
+      if((b + w) > end_byte, {
+        break;
+      });
       match(
-        c_iter.next(),
+        input.*.at(b),
         .None => {
           break;
         },
-        .Some(pair) => {
+        .Some(r) => {
           // A leading UTF-8 BOM (EF BB BF) decodes to U+FEFF and would be
           // absorbed into the first identifier/keyword ("Variable
           // '<BOM>open' not found"), so skip it — byte 0 only; elsewhere
           // U+FEFF is an ordinary identifier rune. Windows PowerShell 5.1
           // (`Set-Content -Encoding UTF8`) and several Windows editors emit
           // BOM'd UTF-8 (issues/fixed/lexer-rejects-leading-utf8-bom.md).
-          is_leading_bom := (((start_byte + pair._0) == usize(0)) && (pair._1.char == u32(0xFEFF)));
-          if(!is_leading_bom, {
-            char_byte_offsets.push(start_byte + pair._0);
-            chars.push(pair._1);
+          if(!((b == usize(0)) && (r.char == u32(0xFEFF))), {
+            char_byte_offsets.push(b);
+            chars.push(r);
           });
         }
       );
+      b = (b + w);
     });
   };
   // One-past-the-end byte offset, so a token that starts at EOF still gets a
