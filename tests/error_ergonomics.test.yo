@@ -16,12 +16,14 @@ impl(
   ToString(to_string : (fn(self : &Self) -> String)(`no such file: ${self.path}`))
 );
 impl(NotFound, Error());
+derive(NotFound, Clone);
 Denied :: struct(who : String);
 impl(
   Denied,
   ToString(to_string : (fn(self : &Self) -> String)(`denied for ${self.who}`))
 );
 impl(Denied, Error());
+derive(Denied, Clone);
 test("AnyError.is identifies the concrete type behind an AnyError", {
   (e : AnyError) = dyn(NotFound(path : `/tmp/x`));
   assert(e.is(NotFound), "the type it really is");

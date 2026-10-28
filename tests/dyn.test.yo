@@ -473,6 +473,12 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
     )
   );
   impl(RefErr, Error());
+  impl(
+    RefErr,
+    Clone(
+      clone : (fn(self : &Self) -> Self)(RefErr(msg : self.msg.clone()))
+    )
+  );
   // A VALUE enum goes through the auto-box path, so the bound must be decided on
   // the UNBOXED concrete rather than on `Rc(ValErr)`.
   ValErr :: enum(Boom, Bust);
