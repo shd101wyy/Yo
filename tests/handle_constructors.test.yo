@@ -140,10 +140,23 @@ _cell_of_fn :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)({
   b := Box(type_of(r)).new(r);
   (b.*.*)(i32(3))
 });
+// The unapplied spellings infer `T := type_of(f)` (static-argument inference).
+_cell_of_fn_inferred :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)({
+  r := Rc.new(f);
+  b := Box.new(r);
+  (b.*.*)(i32(3))
+});
+_arc_of_fn_inferred :: (fn(f : Impl(Fn(x : i32) -> i32, Send)) -> i32)({
+  a := Arc.new(f);
+  (a.*)(i32(3))
+});
 test("Rc(type_of(f)).new(f) of an Impl(Fn) parameter dispatches, per closure", {
   n := i32(5);
   assert(_cell_of_fn(x => (x + n)) == i32(8), "the cell's closure");
   assert(_cell_of_fn(x => (x * n)) == i32(15), "a second closure type");
+  assert(_cell_of_fn_inferred(x => (x + n)) == i32(8), "Rc.new(f), Box.new(r)");
+  assert(_cell_of_fn_inferred(x => (x * n)) == i32(15), "a second closure type");
+  assert(_arc_of_fn_inferred(x => (x + i32(40))) == i32(43), "Arc.new(f) of a Send closure");
 });
 // Static-argument inference (A1): the unapplied spellings infer the payload
 // type from the value.
