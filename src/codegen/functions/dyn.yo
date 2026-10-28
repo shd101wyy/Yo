@@ -51,18 +51,8 @@ _box_field_name :: (fn(data_type : &TypeValue) -> String)(
 /// Drain a HashMap-key iterator into an ArrayList of the keys.
 _dyn_impl_keys :: (fn(context : &FunctionGenerationContext) -> ArrayList(String))({
   out := ArrayList(String).new();
-  it := context.base.dyn_impls.keys();
-  (done : bool) = false;
-  while(!done, {
-    match(
-      it.next(),
-      .Some(k) => {
-        out.push(k);
-      },
-      .None => {
-        done = true;
-      }
-    );
+  for(&context.base.dyn_impls, (k, _v) => {
+    out.push(k.clone());
   });
   out
 });

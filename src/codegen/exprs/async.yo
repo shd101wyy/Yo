@@ -12,6 +12,7 @@
   AstExpr,
   ast_expr_id,
   ast_expr_token,
+  ast_expr_text,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
   BK_BEGIN,
@@ -508,20 +509,12 @@ AsyncBlockStructInfo :: ref(
 /// type-entry c_name if present, else `async_capture_<id>`.
 _find_capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> String)({
   target_key := type_key(capture_type);
-  vals := context.base.types.values();
-  (go : bool) = true;
   (found : Option(String)) = Option(String).None;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(entry) => if(type_key(&entry.ty) == target_key, {
-        found = Option(String).Some(entry.c_name.clone());
-        go = false;
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&context.base.types, (_tid, entry) => {
+    if(type_key(&entry.ty) == target_key, {
+      found = Option(String).Some(entry.c_name.clone());
+      break;
+    });
   });
   match(
     found,
@@ -1085,18 +1078,10 @@ _rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent 
 /// True if `capture_type` is registered in `context.types`.
 _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> bool)({
   target_key := type_key(capture_type);
-  vals := context.base.types.values();
-  (go : bool) = true;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(entry) => if(type_key(&entry.ty) == target_key, {
-        return(true);
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&context.base.types, (_tid, entry) => {
+    if(type_key(&entry.ty) == target_key, {
+      return(true);
+    });
   });
   false
 });
@@ -1540,7 +1525,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
       match(
         args.get(usize(0)),
         .Some(a0) => if(ast_expr_is_atom(&a0), {
-          return(Option(String).Some(ast_expr_token(&a0).value));
+          return(Option(String).Some(ast_expr_text(&a0)));
         }),
         .None => ()
       );
@@ -1553,7 +1538,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
             match(
               fargs.get(usize(0)),
               .Some(f0) => if(ast_expr_is_atom(&f0), {
-                return(Option(String).Some(ast_expr_token(&f0).value));
+                return(Option(String).Some(ast_expr_text(&f0)));
               }),
               .None => ()
             );
@@ -3031,7 +3016,7 @@ _make_sm_captured_variable :: (fn(id : &String, name : &String, ty : &TypeValue,
 /// without mutating the source map.
 _copy_string_map :: (fn(src : &HashMap(String, String)) -> HashMap(String, String))({
   out := HashMap(String, String).new();
-  it := src.into_iter();
+  it := src.clone().into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -3245,7 +3230,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(sm_var_map);
   // Merged field aliases: await_future_N + slot_N + closure-param slot fields.
   merged_aliases := _copy_string_map(&await_future_temp_var_aliases);
-  osa_it := overlapping_slot_aliases.into_iter();
+  osa_it := overlapping_slot_aliases.clone().into_iter();
   (ogo : bool) = true;
   while(ogo, {
     match(
@@ -3544,19 +3529,11 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
 /// Pre-register every function body's async-block state-machine types before
 /// function declarations are generated, so prototypes see the right struct names.
 preregister_async_block_types :: (fn(context : &FunctionGenerationContext) -> unit)({
-  vals := context.base.functions.values();
-  (go : bool) = true;
-  while(go, {
+  for(&context.base.functions, (_fid, entry) => {
     match(
-      vals.next(),
-      .Some(entry) => match(
-        entry.value,
-        .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(&__fvd3.*.body, context),
-        _ => ()
-      ),
-      .None => {
-        go = false;
-      }
+      entry.value,
+      .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(&__fvd3.*.body, context),
+      _ => ()
     );
   });
 });
