@@ -330,7 +330,7 @@ _canonical_owner :: (fn(owner : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(owner));
-      _canonical_owner_memo.with_mut(m => m.insert(owner.clone(), c));
+      _canonical_owner_memo.with_mut(m => m.insert(owner.clone(), Rc.clone(c)));
       c
     }
   )

@@ -434,7 +434,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     final_code := if(
       (final_code0.len() > usize(0)) && !_is_control_flow_code(&final_code0) && has_pending_emittable_drop(body_expr, context),
       match(
-        match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(bei.ty), .None => Option(TypeValue).None),
+        match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(Rc.clone(bei.ty)), .None => Option(TypeValue).None),
         .Some(bt) => if(is_unit_type(&bt) || is_never_type(&bt), final_code0, {
           av := fresh_local_name(String.from("__yo_arm_"), &context.base.current_function_name);
           em.emit_string_line(`${indent.clone()}${get_type_string(&bt, &context.base)} ${av.clone()} = ${final_code0};`);
@@ -485,7 +485,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     // (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
     out := if((code.len() > usize(0)) && !_is_control_flow_code(&code) && has_pending_emittable_drop(body_expr, context), {
       em := context.base.emitter;
-      body_ty := match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(bei.ty), .None => Option(TypeValue).None);
+      body_ty := match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(Rc.clone(bei.ty)), .None => Option(TypeValue).None);
       match(
         body_ty,
         .Some(bt) => if(is_unit_type(&bt), {
@@ -1885,7 +1885,7 @@ _variant_field_code :: (fn(enum_ty : &TypeValue, vname : &String, label : &Strin
 _struct_pattern_labels :: (fn(t : &TypeValue) -> SharedList(String))(
   match(
     t,
-    Rc(.Struct({ field_labels : fls })) => fls,
+    Rc(.Struct({ field_labels : fls })) => Rc.clone(fls),
     _ => no_labels()
   )
 );
@@ -1893,7 +1893,7 @@ _struct_pattern_labels :: (fn(t : &TypeValue) -> SharedList(String))(
 _struct_pattern_field_tys :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
   match(
     t,
-    Rc(.Struct({ field_types : fts })) => fts,
+    Rc(.Struct({ field_types : fts })) => Rc.clone(fts),
     _ => no_types()
   )
 );
@@ -1905,7 +1905,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     .Wildcard => (),
     .Bind(name, _, _) => {
       names.push(name.clone());
-      types.push(ty);
+      types.push(Rc.clone(ty));
     },
     .Const(_, _, _, _, _) => (),
     .Range(_, _, _, _, _, _, _) => (),
@@ -1926,7 +1926,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     },
     .At(name, _, _, Box(sub)) => {
       names.push(name.clone());
-      types.push(ty);
+      types.push(Rc.clone(ty));
       recur(&sub, ty, names, types);
     },
     .ThroughBox(_, inner_ty, Box(sub)) => {
@@ -2051,8 +2051,8 @@ _emit_pattern_chain :: (
         line.push_str(";");
         em.emit_string_line(&line);
       });
-      labels_v := match(enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l, .None => no_labels()), _ => no_labels());
-      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
+      labels_v := match(&enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l, .None => no_labels()), _ => no_labels());
+      ftys := match(&enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
       v_cell := (in_cell || pattern_position_is_cell(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
@@ -2247,7 +2247,7 @@ _emit_pattern_chain :: (
 /// a cell handle's cell (`cell_handle_view`; the handle is a C-transparent
 /// newtype, so its value is the cell pointer), else `box_ty` itself.
 _through_box_cell_type :: (fn(box_ty : &TypeValue) -> TypeValue)(
-  match(cell_handle_view(box_ty), .Some(v) => v.cell, .None => box_ty.clone())
+  match(cell_handle_view(box_ty), .Some(v) => Rc.clone(v.cell), .None => box_ty.clone())
 );
 /// Are all arms of a match classic switch shapes?
 /// The `Rc` cell a borrow match looks through on every arm, when the
@@ -2296,7 +2296,7 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
         k := type_key(&bt);
         cond(
           cell.is_none() => {
-            cell = .Some(bt);
+            cell = .Some(Rc.clone(bt));
             cell_key = k;
           },
           !(k == cell_key) => return(.None),
@@ -2494,7 +2494,7 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &F
 _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
   temp_var_opt := ei.variable_name.clone();
-  value_type := ei.ty;
+  value_type := Rc.clone(ei.ty);
   is_unit := is_unit_type(&value_type);
   em := context.base.emitter;
   if(
@@ -2522,7 +2522,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   args := _args(expr);
   subject := match(args.get(usize(0)), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a subject"))));
   subject_ei := match(context.base.get_expr_info(&subject), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a valid type"))));
-  (match_value_type : TypeValue) = subject_ei.ty;
+  (match_value_type : TypeValue) = Rc.clone(subject_ei.ty);
   (matched_value_code : String) = _call_generate_expr(&subject, indent.clone(), context);
   // Materialize the subject into its temp var when the evaluator assigned one
   // — for a NON-atom subject (a call, a field read) whose value the arms then
@@ -2641,7 +2641,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(&match_value_type);
   is_ref_sem := (!is_ptr && (is_reference_struct_type(&match_value_type) || is_reference_enum_type(&match_value_type)));
-  enum_type0 := if(is_ptr, match(match_value_type, Rc(.Pointer(p)) => p, _ => match_value_type), match_value_type);
+  enum_type0 := if(is_ptr, match(&match_value_type, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(match_value_type)), Rc.clone(match_value_type));
   // The general test-chain lowering: any arm outside the classic switch
   // shapes, or a scrutinee that is neither a primitive nor an enum (a string
   // matched against literals).

@@ -276,9 +276,9 @@ evaluate_test :: (
   // Io :: module(...) means io_module_var.value == .Some(.TypeVal(ModuleType)).
   io_module_type := match(
     io_module_var.value.get(usize(0)),
-    .Some(.TypeVal(ty)) => ty,
-    .Some(_) => io_module_var.ty,
-    .None => io_module_var.ty
+    .Some(.TypeVal(ty)) => Rc.clone(ty),
+    .Some(_) => Rc.clone(io_module_var.ty),
+    .None => Rc.clone(io_module_var.ty)
   );
   // Save frame count to restore after the (best-effort) trial evaluation,
   // which may push frames and then unwind on a swallowed error.

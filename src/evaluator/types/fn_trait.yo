@@ -119,7 +119,7 @@ evaluate_fn_trait_type :: (
       });
       match(
         info.value,
-        .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+        .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
         .None => rc(TypeValueNode.Unit)
       )
     },
@@ -152,7 +152,7 @@ evaluate_fn_trait_type :: (
       }
     );
     call_param_labels.push(p.label.clone());
-    call_param_types.push(p.ty);
+    call_param_types.push(Rc.clone(p.ty));
     pi = (pi + usize(1));
   });
   implicit_labels := ArrayList(String).new();
@@ -168,7 +168,7 @@ evaluate_fn_trait_type :: (
       }
     );
     implicit_labels.push(ip.label.clone());
-    implicit_types.push(ip.ty);
+    implicit_types.push(Rc.clone(ip.ty));
     ii = (ii + usize(1));
   });
   fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, &return_type, implicit_labels, implicit_types);

@@ -156,7 +156,7 @@ evaluate_comptime_assert :: (
     // Return type: use expectedType if provided; else unit.
     (ret_type : TypeValue) = match(
       ctx.expected_type,
-      .Some(et) => et.ty,
+      .Some(et) => Rc.clone(et.ty),
       .None => t_unit()
     );
     (ret_val : Option(EvalValue)) = if(

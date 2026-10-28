@@ -86,46 +86,46 @@ UNFRAMED_BINDER_LEVEL :: usize(1000000000);
 (g_t_c_longlong : TypeValue) = rc(TypeValueNode.CLongLong);
 (g_t_c_ulonglong : TypeValue) = rc(TypeValueNode.CULongLong);
 (g_t_c_longdouble : TypeValue) = rc(TypeValueNode.CLongDouble);
-t_unit :: (fn() -> TypeValue)(g_t_unit);
+t_unit :: (fn() -> TypeValue)(Rc.clone(g_t_unit));
 /// `str` — the builtin static string view (a
 /// dedicated fieldless tag; impl registry keys it by id "str").
-t_str :: (fn() -> TypeValue)(g_t_str);
-t_bool :: (fn() -> TypeValue)(g_t_bool);
-t_void :: (fn() -> TypeValue)(g_t_void);
+t_str :: (fn() -> TypeValue)(Rc.clone(g_t_str));
+t_bool :: (fn() -> TypeValue)(Rc.clone(g_t_bool));
+t_void :: (fn() -> TypeValue)(Rc.clone(g_t_void));
 /// The bottom type `never` (see `TypeValue.Never`).
-t_never :: (fn() -> TypeValue)(g_t_never);
-t_i8 :: (fn() -> TypeValue)(g_t_i8);
-t_i16 :: (fn() -> TypeValue)(g_t_i16);
-t_i32 :: (fn() -> TypeValue)(g_t_i32);
-t_i64 :: (fn() -> TypeValue)(g_t_i64);
-t_u8 :: (fn() -> TypeValue)(g_t_u8);
-t_u16 :: (fn() -> TypeValue)(g_t_u16);
-t_u32 :: (fn() -> TypeValue)(g_t_u32);
-t_u64 :: (fn() -> TypeValue)(g_t_u64);
-t_f32 :: (fn() -> TypeValue)(g_t_f32);
-t_f64 :: (fn() -> TypeValue)(g_t_f64);
-t_usize :: (fn() -> TypeValue)(g_t_usize);
-t_isize :: (fn() -> TypeValue)(g_t_isize);
-t_comptime_int :: (fn() -> TypeValue)(g_t_comptime_int);
-t_comptime_float :: (fn() -> TypeValue)(g_t_comptime_float);
-t_comptime_string :: (fn() -> TypeValue)(g_t_comptime_string);
-t_type :: (fn() -> TypeValue)(g_t_type);
+t_never :: (fn() -> TypeValue)(Rc.clone(g_t_never));
+t_i8 :: (fn() -> TypeValue)(Rc.clone(g_t_i8));
+t_i16 :: (fn() -> TypeValue)(Rc.clone(g_t_i16));
+t_i32 :: (fn() -> TypeValue)(Rc.clone(g_t_i32));
+t_i64 :: (fn() -> TypeValue)(Rc.clone(g_t_i64));
+t_u8 :: (fn() -> TypeValue)(Rc.clone(g_t_u8));
+t_u16 :: (fn() -> TypeValue)(Rc.clone(g_t_u16));
+t_u32 :: (fn() -> TypeValue)(Rc.clone(g_t_u32));
+t_u64 :: (fn() -> TypeValue)(Rc.clone(g_t_u64));
+t_f32 :: (fn() -> TypeValue)(Rc.clone(g_t_f32));
+t_f64 :: (fn() -> TypeValue)(Rc.clone(g_t_f64));
+t_usize :: (fn() -> TypeValue)(Rc.clone(g_t_usize));
+t_isize :: (fn() -> TypeValue)(Rc.clone(g_t_isize));
+t_comptime_int :: (fn() -> TypeValue)(Rc.clone(g_t_comptime_int));
+t_comptime_float :: (fn() -> TypeValue)(Rc.clone(g_t_comptime_float));
+t_comptime_string :: (fn() -> TypeValue)(Rc.clone(g_t_comptime_string));
+t_type :: (fn() -> TypeValue)(Rc.clone(g_t_type));
 // TypeUni(1) — the "kind" for Module and Trait (one level above Type(0))
-t_type_1 :: (fn() -> TypeValue)(g_t_type_1);
+t_type_1 :: (fn() -> TypeValue)(Rc.clone(g_t_type_1));
 // C-compatible types (platform-dependent size; no compile-time arithmetic)
-t_c_char :: (fn() -> TypeValue)(g_t_c_char);
-t_c_short :: (fn() -> TypeValue)(g_t_c_short);
-t_c_ushort :: (fn() -> TypeValue)(g_t_c_ushort);
-t_c_int :: (fn() -> TypeValue)(g_t_c_int);
-t_c_uint :: (fn() -> TypeValue)(g_t_c_uint);
-t_c_long :: (fn() -> TypeValue)(g_t_c_long);
-t_c_ulong :: (fn() -> TypeValue)(g_t_c_ulong);
-t_c_longlong :: (fn() -> TypeValue)(g_t_c_longlong);
-t_c_ulonglong :: (fn() -> TypeValue)(g_t_c_ulonglong);
-t_c_longdouble :: (fn() -> TypeValue)(g_t_c_longdouble);
-t_ptr :: (fn(pointee : &TypeValue) -> TypeValue)(rc(TypeValueNode.Pointer(pointee)));
+t_c_char :: (fn() -> TypeValue)(Rc.clone(g_t_c_char));
+t_c_short :: (fn() -> TypeValue)(Rc.clone(g_t_c_short));
+t_c_ushort :: (fn() -> TypeValue)(Rc.clone(g_t_c_ushort));
+t_c_int :: (fn() -> TypeValue)(Rc.clone(g_t_c_int));
+t_c_uint :: (fn() -> TypeValue)(Rc.clone(g_t_c_uint));
+t_c_long :: (fn() -> TypeValue)(Rc.clone(g_t_c_long));
+t_c_ulong :: (fn() -> TypeValue)(Rc.clone(g_t_c_ulong));
+t_c_longlong :: (fn() -> TypeValue)(Rc.clone(g_t_c_longlong));
+t_c_ulonglong :: (fn() -> TypeValue)(Rc.clone(g_t_c_ulonglong));
+t_c_longdouble :: (fn() -> TypeValue)(Rc.clone(g_t_c_longdouble));
+t_ptr :: (fn(pointee : &TypeValue) -> TypeValue)(rc(TypeValueNode.Pointer(Rc.clone(pointee))));
 t_array :: (fn(element : &TypeValue, length : usize) -> TypeValue)(
-  rc(TypeValueNode.Array(element, length, String.from("")))
+  rc(TypeValueNode.Array(Rc.clone(element), length, String.from("")))
 );
 /// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
 /// with `U : usize` in a generic list). `length` is a placeholder 0; the
@@ -144,7 +144,7 @@ t_array_var :: (fn(element : &TypeValue, length_var : &String) -> TypeValue)({
     );
     eprintln(`[alen] ${shape} ${length_var}`);
   });
-  rc(TypeValueNode.Array(element, usize(0), length_var.clone()))
+  rc(TypeValueNode.Array(Rc.clone(element), usize(0), length_var.clone()))
 });
 /// Marker prefix of a COMPUTED array length recorded at definition time
 /// (`-> Array(u8, N + usize(1))`, `Array(u8, T.BYTES * 2)`): the length
@@ -257,7 +257,7 @@ t_func_simple :: (
       shared_list(_borrow_slots(&param_types)),
       no_types(),
       no_types(),
-      result,
+      Rc.clone(result),
       rc(
         FuncMeta(
           forall_labels : no_labels(),
@@ -316,10 +316,10 @@ t_module_simple :: (fn(name : &String) -> TypeValue)(
 // ---------------------------------------------------------------------------
 t_expr_t :: (fn() -> TypeValue)(rc(TypeValueNode.ExprT));
 t_comptime_list :: (fn(child : &TypeValue) -> TypeValue)(
-  rc(TypeValueNode.ComptimeListT(child))
+  rc(TypeValueNode.ComptimeListT(Rc.clone(child)))
 );
 t_type_app :: (fn(constructor : &TypeValue, sink(args) : ArrayList(TypeValue)) -> TypeValue)(
-  rc(TypeValueNode.TypeAppT(constructor, shared_list(args)))
+  rc(TypeValueNode.TypeAppT(Rc.clone(constructor), shared_list(args)))
 );
 /// The sort key of one trait in a `Dyn`'s trait list: its declaration id,
 /// which is fixed when the trait is built. NOT its printed name: a trait is
@@ -391,7 +391,7 @@ t_fn_trait :: (
     sink(implicit_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name.clone(), shared_list(call_param_labels), shared_list(call_param_types), call_result, shared_list(implicit_labels), shared_list(implicit_types)))
+  rc(TypeValueNode.FnTraitT(base_name.clone(), shared_list(call_param_labels), shared_list(call_param_types), Rc.clone(call_result), shared_list(implicit_labels), shared_list(implicit_types)))
 );
 t_fn_trait_simple :: (
   fn(
@@ -400,7 +400,7 @@ t_fn_trait_simple :: (
     call_result : &TypeValue
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name.clone(), no_labels(), shared_list(_borrow_slots(&call_param_types)), call_result, no_labels(), no_types()))
+  rc(TypeValueNode.FnTraitT(base_name.clone(), no_labels(), shared_list(_borrow_slots(&call_param_types)), Rc.clone(call_result), no_labels(), no_types()))
 );
 t_future_trait :: (
   fn(
@@ -410,10 +410,10 @@ t_future_trait :: (
     sink(effect_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FutureTraitT(base_name.clone(), output, shared_list(effect_labels), shared_list(effect_types)))
+  rc(TypeValueNode.FutureTraitT(base_name.clone(), Rc.clone(output), shared_list(effect_labels), shared_list(effect_types)))
 );
 t_future_trait_simple :: (fn(base_name : &String, output : &TypeValue) -> TypeValue)(
-  rc(TypeValueNode.FutureTraitT(base_name.clone(), output, no_labels(), no_types()))
+  rc(TypeValueNode.FutureTraitT(base_name.clone(), Rc.clone(output), no_labels(), no_types()))
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
@@ -479,16 +479,16 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
         wr_id.clone(),
         wr_nm.clone(),
         wr_fl,
-        wr_pt,
+        Rc.clone(wr_pt),
         wr_rtt.clone(),
         wr_rtl.clone(),
         wr_ntt.clone(),
         wr_ntl.clone(),
-        wr_kft,
-        Option(TypeValue).Some(concrete)
+        wr_kft.clone(),
+        Option(TypeValue).Some(Rc.clone(concrete))
       )
     ),
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 /// The function type `ft` with its result replaced by `result`. Non-`Func`
@@ -496,8 +496,8 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt)) => rc(TypeValueNode.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt)),
-    _ => ft
+    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt)) => rc(TypeValueNode.Func(Rc.clone(fr_ft), Rc.clone(fr_pt), Rc.clone(fr_it), Rc.clone(fr_wt), Rc.clone(result), Rc.clone(fr_meta), Rc.clone(fr_vt))),
+    _ => Rc.clone(ft)
   )
 );
 /// The opaque C type an `extern`/`c_include` `X : Type` member declares
@@ -524,16 +524,16 @@ clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
         generate_some_type_id(),
         snm.clone(),
         sfl,
-        spt,
+        Rc.clone(spt),
         sreq.clone(),
         sreql.clone(),
         sneg.clone(),
         snegl.clone(),
-        skind,
+        skind.clone(),
         Option(TypeValue).None
       )
     ),
-    _ => s
+    _ => Rc.clone(s)
   )
 );
 /// Create a SomeType with a `kind_function_type` set — represents a
@@ -552,7 +552,7 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
       ArrayList(usize).new(),
       ArrayList(TypeValue).new(),
       ArrayList(usize).new(),
-      Option(TypeValue).Some(kind),
+      Option(TypeValue).Some(Rc.clone(kind)),
       Option(TypeValue).None
     )
   )
@@ -748,7 +748,7 @@ _patch_self_shell_guarded :: (
   match(
     t,
     Rc(.EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments })) => cond(
-      ((id == shell_id) && (variant_names.len() == usize(0))) => final_ty,
+      ((id == shell_id) && (variant_names.len() == usize(0))) => Rc.clone(final_ty),
       // Recurse into every variant field so a shell nested inside a generic
       // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
       // too, and into the type arguments, same as the `.Struct` branch below.
@@ -759,7 +759,7 @@ _patch_self_shell_guarded :: (
         tok.push_string(id.clone());
         // Cycle/shared-node guard — see the doc comment above.
         if(_shell_walk_visited(visited, tok.clone()), {
-          return(t);
+          return(Rc.clone(t));
         });
         visited.push(tok);
         new_vfs := ArrayList(SharedList(TypeValue)).new();
@@ -783,20 +783,20 @@ _patch_self_shell_guarded :: (
           new_etas.push(recur(&ta, shell_id, final_ty, visited));
           ti = (ti + usize(1));
         });
-        rc(TypeValueNode.EnumT(id.clone(), name.clone(), variant_names, shared_list(new_vfs), selected_variant_name.clone(), variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, shared_list(new_etas)))
+        rc(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), shared_list(new_vfs), selected_variant_name.clone(), Rc.clone(variant_field_labels), Rc.clone(variant_discriminants), is_reference_semantics, is_atomic_rc, shared_list(new_etas)))
       }
     ),
     Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
     Rc(.Array(el, n, lv)) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv.clone())),
     Rc(.ComptimeListT(el)) => rc(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
     Rc(.Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace })) => cond(
-      ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
+      ((id == shell_id) && (field_types.len() == usize(0))) => Rc.clone(final_ty),
       true => {
         tok := String.from("S:");
         tok.push_string(id.clone());
         // Cycle/shared-node guard — see the doc comment above.
         if(_shell_walk_visited(visited, tok.clone()), {
-          return(t);
+          return(Rc.clone(t));
         });
         visited.push(tok);
         new_fts := ArrayList(TypeValue).new();
@@ -813,10 +813,10 @@ _patch_self_shell_guarded :: (
           new_tas.push(recur(&ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
-        rc(TypeValueNode.Struct(id.clone(), name.clone(), field_labels, shared_list(new_fts), is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id.clone(), shared_list(new_tas), is_source_namespace))
+        rc(TypeValueNode.Struct(id.clone(), name.clone(), Rc.clone(field_labels), shared_list(new_fts), is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id.clone(), shared_list(new_tas), is_source_namespace))
       }
     ),
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 /// Public entry — the signature enum.yo/struct.yo call. Gate with the cheap
@@ -828,7 +828,7 @@ _patch_self_shell :: (
   cond(
     _contains_self_shell(t, shell_id.clone(), ArrayList(String).new()) =>
       _patch_self_shell_guarded(t, shell_id, final_ty, ArrayList(String).new()),
-    true => t
+    true => Rc.clone(t)
   )
 );
 // Enum finalization side-table: `enum_id -> finalized EnumT`. During an
@@ -849,7 +849,7 @@ _patch_self_shell :: (
 (g_enum_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
   if((enum_id.len() > usize(0)) && g_enum_finals.with(m => m.get(enum_id)).is_none(), {
-    g_enum_finals.with_mut(m => m.insert(enum_id.clone(), ty));
+    g_enum_finals.with_mut(m => m.insert(enum_id.clone(), Rc.clone(ty)));
     bump_type_key_epoch();
   });
 });
@@ -860,11 +860,11 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
     t,
     Rc(.EnumT(eid, _, vns, _, _, _, _, _, _, _)) => {
       if(vns.len() > usize(0), {
-        return(t);
+        return(Rc.clone(t));
       });
-      match(g_enum_finals.with(m => m.get(&eid)), .Some(f) => f, .None => t)
+      match(g_enum_finals.with(m => m.get(&eid)), .Some(f) => f, .None => Rc.clone(t))
     },
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 // Type-constructor phantom positions: `constructor func id -> one flag per
@@ -946,7 +946,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
       final_ty,
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
         _register_enum_phantom_positions(fid.clone(), phantom.clone());
-        _ := g_enum_finals.with_mut(m => m.insert(shell_key.clone(), rc(TypeValueNode.EnumT(fid.clone(), fnm.clone(), fvns, fvfs, fsvn.clone(), fvfl, fdis, firs, fiar, args))));
+        _ := g_enum_finals.with_mut(m => m.insert(shell_key.clone(), rc(TypeValueNode.EnumT(fid.clone(), fnm.clone(), Rc.clone(fvns), Rc.clone(fvfs), fsvn.clone(), Rc.clone(fvfl), Rc.clone(fdis), firs, fiar, Rc.clone(args)))));
         bump_type_key_epoch();
       }),
       _ => ()
@@ -971,7 +971,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
 (g_struct_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
   if((struct_id.len() > usize(0)) && g_struct_finals.with(m => m.get(struct_id)).is_none(), {
-    g_struct_finals.with_mut(m => m.insert(struct_id.clone(), ty));
+    g_struct_finals.with_mut(m => m.insert(struct_id.clone(), Rc.clone(ty)));
     bump_type_key_epoch();
   });
 });
@@ -981,10 +981,10 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
     Rc(.Struct({ id : sid, field_types : fts })) => cond(
-      (fts.len() > usize(0)) => t,
-      true => match(g_struct_finals.with(m => m.get(&sid)), .Some(f) => f, .None => t)
+      (fts.len() > usize(0)) => Rc.clone(t),
+      true => match(g_struct_finals.with(m => m.get(&sid)), .Some(f) => f, .None => Rc.clone(t))
     ),
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 

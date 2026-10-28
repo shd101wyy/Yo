@@ -1428,7 +1428,7 @@ _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
   match(
     ft,
     Rc(.Pointer(pointee)) => {
-      p := pointee;
+      p := Rc.clone(pointee);
       if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
     },
     _ => if(
@@ -1438,7 +1438,7 @@ _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
         .Some(ptrty) => match(
           ptrty,
           Rc(.Pointer(pe)) => {
-            p := pe;
+            p := Rc.clone(pe);
             if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
           },
           _ => Option(TypeValue).None
@@ -1616,7 +1616,7 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
     match(
       field_ty,
       Rc(.Func({ param_types, result, meta : __fm1 })) => {
-        param_labels := __fm1.*.param_labels;
+        param_labels := Rc.clone(__fm1.*.param_labels);
         // Only methods whose first param is `self`, and that a Dyn can call
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.
@@ -1701,7 +1701,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
             _ => ()
           ),
           true => match(
-            tt,
+            &tt,
             Rc(.TraitT({ field_labels, field_types })) => {
               nf := field_labels.len();
               (fi : usize) = usize(0);
@@ -1863,7 +1863,7 @@ _deferred_decl_cnames :: (
     match(
       context.get_type_entry(tid.clone()),
       .Some(entry) => {
-        ty := entry.ty;
+        ty := Rc.clone(entry.ty);
         skip := (
           _walk_skip_some(&ty)
           || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
@@ -1909,7 +1909,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
     match(
       context.get_type_entry(tid.clone()),
       .Some(entry) => {
-        ty := entry.ty;
+        ty := Rc.clone(entry.ty);
         cn := entry.c_name.clone();
         skip := (_walk_skip_some(&ty) || entry.c_include.is_some());
         if(
@@ -1993,7 +1993,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
     match(
       context.get_type_entry(tid.clone()),
       .Some(entry) => {
-        ty := entry.ty;
+        ty := Rc.clone(entry.ty);
         skip := (type_contains_some_type(&ty) || entry.c_include.is_some());
         if(!skip && (is_enum_type(&ty) && can_optimize_as_simple_enum(&ty)), {
           if(!emitted_decl_cnames.contains(entry.c_name.clone()) && !context.on_demand_body_cnames.contains(entry.c_name.clone()), {
@@ -2016,7 +2016,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
     match(
       context.get_type_entry(tid.clone()),
       .Some(entry) => {
-        ty := entry.ty;
+        ty := Rc.clone(entry.ty);
         skip := (_walk_skip_some(&ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
         if(
           !skip,
@@ -2058,7 +2058,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
               match(
                 rfs.get(fi),
                 .Some(field) => {
-                  ft := field.ty;
+                  ft := Rc.clone(field.ty);
                   match(_walk_pointee_newtype(&ft), .Some(p) => _walk_add_dep(&mut dset, &p, e.type_id.clone(), &cname_to_typeid, context), .None => ());
                   _walk_by_value_dep(&mut dset, &ft, e.type_id.clone(), true, &cname_to_typeid, context);
                 },
@@ -2068,7 +2068,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
             });
           },
           (e.kind == "enum") => match(
-            e.ty,
+            &e.ty,
             Rc(.EnumT({ variant_fields })) => {
               nv := variant_fields.len();
               (vi : usize) = usize(0);
@@ -2086,7 +2086,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
             _ => ()
           ),
           (e.kind == "tuple") => match(
-            e.ty,
+            &e.ty,
             Rc(.Tuple(_, field_types)) => {
               nft := field_types.len();
               (ti : usize) = usize(0);
@@ -2258,7 +2258,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
         .Some(tid) => match(
           context.get_type_entry(tid.clone()),
           .Some(entry) => {
-            ty := entry.ty;
+            ty := Rc.clone(entry.ty);
             skip := (_walk_skip_some(&ty) || entry.c_include.is_some());
             if(!skip && (is_enum_type(&ty) && can_optimize_as_nullable_pointer(&ty).is_some()), {
               if(!context.on_demand_body_cnames.contains(entry.c_name.clone()), {
@@ -2286,7 +2286,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
         .Some(tid) => match(
           context.get_type_entry(tid.clone()),
           .Some(entry) => {
-            ty := entry.ty;
+            ty := Rc.clone(entry.ty);
             skip := (type_contains_some_type(&ty) || entry.c_include.is_some());
             od_done := context.on_demand_body_cnames.contains(entry.c_name.clone());
             if(

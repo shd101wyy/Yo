@@ -125,7 +125,7 @@ evaluate_impl_constraint :: (
         });
         trait_tv := match(
           mod_info.value,
-          .Some(.TypeVal(tv_box)) => tv_box,
+          .Some(.TypeVal(tv_box)) => Rc.clone(tv_box),
           .Some(_) => rc(TypeValueNode.TypeUni(usize(0))),
           .None => rc(TypeValueNode.TypeUni(usize(0)))
         );
@@ -162,7 +162,7 @@ evaluate_impl_constraint :: (
           match(
             trait_tv,
             Rc(.TraitT({ is_concrete : ic_ct })) => {
-              concrete_type = ic_ct;
+              concrete_type = ic_ct.clone();
             },
             _ => ()
           );
