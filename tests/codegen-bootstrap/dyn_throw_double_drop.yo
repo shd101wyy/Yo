@@ -21,6 +21,12 @@ impl(
   ToString(to_string : (self -> self.msg.clone()))
 );
 impl(ErrObj, Error());
+impl(
+  ErrObj,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(ErrObj(msg : self.msg.clone(), next : self.next))
+  )
+);
 make_err :: (fn(m : &String) -> ErrObj)(
   ErrObj(msg : m, next : .None)
 );

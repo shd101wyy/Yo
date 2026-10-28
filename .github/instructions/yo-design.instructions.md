@@ -789,6 +789,9 @@ Rules that follow from it:
   error at the `dyn(...)` token (it used to fail inside the C compiler, naming a
   generated `__yo_wrap_…` symbol — see
   `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`).
+  `AnyError` is `Dyn(Error, Clone)` (B13), so the type must be `Clone` too
+  (`derive(E, Clone)`): a handler borrows the error it catches and keeps it
+  with `e.clone()`.
 - **Spell an error enum with `derive(T, Error)`, not two hand-written impls.**
   One message per variant, in DECLARATION ORDER, emits `ToString` and `Error`
   together; each message is checked against the variant it lands on, so a

@@ -55,6 +55,12 @@ test("mutual recursion in single impl", {
 MyErr :: ref(struct(msg : String));
 impl(MyErr, ToString(to_string : (self -> `my err`)));
 impl(MyErr, Error());
+impl(
+  MyErr,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(MyErr(msg : self.msg.clone()))
+  )
+);
 R :: struct(v : i32);
 derive(R, Copy, Clone);
 impl(

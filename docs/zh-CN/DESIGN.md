@@ -3814,12 +3814,16 @@ derive(
     .NegativeSqrt => `Square root of a negative number`
   )
 );
+// AnyError 的载荷必须实现 Clone（见下）：
+derive(MathError, Clone);
 
 // 消息就是普通的 Yo 代码，会被拼接进绑定负载的那条 match 分支，因此变体自己的
 // 字段可以按名字插值：
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // 手写这两个 impl 依然可用；当消息不是简单的「每个变体一条字符串」时，就该那么写。
-// AnyError 是 Dyn(Error) — 任何实现了 Error 的类型都可以被包装：
+// AnyError 是 Dyn(Error, Clone) — 任何实现了 Error 和 Clone 的类型都可以被包装。
+// Dyn 独占其载荷，而处理器以借用的方式接收捕获的错误，所以要保留一个捕获的错误
+// 需要 `err.clone()`：
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // 向下转型回具体类型：
