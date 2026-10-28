@@ -172,7 +172,7 @@ kept := ArrayList(i32).from(arr.clone());
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 // `a` is any `Allocator` value: `Allocator.global()`, or your own vtable.
-list := ArrayList(i32).new_in(a); // the buffer lives in `a`
+list := ArrayList(i32).new(alloc : .Some(a)); // the buffer lives in `a`
 p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // one cell in `a`
 g := ArrayList(i32).new(); // no argument: always the global allocator
 // Passing placement on: legal in a safe file (`Allocator` is an opaque handle).
@@ -182,14 +182,17 @@ make :: (fn(v : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(i32))(rc(v, all
 - RC still decides WHEN a block dies; the allocator decides WHERE. Releases
   route back automatically — never free an explicit allocator's block by hand.
 - Global by default, placement by argument: there is no allocation scope
-  (`with_allocator` is gone). `box`/`rc`/`arc` take `alloc : .Some(a)`; the
-  containers take `new_in(a)` / `with_capacity_in(a, n)`. `ref` constructors,
+  (`with_allocator` is gone). `box`/`rc`/`arc` and the containers' `new` /
+  `with_capacity` take `alloc : .Some(a)` (`new_in`/`with_capacity_in` are
+  gone); `xs.clone_in(a)` places a copy. `ref` constructors,
   `dyn`'s cell, interpolated strings and tasks are always global.
 - `Allocator` is `Send`. Pass it into a spawn body and place there.
 - std ships no arena (`std/arena` was deleted 2026-10-24); write a vtable or
   wait for `plans/backlog/ZIG_STYLE_ALLOCATORS.md`.
 - Calling `Allocator.alloc`/`free` directly returns raw pointers, so it needs
-  `pragma(Pragma.AllowUnsafe)`; `alloc :` arguments and `_in` constructors do not.
+  `pragma(Pragma.AllowUnsafe)`; `alloc :` arguments do not. The vtable is
+  interface version 2: `alloc(ctx, size, align)`, `realloc(ctx, p, old, new,
+  align)`, `free(ctx, p, size, align)`.
 - Full guide (custom allocators, threads, `--debug-heap`):
   `docs/en-US/EXPLICIT_ALLOCATORS.md`.
 

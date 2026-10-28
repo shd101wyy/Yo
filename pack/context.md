@@ -270,7 +270,7 @@ read :: (fn(p : Path, io : Io) -> String)({
 - Methods take the receiver explicitly: `self : &Self` to read,
   `self : &mut Self` for mutation, `self : Self` to consume.
 - Allocation is placement, RC is lifetime: a creation is global unless an
-  argument places it (`rc(v, alloc : .Some(a))`, `ArrayList(T).new_in(a)`);
+  argument places it (`rc(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`);
   a block is always released to the allocator that made it.
 
 ## Async (single-threaded) and effects

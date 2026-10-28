@@ -241,9 +241,10 @@ The guarantee is data-race freedom for every program that compiles without `prag
   (`__YO_RC_TAG`): mask every count TEST with `__YO_RC_COUNT`, never a write.
 - **Global by default, placement by argument** (`plans/backlog/ALLOCATOR_PLACEMENT.md`,
   maintainer decision 2026-10-24). A creation without an allocator argument is
-  global; `box`/`rc`/`arc` take `(alloc : Option(Allocator)) ?= .None`, the
-  containers `new_in(a)`/`with_capacity_in(a, n)` (B2 turns those into the same
-  `alloc :` parameter). There is no user-visible allocation scope:
+  global; `box`/`rc`/`arc` and the containers' `new`/`with_capacity` take
+  `(alloc : Option(Allocator)) ?= .None` (B2a deleted `new_in`/`with_capacity_in`),
+  and `clone_in(a)` on `ArrayList`/`HashMap`/`String`/`StringBuilder` places a
+  copy. There is no user-visible allocation scope:
   `with_allocator`/`current_allocator` were deleted (B1). The thread-local
   `__yo_current_allocator` survives only for `rc`/`arc`'s one-construction swap;
   the RC constructor sites still read it (`__yo_rc_alloc_scoped`), the runtime's
