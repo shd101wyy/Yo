@@ -982,6 +982,22 @@ test("a capture list and a nested implicit capture of the same name compile", {
   assert(io.await(outer, io) == i32(2), "both state machines ran");
 });
 
+// issues/fixed/2026-10-28-a-nested-io-async-implicitly-capturing-a-moved-capture-is-dropped-twice.md:
+// a nested future's implicit capture of the enclosing future's move-only
+// capture moves it, so the enclosing state machine's dispose must not drop
+// it as well (a heap-use-after-free).
+test("a nested implicit capture moving an enclosing capture is dropped once", {
+  b := box(u64(5));
+  outer := io.async({ b }(io : Io) => {
+    inner := io.async((io : Io) => {
+      io.await(sleep(u64(1)), io);
+      b.* + u64(1)
+    });
+    io.await(inner, io) + u64(1)
+  });
+  assert(io.await(outer, io) == u64(7), "both state machines ran");
+});
+
 // issues/fixed/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md:
 // each capture of an awaiting io.async body takes its reference exactly once.
 // A capture-list entry is a field store the evaluator already decided (a copy
