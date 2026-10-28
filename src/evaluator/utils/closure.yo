@@ -93,7 +93,7 @@
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, migrate_rc_clone_on, ICMigrateCtx, _ic_decl_key, _ic_in_generic } :: import("../utils.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, migrate_rc_clone_on, ICMigrateCtx, _ic_decl_key, _ic_in_generic, _rc_clone_spelling } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1591,6 +1591,15 @@ _clone_subst_receiver :: (fn(e : &AstExpr, recv : &AstExpr) -> AstExpr)(
     }
   )
 );
+/// The clone of the field read `read`, of type `ft`, in a clone template. A
+/// prelude handle's own clone is spelled through its constructor
+/// (`Rc.clone(r)`, `Arc.clone(r)`): `r.clone()` could also mean its
+/// payload's, which is E0616 (decision 32)
+/// (issues/fixed/2026-10-28-a-structural-clone-of-a-record-with-an-rc-field-is-e0616.md).
+_clone_template_of :: (fn(read : &String, ft : &TypeValue) -> String)({
+  ctor := _rc_clone_spelling(ft);
+  if((ctor == "Rc") || (ctor == "Arc"), `${ctor}.clone(${read})`, `${read}.clone()`)
+});
 /// Parse `code` (which names the receiver as `_CLONE_RECV_HOLE`), put `recv`
 /// in the hole and evaluate it.
 _eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
@@ -1681,11 +1690,9 @@ structural_clone_expansion :: (
       if(ri > usize(0), {
         code.push_str(", ");
       });
-      entry := `${label} : ${_CLONE_RECV_HOLE}.${label}`;
+      read := `${_CLONE_RECV_HOLE}.${label}`;
+      entry := `${label} : ${if(type_implements_trait_bool(&ft, &copy_tt, env), read, _clone_template_of(&read, &ft))}`;
       code.push_string(&entry);
-      if(!type_implements_trait_bool(&ft, &copy_tt, env), {
-        code.push_str(".clone()");
-      });
       ri = (ri + usize(1));
     });
     code.push_str(")");
@@ -1724,7 +1731,7 @@ structural_clone_expansion :: (
     label := match(fields_labels.get(ci), .Some(l) => l, .None => String.new());
     ft := match(fields_types.get(ci), .Some(t) => t, .None => t_unit());
     read := `${BF_YO_CAPTURE_FIELD}(${_CLONE_RECV_HOLE}, ${ci.to_string()})`;
-    init_code := if(type_implements_trait_bool(&ft, &copy_tt, env), read, `${read}.clone()`);
+    init_code := if(type_implements_trait_bool(&ft, &copy_tt, env), read, _clone_template_of(&read, &ft));
     init := _eval_clone_template(&init_code, recv, env, ctx, exn);
     // The clone is stored into the new record's field: the store moves it,
     // as a capture list's by-value entry is moved.

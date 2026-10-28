@@ -419,6 +419,20 @@ test("Copy: a where(T <: Clone) body clones a fn pointer and an anonymous record
   t := _ct_sclone(_(a : i32(4), b : true));
   assert((t.a == i32(4)) && t.b, "T := the record type");
 });
+// A record field or a capture holding an `Rc` is cloned through the handle's
+// own `Rc.clone`: `x.clone()` could also mean the payload's, E0616
+// (issues/fixed/2026-10-28-a-structural-clone-of-a-record-with-an-rc-field-is-e0616.md).
+test("Clone: a structural clone of a record or a closure holding an Rc clones the handle", {
+  x := rc(i32(3));
+  y := _(x : Rc.clone(x), n : i32(1));
+  z := y.clone();
+  assert((z.x.* + z.n) == i32(4), "the cloned record reads the payload");
+  assert(ref_count(x) == usize(3), "x, y.x and z.x are three handles");
+  (c : Impl(Fn() -> i32)) = ({ x : Rc.clone(x) }() => x.*);
+  d := c.clone();
+  assert(d() == i32(3), "the cloned closure reads the payload");
+  assert(ref_count(x) == usize(5), "the closure and its clone hold one handle each");
+});
 // A struct of `fn` pointers (the shape of the prelude's `Io`) derives `Copy`
 // and `Clone`: the derived clone's `self.get.clone()` is the structural clone.
 _CtOps :: struct(get : (fn() -> i32), n : i32);
