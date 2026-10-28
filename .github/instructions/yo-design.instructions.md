@@ -106,8 +106,10 @@ The old shared spelling `Box(V)` / `box(v)` was deleted (V1 step 1 Generation B 
 **`Box(V)` is now the unique, uncounted cell** (V1 step 2, Rust's `Box<T>`):
 `Box :: (fn(comptime(V) : Type) -> comptime(Type))(newtype(_cell : *V))` in the prelude,
 `box(v, (alloc : Option(Allocator)) ?= .None)`. It is plain std Yo: a `Drop` (drop
-the payload, free the cell through its 16-byte owner prefix: `{ctx, vtable}`, a `.None`
-vtable = the global allocator), `Clone` where `T <: Clone` (placed where the source lives),
+the payload, free the cell: an 8-byte flags word sits in the `max(8, align_of(T))` bytes in
+front of the payload, its placed bit set only by an `alloc` argument, and only a placed cell
+carries the 16-byte owner prefix `{ctx, vtable}` in front of that header; Box's layout PR,
+2026-10-29), `Clone` where `T <: Clone` (placed where the source lives),
 `Eq`/`Hash`/`Default` by payload, `Deref`, `Send`/`Sync` bounded on `T`, and
 `Box.allocator(b)`. So it is move-only, explicit-copy when `T` is `Clone`: a non-last-use
 copy is E0901 and the copy is `Box.clone(b)` (`b.clone()` is E0616). The compiler knows it
