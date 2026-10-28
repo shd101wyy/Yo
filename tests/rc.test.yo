@@ -237,8 +237,9 @@ test("Test array index access - no RC leak for inline use", {
     y := [Rc.clone(x),];
     tmp := Rc.clone(y(0));
     assert(tmp.* == 7, "assigned y(0) should work");
-    assert(ref_count(tmp) == 2, "tmp and y(0) should share RC=2");
-    assert(ref_count(x) == 2, "x and y(0) are the same allocation");
+    // Decision 17: x, y(0) and tmp are three handles to one cell.
+    assert(ref_count(tmp) == 3, "tmp, y(0) and x share RC=3");
+    assert(ref_count(x) == 3, "x and y(0) are the same allocation");
   };
   // Multi-element array with inline access
   {
@@ -4044,8 +4045,11 @@ test("Rc.clone is a second handle to the same cell, whatever the payload", {
   d := Rc.clone(c);
   assert(ref_count(c) == usize(2), "a payload that is not Clone shares its cell too");
   assert(d.h.* == i32(2), "through the second handle");
-  assert(ref_count(_v2c_keep(&a)) == usize(3), "a clone of a borrowed handle");
-  assert(ref_count(a) == usize(2), "the temporary clone is released");
+  // A call's temporary lives to the end of its block.
+  {
+    assert(ref_count(_v2c_keep(&a)) == usize(3), "a clone of a borrowed handle");
+  };
+  assert(ref_count(a) == usize(2), "the temporary clone is released with its block");
 });
 test("a handle's last use moves it, and a copy whose source is used again is E0901", {
   a := rc(i32(1));
