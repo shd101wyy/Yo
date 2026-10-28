@@ -10,7 +10,7 @@
 { RefCell } :: import("std/sync/refcell");
 test("with_mut through one handle is seen through another", {
   log := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  other := log;
+  other := Rc.clone(log);
   other.with_mut(xs => {
     xs.push(String.from("a"));
   });
@@ -22,7 +22,7 @@ test("with_mut through one handle is seen through another", {
 });
 test("with returns the body's result, and nested reads share the cell", {
   c := rc(RefCell(i32).new(i32(20)));
-  d := c;
+  d := Rc.clone(c);
   sum := c.with(v => d.with(w => (v + w)));
   assert(sum == i32(40), "two readers at once");
 });
@@ -70,14 +70,14 @@ test("clone copies the value into a new cell", {
 // issues/questions/2026-10-23-should-yo-add-a-flagless-cell.md.
 test("replace_with counts through a second handle and returns the old value", {
   counter := rc(RefCell(i32).new(i32(0)));
-  other := counter;
+  other := Rc.clone(counter);
   assert(other.replace_with(n => (n + i32(1))) == i32(0), "the old value");
   assert(counter.replace_with(n => (n * i32(10))) == i32(1), "the first handle sees 1");
   assert(other.with(n => n) == i32(10), "both updates landed in the one cell");
 });
 test("replace swaps a String in and gives the old one back", {
   name := rc(RefCell(String).new(String.from("old")));
-  other := name;
+  other := Rc.clone(name);
   was := other.replace(String.from("new"));
   assert(was == "old", "the replaced value");
   assert(name.with(s => (s == "new")), "seen through the other handle");
@@ -97,7 +97,7 @@ test("replace_with builds the successor of a collection from the current one", {
 });
 test("take leaves the default behind", {
   log := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  other := log;
+  other := Rc.clone(log);
   other.with_mut(xs => {
     xs.push(String.from("a"));
     xs.push(String.from("b"));

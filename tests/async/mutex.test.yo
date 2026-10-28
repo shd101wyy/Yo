@@ -43,7 +43,7 @@ test("Test mutex excludes across awaits", {
   in_section := rc(RefCell(bool).new(false));
   overlaps := rc(RefCell(i64).new(i64(0)));
   worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(RefCell(bool)), ovl : &Rc(RefCell(i64)), io : Io) -> Impl(Future(unit, Io)))(
-    io.async((io : Io) => {
+    io.async({ ins : Rc.clone(ins), m2, ovl : Rc.clone(ovl) }(io : Io) => {
       io.await(m2.*.lock(io), io);
       if(ins.with(v => v), {
         ovl.with_mut(n => {
@@ -63,9 +63,9 @@ test("Test mutex excludes across awaits", {
       return(());
     })
   );
-  h1 := io.spawn(worker(m, &in_section, &overlaps, io), io);
-  h2 := io.spawn(worker(m, &in_section, &overlaps, io), io);
-  h3 := io.spawn(worker(m, &in_section, &overlaps, io), io);
+  h1 := io.spawn(worker(Arc.clone(m), &in_section, &overlaps, io), io);
+  h2 := io.spawn(worker(Arc.clone(m), &in_section, &overlaps, io), io);
+  h3 := io.spawn(worker(Arc.clone(m), &in_section, &overlaps, io), io);
   _r1 := h1.await(io);
   _r2 := h2.await(io);
   _r3 := h3.await(io);
@@ -79,8 +79,8 @@ test("Test mutex excludes across awaits", {
 test("Test mutex lock waits", {
   m := arc(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main takes the lock first");
-  m2 := m;
-  releaser := io.async({ m2 }(io : Io) => {
+  m2 := Arc.clone(m);
+  releaser := io.async({ m2 : Arc.clone(m2) }(io : Io) => {
     io.await(sleep(u64(10)), io);
     m2.*.set(i64(1));
     m2.*.unlock();
@@ -109,7 +109,7 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   // Main takes the lock first, so every worker below MUST queue.
   assert(m.*.try_lock(), "main holds the lock while the workers queue");
   worker :: (fn(m2 : Arc(Mutex(i64)), ord : &Rc(RefCell(ArrayList(i64))), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
-    io.async((io : Io) => {
+    io.async({ m2, ord : Rc.clone(ord), tag }(io : Io) => {
       io.await(m2.*.lock(io), io);
       ord.with_mut(o => o.push(tag));
       m2.*.unlock();
@@ -119,11 +119,11 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   // Spawned in order. Each reaches its `lock` and parks before the next runs,
   // because a spawn does not start the task — the first suspension of the
   // spawner does, and there is none between these six lines.
-  h1 := io.spawn(worker(m, &order, i64(1), io), io);
-  h2 := io.spawn(worker(m, &order, i64(2), io), io);
-  h3 := io.spawn(worker(m, &order, i64(3), io), io);
-  h4 := io.spawn(worker(m, &order, i64(4), io), io);
-  h5 := io.spawn(worker(m, &order, i64(5), io), io);
+  h1 := io.spawn(worker(Arc.clone(m), &order, i64(1), io), io);
+  h2 := io.spawn(worker(Arc.clone(m), &order, i64(2), io), io);
+  h3 := io.spawn(worker(Arc.clone(m), &order, i64(3), io), io);
+  h4 := io.spawn(worker(Arc.clone(m), &order, i64(4), io), io);
+  h5 := io.spawn(worker(Arc.clone(m), &order, i64(5), io), io);
   // Let them all reach the queue before anything is released.
   io.await(sleep(u64(5)), io);
   assert(m.*.waiter_count() == usize(5), `all five queued, got ${m.*.waiter_count().to_string()}`);
@@ -154,8 +154,8 @@ test("Test an uncontended lock still costs no suspension", {
   // stay synchronous inside the async body, or every lock in a hot loop pays a
   // loop turn it does not need.
   m := arc(Mutex(i64).new(i64(0)));
-  m2 := m;
-  body := io.async({ m2 }(io : Io) => {
+  m2 := Arc.clone(m);
+  body := io.async({ m2 : Arc.clone(m2) }(io : Io) => {
     (mut(n) : i64) = i64(0);
     while(n < i64(100), n = (n + i64(1)), {
       io.await(m2.*.lock(io), io);
@@ -207,10 +207,10 @@ test("Test a Mutex is move-only", {
 test("Test tasks contend through Arc handles, and lock borrows through them across awaits", {
   m := arc(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
-  a := m;
-  b := m;
+  a := Arc.clone(m);
+  b := Arc.clone(m);
   ha := io.spawn(
-    io.async({ a }(io : Io) => {
+    io.async({ a : Arc.clone(a) }(io : Io) => {
       // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
       io.await(a.lock(io), io);
       before := a.get();
@@ -222,7 +222,7 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
     io
   );
   hb := io.spawn(
-    io.async({ b }(io : Io) => {
+    io.async({ b : Arc.clone(b) }(io : Io) => {
       r := io.await(
         b.*.with_lock((v : &mut i64) => {
           v = (v + i64(100));
@@ -251,18 +251,18 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
 test("Test a waiter cancelled after the lock was handed to it passes the lock on", {
   m := arc(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
-  ma := m;
+  ma := Arc.clone(m);
   ha := io.spawn(
-    io.async({ ma }(io : Io) => {
+    io.async({ ma : Arc.clone(ma) }(io : Io) => {
       io.await(ma.*.lock(io), io);
       ma.*.unlock();
       i32(1)
     }),
     io
   );
-  mb := m;
+  mb := Arc.clone(m);
   hb := io.spawn(
-    io.async({ mb }(io : Io) => {
+    io.async({ mb : Arc.clone(mb) }(io : Io) => {
       io.await(mb.*.lock(io), io);
       mb.*.set(i64(2));
       mb.*.unlock();
@@ -292,9 +292,9 @@ test("Test a waiter cancelled after the lock was handed to it passes the lock on
 test("Test tasks contend through Rc handles, and lock borrows through them across awaits (decision 46)", {
   r := rc(Mutex(i64).new(i64(0)));
   assert(r.*.try_lock(), "main holds the lock");
-  a := r;
+  a := Rc.clone(r);
   ha := io.spawn(
-    io.async({ a }(io : Io) => {
+    io.async({ a : Rc.clone(a) }(io : Io) => {
       // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
       io.await(a.lock(io), io);
       before := a.get();

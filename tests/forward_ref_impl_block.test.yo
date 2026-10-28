@@ -138,10 +138,10 @@ impl(
     Self(data : rc(val))
   ),
   get_implicit : (fn(self : &Self) -> Rc(i32))(
-    self.data
+    Rc.clone(self.data)
   ),
   get_explicit : (fn(self : &Self) -> Rc(i32))({
-    return(self.data);
+    return(Rc.clone(self.data));
   })
 );
 test("no duplicate function emission for shell + orphan", {

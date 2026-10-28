@@ -147,12 +147,12 @@ test("derive Clone for recursive enum with Rc(Self)", {
     c,
     .Branch(left, right) => {
       match(
-        left.*,
+        &left.*,
         .Leaf(v) => assert(v == i32(1), "left leaf"),
         .Branch(_, _) => assert(false, "unexpected branch")
       );
       match(
-        right.*,
+        &right.*,
         .Leaf(v) => assert(v == i32(2), "right leaf"),
         .Branch(_, _) => assert(false, "unexpected branch")
       );
@@ -174,7 +174,7 @@ test("derive Clone for recursive struct with Option(Rc(Self))", {
   c := head.clone();
   assert(c.v == i32(1), "head v");
   match(
-    c.next,
+    &c.next,
     .Some(b) => assert(b.*.v == i32(2), "tail v"),
     .None => assert(false, "expected next")
   );

@@ -515,8 +515,8 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
   param_labels.push(String.from("self"));
   param_labels.push(String.from("other"));
   param_types := ArrayList(TypeValue).new();
-  param_types.push(rc(TypeValueNode.Pointer(s)));
-  param_types.push(s);
+  param_types.push(rc(TypeValueNode.Pointer(Rc.clone(s))));
+  param_types.push(Rc.clone(s));
   fn_ty := rc(
     TypeValueNode.Func(
       no_types(),
@@ -586,7 +586,7 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
   param_labels := ArrayList(String).new();
   param_labels.push(String.from("self"));
   param_types := ArrayList(TypeValue).new();
-  param_types.push(rc(TypeValueNode.Pointer(s)));
+  param_types.push(rc(TypeValueNode.Pointer(Rc.clone(s))));
   fn_ty := rc(
     TypeValueNode.Func(
       no_types(),

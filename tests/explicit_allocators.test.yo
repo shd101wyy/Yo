@@ -75,7 +75,7 @@ test("An rc placed by its alloc argument comes from that allocator", {
     assert(ref_count(p) == usize(1), "ref_count() never reports the allocator tag");
     // A second OWNER (a local alias of `p` is a borrow and adds no count).
     holder := ArrayList(Rc(_Point)).new();
-    holder.push(p);
+    holder.push(Rc.clone(p));
     assert(ref_count(p) == usize(2), "the count still counts");
   };
   assert(counts.live == usize(0), "the last drop released it into its allocator");

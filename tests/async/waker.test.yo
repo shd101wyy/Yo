@@ -159,7 +159,7 @@ test("Test park moves its waker into register, which keeps it", {
   slot := rc(RefCell(Option(Waker)).new(Option(Waker).None));
   // The signaller: takes the kept waker out of the slot and fires it.
   h := io.spawn(
-    io.async({ slot }(io : Io) => {
+    io.async({ slot : Rc.clone(slot) }(io : Io) => {
       io.await(yield(io), io);
       fired := match(
         slot.with_mut(cur => cur.take()),
@@ -211,7 +211,7 @@ test("Test a spawned task parks until the top level wakes it", {
   w := p.waker();
   ran := rc(RefCell(bool).new(false));
   h := io.spawn(
-    io.async({ p, ran }(io : Io) => {
+    io.async({ p, ran : Rc.clone(ran) }(io : Io) => {
       io.await(p.wait(io), io);
       ran.with_mut(cur => {
         cur = true;
@@ -246,7 +246,7 @@ test("Test one signal wakes every waiter in a list", {
     wakers.push(p.waker());
     handles.push(
       io.spawn(
-        io.async({ p, woken }(io : Io) => {
+        io.async({ p, woken : Rc.clone(woken) }(io : Io) => {
           io.await(p.wait(io), io);
           woken.with_mut(cur => {
             cur = (cur + i32(1));
@@ -326,7 +326,7 @@ test("Test a waker relay hands off without a millisecond floor", {
     mine_w := mine.waker();
     handles.push(
       io.spawn(
-        io.async({ mine, next_w, hops }(io : Io) => {
+        io.async({ mine, next_w, hops : Rc.clone(hops) }(io : Io) => {
           io.await(mine.wait(io), io);
           hops.with_mut(cur => {
             cur = (cur + i32(1));

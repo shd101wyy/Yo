@@ -29,8 +29,8 @@ _bv32_var :: (fn(name : &String) -> VcTerm)(
 _bv32_lit :: (fn(v : u64) -> VcTerm)(rc(VcTermNode.BvLit(value : v, width : usize(32))));
 _app2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(a);
-  args.push(b);
+  args.push(Rc.clone(a));
+  args.push(Rc.clone(b));
   rc(VcTermNode.App(op, args))
 });
 // ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ test("encode_term: quantifier shape", {
   sorts := ArrayList(VcSort).new();
   sorts.push(VcSort.BvS(width : usize(64)));
   body := vc_eq(rc(VcTermNode.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64)))), rc(VcTermNode.BvLit(value : u64(0), width : usize(64))));
-  q := rc(VcTermNode.Quant(VcQuantKind.Forall, names.clone(), sorts, body, ArrayList(VcTerm).new()));
+  q := rc(VcTermNode.Quant(VcQuantKind.Forall, names.clone(), sorts, Rc.clone(body), ArrayList(VcTerm).new()));
   assert(
     encode_term(&q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
     "forall with typed binder"
@@ -104,7 +104,7 @@ test("encode_term: quantifier shape", {
   // rides the BODY (z3 5.1.0 rejects :pattern on a !-wrapped quantifier);
   // one attribute per trigger (V5 task 6: the ms_of definition axioms).
   trigs := ArrayList(VcTerm).new();
-  trigs.push(body);
+  trigs.push(Rc.clone(body));
   qt := rc(VcTermNode.Quant(VcQuantKind.Forall, names, sorts, body, trigs));
   assert(
     encode_term(&qt) == "(forall ((i (_ BitVec 64))) (! (= i (_ bv0 64)) :pattern ((= i (_ bv0 64)))))",
