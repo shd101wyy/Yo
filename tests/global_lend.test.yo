@@ -231,6 +231,7 @@ mut(_gl_mopt) := Option(String).Some(String.from("o"));
 mut(_gl_mloud) := _GlLoud(n : i64(1));
 mut(_gl_mwrap) := _GlWrap(inner : _GlLoud(n : i64(2)), label : String.from("w"));
 mut(_gl_mlouds) := ArrayList(_GlLoud).new();
+mut(_gl_mopt_rc) := Option(Rc(_GlWrap)).Some(rc(_GlWrap(inner : _GlLoud(n : i64(3)), label : String.from("r"))));
 test("a structural clone() of a mut global is exempt from E0916", {
   s := _gl_mstr.clone();
   assert(s == String.from("m"), "a String: std's structural Clone");
@@ -238,6 +239,8 @@ test("a structural clone() of a mut global is exempt from E0916", {
   assert(t.label == String.from("t"), "a derived Clone over String and ArrayList(String)");
   o := _gl_mopt.clone();
   assert(o.is_some(), "an Option(String)");
+  r := _gl_mopt_rc.clone();
+  assert(r.is_some(), "an Option(Rc(V)): the handle's Clone bumps the count, so V's hand-written Clone cannot run");
   mut(xs) := _gl_mlist.clone();
   xs.push(i64(1));
   ys := _gl_mlist.clone();

@@ -100,12 +100,16 @@ assert(copied == i32(42), "inner value is 42");
 
 ### Copying
 
-Copying an `Arc` increments the reference count and keeps sharing the same value:
+`Arc.clone(a)` makes a second handle: it increments the reference count and keeps sharing the
+same value. A second handle is spelled, as in Rust (decision 17 of
+[the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): an implicit copy whose source is
+used again is E0901, and a handle's last use moves it. `yo fix <path> --migrate rc-clone` spells
+the clones in existing code.
 
 ```yo
 a := arc(i32(42));
-b := a;
-c := b;
+b := Arc.clone(a);
+c := Arc.clone(b);
 
 assert(a.* == b.*, "same shared value");
 assert(b.* == c.*, "same shared value");
@@ -118,7 +122,7 @@ assert(b.* == c.*, "same shared value");
 
 shared := arc(i32(42));
 
-t := Thread(unit).spawn(io => {
+t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
   assert(shared.* == i32(42), "thread sees shared value");
 });
 
@@ -142,7 +146,7 @@ Rust's do (decision 46 of
 
 ```yo
 a := arc(i32(1));
-b := a;
+b := Arc.clone(a);
 Arc.make_mut(&mut b) = i32(2); // b gets a cell of its own
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ```
@@ -158,10 +162,12 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ## Semantics
 
 - **Atomic RC**: `Arc` uses atomic increment/decrement operations.
-- **Shared ownership**: copying an `Arc` preserves the underlying allocation.
+- **Shared ownership**: `Arc.clone(a)` shares the underlying allocation; an implicit copy of a
+  handle whose source is used again is E0901.
 - **Borrowed deref**: `.*` gives borrowed access to the wrapped value.
 - **Drop behavior**: when the last reference is dropped, the inner value is dropped and the allocation is freed.
-- **Closure capture**: capturing an `Arc` in a closure duplicates the shared reference.
+- **Closure capture**: a closure that captures an `Arc` moves the handle in; one that needs its
+  own handle while the caller keeps reading lists it, `{ a : Arc.clone(a) }(...) => ...`.
 
 ## Cycles
 
@@ -175,7 +181,7 @@ stay allocated until the process exits, as they would in Rust:
 Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 
 a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
-b := a;
+b := Arc.clone(a);
 a.with_lock(v => {
   v.peer = .Some(b); // a -> mutex -> node -> a: this cell is never freed
 });
