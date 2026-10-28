@@ -969,10 +969,9 @@ impl(
   /// The slot for `key`, resolved in one probe and lent to `body` — Rust's
   /// `entry` in a with-shape (decision 22): Yo has no borrow object, so the
   /// entry lives only as the body's parameter and cannot be stored past a
-  /// rehash. The spec spells the body `FnOnce`; a generic `Impl(FnOnce(...))`
-  /// parameter cannot be called yet
-  /// (`issues/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md`),
-  /// so the body is the borrowed `Fn` every other std with-shape takes.
+  /// rehash. The body runs exactly once, so it is an `FnOnce` moved in
+  /// (decision 37): it may move what it captured into the map
+  /// (`{ v }(e) => e.or_insert(v)`) instead of copying each capture.
   ///
   /// ```yo
   /// counts.entry(word, e => {
@@ -984,7 +983,7 @@ impl(
   /// The body must not touch the map through another handle: anything that
   /// rehashes the table moves the key out of the slot the entry pinned. See
   /// `HashMapEntry` for the full invalidation rule.
-  entry : (fn(generic(R : Type), self : &mut Self, key : &K, body : &Impl(Fn(e : &mut HashMapEntry(K, V)) -> R)) -> R)({
+  entry : (fn(generic(R : Type), self : &mut Self, key : &K, sink(body) : Impl(FnOnce(e : &mut HashMapEntry(K, V)) -> R)) -> R)({
     hash := self._hash(key);
     (mut(e) : HashMapEntry(K, V)) = HashMapEntry(K, V)(
       _map : addr_of(self),
