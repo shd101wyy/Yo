@@ -124,7 +124,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt, is_std_module_path } :: import("./memory_safety.yo");
+{ is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -3921,7 +3921,7 @@ audit_record_copy_trait :: (
 (g_dup_use_site_tokens : RefCell(HashMap(usize, Token))) = RefCell(HashMap(usize, Token)).new(HashMap(usize, Token).new());
 get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.with(m => m.get(&id)));
 // ---------------------------------------------------------------------------
-// The unique `Dyn`, Generation A (plans/VALUES_BY_DEFAULT.md decision 7, B12)
+// The unique `Dyn` (plans/VALUES_BY_DEFAULT.md decision 7, B12 and B13)
 // ---------------------------------------------------------------------------
 /// One copy of a local holding a `Dyn` (`type_holds_dyn_by_value`), waiting
 /// for the epilogue of the frame that declares the local (`judge_dyn_copies`,
@@ -3934,22 +3934,13 @@ DynCopyPending :: struct(site : ImplicitCopyPending, name : String, ty : TypeVal
 (g_dyn_copy_pending : RefCell(HashMap(usize, ArrayList(DynCopyPending)))) = RefCell(HashMap(usize, ArrayList(DynCopyPending))).new(HashMap(usize, ArrayList(DynCopyPending)).new());
 /// A `Dyn` owns its payload uniquely (decision 7): `Dyn(Trait, Clone)` is
 /// explicit-copy, any other `Dyn` move-only, and a value aggregate holding
-/// one follows it. Generation A enforces the rule on the copies a program
-/// makes outside the trees the seed builds (`is_global_mut_rule_exempt`:
-/// src, the build file, scripts, the store and macro expansions) and outside
-/// `std/` (`is_std_module_path`, named here because decision 47's locals
-/// Generation B removed std from the shared exemption list — the Dyn rule's
-/// own scope is unchanged), whose copies still share the payload until
-/// Generation B (B13) sweeps them and makes the kind the type's own
-/// (`type_requires_explicit_copy`). The rule only rejects programs: every
-/// copy it accepts keeps today's representation (a counted share of the
-/// payload), so it changes no emitted C.
-/// True when the copy of a `ty` value at `tok` falls under the rule.
-dyn_copy_rule_applies :: (fn(ty : &TypeValue, tok : &Token, ctx : &EvalContext) -> bool)(
-  !is_global_mut_rule_exempt(&tok.module_path.*, &ctx.std_path)
-  && !is_std_module_path(&tok.module_path.*, &ctx.std_path)
-  && type_holds_dyn_by_value(ty)
-);
+/// one follows it. Generation B (B13) applies the rule to every copy, std and
+/// src included: their copies of a `Dyn` take `.clone()` or move. The rule
+/// only rejects programs: every copy it accepts is the last use of its
+/// source and keeps the counted-share representation, so it changes no
+/// emitted C.
+/// True when a copy of a `ty` value falls under the rule.
+dyn_copy_rule_applies :: (fn(ty : &TypeValue) -> bool)(type_holds_dyn_by_value(ty));
 /// Check one copy (`rhs`, read through variable `variable_name`) of a value
 /// holding a `Dyn`, where the rule applies (`dyn_copy_rule_applies`). A copy
 /// out of storage it cannot move from is E0901 at once, exactly as
@@ -4223,10 +4214,9 @@ set_expr_as_needs_to_call_dup :: (
         });
       });
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
-      // The unique `Dyn`, Generation A: a copy of a value holding a `Dyn`
-      // outside std and src (`check_dyn_copy`).
-      dyn_copy_tok := ast_expr_token(rhs);
-      if(dyn_copy_rule_applies(&ei.ty, &dyn_copy_tok, ctx), {
+      // The unique `Dyn`: a copy of a value holding a `Dyn`
+      // (`check_dyn_copy`).
+      if(dyn_copy_rule_applies(&ei.ty), {
         check_dyn_copy(rhs, &ei, &variable_name, ctx, exn);
       });
       if(g_audit_implicit_copy || migrate_explicit_copy_on(), {
