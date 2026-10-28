@@ -575,10 +575,17 @@ _open_keep :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)({
   k := _OpenKeep(type_of(f)).keep(f, i32(3));
   (k.f)(k.n)
 });
+// The unapplied spelling infers `T := type_of(f)` from the argument.
+_open_keep_inferred :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)({
+  k := _OpenKeep.keep(f, i32(3));
+  (k.f)(k.n)
+});
 test("a static method over an Impl(Fn) parameter's type dispatches, per closure", {
   base := i32(1);
   assert(_open_make(x => (x + base)) == usize(3), "a phantom parameter");
   assert(_open_make(x => (x * i32(4))) == usize(8), "a second closure type");
   assert(_open_keep(x => (x + base)) == i32(4), "a parameter a field mentions");
   assert(_open_keep(x => (x * i32(5))) == i32(15), "a second closure type");
+  assert(_open_keep_inferred(x => (x + base)) == i32(4), "_OpenKeep.keep(f, n) infers T");
+  assert(_open_keep_inferred(x => (x * i32(5))) == i32(15), "a second closure type");
 });
