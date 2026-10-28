@@ -9936,13 +9936,12 @@ impl(
   generic(T : Type),
   where(T <: Clone),
   Rc(T),
-  /// The payload, written (a mutable projection): when another handle shares
-  /// the cell, `self` first moves to a fresh cell holding a clone of the
-  /// payload, so the write never reaches the other handles. Rust's
-  /// `Rc::make_mut`; the clone is spelled in the name (§0.1 of the plan).
-  /// Unlike Rust's, it does not yet disassociate `Weak` handles: a `Weak` to
-  /// the only `Rc`'s cell sees the write (plans/backlog/SEED_VERSION_AUTOMATION.md,
-  /// "`make_mut` disassociates `Weak`").
+  /// The payload, written (a mutable projection): when another handle of
+  /// either kind shares the cell, `self` first moves to a fresh cell holding
+  /// a clone of the payload, so the write never reaches the other handles.
+  /// Rust's `Rc::make_mut`; the clone is spelled in the name (§0.1 of the
+  /// plan). As Rust's, it disassociates `Weak` handles: a `Weak` to the only
+  /// `Rc`'s cell upgrades to `.None` afterwards, since `self` left the cell.
   ///
   /// ```yo
   /// a := rc(i32(1));
@@ -9951,7 +9950,9 @@ impl(
   /// assert(a.* == i32(1), "a is unchanged");
   /// ```
   make_mut : (fn(self : &mut Self) -> &mut T)({
-    if(ref_count(self) != usize(1), {
+    // SAFETY: an `Rc` handle is the address of its live cell.
+    cell := unsafe(unsafe.cast(self, *T));
+    if((ref_count(self) != usize(1)) || (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)), {
       self = rc(self.*.clone());
     });
     addr_of(self.*)
@@ -10464,13 +10465,14 @@ impl(
   generic(T : Type),
   where(T <: (Send, Sync, Clone)),
   Arc(T),
-  /// The payload, written: when another handle shares the cell, `self` first
-  /// moves to a fresh cell holding a clone of the payload. Rust's
-  /// `Arc::make_mut`, except that it does not yet disassociate `ArcWeak`
-  /// handles (plans/backlog/SEED_VERSION_AUTOMATION.md, "`make_mut`
-  /// disassociates `Weak`").
+  /// The payload, written: when another handle of either kind shares the
+  /// cell, `self` first moves to a fresh cell holding a clone of the payload.
+  /// Rust's `Arc::make_mut`: an `ArcWeak` to the only `Arc`'s cell upgrades
+  /// to `.None` afterwards.
   make_mut : (fn(self : &mut Self) -> &mut T)({
-    if(ref_count(self) != usize(1), {
+    // SAFETY: an `Arc` handle is the address of its live cell.
+    cell := unsafe(unsafe.cast(self, *T));
+    if((ref_count(self) != usize(1)) || (__yo_arc_weak_weak_count((*void)(cell)) != usize(0)), {
       self = arc(self.*.clone());
     });
     // SAFETY: `self` is now the cell's only handle on every thread, so the
