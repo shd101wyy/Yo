@@ -153,7 +153,7 @@ test("Arc.clone(a) is Arc(i32).clone(a)", {
   a := arc(i32(2));
   c := Arc.clone(a);
   comptime_assert(Type.eq(type_of(Arc.clone(a)), Arc(i32)), "the result is an Arc(i32)");
-  d := Arc(i32).clone(a);
+  d := Arc(i32).clone(&a);
   assert((c.* == d.*) && (ref_count(a) == usize(3)), "both spellings are a second handle");
 });
 test("a module-qualified constructor, in a generic body specialized twice", {

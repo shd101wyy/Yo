@@ -794,11 +794,11 @@ test("an Arc(Dyn(Fn, Send, Sync)) shared by two threads and the spawner", {
     }
   );
   (d : Arc(Dyn(Fn() -> unit, Send, Sync))) = arc(dyn(k));
-  ta := Thread(unit).spawn((io : Io) => {
+  ta := Thread(unit).spawn({ d : Arc.clone(d) }(io : Io) => {
     d.*();
     ()
   });
-  tb := Thread(unit).spawn((io : Io) => {
+  tb := Thread(unit).spawn({ d : Arc.clone(d) }(io : Io) => {
     d.*();
     ()
   });

@@ -131,8 +131,8 @@ test("RwLock with_read admits several readers at the same time", {
   // `reader` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
   shared_reader := arc(reader);
-  t1 := Thread(unit).spawn(io => shared_reader.*());
-  t2 := Thread(unit).spawn(io => shared_reader.*());
+  t1 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
+  t2 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
   t3 := Thread(unit).spawn(io => shared_reader.*());
   t1.join();
   t2.join();
@@ -169,7 +169,7 @@ test("RwLock two writer threads increment the protected counter", {
   // `bump` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
   shared_bump := arc(bump);
-  t1 := Thread(unit).spawn(io => shared_bump.*());
+  t1 := Thread(unit).spawn({ shared_bump : Arc.clone(shared_bump) }(io) => shared_bump.*());
   t2 := Thread(unit).spawn(io => shared_bump.*());
   t1.join();
   t2.join();
@@ -242,10 +242,10 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
     }
   );
   shared_reader := arc(reader);
-  r1 := Thread(unit).spawn(io => shared_reader.*());
-  r2 := Thread(unit).spawn(io => shared_reader.*());
+  r1 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
+  r2 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
   r3 := Thread(unit).spawn(io => shared_reader.*());
-  w1 := Thread(unit).spawn(io => shared_writer.*());
+  w1 := Thread(unit).spawn({ shared_writer : Arc.clone(shared_writer) }(io) => shared_writer.*());
   w2 := Thread(unit).spawn(io => shared_writer.*());
   r1.join();
   r2.join();
@@ -305,8 +305,8 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   // `reader` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
   shared_reader := arc(reader);
-  t1 := Thread(unit).spawn(io => shared_reader.*());
-  t2 := Thread(unit).spawn(io => shared_reader.*());
+  t1 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
+  t2 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
   t3 := Thread(unit).spawn(io => shared_reader.*());
   t1.join();
   t2.join();
