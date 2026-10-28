@@ -443,7 +443,7 @@ _emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, 
     (go : bool) = true;
     while(go, {
       match(
-        containers.get(ai),
+        containers.get_cloned(ai),
         .Some(rel) => {
           em.emit_string_line(`${indent}${rel};`);
         },
@@ -1091,7 +1091,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
   (i : usize) = usize(0);
   while(i < na, {
     pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
-    c := match(args.get(i), .Some(x) => x, .None => String.from(""));
+    c := match(args.get_cloned(i), .Some(x) => x, .None => String.from(""));
     // A ref/`inout` parameter of type `unit` has no C value to take the
     // address of — the arg code is EMPTY, so the spill branch declared
     // `void __yo_ref_spill_N = ;` (invalid C). The callee's unit receiver
@@ -1339,7 +1339,7 @@ _per_arg_cast :: (fn(args_list : &String, param_types : &ArrayList(TypeValue), p
           .None => false
         ), {
           // By-value aggregate: pass through bare (see _no_cast_by_value_param).
-          out.push_string(match(parts.get(i), .Some(p) => p, .None => String.from("")));
+          out.push_string(match(parts.get_cloned(i), .Some(p) => p, .None => String.from("")));
         }, {
           // A BY-VALUE `unit` parameter is spelled as the one-byte placeholder in
           // the prototype, so its cast must agree; a REF one stays `void` + `*`.
@@ -1354,7 +1354,7 @@ _per_arg_cast :: (fn(args_list : &String, param_types : &ArrayList(TypeValue), p
             out.push_str("*");
           });
           out.push_str(")(");
-          out.push_string(match(parts.get(i), .Some(p) => p, .None => String.from("")));
+          out.push_string(match(parts.get_cloned(i), .Some(p) => p, .None => String.from("")));
           out.push_str(")");
         });
         i = (i + usize(1));
@@ -1372,7 +1372,7 @@ _join_args :: (fn(args : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(", ");
     });
-    out.push_string(match(args.get(i), .Some(a) => a, .None => String.from("")));
+    out.push_string(match(args.get_cloned(i), .Some(a) => a, .None => String.from("")));
     i = (i + usize(1));
   });
   out
@@ -1883,7 +1883,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       (dma : usize) = usize(0);
       while(dma < dm_amped.len(), {
         dm_call.push_str(", ");
-        match(dm_amped.get(dma), .Some(dac) => dm_call.push_string(&dac), .None => ());
+        match(dm_amped.get_cloned(dma), .Some(dac) => dm_call.push_string(&dac), .None => ());
         dma = (dma + usize(1));
       });
       dm_call.push_str(")");
@@ -3293,7 +3293,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 },
                 .None => _fn_pointer_param_type_string(&param_types, fa_i, context)
               );
-              fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
+              fa_part := match(fa_parts.get_cloned(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
               fa_out.push_string(&fa_pt);
               fa_out.push_str(")(");

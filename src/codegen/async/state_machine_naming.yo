@@ -69,7 +69,7 @@ register_sm_captured_names :: (
 /// was empty).
 sm_local_field_name :: (fn(variable_id : &String) -> String)(
   match(
-    g_sm_local_field_names.with(m => m.get(variable_id.clone())),
+    g_sm_local_field_names.with(m => m.get_cloned(variable_id.clone())),
     .Some(stable) => stable,
     .None => {
       pre := String.from("var_");
@@ -86,7 +86,7 @@ sm_local_field_name :: (fn(variable_id : &String) -> String)(
 get_state_machine_field_name :: (fn(variable_id : &String, aliases : &Option(HashMap(String, String))) -> String)({
   match(
     aliases,
-    .Some(a) => match(a.get(variable_id.clone()), .Some(al) => return(al), .None => ()),
+    .Some(a) => match(a.get_cloned(variable_id.clone()), .Some(al) => return(al), .None => ()),
     .None => ()
   );
   sm_local_field_name(variable_id)
@@ -103,7 +103,7 @@ export(
 /// (a capture) is not a slot, and the local then has storage of its own.
 sm_storage_id :: (fn(v : &Variable, smv : &HashMap(String, CapturedVariable), remap : &Option(HashMap(String, String))) -> String)({
   canon := (fn(id : &String, remap : &Option(HashMap(String, String))) -> String)(
-    match(remap, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id)
+    match(remap, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id)
   );
   own := canon(v.id.to_string(), remap);
   match(
@@ -148,7 +148,7 @@ sm_slot_of_variable :: (
     .Outer => `${capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
     .Local => match(
       aliases,
-      .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
+      .Some(al) => match(al.get_cloned(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
       .None => sm_local_field_name(id.clone())
     )
   );

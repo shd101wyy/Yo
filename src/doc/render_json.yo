@@ -74,7 +74,7 @@ _str_array :: (fn(items : &ArrayList(String)) -> JsonValue)({
   (i : usize) = usize(0);
   while(i < items.len(), {
     match(
-      items.get(i),
+      items.get_cloned(i),
       .Some(s) => {
         vals.push(JsonValue.Str(value : s.clone()));
       },
@@ -103,7 +103,7 @@ _params_to_json :: (fn(params : &ArrayList(DocParam)) -> JsonValue)({
   (i : usize) = usize(0);
   while(i < params.len(), {
     match(
-      params.get(i),
+      params.get_cloned(i),
       .Some(p) => {
         vals.push(_param_to_json(&p));
       },
@@ -128,7 +128,7 @@ _fields_to_json :: (fn(fields : &ArrayList(DocField)) -> JsonValue)({
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(f) => {
         vals.push(_field_to_json(&f));
       },
@@ -186,7 +186,7 @@ _impl_to_json :: (fn(im : &DocImpl) -> JsonValue)({
       (i : usize) = usize(0);
       while(i < assocs.len(), {
         match(
-          assocs.get(i),
+          assocs.get_cloned(i),
           .Some(a) => {
             a_vals.push(_impl_assoc_type_to_json(&a));
           },
@@ -236,7 +236,7 @@ _functions_to_json :: (fn(fns : &ArrayList(DocFunction)) -> JsonValue)({
   (i : usize) = usize(0);
   while(i < fns.len(), {
     match(
-      fns.get(i),
+      fns.get_cloned(i),
       .Some(f) => {
         vals.push(_function_to_json(&f));
       },
@@ -276,7 +276,7 @@ _type_to_json :: (fn(t : &DocType) -> JsonValue)({
       (i : usize) = usize(0);
       while(i < variants.len(), {
         match(
-          variants.get(i),
+          variants.get_cloned(i),
           .Some(v) => {
             v_vals.push(_variant_to_json(&v));
           },
@@ -297,7 +297,7 @@ _type_to_json :: (fn(t : &DocType) -> JsonValue)({
       (i : usize) = usize(0);
       while(i < impls.len(), {
         match(
-          impls.get(i),
+          impls.get_cloned(i),
           .Some(im) => {
             i_vals.push(_impl_to_json(&im));
           },
@@ -336,7 +336,7 @@ _trait_to_json :: (fn(t : &DocTrait) -> JsonValue)({
       (i : usize) = usize(0);
       while(i < assocs.len(), {
         match(
-          assocs.get(i),
+          assocs.get_cloned(i),
           .Some(a) => {
             a_vals.push(_assoc_type_to_json(&a));
           },
@@ -381,7 +381,7 @@ _module_to_json :: (fn(m : &DocModule) -> JsonValue)({
   (ti : usize) = usize(0);
   while(ti < m.types.len(), {
     match(
-      m.types.get(ti),
+      m.types.get_cloned(ti),
       .Some(t) => {
         t_vals.push(_type_to_json(&t));
       },
@@ -394,7 +394,7 @@ _module_to_json :: (fn(m : &DocModule) -> JsonValue)({
   (tri : usize) = usize(0);
   while(tri < m.traits.len(), {
     match(
-      m.traits.get(tri),
+      m.traits.get_cloned(tri),
       .Some(t) => {
         tr_vals.push(_trait_to_json(&t));
       },
@@ -407,7 +407,7 @@ _module_to_json :: (fn(m : &DocModule) -> JsonValue)({
   (ci : usize) = usize(0);
   while(ci < m.constants.len(), {
     match(
-      m.constants.get(ci),
+      m.constants.get_cloned(ci),
       .Some(c) => {
         c_vals.push(_constant_to_json(&c));
       },
@@ -440,7 +440,7 @@ _model_to_json :: (fn(model : &DocModel) -> JsonValue)({
   (i : usize) = usize(0);
   while(i < model.modules.len(), {
     match(
-      model.modules.get(i),
+      model.modules.get_cloned(i),
       .Some(m) => {
         m_vals.push(_module_to_json(&m));
       },

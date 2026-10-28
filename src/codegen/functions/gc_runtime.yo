@@ -62,7 +62,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
               (sj : usize) = usize(0);
               while(sj < sn, {
                 match(
-                  sub.get(sj),
+                  sub.get_cloned(sj),
                   .Some(s) => {
                     out.push(s.clone());
                   },
@@ -80,7 +80,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
         (fk : usize) = usize(0);
         while(fk < fn, {
           match(
-            fsub.get(fk),
+            fsub.get_cloned(fk),
             .Some(s) => {
               out.push(s.clone());
             },
@@ -111,7 +111,7 @@ collect_unwind_value_ctypes :: (fn(context : &FunctionGenerationContext) -> unit
           (fj : usize) = usize(0);
           while(fj < fnlen, {
             match(
-              found.get(fj),
+              found.get_cloned(fj),
               .Some(s) => {
                 into.insert(s.clone());
               },

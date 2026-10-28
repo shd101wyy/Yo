@@ -480,7 +480,7 @@ compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, targ
       (kli : usize) = usize(0);
       while(kli < keep_lines.len(), {
         match(
-          keep_lines.get(kli),
+          keep_lines.get_cloned(kli),
           .Some(kl) => if(kl.starts_with(String.from("[cgkey] ")), {
             match(
               kl.substring(usize(8), kl.len()).parse_u64(),
@@ -684,7 +684,7 @@ static Slice_uint8_t_u42_ __yo_args;
     (ci2 : usize) = usize(0);
     while(ci2 < asm2.chunks.len(), {
       match(
-        asm2.chunks.get(ci2),
+        asm2.chunks.get_cloned(ci2),
         .Some(cb) => {
           chunk_parts_out.push(cb);
         },

@@ -483,6 +483,7 @@ CaptureBorrow :: struct(
   /// `module:row:col` of the entry, for diagnostics.
   site : String
 );
+derive(CaptureBorrow, Clone);
 /// Record the borrow entries of the capture struct `struct_id`. A `mut` entry
 /// makes the struct move-only, so the move-only fast path is armed.
 register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(CaptureBorrow)) -> unit)({
@@ -491,7 +492,9 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
   });
   (i : usize) = usize(0);
   while(i < borrows.len(), {
-    if(match(borrows.get(i), .Some(b) => b.is_mut, .None => false), {
+    // Bounds are owned by the loop guard, so the element is read in place
+    // (the copy out was never needed — `is_mut` is a field read).
+    if(borrows(i).is_mut, {
       g_move_only_possible = true;
     });
     i = (i + usize(1));
@@ -3418,6 +3421,9 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 /// One memoized named aggregate of a representation predicate walk: the type
 /// object walked and the predicate's answer for it.
 _ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
+// `TypeValue` is `Rc(...)`, so the derived clone shares the type node: the
+// memo's `__yo_ptr_eq` identity test is preserved through a bucket clone.
+derive(_ReprMemoEntry, Clone);
 /// The memo of the current top-level predicate call, bucketed by
 /// `<predicate>:struct:<id>` / `<predicate>:enum:<id>`. A hit requires the SAME
 /// type object (a same-id copy rebuilt by substitution can differ). Without

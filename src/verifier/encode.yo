@@ -473,6 +473,8 @@ encode_content :: (fn(q : &VcQuery) -> String)({
   (di : usize) = usize(0);
   while(di < q.declarations.len(), {
     match(
+      // `VcSort` (inside `VcDecl`) has no Clone; the declaration-list copy
+      // stays today's share until the verifier IR grows one (B8's design).
       q.declarations.get(di),
       .Some(d) => {
         sb.write_string(`(declare-fun ${d.name} () ${encode_sort(&d.sort)})\n`);

@@ -141,7 +141,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      destructurings.get(i),
+      destructurings.get_cloned(i),
       .Some(rd) => if(!(rd.variable_name == "_"), {
         sanitized := sanitize_for_c_identifier(rd.variable_name.clone(), false);
         var_type_and_name := match(_sm_binding_slot(_binding_atom_key(pattern, &rd.variable_name), bind_env, rd.variable_name.clone(), context), .Some(slot) => slot, .None => get_variable_type_string(&rd.ty, &sanitized, &context.base));
@@ -226,7 +226,7 @@ _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Op
     context.state_machine_variables,
     .Some(smv) => {
       id := v.id.to_string();
-      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id);
+      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id);
       match(
         smv.get(&canon),
         .Some(cv) => match(

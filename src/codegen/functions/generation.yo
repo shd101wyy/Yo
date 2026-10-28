@@ -881,7 +881,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       (oc_i : usize) = usize(0);
       while(oc_i < owned_capture_labels.len(), {
         match(
-          owned_capture_labels.get(oc_i),
+          owned_capture_labels.get_cloned(oc_i),
           .Some(ocl) => {
             declare_c_var_name(&context.base, ocl.clone());
             push_declared_scope(&context.base, ocl.clone());
@@ -1267,6 +1267,7 @@ ModuleLevelVarEntry :: struct(
   /// accessor's return type without re-resolving the ExprInfo.
   c_type_str : String
 );
+derive(ModuleLevelVarEntry, Clone);
 /// Resolve the variable atom of a module-level init expr — for `x := v` the LHS
 /// atom, for `(x : T) = v` the binding's atom. Returns None for other shapes.
 _module_init_var_atom :: (fn(init_expr : &AstExpr) -> Option(AstExpr))({
@@ -1466,7 +1467,7 @@ emit_thread_local_accessors :: (
   (tli : usize) = usize(0);
   while(tli < module_vars.len(), {
     match(
-      module_vars.get(tli),
+      module_vars.get_cloned(tli),
       .Some(mv) => if(mv.is_thread_local, {
         has_tl = true;
       }),
@@ -1487,7 +1488,7 @@ emit_thread_local_accessors :: (
   (ai : usize) = usize(0);
   while(ai < module_vars.len(), {
     match(
-      module_vars.get(ai),
+      module_vars.get_cloned(ai),
       .Some(mv) => if(mv.is_thread_local, {
         linkage := if(context.base.chunk_mode, String.new(), String.from("static "));
         // The initializer runs in its OWN `void` helper, exactly as
@@ -1632,7 +1633,7 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
     (hmv_i : usize) = usize(0);
     while(hmv_i < module_vars.len(), {
       match(
-        module_vars.get(hmv_i),
+        module_vars.get_cloned(hmv_i),
         .Some(hmv) => if(!hmv.is_thread_local, {
           has_module_vars = true;
         }),
@@ -1666,7 +1667,7 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
       (rti : usize) = usize(0);
       while(rti < module_vars.len(), {
         match(
-          module_vars.get(rti),
+          module_vars.get_cloned(rti),
           .Some(rv) => if(!rv.is_thread_local, {
             em.emit_string_line(`  __yo_debug_alloc_root(&${rv.c_var_name}, sizeof(${rv.c_var_name}));`);
           }),
@@ -1678,7 +1679,7 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
     (mvi : usize) = usize(0);
     while(mvi < module_vars.len(), {
       match(
-        module_vars.get(mvi),
+        module_vars.get_cloned(mvi),
         .Some(mv) => if(!mv.is_thread_local, {
           rhs_code := _call_generate_expr(&mv.rhs, String.from("  "), context);
           em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);

@@ -119,7 +119,7 @@ _collect_index_files :: (
   while(i < entries.len(), {
     i = (i + usize(1));
     match(
-      entries.get(i - usize(1)),
+      entries.get_cloned(i - usize(1)),
       .None => (),
       .Some(entry) => {
         skip := cond(
@@ -239,7 +239,7 @@ _doc_first_line :: (fn(doc : &Option(String)) -> String)(
       (li : usize) = usize(0);
       while(li < lines.len(), {
         match(
-          lines.get(li),
+          lines.get_cloned(li),
           .Some(line) => {
             trimmed := line.trim();
             if(trimmed.len() > usize(0), {
@@ -385,7 +385,7 @@ _module_entries :: (
   (fi : usize) = usize(0);
   while(fi < doc_module.functions.len(), {
     match(
-      doc_module.functions.get(fi),
+      doc_module.functions.get_cloned(fi),
       .Some(f) => {
         kind := cond(f.is_method => `method`, true => `fn`);
         entries.push(
@@ -406,7 +406,7 @@ _module_entries :: (
   (ti : usize) = usize(0);
   while(ti < doc_module.types.len(), {
     match(
-      doc_module.types.get(ti),
+      doc_module.types.get_cloned(ti),
       .Some(t) => {
         entries.push(
           ContextIndexEntry(
@@ -423,7 +423,7 @@ _module_entries :: (
         (mi : usize) = usize(0);
         while(mi < t.methods.len(), {
           match(
-            t.methods.get(mi),
+            t.methods.get_cloned(mi),
             .Some(mm) => {
               entries.push(
                 ContextIndexEntry(
@@ -448,7 +448,7 @@ _module_entries :: (
   (tri : usize) = usize(0);
   while(tri < doc_module.traits.len(), {
     match(
-      doc_module.traits.get(tri),
+      doc_module.traits.get_cloned(tri),
       .Some(t) => {
         entries.push(
           ContextIndexEntry(
@@ -468,7 +468,7 @@ _module_entries :: (
   (ci : usize) = usize(0);
   while(ci < doc_module.constants.len(), {
     match(
-      doc_module.constants.get(ci),
+      doc_module.constants.get_cloned(ci),
       .Some(c) => {
         entries.push(
           ContextIndexEntry(
@@ -501,7 +501,7 @@ module_md_dir :: (fn(idx_dir : &String, module : &String) -> String)({
   (i : usize) = usize(0);
   while((i + usize(1)) < segs.len(), {
     match(
-      segs.get(i),
+      segs.get_cloned(i),
       .Some(seg) => {
         dir = Path.new(&dir).join(Path.new(seg.clone())).to_string();
       },
@@ -514,7 +514,7 @@ module_md_dir :: (fn(idx_dir : &String, module : &String) -> String)({
 /// The last segment of a module path.
 module_leaf :: (fn(module : &String) -> String)({
   segs := module.split(String.from("/"));
-  segs.last().unwrap_or(module)
+  segs.last_cloned().unwrap_or(module)
 });
 /// The kind letter for one exported label's type, as the query surface
 /// spells it.
@@ -543,7 +543,7 @@ _export_label_entries :: (
   (li : usize) = usize(0);
   while(li < labels.len(), {
     match(
-      labels.get(li),
+      labels.get_cloned(li),
       .Some(label) => {
         // Skip labels the doc pipeline already covered (by name — the
         // module's own documented items dominate; a re-export of the same
@@ -693,15 +693,11 @@ _barrel_spreads :: (fn(source : &String) -> ArrayList(Pair))({
                 if(is_spread, {
                   (pi : usize) = usize(0);
                   while(pi < imports.len(), {
-                    match(
-                      imports.get(pi),
-                      .Some(p) => {
-                        if(p.first == t4.value, {
-                          spreads.push(Pair(first : p.first.clone(), second : p.second.clone()));
-                        });
-                      },
-                      .None => ()
-                    );
+                    // Bounds are owned by the loop guard; the pair is read
+                    // in place and its fields cloned where kept.
+                    if(imports(pi).first == t4.value, {
+                      spreads.push(Pair(first : imports(pi).first.clone(), second : imports(pi).second.clone()));
+                    });
                     pi = (pi + usize(1));
                   });
                 });
@@ -758,54 +754,49 @@ _mark_barrel_origins :: (
   dir := fp.substring(usize(0), cut);
   (pi : usize) = usize(0);
   while(pi < spreads.len(), {
-    match(
-      spreads.get(pi),
-      .Some(p) => {
-        src_path := Path.new(&dir).join(Path.new(p.second.clone())).normalize().to_string();
-        origin := context_module_name(&src_path, root, prefix);
-        // Names this spread source defines.
-        defined := ArrayList(String).new();
-        outcome := mm_load_file(&src_path, resolve_std_path(), false, io, exn);
-        if(outcome.ok, {
-          match(
-            outcome.module_type,
-            Rc(.Struct({ field_labels, field_types })) => {
-              (li : usize) = usize(0);
-              while(li < field_labels.len(), {
-                match(
-                  field_labels.get(li),
-                  .Some(label) => {
-                    defined.push(label.clone());
-                  },
-                  .None => ()
-                );
-                li = (li + usize(1));
-              });
-            },
-            _ => ()
-          );
-        });
-        // Set origin on the documented entries; remember which names are
-        // barrel-covered so undocumented ones can be pushed after.
-        (ei : usize) = usize(0);
-        while(ei < entries.len(), {
-          match(
-            entries.get(ei),
-            .Some(e) => {
-              if((e.origin.len() == usize(0)) && defined.contains(&e.name), {
-                // `e` borrows the element: write an owned copy back.
-                updated := e;
-                updated.origin = origin.clone();
-                entries(ei) = updated;
-              });
-            },
-            .None => ()
-          );
-          ei = (ei + usize(1));
-        });
-      },
-      .None => ()
-    );
+    // Bounds are owned by the loop guard; the pair is read in place.
+    src_path := Path.new(&dir).join(Path.new(spreads(pi).second.clone())).normalize().to_string();
+    origin := context_module_name(&src_path, root, prefix);
+    // Names this spread source defines.
+    defined := ArrayList(String).new();
+    outcome := mm_load_file(&src_path, resolve_std_path(), false, io, exn);
+    if(outcome.ok, {
+      match(
+        outcome.module_type,
+        Rc(.Struct({ field_labels, field_types })) => {
+          (li : usize) = usize(0);
+          while(li < field_labels.len(), {
+            match(
+              field_labels.get(li),
+              .Some(label) => {
+                defined.push(label.clone());
+              },
+              .None => ()
+            );
+            li = (li + usize(1));
+          });
+        },
+        _ => ()
+      );
+    });
+    // Set origin on the documented entries; remember which names are
+    // barrel-covered so undocumented ones can be pushed after.
+    (ei : usize) = usize(0);
+    while(ei < entries.len(), {
+      match(
+        entries.get(ei),
+        .Some(e) => {
+          if((e.origin.len() == usize(0)) && defined.contains(&e.name), {
+            // `e` borrows the element: write an owned copy back.
+            updated := e;
+            updated.origin = origin.clone();
+            entries(ei) = updated;
+          });
+        },
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
     pi = (pi + usize(1));
   });
 });
@@ -827,7 +818,7 @@ context_index_load :: (
   (li : usize) = usize(0);
   while(li < lines.len(), {
     match(
-      lines.get(li),
+      lines.get_cloned(li),
       .Some(line) => {
         if(line.len() > usize(0), {
           entries.push(_parse_entry(&line));
@@ -844,17 +835,17 @@ _parse_entry :: (fn(line : &String) -> ContextIndexEntry)({
   fields := line.split(String.from("\t"));
   origin := String.new();
   if(fields.len() > usize(5), {
-    o := fields.get(usize(5)).unwrap_or(String.new());
+    o := fields.get_cloned(usize(5)).unwrap_or(String.new());
     if(o.starts_with(String.from("origin=")), {
       origin = o.substring(usize(7), o.len());
     });
   });
   ContextIndexEntry(
-    module : fields.get(usize(0)).unwrap_or(String.new()),
-    name : fields.get(usize(1)).unwrap_or(String.new()),
-    kind : fields.get(usize(2)).unwrap_or(String.new()),
-    signature : fields.get(usize(3)).unwrap_or(String.new()),
-    doc : fields.get(usize(4)).unwrap_or(String.new()),
+    module : fields.get_cloned(usize(0)).unwrap_or(String.new()),
+    name : fields.get_cloned(usize(1)).unwrap_or(String.new()),
+    kind : fields.get_cloned(usize(2)).unwrap_or(String.new()),
+    signature : fields.get_cloned(usize(3)).unwrap_or(String.new()),
+    doc : fields.get_cloned(usize(4)).unwrap_or(String.new()),
     origin : origin
   )
 });
@@ -876,20 +867,20 @@ context_index_load_modules :: (
   (li : usize) = usize(0);
   while(li < lines.len(), {
     match(
-      lines.get(li),
+      lines.get_cloned(li),
       .Some(line) => {
         if(line.len() > usize(0), {
           fields := line.split(String.from("\t"));
           mods.push(
             ContextIndexModule(
-              module : fields.get(usize(0)).unwrap_or(String.new()),
-              doc : fields.get(usize(1)).unwrap_or(String.new()),
+              module : fields.get_cloned(usize(0)).unwrap_or(String.new()),
+              doc : fields.get_cloned(usize(1)).unwrap_or(String.new()),
               items : match(
-                fields.get(usize(2)).unwrap_or(String.from("0")).parse_u64(),
+                fields.get_cloned(usize(2)).unwrap_or(String.from("0")).parse_u64(),
                 .Some(n) => usize(n),
                 .None => usize(0)
               ),
-              degraded : (fields.get(usize(3)).unwrap_or(String.from("ok")) == "degraded"),
+              degraded : (fields.get_cloned(usize(3)).unwrap_or(String.from("ok")) == "degraded"),
               index_dir : String.new()
             )
           );

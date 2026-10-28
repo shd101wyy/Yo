@@ -283,7 +283,7 @@ parse_error_text :: (
   n := lines.len();
   while(li < n, {
     line := match(
-      lines.get(li),
+      lines.get_cloned(li),
       .Some(l) => l,
       .None => String.new()
     );
@@ -294,12 +294,12 @@ parse_error_text :: (
       segs := body.split(String.from(":"));
       if(segs.len() >= usize(3), {
         col_s := match(
-          segs.last(),
+          segs.last_cloned(),
           .Some(s) => s,
           .None => String.new()
         );
         row_s := match(
-          segs.get(segs.len() - usize(2)),
+          segs.get_cloned(segs.len() - usize(2)),
           .Some(s) => s,
           .None => String.new()
         );
@@ -332,7 +332,7 @@ parse_error_text :: (
                       (consumed : usize) = usize(0);
                       if(k < n, {
                         t0 := match(
-                          lines.get(k),
+                          lines.get_cloned(k),
                           .Some(x) => x,
                           .None => String.new()
                         );
@@ -343,7 +343,7 @@ parse_error_text :: (
                       });
                       if(k < n, {
                         t1 := match(
-                          lines.get(k),
+                          lines.get_cloned(k),
                           .Some(x) => x,
                           .None => String.new()
                         );
@@ -354,7 +354,7 @@ parse_error_text :: (
                       });
                       if(k < n, {
                         t2 := match(
-                          lines.get(k),
+                          lines.get_cloned(k),
                           .Some(x) => x,
                           .None => String.new()
                         );
@@ -544,7 +544,7 @@ _typed_to_lsp :: (
   (i : usize) = usize(0);
   while(i < diags.len(), {
     match(
-      diags.get(i),
+      diags.get_cloned(i),
       .Some(d) => {
         same_file := ((d.span.path == doc_abs) || d.span.path.ends_with(doc_abs.clone()));
         is_note := match(

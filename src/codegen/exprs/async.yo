@@ -272,7 +272,7 @@ _find_bundle_var_field :: (
           vid := sm_var.base.id.clone();
           alias_opt := match(
             state_machine_field_aliases,
-            .Some(al) => al.get(vid.clone()),
+            .Some(al) => al.get_cloned(vid.clone()),
             .None => Option(String).None
           );
           match(
@@ -400,7 +400,7 @@ _first_struct_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeV
 /// function always meant.
 _capitalize_last_segment :: (fn(label : &String) -> String)({
   parts := label.split(".");
-  last := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p, .None => label.clone()), label.clone());
+  last := if(parts.len() > usize(0), match(parts.last_cloned(), .Some(p) => p, .None => label.clone()), label.clone());
   if(last.len() == usize(0), {
     return(last);
   });
@@ -455,7 +455,7 @@ generate_future_effect_setter :: (
           keyword := if(first_case, String.from("if"), String.from("else if"));
           first_case = false;
           parts := m.effect_label.split(".");
-          last_seg := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p, .None => m.effect_label.clone()), m.effect_label.clone());
+          last_seg := if(parts.len() > usize(0), match(parts.last_cloned(), .Some(p) => p, .None => m.effect_label.clone()), m.effect_label.clone());
           cap_last := _capitalize_last_segment(m.effect_label.clone());
           // Build the OR'd strcmp condition over the unique aliases.
           cond := String.from("");
@@ -542,7 +542,7 @@ _join_names :: (fn(names : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(", ");
     });
-    match(names.get(i), .Some(n) => out.push_string(n.clone()), .None => ());
+    match(names.get_cloned(i), .Some(n) => out.push_string(n.clone()), .None => ());
     i = (i + usize(1));
   });
   out
@@ -556,7 +556,7 @@ _join_dotted :: (fn(parts : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(".");
     });
-    match(parts.get(i), .Some(n) => out.push_string(sanitize_for_c_identifier(n.clone(), false)), .None => ());
+    match(parts.get_cloned(i), .Some(n) => out.push_string(sanitize_for_c_identifier(n.clone(), false)), .None => ());
     i = (i + usize(1));
   });
   out
@@ -719,7 +719,7 @@ emit_async_block_struct_definition :: (
   irfs := inline_await_result_fields(&info.analysis, context);
   (iai : usize) = usize(0);
   while(iai < irfs.len(), iai = (iai + usize(1)), {
-    match(irfs.get(iai), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &context.base)} ${rf.name};  // an await's result`), .None => ());
+    match(irfs.get_cloned(iai), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &context.base)} ${rf.name};  // an await's result`), .None => ());
   });
   _emit_fused_site_fields(fused_await_sites(&info.analysis, context), context);
   em.emit_declaration_line("};");
@@ -1015,7 +1015,7 @@ _inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, inden
     (pi : usize) = usize(0);
     while(pi < plines.len(), pi = (pi + usize(1)), {
       match(
-        plines.get(pi),
+        plines.get_cloned(pi),
         .Some(l) => if(l.trim().len() > usize(0), {
           if(out.len() > usize(0), {
             out.push_str("\n");
@@ -1230,7 +1230,7 @@ _lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeFi
         (lent : bool) = false;
         (bi : usize) = usize(0);
         while(bi < borrows.len(), bi = (bi + usize(1)), {
-          if(match(borrows.get(bi), .Some(b) => (b.root_is_value_param && (b.path.len() == usize(0)) && (b.label == f.label)), .None => false), {
+          if(match(borrows.get_cloned(bi), .Some(b) => (b.root_is_value_param && (b.path.len() == usize(0)) && (b.label == f.label)), .None => false), {
             lent = true;
           });
         });
@@ -1625,7 +1625,7 @@ _build_async_capture_struct_literal :: (
             (fi : usize) = usize(0);
             while((fi < inits.len()) && list_init.is_none(), fi = (fi + usize(1)), {
               match(
-                inits.get(fi),
+                inits.get_cloned(fi),
                 .Some(cfi) => if(cfi.label == label, {
                   list_init = Option(CaptureFieldInit).Some(cfi);
                 }),
@@ -1899,7 +1899,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   (ci : usize) = usize(0);
   while(ci < chain.len(), ci = (ci + usize(1)), {
     match(
-      chain.get(ci),
+      chain.get_cloned(ci),
       .Some(seg) => if(seg.len() > usize(0), {
         if(seg == own_segment, {
           return(_fusion_not_lowered(await_expr, String.from("the wrapper is recursive through the fused path"), report));
@@ -2090,7 +2090,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
         context.fusion_field_prefix = saved_prefix;
         (ri : usize) = usize(0);
         while(ri < rfs.len(), ri = (ri + usize(1)), {
-          match(rfs.get(ri), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &context.base)} ${rf.name};  // a fused await's result`), .None => ());
+          match(rfs.get_cloned(ri), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &context.base)} ${rf.name};  // a fused await's result`), .None => ());
         });
       },
       .None => ()
@@ -3081,7 +3081,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
             (ppi : usize) = usize(0);
             while(ppi < parts.len(), ppi = (ppi + usize(1)), {
               match(
-                parts.get(ppi),
+                parts.get_cloned(ppi),
                 .Some(site) => {
                   param_sites.insert(site);
                 },
@@ -3910,7 +3910,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
               cap_side := cap_em.print().split("\n");
               (csi : usize) = usize(0);
               while(csi < cap_side.len(), {
-                cs_line := match(cap_side.get(csi), .Some(l) => l.trim(), .None => String.from(""));
+                cs_line := match(cap_side.get_cloned(csi), .Some(l) => l.trim(), .None => String.from(""));
                 if(cs_line.len() > usize(0), {
                   capture_inline_lines.push(cs_line);
                 });
@@ -3973,7 +3973,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         side_lines := result_inline_side.split("\n");
         (sli : usize) = usize(0);
         while(sli < side_lines.len(), {
-          sline := match(side_lines.get(sli), .Some(l) => l.trim(), .None => String.from(""));
+          sline := match(side_lines.get_cloned(sli), .Some(l) => l.trim(), .None => String.from(""));
           if(sline.len() > usize(0), {
             em.emit_declaration_string_line(`    ${sline}`);
           });

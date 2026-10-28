@@ -539,7 +539,7 @@ impl(
       self.types.get(id.clone()),
       .Some(e) => .Some(e),
       .None => match(
-        self.type_key_aliases.get(id),
+        self.type_key_aliases.get_cloned(id),
         .Some(target) => self.types.get(&target),
         .None => Option(CodegenTypeEntry).None
       )
@@ -665,7 +665,7 @@ impl(
   }),
   /// The `upcast` targets of the source Dyn `src` (empty for most Dyns).
   dyn_upcast_targets : (fn(self : &Self, src : &TypeValue) -> ArrayList(TypeValue))(
-    match(self.dyn_upcasts.get(type_key(src)), .Some(t) => t, .None => ArrayList(TypeValue).new())
+    match(self.dyn_upcasts.get_cloned(type_key(src)), .Some(t) => t, .None => ArrayList(TypeValue).new())
   ),
   /// Register an extern function.
   register_extern_function : (
@@ -1319,7 +1319,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     (j : usize) = usize(0);
     while(j < nparams, {
       match(
-        params.get(j),
+        params.get_cloned(j),
         .Some(p) => if(p == name, {
           is_param = true;
         }),
@@ -1329,7 +1329,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     });
     if(is_param, {
       // It must be the NEXT parameter still unconsumed.
-      expected := match(params.get(pi), .Some(p) => p, .None => String.from(""));
+      expected := match(params.get_cloned(pi), .Some(p) => p, .None => String.from(""));
       if(expected != name, {
         return(false);
       });
@@ -1454,8 +1454,8 @@ nullable_arm_selects_payload :: (fn(enum_type : &TypeValue, case_value : &AstExp
       match(
         nullable_variant_names(enum_type),
         .Some(names) => cond(
-          (vname == match(names.get(usize(1)), .Some(n) => n, .None => String.new())) => Option(bool).Some(true),
-          (vname == match(names.get(usize(0)), .Some(n) => n, .None => String.new())) => Option(bool).Some(false),
+          (vname == match(names.get_cloned(usize(1)), .Some(n) => n, .None => String.new())) => Option(bool).Some(true),
+          (vname == match(names.get_cloned(usize(0)), .Some(n) => n, .None => String.new())) => Option(bool).Some(false),
           true => Option(bool).None
         ),
         .None => Option(bool).None
@@ -1680,7 +1680,7 @@ _gts_stack_contains :: (fn(sid : &String) -> bool)({
   n := g_gts_some_stack.with(xs => xs.len());
   while((i < n) && !found, {
     match(
-      g_gts_some_stack.with(xs => xs.get(i)),
+      g_gts_some_stack.with(xs => xs.get_cloned(i)),
       .Some(x) => if(x == sid, {
         found = true;
       }),
@@ -1920,7 +1920,7 @@ scope_stack_contains :: (fn(stack : &ArrayList(String), cn : &String) -> bool)({
   (found : bool) = false;
   while((i < n) && !found, {
     match(
-      stack.get(i),
+      stack.get_cloned(i),
       .Some(nm) => if(nm == cn, {
         found = true;
       }),

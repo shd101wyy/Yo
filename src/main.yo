@@ -549,7 +549,7 @@ _resolve_for_match :: (fn(p : &String) -> String)({
   kept := ArrayList(String).new();
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    part := match(parts.get(pi), .Some(s) => s, .None => String.from(""));
+    part := match(parts.get_cloned(pi), .Some(s) => s, .None => String.from(""));
     pi = (pi + usize(1));
     cond(
       ((part == "") || (part == ".")) => (),
@@ -606,7 +606,7 @@ _index_std_dir :: (
   (ei : usize) = usize(0);
   while(ei < entries.len(), {
     match(
-      entries.get(ei),
+      entries.get_cloned(ei),
       .Some(entry) => match(
         entry.file_type,
         .Directory => dirs.push(entry.name.clone()),
@@ -654,7 +654,7 @@ _index_std_dir :: (
     (collecting : bool) = false;
     (li : usize) = usize(0);
     while(li < lines.len(), {
-      t := match(lines.get(li), .Some(l) => l.trim(), .None => String.new());
+      t := match(lines.get_cloned(li), .Some(l) => l.trim(), .None => String.new());
       li = (li + usize(1));
       if(!collecting && t.starts_with(String.from("export(")), {
         collecting = true;
@@ -670,7 +670,7 @@ _index_std_dir :: (
         parts := buf.substring(usize(0), close).split(String.from(","));
         (pi : usize) = usize(0);
         while(pi < parts.len(), {
-          nm := match(parts.get(pi), .Some(p) => p.trim(), .None => String.new());
+          nm := match(parts.get_cloned(pi), .Some(p) => p.trim(), .None => String.new());
           pi = (pi + usize(1));
           // Identifiers only: a `:` (aliased export) or a space is not a name.
           if((nm.len() > usize(0)) && !nm.contains(String.from(":")) && !nm.contains(String.from(" ")), {
@@ -716,7 +716,7 @@ _walk_check_dir :: (
   while(i < n, {
     i = (i + usize(1));
     match(
-      entries.get(i - usize(1)),
+      entries.get_cloned(i - usize(1)),
       .None => (),
       .Some(entry) => {
         full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
@@ -784,7 +784,7 @@ collect_check_files :: (
   resolved_excludes := ArrayList(String).new();
   (rei : usize) = usize(0);
   while(rei < excludes.len(), {
-    rex := match(excludes.get(rei), .Some(e) => e, .None => String.from(""));
+    rex := match(excludes.get_cloned(rei), .Some(e) => e, .None => String.from(""));
     if(!rex.is_empty(), {
       resolved_excludes.push(_resolve_for_match(&rex));
     });
@@ -1117,7 +1117,7 @@ _run_migrate_params :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -1132,14 +1132,14 @@ _run_migrate_params :: (
   edit_paths := ArrayList(String).new();
   (epi : usize) = usize(0);
   while(epi < edits.len(), epi = (epi + usize(1)), {
-    edit_paths.push(match(edits.get(epi), .Some(e) => canonical_module_path(e.path.clone()), .None => String.new()));
+    edit_paths.push(match(edits.get_cloned(epi), .Some(e) => canonical_module_path(e.path.clone()), .None => String.new()));
   });
   // Group by target file: an edit lands only in a file under `<path>`.
   targets := ArrayList(String).new();
   canon_targets := ArrayList(String).new();
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    t := match(files.get(ti), .Some(f) => f, .None => String.new());
+    t := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon_targets.push(canonical_module_path(t.clone()));
     targets.push(t);
   });
@@ -1153,7 +1153,7 @@ _run_migrate_params :: (
     seen := HashSet(String).new();
     (ei : usize) = usize(0);
     while(ei < edits.len(), ei = (ei + usize(1)), {
-      e := match(edits.get(ei), .Some(x) => x, .None => MigrateEdit(path : String.new(), row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), expect : String.new()));
+      e := match(edits.get_cloned(ei), .Some(x) => x, .None => MigrateEdit(path : String.new(), row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), expect : String.new()));
       // One parameter can be recorded under both spellings of its module
       // path (the entry's as typed, a demand load's `file://` key), so the
       // evaluator's key does not dedupe it: keep the first edit per span.
@@ -1171,7 +1171,7 @@ _run_migrate_params :: (
     (pi : usize) = usize(0);
     while(pi < pending.len(), pi = (pi + usize(1)), {
       p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
-      line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get_cloned(p.row), .Some(l) => l, .None => String.new());
       if(_rune_slice(&line, p.col, p.len) != p.description, {
         n_stale = (n_stale + usize(1));
         continue;
@@ -1246,7 +1246,7 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     match(
       _parse_or_none(&src, file.clone()),
@@ -1271,7 +1271,7 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
             continue;
           });
           seen.insert(key);
-          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          line := match(lines.get_cloned(p.row), .Some(l) => l, .None => String.new());
           if(_rune_slice(&line, p.col, p.len) != p.description, {
             n_stale = (n_stale + usize(1));
             continue;
@@ -1479,7 +1479,7 @@ _dtm_walk :: (
         match(
           args.get(usize(0)),
           .Some(.Atom(_, lt)) => if(lt.value == "dispose", {
-            lline := match(lines.get(usize(lt.row)), .Some(l) => l, .None => String.new());
+            lline := match(lines.get_cloned(usize(lt.row)), .Some(l) => l, .None => String.new());
             sig := String.from("dispose : (fn(self : &Self)");
             if(_rune_slice(&lline, usize(lt.column), sig.len()) == sig, {
               o.fixes.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : sig.len(), replacement : String.from("drop : (fn(self : &mut Self)"), description : sig));
@@ -1512,7 +1512,7 @@ _dtm_walk :: (
                       match(
                         iargs.get(usize(1)),
                         .Some(.Atom(_, st)) => {
-                          sline := match(lines.get(usize(st.row)), .Some(l) => l, .None => String.new());
+                          sline := match(lines.get_cloned(usize(st.row)), .Some(l) => l, .None => String.new());
                           if(_rune_slice(&sline, usize(st.column), usize(9)) == "\"Dispose\"", {
                             o.fixes.push(_PendingFix(row : usize(st.row), col : usize(st.column), len : usize(9), replacement : String.from("\"Drop\""), description : String.from("\"Dispose\"")));
                           });
@@ -1552,7 +1552,7 @@ _dtm_walk :: (
       match(
         member,
         .Some(mt) => {
-          line := match(lines.get(usize(mt.row)), .Some(l) => l, .None => String.new());
+          line := match(lines.get_cloned(usize(mt.row)), .Some(l) => l, .None => String.new());
           obj := match(dot_obj, .Some(o) => o, .None => make_err_expr());
           obj_word := match(obj, .Atom(_, ot) => cond((ot.kind == TokenKind.Identifier) => ot.value.clone(), true => String.new()), _ => String.new());
           is_witness := match(
@@ -1644,7 +1644,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
   (n_unevaluated : usize) = usize(0);
   (ei : usize) = usize(0);
   while(ei < files.len(), ei = (ei + usize(1)), {
-    file := match(files.get(ei), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ei), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop_err := _take_load_error();
@@ -1673,7 +1673,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     match(
       _parse_or_none(&src, file.clone()),
@@ -1719,7 +1719,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
             continue;
           });
           seen.insert(key);
-          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          line := match(lines.get_cloned(p.row), .Some(l) => l, .None => String.new());
           if(_rune_slice(&line, p.col, p.len) != p.description, {
             n_stale = (n_stale + usize(1));
             continue;
@@ -1804,7 +1804,7 @@ _bsm_rune_len :: (fn(s : &String) -> usize)(s.chars().count());
 /// The rune at `(row, col)` of `lines`, or `.None` past a line's end.
 _bsm_rune_at :: (fn(lines : &ArrayList(String), row : usize, col : usize) -> Option(rune))(
   match(
-    lines.get(row),
+    lines.get_cloned(row),
     .Some(l) => {
       it := l.chars();
       (i : usize) = usize(0);
@@ -1943,7 +1943,7 @@ _bsm_param :: (
   });
   sig := match(_bsm_mode_sig(&m), .Some(s) => s, .None => return(Option(String).None));
   colon := ast_expr_token(&core);
-  line := match(lines.get(usize(colon.row)), .Some(l) => l, .None => String.new());
+  line := match(lines.get_cloned(usize(colon.row)), .Some(l) => l, .None => String.new());
   if(_rune_slice(&line, usize(colon.column), usize(2)) != ": ", {
     return(Option(String).None);
   });
@@ -2070,7 +2070,7 @@ _bsm_walk :: (
               .Some(lsig) => {
                 op := ast_expr_token(e);
                 op_text := `${op.value} `;
-                line := match(lines.get(usize(op.row)), .Some(l) => l, .None => String.new());
+                line := match(lines.get_cloned(usize(op.row)), .Some(l) => l, .None => String.new());
                 if((_rune_slice(&line, usize(op.column), _bsm_rune_len(&op_text)) == op_text) && _bsm_unwrap(&lb, String.new(), lines, out, claimed), {
                   out.push(_bsm_edit(usize(op.row), usize(op.column), op_text.clone(), `${op_text}${lsig}`));
                   if(word == ":=", {
@@ -2189,7 +2189,7 @@ _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, 
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     match(
       _raw_parse_or_none(&src, file.clone()),
@@ -2232,7 +2232,7 @@ _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, 
             continue;
           });
           seen.insert(key);
-          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          line := match(lines.get_cloned(p.row), .Some(l) => l, .None => String.new());
           if(_rune_slice(&line, p.col, p.len) != p.description, {
             n_stale = (n_stale + usize(1));
             continue;
@@ -2354,7 +2354,7 @@ _run_migrate_addr_of :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -2375,7 +2375,7 @@ _run_migrate_addr_of :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     lent_keys := HashSet(String).new();
     addr := ArrayList(AddrOfSite).new();
@@ -2413,7 +2413,7 @@ _run_migrate_addr_of :: (
         println(`fix: ${at}: \`${st.expect}\` is lent in one evaluation and the address-of in another; left as written`);
         continue;
       });
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -2532,7 +2532,7 @@ _run_migrate_markers :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -2553,7 +2553,7 @@ _run_migrate_markers :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position, and a position
@@ -2593,7 +2593,7 @@ _run_migrate_markers :: (
         println(`fix: ${at}: \`${st.expect}\` is passed to an \`imm\` parameter in one evaluation and a \`mut\` one in another; left as written`);
         continue;
       });
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -2679,7 +2679,7 @@ _run_migrate_rc_pattern :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -2699,7 +2699,7 @@ _run_migrate_rc_pattern :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position.
@@ -2912,7 +2912,7 @@ _copy_when :: (
   mates := ArrayList(CopyLoop).new();
   loops := ArrayList(CopyLoop).new();
   match(
-    loops_by_module.get(st.at_module.clone()),
+    loops_by_module.get_cloned(st.at_module.clone()),
     .Some(ls) => {
       (k : usize) = usize(0);
       while(k < ls.len(), k = (k + usize(1)), {
@@ -2935,7 +2935,7 @@ _copy_when :: (
     if(!st.dst_decl.is_empty(), {
       dests.push(st.dst_decl.clone());
     });
-    match(tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => dests.extend(tds), .None => ());
+    match(tail_dests.get_cloned(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => dests.extend(tds), .None => ());
     seen := HashSet(String).new();
     (di : usize) = usize(0);
     while(di < dests.len(), di = (di + usize(1)), {
@@ -2944,7 +2944,7 @@ _copy_when :: (
     (ri : usize) = usize(0);
     while(ri < dests.len(), ri = (ri + usize(1)), {
       match(
-        flows_by_src.get(dests(ri).clone()),
+        flows_by_src.get_cloned(dests(ri).clone()),
         .Some(fl) => {
           (k : usize) = usize(0);
           while(k < fl.len(), k = (k + usize(1)), {
@@ -2983,7 +2983,7 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
   cond(
     decl.is_empty() => false,
     true => match(
-      writes_by_decl.get(decl.clone()),
+      writes_by_decl.get_cloned(decl.clone()),
       .Some(lst) => {
         (found : bool) = false;
         (k : usize) = usize(0);
@@ -3033,7 +3033,7 @@ _decl_written_after :: (
     while(bi < work.len(), bi = (bi + usize(1)), {
       cur := work(bi).clone();
       match(
-        flows_by_src.get(cur.clone()),
+        flows_by_src.get_cloned(cur.clone()),
         .Some(fl) => {
           (k : usize) = usize(0);
           while(k < fl.len(), k = (k + usize(1)), {
@@ -3046,7 +3046,7 @@ _decl_written_after :: (
         .None => ()
       );
       match(
-        flows_by_dst.get(cur.clone()),
+        flows_by_dst.get_cloned(cur.clone()),
         .Some(fl) => {
           (k : usize) = usize(0);
           while(k < fl.len(), k = (k + usize(1)), {
@@ -3066,7 +3066,7 @@ _decl_written_after :: (
       return(true);
     });
     match(
-      flows_by_src.get(cur.clone()),
+      flows_by_src.get_cloned(cur.clone()),
       .Some(fl) => {
         (k : usize) = usize(0);
         while(k < fl.len(), k = (k + usize(1)), {
@@ -3172,7 +3172,7 @@ _run_migrate_explicit_copy :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -3265,7 +3265,7 @@ _run_migrate_explicit_copy :: (
   (n_skipped_tests : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position. A position recorded
@@ -3661,7 +3661,7 @@ _run_migrate_cloned_accessors :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -3742,7 +3742,7 @@ _run_migrate_cloned_accessors :: (
   (n_skipped_tests : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position. A position
@@ -3986,7 +3986,7 @@ _run_migrate_dyn_spelling :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       load_err := _take_load_error();
@@ -4009,7 +4009,7 @@ _run_migrate_dyn_spelling :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position.
@@ -4031,7 +4031,7 @@ _run_migrate_dyn_spelling :: (
     while(mi < mine.len(), mi = (mi + usize(1)), {
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -4121,7 +4121,7 @@ _run_migrate_mut_markers :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       load_err := _take_load_error();
@@ -4167,7 +4167,7 @@ _run_migrate_mut_markers :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     mine := ArrayList(MutableGlobalSite).new();
     seen_pos := HashSet(String).new();
@@ -4187,7 +4187,7 @@ _run_migrate_mut_markers :: (
     while(mi < mine.len(), mi = (mi + usize(1)), {
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -4530,7 +4530,7 @@ run_fix :: (
         (ddj : usize) = usize(0);
         while(ddj < diags.len(), {
           match(
-            diags.get(ddj),
+            diags.get_cloned(ddj),
             .Some(dd) => eprintln(
               `[fix]   span.path="${dd.span.path}" repair=${match(dd.repair, .Some(rr) => `"${rr.replacement}"`, .None => String.from("none"))} msg=${dd.message}`
             ),
@@ -4543,7 +4543,7 @@ run_fix :: (
       (dj : usize) = usize(0);
       while(dj < diags.len(), {
         match(
-          diags.get(dj),
+          diags.get_cloned(dj),
           .Some(d) => match(
             d.repair,
             .Some(r) => if(r.span.path == file, {
@@ -4790,7 +4790,7 @@ run_check :: (
   total := files.len();
   while(fi < total, {
     match(
-      files.get(fi),
+      files.get_cloned(fi),
       .None => (),
       .Some(file_path) => {
         if(!check_single_file(&file_path, std_path.clone(), io, exn), {
@@ -5066,7 +5066,7 @@ run_verify_cmd :: (
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     match(
-      files.get(fi),
+      files.get_cloned(fi),
       .Some(fp) => {
         abs_targets.push(fp.clone());
         abs_targets.push(mm_resolve_entry_abs(fp.clone(), std_path.clone()));
@@ -5086,7 +5086,7 @@ run_verify_cmd :: (
   (fi2 : usize) = usize(0);
   while(fi2 < files.len(), {
     match(
-      files.get(fi2),
+      files.get_cloned(fi2),
       .Some(fp) => {
         outcome := mm_load_file(fp.clone(), std_path.clone(), true, io, exn);
         if(!outcome.ok, {
@@ -5257,7 +5257,7 @@ _verify_summary_line :: (fn(sum : &VerifySummary, elapsed_ms : i64) -> String)({
   (i : usize) = usize(0);
   while(i < names.len(), {
     match(
-      names.get(i),
+      names.get_cloned(i),
       .Some(nm) => {
         if(i > usize(0), {
           sb.write_string(String.from(", "));
@@ -5296,7 +5296,7 @@ _verify_summary_json :: (
   (i : usize) = usize(0);
   while(i < names.len(), {
     match(
-      names.get(i),
+      names.get_cloned(i),
       .Some(nm) => {
         ks.push(nm.clone());
         vs.push(JsonValue.Int(i64(verify_summary_count(sum, nm.clone()))));
@@ -5550,7 +5550,7 @@ _verify_json_strs :: (fn(ss : &ArrayList(String)) -> JsonValue)({
   (i : usize) = usize(0);
   while(i < ss.len(), {
     match(
-      ss.get(i),
+      ss.get_cloned(i),
       .Some(s) => {
         items.push(JsonValue.Str(s.clone()));
       },
@@ -5566,7 +5566,7 @@ _verify_join_strs :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
   (i : usize) = usize(0);
   while(i < ss.len(), {
     match(
-      ss.get(i),
+      ss.get_cloned(i),
       .Some(s) => {
         if(i > usize(0), {
           sb.write_string(sep);
@@ -5705,7 +5705,7 @@ windows_path_with_dir_first :: (fn(path : &String, dir : &String) -> String)({
   entries := path.split(";");
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    present := match(entries.get(i), .Some(e) => e.trim_end_matches("\\").eq_ignore_ascii_case(want.clone()), .None => false);
+    present := match(entries.get_cloned(i), .Some(e) => e.trim_end_matches("\\").eq_ignore_ascii_case(want.clone()), .None => false);
     if(present, {
       return(path.clone());
     });
@@ -5750,7 +5750,7 @@ _find_clang_asan_dll_path :: (fn(compiler : &String, io : Io) -> Option(String))
   ver_entries := io.await(read_dir(Path.new(clang_lib.clone()), io), IoExn(io : io, exn : inner_exn));
   (vei : usize) = usize(0);
   while(vei < ver_entries.len(), {
-    ve := match(ver_entries.get(vei), .Some(e) => Option(String).Some(e.name.clone()), .None => Option(String).None);
+    ve := match(ver_entries.get_cloned(vei), .Some(e) => Option(String).Some(e.name.clone()), .None => Option(String).None);
     vei = (vei + usize(1));
     match(
       ve,
@@ -6043,7 +6043,7 @@ _cc_command :: (fn(program : &String, argv : &ArrayList(String)) -> Command)({
   (i : usize) = usize(0);
   while(i < argv.len(), {
     match(
-      argv.get(i),
+      argv.get_cloned(i),
       .Some(a) => {
         _arg_c := c.arg(a.clone());
       },
@@ -6140,10 +6140,10 @@ _compile_chunks_parallel :: (
   stamp_paths := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < chunk_c_files.len(), {
-    cf := match(chunk_c_files.get(i), .Some(x) => x, .None => String.new());
+    cf := match(chunk_c_files.get_cloned(i), .Some(x) => x, .None => String.new());
     obj := _chunk_obj_path(cf.clone());
     objs.push(obj.clone());
-    text_hash := match(chunk_text_hashes.get(i), .Some(h) => h, .None => String.new());
+    text_hash := match(chunk_text_hashes.get_cloned(i), .Some(h) => h, .None => String.new());
     stamp_src := ArrayList(u8).new();
     sb := `${text_hash}\n${flags_key}\n${CURRENT_YO_VERSION}`;
     (si : usize) = usize(0);
@@ -6161,7 +6161,7 @@ _compile_chunks_parallel :: (
       (fi : usize) = usize(0);
       while(fi < flags.len(), {
         cmdline.push_str(" ");
-        cmdline.push_string(_sh_quote(match(flags.get(fi), .Some(f) => f, .None => String.new())));
+        cmdline.push_string(_sh_quote(match(flags.get_cloned(fi), .Some(f) => f, .None => String.new())));
         fi = (fi + usize(1));
       });
       cmdline.push_str(" -c ");
@@ -6191,7 +6191,7 @@ _compile_chunks_parallel :: (
       // No `sh`: compile sequentially, one Command per chunk.
       (li : usize) = usize(0);
       while(li < chunk_c_files.len(), {
-        cf := match(chunk_c_files.get(li), .Some(x) => x, .None => String.new());
+        cf := match(chunk_c_files.get_cloned(li), .Some(x) => x, .None => String.new());
         obj := match(objs.get(li), .Some(x) => x, .None => String.new());
         seq := _cc_command(cc.clone(), flags);
         seq.arg(String.from("-c"));
@@ -6441,7 +6441,7 @@ _write_depfile :: (
     (i : usize) = usize(0);
     while(i < files.len(), {
       match(
-        files.get(i),
+        files.get_cloned(i),
         .Some(f) => {
           body.push_string(f.clone());
           body.push_str("\n");
@@ -6508,7 +6508,7 @@ _require_bundled_mimalloc :: (fn(command : String, std_root : &String, exn : Exc
 _system_allocator_remedy :: "pass `--allocator system`, or set `allocator : build.AllocatorKind.System` in build.yo";
 run_warm_selfcheck_compile :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
   input := match(
-    argv.get(usize(2)),
+    argv.get_cloned(usize(2)),
     .Some(x) => x.clone(),
     .None => String.new()
   );
@@ -6679,7 +6679,7 @@ _cc_plan_push_list :: (fn(out : &mut String, key : str, items : &ArrayList(Strin
   while(i < items.len(), {
     out.push_str(key);
     out.push_str(" ");
-    out.push_string(_cc_plan_escape(match(items.get(i), .Some(x) => x, .None => String.new())));
+    out.push_string(_cc_plan_escape(match(items.get_cloned(i), .Some(x) => x, .None => String.new())));
     out.push_str("\n");
     i = (i + usize(1));
   });
@@ -6708,12 +6708,12 @@ _cc_plan_serialize :: (fn(plan : &CcPlan) -> String)({
 _cc_plan_parse :: (fn(text : &String, exn : Exception) -> CcPlan)({
   plan := _new_cc_plan(_CC_PLAN_EXE, String.new(), String.new(), String.new());
   lines := text.split(String.from("\n"));
-  if(match(lines.get(usize(0)), .Some(l) => (l != "yo-cc-plan 1"), .None => true), {
+  if(match(lines.get_cloned(usize(0)), .Some(l) => (l != "yo-cc-plan 1"), .None => true), {
     exn.throw(dyn(String.from("compile: not a yo-cc-plan 1 file")));
   });
   (li : usize) = usize(1);
   while(li < lines.len(), {
-    line := match(lines.get(li), .Some(l) => l, .None => String.new());
+    line := match(lines.get_cloned(li), .Some(l) => l, .None => String.new());
     li = (li + usize(1));
     match(
       line.index_of(String.from(" ")),
@@ -6799,16 +6799,16 @@ _physical_memory_mb_linux :: (fn() -> usize)({
   lines := String.from_bytes(read_file_sync(String.from("/proc/meminfo"), swallow)).split(String.from("\n"));
   (li : usize) = usize(0);
   while(li < lines.len(), {
-    line := match(lines.get(li), .Some(l) => l, .None => String.new());
+    line := match(lines.get_cloned(li), .Some(l) => l, .None => String.new());
     if(line.starts_with(String.from("MemTotal:")), {
       digits := line.substring(usize(9), line.len()).trim().split(String.from(" "));
-      total_mb = match(digits.get(usize(0)), .Some(kb) => usize(kb.parse_u64().unwrap_or(u64(0)) / u64(1024)), .None => usize(0));
+      total_mb = match(digits.get_cloned(usize(0)), .Some(kb) => usize(kb.parse_u64().unwrap_or(u64(0)) / u64(1024)), .None => usize(0));
     });
     li = (li + usize(1));
   });
   cg_lines := String.from_bytes(read_file_sync(String.from("/proc/self/cgroup"), swallow)).split(String.from("\n"));
   match(
-    cg_lines.get(usize(0)),
+    cg_lines.get_cloned(usize(0)),
     .Some(cg) => if(cg.starts_with(String.from("0::")), {
       max_text := String.from_bytes(read_file_sync(`/sys/fs/cgroup${cg.substring(usize(3), cg.len())}/memory.max`, swallow)).trim();
       match(
@@ -7017,7 +7017,7 @@ _report_captured_cc_stderr :: (fn(captured_err : &ArrayList(u8)) -> unit)({
   (i : usize) = usize(0);
   while(i < lines.len(), {
     match(
-      lines.get(i),
+      lines.get_cloned(i),
       .Some(line) => match(
         _parse_cc_diagnostic_line(line.clone()),
         .Some(d) => {
@@ -7192,7 +7192,7 @@ _finish_cc_plan :: (fn(plan : &CcPlan, profile_json : &String, io : Io, exn : Ex
 /// in this fresh image, then remove the file. Not a user command.
 run_cc_plan_cmd :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
   plan_path := match(
-    argv.get(usize(2)),
+    argv.get_cloned(usize(2)),
     .Some(p) => p,
     .None => {
       exn.throw(dyn(String.from("compile: __cc-plan needs a plan file")));
@@ -8135,7 +8135,7 @@ run_compile :: (
         if((pi0 == usize(4)) && (c_spilled.len() > usize(0)), {
           print(&c_spilled);
         });
-        match(c_parts.get(pi0), .Some(part) => print(&part), .None => ());
+        match(c_parts.get_cloned(pi0), .Some(part) => print(&part), .None => ());
         pi0 = (pi0 + usize(1));
       });
       println("");
@@ -8203,7 +8203,7 @@ run_compile :: (
             _copy_code_spill_into(code_spill_path.clone(), c_spilled_bytes, &c_file, io, exn);
           });
           match(
-            c_parts.get(pw),
+            c_parts.get_cloned(pw),
             .Some(part) => {
               _pw_n := io.await(c_file.write_string(&part, io), c_b);
             },
@@ -8455,7 +8455,7 @@ run_compile :: (
     (ci : usize) = usize(0);
     while(ci < parts.len(), {
       match(
-        parts.get(ci),
+        parts.get_cloned(ci),
         .Some(f) => if(f.len() > usize(0), {
           _arg_c := cmd.arg(f.clone());
         }),
@@ -8607,7 +8607,7 @@ run_compile :: (
   if(openssl_ok, {
     (oii : usize) = usize(0);
     while(oii < g_openssl_includes.with(xs => xs.len()), {
-      oinc0 := match(g_openssl_includes.with(xs => xs.get(oii)), .Some(x) => x, .None => String.new());
+      oinc0 := match(g_openssl_includes.with(xs => xs.get_cloned(oii)), .Some(x) => x, .None => String.new());
       _arg_c := cmd.arg(`-I${oinc0}`);
       oii = (oii + usize(1));
     });
@@ -8682,7 +8682,7 @@ run_compile :: (
   if(openssl_ok, {
     (ol : usize) = usize(0);
     while(ol < g_openssl_libdirs.with(xs => xs.len()), {
-      olib := match(g_openssl_libdirs.with(xs => xs.get(ol)), .Some(x) => x, .None => String.new());
+      olib := match(g_openssl_libdirs.with(xs => xs.get_cloned(ol)), .Some(x) => x, .None => String.new());
       _arg_c := cmd.arg(`-L${olib}`);
       ol = (ol + usize(1));
     });
@@ -8803,7 +8803,7 @@ _collect_test_files :: (
   (i : usize) = usize(0);
   while(i < all.len(), {
     match(
-      all.get(i),
+      all.get_cloned(i),
       .Some(f) => cond(
         f.ends_with(String.from(".test.yo")) => {
           out.push(f.clone());
@@ -8978,7 +8978,7 @@ _remove_dead_code_spills :: (fn(output : &String, io : Io) -> unit)({
   (ei : usize) = usize(0);
   while(ei < entries.len(), {
     match(
-      entries.get(ei),
+      entries.get_cloned(ei),
       .Some(entry) => {
         name := entry.name.clone();
         if((name.len() > (prefix.len() + suffix.len())) && (name.starts_with(prefix.clone()) && name.ends_with(suffix.clone())), {
@@ -9076,7 +9076,7 @@ _peak_rss_mb_linux :: (fn() -> usize)({
   (li : usize) = usize(0);
   while(li < lines.len(), {
     match(
-      lines.get(li),
+      lines.get_cloned(li),
       .Some(line) => if(line.starts_with(String.from("VmHWM:")), {
         kb := line.substring(usize(6), line.len()).trim().trim_end_matches(String.from("kB")).trim();
         return(match(kb.parse_u64(), .Some(k) => usize(k / u64(1024)), .None => usize(0)));
@@ -9093,7 +9093,7 @@ _current_rss_mb_linux :: (fn() -> usize)({
   statm_bytes := read_file_sync(String.from("/proc/self/statm"), swallow);
   fields := String.from_bytes(statm_bytes).split(String.from(" "));
   match(
-    fields.get(usize(1)),
+    fields.get_cloned(usize(1)),
     .Some(resident_pages) => match(
       resident_pages.trim().parse_u64(),
       .Some(pages) => usize((pages * u64(4096)) / u64(1048576)),
@@ -9188,6 +9188,9 @@ _exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
   (xj : usize) = usize(0);
   while(xj < argc, {
     match(
+      // The leaked C-string storage must outlive execve: read the argument
+      // in place (a get_cloned clone is a temporary whose buffer the argv
+      // pointers would dangle into — `issues/2026-10-27-cloned-accessors-migration-clones-a-list-whose-pointer-must-outlive-the-call.md`).
       exec_cstrs.get(xj),
       .Some(cs) => match(
         cs.ptr(),
@@ -9397,9 +9400,9 @@ _test_fork_collect :: (
   _test_fork_unlink(&err_p);
   _test_fork_unlink(&res_p);
   fields := res.trim().split(" ");
-  passed_v := match(fields.get(usize(0)), .Some(s) => s.parse_u64(), .None => Option(u64).None);
-  failed_v := match(fields.get(usize(1)), .Some(s) => s.parse_u64(), .None => Option(u64).None);
-  bailed_s := match(fields.get(usize(2)), .Some(s) => s, .None => String.new());
+  passed_v := match(fields.get_cloned(usize(0)), .Some(s) => s.parse_u64(), .None => Option(u64).None);
+  failed_v := match(fields.get_cloned(usize(1)), .Some(s) => s.parse_u64(), .None => Option(u64).None);
+  bailed_s := match(fields.get_cloned(usize(2)), .Some(s) => s, .None => String.new());
   match(
     passed_v,
     .Some(pv) => match(
@@ -9807,7 +9810,7 @@ run_test :: (
     (fi : usize) = usize(0);
     while(fi < all_files.len(), {
       if((fi % shard_total) == shard_index, {
-        match(all_files.get(fi), .Some(f) => picked.push(f.clone()), .None => ());
+        match(all_files.get_cloned(fi), .Some(f) => picked.push(f.clone()), .None => ());
       });
       fi = (fi + usize(1));
     });
@@ -9832,7 +9835,7 @@ run_test :: (
     resumed := ArrayList(String).new();
     (rfi : usize) = resume_from;
     while(rfi < files.len(), {
-      match(files.get(rfi), .Some(rf) => resumed.push(rf.clone()), .None => ());
+      match(files.get_cloned(rfi), .Some(rf) => resumed.push(rf.clone()), .None => ());
       rfi = (rfi + usize(1));
     });
     files = resumed;
@@ -9890,7 +9893,7 @@ run_test :: (
     (skipped_n : usize) = usize(0);
     (sfi : usize) = usize(0);
     while(sfi < files.len(), {
-      sf := match(files.get(sfi), .Some(f) => f, .None => String.from(""));
+      sf := match(files.get_cloned(sfi), .Some(f) => f, .None => String.from(""));
       sfi = (sfi + usize(1));
       sf_bytes := io.await(read(Path.new(sf.clone()), io), IoExn(io : io, exn : exn));
       sf_src := String.from_bytes(sf_bytes);
@@ -9898,7 +9901,7 @@ run_test :: (
       (skip_this : bool) = false;
       (sli : usize) = usize(0);
       while((sli < sf_lines.len()) && ((sli < usize(50)) && !skip_this), {
-        sline := match(sf_lines.get(sli), .Some(l) => l, .None => String.from(""));
+        sline := match(sf_lines.get_cloned(sli), .Some(l) => l, .None => String.from(""));
         sli = (sli + usize(1));
         // Whitespace-stripped `contains` tolerates arbitrary
         // intra-call whitespace; the trailing `)` in the needle
@@ -9930,7 +9933,7 @@ run_test :: (
     (win_skipped : usize) = usize(0);
     (wfi : usize) = usize(0);
     while(wfi < files.len(), {
-      wf := match(files.get(wfi), .Some(f) => f, .None => String.from(""));
+      wf := match(files.get_cloned(wfi), .Some(f) => f, .None => String.from(""));
       wfi = (wfi + usize(1));
       wf_bytes := io.await(read(Path.new(wf.clone()), io), IoExn(io : io, exn : exn));
       wf_src := String.from_bytes(wf_bytes);
@@ -9938,7 +9941,7 @@ run_test :: (
       (win_skip : bool) = false;
       (wli : usize) = usize(0);
       while((wli < wf_lines.len()) && ((wli < usize(50)) && !win_skip), {
-        wline := match(wf_lines.get(wli), .Some(l) => l, .None => String.from(""));
+        wline := match(wf_lines.get_cloned(wli), .Some(l) => l, .None => String.from(""));
         wli = (wli + usize(1));
         wstripped := wline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
         if(wstripped.contains("pragma(Pragma.SkipWindows)"), {
@@ -9994,7 +9997,7 @@ run_test :: (
     (nlv_skipped : usize) = usize(0);
     (nfi : usize) = usize(0);
     while(nfi < files.len(), {
-      nf := match(files.get(nfi), .Some(f) => f, .None => String.from(""));
+      nf := match(files.get_cloned(nfi), .Some(f) => f, .None => String.from(""));
       nfi = (nfi + usize(1));
       nf_bytes := io.await(read(Path.new(nf.clone()), io), IoExn(io : io, exn : exn));
       nf_src := String.from_bytes(nf_bytes);
@@ -10002,7 +10005,7 @@ run_test :: (
       (nlv_skip : bool) = false;
       (nli : usize) = usize(0);
       while((nli < nf_lines.len()) && ((nli < usize(50)) && !nlv_skip), {
-        nline := match(nf_lines.get(nli), .Some(l) => l, .None => String.from(""));
+        nline := match(nf_lines.get_cloned(nli), .Some(l) => l, .None => String.from(""));
         nli = (nli + usize(1));
         nstripped := nline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
         if(nstripped.contains("pragma(Pragma.NeedsLeakVerdict)"), {
@@ -10091,7 +10094,7 @@ run_test :: (
   (fork_base : String) = String.new();
   fork_dir := temp_dir();
   while((fi < files.len()) && !bailed, {
-    file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.from(""));
     fi = (fi + usize(1));
     file_t0 := Instant.now();
     if(fork_warmed, {
@@ -10686,7 +10689,7 @@ run_test :: (
                 err_lines := err_msg.split("\n");
                 (eli : usize) = usize(0);
                 while(eli < err_lines.len(), {
-                  el := match(err_lines.get(eli), .Some(l) => l, .None => String.from(""));
+                  el := match(err_lines.get_cloned(eli), .Some(l) => l, .None => String.from(""));
                   println(`    ${el}`);
                   eli = (eli + usize(1));
                 });
@@ -10776,7 +10779,7 @@ run_test :: (
       (xei : usize) = usize(0);
       while(xei < argv.len(), {
         match(
-          argv.get(xei),
+          argv.get_cloned(xei),
           .Some(xa) => exec_cstrs.push(xa.clone().to_cstr()),
           .None => ()
         );
@@ -10920,7 +10923,7 @@ run_effects :: (
   });
   (fi : usize) = usize(0);
   while(fi < files.len(), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     fi = (fi + usize(1));
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     sep := if(fi < files.len(), String.from(","), String.new());
@@ -11083,7 +11086,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
               inner := recur(&fty, depth + usize(1));
               (ki : usize) = usize(0);
               while(ki < inner.len(), {
-                match(inner.get(ki), .Some(k) => _push_unique(&mut kinds, k.clone()), .None => ());
+                match(inner.get_cloned(ki), .Some(k) => _push_unique(&mut kinds, k.clone()), .None => ());
                 ki = (ki + usize(1));
               });
             });
@@ -11280,7 +11283,7 @@ run_fmt :: (
         (cidx : usize) = usize(0);
         while(cidx < cn, {
           match(
-            result.changed.get(cidx),
+            result.changed.get_cloned(cidx),
             .Some(c) => eprintln(
               Path.new(c.clone()).relative_to(Path.new(fmt_cwd.clone())).to_string()
             ),
@@ -11931,7 +11934,7 @@ run_build_cmd :: (
       (wcj : usize) = usize(0);
       while(wcj < argv.len(), {
         match(
-          argv.get(wcj),
+          argv.get_cloned(wcj),
           .Some(wb) => watch_cstrs2.push(wb.clone().to_cstr()),
           .None => ()
         );
@@ -12217,7 +12220,7 @@ run_version_cmd :: (
         (rvi : usize) = usize(0);
         while(rvi < remote_versions.len(), {
           match(
-            remote_versions.get(rvi),
+            remote_versions.get_cloned(rvi),
             .Some(rv) => if(rv == version_to_pin, {
               found_pin = true;
             }),
@@ -12251,7 +12254,7 @@ run_version_cmd :: (
         (li : usize) = usize(0);
         while(li < remote_versions.len(), {
           match(
-            remote_versions.get(li),
+            remote_versions.get_cloned(li),
             .Some(rv) => {
               cached_mark := if(io.await(is_version_cached(rv.clone(), io, exn), IoExn(io : io, exn : exn)), String.from(" (cached)"), String.from(""));
               current_mark := if(rv == current_v, String.from(" (current)"), String.from(""));
@@ -12270,7 +12273,7 @@ run_version_cmd :: (
           (ci : usize) = usize(0);
           while(ci < cached_list.len(), {
             match(
-              cached_list.get(ci),
+              cached_list.get_cloned(ci),
               .Some(cv) => {
                 current_mark2 := if(cv == current_v, String.from(" (current)"), String.from(""));
                 println(`  ${cv}${current_mark2}`);
@@ -12537,7 +12540,7 @@ _print_indented :: (fn(text : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < parts.len(), {
     match(
-      parts.get(i),
+      parts.get_cloned(i),
       .Some(l) => println(`  ${l}`),
       .None => ()
     );
@@ -12585,7 +12588,7 @@ run_explain :: (
     (ei : usize) = usize(0);
     while(ei < entries.len(), {
       match(
-        entries.get(ei),
+        entries.get_cloned(ei),
         .Some(e) => {
           if(as_json, {
             println(explain_to_json(&e));
@@ -14044,7 +14047,7 @@ main :: (fn(io : Io) -> unit)({
     (wi : usize) = usize(0);
     while(wi < argv.len(), {
       match(
-        argv.get(wi),
+        argv.get_cloned(wi),
         .Some(w) => if(w == "--warm-selfcheck", {
           warm_gate = true;
         }),

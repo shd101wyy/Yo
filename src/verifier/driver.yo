@@ -121,7 +121,7 @@ _strs_to_json :: (fn(ss : &ArrayList(String)) -> JsonValue)({
   (i : usize) = usize(0);
   while(i < ss.len(), {
     match(
-      ss.get(i),
+      ss.get_cloned(i),
       .Some(s) => {
         items.push(JsonValue.Str(s.clone()));
       },
@@ -557,7 +557,7 @@ _str_list_contains :: (fn(xs : &ArrayList(String), needle : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     match(
-      xs.get(i),
+      xs.get_cloned(i),
       .Some(x) => {
         if(x == needle, {
           return(true);
@@ -640,7 +640,7 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
         (ci : usize) = usize(0);
         while(ci < names.len(), {
           match(
-            names.get(ci),
+            names.get_cloned(ci),
             .Some(nm) => {
               if(nm == rp.outcome, {
                 counts(ci) = (match(counts.get(ci), .Some(c) => c, .None => usize(0)) + usize(1));
@@ -691,7 +691,7 @@ verify_summary_count :: (fn(sum : &VerifySummary, outcome : &String) -> usize)({
   (i : usize) = usize(0);
   while(i < names.len(), {
     match(
-      names.get(i),
+      names.get_cloned(i),
       .Some(nm) => {
         if(nm == outcome, {
           return(match(sum.counts.get(i), .Some(c) => c, .None => usize(0)));
@@ -1069,7 +1069,7 @@ _unmangle_pairs :: (fn(fn_id : &String, ce : &ArrayList(String)) -> ArrayList(St
   (i : usize) = usize(0);
   while(i < ce.len(), {
     match(
-      ce.get(i),
+      ce.get_cloned(i),
       .Some(pair) => {
         sep := pair.index_of(String.from(" = "));
         match(

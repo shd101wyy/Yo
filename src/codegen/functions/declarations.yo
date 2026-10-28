@@ -40,7 +40,7 @@ _join_double_underscore :: (fn(parts : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str("__");
     });
-    match(parts.get(i), .Some(p) => out.push_string(&p), .None => ());
+    match(parts.get_cloned(i), .Some(p) => out.push_string(&p), .None => ());
     i = (i + usize(1));
   });
   out
@@ -1023,7 +1023,7 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
     (aro_fi : usize) = usize(0);
     while(aro_fi < context.function_order.len(), {
       match(
-        context.function_order.get(aro_fi),
+        context.function_order.get_cloned(aro_fi),
         .Some(aro_fid) => match(
           context.get_function_entry(aro_fid.clone()),
           .Some(aro_entry) => {
@@ -1051,7 +1051,7 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
   (fi : usize) = usize(0);
   while(fi < context.function_order.len(), {
     match(
-      context.function_order.get(fi),
+      context.function_order.get_cloned(fi),
       .Some(func_id) => match(
         context.get_function_entry(func_id.clone()),
         .Some(entry) => {

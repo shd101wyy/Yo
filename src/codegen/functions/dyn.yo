@@ -79,7 +79,7 @@ generate_dyn_dup_drop :: (fn(context : &FunctionGenerationContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
@@ -120,7 +120,7 @@ generate_dyn_box_functions :: (fn(context : &FunctionGenerationContext) -> unit)
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
@@ -238,7 +238,7 @@ _emit_wrapper_call :: (fn(em : &Emitter, cname : &String, first_arg : &String, n
   while(j < n_params, {
     call.push_str(", ");
     match(
-      arg_casts.get(j - usize(1)),
+      arg_casts.get_cloned(j - usize(1)),
       .Some(c) => if(c.len() > usize(0), {
         call.push_str("(");
         call.push_string(c.clone());
@@ -380,7 +380,7 @@ _emit_dyn_clone_function :: (
         .Some(.TraitVal(_, cl_names, cl_vals)) => {
           (fi : usize) = usize(0);
           while(fi < cl_names.len(), {
-            if(match(cl_names.get(fi), .Some(l) => (l == "clone"), .None => false), {
+            if(match(cl_names.get_cloned(fi), .Some(l) => (l == "clone"), .None => false), {
               match(
                 cl_vals.get(fi),
                 .Some(.Some(fv)) => if(is_func_val(&fv), {
@@ -468,7 +468,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
   self_copies := HashSet(String).new();
   (ki : usize) = usize(0);
   while(ki < nk, {
-    impl_key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
+    impl_key := match(keys.get_cloned(ki), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
@@ -675,7 +675,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                   nf := field_names.len();
                   (fi : usize) = usize(0);
                   while(fi < nf, {
-                    label := match(field_names.get(fi), .Some(l) => l, .None => String.from(""));
+                    label := match(field_names.get_cloned(fi), .Some(l) => l, .None => String.from(""));
                     // Pre-bind the owned-clone subexpression so it is declared
                     // unconditionally (a `label.clone()` inside a short-circuit
                     // `||` mis-scopes its drop).
@@ -693,7 +693,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                           (sl_found : Option(TypeValue)) = Option(TypeValue).None;
                           (sl_j : usize) = usize(0);
                           while((sl_j < tfl.len()) && sl_found.is_none(), {
-                            if(match(tfl.get(sl_j), .Some(l) => (l == label), .None => false), {
+                            if(match(tfl.get_cloned(sl_j), .Some(l) => (l == label), .None => false), {
                               sl_ty := match(tft.get(sl_j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                               if(dyn_member_is_method(&sl_ty) && dyn_member_unsafe_reason(&sl_ty).is_none(), {
                                 sl_found = Option(TypeValue).Some(sl_ty);
@@ -861,7 +861,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
   generated := HashSet(String).new();
   (ti : usize) = usize(0);
   while(ti < nk, {
-    impl_key := match(keys.get(ti), .Some(k) => k, .None => String.from(""));
+    impl_key := match(keys.get_cloned(ti), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
@@ -894,7 +894,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
   if(!context.base.dyn_upcasts.is_empty(), {
     (fi : usize) = usize(0);
     while(fi < nk, {
-      fkey := match(keys.get(fi), .Some(k) => k, .None => String.from(""));
+      fkey := match(keys.get_cloned(fi), .Some(k) => k, .None => String.from(""));
       match(
         context.base.dyn_impls.get(fkey.clone()),
         .Some(fentry) => {
@@ -910,7 +910,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
   // Pass 2: emit the vtable instances.
   (vi : usize) = usize(0);
   while(vi < nk, {
-    impl_key := match(keys.get(vi), .Some(k) => k, .None => String.from(""));
+    impl_key := match(keys.get_cloned(vi), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
@@ -949,7 +949,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
                   nfl := field_labels.len();
                   (fi : usize) = usize(0);
                   while(fi < nfl, {
-                    label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+                    label := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
                     // Pre-bind owned-clone subexpressions (short-circuit `||`
                     // mis-scopes their drops).
                     label_reserved := _is_reserved_dyn_label(label.clone(), Option(TypeValue).Some(rt.clone()));
@@ -994,7 +994,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
           (uk : usize) = usize(0);
           (u_found : bool) = false;
           while((uk < nk) && !u_found, {
-            cand := match(keys.get(uk), .Some(k) => k, .None => String.from(""));
+            cand := match(keys.get_cloned(uk), .Some(k) => k, .None => String.from(""));
             match(
               context.base.dyn_impls.get(cand.clone()),
               .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key), {

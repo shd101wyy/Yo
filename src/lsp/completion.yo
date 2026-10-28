@@ -249,7 +249,7 @@ _push_variant :: (
     (i : usize) = usize(0);
     while(i < fields.len(), {
       ft := match(fields.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-      flabel := match(labels.get(i), .Some(l) => l, .None => String.new());
+      flabel := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
       ph := cond(
         (flabel.len() > usize(0)) => flabel.clone(),
         true => type_to_string(&ft)
@@ -324,7 +324,7 @@ _type_member_items :: (
     Rc(.TraitT({ field_labels : t_labels, field_types : t_types })) => {
       (i : usize) = usize(0);
       while(i < t_labels.len(), {
-        label := match(t_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(t_labels.get_cloned(i), .Some(l) => l, .None => String.new());
         fty := match(t_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         keep := ((label.len() > usize(0)) && _is_ident_name(label.clone()));
         if(keep && !_hidden_name(label.clone()) && !seen.contains(label.clone()), {
@@ -396,11 +396,11 @@ _add_methods :: (
   (gi : usize) = usize(0);
   while(gi < gentries.len(), {
     match(
-      gentries.get(gi),
+      gentries.get_cloned(gi),
       .Some(ge) => {
         (mi : usize) = usize(0);
         while(mi < ge.method_names.len(), {
-          mname := match(ge.method_names.get(mi), .Some(n) => n, .None => String.new());
+          mname := match(ge.method_names.get_cloned(mi), .Some(n) => n, .None => String.new());
           mty := match(ge.method_types.get(mi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(mname.len() > usize(0), {
             _push_method(&mname, &mty, out, seen);
@@ -820,7 +820,7 @@ _import_items :: (
   (i : usize) = usize(0);
   while(i < entries.len(), {
     match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(en) => {
         names.push(en.name.clone());
         match(
@@ -1071,7 +1071,7 @@ handle_completion :: (
 )({
   items := ArrayList(JsonValue).new();
   lines := text.split(String.from("\n"));
-  line_text := match(lines.get(line), .Some(l) => l, .None => String.new());
+  line_text := match(lines.get_cloned(line), .Some(l) => l, .None => String.new());
   bytes := line_text.clone();
   // `character` is a RUNE column (what this server serves and receives — see
   // `rune_col_to_byte_offset`), while `bytes` and `line_text` are BYTE
