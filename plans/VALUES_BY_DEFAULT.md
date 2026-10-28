@@ -8672,7 +8672,15 @@ heavy run, the command is given in item 2.
     runs passes until one inserts nothing (three for `src/`).
   - **The sweep:** `std/` 3 clones (`std/http`); `src/` 2,452 clones, 2
     capture lists, 652 `&` scrutinees and 2 call-site markers in 177
-    files, 0 sites listed and no hand edit; `tests/`: TESTS_SWEEP_NUMBERS.
+    files, 0 sites listed and no hand edit; `tests/` (outside `tests/cli-cases`) 186 clones, 149 capture lists, 23 `&`
+    scrutinees and 2 call-site markers over three passes (340, 20, 0), with
+    `tests/internal` swept as its own batch
+    (`issues/2026-10-28-a-yo-fix-batch-over-tests-poisons-later-files-after-copy-trait-test.md`)
+    and the shapes the tool misses edited by hand
+    (`issues/2026-10-28-rc-clone-misses-a-nested-closures-capture-of-an-enclosing-closures-capture.md`).
+    Five `mut` globals the sweep clones became `RefCell` cells by hand: the
+    seed rejects their `G.clone()` (E0916,
+    `issues/2026-10-25-a-clone-through-an-rc-payloads-user-clone-is-e0916-on-a-mut-global.md`).
   - **std's generic bodies stay exempt** (`set_counted_handle_std_generic`,
     the knob `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges them). Measured on
     the swept tree: `std/` is clean, and `check ./src` fails 238 of 276
