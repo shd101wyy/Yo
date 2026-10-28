@@ -287,7 +287,8 @@ impl(
   _CsTx(T),
   _attach : (fn(ch : &_CsCh(T)) -> Self)({
     ch._add();
-    Self(_ch : ch)
+    // A second handle to the same cell (decision 17).
+    Self(_ch : _CsCh(T)(_st : Rc.clone(ch._st)))
   })
 );
 test("a closure in a generic method keeps its own capture struct per instantiation", {
