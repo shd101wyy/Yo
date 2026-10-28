@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
 { FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, cell_handle_view } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -821,6 +821,41 @@ _pre_where_or_resolve :: (
 });
 /// May a forall bind to a different-id SomeT (see `g_open_pattern_query`)?
 _abstract_bindings_ok :: (fn() -> bool)(in_def_time_trial() || g_open_pattern_query);
+/// Is `t` the unresolved type of an `f : Impl(Fn(...))` parameter, as the
+/// body of a function with such a parameter sees it at definition? That body
+/// is not deferred (`type_contains_some_type_for_codegen_param` excludes a
+/// Fn-bounded type variable), so it is not a definition-time trial, and every
+/// call specializes it with the argument's own type. The variable is a type
+/// in its own right there, as a future handle is (`_is_future_handle_slot`):
+/// a generic impl matched over `G(type_of(f))` binds its parameter to the
+/// variable itself
+/// (issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
+/// Only the `Impl` annotation wrapper qualifies: a nameless `dyn(...)`
+/// coercion wrapper and a resolved variable (a closure identity) are not
+/// parameter types.
+_is_open_fn_param_slot :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t,
+    Rc(.SomeT({ name : ofp_nm, required_trait_types : ofp_rtts, resolution : ofp_rc })) => {
+      (ofp_found : bool) = false;
+      if((ofp_nm == "Impl") && ofp_rc.is_none(), {
+        (ofp_i : usize) = usize(0);
+        while((ofp_i < ofp_rtts.len()) && !ofp_found, ofp_i = (ofp_i + usize(1)), {
+          if(match(ofp_rtts.get(ofp_i), .Some(ofp_t) => is_fn_trait_type(&ofp_t), .None => false), {
+            ofp_found = true;
+          });
+        });
+      });
+      ofp_found
+    },
+    _ => false
+  )
+);
+/// May a forall bind to `b`, a type variable whose id differs from the
+/// forall's own? Inside a definition-time trial any such variable
+/// (`_abstract_bindings_ok`); outside one, only an open `Impl(Fn(...))`
+/// parameter type (`_is_open_fn_param_slot`).
+_abstract_binding_ok :: (fn(b : &TypeValue) -> bool)(_abstract_bindings_ok() || _is_open_fn_param_slot(b));
 _resolve_one_forall_binding :: (
   fn(expected_env : &Environment, fa_some : &TypeValue, fa_name : &String) -> Option(TypeValue)
 )({
@@ -959,7 +994,7 @@ _resolve_one_forall_binding_from :: (
                           return(Option(TypeValue).Some(resolve_cell_chain(&b)));
                         });
                         nb_id2 := match(b, Rc(.SomeT({ id : __nbi2 })) => __nbi2, _ => String.from(""));
-                        if(_abstract_bindings_ok() && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
+                        if(_abstract_binding_ok(&b) && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
                           return(Option(TypeValue).Some(b));
                         });
                       },
@@ -1172,7 +1207,7 @@ _bind_forall_from_type_args :: (
           {
             ct_abs_id := match(ct, Rc(.SomeT({ id : __cai })) => __cai, _ => String.from(""));
             fa_abs_id := match(fa_some, Rc(.SomeT({ id : __fai })) => __fai.clone(), _ => String.from(""));
-            if(_abstract_bindings_ok() && (ct_abs_id.len() > usize(0)) && (ct_abs_id != fa_abs_id), {
+            if(_abstract_binding_ok(&ct) && (ct_abs_id.len() > usize(0)) && (ct_abs_id != fa_abs_id), {
               return(Option(TypeValue).Some(ct));
             });
           };
