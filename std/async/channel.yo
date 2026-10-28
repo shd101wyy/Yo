@@ -144,6 +144,16 @@ Channel :: (fn(comptime(T) : Type) -> comptime(Type))(
     _st : Rc(RefCell(_ChannelState(T)))
   )
 );
+/// A second handle to the same channel state: the copy is spelled because the
+/// handle is counted (decision 17). The `Sender`/`Receiver` halves and the
+/// futures that outlive a borrow of them each hold one.
+impl(
+  generic(T : Type),
+  Channel(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(Self(_st : Rc.clone(self._st)))
+  )
+);
 impl(
   generic(T : Type),
   Channel(T),
@@ -379,7 +389,7 @@ impl(
   /// `Channel.pair`, `Receiver.sender` and `clone` are the callers.
   _attach : (fn(ch : &Channel(T)) -> Self)({
     ch._add_sender();
-    Self(_ch : ch)
+    Self(_ch : ch.clone())
   }),
   /// Send a value, suspending while the buffer is full. `.Err(value)` once
   /// the channel is closed or the `Receiver` is gone (Rust's `SendError(T)`).
@@ -412,7 +422,7 @@ impl(
   Clone(
     clone : (fn(self : &Self) -> Self)({
       self._ch._add_sender();
-      Self(_ch : self._ch)
+      Self(_ch : self._ch.clone())
     })
   )
 );
@@ -440,7 +450,7 @@ impl(
   /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
   /// `Channel.pair` are the only callers.
   _attach : (fn(ch : &Channel(T)) -> Self)(
-    Self(_ch : ch)
+    Self(_ch : ch.clone())
   ),
   /// Mint a producer for this channel, counted like every other `Sender`.
   ///
@@ -464,7 +474,7 @@ impl(
   /// The future holds its own copy of the channel handle, so it borrows
   /// nothing from the `Receiver`.
   recv : (fn(self : &Self, io : Io) -> Impl(Future(Result(T, TryRecvError))))(
-    io.async({ ch : self._ch }(io : Io) => {
+    io.async({ ch : self._ch.clone() }(io : Io) => {
       // Bound first, matched second: an `io.await` in a match SCRUTINEE is one
       // of the async-body shapes that miscompiles to an empty value.
       got := io.await(ch.recv(io), io);

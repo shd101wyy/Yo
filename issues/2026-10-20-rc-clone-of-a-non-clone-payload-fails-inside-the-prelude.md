@@ -7,9 +7,22 @@
 the branch first tried lost to the prelude's impl the same way). Not fixed
 there; the branch declares `Clone` per concrete instantiation instead.
 
-## Reproducer
+**Update 2026-10-25 (V2c, decision 17):** the prelude's `Rc(T)` `Clone` is now a handle
+copy with no `where` clause, so the `Rc` reproduction below compiles and `SharedList(T)`
+uses the prelude impl. The bug itself is not fixed: any generic impl whose `where`
+clause fails is still selected, and the error is its body's. The repro file now shows it
+on a user type (`W(T)` with `where(T <: Clone)`, called at a non-`Clone` `NC`), measured
+with a develop build at `35c72789a`:
 
-`issues/repros/2026-10-20-rc-clone-of-a-non-clone-payload.yo` (seeds v0.2.66 and v0.2.67):
+```text
+error[E0610]: No method "clone" on NC: the type has no field or method with that name.
+  --> where_probe.yo:2:97
+note: in `(w.dup2)`, instantiated here
+```
+
+## Reproducer (before V2c)
+
+`issues/repros/2026-10-20-rc-clone-of-a-non-clone-payload.yo` held this until V2c (seeds v0.2.66 and v0.2.67):
 
 ```
 error[E0610]: No method "clone" on Cell: the type has no field or method with that name.

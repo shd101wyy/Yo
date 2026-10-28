@@ -314,7 +314,7 @@ impl(
           // Until the lock is taken, dropping the claim (this future released
           // with its cancelled task) gives the place in line, or the handed
           // lock, back.
-          mut(claim) := _Claim(_core : self._core, _ticket : t);
+          mut(claim) := _Claim(_core : Arc.clone(self._core), _ticket : t);
           io.await(p.wait(io), io);
           claim.take();
         }
@@ -342,7 +342,7 @@ impl(
       // `_acquire_or_park`, and `body` may ask this mutex `is_locked` or
       // `try_lock`. The unlocker releases the lock however the frame is left.
       vp := self._value_ptr();
-      _release := _AsyncUnlocker(_core : self._core);
+      _release := _AsyncUnlocker(_core : Arc.clone(self._core));
       r := body(&mut unsafe(vp.*));
       return(r);
     })

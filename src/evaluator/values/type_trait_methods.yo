@@ -189,6 +189,16 @@ MethodEntry :: ref(
     owner : String
   )
 );
+/// `MethodEntry` is a `ref(...)`: every copy of one is a second handle to the same
+/// object, so its `clone` is that handle copy too. It lets a value aggregate
+/// holding a `MethodEntry` beside a counted handle `derive(..., Clone)` (decision 17,
+/// plans/VALUES_BY_DEFAULT.md V2c).
+impl(
+  MethodEntry,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(self)
+  )
+);
 /// Module-level storage: `type id` → list of method entries.
 (_type_trait_methods : RefCell(HashMap(String, ArrayList(MethodEntry)))) = RefCell(HashMap(String, ArrayList(MethodEntry))).new(HashMap(String, ArrayList(MethodEntry)).new());
 /// Owner tags, parallel to `_type_trait_methods` (same key, same index):
