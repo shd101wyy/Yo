@@ -70,6 +70,7 @@
   BF_RUNTIME,
   BF_YO_BORROW_CHECK,
   ast_expr_is_size_of_call,
+  ast_expr_is_align_of_call,
   ast_expr_is_type_id_call,
   ast_expr_is_address_of_call,
   BF_DOWNCAST,
@@ -118,7 +119,7 @@
 { generate_address_of } :: import("./ptr_fns.yo");
 { generate_anonymous_tuple } :: import("./tuple_fn.yo");
 { generate_recur } :: import("./recur.yo");
-{ generate_sizeof } :: import("./sizeof.yo");
+{ generate_sizeof, generate_alignof } :: import("./sizeof.yo");
 { generate_typeid } :: import("./typeid.yo");
 { generate_downcast, generate_upcast } :: import("./downcast.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
@@ -929,6 +930,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   // evaluator; only the loop is emitted.
   if(ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, Option(usize).Some(usize(2))), return(match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(1)), .Some(inner) => _call_generate_expr(&inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))));
   if(ast_expr_is_size_of_call(expr, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
+  if(ast_expr_is_align_of_call(expr, Option(usize).Some(usize(1))), return(generate_alignof(expr, indent.clone(), context)));
   if(ast_expr_is_type_id_call(expr, Option(usize).Some(usize(1))), return(generate_typeid(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_DOWNCAST, Option(usize).Some(usize(2))), return(generate_downcast(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2))), return(generate_upcast(expr, indent.clone(), context)));

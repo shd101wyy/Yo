@@ -971,13 +971,13 @@ test("HashMap Default is the empty map", {
 // A counting allocator: forwards to the global allocator and counts the
 // blocks it holds (`live`) and the alloc/realloc requests it served.
 _Counts :: struct(live : usize, requests : usize);
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.live = (c.*.live + usize(1)));
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   GlobalAllocator.malloc(size)
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   cond(
@@ -988,7 +988,7 @@ _count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
   );
   GlobalAllocator.realloc(ptr, new_size)
 });
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   cond(
     ptr.is_some() => {
       c := (*_Counts)(ctx.unwrap());
@@ -1002,11 +1002,11 @@ _COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc,
 _counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
 // An `Allocator` over `c`, which must outlive every block it hands out.
 _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
-test("HashMap.new_in keeps both tables in its allocator through resizes", {
+test("HashMap.new(alloc : .Some(a)) keeps both tables in its allocator through resizes", {
   counts := _counts();
   a := _counting(addr_of(counts));
   {
-    m := HashMap(i32, i32).new_in(a);
+    m := HashMap(i32, i32).new(alloc : .Some(a));
     assert(counts.live == usize(2), "ctrl and data");
     mut(i) := i32(0);
     while(i < i32(500), {

@@ -2550,13 +2550,13 @@ test("clone copies the bytes into a buffer of its own", {
 // A counting allocator: forwards to the global allocator and counts the
 // blocks it holds (`live`) and the alloc/realloc requests it served.
 _Counts :: struct(live : usize, requests : usize);
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.live = (c.*.live + usize(1)));
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   GlobalAllocator.malloc(size)
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   cond(
@@ -2567,7 +2567,7 @@ _count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
   );
   GlobalAllocator.realloc(ptr, new_size)
 });
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   cond(
     ptr.is_some() => {
       c := (*_Counts)(ctx.unwrap());
@@ -2587,7 +2587,7 @@ _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), 
 // issues/fixed/string-clone-ignores-the-source-buffers-allocator.md
 // A string whose buffer lives in `a`: a placed builder hands its buffer over.
 _placed_string :: (fn(a : Allocator, text : str) -> String)({
-  sb := StringBuilder.new_in(a);
+  sb := StringBuilder.new(alloc : .Some(a));
   sb.write_str(text);
   sb.to_string()
 });

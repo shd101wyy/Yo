@@ -142,11 +142,7 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Allocate memory for HashMap with given capacity
-  /// Initializes all control bytes to EMPTY
-  // The default constructors' tables: from the global allocator.
-  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(.None, capacity)),
-  // Allocate both buffers from `alloc` (the global allocator when `.None`).
+  // Allocate a buffer from `alloc` (the global allocator when `.None`).
   _alloc_buf : (fn(alloc : Option(Allocator), bytes : usize, align : usize) -> ?*void)(
     match(
       alloc,
@@ -180,10 +176,13 @@ impl(
   _set_tombstones : (fn(self : &mut Self, n : usize) -> unit)({
     self._tombstones = (n | (self._tombstones & _OWNED_TAG));
   }),
-  /// The allocator the map's buffers live in: the one given to `new_in` /
-  /// `with_capacity_in`, or `.None` for a map on the global allocator.
+  /// The allocator the map's buffers live in: the one given to `new` /
+  /// `with_capacity` as `alloc : .Some(a)`, or `.None` for a map on the
+  /// global allocator.
   allocator : (fn(self : &Self) -> Option(Allocator))(self._alloc_of()),
-  _alloc_with_capacity_in : (fn(alloc : Option(Allocator), capacity : usize) -> Result(Self, HashMapError))({
+  // Allocate both buffers for `capacity` buckets from `alloc` (the global
+  // allocator when `.None`), every control byte EMPTY.
+  _alloc_with_capacity : (fn(capacity : usize, alloc : Option(Allocator)) -> Result(Self, HashMapError))({
     bucket_size :: size_of(MapEntry(K, V));
     // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
     // malloc a tiny size while the map still believes it owns `capacity`
@@ -247,17 +246,26 @@ impl(
   /// stay empty or tiny, and an eager 16-bucket table cost the compiler
   /// ~270 B per empty map, one per scope frame
   /// (plans/CODEGEN_MEMORY_REDUCTION.md §0.4). The first insert grows it to
-  /// `DEFAULT_CAPACITY` on the global allocator; `new_in(a)` places the
-  /// table in `a` instead.
-  new : (fn() -> Self)(
-    Self(
-      ctrl : .None,
-      data : .None,
-      capacity : usize(0),
-      size : usize(0),
-      _tombstones : usize(0),
-      k0 : DEFAULT_KEY_0,
-      k1 : DEFAULT_KEY_1
+  /// `DEFAULT_CAPACITY` on the global allocator.
+  ///
+  /// `alloc : .Some(a)` places both buffers in `a` instead, and every resize
+  /// and the final release go through `a`. A placed map allocates its 16
+  /// buckets right away, because its buffers are how it remembers `a`, and
+  /// PANICS when that allocation fails.
+  new : (fn((alloc : Option(Allocator)) ?= .None) -> Self)(
+    match(
+      alloc,
+      .None =>
+        Self(
+          ctrl : .None,
+          data : .None,
+          capacity : usize(0),
+          size : usize(0),
+          _tombstones : usize(0),
+          k0 : DEFAULT_KEY_0,
+          k1 : DEFAULT_KEY_1
+        ),
+      .Some(_) => Self.with_capacity(DEFAULT_CAPACITY, alloc : alloc)
     )
   ),
   /// Empty map whose hashes are keyed by `k0`, `k1` (SipHash-1-3 keys).
@@ -272,14 +280,6 @@ impl(
     map.k1 = k1;
     map
   }),
-  /// Empty map sized for `requested_capacity` buckets, rounded UP to a power
-  /// of two (never below the 16-bucket default) because bucket selection
-  /// masks the hash.
-  ///
-  /// Note this is a BUCKET count, not the entry count Rust's
-  /// `with_capacity` promises: the 7/8 load factor means the map still
-  /// resizes after about `capacity * 7 / 8` insertions. PANICS on allocation
-  /// failure.
   // The bucket count for `requested_capacity`: rounded UP to a power of two
   // (never below the 16-bucket default), because bucket selection masks the
   // hash.
@@ -307,15 +307,21 @@ impl(
     );
     capacity
   }),
-  with_capacity : (fn(requested_capacity : usize) -> Self)({
-    capacity := Self._bucket_count(requested_capacity);
-    result := Self._alloc_with_capacity(capacity);
+  /// Empty map sized for `requested_capacity` buckets, rounded UP to a power
+  /// of two (never below the 16-bucket default) because bucket selection
+  /// masks the hash.
+  ///
+  /// Note this is a BUCKET count, not the entry count Rust's
+  /// `with_capacity` promises: the 7/8 load factor means the map still
+  /// resizes after about `capacity * 7 / 8` insertions. `alloc : .Some(a)`
+  /// places both buffers in `a`, as for `new`. PANICS on allocation failure.
+  with_capacity : (fn(requested_capacity : usize, (alloc : Option(Allocator)) ?= .None) -> Self)(
     match(
-      result,
+      Self._alloc_with_capacity(Self._bucket_count(requested_capacity), alloc),
       .Ok(map) => map,
       .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
-  }),
+  ),
   /// Consuming constructor from a fixed-size array of `(key, value)` pairs —
   /// Rust's `HashMap::from([(k, v); N])`:
   /// `HashMap(String, i32).from([(`a`, i32(1)), (`b`, i32(2))])`.
@@ -342,18 +348,6 @@ impl(
     });
     out
   }),
-  /// Empty map whose two buffers live in `alloc` — Rust's `HashMap::new_in`.
-  /// Every resize and the final release go through `alloc`. Allocates eagerly
-  /// (16 buckets) and PANICS on failure, like `new`.
-  new_in : (fn(alloc : Allocator) -> Self)(Self.with_capacity_in(alloc, DEFAULT_CAPACITY)),
-  /// `with_capacity` with the buffers in `alloc`.
-  with_capacity_in : (fn(alloc : Allocator, requested_capacity : usize) -> Self)(
-    match(
-      Self._alloc_with_capacity_in(.Some(alloc), Self._bucket_count(requested_capacity)),
-      .Ok(map) => map,
-      .Err(_) => __yo_panic("Failed to allocate HashMap")
-    )
-  ),
   /// Get ctrl pointer (unwrapped for internal use)
   _ctrl_ptr : (fn(self : &Self) -> *u8)(
     match(
@@ -504,7 +498,7 @@ impl(
     // The new table lives where the old one does. Bound to a local, not a
     // `match` binding: its fields are written below.
     new_map := match(
-      Self._alloc_with_capacity_in(self._alloc_of(), new_capacity),
+      Self._alloc_with_capacity(new_capacity, self._alloc_of()),
       .Ok(m) => m,
       .Err(err) => return(.Err(err))
     );
@@ -1497,44 +1491,53 @@ impl(
     })
   )
 );
+/// The placed copy, the `alloc` counterpart of `Clone`.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Clone, Eq(K), Hash), V <: Clone),
+  HashMap(K, V),
+  /// A deep copy of the map with both buffers in `a`, whichever allocator the
+  /// source lives in (`clone()` keeps the copy where the source lives). Keys,
+  /// values and the hash keys are cloned; the copy's own entries go wherever
+  /// their `clone` puts them. PANICS on allocation failure.
+  clone_in : (fn(self : &Self, a : Allocator) -> Self)(self._clone_placed(.Some(a))),
+  // A deep copy whose buffers live in `alloc` (`.None`: the global allocator).
+  _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
+    result := Self.new(alloc : alloc);
+    result.k0 = self.k0;
+    result.k1 = self.k1;
+    mut(it) := self.iter();
+    mut(running) := true;
+    while(running, {
+      nxt := it.next();
+      match(
+        nxt,
+        .None => {
+          running = false;
+        },
+        .Some(bucket_ptr) => {
+          // SAFETY: iter_ptr().next() returns .Some(p) only when p
+          // points at an occupied bucket within the Rc-managed
+          // _data buffer; the buffer is alive while `self` holds
+          // the Rc (we received `self : &mut Self` so the caller still
+          // owns it across this call).
+          k := unsafe(bucket_ptr.*.key.clone());
+          v := unsafe(bucket_ptr.*.value.clone());
+          result.insert(k, v);
+        }
+      );
+    });
+    result
+  })
+);
 /// Clone implementation for HashMap — deep-clones all key-value entries.
 impl(
   generic(K : Type, V : Type),
   where(K <: (Clone, Eq(K), Hash), V <: Clone),
   HashMap(K, V),
   Clone(
-    clone : (fn(self : &Self) -> Self)({
-      // A clone lives where its source lives (Rust's `HashMap<K, V, S, A>: Clone`).
-      result := match(
-        self.allocator(),
-        .Some(a) => Self.new_in(a),
-        .None => Self.new()
-      );
-      result.k0 = self.k0;
-      result.k1 = self.k1;
-      mut(it) := self.iter();
-      mut(running) := true;
-      while(running, {
-        nxt := it.next();
-        match(
-          nxt,
-          .None => {
-            running = false;
-          },
-          .Some(bucket_ptr) => {
-            // SAFETY: iter_ptr().next() returns .Some(p) only when p
-            // points at an occupied bucket within the Rc-managed
-            // _data buffer; the buffer is alive while `self` holds
-            // the Rc (we received `self : &mut Self` so the caller still
-            // owns it across this call).
-            k := unsafe(bucket_ptr.*.key.clone());
-            v := unsafe(bucket_ptr.*.value.clone());
-            result.insert(k, v);
-          }
-        );
-      });
-      result
-    })
+    // A clone lives where its source lives (Rust's `HashMap<K, V, S, A>: Clone`).
+    clone : (fn(self : &Self) -> Self)(self._clone_placed(self.allocator()))
   )
 );
 impl(

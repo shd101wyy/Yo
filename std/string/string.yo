@@ -3424,37 +3424,50 @@ impl(
     )
   )
 );
+/// The placed copy, the `alloc` counterpart of `Clone`.
+impl(
+  String,
+  /// An independent byte-level copy whose buffer lives in `a`, wherever the
+  /// source's buffer lives (`clone()` keeps the copy beside its source). An
+  /// empty string has no buffer, so its copy allocates nothing.
+  clone_in : (fn(self : &Self, a : Allocator) -> Self)(self._clone_placed(.Some(a))),
+  // A byte-level copy whose buffer lives in `alloc` (`.None`: the global
+  // allocator).
+  _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)(
+    match(
+      self._bytes,
+      .None => Self(_bytes : .None),
+      .Some(al) => {
+        n := al.len();
+        cond(
+          (n == usize(0)) => Self(_bytes : .None),
+          true => {
+            buf := ArrayList(u8).with_capacity(n, alloc : alloc);
+            match(
+              al.ptr(),
+              .Some(ptr) => buf.extend_from_ptr(ptr, n),
+              .None => ()
+            );
+            Self(_bytes : .Some(buf))
+          }
+        )
+      }
+    )
+  )
+);
 /// Clone implementation — produces an independent byte-level copy, placed
 /// where the source's buffer lives (a string in an explicit allocator clones
 /// into that allocator).
 impl(
   String,
   Clone(
+    // The copy lives where the source's buffer lives, as `ArrayList.clone`
+    // places its own (decision 12).
     clone : (fn(self : &Self) -> Self)(
       match(
         self._bytes,
         .None => Self(_bytes : .None),
-        .Some(al) => {
-          n := al.len();
-          cond(
-            (n == usize(0)) => Self(_bytes : .None),
-            true => {
-              // The copy lives where the source's buffer lives, as
-              // `ArrayList.clone` and `to_bytes` place theirs (decision 12).
-              buf := match(
-                al.allocator(),
-                .Some(a) => ArrayList(u8).with_capacity_in(a, n),
-                .None => ArrayList(u8).with_capacity(n)
-              );
-              match(
-                al.ptr(),
-                .Some(ptr) => buf.extend_from_ptr(ptr, n),
-                .None => ()
-              );
-              Self(_bytes : .Some(buf))
-            }
-          )
-        }
+        .Some(al) => self._clone_placed(al.allocator())
       )
     )
   )

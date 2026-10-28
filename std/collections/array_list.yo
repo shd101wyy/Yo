@@ -112,8 +112,9 @@ impl(
       true => free(.Some((*void)(p)))
     )
   ),
-  /// The allocator the buffer belongs to: the one given to `new_in` /
-  /// `with_capacity_in`, or `.None` for a list on the global allocator.
+  /// The allocator the buffer belongs to: the one given to `new` /
+  /// `with_capacity` as `alloc : .Some(a)`, or `.None` for a list on the
+  /// global allocator.
   allocator : (fn(self : &Self) -> Option(Allocator))(
     match(
       self._ptr,
@@ -178,14 +179,26 @@ impl(
       }
     );
   }),
-  /// Empty list on the global allocator. Allocates nothing — the first
-  /// `push` buys the buffer (four elements), as Rust's `Vec::new` does.
-  /// `new_in(a)` places the buffer in `a` instead.
-  new : (fn(ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
-    Self(
-      _ptr : .None,
-      _length : usize(0),
-      _capacity : usize(0)
+  /// Empty list. `alloc : .None`, the default, puts it on the global
+  /// allocator and allocates nothing: the first `push` buys the buffer (four
+  /// elements), as Rust's `Vec::new` does.
+  ///
+  /// `alloc : .Some(a)` places the buffer in `a` (Rust's `Vec::new_in`):
+  /// every growth, shrink and the final release go through `a`, wherever and
+  /// on whichever thread the last reference dies. A placed list takes one
+  /// allocation right away, a block holding only `a`'s owner prefix, which is
+  /// how it remembers its allocator (the list object itself stays the size of
+  /// a plain one). PANICS when that allocation fails.
+  new : (fn((alloc : Option(Allocator)) ?= .None, ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
+    match(
+      alloc,
+      .None =>
+        Self(
+          _ptr : .None,
+          _length : usize(0),
+          _capacity : usize(0)
+        ),
+      .Some(a) => Self._placed(a, usize(0))
     )
   ),
   /// Owned copy of the elements in `[r.start, r.end)` — JS-style range
@@ -247,71 +260,68 @@ impl(
     out._length = N;
     out
   }),
-  /// Empty list whose buffer already holds `cap` elements, on the global
-  /// allocator — Rust's `Vec::with_capacity`.
+  /// Empty list whose buffer already holds `cap` elements — Rust's
+  /// `Vec::with_capacity`, on the global allocator by default.
+  /// `alloc : .Some(a)` places the buffer in `a`, as for `new`
+  /// (`Vec::with_capacity_in`).
   ///
   /// PANICS on `"capacity overflow"` when `sizeof(T) * cap` would wrap (Rust
   /// panics with the same message), and on allocation failure. A zero-sized
   /// element type takes the one-byte anchor buffer instead of allocating
   /// `cap` of nothing.
-  with_capacity : (fn(cap : usize, ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
-    cond(
-      (cap == usize(0)) =>
-        Self.new(),
-      // `sizeof(T) * cap` is computed in usize and WRAPS. Without this guard a
-      // capacity from untrusted input (a length prefix off a socket, say) hands
-      // malloc a tiny — or zero — size while the list still reports `cap`, so
-      // the first pushes write outside the allocation: silent heap corruption
-      // (issues/fixed/collection-capacity-overflow-unchecked.md). Rust's
-      // `Vec::with_capacity` panics with "capacity overflow" here too.
-      (size_would_overflow(T, cap) || (cap > _CAP_MASK)) =>
-        __yo_panic("ArrayList.with_capacity: capacity overflow"),
-      // Zero-sized element (`unit`, an all-`unit` struct): the buffer holds no
-      // bytes, so the list never grows — see `_zst_anchor`.
-      (size_of(T) == usize(0)) => Self._zst_anchor(),
-      true => {
-        ptr_result := malloc(size_of(T) * cap);
-        match(
-          ptr_result,
-          .Some(_ptr) =>
-            Self(
-              _ptr : .Some((*T)(_ptr)),
-              _length : usize(0),
-              _capacity : cap
-            ),
-          .None => __yo_panic("malloc returned None")
-        )
-      }
+  with_capacity : (fn(cap : usize, (alloc : Option(Allocator)) ?= .None, ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
+    match(
+      alloc,
+      .Some(a) => Self._placed(a, cap),
+      .None => cond(
+        (cap == usize(0)) =>
+          Self.new(),
+        // `sizeof(T) * cap` is computed in usize and WRAPS. Without this guard a
+        // capacity from untrusted input (a length prefix off a socket, say) hands
+        // malloc a tiny — or zero — size while the list still reports `cap`, so
+        // the first pushes write outside the allocation: silent heap corruption
+        // (issues/fixed/collection-capacity-overflow-unchecked.md). Rust's
+        // `Vec::with_capacity` panics with "capacity overflow" here too.
+        (size_would_overflow(T, cap) || (cap > _CAP_MASK)) =>
+          __yo_panic("ArrayList.with_capacity: capacity overflow"),
+        // Zero-sized element (`unit`, an all-`unit` struct): the buffer holds no
+        // bytes, so the list never grows — see `_zst_anchor`.
+        (size_of(T) == usize(0)) => Self._zst_anchor(),
+        true => {
+          ptr_result := malloc(size_of(T) * cap);
+          match(
+            ptr_result,
+            .Some(_ptr) =>
+              Self(
+                _ptr : .Some((*T)(_ptr)),
+                _length : usize(0),
+                _capacity : cap
+              ),
+            .None => __yo_panic("malloc returned None")
+          )
+        }
+      )
     )
   ),
-  /// Empty list whose buffer lives in `alloc` — Rust's `Vec::new_in`.
-  ///
-  /// Every growth, shrink and the final release go through `alloc`, wherever
-  /// and on whichever thread the last reference dies. Unlike `new`, this takes
-  /// one allocation right away: a block holding only `alloc`'s owner prefix,
-  /// which is how the list remembers its allocator (the list object
-  /// itself stays the size of a plain one). PANICS when that allocation fails.
-  new_in : (fn(alloc : Allocator) -> Self)(Self.with_capacity_in(alloc, usize(0))),
-  /// Empty list with room for `cap` elements, its buffer in `alloc` — Rust's
-  /// `Vec::with_capacity_in`. PANICS on capacity overflow and on allocation
-  /// failure, like `with_capacity`.
-  with_capacity_in : (fn(alloc : Allocator, cap : usize) -> Self)(
+  // The placed form of `new` / `with_capacity`: an empty list with room for
+  // `cap` elements, its buffer (at least the owner prefix) in `a`.
+  _placed : (fn(a : Allocator, cap : usize) -> Self)(
     cond(
       (size_would_overflow(T, cap) || (cap > _CAP_MASK)) =>
-        __yo_panic("ArrayList.with_capacity_in: capacity overflow"),
+        __yo_panic("ArrayList.with_capacity: capacity overflow"),
       true => {
         // A zero-sized element type takes a one-byte anchor, as `_zst_anchor`.
         bytes := cond((size_of(T) == usize(0)) => usize(1), true => (size_of(T) * cap));
         tagged_cap := cond((size_of(T) == usize(0)) => _CAP_MASK, true => cap);
         match(
-          alloc.alloc(bytes, align_of(T)),
+          a.alloc(bytes, align_of(T)),
           .Some(p) =>
             Self(
               _ptr : .Some((*T)(p)),
               _length : usize(0),
               _capacity : (tagged_cap | _CAP_TAG)
             ),
-          .None => __yo_panic("ArrayList.with_capacity_in: allocation failed")
+          .None => __yo_panic("ArrayList.with_capacity: allocation failed")
         )
       }
     )
@@ -914,7 +924,7 @@ impl(
       // Zero-sized element type: the anchor buffer satisfies every capacity
       // (see `_zst_anchor`). A list without one yet takes a global anchor, so
       // the capacity word is the untagged `_CAP_MASK`; an owned list always
-      // has its anchor (`with_capacity_in` allocates it). The anchor is
+      // has its anchor (`_placed` allocates it). The anchor is
       // stored straight into this list: copying it out of a `_zst_anchor()`
       // list left that list's dispose to free the buffer this one keeps
       // (issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md).
@@ -1771,29 +1781,40 @@ impl(
     )
   )
 );
+/// The placed copy, the `alloc` counterpart of `Clone`.
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  ArrayList(T),
+  /// A deep copy of the list with its buffer in `a`, whichever allocator the
+  /// source lives in (`clone()` keeps the copy where the source lives) —
+  /// Rust's `Vec::clone_in`. Each element is cloned, so the elements' own
+  /// blocks go wherever their `clone` puts them. PANICS on allocation
+  /// failure.
+  clone_in : (fn(self : &Self, a : Allocator) -> Self)(self._clone_placed(.Some(a))),
+  // A deep copy whose buffer lives in `alloc` (`.None`: the global
+  // allocator).
+  _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
+    n := self.len();
+    result := Self.with_capacity(n, alloc : alloc);
+    // Each element is cloned in place through the `&T` projection
+    // `self(i)`; copying it out first (`self.get(i)`) is E0901 for a
+    // move-only `T` (issues/fixed/arraylist-clone-copies-elements-out-through-get.md).
+    mut(i) := usize(0);
+    while(i < n, i = (i + usize(1)), {
+      result.push(self(i).clone());
+    });
+    result
+  })
+);
 /// Clone implementation for ArrayList — deep-clones each element.
 impl(
   generic(T : Type),
   where(T <: Clone),
   ArrayList(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)({
-      n := self.len();
-      // A clone lives where its source lives (Rust's `Vec<T, A>: Clone`).
-      result := match(
-        self.allocator(),
-        .Some(a) => Self.with_capacity_in(a, n),
-        .None => Self.with_capacity(n)
-      );
-      // Each element is cloned in place through the `&T` projection
-      // `self(i)`; copying it out first (`self.get(i)`) is E0901 for a
-      // move-only `T` (issues/fixed/arraylist-clone-copies-elements-out-through-get.md).
-      mut(i) := usize(0);
-      while(i < n, i = (i + usize(1)), {
-        result.push(self(i).clone());
-      });
-      result
-    })
+    // A clone lives where its source lives (Rust's `Vec<T, A>: Clone`).
+    clone : (fn(self : &Self) -> Self)(self._clone_placed(self.allocator()))
   )
 );
 /// Iterator over non-overlapping CHUNKS of a list.

@@ -385,9 +385,9 @@ export(Trace);
 ///
 /// A block can be freed on another thread (an `Arc` dropped elsewhere), so an
 /// allocator shared across threads makes its `free` thread-safe. Codegen calls
-/// these slots for the reference-counted objects a scope places, so the shape
-/// is a contract with the compiler: it reads the arity of `alloc` to pick the
-/// runtime it emits (see `std/allocator.yo`'s module notes).
+/// these slots for the reference-counted objects an `alloc` argument places,
+/// so the shape is a contract with the compiler: it reads the vtable's shape
+/// to pick the runtime it emits (see `std/allocator.yo`'s module notes).
 AllocatorVTable :: struct(
   alloc : (fn(ctx : ?*void, size : usize, align : usize) -> ?*void),
   realloc : (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void),
@@ -10126,13 +10126,13 @@ export(Weak);
 /// auto-dereference (`Deref`). Sharing is `Rc`; a `Box` is never counted, so
 /// `ref_count` rejects it.
 ///
-/// The cell is one allocation: a prefix ending in the 16-byte owner record,
-/// then the payload. The record names the allocator that placed the cell (the
-/// `alloc` argument), or the global allocator, and the drop frees the cell
-/// through it (§3.11), telling a placed cell's allocator the size and
-/// alignment it was allocated with. A placed cell's prefix is the
-/// `max(16, align_of(V))` bytes `std/allocator.yo`'s `Allocator.alloc` writes,
-/// so `Allocator.owner_of` reads it.
+/// The cell is one allocation: a 16-byte owner prefix, then the payload. The
+/// prefix records the allocator that placed the cell (the `alloc` argument),
+/// or the global allocator, and the drop frees the cell through it (§3.11),
+/// telling a placed cell's allocator the size and alignment the cell was
+/// allocated with. A placed cell's prefix is the one `std/allocator.yo`'s
+/// `Allocator.alloc` writes for an alignment of 16, so `Allocator.owner_of`
+/// reads it.
 ///
 /// ```yo
 /// a := box(i32(41));
@@ -10171,15 +10171,9 @@ _BoxOwner :: struct(
 );
 derive(_BoxOwner, Copy, Clone);
 _BOX_PREFIX_SIZE :: usize(16);
-// The prefix in front of a `Box(V)` cell's payload, and the alignment its
-// block is asked for: `max(16, align_of(V))`, as `Allocator.alloc` places it.
-_box_span :: (fn(comptime(V) : Type) -> usize)(
-  cond((align_of(V) > _BOX_PREFIX_SIZE) => align_of(V), true => _BOX_PREFIX_SIZE)
-);
-// The owner record in front of a `Box` cell's payload: its last 16 bytes.
+// The owner prefix in front of a `Box` cell's payload.
 _box_owner_of :: (fn(cell : *void) -> *_BoxOwner)(
-  // SAFETY: every `Box` cell is a `box` block plus `_box_span(V)`, at least
-  // `_BOX_PREFIX_SIZE`.
+  // SAFETY: every `Box` cell is a `box` block plus `_BOX_PREFIX_SIZE`.
   (*_BoxOwner)(unsafe((*u8)(cell).sub(_BOX_PREFIX_SIZE)))
 );
 /// Move `value` into a new uniquely owned cell. `alloc : .Some(a)` places the
@@ -10217,17 +10211,15 @@ impl(
       .Some(a) => _BoxOwner(ctx : a.ctx, vtable : .Some(a.vtable)),
       .None => _BoxOwner(ctx : .None, vtable : .None)
     );
-    span := _box_span(T);
-    size := (size_of(T) + span);
+    size := (size_of(T) + _BOX_PREFIX_SIZE);
     block := match(
-      match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size, span), .None => __yo_malloc(size)),
+      match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size, _BOX_PREFIX_SIZE), .None => __yo_malloc(size)),
       .Some(b) => b,
       .None => __yo_panic("Box.new: out of memory")
     );
-    cell := (*T)(unsafe((*u8)(block).add(span)));
-    // SAFETY: `block` is a fresh allocation of `size` bytes, so the record's 16
-    // bytes before `cell` lie inside it.
-    unsafe(consume(_box_owner_of((*void)(cell)).* = owner));
+    // SAFETY: `block` is a fresh, 16-aligned allocation of `size` bytes.
+    unsafe(consume((*_BoxOwner)(block).* = owner));
+    cell := (*T)(unsafe((*u8)(block).add(_BOX_PREFIX_SIZE)));
     unsafe(consume(cell.* = value));
     Box(T)(cell)
   })
@@ -10266,13 +10258,12 @@ impl(
         .Some(cell) => {
           // SAFETY: the box is the cell's only owner, and this runs once.
           unsafe(drop_in_place(cell));
-          owner := unsafe(_box_owner_of((*void)(cell)).*);
-          span := _box_span(T);
-          block := (*void)(unsafe((*u8)(cell).sub(span)));
+          block := _box_owner_of((*void)(cell));
+          owner := unsafe(block.*);
           match(
             owner.vtable,
-            .Some(vt) => vt.*.free(owner.ctx, .Some(block), size_of(T) + span, span),
-            .None => __yo_free(.Some(block))
+            .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block)), size_of(T) + _BOX_PREFIX_SIZE, _BOX_PREFIX_SIZE),
+            .None => __yo_free(.Some((*void)(block)))
           );
         }
       )
