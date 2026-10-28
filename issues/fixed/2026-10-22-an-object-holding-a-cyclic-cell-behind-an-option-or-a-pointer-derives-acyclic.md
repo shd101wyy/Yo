@@ -8,7 +8,7 @@ cell held directly in the field answers `false`. Bounded: no std API
 requires `Acyclic` since decision 48 W2, so only a user-written bound reads
 the wrong answer, and the cycle itself is formable with or without it.
 
-**Status:** open. **Found:** 2026-10-22, landing decision 48 W2
+**Status:** fixed 2026-10-29 by decision 48 W5 (`vbd/w5-acyclic-weak-edges`). **Found:** 2026-10-22, landing decision 48 W2
 (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §2) on
 `feat/arc-without-acyclic`: with the `Acyclic` bound gone,
 `OnceCell(Cyclic)` and `Channel(Cyclic)` became formable, and their derived
@@ -110,3 +110,31 @@ bug.
 Related: `issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`
 (a value struct that reaches ITSELF through an atomic cell; a different
 path through the same derivation).
+
+## Resolution (2026-10-29, decision 48 W5)
+
+The marker and the collector's root test are now separate walks. `Acyclic`
+is answered by the strong-cycle reach walk (`_acyclic_by_reach`,
+`src/evaluator/trait_checking.yo`), which asks whether a cyclic component
+holding a shared cell is REACHABLE from `T`, keys its nodes by instance
+(`nominal_instance_node_id`: id plus type arguments, so every `Option`
+instance is its own node) and follows raw pointers, so `Channel`'s `*T`
+buffer is an edge. `can_type_form_rc_cycle` ("is this object ON a cycle")
+is unchanged and still drives only the collector.
+
+The reproducer with the tree binary:
+
+```text
+Cyclic <: Acyclic: false (expected false)
+HoldsDirect <: Acyclic: false (expected false)
+HoldsOption <: Acyclic: false (expected false)
+Arc(Option(Cyclic)) <: Acyclic: false (expected false)
+OnceCell(Cyclic) <: Acyclic: false (expected false)
+Channel(Cyclic) <: Acyclic: false (expected false)
+```
+
+Tests: `tests/send_sync.test.yo`, "an object holding a cyclic cell behind an
+Option or a pointer is not Acyclic", and the raw-pointer rows in
+`tests/send_sync_raw_pointer.test.yo` (a raw pointer's `Acyclic` is its
+pointee's; the prelude's unconditional `impl(*T, Acyclic())` went).
+
