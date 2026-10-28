@@ -313,6 +313,26 @@ test("ArcWeak handles upgraded and dropped on several threads while the last Arc
   assert(g_arc_weak_dropped == (before + i32(1)), "the payload was dropped once");
   assert(counts.live == usize(0), "the cell was freed once, by whichever handle went last");
 });
+// `Arc.make_mut` disassociates `ArcWeak` handles, as `Rc.make_mut` does `Weak`
+// ones.
+test("Arc.make_mut on the only Arc with an ArcWeak alive moves to a fresh cell", {
+  a := arc(_ArcPair(a : i32(1), b : i32(2)));
+  w := Arc.downgrade(&a);
+  before := addr_of(a.*);
+  Arc.make_mut(&mut a).a = i32(10);
+  assert(a.a == i32(10), "the write landed");
+  assert(addr_of(a.*) != before, "an ArcWeak shared the cell: a moved to a fresh one");
+  t := Thread(unit).spawn({ w }(io) => {
+    assert(w.upgrade().is_none(), "the ArcWeak upgrades to .None on another thread");
+  });
+  t.join();
+  b := arc(_ArcPair(a : i32(3), b : i32(4)));
+  w2 := Arc.downgrade(&b);
+  consume(w2);
+  before_b := addr_of(b.*);
+  Arc.make_mut(&mut b).b = i32(40);
+  assert(addr_of(b.*) == before_b, "no ArcWeak left: written in place");
+});
 // A recursive payload whose edge back to its own type is an `ArcWeak`: the
 // `Self` in the field is fixed up with the declaration, and the upgraded
 // handle is the payload's own `Arc` (one C type,
