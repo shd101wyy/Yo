@@ -2,6 +2,17 @@
 
 **Severity:** S2 — an `Impl(FnOnce(...))` parameter of a function whose type mentions its own type parameter is rejected at its only call (E0901), so no generic Yo-source API can take a consuming callback; only externs (`io.async`, whose body is never evaluated) and non-generic functions work.
 
+**Status:** fixed by #1643 (2026-10-28, `8d59408f1`: the specialized generic
+body binds its closure parameter owning, `src/env.yo` /
+`src/evaluator/calls/helper.yo`); verified 2026-10-28 against a tree binary at
+`c847d0b76` — every shape below (free fn `sink(f)` and by-value `f`, a
+`generic(R)` method's `sink(f)`, a capture-list move) checks, compiles and
+runs ASan-clean. Test: `tests/fn_once.test.yo` ("a generic free function calls
+its sink or by-value FnOnce parameter", beside #1643's method rows). The
+consequence below is closed by the same PR that moved this doc:
+`HashMap.entry`, `ArrayList.with`, `Deque.with` and `RefCell.with_mut` take
+`sink(body) : Impl(FnOnce(...))`.
+
 **Found:** 2026-10-25, implementing B7c (`HashMap.entry`, decision 22 — the with-shape prescribes `Impl(FnOnce(e : &mut HashMapEntry(K, V)) -> R)) -> R`, and `R` makes every call generic).
 
 ## Symptom

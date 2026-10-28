@@ -240,7 +240,8 @@ impl(
   ),
   /// Run `body` on the element at logical index `index`, borrowed in place,
   /// and return its result — decision 20's non-copying access. Asserts
-  /// `index < len()`.
+  /// `index < len()`. The body runs once, so it is an `FnOnce` moved in
+  /// (decision 37) and may move its captures into the element.
   ///
   /// ```yo
   /// { Deque } :: import("std/collections/deque");
@@ -251,7 +252,7 @@ impl(
   /// });
   /// assert(d(usize(0)) == i32(11), "written in place");
   /// ```
-  with : (fn(generic(R : Type), self : &mut Self, index : usize, body : &Impl(Fn(v : &mut T) -> R)) -> R)(
+  with : (fn(generic(R : Type), self : &mut Self, index : usize, sink(body) : Impl(FnOnce(v : &mut T) -> R)) -> R)(
     body(&mut self(index))
   ),
   /// Move the element at logical index `index` out and leave `T`'s default

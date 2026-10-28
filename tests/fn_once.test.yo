@@ -647,3 +647,18 @@ test("FnOnce: a generic container's FnOnce sink method takes a capture-list move
   assert(c.v(usize(0)) == String.from("k"), "the moved capture landed in the list");
   assert(t == String.from("t"), "the implicit capture is intact");
 });
+
+// --- a generic free function's FnOnce parameter, sink or plain by-value -----
+// The two spellings of the parameter both own the closure, so the one call is
+// not a false E0901 "it is a borrowed parameter"
+// (issues/fixed/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md).
+_gen_take_sink :: (fn(generic(U : Type), sink(f) : Impl(FnOnce() -> U)) -> U)(f());
+_gen_take_plain :: (fn(generic(U : Type), f : Impl(FnOnce() -> U)) -> U)(f());
+test("FnOnce: a generic free function calls its sink or by-value FnOnce parameter", {
+  before := g_once_disposed;
+  assert(_gen_take_sink(() => i32(1)) == i32(1), "a sink parameter");
+  assert(_gen_take_plain(() => i32(2)) == i32(2), "a plain by-value parameter");
+  t := _OnceTok(n : i32(6));
+  assert(_gen_take_sink({ t }() => _once_take(t)) == i32(6), "a capture-list move through the sink parameter");
+  assert(g_once_disposed == (before + i32(1)), "the moved capture disposed once, by _once_take");
+});
