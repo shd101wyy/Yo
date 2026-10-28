@@ -79,7 +79,8 @@
   FunctionGenerationContext,
   ClosureParamSlot,
   DeferredAsyncBlock,
-  EvidenceParameter
+  EvidenceParameter,
+  sm_owns_fnonce_captures
 } :: import("../functions/context.yo");
 {
   CrossBoundaryResult,
@@ -1566,6 +1567,21 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
   );
   Option(String).None
 });
+/// The read of the enclosing state machine's slot `sm_code` that a nested
+/// future's implicit capture moves out of: the slot plus a marker, after whose
+/// line the slot's move flag is set or, with no flag, the slot is emptied, as
+/// `_sm_consuming_read` (exprs/atom.yo) does for a capture-list entry's move.
+_sm_capture_moved_out :: (fn(sm_code : &String, context : &FunctionGenerationContext) -> String)({
+  marker := `/*yo_mv:${fresh_local_name(String.from("m"), context.base.current_function_name.clone())}*/`;
+  stmts := match(
+    sm_move_flag_of(sm_code.clone(), sm_owns_fnonce_captures(context)),
+    .Some(flag) => `${flag} = 1;  // moved into a nested future's capture`,
+    .None => `memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved into a nested future's capture`
+  );
+  em := context.base.emitter;
+  em.defer_move_zero(marker.clone(), &stmts);
+  `${sm_code} ${marker}`
+});
 /// Build the capture-struct initializer literal for an io.async block:
 /// effect-param fields are zero-initialized (populated at io.await/io.spawn);
 /// a capture list's entries are their evaluated initializers; an implicit
@@ -1666,7 +1682,8 @@ _build_async_capture_struct_literal :: (
                 .None => ()
               );
             });
-            if(matched.is_none() && type_requires_explicit_copy(&field.ty), {
+            implicit_moved := (matched.is_none() && type_requires_explicit_copy(&field.ty));
+            if(implicit_moved, {
               settled.insert(label.clone());
             });
             match(
@@ -1712,7 +1729,12 @@ _build_async_capture_struct_literal :: (
                 match(
                   sm_mapped,
                   .Some(sm_name) => {
-                    parts.push(`.${label_c} = ${sm_name}`);
+                    // An implicit capture the evaluator MOVED (see above)
+                    // out of the ENCLOSING machine's slot: the slot no longer
+                    // owns the value, so the enclosing dispose must not drop
+                    // it (issues/fixed/2026-10-28-a-nested-io-async-implicitly-capturing-a-moved-capture-is-dropped-twice.md).
+                    moved_out := (implicit_moved && sm_name.starts_with("sm->"));
+                    parts.push(`.${label_c} = ${if(moved_out, _sm_capture_moved_out(&sm_name, context), sm_name)}`);
                   },
                   .None => {
                     // A C local of the enclosing body (phase 6: not live
