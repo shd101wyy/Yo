@@ -43,7 +43,7 @@ test("Test mutex excludes across awaits", {
   in_section := rc(RefCell(bool).new(false));
   overlaps := rc(RefCell(i64).new(i64(0)));
   worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(RefCell(bool)), ovl : &Rc(RefCell(i64)), io : Io) -> Impl(Future(unit, Io)))(
-    io.async({ ins : Rc.clone(ins), m2, ovl : Rc.clone(ovl) }(io : Io) => {
+    io.async({ ins : Rc.clone(ins), m2 : Arc.clone(m2), ovl : Rc.clone(ovl) }(io : Io) => {
       io.await(m2.*.lock(io), io);
       if(ins.with(v => v), {
         ovl.with_mut(n => {
@@ -109,7 +109,7 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   // Main takes the lock first, so every worker below MUST queue.
   assert(m.*.try_lock(), "main holds the lock while the workers queue");
   worker :: (fn(m2 : Arc(Mutex(i64)), ord : &Rc(RefCell(ArrayList(i64))), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
-    io.async({ m2, ord : Rc.clone(ord), tag }(io : Io) => {
+    io.async({ m2 : Arc.clone(m2), ord : Rc.clone(ord), tag }(io : Io) => {
       io.await(m2.*.lock(io), io);
       ord.with_mut(o => o.push(tag));
       m2.*.unlock();
