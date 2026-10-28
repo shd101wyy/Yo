@@ -4931,6 +4931,18 @@ evaluate_module_value :: (
         rhs2 := match(colon_args2.get(usize(1)), .Some(e) => e, .None => make_err_expr());
         if(ast_expr_is_atom(&rhs2), {
           rhs2_name := ast_expr_token(&rhs2).value.clone();
+          // An impl over a type carrying an origin parameter is first-class
+          // storage (decision 43 step 3, N2).
+          if(rhs2_name == "Origin", {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(&fp_expr),
+                  `An origin parameter on an \`impl\` (\`generic(${ast_expr_token(&lhs2).value} : Origin)\`) arrives with first-class storage (decision 43 step 3, N2); a method declares its origins in its own signature's \`generic(...)\`.`
+                )
+              )
+            );
+          });
           if(rhs2_name != "Type", {
             register_some_binder_kind(ast_expr_token(&lhs2).value.clone(), frame_lvl, &rhs2_name);
           });
