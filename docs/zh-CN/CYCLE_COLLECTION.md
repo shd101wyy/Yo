@@ -1,5 +1,10 @@
 # 循环引用回收
 
+> **默认关闭。** 自 v0.2.73 起，程序默认不带回收器编译，除非用 `--cycle-collector auto` 显式要求
+> （[见下文](#不带回收器编译--cycle-collector-off)）。回收器正在被移除（决策 48，
+> `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`）：请改用 `Weak`（[WEAK.md](./WEAK.md)）打断环的回边。
+> 本页描述的是 `auto` 下运行的回收器。
+
 Yo 使用**非原子引用计数**结合**线程局部循环回收**来回收循环引用结构。循环回收器采用 **QuickJS 的试验性删除算法**，比 [Nim 的 ORC 着色方案](https://nim-works.github.io/nimskull/gc.html)更为简单，同时性能相当。该实现针对 Yo 的**隔离 spawn 模型**进行了适配——每个线程完全隔离，不共享内存。
 
 ## 为什么需要循环回收？
@@ -362,12 +367,14 @@ tracked_count(); // u64——回收器当前跟踪的对象数
 ## 不带回收器编译：`--cycle-collector off`
 
 回收器正在分阶段移除（决策 48，`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`）。
-在此之前，程序可以选择不带回收器编译。这就是 Rust 的 `Rc` 模型：单元由最后一个
-引用释放，引用环会泄漏。
+自 v0.2.73 起，程序默认不带回收器编译，在删除之前保持一个版本。这就是 Rust 的 `Rc`
+模型：单元由最后一个引用释放，引用环会泄漏。在删除之前，`--cycle-collector auto`
+仍可保留回收器。
 
 ```bash
-yo compile main.yo --cycle-collector off      # auto（默认）| off
-yo test ./tests --cycle-collector off         # 转发给每个测试二进制
+yo compile main.yo                            # off（默认）
+yo compile main.yo --cycle-collector auto     # 保留回收器
+yo test ./tests --cycle-collector auto        # 转发给每个测试二进制
 ```
 
 在 `build.yo` 中，这一选择是可执行产物的一个字段：
@@ -378,7 +385,7 @@ build :: import("std/build");
 exe :: build.executable({
   name : "app",
   root : "./src/main.yo",
-  cycle_collector : build.CycleCollector.Off
+  cycle_collector : build.CycleCollector.Auto
 });
 ```
 
@@ -403,13 +410,13 @@ exe :: build.executable({
 对于只有一个两单元垃圾环的程序：
 
 ```bash
-yo compile main.yo --cycle-collector off --allocator fixed --debug-heap -o app
+yo compile main.yo --allocator fixed --debug-heap -o app
 ./app
 # heap: peak 448.0 B of 16.0 MiB, 16 allocations, live at exit: 2 blocks / 96 bytes
 ```
 
 `YO_GC_THRESHOLD=0` 是同一选择的运行时形式。它停止自动回收，但保留跟踪代码、
-注册和大对象头，`collect()` 仍会回收。`--cycle-collector off` 则在编译时把这些
+注册和大对象头，`collect()` 仍会回收。默认的 `--cycle-collector off` 则在编译时把这些
 全部去掉。
 
 ## 编译器支持

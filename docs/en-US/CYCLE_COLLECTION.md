@@ -1,5 +1,13 @@
 # Cycle Collection
 
+> **Off by default.** Since v0.2.73 a program is compiled without the
+> collector unless it asks for it with `--cycle-collector auto`
+> ([below](#compiling-without-the-collector---cycle-collector-off)). The
+> collector is being removed (decision 48,
+> `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`): break a cycle's back edge with a
+> `Weak` ([WEAK.md](./WEAK.md)) instead. This page describes the collector as
+> it runs under `auto`.
+
 Yo uses **non-atomic reference counting** with **thread-local cycle collection** to reclaim cyclic structures. The cycle collector uses **QuickJS's trial deletion algorithm**, which is simpler than [Nim's ORC coloring approach](https://nim-works.github.io/nimskull/gc.html) while providing similar performance. The implementation is adapted for Yo's **isolated spawn model** where each thread has complete isolation with no shared memory.
 
 ## Why Cycle Collection?
@@ -366,13 +374,15 @@ variables read by the emitted runtime:
 ## Compiling without the collector: `--cycle-collector off`
 
 The collector is being removed in stages (decision 48,
-`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`). Until then, a program can be
-compiled without it. That gives Rust's `Rc` model: a cell is freed by its last
-reference, and a reference cycle leaks.
+`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`). Since v0.2.73 a program is
+compiled without it by default, for one release before the deletion. That is
+Rust's `Rc` model: a cell is freed by its last reference, and a reference
+cycle leaks. `--cycle-collector auto` keeps the collector until then.
 
 ```bash
-yo compile main.yo --cycle-collector off      # auto (the default) | off
-yo test ./tests --cycle-collector off         # forwarded to every test binary
+yo compile main.yo                            # off (the default)
+yo compile main.yo --cycle-collector auto     # keep the collector
+yo test ./tests --cycle-collector auto        # forwarded to every test binary
 ```
 
 In `build.yo` the same choice is a field of the executable:
@@ -383,7 +393,7 @@ build :: import("std/build");
 exe :: build.executable({
   name : "app",
   root : "./src/main.yo",
-  cycle_collector : build.CycleCollector.Off
+  cycle_collector : build.CycleCollector.Auto
 });
 ```
 
@@ -414,15 +424,15 @@ Under `off`:
 For a program whose one garbage cycle has two cells:
 
 ```bash
-yo compile main.yo --cycle-collector off --allocator fixed --debug-heap -o app
+yo compile main.yo --allocator fixed --debug-heap -o app
 ./app
 # heap: peak 448.0 B of 16.0 MiB, 16 allocations, live at exit: 2 blocks / 96 bytes
 ```
 
 `YO_GC_THRESHOLD=0` is the run-time version of the same choice. It stops the
 automatic collections but keeps the tracking code, the registrations and the
-large headers, and `collect()` still collects. `--cycle-collector off` removes
-all of that when the program is compiled.
+large headers, and `collect()` still collects. `--cycle-collector off`, the
+default, removes all of that when the program is compiled.
 
 ## Compiler Support
 
