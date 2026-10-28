@@ -67,9 +67,9 @@ test("a contended lock suspends the waiter, and the loop stays live", {
   // Tasks share the mutex as `Arc(Mutex(T))`, each with its own handle
   // (plans/VALUES_BY_DEFAULT.md §3.13 A5).
   m := arc(Mutex(i64).new(i64(0)));
-  m_holder := m;
+  m_holder := Arc.clone(m);
   holder := io.spawn(
-    io.async({ m_holder }(io : Io) => {
+    io.async({ m_holder : Arc.clone(m_holder) }(io : Io) => {
       io.await(m_holder.*.lock(io), io);
       io.await(sleep(u64(10)), io);
       m_holder.*.set(m_holder.*.get() + i64(1));
@@ -81,9 +81,9 @@ test("a contended lock suspends the waiter, and the loop stays live", {
   // Let the holder enter its (sleeping) section before probing.
   io.await(sleep(u64(2)), io);
   assert(m.*.is_locked(), "the holder is inside its section");
-  m_waiter := m;
+  m_waiter := Arc.clone(m);
   waiter := io.spawn(
-    io.async({ m_waiter }(io : Io) => {
+    io.async({ m_waiter : Arc.clone(m_waiter) }(io : Io) => {
       io.await(m_waiter.*.lock(io), io);
       m_waiter.*.set(m_waiter.*.get() + i64(10));
       m_waiter.*.unlock();

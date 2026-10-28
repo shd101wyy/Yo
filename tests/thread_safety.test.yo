@@ -171,7 +171,7 @@ _run_on_thread :: (fn(sink(cb) : Impl(Fn() -> unit, Send)) -> unit)({
 });
 _helper_with_send_captures :: (fn() -> unit)({
   hits := arc(AtomicI32(i32(0)));
-  h := hits;
+  h := Arc.clone(hits);
   (inner : Impl(Fn() -> unit)) = (
     () => {
       h.fetch_add(i32(1), MemoryOrder.AcqRel);

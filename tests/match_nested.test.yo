@@ -238,7 +238,7 @@ test("a match on an Rc handle with plain variant arms switches on the payload", 
   dot := rc(Shape.Dot);
   line := rc(Shape.Line(len : i32(7)));
   zero := rc(Shape.Line(len : i32(0)));
-  pair := rc(Shape.Pair(a : line, b : rc(Shape.Pair(a : dot, b : zero))));
+  pair := rc(Shape.Pair(a : Rc.clone(line), b : rc(Shape.Pair(a : Rc.clone(dot), b : Rc.clone(zero)))));
   assert(size(&dot) == i32(1));
   assert(size(&line) == i32(7));
   assert(size(&pair) == i32(8));

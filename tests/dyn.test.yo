@@ -1093,6 +1093,6 @@ test("a Dyn listing Send and Sync compiles one member per name", {
   (k : Impl(Fn() -> i32)) = (() => i32(4));
   (d : Dyn(Fn() -> i32, Send, Sync)) = dyn(k);
   (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = arc(dyn(() => i32(5)));
-  b := a;
+  b := Arc.clone(a);
   assert((d() + (a.*() + b.*())) == i32(14), "a Send and Sync Dyn calls through its vtable, and through an Arc");
 });

@@ -258,7 +258,7 @@ _serve_scripted :: (
   fn(sink(listener) : TcpListener, responses : ArrayList(String), seen : Rc(RefCell(ArrayList(String))), io : Io) ->
     Impl(Future(unit, IoExn))
 )(
-  io.async({ listener, responses, seen }(e : IoExn) => {
+  io.async({ listener, responses, seen : Rc.clone(seen) }(e : IoExn) => {
     mut(k) := usize(0);
     while(k < responses.len(), {
       s := e.io.await(listener.accept(e.io), e);
@@ -296,7 +296,7 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   responses.push(_redirect_to(`/final`)); // absolute path → /final
   responses.push(_ok_body(`done`));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
   resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.OK(), `final status should be 200, got ${resp.status}`);
   assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
@@ -343,7 +343,7 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   responses := ArrayList(String).new();
   responses.push(_redirect_to(`/elsewhere`));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_redirects(usize(0));
   resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, &opts, io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.FOUND(), `the 3xx itself should come back, got ${resp.status}`);
@@ -500,7 +500,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   responses := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
   client := io.spawn(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : chunk_exn));
   outcome := client.await(io);
   server.await(io);
@@ -537,7 +537,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   responses := ArrayList(String).new();
   responses.push(`garbage\r\n\r\n`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
   (mut(outcome) : Option(HttpResponse)) = Option(HttpResponse).None;
   {
     client := io.spawn(fetch_with(`http://127.0.0.1:19967/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : garbage_exn));
@@ -781,7 +781,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: -5\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 9\r\nConnection: close\r\n\r\nhello`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
   c1 := io.spawn(fetch_with(`http://127.0.0.1:19976/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
   o1 := c1.await(io);
   c2 := io.spawn(fetch_with(`http://127.0.0.1:19976/negative`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));

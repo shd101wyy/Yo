@@ -74,13 +74,13 @@ test("aborting a task wakes the task awaiting it", {
 // issues/fixed/abort-does-not-cancel-a-nested-future-the-orphan-keeps-running.md
 test("a cancelled receiver does not consume the next message", {
   ch := Channel(i32).new(usize(4));
-  f := io.async((io : Io) => {
+  f := io.async({ ch : ch.clone() }(io : Io) => {
     v := io.await(ch.recv(io), io);
     match(v, .Some(x) => x, .None => i32(-1))
   });
   r := io.await(timeout(f, Duration.from_millis(i64(5)), io), io);
   assert(r.is_err(), "the first receiver timed out");
-  g := io.async((io : Io) => {
+  g := io.async({ ch : ch.clone() }(io : Io) => {
     v := io.await(ch.recv(io), io);
     match(v, .Some(x) => x, .None => i32(-1))
   });
@@ -95,8 +95,8 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
   m := arc(Mutex(i32).new(i32(0)));
   io.await(m.*.lock(io), io);
   // b blocks in lock and is cancelled while parked there.
-  mb := m;
-  b := io.async({ mb }(io : Io) => {
+  mb := Arc.clone(m);
+  b := io.async({ mb : Arc.clone(mb) }(io : Io) => {
     io.await(mb.*.lock(io), io);
     mb.*.unlock();
     i32(1)
@@ -104,8 +104,8 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
   rb := io.await(timeout(b, Duration.from_millis(i64(5)), io), io);
   assert(rb.is_err(), "b timed out while parked on the lock");
   // c queues behind b's (now dead) waiter.
-  mc := m;
-  c := io.async({ mc }(io : Io) => {
+  mc := Arc.clone(m);
+  c := io.async({ mc : Arc.clone(mc) }(io : Io) => {
     io.await(mc.*.lock(io), io);
     mc.*.unlock();
     i32(2)
@@ -123,7 +123,7 @@ test("cancelling a task blocked on a channel releases it", {
   ch := Channel(i32).new(usize(1));
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
-    f := io.async((io : Io) => {
+    f := io.async({ ch : ch.clone(), i }(io : Io) => {
       t := Thing(n : i);
       v := io.await(ch.recv(io), io);
       t.n + match(v, .Some(x) => x, .None => i32(0))
