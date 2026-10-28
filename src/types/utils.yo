@@ -1756,28 +1756,6 @@ buffer_element_types :: (fn(fields : &ArrayList(TypeValue)) -> ArrayList(TypeVal
   });
   out
 });
-/// What a VALUE struct's `Acyclic` requires (V2b's unique buffers): every
-/// field, plus each element of a buffer the value owns that reaches a
-/// non-atomic cell. The elements are part of the value, but the `?(*(E))`
-/// field reads as Acyclic whatever `E` is (`*(T)` is unconditionally
-/// Acyclic), so the definition-time derive and the trait checker's on-demand
-/// re-derivation both check this list instead of the fields alone. An element
-/// that reaches no cell (`?*void`, plain data) is no cycle risk.
-value_acyclic_obligations :: (fn(fields : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
-  out := fields.clone();
-  elems := buffer_element_types(fields);
-  (i : usize) = usize(0);
-  while(i < elems.len(), i = (i + usize(1)), {
-    match(
-      elems.get(i),
-      .Some(e) => if(type_reaches_non_atomic_cell(&e), {
-        out.push(e);
-      }),
-      .None => ()
-    );
-  });
-  out
-});
 /// Does a value type own a heap buffer the field walk cannot see: a struct
 /// (or newtype) that is not a reference type, with a `?(*(E))` field? Such a
 /// value may implement `Trace` (V2b's unique buffers), and the cycle and
@@ -3774,7 +3752,7 @@ export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
 export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
 export(type_is_control_bound);
-export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, buffer_element_types, value_acyclic_obligations, value_type_owns_buffer, value_type_owns_buffer_outright, _type_refs_back_to_cyclic);
+export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, buffer_element_types, value_type_owns_buffer, value_type_owns_buffer_outright, _type_refs_back_to_cyclic);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types, type_mentions_some_type, type_mentions_some_type_named, type_is_bitwise_copy);

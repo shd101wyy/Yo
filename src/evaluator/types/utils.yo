@@ -12,7 +12,8 @@
 //!               fields Sync; a non-atomic object never
 //!   - Sync:     struct (value) if all fields Sync; atomic object if all
 //!               fields Sync; a non-atomic object never
-//!   - Acyclic:  struct if all fields Acyclic; object if not a cycle root
+//!   - Acyclic is NOT derived here: `type_implements_trait` answers it on
+//!     demand with the strong-cycle reach walk (`_acyclic_by_reach`).
 //!   - Comptime: struct if all fields Comptime; object never
 //!   - Runtime:  object always; struct if all fields Runtime
 //!
@@ -27,12 +28,11 @@
   end_send_derivation,
   type_implements_send,
   type_implements_sync,
-  type_implements_acyclic,
   type_implements_comptime,
   type_implements_runtime_full,
   register_type_trait
 } :: import("../trait_checking.yo");
-{ can_type_form_rc_cycle, buffer_element_type, get_all_some_types, value_acyclic_obligations } :: import("../../types/utils.yo");
+{ get_all_some_types } :: import("../../types/utils.yo");
 { is_some_type } :: import("../../types/guards.yo");
 { Exception } :: import("std/error");
 { Token } :: import("../../token.yo");
@@ -64,41 +64,6 @@ _all_fields_implement_sync :: (fn(field_types : &ArrayList(TypeValue), env : &En
     if(!type_implements_sync(&ft, env), {
       all_ok = false;
     });
-    i = (i + usize(1));
-  });
-  all_ok
-});
-_all_fields_implement_acyclic :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
-  n := field_types.len();
-  (i : usize) = usize(0);
-  (all_ok : bool) = true;
-  while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    if(!type_implements_acyclic(&ft, env), {
-      all_ok = false;
-    });
-    i = (i + usize(1));
-  });
-  all_ok
-});
-/// True if every `?(*(E))` buffer element type held by the struct's fields is itself
-/// Acyclic. A container is Acyclic only if its element is (the field walk can't see
-/// the buffer, and this derive can run before a self-referential element's own
-/// cycle status is known, so `ArrayList(Node)` is correctly withheld from Acyclic
-/// while `ArrayList(i32)` stays Acyclic).
-_all_buffer_elements_acyclic :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
-  n := field_types.len();
-  (i : usize) = usize(0);
-  (all_ok : bool) = true;
-  while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    match(
-      buffer_element_type(&ft),
-      .Some(elem) => if(!type_implements_acyclic(&elem, env), {
-        all_ok = false;
-      }),
-      .None => ()
-    );
     i = (i + usize(1));
   });
   all_ok
@@ -137,16 +102,13 @@ _all_fields_implement_runtime :: (fn(field_types : &ArrayList(TypeValue), env : 
 ///
 /// `begin_send_derivation` / `end_send_derivation` are called here so
 /// struct.yo does not need to import trait_checking.yo directly.
-///
-/// `self_type` is the final struct TypeValue — used for `can_type_form_rc_cycle`.
 auto_derive_traits_for_struct_type :: (
   fn(
     struct_id : &String,
     field_types : &ArrayList(TypeValue),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
-    env : &Environment,
-    self_type : &TypeValue
+    env : &Environment
   ) -> unit
 )({
   // Begin Send/Sync derivation cycle guard.
@@ -163,18 +125,6 @@ auto_derive_traits_for_struct_type :: (
     if(if(is_atomic_rc, all_sync, _all_fields_implement_send(field_types, env)), {
       register_type_trait(struct_id, "Send", env);
     });
-  });
-  // Acyclic.
-  // Object types: if not a cycle root.
-  // Struct (value) types: all fields Acyclic, and the elements of a buffer
-  // the value owns (V2b's unique buffers).
-  is_acyclic := if(
-    is_reference_semantics,
-    _all_buffer_elements_acyclic(field_types, env) && !can_type_form_rc_cycle(self_type),
-    _all_fields_implement_acyclic(&value_acyclic_obligations(field_types), env)
-  );
-  if(is_acyclic, {
-    register_type_trait(struct_id, "Acyclic", env);
   });
   // Comptime — object types never; struct types if all fields Comptime.
   if(!is_reference_semantics, {
@@ -218,21 +168,17 @@ _flatten_variant_fields :: (fn(variant_fields : &SharedList(SharedList(TypeValue
 /// applied to the union of all variant field types. A value `enum(...)` gets
 /// the value-struct rules (each marker holds iff every field holds it); a
 /// `ref(enum(...))` / `atomic(ref(enum(...)))` gets the reference-struct rules
-/// — `Send` only when atomic, `Runtime` always, `Comptime` never, `Acyclic`
-/// when no RC cycle (`can_type_form_rc_cycle` walks reference enums too). The
+/// — `Send` only when atomic, `Runtime` always, `Comptime` never. The
 /// enum rules used to predate `ref(enum)` and apply the value rules to every
 /// enum: a non-atomic ref enum was `Send`
 /// (issues/fixed/ref-enum-derives-value-enum-marker-traits.md).
-///
-/// `self_type` is the final EnumT — used for `can_type_form_rc_cycle`.
 auto_derive_traits_for_enum_type :: (
   fn(
     enum_id : &String,
     variant_fields : &SharedList(SharedList(TypeValue)),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
-    env : &Environment,
-    self_type : &TypeValue
+    env : &Environment
   ) -> unit
 )(
   auto_derive_traits_for_struct_type(
@@ -240,8 +186,7 @@ auto_derive_traits_for_enum_type :: (
     _flatten_variant_fields(variant_fields),
     is_reference_semantics,
     is_atomic_rc,
-    env,
-    self_type
+    env
   )
 );
 // ---------------------------------------------------------------------------
@@ -266,10 +211,6 @@ auto_derive_traits_for_union_type :: (
   });
   if(_all_fields_implement_sync(field_types, env), {
     register_type_trait(union_id, "Sync", env);
-  });
-  // Acyclic: all fields Acyclic.
-  if(_all_fields_implement_acyclic(field_types, env), {
-    register_type_trait(union_id, "Acyclic", env);
   });
   // Comptime: all fields Comptime.
   if(_all_fields_implement_comptime(field_types, env), {
