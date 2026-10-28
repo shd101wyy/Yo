@@ -52,8 +52,8 @@ test("Test join_all drains the list it takes", {
   outs := io.await(join_all(handles, io), io);
   assert(handles.len() == usize(0), "join_all drained the list");
   // Each result moves out of its joined task.
-  assert(match(outs(usize(0)), .Some(r) => (r.* == i32(4)), .None => false), "slot 0 moved out");
-  assert(match(outs(usize(1)), .Some(r) => (r.* == i32(5)), .None => false), "slot 1 moved out");
+  assert(match(outs(usize(0)).clone(), .Some(r) => (r.* == i32(4)), .None => false), "slot 0 moved out");
+  assert(match(outs(usize(1)).clone(), .Some(r) => (r.* == i32(5)), .None => false), "slot 1 moved out");
 });
 // ---------------------------------------------------------------------------
 // 2. join_all — an aborted task's slot is .None, siblings unaffected
