@@ -141,9 +141,9 @@ _typevalue_enum_access :: (fn(object_value : &Option(EvalValue), field_name : &S
     .Some(v) => match(
       v,
       .TypeVal(t) => {
-        et := t;
+        et := Rc.clone(t);
         match(
-          et,
+          &et,
           Rc(.EnumT({ variant_names : vnames, variant_fields : vfields })) => {
             nv := vnames.len();
             (vi : usize) = usize(0);
@@ -197,18 +197,18 @@ _ptr_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_
     out
   }, {
     (deref_level : usize) = usize(0);
-    (current_type : TypeValue) = object_type;
+    (current_type : TypeValue) = Rc.clone(object_type);
     while(is_pointer_type(&current_type), {
-      current_type = match(current_type, Rc(.Pointer(p)) => p, _ => current_type);
+      current_type = match(&current_type, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(current_type));
       deref_level = (deref_level + usize(1));
     });
     // Reference-semantics structs are already pointers in C — one more deref.
-    ref_sem := match(current_type, Rc(.Struct({ is_reference_semantics : rs })) => rs, _ => false);
+    ref_sem := match(&current_type, Rc(.Struct({ is_reference_semantics : rs })) => rs, _ => false);
     if((deref_level > usize(0)) && ref_sem, {
       deref_level = (deref_level + usize(1));
     });
     // Newtype field through a pointer is just the dereference.
-    nt_match := if(is_newtype_type(&current_type), match(current_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
+    nt_match := if(is_newtype_type(&current_type), match(&current_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
     if(nt_match, {
       res := if(deref_level == usize(1), {
         out := String.from("(*");
@@ -307,7 +307,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
     object_code_raw
   );
   obj_ei_opt := context.base.get_expr_info(&object_expr);
-  object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => rc(TypeValueNode.Unit));
+  object_type := match(obj_ei_opt, .Some(oei) => Rc.clone(oei.ty), .None => rc(TypeValueNode.Unit));
   object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);
   // Dyn method access takes PRIORITY over static method resolution: even when
   // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
@@ -371,7 +371,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   // `e`, not a nonexistent `e.io` field. Keyed on the io-builtin side
   // table, so a user struct with an `io` field is untouched.
   if((field_name == "io") && is_struct_type(&object_type) && match(
-    object_type,
+    &object_type,
     Rc(.Struct({ id : oid })) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
     _ => false
   ), {
@@ -405,7 +405,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   // `object_code` is the newtype VALUE here — just return it.
   if(is_newtype_type(&object_type), {
     match(
-      object_type,
+      &object_type,
       Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), {
         match(
           fls.get(usize(0)),

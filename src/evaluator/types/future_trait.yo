@@ -108,7 +108,7 @@ _resolve_effect_arg :: (
           });
           effect_type := match(
             info.value,
-            .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+            .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
             .None => rc(TypeValueNode.Unit)
           );
           label := _effect_label_for(&effect_type, effect_expr);
@@ -188,7 +188,7 @@ evaluate_future_type :: (
   });
   output_type := match(
     elem_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
     .None => rc(TypeValueNode.Unit)
   );
   // Process effect arguments (args 1..N)

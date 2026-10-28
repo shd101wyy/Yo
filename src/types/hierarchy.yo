@@ -104,7 +104,7 @@ _universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue
     match(
       bucket.get(i),
       .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
-        return(Option(TypeValue).Some(e.universe));
+        return(Option(TypeValue).Some(Rc.clone(e.universe)));
       }),
       .None => ()
     );
@@ -126,7 +126,7 @@ _universe_memo_compute :: (
   r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
     bucket := match(g_universe_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
-    bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
+    bucket.push(_UniverseMemoEntry(ty : Rc.clone(ty), universe : Rc.clone(r)));
     _ := g_universe_memo.with_mut(m => m.insert(key.clone(), bucket));
   });
   g_universe_guard_fired = (g_universe_guard_fired || outer_fired);
@@ -247,7 +247,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     Rc(.FnTraitT(base_name : _)) => rc(TypeValueNode.TypeUni(usize(1))),
     Rc(.FutureTraitT(base_name : _)) => rc(TypeValueNode.TypeUni(usize(1))),
     // SomeT: return its parent_type (meta-type) ----------------------------
-    Rc(.SomeT(parent_type : pt)) => pt,
+    Rc(.SomeT(parent_type : pt)) => Rc.clone(pt),
     // Remaining Phase 2f variants that live at type level 0 ---------------
     _ => rc(TypeValueNode.TypeUni(usize(0)))
   )

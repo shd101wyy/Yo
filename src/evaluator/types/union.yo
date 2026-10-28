@@ -64,7 +64,7 @@ evaluate_union_type :: (
   // Member visibility: record which module declares this type (guards.yo).
   register_type_decl_module(union_id.clone(), decl_tok.module_path.*.clone());
   // Temporarily set SelfType so fields can reference Self.
-  old_self_type := ctx.self_type;
+  old_self_type := ctx.self_type.clone();
   prelim_ty := rc(
     TypeValueNode.Union(
       union_id.clone(),
@@ -82,7 +82,7 @@ evaluate_union_type :: (
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(&arg, i, &env_mut, ctx, "union", exn);
-    field := result.field;
+    field := result.field.clone();
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
@@ -143,7 +143,7 @@ evaluate_union_type :: (
       );
     });
     field_labels.push(field.label.clone());
-    field_types.push(field.ty);
+    field_types.push(Rc.clone(field.ty));
     fields.push(field);
     env_adopt(&env_mut, &result.env);
     i = (i + usize(1));

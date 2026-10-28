@@ -49,7 +49,7 @@ try_to_implement_array_by_array_type :: (
   // Extract element type and concrete length from TypeValue.Array.
   elem_type := match(
     array_type,
-    Rc(.Array(elem_box, _, _)) => elem_box,
+    Rc(.Array(elem_box, _, _)) => Rc.clone(elem_box),
     _ => {
       exn.throw(
         dyn(
@@ -113,7 +113,7 @@ try_to_implement_array_by_array_type :: (
     );
     // Evaluate with expected element type set in context.
     saved_expected := ctx.expected_type;
-    ctx.expected_type = .Some(ExpectedTypeCtx(ty : expected_element_type, env : env));
+    ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(expected_element_type), env : env));
     evaluated_arg_gout := ArrayList(AstExpr).new();
     evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
     ctx.expected_type = saved_expected;
@@ -137,7 +137,7 @@ try_to_implement_array_by_array_type :: (
     // update expected element type based on actual evaluated type.
     if((i == usize(0)) && is_array_type(&expected_element_type), {
       if(is_array_type(&arg_info.ty), {
-        expected_element_type = arg_info.ty;
+        expected_element_type = Rc.clone(arg_info.ty);
       });
     });
     // Type compatibility check.

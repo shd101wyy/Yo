@@ -112,7 +112,7 @@ evaluate_recur :: (
   // Guard 3: func_type must be present.
   // ------------------------------------------------------------------
   match(
-    func_body_ctx.func_type,
+    &func_body_ctx.func_type,
     .None => {
       exn.throw(
         dyn(
@@ -126,8 +126,8 @@ evaluate_recur :: (
     .Some(_) => ()
   );
   is_evaluating_function_body_of_type := match(
-    func_body_ctx.func_type,
-    .Some(ft) => ft,
+    &func_body_ctx.func_type,
+    .Some(ft) => Rc.clone(ft),
     .None => t_unit()
   );
   // ------------------------------------------------------------------
@@ -188,9 +188,9 @@ evaluate_recur :: (
     // `!recur(...)`), producing malformed C with a 0-arg comptime function
     // call". See issues/fixed/recur-runtime-result-not-marked-runtime-only.md.
     // (`variable_name` is still not carried — see the stub inventory.)
-    return_type := call_result.return_type;
+    return_type := Rc.clone(call_result.return_type);
     recur_ret_is_comptime := match(
-      func_body_ctx.func_type,
+      &func_body_ctx.func_type,
       .Some(ft) => match(ft, Rc(.Func({ meta : __rc_fm })) => __rc_fm.*.result_is_comptime_only, _ => false),
       .None => false
     );

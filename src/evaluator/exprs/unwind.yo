@@ -89,7 +89,7 @@ evaluate_unwind :: (
   });
   // Must be inside a function with an enclosing function.
   match(
-    ctx.enclosing_function_return_type,
+    &ctx.enclosing_function_return_type,
     .None => {
       exn.throw(
         dyn(
@@ -103,8 +103,8 @@ evaluate_unwind :: (
     .Some(_) => ()
   );
   enclosing_ret := match(
-    ctx.enclosing_function_return_type,
-    .Some(t) => t,
+    &ctx.enclosing_function_return_type,
+    .Some(t) => Rc.clone(t),
     .None => t_i32()
   );
   // `unwind` accepts at most one argument.
@@ -151,7 +151,7 @@ evaluate_unwind :: (
   // Recursively evaluate the argument with the enclosing return type as the
   // expected type.
   saved_expected := ctx.expected_type;
-  ctx.expected_type = .Some(ExpectedTypeCtx(ty : enclosing_ret, env : env));
+  ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env));
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;

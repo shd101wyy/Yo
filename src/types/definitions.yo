@@ -637,8 +637,8 @@ TypeValue :: Rc(TypeValueNode);
 t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.RefineT(inner, _)) => inner,
-    _ => t
+    Rc(.RefineT(inner, _)) => Rc.clone(inner),
+    _ => Rc.clone(t)
   )
 );
 
@@ -675,19 +675,19 @@ impl(SharedList(SharedList(TypeValue)), Acyclic());
   SharedListCell(SharedList(String))(items : ArrayList(SharedList(String)).new())
 );
 /// The shared empty type list.
-no_types :: (fn() -> SharedList(TypeValue))(g_no_types);
+no_types :: (fn() -> SharedList(TypeValue))(Rc.clone(g_no_types));
 /// The shared empty label list.
-no_labels :: (fn() -> SharedList(String))(g_no_labels);
+no_labels :: (fn() -> SharedList(String))(Rc.clone(g_no_labels));
 /// The shared empty flag list.
-no_flags :: (fn() -> SharedList(bool))(g_no_flags);
+no_flags :: (fn() -> SharedList(bool))(Rc.clone(g_no_flags));
 /// The shared empty level list.
-no_levels :: (fn() -> SharedList(usize))(g_no_levels);
+no_levels :: (fn() -> SharedList(usize))(Rc.clone(g_no_levels));
 /// The shared empty discriminant list.
-no_discriminants :: (fn() -> SharedList(i64))(g_no_discriminants);
+no_discriminants :: (fn() -> SharedList(i64))(Rc.clone(g_no_discriminants));
 /// The shared empty list of type lists (an enum's `variant_fields`).
-no_type_lists :: (fn() -> SharedList(SharedList(TypeValue)))(g_no_type_lists);
+no_type_lists :: (fn() -> SharedList(SharedList(TypeValue)))(Rc.clone(g_no_type_lists));
 /// The shared empty list of label lists (an enum's `variant_field_labels`).
-no_label_lists :: (fn() -> SharedList(SharedList(String)))(g_no_label_lists);
+no_label_lists :: (fn() -> SharedList(SharedList(String)))(Rc.clone(g_no_label_lists));
 impl(TypeValue, SharedListElem(no_list : no_types));
 impl(String, SharedListElem(no_list : no_labels));
 impl(bool, SharedListElem(no_list : no_flags));
@@ -705,13 +705,13 @@ impl(SharedList(String), SharedListElem(no_list : no_label_lists));
 // always has: it is a `&T` slot. Only `Func.param_types` and
 // `FnTraitT.call_param_types` hold slots; `forall_types`, `implicit_types`
 // and `variadic_types` hold plain types.
-(g_origin_elided : TypeValue) = rc(TypeValueNode.OriginSet(places : g_no_labels, is_elided : true));
+(g_origin_elided : TypeValue) = rc(TypeValueNode.OriginSet(places : Rc.clone(g_no_labels), is_elided : true));
 /// The origin of a reference written without one. Every origin step 1 builds
 /// is this one shared value.
-t_origin_elided :: (fn() -> TypeValue)(g_origin_elided);
+t_origin_elided :: (fn() -> TypeValue)(Rc.clone(g_origin_elided));
 /// `&T` (`mutable = false`) or `&mut T`, with the elided origin.
 t_reference :: (fn(pointee : &TypeValue, mutable : bool) -> TypeValue)(
-  rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : g_origin_elided))
+  rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(g_origin_elided)))
 );
 /// The slot of a parameter with the given mode: `&mut T` when `is_mut_ref`,
 /// else `T` when `is_by_value`, else `&T`.
@@ -726,8 +726,8 @@ t_slot :: (fn(pointee : &TypeValue, is_mut_ref : bool, is_by_value : bool) -> Ty
 t_slot_pointee :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.Reference(pointee, _, _)) => pointee,
-    _ => t
+    Rc(.Reference(pointee, _, _)) => Rc.clone(pointee),
+    _ => Rc.clone(t)
   )
 );
 /// The slot is `&mut T`.
@@ -741,7 +741,7 @@ t_slot_is_by_value :: (fn(t : &TypeValue) -> bool)(!t_slot_is_borrow(t));
 t_slot_with_pointee :: (fn(slot : &TypeValue, pointee : &TypeValue) -> TypeValue)(
   match(
     slot,
-    Rc(.Reference(_, mutable, origin)) => rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : origin)),
+    Rc(.Reference(_, mutable, origin)) => rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(origin))),
     _ => pointee.clone()
   )
 );
@@ -770,9 +770,9 @@ slot_pointees :: (fn(slots : &SharedList(TypeValue)) -> ArrayList(TypeValue))({
 fn_param_slots :: (fn(ft : &TypeValue) -> SharedList(TypeValue))(
   match(
     ft,
-    Rc(.Func({ param_types : fps_pts })) => fps_pts,
-    Rc(.FnTraitT({ call_param_types : fps_cpts })) => fps_cpts,
-    _ => g_no_types
+    Rc(.Func({ param_types : fps_pts })) => Rc.clone(fps_pts),
+    Rc(.FnTraitT({ call_param_types : fps_cpts })) => Rc.clone(fps_cpts),
+    _ => Rc.clone(g_no_types)
   )
 );
 /// Parameter `i` of the `Func` / `FnTraitT` `ft` is `&mut T` (false past the

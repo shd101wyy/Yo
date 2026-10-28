@@ -366,8 +366,8 @@ _register_extern_global_header :: (
   vs := scope_variables(key, &ei.env, name.clone());
   n := vs.len();
   resolved_ty := cond(
-    (n > usize(0)) => match(vs.get(n - usize(1)), .Some(x) => x.ty, .None => return(())),
-    match(ei.is_accessing_property, .Some(b) => b, .None => false) => ei.ty,
+    (n > usize(0)) => match(vs.get(n - usize(1)), .Some(x) => Rc.clone(x.ty), .None => return(())),
+    match(ei.is_accessing_property, .Some(b) => b, .None => false) => Rc.clone(ei.ty),
     true => return(())
   );
   if(extern_c_global_matches(name.clone(), &resolved_ty), {
@@ -763,7 +763,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       // trait-value methods).
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
         cdot_args := match(callee, .FnCall(_, _, da, _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
+        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
         cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m), String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
@@ -783,7 +783,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
         // entry (updated in place at impl.yo:2322) and is never otherwise
         // collected → "call to undeclared function". Deref to the pointee for the
         // id, the same deref idiom as match.yo:1153 / property_access.yo:524.
-        recv_ty_for_id := match(recv_ty, Rc(.Pointer(inner)) => inner, _ => recv_ty);
+        recv_ty_for_id := match(&recv_ty, Rc(.Pointer(inner)) => Rc.clone(inner), _ => Rc.clone(recv_ty));
         ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(&recv_ty_for_id));
         if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
           ments := get_type_trait_methods_by_name(&ctid, &cmname);
@@ -877,7 +877,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       match(
         expr_info_table_get(info, ast_expr_id(&callee)),
         .Some(cei) => if(is_function_type(&cei.ty), {
-          is_comptime_only := match(cei.ty, Rc(.Func({ meta : __fm3 })) => __fm3.*.result_is_comptime_only, _ => false);
+          is_comptime_only := match(&cei.ty, Rc(.Func({ meta : __fm3 })) => __fm3.*.result_is_comptime_only, _ => false);
           match(
             cei.value,
             .Some(fv) => cond(
@@ -932,7 +932,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
         v_is_control := (
           is_control_fn(_func_val_id(&v)) ||
             match(get_func_type(_func_val_id(&v)), Rc(.Func({ meta : __fm5 })) => __fm5.*.is_control, _ => false) ||
-              match(ei.ty, Rc(.Func({ meta : __fm6 })) => __fm6.*.is_control, _ => false)
+              match(&ei.ty, Rc(.Func({ meta : __fm6 })) => __fm6.*.is_control, _ => false)
         );
         cond(
           v_is_control => {
@@ -1043,10 +1043,10 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                 match(
                   expr_info_table_get(info, ast_expr_id(&varg)),
                   .Some(vei) => {
-                    vty := vei.ty;
+                    vty := Rc.clone(vei.ty);
                     if(is_reference_struct_type(&vty) || is_boxed_type(&vty), {
                       // A cell handle's payload is its cell's (`cell_handle_view`).
-                      concrete := if(is_boxed_type(&vty), match(cell_handle_view(&vty), .Some(hv) => hv.payload, .None => match(vty, Rc(.Struct({ field_types })) => match(field_types.get(usize(0)), .Some(ft) => ft, .None => vty), _ => vty)), vty);
+                      concrete := if(is_boxed_type(&vty), match(cell_handle_view(&vty), .Some(hv) => Rc.clone(hv.payload), .None => match(&vty, Rc(.Struct({ field_types })) => match(field_types.get(usize(0)), .Some(ft) => ft, .None => Rc.clone(vty)), _ => Rc.clone(vty))), Rc.clone(vty));
                       // Build the impl key in a FRESH string. `type_key` can
                       // return a String sharing its buffer with the canonical
                       // key stored in g_enum_sig_keys / g_struct_cfid_keys (a
@@ -1057,7 +1057,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                       // registration while the typedef stayed under the first
                       // name (stage-2: 416 "unknown type name" clang errors).
                       impl_key := `${type_key(concrete.clone())}_${type_key(&ei.ty)}`;
-                      context.register_dyn_impl(&impl_key, DynImplEntry(dyn_type : ei.ty, concrete_type : concrete, data_type : vty, trait_values : tvs));
+                      context.register_dyn_impl(&impl_key, DynImplEntry(dyn_type : Rc.clone(ei.ty), concrete_type : concrete, data_type : vty, trait_values : tvs));
                     });
                   },
                   .None => ()
@@ -1106,7 +1106,7 @@ _specialize_and_register_trace :: (
                 &fresh,
                 cn.clone(),
                 rc(TypeValueNode.TypeUni(usize(0))),
-                Option(EvalValue).Some(EvalValue.TypeVal(ctb)),
+                Option(EvalValue).Some(EvalValue.TypeVal(Rc.clone(ctb))),
                 true,
                 false,
                 false,
@@ -1129,8 +1129,8 @@ _specialize_and_register_trace :: (
   // them as runtime UnknownVals here. The receiver param binds to the CONCRETE
   // container `ct` (its declared type is the still-unresolved `Self`); subsequent
   // params use their post-substitution declared types.
-  p_labels := match(method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.param_labels, _ => no_labels());
-  p_types := match(method_ty, Rc(.Func({ param_types : __mpt })) => __mpt, _ => no_types());
+  p_labels := match(method_ty, Rc(.Func({ meta : __mfm })) => Rc.clone(__mfm.*.param_labels), _ => no_labels());
+  p_types := match(method_ty, Rc(.Func({ param_types : __mpt })) => Rc.clone(__mpt), _ => no_types());
   (pi : usize) = usize(0);
   while(pi < p_labels.len(), {
     plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
@@ -1160,14 +1160,14 @@ _specialize_and_register_trace :: (
   // `self`'s arg_type = ct binds Self, reinforced by ctx.self_type below.
   reg_args := ArrayList(ArgEntry).new();
   reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : ct.clone(), arg_type : ct.clone()));
-  reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : tracer_ty.clone(), arg_type : tracer_ty));
+  reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : tracer_ty.clone(), arg_type : Rc.clone(tracer_ty)));
   av := ArgValues(
     forall_args : ArrayList(ArgEntry).new(),
     args : reg_args,
     implicit_args : Option(ArrayList(ArgEntry)).None,
     variadic_args : ArrayList(VarArgEntry).new()
   );
-  saved_self := ctx.self_type;
+  saved_self := ctx.self_type.clone();
   ctx.self_type = Option(TypeValue).Some(ct.clone());
   spec := create_specialized_function_inline(fv, method_ty, &av, &fresh, module_env, ctx, exn);
   ctx.self_type = saved_self;
@@ -1208,7 +1208,7 @@ _specialize_and_register_trace :: (
         type_key(ct),
         MethodEntry(
           label : String.from("trace"),
-          ty : method_ty,
+          ty : Rc.clone(method_ty),
           value : Option(EvalValue).Some(spec),
           source_trait_id : String.from("Trace"),
           needs_pointer_conversion : false,
@@ -1237,7 +1237,7 @@ collect_trace_methods_from_generic_impls :: (
   // base.functions during the walk must not perturb the base.types iterator.
   type_list := ArrayList(TypeValue).new();
   for(&base.types, (_tid, entry) => {
-    ty := entry.ty;
+    ty := Rc.clone(entry.ty);
     // CONCRETE types only. A generic instance can reach the type registry
     // — `is_registerable` admits a struct whose SomeType content sits
     // behind function-typed fields — but monomorphizing its `trace` is
@@ -1336,7 +1336,7 @@ _eval_and_register_rc_method :: (
 )({
   expr := generate_expr_from_code(code.clone(), exn);
   fresh := clone_env(module_env);
-  saved_self := ctx.self_type;
+  saved_self := ctx.self_type.clone();
   ctx.self_type = Option(TypeValue).Some(ct.clone());
   evaluated := evaluate_expression_raw(&expr, &fresh, ctx, exn);
   ctx.self_type = saved_self;
@@ -1504,8 +1504,8 @@ _synthesize_and_register_dispose :: (
   // `find_function_calls_in_expr` collects it for emission.
   user_destructor := _destructor_method_name(ct, module_env);
   has_user_dispose := !user_destructor.is_empty();
-  flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
-  ftypes := match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => no_types());
+  flabels := match(ct, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
+  ftypes := match(ct, Rc(.Struct({ field_types : ftys })) => Rc.clone(ftys), _ => no_types());
   // Destructuring + `___drop` calls over the RC-containing fields.
   destructs := String.from("");
   calls := String.from("");
@@ -1603,8 +1603,8 @@ _synthesize_and_register_enum_dispose :: (
   // `(Self <: Drop).drop(self)` call in the synthesized body is that call site).
   user_destructor := _destructor_method_name(ct, module_env);
   has_user_dispose := !user_destructor.is_empty();
-  variant_names := match(ct, Rc(.EnumT({ variant_names : vn })) => vn, _ => no_labels());
-  variant_fields := match(ct, Rc(.EnumT({ variant_fields : vf })) => vf, _ => no_type_lists());
+  variant_names := match(ct, Rc(.EnumT({ variant_names : vn })) => Rc.clone(vn), _ => no_labels());
+  variant_fields := match(ct, Rc(.EnumT({ variant_fields : vf })) => Rc.clone(vf), _ => no_type_lists());
   // One match arm per variant with RC-containing fields: bind every field
   // positionally under an index alias (labels may not be valid identifiers),
   // drop the RC-containing ones.
@@ -1762,7 +1762,7 @@ collect_dispose_methods :: (
     // predicate here so no `___dispose` is registered for a body that will
     // never be emitted.
     if((is_reference_struct_type(&entry.ty) || (is_reference_enum_type(&entry.ty) || (is_value_nominal_type(&entry.ty) && type_is_move_only(&entry.ty)))) && !type_contains_some_type_deep(&entry.ty), {
-      type_list.push(entry.ty);
+      type_list.push(Rc.clone(entry.ty));
     });
   });
   nt := type_list.len();

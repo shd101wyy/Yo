@@ -95,7 +95,7 @@ impl(
     io.async(e => {
       // Through a local handle: `accept`'s future borrows the listener, and a
       // borrow may cross an `Rc` deref but not the `ref` server holding it.
-      listener := self.listener;
+      listener := Rc.clone(self.listener);
       stream := e.io.await(listener.*.accept(e.io), e);
       framed := e.io.await(read_http_message(&stream, self.max_request_bytes, MessageKind.Request, e.io), e);
       parsed := match(
@@ -159,7 +159,7 @@ impl(
   /// Close the listening socket.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(e => {
-      listener := self.listener;
+      listener := Rc.clone(self.listener);
       e.io.await(listener.*.close(e.io), e);
     })
   )

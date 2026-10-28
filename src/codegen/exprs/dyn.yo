@@ -32,10 +32,10 @@
 /// `Rc(Sq)`. Keeps the dyn-box / vtable / impl_key keyed on the
 /// concrete type consistently; a non-boxed value passes through unchanged.
 _unwrap_box_concrete :: (fn(t : &TypeValue) -> TypeValue)({
-  (result : TypeValue) = t;
+  (result : TypeValue) = Rc.clone(t);
   if(is_boxed_type(t), {
     // A cell handle's payload is its cell's (`cell_handle_view`).
-    match(cell_handle_view(t), .Some(v) => return(v.payload), .None => ());
+    match(cell_handle_view(t), .Some(v) => return(Rc.clone(v.payload)), .None => ());
     match(
       t,
       Rc(.Struct({ field_types : fts })) => match(
@@ -93,12 +93,12 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   trait_values := match(expr_info_dyn_call_trait_values(&ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
   args0 := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
   value_expr := match(ei.runtime_arg_exprs_in_order, .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
-  dyn_type := ei.ty;
+  dyn_type := Rc.clone(ei.ty);
   if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });
   value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
-  value_type := value_ei.ty;
+  value_type := Rc.clone(value_ei.ty);
   // dyn() requires an object type (value types must use rc()). Box is not
   // modeled (is_boxed_type ≡ false), so the Box branch is dead.
   if(!is_counted_handle_type(&value_type) && !is_boxed_type(&value_type), {
@@ -129,7 +129,7 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   if(is_atomic_counted_handle_type(&value_type), {
     impl_key.push_str("_A");
   });
-  context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : dyn_type, concrete_type : concrete_type, data_type : value_type, trait_values : trait_values));
+  context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : dyn_type, concrete_type : concrete_type, data_type : Rc.clone(value_type), trait_values : trait_values));
   (value_code : String) = _call_generate_expr(&value_expr, indent.clone(), context);
   em := context.base.emitter;
   // DEGRADED dyn when the INNER value failed to transpile (e.g. a

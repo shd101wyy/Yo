@@ -332,7 +332,7 @@ detect_await_expr_ :: (
       // Extract the result type T from FutureTraitT(output: Rc(T))
       result_type := match(
         future_module_type.clone(),
-        Rc(.FutureTraitT(output : output_box)) => output_box,
+        Rc(.FutureTraitT(output : output_box)) => Rc.clone(output_box),
         _ => {
           return(());
         } // unreachable: we just verified FutureTraitT
@@ -355,12 +355,12 @@ detect_await_expr_ :: (
               Rc(.SomeT({ resolution : res_out_cell })) => match(
                 res_out_cell,
                 .Some(final_out) => {
-                  result_type = final_out;
+                  result_type = Rc.clone(final_out);
                 },
                 .None => ()
               ),
               _ => {
-                result_type = res_out;
+                result_type = Rc.clone(res_out);
               }
             ),
             _ => ()
@@ -415,7 +415,7 @@ detect_await_expr_ :: (
 /// It reaches the table through a pointer instead, which outlives the
 /// analysis.
 analyze_await_points_in_table :: (fn(body : &AstExpr, table : &ExprInfoTable) -> AwaitAnalysisResult)({
-  t := table;
+  t := table.clone();
   tp := addr_of(t);
   analyze_await_points(body, (e : &AstExpr) => expr_info_table_get(&tp.*, ast_expr_id(e)))
 });
@@ -438,14 +438,12 @@ analyze_await_points :: (
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn(
-        (expr, parent_expr) =>
-          await_extras.with_mut(extras => {
-            found := ArrayList(SuspensionPoint).new();
-            detect_await_expr_(expr, parent_expr, &mut found, extras, get_info);
-            found
-          })
-      ),
+      detect : dyn({ await_extras : Rc.clone(await_extras), get_info }(expr, parent_expr) =>
+        await_extras.with_mut(extras => {
+          found := ArrayList(SuspensionPoint).new();
+          detect_await_expr_(expr, parent_expr, &mut found, extras, get_info);
+          found
+        })),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
       follow_macro_expansions : true
     )
@@ -519,8 +517,8 @@ analyze_await_points :: (
       .Some(extra) => {
         ap := AwaitPoint(
           base : sp,
-          result_type : extra.result_type,
-          future_type : extra.future_type,
+          result_type : Rc.clone(extra.result_type),
+          future_type : extra.future_type.clone(),
           future_variable_id : extra.future_variable_id.clone(),
           target_is_reassign : extra.target_is_reassign
         );

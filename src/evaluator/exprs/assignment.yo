@@ -156,7 +156,7 @@ pragma(Pragma.AllowUnsafe);
 _comptime_numeric_into_slot :: (
   fn(rhs_info : &ExprInfo, slot_ty : &TypeValue, converted : &TypeValue, tok : &Token, exn : Exception) -> TypeValue
 )(
-  match(comptime_numeric_slot_type(&rhs_info.ty, &rhs_info.value, slot_ty, tok, exn), .Some(t) => t, .None => converted)
+  match(comptime_numeric_slot_type(&rhs_info.ty, &rhs_info.value, slot_ty, tok, exn), .Some(t) => t, .None => Rc.clone(converted))
 );
 throw_rhs_contains_control_flow_expression_error :: (
   fn(
@@ -198,7 +198,7 @@ resolve_unknown_values_and_some_type_in_type :: (
     env : &Environment
   ) -> TypeValue
 )(
-  ty
+  Rc.clone(ty)
 );
 // ---------------------------------------------------------------------------
 // rebuild_list_with_index
@@ -243,7 +243,7 @@ make_variable_with_value :: (
   Variable(
     id : v.id,
     name : v.name.clone(),
-    ty : v.ty,
+    ty : Rc.clone(v.ty),
     is_compile_time_only : v.is_compile_time_only,
     frame_level : v.frame_level,
     value : value_cell_of(new_value),
@@ -328,7 +328,7 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
     match(
       next,
       .Some(obj) => {
-        obj_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&obj)), .Some(oi) => oi.ty, .None => t_unit());
+        obj_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&obj)), .Some(oi) => Rc.clone(oi.ty), .None => t_unit());
         is_dot := ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2)));
         in_copy := cond(
           is_dot => ((is_struct_type(&obj_ty) && !is_reference_struct_type(&obj_ty) && !is_cell_handle_deref_step(&cur, &obj_ty)) || is_tuple_type(&obj_ty) || (through_collections && _is_v2_value_collection_type(&obj_ty))),
@@ -604,7 +604,7 @@ require_no_inout_write_through_borrow :: (
   while(i < n, {
     if(match(param_is_ref.get(i), .Some(b) => b, .None => false), {
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-      arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arg)), .Some(ai) => ai.ty, .None => t_unit());
+      arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arg)), .Some(ai) => Rc.clone(ai.ty), .None => t_unit());
       // A local borrow may be watching the place: judged once the callee's
       // mutation mask is known (`d3_check_pending`).
       if(local_borrows_active(), {
@@ -1275,7 +1275,7 @@ get_atomic_object_root_type :: (
   });
   (root_type : TypeValue) = match(
     variables.last(),
-    .Some(v) => v.ty,
+    .Some(v) => Rc.clone(v.ty),
     .None => return(Option(TypeValue).None)
   );
   // Resolve SomeType (e.g. Self) to its concrete type.
@@ -1488,9 +1488,9 @@ evaluate_assignment :: (
         .Atom(_, _) => ()
       );
     });
-    expected_ty := lhs_info.ty;
+    expected_ty := Rc.clone(lhs_info.ty);
     // Step 2 — Evaluate RHS with expected type from LHS
-    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : expected_ty, env : env));
+    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_ty), env : env));
     prop_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
     ctx.expected_type = saved_expected;
     prop_rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&prop_rhs));
@@ -1650,7 +1650,7 @@ evaluate_assignment :: (
       .None => ()
     );
     // Step 4 — Type compatibility check
-    (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
+    (prop_rhs_type : TypeValue) = Rc.clone(prop_rhs_info.ty);
     if(!(is_comptime_int_type(&expected_ty) || is_comptime_float_type(&expected_ty) || is_comptime_string_type(&expected_ty)), {
       // Pass the EXPECTED type
       // so a `comptime_str` assigned into a `*(u8)` /
@@ -1663,7 +1663,7 @@ evaluate_assignment :: (
         &expected_ty,
         convert_comptime_type_to_runtime_type_with_expected(
           &prop_rhs_type,
-          Option(TypeValue).Some(expected_ty),
+          Option(TypeValue).Some(Rc.clone(expected_ty)),
           &env
         ),
         ast_expr_token(&prop_rhs),
@@ -1722,7 +1722,7 @@ evaluate_assignment :: (
                 // Find field index in the type.
                 (struct_fi : i64) = i64(-1);
                 match(
-                  pc_var.ty,
+                  &pc_var.ty,
                   Rc(.Struct({ field_labels : s_flabels })) => {
                     n_sf := s_flabels.len();
                     (k_sf : usize) = usize(0);
@@ -1755,7 +1755,7 @@ evaluate_assignment :: (
                   pc_rhs_val := match(prop_rhs_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
                   fi_us := usize(struct_fi);
                   is_ref_sem := match(
-                    pc_var.ty,
+                    &pc_var.ty,
                     Rc(.Struct({ is_reference_semantics : is_ref })) => is_ref,
                     _ => false
                   );
@@ -1837,7 +1837,7 @@ evaluate_assignment :: (
                     // Find variant index, then field index within that variant.
                     (ev_fi : i64) = i64(-1);
                     match(
-                      pc_var.ty,
+                      &pc_var.ty,
                       Rc(.EnumT(_, _, ev_vnames, _, _, ev_vf_labels, _, _, _, _)) => {
                         n_vn := ev_vnames.len();
                         (k_vn : usize) = usize(0);
@@ -2179,7 +2179,7 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(
     ExpectedTypeCtx(
-      ty : variable.ty,
+      ty : Rc.clone(variable.ty),
       env : env
     )
   );
@@ -2336,7 +2336,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     );
   });
   // Resolve the RHS type.
-  (rhs_type : TypeValue) = rhs_info.ty;
+  (rhs_type : TypeValue) = Rc.clone(rhs_info.ty);
   // Convert comptime types to runtime types when the variable is not comptime-only.
   if(!variable.is_compile_time_only, {
     // Expected-type-aware (passing `expectedType: variable.type`):
@@ -2347,7 +2347,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       &variable.ty,
       convert_comptime_type_to_runtime_type_with_expected(
         &rhs_type,
-        Option(TypeValue).Some(variable.ty),
+        Option(TypeValue).Some(Rc.clone(variable.ty)),
         &env
       ),
       ast_expr_token(&rhs_evaled),
@@ -2578,8 +2578,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // `t2.a` afterwards. Scoped to tuples — everything else deliberately
     // adopts rhs_type (enum selected-variant, SomeT resolution riders).
     ty : cond(
-      (is_tuple_type(&updated_variable.ty) && is_tuple_type(&rhs_type)) => updated_variable.ty,
-      true => rhs_type
+      (is_tuple_type(&updated_variable.ty) && is_tuple_type(&rhs_type)) => Rc.clone(updated_variable.ty),
+      true => Rc.clone(rhs_type)
     ),
     is_compile_time_only : updated_variable.is_compile_time_only,
     frame_level : updated_variable.frame_level,
