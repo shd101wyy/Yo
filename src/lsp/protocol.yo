@@ -98,7 +98,7 @@ _utf16_units :: (fn(c : rune) -> usize)(
 rune_col_to_utf16_col :: (fn(line : &String, col : usize) -> usize)({
   (seen : usize) = usize(0);
   (units : usize) = usize(0);
-  it := line.chars();
+  it := line.clone().chars();
   while(seen < col, {
     match(
       it.next(),
@@ -120,7 +120,7 @@ rune_col_to_utf16_col :: (fn(line : &String, col : usize) -> usize)({
 utf16_col_to_rune_col :: (fn(line : &String, col : usize) -> usize)({
   (units : usize) = usize(0);
   (runes : usize) = usize(0);
-  it := line.chars();
+  it := line.clone().chars();
   while(units < col, {
     match(
       it.next(),
@@ -272,7 +272,7 @@ j_error_response :: (fn(id : &JsonValue, code : i64, message : &String) -> JsonV
 /// which is a boundary.
 rune_col_to_byte_offset :: (fn(line : &String, col : usize) -> usize)({
   (seen : usize) = usize(0);
-  it := line.char_indices();
+  it := line.clone().char_indices();
   while(true, {
     match(
       it.next(),
@@ -296,7 +296,7 @@ rune_col_to_byte_offset :: (fn(line : &String, col : usize) -> usize)({
 /// An offset past the end clamps to the line's rune count.
 byte_offset_to_rune_col :: (fn(line : &String, off : usize) -> usize)({
   (col : usize) = usize(0);
-  it := line.char_indices();
+  it := line.clone().char_indices();
   while(true, {
     match(
       it.next(),

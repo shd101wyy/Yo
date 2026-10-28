@@ -11,6 +11,7 @@ pragma(Pragma.AllowUnsafe);
 {
   AstExpr,
   ast_expr_token,
+  ast_expr_text,
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_atom,
@@ -198,7 +199,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
               .None => return(Option(String).None)
             );
             if(ast_expr_is_atom(&a0) && ast_expr_is_atom(&a1) && ast_expr_is_atom_of(&a1, BF_DUP), {
-              return(Option(String).Some(ast_expr_token(&a0).value));
+              return(Option(String).Some(ast_expr_text(&a0)));
             });
           },
           .Atom(_, _) => ()
@@ -208,7 +209,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
         match(
           eargs.get(usize(0)),
           .Some(arg0) => if(ast_expr_is_atom(&arg0), {
-            return(Option(String).Some(ast_expr_token(&arg0).value));
+            return(Option(String).Some(ast_expr_text(&arg0)));
           }),
           .None => ()
         );
@@ -1414,7 +1415,7 @@ _optimize_dup_drop_pairs :: (
 )({
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
-    Option(String).Some(ast_expr_token(last_expr).value),
+    Option(String).Some(ast_expr_text(last_expr)),
     Option(String).None
   );
   // 1. Collect dup calls per begin child; record each dup's child index and
@@ -2341,7 +2342,7 @@ _schedule_scope_end_drops :: (
   // A bare-atom block result is a named local moved out (returned) — never drop it.
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
-    Option(String).Some(ast_expr_token(last_expr).value),
+    Option(String).Some(ast_expr_text(last_expr)),
     Option(String).None
   );
   // Collect drop-eligible owning named locals from the frame.

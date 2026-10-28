@@ -12,6 +12,7 @@ pragma(Pragma.AllowUnsafe);
 {
   AstExpr,
   ast_expr_token,
+  ast_expr_text,
   ast_expr_id,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
@@ -267,7 +268,7 @@ handle_member_destructuring :: (
   ) -> DestructuringResult
 )({
   require_underscore := !is_tuple_type(rhs_type);
-  lhs_func_name := ast_expr_token(lhs_func).value;
+  lhs_func_name := ast_expr_text(lhs_func);
   if(require_underscore && !(lhs_func_name == "_"), {
     exn.throw(
       dyn(
@@ -465,7 +466,7 @@ handle_member_destructuring :: (
           );
         });
         label_expr_opt = Option(AstExpr).Some(left_side);
-        label := ast_expr_token(&left_side).value;
+        label := ast_expr_text(&left_side);
         fi_opt := _find_field_index(rhs_field_labels, label.clone());
         match(
           fi_opt,
