@@ -153,10 +153,10 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   pc := lhs_ei.path_collection.clone();
   if(pc.len() > usize(0), {
     match(
-      pc.get(usize(0)),
+      pc.get_cloned(usize(0)),
       .Some(path) => if(path.len() >= usize(2), {
         match(
-          path.get(usize(0)),
+          path.get_cloned(usize(0)),
           .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_binder(&lhs, base_var.clone(), context)), &lhs_ei.env, base_var.clone()), {
             return(String.from(""));
           }),

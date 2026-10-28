@@ -82,7 +82,7 @@ _is_keyword_name :: (fn(new_name : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < kws.len(), {
     kw := match(
-      kws.get(i),
+      kws.get_cloned(i),
       .Some(k) => k,
       .None => String.new()
     );
@@ -157,7 +157,7 @@ handle_prepare_rename :: (
   Option(JsonValue).Some(
     jb().put(
       "range",
-      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.chars().count())
+      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.clone().chars().count())
     ).put("placeholder", jstr(target.value.clone())).obj()
   )
 });
@@ -208,7 +208,7 @@ handle_rename :: (
           // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
           // converted to the wire encoding — a byte or rune width on the
           // wire would make the replaced range overrun the identifier.
-          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.chars().count())).put("newText", jstr(new_name.clone())).obj()
+          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.clone().chars().count())).put("newText", jstr(new_name.clone())).obj()
         );
       },
       .None => ()

@@ -19,6 +19,7 @@ DocPosition :: struct(
 );
 derive(DocPosition, Copy, Clone);
 /// Extracted and cleaned doc comment.
+derive(DocComment, Clone);
 DocComment :: struct(
   /// Cleaned Markdown content (comment syntax stripped).
   content : String,
@@ -32,6 +33,7 @@ DocComment :: struct(
   module_path : String
 );
 /// A doc comment associated with a declaration.
+derive(DocAssociation, Clone);
 DocAssociation :: struct(
   /// The extracted and cleaned doc comment.
   comment : DocComment,
@@ -135,7 +137,7 @@ strip_doc_block_comment :: (fn(value : &String) -> String)({
   m := raw_lines.len();
   while(j < m, {
     raw_line := match(
-      raw_lines.get(j),
+      raw_lines.get_cloned(j),
       .Some(l) => l,
       .None => {
         break;

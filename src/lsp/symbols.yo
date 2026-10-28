@@ -104,7 +104,7 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
                 usize(name_tok.row),
                 usize(name_tok.column),
                 usize(name_tok.row),
-                usize(name_tok.column) + name_tok.value.chars().count()
+                usize(name_tok.column) + name_tok.value.clone().chars().count()
               );
               Option(SymbolEntry).Some(
                 SymbolEntry(name : name_tok.value.clone(), kind : usize(13), range : rng)
@@ -162,7 +162,7 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                   usize(t.column),
                   usize(t.row),
                   // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-                  usize(t.column) + t.value.chars().count()
+                  usize(t.column) + t.value.clone().chars().count()
                 );
                 return(
                   Option(SymbolEntry).Some(SymbolEntry(name : t.value.clone(), kind : usize(13), range : rng))
@@ -199,7 +199,7 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                             usize(t.row),
                             usize(t.column),
                             usize(t.row),
-                            usize(t.column) + t.value.chars().count()
+                            usize(t.column) + t.value.clone().chars().count()
                           );
                           return(
                             Option(SymbolEntry).Some(
@@ -253,7 +253,7 @@ collect_document_symbols :: (
               usize(name_tok.column),
               usize(name_tok.row),
               // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-              usize(name_tok.column) + name_tok.value.chars().count()
+              usize(name_tok.column) + name_tok.value.clone().chars().count()
             );
             out.push(
               SymbolEntry(name : name_tok.value.clone(), kind : _symbol_kind_of(&value_expr), range : rng)
@@ -292,14 +292,10 @@ handle_document_symbols :: (
   items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    match(
-      entries.get(i),
-      .Some(en) => {
-        items.push(
-          jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("range", &en.range).put("selectionRange", &en.range).obj()
-        );
-      },
-      .None => ()
+    // Bounds are owned by the loop guard; `SymbolEntry` keeps no Clone
+    // (`JsonValue` has none), so the fields are read in place at each use.
+    items.push(
+      jb().put("name", jstr(entries(i).name.clone())).put("kind", jnum(entries(i).kind)).put("range", &entries(i).range).put("selectionRange", &entries(i).range).obj()
     );
     i = (i + usize(1));
   });
@@ -320,17 +316,13 @@ handle_document_symbols_flat :: (
   items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    match(
-      entries.get(i),
-      .Some(en) => {
-        items.push(
-          jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put(
-            "location",
-            jb().put("uri", jstr(uri.clone())).put("range", &en.range).obj()
-          ).obj()
-        );
-      },
-      .None => ()
+    // Bounds are owned by the loop guard; `SymbolEntry` keeps no Clone
+    // (`JsonValue` has none), so the fields are read in place at each use.
+    items.push(
+      jb().put("name", jstr(entries(i).name.clone())).put("kind", jnum(entries(i).kind)).put(
+        "location",
+        jb().put("uri", jstr(uri.clone())).put("range", &entries(i).range).obj()
+      ).obj()
     );
     i = (i + usize(1));
   });
@@ -353,29 +345,25 @@ handle_workspace_symbols :: (fn(query : &String, docs : &ArrayList(WorkspaceDoc)
   q := query.to_lowercase();
   (di : usize) = usize(0);
   while(di < docs.len(), {
-    match(
-      docs.get(di),
-      .Some(doc) => {
-        entries := ArrayList(SymbolEntry).new();
-        collect_document_symbols(&doc.exprs, &doc.lines, &mut entries);
-        (ei : usize) = usize(0);
-        while(ei < entries.len(), {
-          match(
-            entries.get(ei),
-            .Some(en) => {
-              if((q.len() == usize(0)) || en.name.to_lowercase().contains(q.clone()), {
-                out.push(
-                  jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("location", jb().put("uri", jstr(doc.uri.clone())).put("range", &en.range).obj()).obj()
-                );
-              });
-            },
-            .None => ()
-          );
-          ei = (ei + usize(1));
-        });
-      },
-      .None => ()
-    );
+    // Bounds are owned by the loop guard; `WorkspaceDoc` keeps no Clone
+    // (its AST list is the whole document), so it is read in place.
+    entries := ArrayList(SymbolEntry).new();
+    collect_document_symbols(&docs(di).exprs, &docs(di).lines, &mut entries);
+    (ei : usize) = usize(0);
+    while(ei < entries.len(), {
+      match(
+        entries.get(ei),
+        .Some(en) => {
+          if((q.len() == usize(0)) || en.name.to_lowercase().contains(q.clone()), {
+            out.push(
+              jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("location", jb().put("uri", jstr(docs(di).uri.clone())).put("range", &en.range).obj()).obj()
+            );
+          });
+        },
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
     di = (di + usize(1));
   });
   JsonValue.Array(items : out)
@@ -474,7 +462,7 @@ handle_implementations :: (
                       usize(itok.row),
                       usize(itok.column),
                       usize(itok.row),
-                      usize(itok.column) + itok.value.chars().count()
+                      usize(itok.column) + itok.value.clone().chars().count()
                     )
                   ).obj()
                 );

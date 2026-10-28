@@ -51,6 +51,34 @@ test("the mark is released when the body unwinds", {
   });
   assert(c.with(v => v) == i32(3), "the cell is free again, with the write kept");
 });
+// `with_mut`'s body is an `FnOnce` moved in (decision 37): it may move a
+// captured move-only value into the cell, which a borrowed `Fn` body cannot
+// (E0913). `g_refcell_tok_dropped` counts the `_RefCellTok`s dropped.
+(mut(g_refcell_tok_dropped) : i32) = i32(0);
+_RefCellTok :: struct(n : i32);
+impl(
+  _RefCellTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_refcell_tok_dropped = (g_refcell_tok_dropped + i32(1));
+    })
+  )
+);
+test("with_mut's FnOnce body moves a captured move-only value into the cell", {
+  before := g_refcell_tok_dropped;
+  {
+    cell := rc(RefCell(ArrayList(_RefCellTok)).new(ArrayList(_RefCellTok).new()));
+    t := _RefCellTok(n : i32(3));
+    n := cell.with_mut({ t }(xs) => {
+      xs.push(t);
+      xs.len()
+    });
+    assert(n == usize(1), "the body's result");
+    assert(cell.with(xs => xs(usize(0)).n) == i32(3), "the moved capture landed in the cell");
+    assert(g_refcell_tok_dropped == before, "moved, not dropped");
+  };
+  assert(g_refcell_tok_dropped == (before + i32(1)), "dropped once, with the cell");
+});
 test("a RefCell is a value: a plain local works without an Rc", {
   cell := RefCell(String).new(String.from("x"));
   cell.with_mut(s => {

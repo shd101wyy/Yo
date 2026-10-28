@@ -85,7 +85,7 @@ _run_git :: (
   (ai : usize) = usize(0);
   while(ai < git_args.len(), {
     match(
-      git_args.get(ai),
+      git_args.get_cloned(ai),
       .Some(a) => {
         _arg_c := cmd.arg(&a);
       },
@@ -146,7 +146,7 @@ _collect_yo_files :: (
   while(i < entries.len(), {
     i = (i + usize(1));
     match(
-      entries.get(i - usize(1)),
+      entries.get_cloned(i - usize(1)),
       .None => (),
       .Some(entry) => {
         skip := cond(
@@ -442,7 +442,7 @@ _render_markdown_site :: (
   (i : usize) = usize(0);
   while(i < model.modules.len(), {
     match(
-      model.modules.get(i),
+      model.modules.get_cloned(i),
       .Some(m) => {
         page := render_module_md(&m);
         target := Path.new(out_dir.clone()).join(Path.new(String.from("module"))).join(Path.new(`${m.name}.md`));
@@ -503,11 +503,11 @@ run_doc :: (
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     match(
-      files.get(fi),
+      files.get_cloned(fi),
       .Some(file) => match(
         document_one_file(&file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
         .Some(df) => {
-          modules.push(df.doc_module);
+          modules.push(df.doc_module.clone());
           if(df.degraded, {
             degraded.push(_module_name_from_path(file.clone(), base_path.clone()));
           });
@@ -530,7 +530,7 @@ run_doc :: (
     names := ArrayList(String).new();
     while((shown < degraded.len()) && (shown < usize(5)), {
       match(
-        degraded.get(shown),
+        degraded.get_cloned(shown),
         .Some(n) => {
           names.push(n.clone());
         },
@@ -566,7 +566,7 @@ run_doc :: (
   );
   model := DocModel(
     name : project_name,
-    modules : modules,
+    modules : modules.clone(),
     version : resolved_version,
     logo : if(options.logo.len() == usize(0), Option(String).None, Option(String).Some(options.logo.clone())),
     favicon : if(options.favicon.len() == usize(0), Option(String).None, Option(String).Some(options.favicon.clone()))
@@ -603,7 +603,7 @@ run_doc :: (
   (mi : usize) = usize(0);
   while(mi < modules.len(), {
     match(
-      modules.get(mi),
+      modules.get_cloned(mi),
       .Some(m) => {
         total_items = (total_items + m.functions.len() + m.types.len() + m.traits.len() + m.constants.len());
       },

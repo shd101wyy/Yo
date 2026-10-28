@@ -62,7 +62,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
               (sj : usize) = usize(0);
               while(sj < sn, {
                 match(
-                  sub.get(sj),
+                  sub.get_cloned(sj),
                   .Some(s) => {
                     out.push(s.clone());
                   },
@@ -80,7 +80,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
         (fk : usize) = usize(0);
         while(fk < fn, {
           match(
-            fsub.get(fk),
+            fsub.get_cloned(fk),
             .Some(s) => {
               out.push(s.clone());
             },
@@ -98,35 +98,28 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
 /// program. MUST run before the unwind-value buffer is declared.
 collect_unwind_value_ctypes :: (fn(context : &FunctionGenerationContext) -> unit)({
   into := HashSet(String).new();
-  vals := context.base.functions.values();
-  (go : bool) = true;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(entry) => match(
-        entry.value,
-        .FuncVal(__fvd1, _) => {
-          found := _collect_unwind_value_ctypes_from_expr(&__fvd1.*.body, context);
-          fnlen := found.len();
-          (fj : usize) = usize(0);
-          while(fj < fnlen, {
-            match(
-              found.get(fj),
-              .Some(s) => {
-                into.insert(s.clone());
-              },
-              .None => ()
-            );
-            fj = (fj + usize(1));
-          });
-        },
-        _ => ()
-      ),
-      .None => {
-        go = false;
-      }
-    );
-  });
+  for(
+    &context.base.functions,
+    (_fid, entry) => match(
+      entry.value,
+      .FuncVal(__fvd1, _) => {
+        found := _collect_unwind_value_ctypes_from_expr(&__fvd1.*.body, context);
+        fnlen := found.len();
+        (fj : usize) = usize(0);
+        while(fj < fnlen, {
+          match(
+            found.get_cloned(fj),
+            .Some(s) => {
+              into.insert(s.clone());
+            },
+            .None => ()
+          );
+          fj = (fj + usize(1));
+        });
+      },
+      _ => ()
+    )
+  );
   context.unwind_value_c_types = Option(HashSet(String)).Some(into);
 });
 // ---------------------------------------------------------------------------

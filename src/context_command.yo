@@ -189,17 +189,17 @@ _pack_version_line :: (fn(content : &String) -> Option(String))({
   (li : usize) = usize(0);
   while(li < lines.len(), {
     match(
-      lines.get(li),
+      lines.get_cloned(li),
       .Some(line) => {
         tokens := line.trim().split(String.from(" "));
         (ti : usize) = usize(0);
         while(ti < tokens.len(), {
           match(
-            tokens.get(ti),
+            tokens.get_cloned(ti),
             .Some(tok) => {
               if(tok == "pack-version:", {
                 match(
-                  tokens.get(ti + usize(1)),
+                  tokens.get_cloned(ti + usize(1)),
                   .Some(v) => {
                     return(Option(String).Some(`pack-version: ${v}`));
                   },

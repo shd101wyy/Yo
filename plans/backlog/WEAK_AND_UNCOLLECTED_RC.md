@@ -23,12 +23,12 @@ implemented (2026-10-27, `feat/w4-arc-weak`, stacked on W3):** `ArcWeak(T)`,
 `Arc.downgrade`, the atomic weak primitives and the atomic strong side's
 weak-held path (§3.2 "As built"); ARC.md and DESIGN.md (both languages)
 gained the `ArcWeak` sentence. `make_mut`'s disassociation of weak handles
-is seed-gated for both (`SEED_VERSION_AUTOMATION.md`). **W5 is implemented
-(2026-10-29, `vbd/w5-acyclic-weak-edges`):** `Acyclic` is answered by one
-strong-cycle reach walk instead of the field-by-field derivation, the
-declared form needs no pragma, and std's `SAFETY:` sentences that justified
-an `Acyclic` declaration are gone (§4 "As built"). The other phases have
-not started.
+landed for both on 2026-10-28, once the v0.2.72 seed emitted the weak-count
+runtime (§3.3). **W5 is implemented (2026-10-29,
+`vbd/w5-acyclic-weak-edges`):** `Acyclic` is answered by one strong-cycle
+reach walk instead of the field-by-field derivation, the declared form needs
+no pragma, and std's `SAFETY:` sentences that justified an `Acyclic`
+declaration are gone (§4 "As built"). The other phases have not started.
 
 ## 0. Verdict
 
@@ -240,6 +240,11 @@ and `Arc` cells, `src/types/guards.yo`); `tests/rc.test.yo` pins it.
 - `upgrade`: `.Some(handle)` with `strong += 1` iff the cell is not dead;
   `.None` otherwise. `Weak.new()` points at no allocation and always
   upgrades to `.None`.
+- `make_mut`: clones the payload into a fresh cell iff `strong != 1` or
+  `weak != 0`, so a `Weak` to the only strong handle's cell is
+  disassociated (upgrades to `.None` afterwards) instead of seeing the
+  write. Rust moves the payload out in that case; Yo clones, as it does for
+  a shared cell (`make_mut` already requires `T <: Clone`).
 - The owner prefix and `__yo_rc_free`'s routing are unchanged: the free,
   whenever it happens, goes to the allocator that placed the cell.
 

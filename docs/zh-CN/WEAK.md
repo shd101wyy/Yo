@@ -51,10 +51,9 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
 - **计数与 Rust 的读法一致。** 载荷消失后 `strong_count` 为 0；`weak_count` 包括当前句柄，载荷消失后为 0。
 - **弱计数会饱和**，上限是指向同一单元的 32767 个句柄。饱和的单元停止计数且永不释放：这是泄漏，绝不会
   产生悬垂句柄。此时 `weak_count()` 报告 `usize.MAX`。
-- **`Rc.try_unwrap`** 在仍有 `Weak` 时也会成功，之后这些 `Weak` 升级为 `.None`。**`Rc.make_mut`** 作用于唯一的
-  `Rc` 时，即使有 `Weak` 指向该单元也会原地写入，因此该 `Weak` 之后的 `upgrade` 能看到写入。Rust 的 `make_mut`
-  会解除这些 `Weak` 句柄的关联；待种子编译器带上弱计数运行时后 Yo 会跟进
-  （`plans/backlog/SEED_VERSION_AUTOMATION.md`）。
+- **`Rc.try_unwrap`** 在仍有 `Weak` 时也会成功，之后这些 `Weak` 升级为 `.None`。**`Rc.make_mut`** 与 Rust 的
+  一样会解除这些 `Weak` 句柄的关联：当有 `Weak` 指向唯一的 `Rc` 的单元时，该 `Rc` 会先移到一个持有载荷克隆的
+  新单元，因此该 `Weak` 永远看不到写入，之后升级为 `.None`。
 
 ## `Weak` 不是什么
 
@@ -142,7 +141,7 @@ t.join();
 ```
 
 `Arc` 句柄形成的环会泄漏（[ARC.md](./ARC.md#环)）；`ArcWeak` 回边（`Arc(Mutex(Node))` 带有
-`peer : ArcWeak(Mutex(Node))` 字段）则不会。与 `Rc.make_mut` 对 `Weak` 一样，`Arc.make_mut` 目前还不会解除
+`peer : ArcWeak(Mutex(Node))` 字段）则不会。与 `Rc.make_mut` 对 `Weak` 一样，`Arc.make_mut` 会解除
 `ArcWeak` 句柄的关联。
 
 ## 相关文档

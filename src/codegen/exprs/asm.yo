@@ -489,7 +489,7 @@ _join_comma :: (fn(parts : &ArrayList(String)) -> String)({
       out.push_str(", ");
     });
     match(
-      parts.get(i),
+      parts.get_cloned(i),
       .Some(p) => {
         out.push_string(&p);
       },
@@ -589,7 +589,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
           (cli : usize) = usize(0);
           while(cli < cl.len(), {
             match(
-              cl.get(cli),
+              cl.get_cloned(cli),
               .Some(c) => {
                 all_clobbers.push(c);
               },
@@ -755,9 +755,9 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
               true => String.from("+")
             );
             target_var := cond(
-              op.is_discarded => match(temp_names.get(oi), .Some(t) => t, .None => String.new()),
+              op.is_discarded => match(temp_names.get_cloned(oi), .Some(t) => t, .None => String.new()),
               op.is_variable_target => op.c_expr.clone(),
-              true => match(temp_names.get(oi), .Some(t) => t, .None => String.new())
+              true => match(temp_names.get_cloned(oi), .Some(t) => t, .None => String.new())
             );
             part := String.new();
             match(
@@ -819,7 +819,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (ci : usize) = usize(0);
     while(ci < all_clobbers.len(), {
       match(
-        all_clobbers.get(ci),
+        all_clobbers.get_cloned(ci),
         .Some(c) => {
           q := String.from("\"");
           q.push_string(&c);
@@ -883,7 +883,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
               (op.kind == String.from("in")) || (op.kind == String.from("const_val")) || (op.kind == String.from("sym"))
           );
           if(!skip, {
-            tv := match(temp_names.get(oi), .Some(t) => t, .None => String.new());
+            tv := match(temp_names.get_cloned(oi), .Some(t) => t, .None => String.new());
             if(tv.len() > usize(0), {
               return_exprs.push(tv);
             });
@@ -895,7 +895,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     });
   };
   if(return_exprs.len() == usize(1), {
-    return(match(return_exprs.get(usize(0)), .Some(r) => r, .None => String.new()));
+    return(match(return_exprs.get_cloned(usize(0)), .Some(r) => r, .None => String.new()));
   });
   if(return_exprs.len() > usize(1), {
     out_t := String.from("((");
@@ -909,7 +909,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
       out_t.push_str("._");
       out_t.push_string(ri.to_string());
       out_t.push_str(" = ");
-      out_t.push_string(match(return_exprs.get(ri), .Some(r) => r, .None => String.new()));
+      out_t.push_string(match(return_exprs.get_cloned(ri), .Some(r) => r, .None => String.new()));
       ri = (ri + usize(1));
     });
     out_t.push_str(" })");

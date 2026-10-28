@@ -166,7 +166,7 @@ _related_json :: (fn(related : &ArrayList(RelatedInfo), lines : &ArrayList(Strin
   (i : usize) = usize(0);
   while(i < related.len(), {
     match(
-      related.get(i),
+      related.get_cloned(i),
       .Some(r) => {
         same_doc := (uri_to_fs_path(r.path.clone()) == doc_fs.clone());
         range := cond(
@@ -230,7 +230,7 @@ _analyze_and_publish :: (
   (i : usize) = usize(0);
   while(i < diags.len(), {
     match(
-      diags.get(i),
+      diags.get_cloned(i),
       .Some(d) => {
         items.push(
           j_diagnostic(j_range_in(&lines, d.row, d.col, d.row, d.end_col), d.severity, &d.code, &d.message, _related_json(&d.related, &lines, &fs_path))
@@ -336,7 +336,7 @@ _flush_pending_analyses :: (
   (i : usize) = usize(0);
   while(i < due.len(), {
     match(
-      due.get(i),
+      due.get_cloned(i),
       .Some(u) => match(
         docs.get(u.clone()),
         .Some(st) => _analyze_and_publish(u.clone(), st.text.clone(), std_path.clone(), docs, io),
@@ -400,7 +400,7 @@ _client_position_encodings :: (fn(params : &JsonValue) -> ArrayList(String))({
         (i : usize) = usize(0);
         while(i < items.len(), {
           match(
-            items.get(i),
+            items.get_cloned(i),
             .Some(.Str(s)) => out.push(s.clone()),
             .Some(_) => (),
             .None => ()
@@ -425,7 +425,7 @@ _negotiated_encoding :: (fn(params : &JsonValue) -> usize)({
   (i : usize) = usize(0);
   while(i < offered.len(), {
     match(
-      offered.get(i),
+      offered.get_cloned(i),
       .Some(s) => {
         if(s == String.from("utf-32"), {
           return(usize(1));
@@ -438,7 +438,7 @@ _negotiated_encoding :: (fn(params : &JsonValue) -> usize)({
   (j : usize) = usize(0);
   while(j < offered.len(), {
     match(
-      offered.get(j),
+      offered.get_cloned(j),
       .Some(s) => {
         if(s == String.from("utf-16"), {
           return(usize(0));
@@ -451,7 +451,7 @@ _negotiated_encoding :: (fn(params : &JsonValue) -> usize)({
   (k : usize) = usize(0);
   while(k < offered.len(), {
     match(
-      offered.get(k),
+      offered.get_cloned(k),
       .Some(s) => {
         if(s == String.from("utf-8"), {
           return(usize(2));
@@ -510,7 +510,7 @@ _client_accepts_markdown_hover :: (fn(params : &JsonValue) -> bool)({
       (i : usize) = usize(0);
       while(i < items.len(), {
         match(
-          items.get(i),
+          items.get_cloned(i),
           .Some(.Str(s)) => {
             if(s == String.from("markdown"), {
               return(true);
@@ -1045,7 +1045,7 @@ _handle_message :: (
               (di : usize) = usize(0);
               while(di < st.diags.len(), {
                 match(
-                  st.diags.get(di),
+                  st.diags.get_cloned(di),
                   .Some(d) => match(
                     d.repair,
                     .Some(r) => if((d.row >= from_line) && (d.row <= to_line), {
@@ -1178,7 +1178,7 @@ _handle_message :: (
               changes,
               .Array(items) => cond(
                 (items.len() > usize(0)) => match(
-                  items.last(),
+                  items.last_cloned(),
                   .Some(last) => Option(String).Some(_jfield_str(&last, "text")),
                   .None => Option(String).None
                 ),
@@ -1235,7 +1235,7 @@ _handle_message :: (
             (ci : usize) = usize(0);
             while(ci < changes.len(), {
               match(
-                changes.get(ci),
+                changes.get_cloned(ci),
                 .Some(ch) => {
                   changed_fs := uri_to_fs_path(_jfield_str(&ch, "uri"));
                   if(changed_fs.len() > usize(0), {
@@ -1264,7 +1264,7 @@ _handle_message :: (
             (oi : usize) = usize(0);
             while(oi < open_uris.len(), {
               match(
-                open_uris.get(oi),
+                open_uris.get_cloned(oi),
                 .Some(u) => match(
                   docs.get(u.clone()),
                   .Some(st) => {
@@ -1279,9 +1279,9 @@ _handle_message :: (
             (ai : usize) = usize(0);
             while(ai < open_uris.len(), {
               match(
-                open_uris.get(ai),
+                open_uris.get_cloned(ai),
                 .Some(u) => match(
-                  open_texts.get(ai),
+                  open_texts.get_cloned(ai),
                   .Some(txt) => {
                     _analyze_and_publish(u.clone(), txt.clone(), std_path.clone(), docs, io);
                   },

@@ -1,0 +1,43 @@
+// Arc.make_mut / Arc.try_unwrap check uniqueness with two plain loads; an
+// ArcWeak.upgrade on another thread can slip between them
+// (issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md).
+// Run under ThreadSanitizer:
+//   yo compile <this> --sanitize thread --allocator system -o race && ./race
+// A sound make_mut never lets the worker read a payload the main thread is
+// writing in place; TSan reports the race when the interleaving hits.
+pragma(Pragma.AllowUnsafe); // Arc.make_mut on an atomic object
+{ println } :: import("std/fmt");
+{ Thread } :: import("std/thread");
+
+Pair :: struct(a : i64, b : i64);
+derive(Pair, Copy, Clone);
+
+export(main);
+main :: (fn() -> unit)({
+  mut(round) := i32(0);
+  while(round < i32(2000), round = (round + i32(1)), {
+    a := arc(Pair(a : i64(0), b : i64(0)));
+    w := Arc.downgrade(&a);
+    t := Thread(i64).spawn({ w }(io) => {
+      // Upgrade, then drop the only ArcWeak while the upgraded Arc lives:
+      // the window between make_mut's strong-count and weak-count loads.
+      h := w.upgrade();
+      consume(w);
+      match(h, .Some(p) => (p.a + p.b), .None => i64(0))
+    });
+    Arc.make_mut(&mut a).a = i64(1);
+    Arc.make_mut(&mut a).b = i64(1);
+    _ := t.join();
+  });
+  // try_unwrap is callable from safe code: the same window between its
+  // strong-count load and the move-out.
+  round = i32(0);
+  while(round < i32(2000), round = (round + i32(1)), {
+    b := arc(Pair(a : i64(2), b : i64(3)));
+    w := Arc.downgrade(&b);
+    t := Thread(i64).spawn({ w }(io) => match(w.upgrade(), .Some(p) => (p.a + p.b), .None => i64(0)));
+    _ := Arc.try_unwrap(b);
+    _ := t.join();
+  });
+  println("done");
+});

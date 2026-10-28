@@ -91,7 +91,8 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
   ast_expr_is_atom,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
-  ast_expr_token
+  ast_expr_token,
+  ast_expr_text
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
@@ -539,7 +540,7 @@ impl(
       self.types.get(id.clone()),
       .Some(e) => .Some(e),
       .None => match(
-        self.type_key_aliases.get(id),
+        self.type_key_aliases.get_cloned(id),
         .Some(target) => self.types.get(&target),
         .None => Option(CodegenTypeEntry).None
       )
@@ -624,18 +625,12 @@ impl(
   /// True if any registered function already uses this C name (collision check
   /// for plain-name exports).
   has_function_with_c_name : (fn(self : &Self, c_name : &String) -> bool)({
-    vals := self.functions.values();
-    (found : bool) = false;
-    while(!found, {
-      match(
-        vals.next(),
-        .Some(entry) => if(entry.c_name == c_name, {
-          found = true;
-        }),
-        .None => return(found)
-      );
+    for(&self.functions, (_fid, entry) => {
+      if(entry.c_name == c_name, {
+        return(true);
+      });
     });
-    found
+    false
   }),
   /// Record an exported function's label → func_id mapping (stable C name).
   set_exported_function_label : (fn(self : &Self, func_id : &String, label : &String) -> unit)({
@@ -665,7 +660,7 @@ impl(
   }),
   /// The `upcast` targets of the source Dyn `src` (empty for most Dyns).
   dyn_upcast_targets : (fn(self : &Self, src : &TypeValue) -> ArrayList(TypeValue))(
-    match(self.dyn_upcasts.get(type_key(src)), .Some(t) => t, .None => ArrayList(TypeValue).new())
+    match(self.dyn_upcasts.get_cloned(type_key(src)), .Some(t) => t, .None => ArrayList(TypeValue).new())
   ),
   /// Register an extern function.
   register_extern_function : (
@@ -1319,7 +1314,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     (j : usize) = usize(0);
     while(j < nparams, {
       match(
-        params.get(j),
+        params.get_cloned(j),
         .Some(p) => if(p == name, {
           is_param = true;
         }),
@@ -1329,7 +1324,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     });
     if(is_param, {
       // It must be the NEXT parameter still unconsumed.
-      expected := match(params.get(pi), .Some(p) => p, .None => String.from(""));
+      expected := match(params.get_cloned(pi), .Some(p) => p, .None => String.from(""));
       if(expected != name, {
         return(false);
       });
@@ -1385,7 +1380,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v)), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v)), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1454,8 +1449,8 @@ nullable_arm_selects_payload :: (fn(enum_type : &TypeValue, case_value : &AstExp
       match(
         nullable_variant_names(enum_type),
         .Some(names) => cond(
-          (vname == match(names.get(usize(1)), .Some(n) => n, .None => String.new())) => Option(bool).Some(true),
-          (vname == match(names.get(usize(0)), .Some(n) => n, .None => String.new())) => Option(bool).Some(false),
+          (vname == match(names.get_cloned(usize(1)), .Some(n) => n, .None => String.new())) => Option(bool).Some(true),
+          (vname == match(names.get_cloned(usize(0)), .Some(n) => n, .None => String.new())) => Option(bool).Some(false),
           true => Option(bool).None
         ),
         .None => Option(bool).None
@@ -1680,7 +1675,7 @@ _gts_stack_contains :: (fn(sid : &String) -> bool)({
   n := g_gts_some_stack.with(xs => xs.len());
   while((i < n) && !found, {
     match(
-      g_gts_some_stack.with(xs => xs.get(i)),
+      g_gts_some_stack.with(xs => xs.get_cloned(i)),
       .Some(x) => if(x == sid, {
         found = true;
       }),
@@ -1920,7 +1915,7 @@ scope_stack_contains :: (fn(stack : &ArrayList(String), cn : &String) -> bool)({
   (found : bool) = false;
   while((i < n) && !found, {
     match(
-      stack.get(i),
+      stack.get_cloned(i),
       .Some(nm) => if(nm == cn, {
         found = true;
       }),
@@ -2105,7 +2100,7 @@ _element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
     e,
     .FnCall(_, _, args, _, _) => if(
       ast_expr_is_fn_call_of(e, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None),
-      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_token(&a0).value), Option(String).None), .None => Option(String).None),
+      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0)), Option(String).None), .None => Option(String).None),
       Option(String).None
     ),
     .Atom(_, _) => Option(String).None

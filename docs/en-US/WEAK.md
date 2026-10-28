@@ -59,11 +59,10 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
   stops counting and is never freed: a leak, never a dangling handle.
   `weak_count()` reports `usize.MAX` then.
 - **`Rc.try_unwrap`** succeeds with `Weak` handles alive; they upgrade to `.None`
-  afterwards. **`Rc.make_mut`** on the only `Rc` writes in place even when a
-  `Weak` names the cell, so the `Weak`'s later `upgrade` sees the write. Rust's
-  `make_mut` disassociates the `Weak` handles instead; Yo follows once the seed
-  compiler carries the weak-count runtime
-  (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+  afterwards. **`Rc.make_mut`** disassociates them, as Rust's does: when a
+  `Weak` names the only `Rc`'s cell, the `Rc` first moves to a fresh cell
+  holding a clone of the payload, so the `Weak` never sees the write and
+  upgrades to `.None` afterwards.
 
 ## What a `Weak` is not
 
@@ -171,8 +170,8 @@ t.join();
 
 A cycle of `Arc` handles leaks ([ARC.md](./ARC.md#cycles)); an `ArcWeak` back
 edge (`Arc(Mutex(Node))` with a `peer : ArcWeak(Mutex(Node))` field) does not.
-`Arc.make_mut` does not yet disassociate `ArcWeak` handles, as `Rc.make_mut`
-does not `Weak` ones.
+`Arc.make_mut` disassociates `ArcWeak` handles, as `Rc.make_mut` does `Weak`
+ones.
 
 ## Related docs
 

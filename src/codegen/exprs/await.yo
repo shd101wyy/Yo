@@ -150,7 +150,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
           field_values := match(val, .StructVal(_, _, fvs) => fvs, _ => ArrayList(EvalValue).new());
           (fi : usize) = usize(0);
           while(fi < field_names.len(), {
-            flbl := match(field_names.get(fi), .Some(l) => l, .None => String.from(""));
+            flbl := match(field_names.get_cloned(fi), .Some(l) => l, .None => String.from(""));
             if(flbl == field_label, {
               match(
                 field_values.get(fi),
