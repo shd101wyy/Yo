@@ -119,10 +119,9 @@ test("dyn(Rc.new(<closure>)) contextually types the closure, as dyn(rc(<closure>
   assert(a.detect(i32(1)) == i32(11), "Rc.new: the closure's x is an i32");
   assert(b.detect(i32(2)) == i32(20), "rc: unchanged");
 });
-// A payload over an open type parameter (`f : Impl(Fn(...))`) is boxed by the
-// prelude's `rc`, bound to the callee: `Rc(Impl(Fn(...))).new` does not
-// dispatch outside a definition-time trial
-// (issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
+// A payload over a type variable (`f : Impl(Fn(...))`) is boxed by the
+// prelude's `rc`, bound to the callee (`_synthesized_cell_call`,
+// src/evaluator/values/dyn.yo).
 _box_fn :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(f));
 _box_fn_under_rc :: (fn(rc : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(rc));
 test("dyn(f) of an Impl(Fn) parameter boxes, also under a parameter named rc", {
@@ -131,6 +130,20 @@ test("dyn(f) of an Impl(Fn) parameter boxes, also under a parameter named rc", {
   assert(d(i32(1)) == i32(6), "the boxed parameter");
   e := _box_fn_under_rc(x => (x * n));
   assert(e(i32(2)) == i32(10), "a parameter named rc does not capture the cell constructor");
+});
+// `Rc(type_of(f)).new(f)` and `Box(type_of(f)).new(f)` written in the body of
+// a function with an `Impl(Fn(...))` parameter: the shape Generation B3's
+// `dyn(f)` synthesizes once `rc` is deleted
+// (issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
+_cell_of_fn :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)({
+  r := Rc(type_of(f)).new(f);
+  b := Box(type_of(r)).new(r);
+  (b.*.*)(i32(3))
+});
+test("Rc(type_of(f)).new(f) of an Impl(Fn) parameter dispatches, per closure", {
+  n := i32(5);
+  assert(_cell_of_fn(x => (x + n)) == i32(8), "the cell's closure");
+  assert(_cell_of_fn(x => (x * n)) == i32(15), "a second closure type");
 });
 // Static-argument inference (A1): the unapplied spellings infer the payload
 // type from the value.
