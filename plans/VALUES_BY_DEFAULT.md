@@ -8738,7 +8738,8 @@ plugs in. Two of its signatures stop Zig-style allocators from fitting.
   type had no emitter
   (`issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md`,
   fixed in the same PR) and the seed that compiles std does not carry the
-  fix; `Box`'s layout PR revisits it. The version 1 emitter stays until no
+  fix. `Box`'s layout PR (stacked on it) asks for the payload's alignment,
+  read through a `size_of` probe instead of `align_of`. The version 1 emitter stays until no
   supported seed's std is version 1.
 
 ### V4: the compiler's trees

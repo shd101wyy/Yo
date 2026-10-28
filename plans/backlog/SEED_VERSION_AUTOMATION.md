@@ -391,16 +391,18 @@ codegen gains `generate_alignof`, so `align_of(T)` of a type holding an
 Under a seed without it the call stays untranspiled: `Box(T).new` asking for
 `max(16, align_of(T))` poisoned the `Box(_ThreadState(unit))` specialization
 `std/thread.yo` makes, and every program spawning a thread failed its C
-compile (measured 2026-10-28 with v0.2.71). So std calls `align_of` only on
-types whose layout the evaluator knows until the seed carries the fix, and
-`box` asks its allocator for alignment 16.
+compile (measured 2026-10-28 with v0.2.71). Until the seed carries the fix,
+a std generic that the compiler's own `src/` instantiates over such a type
+must not call `align_of` on it. `Box(_ThreadState(unit))` is one, so `box`
+asks its allocator for alignment 16. The containers' `align_of(T)` is safe:
+`src/` holds no container of such a type, which the seed build proves.
 
 **Generation B (once `SEED_VERSION` carries the fix, v0.2.73 or later):**
-`Box`'s placed request and its release use `max(16, align_of(T))`, as
-`Allocator.alloc` does, and the "`box` still asks for 16" limit leaves
-`docs/*/EXPLICIT_ALLOCATORS.md` "Limits". `Box`'s layout PR
-(`plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout") needs the
-same alignment; landing before that seed, it computes it without `align_of`.
+`Box`'s layout PR (`plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s
+layout") already asks for the payload's alignment, reading it without
+`align_of`: `Box(T)._align()` is `size_of(_BoxAlignProbe(T)) - size_of(T)`.
+Once the seed carries the fix, `_align()` becomes `align_of(T)` and
+`_BoxAlignProbe` goes.
 
 ## Seed-gated follow-up (2026-10-27): `make_mut` disassociates `Weak`
 
