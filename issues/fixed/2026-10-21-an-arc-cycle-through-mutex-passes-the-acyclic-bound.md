@@ -124,4 +124,4 @@ std carries no `Acyclic` bound after W2.
 
 A related shape with a different cause, an object that holds a cyclic cell
 behind an `Option` or a raw pointer (`OnceCell(Cyclic)`, `Channel(Cyclic)`), is
-`issues/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`.
+`issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`.

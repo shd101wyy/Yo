@@ -107,6 +107,6 @@ At the fix: the reproducer's six verdicts as `comptime_assert` rows in
 asserts `!Acyclic` only for `Arc`, `Mutex` and `RwLock` because of this
 bug.
 
-Related: `issues/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`
+Related: `issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`
 (a value struct that reaches ITSELF through an atomic cell; a different
 path through the same derivation).
