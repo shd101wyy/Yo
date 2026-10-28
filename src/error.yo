@@ -77,7 +77,7 @@ _span_of_token :: (fn(token : &Token) -> Span)(
     path : token.module_path.*.clone(),
     row : usize(token.row),
     col : usize(token.column),
-    len : token.value.chars().count()
+    len : token.value.clone().chars().count()
   )
 );
 /// The source line at the token's row ("" when the row is out of range).
@@ -487,7 +487,7 @@ format_lexer_error :: (
 )({
   lines := input.split(String.from("\n"));
   line := match(
-    lines.get(row),
+    lines.get_cloned(row),
     .Some(l) => l,
     .None => String.new()
   );
@@ -561,7 +561,7 @@ error_message_text :: (fn(err : &AnyError) -> String)(
       (i : usize) = usize(0);
       while(i < ye.diagnostics.len(), {
         match(
-          ye.diagnostics.get(i),
+          ye.diagnostics.get_cloned(i),
           .Some(d) => {
             parts.push(d.message.clone());
             match(d.help, .Some(h) => parts.push(h.clone()), .None => ());
@@ -610,7 +610,7 @@ format_eval_failure :: (fn(token : &Token, error_message : &String) -> YoError)(
       (ci : usize) = usize(0);
       while(ci < causes.len(), {
         match(
-          causes.get(ci),
+          causes.get_cloned(ci),
           .Some(c) => {
             entries.push(c);
           },
@@ -683,7 +683,7 @@ _with_primary_help :: (fn(err : &YoError, more : &String) -> YoError)({
   (hi : usize) = usize(0);
   while(hi < err.diagnostics.len(), {
     match(
-      err.diagnostics.get(hi),
+      err.diagnostics.get_cloned(hi),
       .Some(hd) => {
         if(hi == usize(0), {
           entries.push(
@@ -715,7 +715,7 @@ _with_primary_code :: (fn(err : &YoError, code : &Option(String)) -> YoError)({
   (wi : usize) = usize(0);
   while(wi < err.diagnostics.len(), {
     match(
-      err.diagnostics.get(wi),
+      err.diagnostics.get_cloned(wi),
       .Some(d) => {
         // A fresh primary rather than `d.code = …`: `d` borrows the element,
         // and a field write through a borrowed value binding releases a value
@@ -749,7 +749,7 @@ primary_diagnostic_code :: (fn(err : &AnyError) -> Option(String))(
   match(
     downcast(err, YoError),
     .Some(ye) => match(
-      ye.diagnostics.get(usize(0)),
+      ye.diagnostics.get_cloned(usize(0)),
       .Some(d) => d.code.clone(),
       .None => Option(String).None
     ),
@@ -761,7 +761,7 @@ primary_diagnostic_path :: (fn(err : &AnyError) -> Option(String))(
   match(
     downcast(err, YoError),
     .Some(ye) => match(
-      ye.diagnostics.get(usize(0)),
+      ye.diagnostics.get_cloned(usize(0)),
       .Some(d) => Option(String).Some(d.span.path.clone()),
       .None => Option(String).None
     ),
@@ -779,7 +779,7 @@ reanchor_primary_at :: (fn(err : &YoError, tok : &Token, note : &String) -> YoEr
   (ri : usize) = usize(0);
   while(ri < err.diagnostics.len(), {
     match(
-      err.diagnostics.get(ri),
+      err.diagnostics.get_cloned(ri),
       .Some(d) => {
         if(ri == usize(0), {
           entries.push(
@@ -830,7 +830,7 @@ note_diagnostic_of_token :: (fn(token : &Token, message : &String) -> Diagnostic
 get_line_at_token :: (fn(token : &Token) -> String)({
   lines := token.input.*.split(String.from("\n"));
   row_line := match(
-    lines.get(usize(token.row)),
+    lines.get_cloned(usize(token.row)),
     .Some(line) => line,
     .None => String.new()
   );
@@ -838,7 +838,7 @@ get_line_at_token :: (fn(token : &Token) -> String)({
   // so the half-width offset added to it has to be a rune count too — say so,
   // rather than inheriting whatever basis `len()` happens to have
   // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S7).
-  caret_col := (usize(token.column) + (token.value.chars().count() / usize(2)));
+  caret_col := (usize(token.column) + (token.value.clone().chars().count() / usize(2)));
   spaces := String.from(" ").repeat(caret_col);
   row_plus1 := (usize(token.row) + usize(1));
   col_plus1 := (usize(token.column) + usize(1));
@@ -851,7 +851,7 @@ get_line_at_position :: (
 )({
   lines := input_string.split(String.from("\n"));
   row_line := match(
-    lines.get(row),
+    lines.get_cloned(row),
     .Some(line) => line,
     .None => String.new()
   );

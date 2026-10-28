@@ -56,7 +56,7 @@ trim_section_content_ :: (fn(lines : &ArrayList(String)) -> String)({
   start := usize(0);
   while(start < count, {
     line := match(
-      lines.get(start),
+      lines.get_cloned(start),
       .Some(l) => l,
       .None => {
         break;
@@ -72,7 +72,7 @@ trim_section_content_ :: (fn(lines : &ArrayList(String)) -> String)({
   while(end > start, {
     prev := (end - usize(1));
     line := match(
-      lines.get(prev),
+      lines.get_cloned(prev),
       .Some(l) => l,
       .None => {
         break;
@@ -88,7 +88,7 @@ trim_section_content_ :: (fn(lines : &ArrayList(String)) -> String)({
   i := start;
   while(i < end, {
     line := match(
-      lines.get(i),
+      lines.get_cloned(i),
       .Some(l) => l,
       .None => {
         break;
@@ -110,7 +110,7 @@ extract_summary_ :: (fn(description : &String) -> String)({
   i := usize(0);
   while(i < count, {
     line := match(
-      lines.get(i),
+      lines.get_cloned(i),
       .Some(l) => l,
       .None => {
         break;
@@ -151,7 +151,7 @@ parse_doc_comment :: (fn(text : &String) -> ParsedDocComment)({
   in_fence := false;
   while(i < count, {
     line := match(
-      lines.get(i),
+      lines.get_cloned(i),
       .Some(l) => l,
       .None => {
         break;

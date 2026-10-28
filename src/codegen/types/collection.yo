@@ -82,7 +82,7 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
   while(collided, {
     collided = false;
     match(
-      _g_type_c_name_intern_r.with(m => m.get(&id)),
+      _g_type_c_name_intern_r.with(m => m.get_cloned(&id)),
       .Some(owner) => {
         if(!(owner == key), {
           ord = (ord + usize(1));
@@ -102,7 +102,7 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
 });
 _intern_type_c_name :: (fn(key : &String) -> String)(
   match(
-    _g_type_c_name_intern.with(m => m.get(key)),
+    _g_type_c_name_intern.with(m => m.get_cloned(key)),
     .Some(existing) => existing,
     .None => _intern_type_c_name_fresh(key)
   )
@@ -259,7 +259,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     stable := stable_type_identity(&type);
     (aliased : bool) = false;
     match(
-      g_stable_to_key.with(m => m.get(stable.clone())),
+      g_stable_to_key.with(m => m.get_cloned(stable.clone())),
       .Some(prev_key) => if(!(prev_key == tk), {
         // Same type, EVOLVED key render: alias to the first registration
         // instead of adding (and later emitting) a second entry. Do NOT skip
@@ -468,20 +468,10 @@ collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
     // Snapshot registered struct TypeValues FIRST (collect_type mutates the map;
     // do not call it while iterating context.types.values()).
     snapshot := ArrayList(TypeValue).new();
-    vit := context.types.values();
-    (done : bool) = false;
-    while(!done, {
-      match(
-        vit.next(),
-        .Some(entry) => {
-          if(is_struct_type(&entry.ty), {
-            snapshot.push(entry.ty);
-          });
-        },
-        .None => {
-          done = true;
-        }
-      );
+    for(&context.types, (_tid, entry) => {
+      if(is_struct_type(&entry.ty), {
+        snapshot.push(entry.ty);
+      });
     });
     n := snapshot.len();
     (i : usize) = usize(0);
@@ -606,7 +596,7 @@ collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info 
           nr := rds.len();
           (ri : usize) = usize(0);
           while(ri < nr, {
-            match(rds.get(ri), .Some(rd) => collect_type(&rd.ty, context), .None => ());
+            match(rds.get_cloned(ri), .Some(rd) => collect_type(&rd.ty, context), .None => ());
             ri = (ri + usize(1));
           });
         },
@@ -624,7 +614,7 @@ collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info 
           .Some(cinits) => {
             (cii : usize) = usize(0);
             while(cii < cinits.len(), {
-              match(cinits.get(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
+              match(cinits.get_cloned(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
               cii = (cii + usize(1));
             });
           },
@@ -716,18 +706,8 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenConte
   while(found_new, {
     found_new = false;
     keys := ArrayList(String).new();
-    kit := context.functions.keys();
-    (kdone : bool) = false;
-    while(!kdone, {
-      match(
-        kit.next(),
-        .Some(k) => {
-          keys.push(k);
-        },
-        .None => {
-          kdone = true;
-        }
-      );
+    for(&context.functions, (k, _v) => {
+      keys.push(k.clone());
     });
     nk := keys.len();
     (ki : usize) = usize(0);

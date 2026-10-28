@@ -3913,8 +3913,25 @@ test("a Weak is explicit-copy: a copy moves it, Weak.clone copies it", {
 });
 _WeakPair :: struct(a : i32, b : i32);
 derive(_WeakPair, Copy, Clone);
-// `Rc.make_mut`'s Rust disassociation of `Weak` handles is seed-gated
-// (plans/backlog/SEED_VERSION_AUTOMATION.md, "`make_mut` disassociates `Weak`").
+// `Rc.make_mut` disassociates `Weak` handles, as Rust's does: a `Weak` to the
+// only `Rc`'s cell does not see the write, and upgrades to `.None` afterwards.
+test("Rc.make_mut on the only Rc with a Weak alive moves to a fresh cell", {
+  a := rc(_WeakPair(a : i32(1), b : i32(2)));
+  w := Rc.downgrade(&a);
+  before := addr_of(a.*);
+  Rc.make_mut(&mut a).a = i32(10);
+  assert(a.a == i32(10), "the write landed");
+  assert(addr_of(a.*) != before, "a Weak shared the cell: a moved to a fresh one");
+  assert(w.upgrade().is_none(), "the Weak upgrades to .None afterwards");
+  assert(w.strong_count() == usize(0), "the old cell's payload is gone");
+  assert(Rc.downgrade(&a).weak_count() == usize(1), "the fresh cell has no other Weak");
+  b := rc(_WeakPair(a : i32(3), b : i32(4)));
+  w2 := Rc.downgrade(&b);
+  consume(w2);
+  before_b := addr_of(b.*);
+  Rc.make_mut(&mut b).b = i32(40);
+  assert(addr_of(b.*) == before_b, "no Weak left: written in place");
+});
 test("Rc.try_unwrap succeeds with a Weak alive and leaves the Weak dangling", {
   counts := _counts();
   heap := _counting(addr_of(counts));

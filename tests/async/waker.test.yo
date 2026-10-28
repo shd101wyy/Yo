@@ -175,9 +175,8 @@ test("Test park moves its waker into register, which keeps it", {
   );
   io.await(
     park((w : Waker) => {
-      mut(held) := Option(Waker).Some(w);
-      slot.with_mut({ &mut held }(cur) => {
-        cur = held.take();
+      slot.with_mut({ w }(cur) => {
+        cur = Option(Waker).Some(w);
       });
     }, io),
     io

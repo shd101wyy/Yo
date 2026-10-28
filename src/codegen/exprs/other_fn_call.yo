@@ -2,7 +2,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_address_of_call, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT, BK_BORROW_MUT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_address_of_call, ast_expr_token, ast_expr_text, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT, BK_BORROW_MUT } :: import("../../expr.yo");
 { lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard, is_by_value_param_share_dup, is_call_scoped_share_dup, lookup_macro_expansion, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
@@ -443,7 +443,7 @@ _emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, 
     (go : bool) = true;
     while(go, {
       match(
-        containers.get(ai),
+        containers.get_cloned(ai),
         .Some(rel) => {
           em.emit_string_line(`${indent}${rel};`);
         },
@@ -1091,7 +1091,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
   (i : usize) = usize(0);
   while(i < na, {
     pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
-    c := match(args.get(i), .Some(x) => x, .None => String.from(""));
+    c := match(args.get_cloned(i), .Some(x) => x, .None => String.from(""));
     // A ref/`inout` parameter of type `unit` has no C value to take the
     // address of — the arg code is EMPTY, so the spill branch declared
     // `void __yo_ref_spill_N = ;` (invalid C). The callee's unit receiver
@@ -1228,7 +1228,7 @@ _ctor_args_from_labeled :: (fn(wrapped : &TypeValue, fncall_args : &ArrayList(As
         fncall_args.get(ai),
         .Some(arg) => if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), {
           ca := match(arg, .FnCall(_, _, ca2, _, _) => ca2, .Atom(_, _) => ArrayList(AstExpr).new());
-          lbl := match(ca.get(usize(0)), .Some(l) => if(ast_expr_is_atom(&l), ast_expr_token(&l).value, String.from("")), .None => String.from(""));
+          lbl := match(ca.get(usize(0)), .Some(l) => if(ast_expr_is_atom(&l), ast_expr_text(&l), String.from("")), .None => String.from(""));
           if(lbl == flabel, {
             found = match(ca.get(usize(1)), .Some(v) => Option(AstExpr).Some(v), .None => Option(AstExpr).None);
           });
@@ -1297,7 +1297,7 @@ _callee_param_fn_type :: (fn(func_expr : &AstExpr, context : &FunctionGeneration
   if(!ast_expr_is_atom(func_expr), {
     return(Option(TypeValue).None);
   });
-  name := ast_expr_token(func_expr).value;
+  name := ast_expr_text(func_expr);
   match(
     context.current_function_type,
     .Some(Rc(.Func({ param_types : cpts, meta : cmeta }))) => {
@@ -1339,7 +1339,7 @@ _per_arg_cast :: (fn(args_list : &String, param_types : &ArrayList(TypeValue), p
           .None => false
         ), {
           // By-value aggregate: pass through bare (see _no_cast_by_value_param).
-          out.push_string(match(parts.get(i), .Some(p) => p, .None => String.from("")));
+          out.push_string(match(parts.get_cloned(i), .Some(p) => p, .None => String.from("")));
         }, {
           // A BY-VALUE `unit` parameter is spelled as the one-byte placeholder in
           // the prototype, so its cast must agree; a REF one stays `void` + `*`.
@@ -1354,7 +1354,7 @@ _per_arg_cast :: (fn(args_list : &String, param_types : &ArrayList(TypeValue), p
             out.push_str("*");
           });
           out.push_str(")(");
-          out.push_string(match(parts.get(i), .Some(p) => p, .None => String.from("")));
+          out.push_string(match(parts.get_cloned(i), .Some(p) => p, .None => String.from("")));
           out.push_str(")");
         });
         i = (i + usize(1));
@@ -1372,7 +1372,7 @@ _join_args :: (fn(args : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(", ");
     });
-    out.push_string(match(args.get(i), .Some(a) => a, .None => String.from("")));
+    out.push_string(match(args.get_cloned(i), .Some(a) => a, .None => String.from("")));
     i = (i + usize(1));
   });
   out
@@ -1641,7 +1641,7 @@ _call_is_handler_installation :: (fn(key : ExprId, func_ei : &ExprInfo, function
         runtime_args.get(pi),
         .Some(arg) => if(ast_expr_is_atom(&arg), {
           scope_release_note_hard(String.from("install-param"), key);
-          arg_var := ast_expr_token(&arg).value;
+          arg_var := ast_expr_text(&arg);
           match(
             find_innermost_frame_with_given_variable(&env, (v : Variable) => (v.name == arg_var)),
             .Some(fidx) => if((fidx > fdfl) && match(env.frames.get(fidx), .Some(fr) => fr.is_begin_block, .None => false), {
@@ -1883,7 +1883,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       (dma : usize) = usize(0);
       while(dma < dm_amped.len(), {
         dm_call.push_str(", ");
-        match(dm_amped.get(dma), .Some(dac) => dm_call.push_string(&dac), .None => ());
+        match(dm_amped.get_cloned(dma), .Some(dac) => dm_call.push_string(&dac), .None => ());
         dma = (dma + usize(1));
       });
       dm_call.push_str(")");
@@ -1927,7 +1927,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // dot-receiver reaching here named no vtable slot, so its method is a
     // blanket inherent one and dispatches concretely.
     if(method_atom_ok && !(recv_is_dyn && !dot_recv_is_dyn), {
-      mname := ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value;
+      mname := ast_expr_text(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr()));
       // Receiver type id for the registry FALLBACK. Use the DOT-RECEIVER
       // (`dmethod_args[0]`, e.g. `Environment` in `Environment.new(mp)`), NOT the
       // first RUNTIME arg (`dm_runtime[0]`): for a STATIC call `Type.method(args)`
@@ -2550,7 +2550,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               u_label_e := match(u_pair.get(usize(0)), .Some(le) => le, .None => make_err_expr());
               u_field_e := match(u_pair.get(usize(1)), .Some(fe) => fe, .None => make_err_expr());
               if(ast_expr_is_atom(&u_label_e), {
-                u_label := ast_expr_token(&u_label_e).value;
+                u_label := ast_expr_text(&u_label_e);
                 u_code := emit_deferred_dup_or_code(&u_field_e, _call_generate_expr(&u_field_e, indent.clone(), context), indent.clone(), context);
                 u_value := String.from("(");
                 u_value.push_string(u_cname.clone());
@@ -2924,7 +2924,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   ou_may_unwind := _call_may_unwind(&func_ei.value, &function_type, &param_types.items, ou_callee_atom, context);
   ou_callee_name := match(
     expr,
-    .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(&__ouf2), Option(String).Some(ast_expr_token(&__ouf2).value), Option(String).None),
+    .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(&__ouf2), Option(String).Some(ast_expr_text(&__ouf2)), Option(String).None),
     _ => Option(String).None
   );
   ou_is_install := if(ou_may_unwind, _call_is_handler_installation(ast_expr_id(&func_expr), &func_ei, &function_type, &param_types.items, &runtime_args, context, &ou_callee_name), false);
@@ -3293,7 +3293,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 },
                 .None => _fn_pointer_param_type_string(&param_types, fa_i, context)
               );
-              fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
+              fa_part := match(fa_parts.get_cloned(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
               fa_out.push_string(&fa_pt);
               fa_out.push_str(")(");
