@@ -390,14 +390,13 @@ test("a value struct that reaches itself through an Arc is not Acyclic", {
   comptime_assert(Type.impls(AsyncMutex(i32), Acyclic), "an async Mutex of plain data is Acyclic");
 });
 // issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md:
-// an object that holds a cyclic cell reaches that cycle, however it holds it.
+// an object that holds a cyclic cell reaches that cycle, however it holds it
+// (the raw-pointer rows are in tests/send_sync_raw_pointer.test.yo).
 SsHoldsDirect :: atomic(ref(struct(x : SsCyclic)));
 SsHoldsOption :: atomic(ref(struct(x : Option(SsCyclic))));
-SsHoldsPointer :: struct(x : *SsCyclic);
 test("an object holding a cyclic cell behind an Option or a pointer is not Acyclic", {
   comptime_assert(!Type.impls(SsHoldsDirect, Acyclic), "held directly");
   comptime_assert(!Type.impls(SsHoldsOption, Acyclic), "held in an Option");
-  comptime_assert(!Type.impls(SsHoldsPointer, Acyclic), "held behind a raw pointer");
   comptime_assert(!Type.impls(Arc(Option(SsCyclic)), Acyclic), "Arc(Option(Cyclic))");
   comptime_assert(!Type.impls(OnceCell(SsCyclic), Acyclic), "OnceCell(Cyclic)");
   comptime_assert(!Type.impls(Channel(SsCyclic), Acyclic), "Channel(Cyclic)");
