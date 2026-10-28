@@ -19,6 +19,10 @@ tarc :: (fn(generic(V : Type), sink(v) : V) -> TArc(V))(TArc(V)(__yo_atomic_cell
 // `Deref`, as the prelude's cells do.
 impl(generic(T : Type), TRc(T), Deref(Target : T));
 impl(generic(T : Type), TArc(T), Deref(Target : T));
+// Decision 17: a second handle is spelled, `TRc.clone(h)`, a count bump as
+// the prelude's `Rc.clone` is.
+impl(generic(T : Type), TRc(T), Clone(clone : (fn(self : &Self) -> Self)(___dup(self))));
+impl(generic(T : Type), TArc(T), Clone(clone : (fn(self : &Self) -> Self)(___dup(self))));
 /// Replaces the handle's cell: a write to the handle's own field `_cell`, not
 /// through the handle (V5's `make_mut` writes it), so it is not E0919, and
 /// the method-entry borrow assert reads the cell behind `h`.

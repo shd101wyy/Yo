@@ -46,14 +46,6 @@ impl(
     )
   )
 );
-// `Arc` has no `Clone` in the prelude yet (decision 17 gives it the handle
-// copy in V2c), so the Arc case goes through a method of its own.
-impl(
-  generic(T : Type),
-  where(T <: (Send, Sync)),
-  Arc(T),
-  _handle : (fn(self : &Self) -> Self)(self)
-);
 /// One generic body, two specializations: `Rc.clone(x)` infers `T` from each.
 _clone_rc :: (fn(generic(T : Type), x : &Rc(T), where(T <: Clone)) -> Rc(T))(Rc.clone(x));
 /// A module-qualified constructor in a generic body. Before the fix the
@@ -101,11 +93,11 @@ test("Rc.clone(w) on a nested wrapper names the outer constructor", {
   c := Rc.clone(w);
   comptime_assert(Type.eq(type_of(c), Rc(Rc(i32))), "T := Rc(i32), never a payload search");
   v := rc(arc(i32(2)));
-  comptime_expect_error(Arc._handle(v), "which has type `Rc(Arc(i32))`, not an instance of `Arc`");
+  comptime_expect_error(Arc.clone(v), "which has type `Rc(Arc(i32))`, not an instance of `Arc`");
 });
 test("Arc.m(a) infers T from the receiver", {
   a := arc(i32(3));
-  h := Arc._handle(a);
+  h := Arc.clone(a);
   assert(h.* == i32(3), "the handle reads the payload");
   assert(ref_count(a) == usize(2), "a second handle to one cell");
 });
@@ -137,9 +129,9 @@ test("a receiver of another type is E0613 naming both", {
   a := arc(i32(1));
   comptime_expect_error(Rc.clone(a), "which has type `Arc(i32)`, not an instance of `Rc`");
   r := rc(i32(1));
-  comptime_expect_error(Arc._handle(r), "which has type `Rc(i32)`, not an instance of `Arc`");
+  comptime_expect_error(Arc.clone(r), "which has type `Rc(i32)`, not an instance of `Arc`");
   b := rc(rc(i32(1)));
-  comptime_expect_error(Arc._handle(b), "not an instance of `Arc`");
+  comptime_expect_error(Arc.clone(b), "not an instance of `Arc`");
   comptime_expect_error(Rc.clone(i32(1)), "which has type `i32`");
 });
 test("a method the instance lacks is still E0610, naming the instance", {
@@ -155,13 +147,14 @@ test("a static call's E0610 names the type it was called on", {
   s := String.from("abc");
   comptime_expect_error(String.nope(s), "No method \"nope\" on String");
 });
-// `Arc` has no `clone` yet: decision 17 gives it the handle copy in V2c. Until
-// then `Arc.clone(a)` is the same E0610 as `Arc(i32).clone(a)`, so the
-// inference is not what fails.
+// Decision 17 (V2c) gives `Arc` the handle copy, so `Arc.clone(a)` infers
+// `T` from the receiver as `Rc.clone(b)` does.
 test("Arc.clone(a) is Arc(i32).clone(a)", {
   a := arc(i32(2));
-  comptime_expect_error(Arc.clone(a), "No method \"clone\" on Arc(i32)");
-  comptime_expect_error(Arc(i32).clone(a), "No method \"clone\" on Arc(i32)");
+  c := Arc.clone(a);
+  comptime_assert(Type.eq(type_of(Arc.clone(a)), Arc(i32)), "the result is an Arc(i32)");
+  d := Arc(i32).clone(a);
+  assert((c.* == d.*) && (ref_count(a) == usize(3)), "both spellings are a second handle");
 });
 test("a module-qualified constructor, in a generic body specialized twice", {
   assert(_cell_get(Cell(i32).wrap(i32(7))) == i32(7), "T := i32");

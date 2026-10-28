@@ -338,7 +338,9 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   assert(_ct_clone_copy((i32(1), true)).0 == i32(1), "at a tuple, Copy structurally and Clone by the prelude's tuple impl");
   // `rc` takes its argument `own`, so it moves: wrap a clone, not `p`.
   b := rc(p.clone());
-  assert(Rc.clone(b).* == p, "Rc.clone reaches the payload's clone");
+  // Decision 17 (V2c): `Rc.clone` is a second handle, never the payload's clone.
+  assert(ref_count(Rc.clone(b)) == usize(2), "Rc.clone is a second handle to the cell");
+  assert(b.* == p, "the payload is the clone rc took");
   u := _CtUser(at : p);
   assert(u.moved() == p, "clone() inside another type's method");
   s := "abc";
