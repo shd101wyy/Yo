@@ -70,6 +70,7 @@ json :: import("std/encoding/json");
   E_RC_PAYLOAD_WRITE,
   E_DEREF_OF_BORROW,
   E_ADDR_OF_BORROW_PARAM,
+  E_ORIGIN_NOT_DECLARED,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -746,6 +747,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "pragma(Pragma.AllowUnsafe);\nS :: struct(n : usize);\nwhere_is :: (fn(s : *S) -> *S)(s);\nmain :: (fn() -> unit)({\n  s := S(n : usize(1));\n  _p := where_is(addr_of(s));\n});\nexport(main);\n",
       "`s : &S` is the callee's copy, so `addr_of(s)` is not the address of `main`'s `s`; a `*S` parameter receives the caller's `addr_of(s)` itself.",
       "`s : &S` 是被调用方的副本，因此 `addr_of(s)` 不是 `main` 中 `s` 的地址；`*S` 参数接收的就是调用方的 `addr_of(s)` 本身。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ORIGIN_NOT_DECLARED,
+      "an origin that is not declared",
+      "未声明的 origin",
+      "The second argument of a reference type `&(T, o)` or `&mut(T, o)` is not an origin: a name no `generic(o : Origin)` declares, a type, or a parameter's place in a parameter type.",
+      "引用类型 `&(T, o)` 或 `&mut(T, o)` 的第二个参数不是 origin：它是没有被任何 `generic(o : Origin)` 声明的名字、一个类型，或出现在参数类型中的某个参数的位置。",
+      "An origin is a set of places a reference may point into (decision 43). A signature spells it as the trailing argument of a reference type, and every origin it names is declared before use, in the signature's `generic(...)` clause, as a type parameter is: `generic(p : Origin)`. A union of declared origins is written as a tuple, `&(T, (p, q))`. The second argument is read by its kind: a type there is an error rather than a tuple, because Yo spells a tuple type `Tuple(A, B)` (a reference to one is `&Tuple(A, B)`). A parameter's own place (`xs` in `xs : &T`) is an origin in the RESULT type only (`-> &(T, xs)`); in a parameter type, declare an origin parameter and use it in both positions.",
+      "origin 是引用可能指向的位置集合（决策 43）。签名把它写成引用类型的末尾参数；它所命名的每个 origin 都必须先声明后使用，与类型参数一样写在签名的 `generic(...)` 子句中：`generic(p : Origin)`。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。第二个参数按其种类解读：那里出现类型是错误而不是元组，因为 Yo 把元组类型写作 `Tuple(A, B)`（指向元组的引用是 `&Tuple(A, B)`）。参数自身的位置（`xs : &T` 中的 `xs`）只在结果类型中是 origin（`-> &(T, xs)`）；在参数类型中，请声明一个 origin 参数并在两处使用它。",
+      "first :: (fn(v : &(i32, q)) -> i32)(v);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
+      "first :: (fn(generic(q : Origin), v : &(i32, q)) -> i32)(v);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
+      "`q` names no origin; `generic(q : Origin)` declares it, and the call instantiates it with the place `&x` lends.",
+      "`q` 没有命名任何 origin；`generic(q : Origin)` 声明了它，调用时用 `&x` 借出的位置实例化它。"
     )
   );
   out.push(
