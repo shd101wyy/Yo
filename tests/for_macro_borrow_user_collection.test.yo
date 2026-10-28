@@ -457,6 +457,37 @@ test("borrowed for: read-only methods iterating a value field by value, through 
   assert(seen == usize(40), "every by-value iteration of a value field runs without the entry assert");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });
+// Moving the object into a `Box` only stores it in a fresh cell. `Box.new`
+// takes its block from `match(…, .Some(b) => b, .None => …)`; the arm body
+// `b` reads its pattern binding through an env the arm trims, and the analysis
+// read it as unknown storage, so the store into the fresh block counted as a
+// mutation of every argument and `keep_boxed` asserted `b` unborrowed
+// (issues/fixed/2026-10-28-a-match-arm-returning-its-pattern-binding-classifies-as-unknown-storage.md).
+keep_boxed :: (fn(b : VBag) -> Box(VBag))(box(b));
+test("borrowed for: boxing the object through an alias does not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  c := Counter(n : usize(3));
+  bag := VBag(
+    items : xs,
+    c : c.clone(),
+    local : CountLocal(c : c.clone()),
+    konst : CountConst(c : c.clone()),
+    chain : CountChain(c : c.clone()),
+    h : HCounter(n : usize(3)),
+    p : PCounter(n : usize(3))
+  );
+  other := bag;
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    kept := keep_boxed(other);
+    seen = (seen + kept.*.items.len());
+    x = (x * i32(10));
+  });
+  assert(seen == usize(4), "the boxed handle reads the list once per element");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
+});
 // A callee that writes an INERT module-level global (an `i32`, a `Copy`
 // struct of scalars) mutates only that static: no argument's storage is reachable from
 // it, so it does not count as mutating every argument. Before the fix such a
