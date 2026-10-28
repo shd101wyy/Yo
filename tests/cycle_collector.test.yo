@@ -853,8 +853,8 @@ test("a tree with Weak parent pointers frees itself without the collector", {
     (mut(i) : i32) = i32(2);
     while(i <= i32(4), {
       leaf := _weak_tree_node(Rc.downgrade(&root), i);
-      root.with_mut({ leaf }(v) => {
-        v.children.push(leaf);
+      root.with_mut({ leaf : Rc.clone(leaf) }(v) => {
+        v.children.push(Rc.clone(leaf));
       });
       i = (i + i32(1));
     });

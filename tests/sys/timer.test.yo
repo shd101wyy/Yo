@@ -13,7 +13,7 @@ test("Test Io timer", {
   // Test: async timer operations
   // =========================================================================
   value := rc(RefCell(i32).new(0));
-  task1 := io.async((io : Io) => {
+  task1 := io.async({ value : Rc.clone(value) }(io : Io) => {
     assert(value.with(cur => cur) == 0); // 0
     value.with_mut(cur => {
       cur = (cur + 1);
@@ -57,7 +57,7 @@ test("Test zero-length sleep completes", {
   r0 := io.await(sleep(u64(0)), io);
   assert(r0 >= i32(0), "sleep(0) awaited from a plain context should complete without error");
   inner := rc(RefCell(bool).new(false));
-  t := io.async((io : Io) => {
+  t := io.async({ inner : Rc.clone(inner) }(io : Io) => {
     r1 := io.await(sleep(u64(0)), io);
     assert(r1 >= i32(0), "sleep(0) awaited inside a task should complete without error");
     inner.with_mut(cur => {
@@ -113,7 +113,7 @@ test("1500 sleeps started in one tick all complete (epoll fallback)", {
 // purpose, a task captures by value (plans/VALUES_BY_DEFAULT.md §3.13), and an
 // `Rc`'s payload is read-only through the handle (decision 46).
 _sleeper :: (fn(ms : i32, order : &Rc(RefCell(ArrayList(i32))), io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) => {
+  io.async({ ms, order : Rc.clone(order) }(io : Io) => {
     _r := io.await(sleep(u64(ms)), io);
     order.with_mut(xs => xs.push(ms));
     i32(0)

@@ -1122,15 +1122,15 @@ test("every token of a parse shares the module's source and path cells", {
     _tokens_of(&prog(i), &mut toks);
   });
   first := toks(usize(0));
-  src_cell := first.input;
-  path_cell := first.module_path;
+  src_cell := Rc.clone(first.input);
+  path_cell := Rc.clone(first.module_path);
   assert(src_cell.* == source, "the first token carries the source text");
   (mut(shared) : usize) = usize(0);
   (mut(j) : usize) = usize(0);
   while(j < toks.len(), j = (j + usize(1)), {
     t := toks(j);
-    t_src := t.input;
-    t_path := t.module_path;
+    t_src := Rc.clone(t.input);
+    t_path := Rc.clone(t.module_path);
     if(t.value == `b`, {
       assert(unsafe(__yo_ptr_eq(&t_src, &src_cell)), "an interpolation body's token shares the enclosing source cell");
       assert(unsafe(__yo_ptr_eq(&t_path, &path_cell)), "an interpolation body's token shares the enclosing path cell");

@@ -59,7 +59,7 @@ test("S1/S9/S10: a write through a cell handle is E0919", {
 });
 test("the handle's own field is not behind it: replacing the cell is no write through the handle", {
   mut(h) := trc(i32(1));
-  g := h;
+  g := TRc.clone(h);
   treset(&mut h, i32(5));
   assert(h.* == i32(5), "the new cell");
   assert(g.* == i32(1), "the old cell lives on in the other handle");
@@ -107,7 +107,7 @@ test("S11/S12: a write through an atomic cell handle is D3 in safe code", {
   a := tarc(_p(i32(1)));
   comptime_expect_error(a.*.x = i32(2), "atomic object");
   comptime_expect_error(_bump_p(&mut a.*), "atomic object");
-  s := _HoldsArc(a : a);
+  s := _HoldsArc(a : TArc.clone(a));
   comptime_expect_error(s.a.*.x = i32(3), "atomic object");
   assert(a.*.x == i32(1), "nothing wrote the payload");
 });
@@ -119,12 +119,12 @@ test("S19: ref_count counts the handles, not the constant 1", {
   h := trc(i32(1));
   assert(ref_count(h) == usize(1), "one handle");
   hs := [h,];
-  g := hs(usize(0));
+  g := TRc.clone(hs(usize(0)));
   assert(ref_count(g) == usize(2), `two handles: ${ref_count(g)}`);
   assert(g.* == i32(1), "the copy reads the payload");
   a := tarc(i32(2));
   xs := [a,];
-  b := xs(usize(0));
+  b := TArc.clone(xs(usize(0)));
   assert(ref_count(b) == usize(2), `two atomic handles: ${ref_count(b)}`);
   assert(b.* == i32(2), "the copy");
 });
@@ -133,21 +133,21 @@ test("S19: ref_count counts the handles, not the constant 1", {
 // a handle is one cell pointer in C, not a value with counted fields.
 test("a handle's dup/drop pair cancels as an Rc's does", {
   g := trc(i32(1));
-  g2 := g;
+  g2 := TRc.clone(g);
   r := rc(i32(1));
-  r2 := r;
+  r2 := Rc.clone(r);
   assert(ref_count(g) == ref_count(r), `the handle counts as the Rc does: ${ref_count(g)} vs ${ref_count(r)}`);
   assert((g.* + g2.*) == (r.* + r2.*), "both copies are used after");
   a := tarc(i32(2));
-  a2 := a;
+  a2 := TArc.clone(a);
   b := arc(i32(2));
-  b2 := b;
+  b2 := Arc.clone(b);
   assert(ref_count(a) == ref_count(b), `the atomic handle counts as the Arc does: ${ref_count(a)} vs ${ref_count(b)}`);
   assert((a.* + a2.*) == (b.* + b2.*), "both atomic copies are used after");
 });
 test("an atomic cell handle is shared with another thread", {
   a := tarc(_Sq(s : i32(7)));
-  t := Thread(i32).spawn(io => a.s);
+  t := Thread(i32).spawn({ a : TArc.clone(a) }(io) => a.s);
   assert(t.join() == i32(7), "the worker read the payload");
   assert(ref_count(a) == usize(1), `the worker's handle was released: ${ref_count(a)}`);
 });
@@ -226,7 +226,7 @@ test("S14: a future may hold a & place lent through a cell handle, not a &mut on
 });
 _Node :: struct(v : i32, next : Option(TRc(Self)));
 _sum_nodes :: (fn(n : &_Node) -> i32)(
-  match(n.next, .Some(h) => (n.v + _sum_nodes(&h.*)), .None => n.v)
+  match(&n.next, .Some(h) => (n.v + _sum_nodes(&h.*)), .None => n.v)
 );
 test("a recursive type through a cell handle", {
   tail := trc(_Node(v : i32(3), next : .None));
@@ -238,7 +238,7 @@ test("a recursive type through a cell handle", {
 test("S5: a pattern does not look through a cell handle implicitly", {
   h := trc(_p(i32(1)));
   comptime_expect_error(
-    match(h, _P(x : x, items : _) => x, _ => i32(0)),
+    match(&h, _P(x : x, items : _) => x, _ => i32(0)),
     "does not look through a cell implicitly"
   );
   n := match(h, g => g.*.x);

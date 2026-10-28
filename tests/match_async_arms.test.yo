@@ -20,7 +20,7 @@ test("literal payload arms with an await in each arm (#661 gap 2)", {
   n := runtime_int();
   o := Option(bool).Some(!(n == i32(-1))); // Some(true) at runtime
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ o, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       o,
       .Some(false) => {
@@ -45,7 +45,7 @@ test("int literal payload arms with awaits", {
   n := runtime_int();
   r2 := Reading2.Code(i32(0) - n); // -1 at runtime (n = argv length)
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ r2, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       r2,
       .Code(-1) => {
@@ -69,7 +69,7 @@ test("labeled and curly patterns in await-carrying arms bind (audit A3)", {
   n := runtime_int();
   s := if(n > i32(100), Shape.Circle(i32(1)), Shape.Rect(i32(4), i32(5)));
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ result : Rc.clone(result), s }(io : Io) => {
     result_value := match(
       s,
       .Rect({ width, height : h }) => {
@@ -92,7 +92,7 @@ test("positional twin of the labeled case still works", {
   n := runtime_int();
   s := if(n > i32(100), Shape.Circle(i32(1)), Shape.Rect(i32(4), i32(5)));
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ result : Rc.clone(result), s }(io : Io) => {
     result_value := match(
       s,
       .Rect(w, h) => {
@@ -120,7 +120,7 @@ test("a wildcard arm on a nullable-pointer Option with awaits", {
   empty := cond((n == i32(-1)) => Option(Parcel).Some(Parcel(v : i32(1))), true => Option(Parcel).None);
   full := Option(Parcel).Some(Parcel(v : n));
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ empty, full, result : Rc.clone(result) }(io : Io) => {
     a := match(
       full,
       .Some(p) => {
@@ -155,7 +155,7 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
   holding := Tote.Holding(parcel : Parcel(v : (n + i32(2))));
   bare := cond((n == i32(-1)) => Tote.Holding(parcel : Parcel(v : i32(0))), true => Tote.Bare);
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ bare, holding, result : Rc.clone(result) }(io : Io) => {
     a := match(
       holding,
       .Holding(parcel : p) => {
@@ -202,7 +202,7 @@ test("a nested variant pattern in an awaiting arm", {
   n := runtime_int();
   o := Outer2.Ok2(Inner2.A2(i32(6) + n)); // Ok2(A2(7)) at runtime
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ o, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       o,
       .Ok2(.A2(x)) => {
@@ -229,7 +229,7 @@ test("an or-pattern arm with an await", {
   n := runtime_int();
   r := Reading2.Code(i32(0) - n); // Code(-1) at runtime
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ r, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       r,
       (.Code(-1) | .Code(-2)) => {
@@ -253,7 +253,7 @@ test("a guard arm with an await", {
   n := runtime_int();
   o := Option(i32).Some(i32(7) + n); // Some(8)
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ o, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       o,
       (.Some(v) && (v > i32(100))) => {
@@ -279,7 +279,7 @@ test("a string-constant arm with an await", {
   t2 := tag.clone();
   (t3 : String) = t2;
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ result : Rc.clone(result), t3 }(io : Io) => {
     result_value := match(
       t3,
       "run" => {
@@ -302,7 +302,7 @@ test("a range arm and a catch-all binding with awaits", {
   n := runtime_int();
   v := (i32(42) + n); // 43
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ result : Rc.clone(result), v }(io : Io) => {
     result_value := match(
       v,
       (0 ..= 9) => {
@@ -329,7 +329,7 @@ test("a whole-value := binding with an await", {
   n := runtime_int();
   o := Option(i32).Some(i32(5) + n); // Some(6)
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ o, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       o,
       (whole := .Some(v)) => {
@@ -349,7 +349,7 @@ test("a tuple scrutinee with awaiting arms", {
   n := runtime_int();
   t := (i32(3) + n, true); // (4, true)
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ result : Rc.clone(result), t }(io : Io) => {
     result_value := match(
       t,
       (0, _) => {
@@ -374,7 +374,7 @@ test("a struct pattern with an await", {
   n := runtime_int();
   p := Pt(i32(0) + n, i32(9)); // Pt(1, 9)
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ p, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       &p,
       Pt(x : 0, y) => {
@@ -398,7 +398,7 @@ test("a pattern through an Rc payload with an await", {
   n := runtime_int();
   l := List2.Cons2(1, rc(List2.Cons2(i32(2) + n, rc(List2.Nil2))));
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ l, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       l,
       .Cons2(1, Rc(.Cons2(second, _))) => {
@@ -422,7 +422,7 @@ test("a wrapper pattern Rc(p) with an await (decision 31)", {
   n := runtime_int();
   l := List2.Cons2(1, rc(List2.Cons2(i32(2) + n, rc(List2.Nil2))));
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ l, result : Rc.clone(result) }(io : Io) => {
     result_value := match(
       l,
       .Cons2(1, Rc(.Cons2(second, Rc(.Nil2)))) => {
@@ -451,7 +451,7 @@ _PlacePair :: enum(Both(a : i32, b : String), Neither);
 test("a mut match place binding lives across an await", {
   n := runtime_int();
   result := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ n, result : Rc.clone(result) }(io : Io) => {
     (mut(o) : Option(i32)) = .Some(n);
     match(
       &mut o,
@@ -474,7 +474,7 @@ test("a mut match place binding lives across an await", {
 });
 test("a mut place of a counted payload is replaced after an await", {
   result := rc(RefCell(usize).new(usize(0)));
-  task := io.async((io : Io) => {
+  task := io.async({ result : Rc.clone(result) }(io : Io) => {
     (mut(os) : Option(String)) = .Some(String.from("old"));
     (mut(ol) : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
     match(
@@ -505,7 +505,7 @@ test("a mut place of a counted payload is replaced after an await", {
 test("several mut places of one arm, and a local borrow scrutinee, across an await", {
   n := runtime_int();
   result := rc(RefCell(usize).new(usize(0)));
-  task := io.async((io : Io) => {
+  task := io.async({ n, result : Rc.clone(result) }(io : Io) => {
     (mut(p) : _PlacePair) = .Both(a : n, b : String.from("ab"));
     match(
       &mut p,
@@ -542,7 +542,7 @@ test("two interleaved tasks each write their own mut place across awaits", {
   r1 := rc(RefCell(i32).new(0));
   r2 := rc(RefCell(i32).new(0));
   h1 := io.spawn(
-    io.async((io : Io) => {
+    io.async({ n, r1 : Rc.clone(r1) }(io : Io) => {
       (mut(o) : Option(i32)) = .Some(n);
       match(
         &mut o,
@@ -565,7 +565,7 @@ test("two interleaved tasks each write their own mut place across awaits", {
     io
   );
   h2 := io.spawn(
-    io.async((io : Io) => {
+    io.async({ r2 : Rc.clone(r2) }(io : Io) => {
       (mut(o) : Option(i32)) = .Some(i32(100));
       match(
         &mut o,
@@ -599,7 +599,7 @@ test("a mut place whose root is never mentioned again lives across awaits", {
   r1 := rc(RefCell(i32).new(0));
   r2 := rc(RefCell(i32).new(0));
   h1 := io.spawn(
-    io.async((io : Io) => {
+    io.async({ n, r1 : Rc.clone(r1) }(io : Io) => {
       (mut(o) : Option(i32)) = .Some(n);
       match(
         &mut o,
@@ -622,7 +622,7 @@ test("a mut place whose root is never mentioned again lives across awaits", {
     io
   );
   h2 := io.spawn(
-    io.async((io : Io) => {
+    io.async({ r2 : Rc.clone(r2) }(io : Io) => {
       (mut(o) : Option(i32)) = .Some(i32(50));
       match(
         &mut o,
@@ -655,7 +655,7 @@ _PlaceFieldBox :: struct(o : Option(i32), k : i32);
 test("a mut place on a field of a task's local struct lives across awaits", {
   n := runtime_int();
   r := rc(RefCell(i32).new(0));
-  task := io.async((io : Io) => {
+  task := io.async({ n, r : Rc.clone(r) }(io : Io) => {
     (mut(s) : _PlaceFieldBox) = _PlaceFieldBox(o : .Some(n), k : i32(7));
     match(
       &mut s.o,
@@ -682,7 +682,7 @@ _place_fresh :: (fn(io : Io) -> Impl(Future(String, Io)))(
 );
 test("a mut place and a local borrow take an awaited value", {
   result := rc(RefCell(usize).new(usize(0)));
-  task := io.async((io : Io) => {
+  task := io.async({ result : Rc.clone(result) }(io : Io) => {
     (mut(os) : Option(String)) = .Some(String.from("old"));
     match(
       &mut os,
@@ -720,7 +720,7 @@ test("a mut place and a local borrow release the old value an awaited one replac
   old_y := _PlCell(v : i32(2));
   result := rc(RefCell(i32).new(0));
   {
-    task := io.async((io : Io) => {
+    task := io.async({ old_p, old_y, result : Rc.clone(result) }(io : Io) => {
       (mut(op) : Option(_PlCell)) = .Some(old_p);
       match(
         &mut op,
@@ -767,7 +767,7 @@ impl(
 );
 test("a mut place lives across the awaits of a stream loop", {
   result := rc(RefCell(i32).new(0));
-  task := io.async((e : Io) => {
+  task := io.async({ result : Rc.clone(result) }(e : Io) => {
     (mut(o) : Option(i32)) = .Some(i32(100));
     match(
       &mut o,

@@ -140,7 +140,7 @@ test("Test closure with Dyn", {
   );
   // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
   // two handles share one closure through an Rc.
-  closure2 := closure;
+  closure2 := Rc.clone(closure);
   closure.*(1); // 2
   closure2.*(1); // 3
   result := closure.*(2); // 5
@@ -237,7 +237,7 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
   );
   // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
   // two handles share one closure through an Rc.
-  closure2 := closure;
+  closure2 := Rc.clone(closure);
   closure.*(1); // 2
   closure2.*(1); // 3
   result := closure.*(2); // 5
@@ -256,7 +256,7 @@ test("Test anonymous closure value with Dyn that captures Rc object with auto bo
   );
   // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
   // two handles share one closure through an Rc.
-  closure2 := closure;
+  closure2 := Rc.clone(closure);
   closure.*(1); // 2
   closure2.*(1); // 3
   result := closure.*(2); // 5

@@ -16,8 +16,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 test("Test a task on another thread's loop contends for the same mutex", {
   m := arc(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
-  m2 := m;
-  t := Thread(i64).spawn({ m2 }(io : Io) => {
+  m2 := Arc.clone(m);
+  t := Thread(i64).spawn({ m2 : Arc.clone(m2) }(io : Io) => {
     io.await(m2.*.lock(io), io);
     v := (m2.*.get() + i64(10));
     m2.*.set(v);
@@ -46,8 +46,8 @@ test("Test a task on another thread's loop contends for the same mutex", {
 test("Test the lock is handed FIFO across loops, ahead of a later same-loop waiter", {
   m := arc(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
-  mf := m;
-  t := Thread(i64).spawn({ mf }(io : Io) => {
+  mf := Arc.clone(m);
+  t := Thread(i64).spawn({ mf : Arc.clone(mf) }(io : Io) => {
     io.await(mf.*.lock(io), io);
     v := ((mf.*.get() * i64(10)) + i64(1));
     mf.*.set(v);
@@ -57,9 +57,9 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
   while(m.*.waiter_count() == usize(0), {
     io.await(sleep(u64(1)), io);
   });
-  ms := m;
+  ms := Arc.clone(m);
   hs := io.spawn(
-    io.async({ ms }(io : Io) => {
+    io.async({ ms : Arc.clone(ms) }(io : Io) => {
       io.await(ms.*.lock(io), io);
       v := ((ms.*.get() * i64(10)) + i64(2));
       ms.*.set(v);
@@ -99,10 +99,10 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
 test("Test a waiter cancelled on another thread's loop leaves the queue", {
   m := arc(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
-  mf := m;
-  t := Thread(bool).spawn({ mf }(io : Io) => {
+  mf := Arc.clone(m);
+  t := Thread(bool).spawn({ mf : Arc.clone(mf) }(io : Io) => {
     mw := mf;
-    f := io.async({ mw }(io : Io) => {
+    f := io.async({ mw : Arc.clone(mw) }(io : Io) => {
       io.await(mw.*.lock(io), io);
       mw.*.unlock();
       i32(1)

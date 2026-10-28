@@ -56,7 +56,7 @@ test("async try_recv separates Empty from Disconnected", {
 // ---------------------------------------------------------------------------
 test("Test channel producer consumer", {
   ch := Channel(i32).new(usize(2));
-  producer := io.async((io : Io) => {
+  producer := io.async({ ch : ch.clone() }(io : Io) => {
     (mut(i) : i32) = i32(0);
     (mut(going) : bool) = true;
     while(going, {
@@ -104,7 +104,7 @@ test("Test channel close semantics", {
 // ---------------------------------------------------------------------------
 test("Test channel recv waits for sender", {
   ch := Channel(i32).new(usize(1));
-  late_sender := io.async((io : Io) => {
+  late_sender := io.async({ ch : ch.clone() }(io : Io) => {
     io.await(sleep(u64(10)), io);
     _s := io.await(ch.send(i32(99), io), io);
     return(());
@@ -294,7 +294,7 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
 // the channel; `Sender` and `Receiver` are move-only values.
 test("async Channel copies share one channel; Sender and Receiver are move-only", {
   ch := Channel(i32).new(usize(2));
-  ch2 := ch;
+  ch2 := ch.clone();
   _s := ch2.try_send(i32(4));
   assert(match(ch.try_recv(), .Ok(v) => (v == i32(4)), .Err(_) => false), "a copy of the handle is the same channel");
   comptime_expect_error({
@@ -376,7 +376,7 @@ test("Test channel Stream map then filter keeps each closure", {
 });
 test("Test a consumer loop over a channel fed by another task", {
   mut(ch) := Channel(i32).new(usize(2));
-  producer := io.async((io : Io) => {
+  producer := io.async({ ch : ch.clone() }(io : Io) => {
     (mut(n) : i32) = i32(0);
     while(n < i32(3), {
       _s := io.await(ch.send(n, io), io);
@@ -423,7 +423,7 @@ _recv_one :: (fn(quote(io_arg) : Expr, quote(ch) : Expr) -> unquote(Expr))(
 );
 test("an await inside a macro expansion suspends the task", {
   ch := Channel(i32).new(usize(1));
-  task := io.async((io : Io) => {
+  task := io.async({ ch : ch.clone() }(io : Io) => {
     _recv_one(io, ch);
     i32(1)
   });
