@@ -3272,3 +3272,17 @@ test("B6-b: a structural clone of an anonymous-record element reads it in place"
 // `with`) is pinned by the cli-case
 // tests/cli-cases/check-accessor-copy-names-get-cloned, whose `check` fails
 // at exactly this call.
+// A diagnostic names a generic struct's instance by the type the user wrote
+// (`_MoGen(i32)`), not by its fields: the instance is nameless, but it has a
+// registered display name, so it is no anonymous record
+// (issues/fixed/2026-10-27-a-diagnostic-spells-a-generic-struct-instance-by-its-fields.md).
+_MoGen :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), _MoGen(T), Drop(drop : (fn(self : &mut Self) -> unit)(())));
+_MoGenHolder :: struct(g : _MoGen(i32));
+test("move-only: a copy error names a generic struct instance as written", {
+  h := _MoGenHolder(g : _MoGen(i32)(v : i32(1)));
+  comptime_expect_error({
+    _c := h.g;
+  }, "whose type `_MoGen(i32)` is move-only");
+  assert(h.g.v == i32(1), "the holder keeps its field");
+});

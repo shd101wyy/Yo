@@ -479,12 +479,16 @@ type_to_string :: (fn(t : &TypeValue) -> String)(
 /// The plain renderer prints an anonymous record's internal declaration id
 /// (`<struct:struct_decl_...>`), which names nothing a user wrote
 /// (issues/fixed/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md).
+/// A generic type's instance (`W(i32)`, `ArrayList(String)`) is nameless too,
+/// but it has a registered display name (`register_type_display_name`), and
+/// `type_to_string` prints that: it is not an anonymous record
+/// (issues/fixed/2026-10-27-a-diagnostic-spells-a-generic-struct-instance-by-its-fields.md).
 /// Messages only — keys and identity keep `type_to_string`.
 type_to_string_for_message :: (fn(t : &TypeValue) -> String)({
   shown := match(
     t,
-    Rc(.Struct({ name : tfm_name, field_labels : tfm_fls, field_types : tfm_fts, is_source_namespace : tfm_sns })) => cond(
-      (tfm_sns || (tfm_name.len() > usize(0))) => type_to_string(t),
+    Rc(.Struct({ id : tfm_id, name : tfm_name, field_labels : tfm_fls, field_types : tfm_fts, is_source_namespace : tfm_sns })) => cond(
+      (tfm_sns || (tfm_name.len() > usize(0)) || type_display_name(&tfm_id).is_some()) => type_to_string(t),
       true => {
         body := String.new();
         (tfm_i : usize) = usize(0);
