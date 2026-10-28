@@ -63,18 +63,19 @@ test("Test 'ref_count' function", {
     b1 := Rc(i32)(3);
     assert(ref_count(b1) == 1, "ref_count(b1) == 1");
     {
-      b2 := Rc.clone(b1); // Yo performs dup/drop cancellation here.
-      // So ref_count(b1) should remain 1.
-      assert(ref_count(b1) == 1, "ref_count(b1) == 1");
-      assert(ref_count(b2) == 1, "ref_count(b2) == 1");
+      // Decision 17: `Rc.clone` makes a second handle (no dup/drop
+      // cancellation joins the two).
+      b2 := Rc.clone(b1);
+      assert(ref_count(b1) == 2, "ref_count(b1) == 2");
+      assert(ref_count(b2) == 2, "ref_count(b2) == 2");
       {
         b3 := Rc.clone(b2);
-        assert(ref_count(b1) == 2, "ref_count(b1) == 2");
-        assert(ref_count(b2) == 2, "ref_count(b2) == 2");
-        assert(ref_count(b3) == 2, "ref_count(b3) == 2");
+        assert(ref_count(b1) == 3, "ref_count(b1) == 3");
+        assert(ref_count(b2) == 3, "ref_count(b2) == 3");
+        assert(ref_count(b3) == 3, "ref_count(b3) == 3");
       };
-      assert(ref_count(b1) == 1, "ref_count(b1) == 1");
-      assert(ref_count(b2) == 1, "ref_count(b2) == 1");
+      assert(ref_count(b1) == 2, "ref_count(b1) == 2");
+      assert(ref_count(b2) == 2, "ref_count(b2) == 2");
     }
   };
   // Value type containing reference type
@@ -85,7 +86,7 @@ test("Test 'ref_count' function", {
     w2 := w1.clone();
     assert(ref_count(w1) == 1, "ref_count(w1) == 1"); // Should be no change.
     assert(ref_count(w2) == 1, "ref_count(w2) == 1");
-    assert(ref_count(w1.v) == 2, "ref_count(w1.v) == 2"); // Also no change, due to dup/drop cancellation.
+    assert(ref_count(w1.v) == 2, "ref_count(w1.v) == 2"); // The clone holds a second handle.
     assert(ref_count(w2.v) == 2, "ref_count(w2.v) == 2");
   };
 });

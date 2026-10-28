@@ -140,7 +140,7 @@ test("arc alloc : .Some(a) shared across a thread is released into a", {
   heap := _counting(addr_of(counts));
   {
     shared := arc(i32(42), alloc : .Some(heap));
-    t := Thread(unit).spawn(io => {
+    t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
       assert(shared.* == i32(42), "the worker reads the placed cell");
     });
     t.join();
