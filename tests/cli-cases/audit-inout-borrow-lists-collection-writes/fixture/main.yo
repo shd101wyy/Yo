@@ -10,7 +10,7 @@ fill_copy :: (fn(out : &ArrayList(i32)) -> unit)({
 // A subscript write through a read-only binding (`xs(i) = v`,
 // `rows(i).push(v)`) is E0908 since V2b Generation B: the subscript
 // re-dispatches to `IndexMut.index_mut`, which needs `&mut`.
-// Listed as unresolved: `Deque.push_back`'s mutation mask is not resolved.
+// Listed: `Deque.push_back`'s mutation mask resolves (a match arm's own binding, #1648).
 deque_copy :: (fn(d : &Deque(i32)) -> unit)({
   d.push_back(i32(4));
 });
