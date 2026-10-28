@@ -40,12 +40,22 @@ Error :: trait(
   /// `Error` trait on an erased receiver, so a caller could print one link but
   /// not follow it (#521,
   /// `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
-  (source : (fn(self : &Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  /// The result is an `AnyError` (it lists `Clone`): the wrapper keeps its
+  /// cause and hands back a clone.
+  (source : (fn(self : &Self) -> Option(Dyn(SelfTrait, Clone)))) ?= (self -> .None),
   where(Self <: ToString)
 );
 export(Error);
-/// Type-erased dynamic error type. Wraps any type implementing `Error`.
-AnyError :: Dyn(Error);
+/// Type-erased dynamic error type. Wraps any type implementing `Error` and
+/// `Clone`.
+///
+/// A `Dyn` owns its payload uniquely (plans/VALUES_BY_DEFAULT.md decision 7),
+/// and a handler receives the error it catches as a borrow
+/// (`throw(error : &AnyError)`), so keeping it (storing it, returning it,
+/// wrapping it in a `Context`) takes a copy: `err.clone()`, which copies the
+/// payload through the vtable's clone slot. That is why the payload must be
+/// `Clone`; `derive(MyError, Clone)` gives it one.
+AnyError :: Dyn(Error, Clone);
 export(AnyError);
 /// Allows using `String` directly as an error type.
 impl(String, Error());
@@ -215,11 +225,13 @@ Context :: struct(
   /// The error that caused it.
   cause : AnyError
 );
+derive(Context, Clone);
 export(Context);
 impl(
   Context,
-  /// Wrap `cause` with `message`.
-  new : (fn(message : &String, cause : &AnyError) -> Self)(
+  /// Wrap `cause` with `message`. The context owns its cause, so `cause` is
+  /// moved in (`err.clone()` keeps a caught error as well).
+  new : (fn(message : &String, cause : AnyError) -> Self)(
     Self(message : message.clone(), cause : cause)
   )
 );
@@ -238,7 +250,7 @@ impl(
   Context,
   Error(
     source : (fn(self : &Self) -> Option(AnyError))(
-      Option(AnyError).Some(self.cause)
+      Option(AnyError).Some(self.cause.clone())
     )
   )
 );
@@ -282,7 +294,7 @@ export(ResumableException);
 /// (issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md). That
 /// is a separate open defect; this walk stays clear of it.
 root_cause :: (fn(err : &AnyError) -> AnyError)({
-  (mut(cur) : AnyError) = err;
+  (mut(cur) : AnyError) = err.clone();
   (mut(walking) : bool) = true;
   while(walking, {
     match(
@@ -332,7 +344,7 @@ export(root_cause);
 ErrorChain :: ref(struct(_cur : Option(AnyError)));
 /// Start a chain at `err`. The first `next()` returns `err` itself.
 error_chain :: (fn(err : &AnyError) -> ErrorChain)(
-  ErrorChain(_cur : Option(AnyError).Some(err))
+  ErrorChain(_cur : Option(AnyError).Some(err.clone()))
 );
 impl(
   ErrorChain,
@@ -340,7 +352,7 @@ impl(
     Item : AnyError,
     next : (fn(self : &mut Self) -> Option(AnyError))(
       match(
-        self._cur,
+        self._cur.take(),
         .Some(cur) => {
           self._cur = match(cur.source(), .Some(nx) => Option(AnyError).Some(nx), .None => Option(AnyError).None);
           Option(AnyError).Some(cur)

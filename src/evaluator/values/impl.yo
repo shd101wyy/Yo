@@ -6715,7 +6715,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
 /// handler is capture-free — the error rides the unwind value out (the
 /// `_try_ctfe_range_ctor` idiom).
 _try_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext) -> Option(AnyError))({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e.clone()))));
   _check_generic_copy_clone_exclusion(entry, trait_tok, ctx, trap);
   Option(AnyError).None
 });

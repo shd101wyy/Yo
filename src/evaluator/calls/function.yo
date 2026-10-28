@@ -7762,7 +7762,7 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
 _reported_at_user_call :: (fn(err : &AnyError, call : &AstExpr, call_tok : &Token, env : &Environment, ctx : &EvalContext) -> AnyError)({
   err_in_std := match(primary_diagnostic_path(err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
   if(!err_in_std, {
-    return(err);
+    return(err.clone());
   });
   accessor_help := match(
     primary_diagnostic_code(err),
@@ -7797,7 +7797,7 @@ _reported_at_user_call :: (fn(err : &AnyError, call : &AstExpr, call_tok : &Toke
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
       dyn(match(accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
     },
-    .None => err
+    .None => err.clone()
   )
 });
 /// `_evaluate_function_call_unanchored` under a trap that hands the error
@@ -7812,7 +7812,7 @@ _evaluate_function_call_trapped :: (
     out : &mut ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e.clone()))));
   out.push(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, trap));
   Option(AnyError).None
 });
