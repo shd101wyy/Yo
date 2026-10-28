@@ -95,10 +95,10 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
+{ get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -145,6 +145,7 @@ MACRO_DISPATCH_ENABLED :: true;
   try_to_convert_to_numeric_type
 } :: import("./numeric_type.yo");
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
+{ CtorMethodImpl, instance_constructor_fid, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where } :: import("../values/impl.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function_value.yo");
@@ -175,7 +176,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help } :: import("../../error.yo");
-{ E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
+{ E_EXPLICIT_DESTRUCTOR_CALL, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -1233,55 +1234,73 @@ _try_find_receiver_method :: (
     )
   )
 });
-/// The func id of the comptime type constructor that minted `ty`: a struct's
-/// stamped `constructor_func_id` (or the id-keyed stamp), an enum's
-/// registered cfid. `""` for a type no constructor call produced.
-_instance_constructor_fid :: (fn(ty : &TypeValue) -> String)(
-  match(
-    ty,
-    Rc(.Struct({ id : _ })) => struct_effective_ctor_fid(ty),
-    Rc(.EnumT({ id : ic_eid })) => lookup_enum_cfid(ic_eid.replace(String.from("__self_shell"), String.from(""))),
-    _ => String.new()
-  )
+/// What `_infer_unapplied_ctor_receiver` decided for `G.m(args)`: whether
+/// it bound the receiver to `G(A…)` (the call is then method-form, which
+/// leaves position 0 unpeeled, so the caller peels argument 0's call-site
+/// marker against parameter 0's mode: `Rc.make_mut(&mut h)`,
+/// `_Wrap.of_list(&xs)`), and the argument nodes evaluated once while
+/// inferring, which the call marks pre-evaluated around its argument
+/// matching.
+UnappliedCtorInference :: struct(bound : bool, preevaluated : ArrayList(usize));
+/// A candidate impl's verdict on the arguments of `G.m(...)`
+/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2 step 4).
+_SaiOutcome :: enum(
+  Bound(receiver : TypeValue, site : String),
+  Conflict(binder : String, first : TypeValue, first_arg : usize, later : TypeValue, later_arg : usize),
+  Unbound(binder : String),
+  NoFit(arg : usize, arg_ty : TypeValue, param_ty : TypeValue),
+  WhereFailed(binder : String, bound : TypeValue, trait_ty : TypeValue, site : String)
 );
+/// One binder's binding so far: its type and the argument that gave it.
+_SaiBinding :: struct(ty : TypeValue, arg : usize);
 /// A method called through an UNAPPLIED generic type constructor,
-/// `G.m(x, ...)` (plans/VALUES_BY_DEFAULT.md decision 32: `Rc.clone(w)`,
-/// `Rc.clone(b)`), infers `G`'s arguments from the receiver, as Rust infers
-/// `Rc::clone`'s `T`. The receiver of a static call is its first argument, so
-/// `x`'s own type must be an instantiation `G(A, ...)` of `G`; that
-/// instantiation IS the type the method is looked up on, so the ExprInfo of
-/// the callee's receiver node is overwritten with `.TypeVal(G(A, ...))`, and
-/// the call proceeds exactly as `G(A, ...).m(x, ...)` (method lookup including
-/// generic impls, `Self`, codegen's static dispatch). The AST is never
-/// rewritten: a generic body evaluates the receiver again per specialization
-/// (resetting its ExprInfo to the constructor) and infers again, as the
-/// written `G(A, ...)` receiver is re-evaluated per specialization. The match
-/// is by constructor identity, never a search through payloads, so it is
-/// unambiguous: an `Rc(Arc(T))` argument is an `Rc` instance and not an `Arc`
-/// one. A constructor whose body applies another (an alias
-/// `IntPair(B) := Pair(i32, B)`, a partial application `Pair(i32, _)`) is a
-/// constructor of its own: its instances are the other constructor's.
+/// `G.m(a1, …, an)` (plans/VALUES_BY_DEFAULT.md decision 32, widened by
+/// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2), is `G(A1, …, Ak).m(a1, …,
+/// an)`, and the `Ai` come from the method's declaration:
 ///
-/// Fires only when the receiver evaluated to a function value whose result is
-/// a type (a type constructor); any other callee is left as written. Nothing
-/// to infer from — no first argument, or one whose type is not a `G(...)` —
-/// is E0613 (a static method such as `Pair.make(a, b)` lands here: its
-/// arguments say nothing about `Self`, so the arguments are written out,
-/// `Pair(A, B).make(a, b)`). Like the no-method E0610 it is raised only
-/// outside overload dry-runs and definition-time trials, where a miss leaves
-/// the callee as written and the call degrades as it always did.
+/// - A method whose first parameter's declared type is `Self` (any label or
+///   mode: `self : &Self`, `lhs : &Self`, `sink(self) : Self`) takes its
+///   receiver from the first argument, as Rust infers `Rc::clone`'s `T`:
+///   `x`'s own type must be an instance `G(A, ...)` of `G`, and the call is
+///   `G(A, ...).m(x, ...)` (`Rc.clone(w)`). Decision 32's fast path runs
+///   first: when the first argument is an instance, the method is looked up
+///   on it, and the binding stands when what is found takes `Self` first.
+/// - Any other method is a static method: every argument whose parameter's
+///   declared type mentions one of the impl's binders, directly or through
+///   `Self`, binds them (`Pair.make(i32(1), true)` is `Pair(i32, bool)`,
+///   `Rc.new(some_rc)` is `Rc(Rc(X))`). The candidates are every impl whose
+///   receiver is an instance of `G` and which declares `m`
+///   (`impls_of_constructor_method`); a closure literal, an enum shorthand
+///   `.X` and a defaulted argument are not consulted, nor is the call's
+///   expected type. A comptime literal binds its default type when nothing
+///   else binds that binder (`Rc.new(42)` is `Rc(i32)`).
 ///
-/// The first argument is evaluated here, with no expected type (it is the
-/// receiver: its type comes from itself); a labeled one (`self : x`) is its
-/// value, as argument matching strips the label (which it also validates,
-/// labels being positional). The returned id is that value's:
-/// the caller marks it pre-evaluated around the method call's argument
-/// matching, as it does the receiver of `x.m()`, so it is not evaluated twice.
+/// The receiver's ExprInfo becomes `.TypeVal(G(A…))` once the choice is
+/// made, and the call proceeds exactly as `G(A…).m(…)` (method lookup,
+/// `Self`, where-clauses, codegen's static dispatch). The AST is never
+/// rewritten: a generic body evaluates the receiver again per
+/// specialization (resetting its ExprInfo to the constructor) and infers
+/// again. The match is by constructor identity, never a search through
+/// payloads (an `Rc(Arc(T))` argument is an `Rc` instance and not an `Arc`
+/// one); an alias or a partial application of a constructor is a constructor
+/// of its own.
+///
+/// Fires only when the receiver evaluated to a function value whose result
+/// is a type (a type constructor). Nothing to infer from is E0613 (no
+/// argument at all; a receiver method given a non-instance; a binder no
+/// consulted argument mentions; several impls fitting), two arguments binding
+/// one binder to different types E0601, an impl whose bound the binding
+/// fails E0602. Like the no-method E0610 they are raised only outside
+/// overload dry-runs and definition-time trials, where a miss leaves the
+/// callee as written and the call degrades as it always did. Each argument
+/// consulted is evaluated once, with no expected type (a labeled one is its
+/// value; a lent one, `&mut h`, the place under its marker).
 _infer_unapplied_ctor_receiver :: (
-  fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(usize)
+  fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> UnappliedCtorInference
 )({
+  none := UnappliedCtorInference(bound : false, preevaluated : ArrayList(usize).new());
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
-    return(Option(usize).None);
+    return(none);
   });
   // D6: read where bound — the list never escapes as a copy.
   uc_recv := match(
@@ -1290,18 +1309,19 @@ _infer_unapplied_ctor_receiver :: (
       a.get(usize(0)),
       .Some(r) => r,
       .None => {
-        return(Option(usize).None);
+        return(none);
       }
     ),
     _ => {
-      return(Option(usize).None);
+      return(none);
     }
   );
-  uc_method := match(
+  uc_method_expr := match(
     callee,
-    .FnCall(_, _, a, _, _) => match(a.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.from("?")),
-    _ => String.from("?")
+    .FnCall(_, _, a, _, _) => a.get(usize(1)),
+    _ => Option(AstExpr).None
   );
+  uc_method := match(uc_method_expr, .Some(m) => ast_expr_to_string(&m), .None => String.from("?"));
   uc_ctor_fid := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&uc_recv)),
     .Some(uc_ri) => match(
@@ -1316,100 +1336,655 @@ _infer_unapplied_ctor_receiver :: (
     .None => String.new()
   );
   if(uc_ctor_fid.len() == usize(0), {
-    return(Option(usize).None);
+    return(none);
   });
   uc_ctor := ast_expr_to_string(&uc_recv);
   uc_may_throw := (!ctx.is_in_function_call_checking_phase && !in_def_time_trial());
-  uc_arg0_written := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      if(uc_may_throw, {
-        exn.throw(
-          dyn(
-            with_code(
-              format_error_message_with_help(
-                ast_expr_token(&uc_recv),
-                `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}()\`: a method called through an unapplied type constructor infers them from its first argument, the receiver, and this call has none.`,
-                Option(String).Some(`write the type arguments: \`${uc_ctor}(...).${uc_method}()\``)
-              ),
-              E_CANNOT_INFER
-            )
+  if(args.len() == usize(0), {
+    if(uc_may_throw, {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(&uc_recv),
+              `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}()\`: a method called through an unapplied type constructor infers them from its arguments, and this call has none.`,
+              Option(String).Some(`write the type arguments: \`${uc_ctor}(...).${uc_method}()\``)
+            ),
+            E_CANNOT_INFER
           )
-        );
-      });
-      return(Option(usize).None);
-    }
-  );
-  uc_arg0_unlabeled := cond(
-    ast_expr_is_fn_call_of(&uc_arg0_written, ":", .Some(usize(2))) => match(
-      uc_arg0_written,
-      .FnCall(_, _, uc_la, _, _) => match(uc_la.get(usize(1)), .Some(v) => v, .None => uc_arg0_written),
-      _ => uc_arg0_written
-    ),
-    true => uc_arg0_written
-  );
-  // A receiver lent with its marker (`Rc.make_mut(&mut h)`, Rust's
-  // `Rc::make_mut(&mut h)`) is the place under it; argument matching reads
-  // the marker itself.
-  uc_arg0 := ast_expr_strip_borrow_marker(&uc_arg0_unlabeled);
-  uc_saved_et := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
-  uc_evaluated := evaluate_expression_raw(&uc_arg0, env, ctx, exn);
-  ctx.expected_type = uc_saved_et;
-  uc_arg_ty := match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&uc_evaluated)),
-    .Some(uc_ai) => uc_ai.ty,
-    .None => {
-      return(Option(usize).None);
-    }
-  );
+        )
+      );
+    });
+    return(none);
+  });
+  // The arguments evaluated so far, by position: the evaluated node (the
+  // place under a label or a borrow marker) and its type.
+  uc_nodes := ArrayList(Option(AstExpr)).new();
+  uc_tys := ArrayList(Option(TypeValue)).new();
+  (uc_ni : usize) = usize(0);
+  while(uc_ni < args.len(), uc_ni = (uc_ni + usize(1)), {
+    uc_nodes.push(.None);
+    uc_tys.push(.None);
+  });
+  uc_arg0_ty := _sai_arg_type(args, usize(0), &mut uc_nodes, &mut uc_tys, env, ctx, exn);
+  uc_has_arg0 := uc_arg0_ty.is_some();
+  uc_arg_ty := match(uc_arg0_ty, .Some(t) => t, .None => t_unit());
   uc_own := resolve_enum_shell(resolve_struct_shell(t_refine_inner(&uc_arg_ty)));
   uc_inst := cond(
-    (_instance_constructor_fid(&uc_own) == uc_ctor_fid) => Option(TypeValue).Some(uc_own),
+    (uc_has_arg0 && (instance_constructor_fid(&uc_own) == uc_ctor_fid)) => Option(TypeValue).Some(uc_own.clone()),
     true => Option(TypeValue).None
   );
+  // Decision 32's fast path: the receiver binding stands when the method
+  // found on the instance takes `Self` first.
   match(
-    uc_inst,
-    .Some(uc_self) => {
-      uc_info := new_expr_info(env, t_type());
-      uc_info.value = Option(EvalValue).Some(EvalValue.TypeVal(uc_self));
-      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&uc_recv), &uc_info);
-      Option(usize).Some(ast_expr_id(&uc_arg0))
-    },
-    .None => {
+    uc_inst.clone(),
+    .Some(uc_self) => if(_sai_instance_method_takes_self(env, &uc_method, &uc_self), {
+      return(_sai_bind_receiver(&uc_recv, &uc_self, &uc_nodes, &uc_tys, env, ctx));
+    }),
+    .None => ()
+  );
+  uc_head := match(
+    uc_recv,
+    .Atom(_, uc_tok) => uc_tok.value.clone(),
+    .FnCall(_, _, uc_ra, _, _) => match(uc_ra.get(usize(1)), .Some(uc_m) => ast_expr_to_string(&uc_m), .None => String.new())
+  );
+  uc_static := _sai_static_candidates(&uc_ctor_fid, &uc_method, &uc_head);
+  if(uc_static.len() == usize(0), {
+    match(
+      uc_inst,
+      // A receiver method, or a name no impl of `G` declares: the instance is
+      // the receiver, and a miss is E0610 naming it.
+      .Some(uc_self) => {
+        return(_sai_bind_receiver(&uc_recv, &uc_self, &uc_nodes, &uc_tys, env, ctx));
+      },
+      .None => ()
+    );
+    if(uc_may_throw && !uc_has_arg0, {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(&uc_recv),
+              `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which takes its type from the parameter (a closure or an enum shorthand) and so is not an instance of \`${uc_ctor}\`.`,
+              Option(String).Some(`pass a \`${uc_ctor}(...)\` value as the first argument, or write the type arguments: \`${uc_ctor}(...).${uc_method}(...)\``)
+            ),
+            E_CANNOT_INFER
+          )
+        )
+      );
+    });
+    if(uc_may_throw && uc_has_arg0, {
       // An instance of ANOTHER constructor (the argument's type was built by
       // one) is told apart from a type no constructor built (`i32`): the
       // first is fixed by naming that constructor, the second by passing a
       // `G(...)` value or writing the arguments.
-      uc_other_ctor := (_instance_constructor_fid(&uc_own).len() > usize(0));
-      if(uc_may_throw, {
+      uc_other_ctor := (instance_constructor_fid(&uc_own).len() > usize(0));
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(&uc_recv),
+              cond(
+                uc_other_ctor => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`: another type constructor built it (an alias or a partial application of a constructor is a constructor of its own).`,
+                true => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`.`
+              ),
+              cond(
+                uc_other_ctor => Option(String).Some(
+                  `call the method through the constructor that built \`${type_to_string(&uc_arg_ty)}\`; \`${uc_ctor}\` is matched by identity, so where it is an alias of that constructor, write its arguments: \`${uc_ctor}(...).${uc_method}(...)\``
+                ),
+                true => Option(String).Some(
+                  `pass a \`${uc_ctor}(...)\` value as the first argument; a method with no receiver takes its type arguments written out: \`${uc_ctor}(...).${uc_method}(...)\``
+                )
+              )
+            ),
+            E_CANNOT_INFER
+          )
+        )
+      );
+    });
+    return(none);
+  });
+  // A static method: every consulted argument binds (§2 step 3).
+  uc_outcomes := ArrayList(_SaiOutcome).new();
+  (uc_ci : usize) = usize(0);
+  while(uc_ci < uc_static.len(), uc_ci = (uc_ci + usize(1)), {
+    match(
+      uc_static.get(uc_ci),
+      .Some(uc_c) => uc_outcomes.push(_sai_try_candidate(&uc_c, &uc_recv, args, &mut uc_nodes, &mut uc_tys, env, ctx, exn)),
+      .None => ()
+    );
+  });
+  _sai_decide(&uc_outcomes, &uc_static, &uc_recv, &uc_ctor, &uc_method, &uc_nodes, &uc_tys, uc_may_throw, env, ctx, exn)
+});
+/// The place an argument evaluates as for inference: the value under a
+/// label (`self : x`), the place under a call-site borrow marker
+/// (`Rc.make_mut(&mut h)`). Labels are positional, so argument matching
+/// still validates the label.
+_sai_arg_place :: (fn(arg : &AstExpr) -> AstExpr)({
+  unlabeled := cond(
+    ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) => match(
+      arg,
+      .FnCall(_, _, la, _, _) => match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()),
+      _ => arg.clone()
+    ),
+    true => arg.clone()
+  );
+  ast_expr_strip_borrow_marker(&unlabeled)
+});
+/// An argument inference never evaluates (§2 step 3): a closure literal and
+/// an enum shorthand (`.X`, `.Some(x)`) take their type from the parameter.
+/// A field read `v.f` and a range `a..b` are calls of an operator atom that
+/// also starts with `.`, and are not shorthands.
+_sai_arg_is_contextual :: (fn(place : &AstExpr) -> bool)(
+  cond(
+    ast_expr_is_fn_call_of(place, "=>", Option(usize).None) => true,
+    ast_expr_is_atom(place) => _sai_is_shorthand_name(&ast_expr_token(place).value),
+    ast_expr_is_fn_call_of(place, BF_DOT, .Some(usize(1))) => true,
+    true => match(
+      place,
+      .FnCall(_, sc_f, _, _, _) => ((ast_expr_is_atom(&sc_f) && _sai_is_shorthand_name(&ast_expr_token(&sc_f).value)) || ast_expr_is_fn_call_of(&sc_f, BF_DOT, .Some(usize(1)))),
+      _ => false
+    )
+  )
+);
+/// `.X`: a dot followed by a name, not the `.` / `..` / `..=` operators.
+_sai_is_shorthand_name :: (fn(v : &String) -> bool)(
+  v.starts_with(".") && !(v == BF_DOT) && !v.starts_with("..")
+);
+/// Argument `i`'s type, evaluating it once with no expected type and
+/// recording the evaluated node; `.None` for an argument that is not
+/// consulted (absent, contextual) or produced no ExprInfo.
+_sai_arg_type :: (
+  fn(args : &ArrayList(AstExpr), i : usize, nodes : &mut ArrayList(Option(AstExpr)), tys : &mut ArrayList(Option(TypeValue)), env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue)
+)({
+  match(
+    tys.get(i),
+    .Some(.Some(t)) => {
+      return(Option(TypeValue).Some(t));
+    },
+    _ => ()
+  );
+  place := match(
+    args.get(i),
+    .Some(a) => _sai_arg_place(&a),
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  if(_sai_arg_is_contextual(&place), {
+    return(Option(TypeValue).None);
+  });
+  saved_et := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  evaluated := evaluate_expression_raw(&place, env, ctx, exn);
+  ctx.expected_type = saved_et;
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(ai) => {
+      // The WRITTEN node is the one argument matching evaluates again, so it
+      // is the one marked pre-evaluated, as decision 32 marked its receiver.
+      nodes(i) = Option(AstExpr).Some(place);
+      tys(i) = Option(TypeValue).Some(ai.ty.clone());
+      Option(TypeValue).Some(ai.ty)
+    },
+    .None => Option(TypeValue).None
+  )
+});
+/// Is the first parameter of the function type `method_ty` declared `Self`,
+/// the type `self_ty` (under any label or mode)?
+_sai_param0_is_self :: (fn(method_ty : &TypeValue, self_ty : &TypeValue) -> bool)(
+  match(
+    method_ty,
+    Rc(.Func({ param_types : pts })) => match(
+      slot_pointee_at(&pts, usize(0)),
+      .Some(p0) => (are_types_compatible_exact(&p0, self_ty) || (type_key(&p0) == type_key(self_ty))),
+      .None => false
+    ),
+    _ => false
+  )
+);
+/// Decision 32's fast path: does the method `m` found on the instance
+/// `self_ty` take `Self` first? Looked up as `G(A…).m` is (the pending
+/// impls of the type forced on a miss).
+_sai_instance_method_takes_self :: (fn(env : &Environment, m : &String, self_ty : &TypeValue) -> bool)({
+  hits := get_type_trait_methods_by_name_from_env(env, m.clone(), self_ty);
+  if(hits.len() == usize(0), {
+    match(
+      force_pending_impls_for_type_name(type_head_name_for_impl_forcing(self_ty), Option(String).Some(m.clone())),
+      .Forced => {
+        hits = get_type_trait_methods_by_name_from_env(env, m.clone(), self_ty);
+      },
+      .Error({ msg : sai_force_msg }) => flag_pending_impl_force_error(&sai_force_msg),
+      .NoneForced => ()
+    );
+  });
+  (found : bool) = false;
+  (hi : usize) = usize(0);
+  while((hi < hits.len()) && !found, hi = (hi + usize(1)), {
+    found = match(hits.get(hi), .Some(h) => _sai_param0_is_self(&h.ty, self_ty), .None => false);
+  });
+  found
+});
+/// The candidates of `G.m` that are static methods (their first parameter is
+/// not `Self`). On an index miss the pending impls of `G`'s head name are
+/// forced and the index read again, so an `impl` placed below the call is
+/// found (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4).
+_sai_static_candidates :: (fn(ctor_fid : &String, m : &String, head : &String) -> ArrayList(CtorMethodImpl))({
+  cands := impls_of_constructor_method(ctor_fid, m);
+  if(cands.len() == usize(0), {
+    match(
+      force_pending_impls_for_type_name(head, Option(String).Some(m.clone())),
+      .Forced => {
+        cands = impls_of_constructor_method(ctor_fid, m);
+      },
+      .Error({ msg : sc_force_msg }) => flag_pending_impl_force_error(&sc_force_msg),
+      .NoneForced => ()
+    );
+  });
+  out := ArrayList(CtorMethodImpl).new();
+  (ci : usize) = usize(0);
+  while(ci < cands.len(), ci = (ci + usize(1)), {
+    match(
+      cands.get(ci),
+      .Some(c) => if(!_sai_param0_is_self(&c.method_ty, &c.receiver_pattern), {
+        out.push(c);
+      }),
+      .None => ()
+    );
+  });
+  out
+});
+/// The receiver's ExprInfo becomes `.TypeVal(self_ty)`: the call proceeds as
+/// `G(A…).m(…)`. Every argument evaluated while
+/// inferring is pre-evaluated for the call, except one whose type still
+/// carries a comptime literal type (`Rc.new(42)`): that one is evaluated again
+/// under the parameter's instantiated type, as the written call evaluates it.
+_sai_bind_receiver :: (
+  fn(recv : &AstExpr, self_ty : &TypeValue, nodes : &ArrayList(Option(AstExpr)), tys : &ArrayList(Option(TypeValue)), env : &Environment, ctx : &EvalContext) -> UnappliedCtorInference
+)({
+  info := new_expr_info(env, t_type());
+  info.value = Option(EvalValue).Some(EvalValue.TypeVal(self_ty.clone()));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(recv), &info);
+  pre := ArrayList(usize).new();
+  (ni : usize) = usize(0);
+  while(ni < nodes.len(), ni = (ni + usize(1)), {
+    match(
+      nodes.get(ni),
+      .Some(.Some(n)) => match(
+        tys.get(ni),
+        .Some(.Some(n_ty)) => if(are_types_compatible_exact(&convert_comptime_type_to_runtime_type(&n_ty, env), &n_ty), {
+          pre.push(ast_expr_id(&n));
+        }),
+        _ => ()
+      ),
+      _ => ()
+    );
+  });
+  UnappliedCtorInference(bound : true, preevaluated : pre)
+});
+/// Every SomeT of a binder named in `names` that `ty` carries at another
+/// frame level than the binder's own is the binder: a method type can mint
+/// the same name at several levels (`find_methods_from_generic_impls`'s
+/// same-name rule), and synthesis binds the binder's own.
+_sai_normalize_binder_levels :: (fn(ty : &TypeValue, names : &ArrayList(String), somes : &ArrayList(TypeValue)) -> TypeValue)({
+  s := subst_new();
+  (added : bool) = false;
+  all := get_all_some_types(ty);
+  (bi : usize) = usize(0);
+  while(bi < names.len(), bi = (bi + usize(1)), {
+    b_name := match(names.get(bi), .Some(n) => n, .None => String.new());
+    b_some := match(somes.get(bi), .Some(t) => t, .None => t_unit());
+    b_lvl := match(b_some, Rc(.SomeT({ frame_level : l })) => l, _ => usize(0));
+    (ai : usize) = usize(0);
+    while(ai < all.len(), ai = (ai + usize(1)), {
+      match(
+        all.get(ai),
+        .Some(Rc(.SomeT({ name : a_name, frame_level : a_lvl }))) => if((a_name == b_name) && (a_lvl != b_lvl), {
+          subst_add(&s, &b_name, a_lvl, &b_some);
+          added = true;
+        }),
+        _ => ()
+      );
+    });
+  });
+  cond(added => substitute(&s, ty), true => ty.clone())
+});
+/// Does `ty` mention one of the binders `names`?
+_sai_mentions_binder :: (fn(ty : &TypeValue, names : &ArrayList(String)) -> bool)({
+  (found : bool) = false;
+  (bi : usize) = usize(0);
+  while((bi < names.len()) && !found, bi = (bi + usize(1)), {
+    found = match(names.get(bi), .Some(n) => _sai_mentions_binder_named(ty, &n), .None => false);
+  });
+  found
+});
+/// Does `ty` mention the binder `name`? Through an instantiation's type
+/// arguments too: `_Wrap(T)` = `struct(n : usize)` mentions `T` only there.
+_sai_mentions_binder_named :: (fn(ty : &TypeValue, name : &String) -> bool)(type_mentions_some_type_named(ty, name));
+/// One candidate's verdict (§2 steps 3 and 4): bind its binders from the
+/// consulted arguments, check its where-clauses, and build `G(A…)`.
+_sai_try_candidate :: (
+  fn(
+    c : &CtorMethodImpl,
+    recv : &AstExpr,
+    args : &ArrayList(AstExpr),
+    nodes : &mut ArrayList(Option(AstExpr)),
+    tys : &mut ArrayList(Option(TypeValue)),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> _SaiOutcome
+)({
+  pts := match(c.method_ty, Rc(.Func({ param_types : p })) => p.items.clone(), _ => ArrayList(TypeValue).new());
+  binds := ArrayList(Option(_SaiBinding)).new();
+  (bi0 : usize) = usize(0);
+  while(bi0 < c.binder_names.len(), bi0 = (bi0 + usize(1)), {
+    binds.push(.None);
+  });
+  (ai : usize) = usize(0);
+  while(ai < args.len(), ai = (ai + usize(1)), {
+    match(
+      pts.get(ai),
+      .Some(pt_raw) => {
+        // A parameter's type is its slot (`&T` is `Reference(T)`); the
+        // argument binds the pointee.
+        pt := _sai_normalize_binder_levels(&t_slot_pointee(&pt_raw), &c.binder_names, &c.binder_types);
+        if(_sai_mentions_binder(&pt, &c.binder_names), {
+          match(
+            _sai_arg_type(args, ai, nodes, tys, env, ctx, exn),
+            .Some(arg_ty) => match(
+              synthesize_impl_binders(&c.binder_names, &c.binder_types, &pt, &arg_ty, env),
+              .Some(got) => {
+                (gi : usize) = usize(0);
+                while(gi < got.len(), gi = (gi + usize(1)), {
+                  match(
+                    got.get(gi),
+                    .Some(.Some(now)) => match(
+                      binds.get(gi),
+                      .Some(.Some(prev)) => cond(
+                        _forall_types_conflict(&prev.ty, &now) => {
+                          return(
+                            _SaiOutcome.Conflict(
+                              binder : match(c.binder_names.get(gi), .Some(n) => n, .None => String.new()),
+                              first : prev.ty,
+                              first_arg : prev.arg,
+                              later : now,
+                              later_arg : ai
+                            )
+                          );
+                        },
+                        // A literal's comptime type gives way to a typed
+                        // argument's binding of the same binder.
+                        (_sai_is_literal_type(&prev.ty) && !_sai_is_literal_type(&now)) => {
+                          binds(gi) = Option(_SaiBinding).Some(_SaiBinding(ty : now, arg : ai));
+                        },
+                        true => ()
+                      ),
+                      _ => {
+                        binds(gi) = Option(_SaiBinding).Some(_SaiBinding(ty : now, arg : ai));
+                      }
+                    ),
+                    _ => ()
+                  );
+                });
+              },
+              .None => {
+                return(_SaiOutcome.NoFit(arg : ai, arg_ty : arg_ty, param_ty : pt));
+              }
+            ),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  // Every binder `G(A…)` needs: the ones its receiver pattern mentions. A
+  // binder only a where-clause mentions is bound by that clause when the call
+  // dispatches (`try_match_generic_impl`'s where pass).
+  bindings := ArrayList(Option(TypeValue)).new();
+  (bi : usize) = usize(0);
+  while(bi < c.binder_names.len(), bi = (bi + usize(1)), {
+    b_name := match(c.binder_names.get(bi), .Some(n) => n, .None => String.new());
+    needed := _sai_mentions_binder_named(&c.receiver_pattern, &b_name);
+    match(
+      binds.get(bi),
+      .Some(.Some(b)) => bindings.push(Option(TypeValue).Some(convert_comptime_type_to_runtime_type(&b.ty, env))),
+      _ => {
+        if(needed, {
+          return(_SaiOutcome.Unbound(binder : b_name));
+        });
+        bindings.push(.None);
+      }
+    );
+  });
+  match(
+    c.generic_entry,
+    .Some(ge) => match(
+      first_failed_impl_where(&ge, &bindings, env),
+      .Some((wf_binder, wf_bound, wf_trait)) => {
+        return(_SaiOutcome.WhereFailed(binder : wf_binder, bound : wf_bound, trait_ty : wf_trait, site : c.site.clone()));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  match(
+    _sai_instantiate(c, &bindings, recv, env, ctx, exn),
+    .Some(r) => _SaiOutcome.Bound(receiver : r, site : c.site.clone()),
+    .None => _SaiOutcome.Unbound(binder : match(c.binder_names.get(usize(0)), .Some(n) => n, .None => String.new()))
+  )
+});
+_sai_is_literal_type :: (fn(t : &TypeValue) -> bool)(is_comptime_int_type(t) || is_comptime_float_type(t));
+/// `G(A…)`: the candidate's receiver pattern with its binders bound. A
+/// pattern with type arguments is built by calling the constructor on them
+/// (the receiver node, still the constructor, as the callee), so the type is
+/// the memoized, stamped instance a written `G(A…)` evaluates to.
+_sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeValue)), recv : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue))({
+  targs := match(c.receiver_pattern, Rc(.Struct({ type_arguments : ta })) => ta.items.clone(), Rc(.EnumT({ type_arguments : ta })) => ta.items.clone(), _ => ArrayList(TypeValue).new());
+  if((targs.len() == usize(0)) || (c.binder_names.len() == usize(0)), {
+    return(Option(TypeValue).Some(c.receiver_pattern.clone()));
+  });
+  s := subst_new();
+  (bi : usize) = usize(0);
+  while(bi < c.binder_names.len(), bi = (bi + usize(1)), {
+    b_name := match(c.binder_names.get(bi), .Some(n) => n, .None => String.new());
+    match(
+      bindings.get(bi),
+      .Some(.Some(bty)) => match(
+        c.binder_types.get(bi),
+        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &b_name, lvl, &bty),
+        _ => ()
+      ),
+      _ => ()
+    );
+  });
+  call_args := ArrayList(AstExpr).new();
+  marked := ArrayList(usize).new();
+  (ti : usize) = usize(0);
+  while(ti < targs.len(), ti = (ti + usize(1)), {
+    match(
+      targs.get(ti),
+      .Some(ta) => {
+        arg_ty := substitute(&s, &ta);
+        aid := alloc_global_expr_id();
+        a_info := new_expr_info(env, t_type());
+        a_info.value = Option(EvalValue).Some(EvalValue.TypeVal(arg_ty.clone()));
+        expr_info_table_set(&ctx.expr_info_table, aid, &a_info);
+        mark_node_preevaluated(aid);
+        marked.push(aid);
+        call_args.push(AstExpr.Atom(aid, synthetic_token(type_to_string(&arg_ty), &env.module_path.*)));
+      },
+      .None => ()
+    );
+  });
+  recv_id := ast_expr_id(recv);
+  mark_node_preevaluated(recv_id);
+  call := AstExpr.FnCall(alloc_global_expr_id(), recv.clone(), call_args, false, ast_expr_token(recv));
+  saved_et := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  built := evaluate_expression_raw(&call, env, ctx, exn);
+  ctx.expected_type = saved_et;
+  unmark_node_preevaluated(recv_id);
+  (mi : usize) = usize(0);
+  while(mi < marked.len(), mi = (mi + usize(1)), {
+    match(marked.get(mi), .Some(id) => unmark_node_preevaluated(id), .None => ());
+  });
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&built)),
+    .Some(bi_info) => match(bi_info.value, .Some(.TypeVal(t)) => Option(TypeValue).Some(t), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+});
+/// The verdict over every candidate (§2 step 4): one distinct `G(A…)` binds
+/// the receiver; several are ambiguous; none reports the most telling
+/// failure (a where-clause failure as the bound's own error when exactly one
+/// candidate existed, then a conflict, an unbound binder, an argument that
+/// fits no parameter).
+_sai_decide :: (
+  fn(
+    outcomes : &ArrayList(_SaiOutcome),
+    cands : &ArrayList(CtorMethodImpl),
+    recv : &AstExpr,
+    ctor : &String,
+    m : &String,
+    nodes : &ArrayList(Option(AstExpr)),
+    tys : &ArrayList(Option(TypeValue)),
+    may_throw : bool,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> UnappliedCtorInference
+)({
+  none := UnappliedCtorInference(bound : false, preevaluated : ArrayList(usize).new());
+  bound_tys := ArrayList(TypeValue).new();
+  bound_sites := ArrayList(String).new();
+  (oi : usize) = usize(0);
+  while(oi < outcomes.len(), oi = (oi + usize(1)), {
+    match(
+      outcomes.get(oi),
+      .Some(.Bound(r, site)) => {
+        (dup : bool) = false;
+        (di : usize) = usize(0);
+        while((di < bound_tys.len()) && !dup, di = (di + usize(1)), {
+          dup = match(bound_tys.get(di), .Some(t) => are_types_compatible_exact(&t, &r), .None => false);
+        });
+        if(!dup, {
+          bound_tys.push(r);
+          bound_sites.push(site);
+        });
+      },
+      _ => ()
+    );
+  });
+  if(bound_tys.len() == usize(1), {
+    chosen := match(bound_tys.get(usize(0)), .Some(t) => t, .None => t_unit());
+    return(_sai_bind_receiver(recv, &chosen, nodes, tys, env, ctx));
+  });
+  if(!may_throw, {
+    return(none);
+  });
+  tok := ast_expr_token(recv);
+  help := Option(String).Some(`write the type arguments: \`${ctor}(...).${m}(...)\``);
+  if(bound_tys.len() > usize(1), {
+    (listing : String) = String.new();
+    (li : usize) = usize(0);
+    while(li < bound_tys.len(), li = (li + usize(1)), {
+      if(li > usize(0), {
+        listing.push_str(cond(((li + usize(1)) == bound_tys.len()) => " and ", true => ", "));
+      });
+      listing.push_string(`\`${match(bound_tys.get(li), .Some(t) => type_to_string(&t), .None => String.new())}\` (the impl at ${match(bound_sites.get(li), .Some(s) => s, .None => String.new())})`);
+    });
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: it is ambiguous, the arguments fit more than one impl that declares \`${m}\`: ${listing}.`, &help),
+          E_CANNOT_INFER
+        )
+      )
+    );
+    return(none);
+  });
+  if(cands.len() == usize(1), {
+    match(
+      outcomes.get(usize(0)),
+      .Some(.WhereFailed(wb, wbound, wtrait, wsite)) => {
         exn.throw(
           dyn(
             with_code(
-              format_error_message_with_help(
-                ast_expr_token(&uc_recv),
-                cond(
-                  uc_other_ctor => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`: another type constructor built it (an alias or a partial application of a constructor is a constructor of its own).`,
-                  true => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`.`
-                ),
-                cond(
-                  uc_other_ctor => Option(String).Some(
-                    `call the method through the constructor that built \`${type_to_string(&uc_arg_ty)}\`; \`${uc_ctor}\` is matched by identity, so where it is an alias of that constructor, write its arguments: \`${uc_ctor}(...).${uc_method}(...)\``
-                  ),
-                  true => Option(String).Some(
-                    `pass a \`${uc_ctor}(...)\` value as the first argument; a method with no receiver takes its type arguments written out: \`${uc_ctor}(...).${uc_method}(...)\``
-                  )
-                )
-              ),
+              format_error_message(&tok, `Type ${type_to_string(&wbound)} does not implement required trait ${type_to_string(&wtrait)}: \`${ctor}.${m}(...)\` binds \`${wb}\` to ${type_to_string(&wbound)}, and the impl that declares \`${m}\` (at ${wsite}) requires \`${wb} <: ${type_to_string(&wtrait)}\`.`),
+              E_TRAIT_NOT_IMPLEMENTED
+            )
+          )
+        );
+        return(none);
+      },
+      _ => ()
+    );
+  });
+  (oj : usize) = usize(0);
+  while(oj < outcomes.len(), oj = (oj + usize(1)), {
+    match(
+      outcomes.get(oj),
+      .Some(.Conflict(cb, cfirst, cfirst_arg, clater, clater_arg)) => {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message(&tok, `Incompatible types for type parameter "${cb}" of \`${ctor}\`: it is ${type_to_string(&cfirst)} from argument ${(cfirst_arg + usize(1)).to_string()} but ${type_to_string(&clater)} from argument ${(clater_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`),
+              E_INCOMPATIBLE_TYPES
+            )
+          )
+        );
+        return(none);
+      },
+      _ => ()
+    );
+  });
+  (ok : usize) = usize(0);
+  while(ok < outcomes.len(), ok = (ok + usize(1)), {
+    match(
+      outcomes.get(ok),
+      .Some(.Unbound(ub)) => {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message_with_help(&tok, `Cannot infer the type parameter \`${ub}\` of \`${ctor}\` in \`${ctor}.${m}(...)\`: no argument binds it. An argument binds the type parameters its parameter's declared type mentions; a closure, an enum shorthand \`.X\` and a defaulted argument bind none, and neither does the type the call is expected to have.`, &help),
               E_CANNOT_INFER
             )
           )
         );
-      });
-      Option(usize).None
-    }
-  )
+        return(none);
+      },
+      _ => ()
+    );
+  });
+  (on : usize) = usize(0);
+  while(on < outcomes.len(), on = (on + usize(1)), {
+    match(
+      outcomes.get(on),
+      .Some(.NoFit(na, nty, npt)) => {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: argument ${(na + usize(1)).to_string()} has type \`${type_to_string(&nty)}\`, which does not fit the parameter type \`${type_to_string(&npt)}\`.`, &help),
+              E_CANNOT_INFER
+            )
+          )
+        );
+        return(none);
+      },
+      _ => ()
+    );
+  });
+  exn.throw(
+    dyn(
+      with_code(
+        format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: the bounds of every impl that declares \`${m}\` fail for these arguments.`, &help),
+        E_CANNOT_INFER
+      )
+    )
+  );
+  none
 });
 // ---------------------------------------------------------------------------
 // _static_dot_receiver_self_type — when the callee is a static method call
@@ -11630,7 +12205,7 @@ Fix: wrap the call:
     .None => {
       // `G.m(x, ...)` through an unapplied type constructor: the receiver
       // becomes `G(A, ...)`, inferred from `x` (decision 32).
-      uc_arg0_id := _infer_unapplied_ctor_receiver(&evaluated_callee, &args, &callee_env, ctx, exn);
+      uc_inf := _infer_unapplied_ctor_receiver(&evaluated_callee, &args, &callee_env, ctx, exn);
       if(_structural_clone_precedes_lookup(&evaluated_callee, args.len(), ctx), {
         match(
           _try_structural_copy_clone(expr, &evaluated_callee, args.len(), &callee_env, ctx, exn),
@@ -11723,9 +12298,8 @@ Fix: wrap the call:
           // call-site marker (Rust's `Rc::make_mut(&mut h)`), checked and
           // peeled against `self`'s mode here. The call below is
           // method-form, which leaves position 0 unpeeled.
-          uc_args := match(
-            uc_arg0_id,
-            .Some(_) => match(
+          uc_args := cond(
+            uc_inf.bound => match(
               method_info.method_ty,
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
@@ -11745,7 +12319,7 @@ Fix: wrap the call:
               },
               _ => args.clone()
             ),
-            .None => args.clone()
+            true => args.clone()
           );
           (ai : usize) = usize(0);
           while(ai < uc_args.len(), {
@@ -11794,7 +12368,10 @@ Fix: wrap the call:
           // `self` it must not be evaluated again (the exponential chain cost).
           recv_node_id := ast_expr_id(&method_info.receiver_expr);
           mark_node_preevaluated(recv_node_id);
-          match(uc_arg0_id, .Some(uc_id) => mark_node_preevaluated(uc_id), .None => ());
+          (uc_pi : usize) = usize(0);
+          while(uc_pi < uc_inf.preevaluated.len(), uc_pi = (uc_pi + usize(1)), {
+            match(uc_inf.preevaluated.get(uc_pi), .Some(uc_id) => mark_node_preevaluated(uc_id), .None => ());
+          });
           call_result_m := try_to_call_function_with_arguments(
             &method_info.method_val_opt,
             &m_callee_ty,
@@ -11809,7 +12386,10 @@ Fix: wrap the call:
             exn
           );
           unmark_node_preevaluated(recv_node_id);
-          match(uc_arg0_id, .Some(uc_id) => unmark_node_preevaluated(uc_id), .None => ());
+          (uc_ui : usize) = usize(0);
+          while(uc_ui < uc_inf.preevaluated.len(), uc_ui = (uc_ui + usize(1)), {
+            match(uc_inf.preevaluated.get(uc_ui), .Some(uc_id) => unmark_node_preevaluated(uc_id), .None => ());
+          });
           ctx.pending_method_self_type = Option(TypeValue).None;
           // Record the resolved/specialized method FuncVal in the non-destructive
           // method-callee VALUE side-table (keyed by this call's expr id) so

@@ -1018,7 +1018,7 @@ p.set_x(10); // 无需写 `addr_of(p)` — 编译器自动插入
 
 方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Rc(i32).clone(b)`），也可以省略（`Rc.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
 
-静态方法（没有 `self` 的方法）没有可供推断的接收者，所以必须写出类型实参：`Pair(i32, bool).make(...)`。调用结果被期望的类型也不会提供它们。在这种情况下省略类型实参，或者第一个实参不是该构造器的实例，都会报 E0613，错误信息会给出该实参的类型。
+静态方法（第一个参数不是 `Self` 的方法）则从它的实参推断：凡是参数的声明类型提到了 impl 的类型参数的实参，都会绑定它们，所以 `Pair.make(i32(1), true)` 就是 `Pair(i32, bool).make(i32(1), true)`，`Rc.new(x)` 就是 `Rc(X).new(x)`。嵌套也可以（参数 `xs : ArrayList(T)` 收到 `ArrayList(String)` 时绑定 `T := String`），字面量绑定它的默认类型（`Rc.new(42)` 是 `Rc(i32)`）。闭包字面量、枚举简写 `.X` 和取默认值的实参不绑定任何东西，调用结果被期望的类型也从不提供它们：`Rc.new(.None)`、没有实参的调用（`ArrayList.new()`）以及没有实参提到的类型参数都会报 E0613，其帮助信息是写出类型实参（`Rc(Option(i32)).new(.None)`）。两个实参把同一个参数绑定到不同类型会报 E0601，实参同时适配两个 impl 会报有歧义的 E0613。对于第一个参数是 `Self` 的方法（`self : &Self`、`lhs : &Self`），第一个实参不是该构造器的实例会报 E0613，错误信息会给出该实参的类型。
 
 接收者可以像其他实参一样带标签（`Pair.first(self : p)`），构造器也可以带模块限定（`m.Pair.first(p)`）。匹配依据的是构造器的身份，所以函数体应用了另一个构造器的构造器是一个独立的构造器：对于别名 `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` 或偏应用 `Pair(i32, _)`，以 `IntPair(u8)` 构造的值是 `Pair(i32, u8)`，`Pair.first(q)` 和 `IntPair(u8).first(q)` 都接受它，而 `IntPair.first(q)` 会报 E0613。
 
@@ -1033,8 +1033,8 @@ impl(
   make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b))
 );
 
-p := Pair(i32, bool).make(i32(1), true); // 静态方法：写出类型实参
-a := Pair.first(p); // 从 `p` 推断 A := i32、B := bool
+p := Pair.make(i32(1), true); // 静态方法：从实参推断 A := i32、B := bool
+a := Pair.first(p); // 从接收者 `p` 推断 A := i32、B := bool
 w := rc(i32(5));
 c := Rc.clone(w); // 即 Rc(i32).clone(w)
 ```
