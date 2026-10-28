@@ -8681,7 +8681,8 @@ heavy run, the command is given in item 2.
         because a bundle cannot hold owned state;
       - lending the bundle (`e : &E`), because there is no borrowed state
         to lend, and `&` would mark every effect parameter again.
-- **As built (2026-10-28, one PR, branch `vbd/v2c-rc-clone`).**
+- **As built (one PR, v0.2.73 window; the numbers are this PR's sweep, on
+  the tree that carries B6-c's `src/` half and the B4 follow-ups).**
   - **The rule** is E0901 for an implicit copy of a value holding a counted
     handle whose source is used again (`type_holds_counted_handle`,
     `src/types/utils.yo`), with the moves, borrows and capture lists of
@@ -8697,23 +8698,53 @@ heavy run, the command is given in item 2.
     writes). The migration is two-phase: a `&x` scrutinee is decided at the
     block epilogue, after its arm bindings' copies were judged as moves, so
     a second pass spells the copies of the now-borrowing bindings. The sweep
-    runs passes until one inserts nothing (three for `src/`).
-  - **The sweep:** `std/` 3 clones (`std/http`); `src/` 2,452 clones, 2
-    capture lists, 652 `&` scrutinees and 2 call-site markers in 177
-    files, 0 sites listed and no hand edit; `tests/`: TESTS_SWEEP_NUMBERS.
+    runs passes until one inserts nothing (three).
+  - **The sweep** is the tool's output, regenerated on the merge base, never
+    hand-merged:
+    - `std/`: 3 clones (`std/http`).
+    - `src/`: 2,420 clones, 2 capture lists, 663 `&` scrutinees and 2
+      call-site markers in 177 files (passes 3,083 / 4 / 0), 0 sites listed.
+    - `tests/` (outside `tests/cli-cases`): 190 clones, 149 capture lists,
+      24 `&` scrutinees and 2 call-site markers in 65 files (passes 345 / 20
+      / 0). `tests/internal` is swept as its own batch
+      (`issues/2026-10-28-a-yo-fix-batch-over-tests-poisons-later-files-after-copy-trait-test.md`).
+  - **Hand edits**, each for a shape the tool does not reach:
+    - Five `mut` globals the sweep clones are `RefCell` cells
+      (`src/env.yo`, `src/expr_info.yo`, `src/module_manager.yo`). The seeds
+      v0.2.71 and v0.2.72 reject their `G.clone()` (E0916); the fix
+      (`issues/fixed/2026-10-25-a-clone-through-an-rc-payloads-user-clone-is-e0916-on-a-mut-global.md`)
+      lands in this PR, so a later seed can take the edit back.
+    - Test sites in seven files: a thread capture whose implicit copy is
+      now a move (`arc`), an element copy in a generic reader
+      (`async/combinators`), a nested closure's capture (`async_await`,
+      `issues/2026-10-28-rc-clone-misses-a-nested-closures-capture-of-an-enclosing-closures-capture.md`),
+      a last-use move an earlier argument lends (`internal/env_lookup`,
+      `issues/2026-10-28-rc-clone-moves-a-handle-an-earlier-argument-of-the-same-call-lends.md`),
+      `Rc` instantiations of a generic `id` that copies `&T` (`fn`), a
+      handle holder that is not `Clone` (`sync/refcell`), an `Rc(T)` copy in
+      a generic method, and `ref_count` expectations that encoded the dup/drop
+      cancellation of an implicit copy (`rc`).
   - **std's generic bodies stay exempt** (`set_counted_handle_std_generic`,
     the knob `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges them). Measured on
-    the swept tree: `std/` is clean, and `check ./src` fails 238 of 276
-    files, every one at `HashMap.get` or `ArrayList.get` instantiated at a
-    handle element (the readers copy their element through `T`). The
-    exemption goes once `src/` reads handle elements through B6's
-    accessors (`get_cloned`, `xs(i)` in place, `with`). User generic bodies
-    are judged at each instantiation.
-  - **Bugs the sweep found,** both pre-existing and fixed in the PR: a value
-    reassigned in every arm after a move stayed moved where the arms meet
-    (`issues/fixed/2026-10-27-a-value-reassigned-in-every-arm-after-a-move-is-still-moved.md`),
-    and a move inside a unary operator's operand was a use after move
-    (`!match(o, …)`; `issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md`).
+    the swept tree before B6-c: `std/` is clean, and `check ./src` fails
+    238 of 276 files, every one at `HashMap.get` or `ArrayList.get`
+    instantiated at a handle element (the readers copy their element
+    through `T`). The exemption goes once `src/` reads handle elements
+    through B6's accessors (`get_cloned`, `xs(i)` in place, `with`). User
+    generic bodies are judged at each instantiation.
+  - **Bugs the sweep found,** all pre-existing and fixed in the PR:
+    - a value reassigned in every arm after a move stayed moved where the
+      arms meet
+      (`issues/fixed/2026-10-27-a-value-reassigned-in-every-arm-after-a-move-is-still-moved.md`);
+    - a move inside a unary operator's operand was a use after move
+      (`!match(o, …)`;
+      `issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md`);
+    - a nested `io.async` whose implicit capture moves an enclosing
+      capture left the enclosing machine dropping it too, a use-after-free
+      (`issues/fixed/2026-10-28-a-nested-io-async-implicitly-capturing-a-moved-capture-is-dropped-twice.md`);
+    - a structural `clone()` of a record or closure holding an `Rc` was
+      E0616 in its own generated code
+      (`issues/fixed/2026-10-28-a-structural-clone-of-a-record-with-an-rc-field-is-e0616.md`).
 
 **After V2b: the allocator interface, version 2** (queued by the maintainer
 2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
