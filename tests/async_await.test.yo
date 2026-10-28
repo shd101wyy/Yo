@@ -165,7 +165,7 @@ test("Test multiple sequential awaits", {
 test("Test cond with await in one branch - non-await path", {
   flag := Rc(bool)(false);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     value := i32(42);
     cond(
       flag.* => {
@@ -195,7 +195,7 @@ test("Test cond with await in one branch - non-await path", {
 test("Test cond with await in one branch - await path", {
   flag := Rc(bool)(true);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     value := i32(99);
     cond(
       flag.* => {
@@ -223,7 +223,7 @@ test("Test cond with await in one branch - await path", {
 test("Test cond with await in both branches", {
   flag := Rc(bool)(true);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
@@ -250,7 +250,7 @@ test("Test cond with await in both branches", {
 test("Test cond with await in both branches - false path", {
   flag := Rc(bool)(false);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
@@ -295,7 +295,7 @@ test("Test early return from async block", {
 test("Test early return from cond branch in async", {
   flag := Rc(bool)(true);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     s := Rc(i32)(100);
     cond(
       flag.* => {
@@ -321,7 +321,7 @@ test("Test early return from cond branch in async", {
 test("Test early return from non-await cond branch in async", {
   flag := Rc(bool)(true);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     s := Rc(i32)(200);
     cond(
       flag.* => {
@@ -451,7 +451,7 @@ test("Test nested cond with await", {
   outer_flag := Rc(bool)(true);
   inner_flag := Rc(bool)(true);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ inner_flag, outer_flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ inner_flag : Rc.clone(inner_flag), outer_flag : Rc.clone(outer_flag), result : Rc.clone(result) }(io : Io) => {
     cond(
       outer_flag.* => {
         io.await(yield(io), io);
@@ -557,7 +557,7 @@ test("Test async function with multiple awaits and early return", {
 test("Test code after cond with await", {
   flag := Rc(bool)(true);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     mut(x) := i32(10);
     cond(
       flag.* => {
@@ -581,7 +581,7 @@ test("Test code after cond with await", {
 test("Test code after cond with await - non-await path", {
   flag := Rc(bool)(false);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     mut(x) := i32(10);
     cond(
       flag.* => {
@@ -611,7 +611,7 @@ test("Test sequential conds with await", {
   a_flag := Rc(bool)(true);
   b_flag := Rc(bool)(false);
   result := rc(RefCell(i32).new(0));
-  task := io.async({ a_flag, b_flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ a_flag : Rc.clone(a_flag), b_flag : Rc.clone(b_flag), result : Rc.clone(result) }(io : Io) => {
     mut(x) := i32(0);
     cond(
       a_flag.* => {
@@ -713,7 +713,7 @@ test("Test many sequential awaits", {
 test("Test continue in async while loop", {
   sum := rc(RefCell(i32).new(0));
   counter := rc(RefCell(i32).new(0));
-  task := io.async({ counter, sum : Rc.clone(sum) }(io : Io) => {
+  task := io.async({ counter : Rc.clone(counter), sum : Rc.clone(sum) }(io : Io) => {
     while(counter.with(cur => cur) < i32(10), {
       i := counter.with(cur => cur);
       counter.with_mut(cur => {
@@ -1080,7 +1080,7 @@ test("Test loop-local and captured values with continue across await", {
   offset := Rc(i32)(1);
   counter := rc(RefCell(i32).new(0));
   sum := rc(RefCell(i32).new(0));
-  task := io.async({ counter : Rc.clone(counter), offset, sum : Rc.clone(sum) }(io : Io) => {
+  task := io.async({ counter : Rc.clone(counter), offset : Rc.clone(offset), sum : Rc.clone(sum) }(io : Io) => {
     while(counter.with(cur => cur) < i32(5), {
       loop_value := Rc(i32)(counter.with(cur => cur));
       counter.with_mut(cur => {
@@ -1111,7 +1111,7 @@ test("Test early return inside loop after continue", {
   i := rc(RefCell(i32).new(0));
   found := rc(RefCell(i32).new(-1));
   reached_end := rc(RefCell(bool).new(false));
-  task := io.async({ found : Rc.clone(found), i, reached_end : Rc.clone(reached_end) }(io : Io) => {
+  task := io.async({ found : Rc.clone(found), i : Rc.clone(i), reached_end : Rc.clone(reached_end) }(io : Io) => {
     while(i.with(cur => cur) < i32(10), {
       i.with_mut(cur => {
         cur = (cur + 1);
@@ -1346,7 +1346,7 @@ test("Test cond-with-await then while-with-await", {
   flag := Rc(bool)(true);
   counter := rc(RefCell(i32).new(0));
   result := rc(RefCell(i32).new(0));
-  task := io.async({ counter : Rc.clone(counter), flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ counter : Rc.clone(counter), flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
@@ -1547,7 +1547,7 @@ test("Test cond non-await path then code after cond in async", {
   flag := Rc(bool)(false);
   result := rc(RefCell(i32).new(0));
   after_cond := rc(RefCell(i32).new(0));
-  task := io.async({ after_cond : Rc.clone(after_cond), flag, result : Rc.clone(result) }(io : Io) => {
+  task := io.async({ after_cond : Rc.clone(after_cond), flag : Rc.clone(flag), result : Rc.clone(result) }(io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
@@ -5121,7 +5121,7 @@ shape_started :: (fn(marker : &Rc(RefCell(i32)), io : Io) -> Impl(Future(unit, I
 test("not-taken branch's lazy named future is neither started nor awaited", {
   drive := (fn(flag : bool, m : &Rc(RefCell(i32)), rio : Io) -> Impl(Future(i32, Io)))(
     rio.async({ flag, m : Rc.clone(m) }(aio : Io) => {
-      f1 := shape_started(m, aio);
+      f1 := shape_started(&m, aio);
       r := cond(
         flag => {
           aio.await(f1, aio);
