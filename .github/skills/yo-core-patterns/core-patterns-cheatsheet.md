@@ -481,7 +481,9 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
   with `d.clone()` (an independent payload, through the vtable's clone slot), any other `Dyn` is
   move-only, and so is a value holding one (`Option(Dyn(...))`, a struct field). A copy whose
   source is used again is E0901 everywhere (std and src too since B13), and so is a read after a
-  by-value `match(o, …)` of a local holding one (`match(&o, …)` borrows); share one payload with
+  by-value `match(o, …)` of a local holding one (`match(&o, …)` borrows). A copying accessor on a
+  collection of a non-`Clone` `Dyn` (`xs.get(i)`, `xs.last()`) is E0901 too: read through the
+  subscript (`xs(i).m()`) or move one out (`xs.pop()`); share one payload with
   `Rc(Dyn(Trait))` (`r.*.method()`, `r.*(args)` for a `Dyn(Fn)`) or `Arc(Dyn(Trait, Send, Sync))`.
 - For exception-style control flow, see [yo-async-effects](../yo-async-effects/SKILL.md)
 
