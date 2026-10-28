@@ -42,6 +42,7 @@
 { get_variables_from_env, Environment, Variable } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 {
+  ExprInfo,
   ExprInfoTable,
   expr_info_table_get,
   expr_info_case_executed,
@@ -1059,6 +1060,27 @@ _msp_taint_to :: (fn(ctx : &_MspCtx, name : &String, target : _MspRoot) -> unit)
     true => _msp_def(ctx, name, _msp_param_root(target.param, true))
   );
 });
+/// The variables an identifier read names. The atom's recorded env answers
+/// first; when it lacks the binding, the evaluator's `source_variable` stamp
+/// (set on every identifier read) does. A match arm body that is a bare
+/// pattern binding (`.Some(b) => b`) is such a read: the arm trims the body's
+/// recorded env to the match's depth, which pops the frame holding `b`, so
+/// the env lookup finds nothing and the read classified as unknown storage
+/// (issues/fixed/2026-10-28-a-match-arm-returning-its-pattern-binding-classifies-as-unknown-storage.md).
+_msp_atom_vars :: (fn(atom : &AstExpr, info : &ExprInfo, name : &String) -> ArrayList(Variable))({
+  vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
+  if(vars.len() > usize(0), {
+    return(vars);
+  });
+  match(
+    info.source_variable,
+    .Some(sv) => if(sv.name == name, {
+      vars.push(sv);
+    }),
+    .None => ()
+  );
+  vars
+});
 /// The root of a variable read.
 _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
   info := match(expr_info_table_get(&ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(_msp_root(MSP_ROOTED)));
@@ -1078,7 +1100,7 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
   if(name.starts_with("."), {
     return(_msp_root(MSP_NONE));
   });
-  vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
+  vars := _msp_atom_vars(atom, &info, &name);
   if(vars.len() == usize(0), {
     return(_msp_root(MSP_ROOTED));
   });
@@ -1111,7 +1133,7 @@ _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))(
     return(Option(String).None);
   });
   name := ast_expr_token(atom).value;
-  vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
+  vars := _msp_atom_vars(atom, &info, &name);
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
