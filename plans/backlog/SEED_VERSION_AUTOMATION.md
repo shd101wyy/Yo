@@ -382,6 +382,26 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-28): `box` asks for its payload's alignment
+
+**Generation A (allocator v2 Generation B, `vbd/alloc-v2-gen-b-r2`):**
+codegen gains `generate_alignof`, so `align_of(T)` of a type holding an
+`extern` type lowers to `_Alignof(T)`
+(`issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md`).
+Under a seed without it the call stays untranspiled: `Box(T).new` asking for
+`max(16, align_of(T))` poisoned the `Box(_ThreadState(unit))` specialization
+`std/thread.yo` makes, and every program spawning a thread failed its C
+compile (measured 2026-10-28 with v0.2.71). So std calls `align_of` only on
+types whose layout the evaluator knows until the seed carries the fix, and
+`box` asks its allocator for alignment 16.
+
+**Generation B (once `SEED_VERSION` carries the fix, v0.2.73 or later):**
+`Box`'s placed request and its release use `max(16, align_of(T))`, as
+`Allocator.alloc` does, and the "`box` still asks for 16" limit leaves
+`docs/*/EXPLICIT_ALLOCATORS.md` "Limits". `Box`'s layout PR
+(`plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout") needs the
+same alignment; landing before that seed, it computes it without `align_of`.
+
 ## Seed-gated follow-up (2026-10-27): `make_mut` disassociates `Weak`
 
 **Generation A (W3, `feat/w3-weak`, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md):**

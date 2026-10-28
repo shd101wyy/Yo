@@ -142,12 +142,12 @@ Point :: struct(x : i32, y : i32);
 
 a := Allocator.global(); // 或任何其他 `Allocator` 值，比如你自己的分配器
 p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // 放在 `a` 里
-xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
+xs := ArrayList(i32).new(alloc : .Some(a)); // 缓冲区在 `a` 里
 ys := ArrayList(i32).new(); // 没有参数：全局分配器
 ```
 
-- **默认全局，放置靠参数。** 不带分配器参数的创建使用全局分配器，所以一个调用做什么从不取决于它的调用者。`box`、`rc` 和 `arc` 接受 `alloc : .Some(a)`，容器提供 `new_in` / `with_capacity_in`。缓冲区之后的每次增长都留在创建它的分配器里。`ref` 构造、`dyn` 盒子、插值字符串、闭包环境、任务状态机以及运行时自己的簿记都使用全局分配器。
-- **传递放置是安全代码。** `Allocator`、`Option(Allocator)` 以及持有它的结构体都是不透明句柄：安全文件可以声明 `(alloc : Option(Allocator)) ?= .None` 并把它传下去。使用句柄的裸字段（`a.alloc(n)`）仍然需要该 pragma。
+- **默认全局，放置靠参数。** 不带分配器参数的创建使用全局分配器，所以一个调用做什么从不取决于它的调用者。`box`、`rc` 和 `arc` 接受 `alloc : .Some(a)`，容器的 `new` / `with_capacity` 也一样；`clone_in(a)` 放置一个副本。缓冲区之后的每次增长都留在创建它的分配器里。`ref` 构造、`dyn` 盒子、插值字符串、闭包环境、任务状态机以及运行时自己的簿记都使用全局分配器。
+- **传递放置是安全代码。** `Allocator`、`Option(Allocator)` 以及持有它的结构体都是不透明句柄：安全文件可以声明 `(alloc : Option(Allocator)) ?= .None` 并把它传下去。使用句柄的裸字段（`a.alloc(n, align)`）仍然需要该 pragma。
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`，所以只要它自己的回调是线程安全的，一个分配器就可以服务多个线程。
 - **分配器必须比它的块活得更久。** Yo 不检查这一点：用户编写的分配器的上下文和 vtable 必须一直有效，直到它分配出去的每个块都被释放。
 
