@@ -665,17 +665,31 @@ MSP_ROOTED :: u8(4);
 ///   FRESH  — allocated in this frame, holding only fresh/inert values
 ///   SHELL  — allocated in this frame, but may HOLD rooted handles
 ///   PARAM  — storage reachable from parameter `param`; `deep` = through an
-///            RC-typed hop (another object), else the parameter's own storage
+///            RC-typed hop (another object), else the parameter's own storage;
+///            `contents` = may have been READ OUT of that storage (a field,
+///            element, deref or pattern payload, `_msp_extract`), else it is
+///            the parameter's value itself (a read, cast, pointer offset or
+///            transparent wrapper of it)
 ///   ROOTED — unknown: may alias parameter or global storage
-_MspRoot :: struct(kind : u8, param : usize, deep : bool);
+_MspRoot :: struct(kind : u8, param : usize, deep : bool, contents : bool);
 derive(_MspRoot, Copy, Clone);
-_msp_root :: (fn(kind : u8) -> _MspRoot)(_MspRoot(kind : kind, param : usize(0), deep : false));
-_msp_param_root :: (fn(i : usize, deep : bool) -> _MspRoot)(_MspRoot(kind : MSP_PARAM, param : i, deep : deep));
-_msp_root_same :: (fn(a : _MspRoot, b : _MspRoot) -> bool)((a.kind == b.kind) && (a.param == b.param) && (a.deep == b.deep));
+_msp_root :: (fn(kind : u8) -> _MspRoot)(_MspRoot(kind : kind, param : usize(0), deep : false, contents : false));
+_msp_param_root :: (fn(i : usize, deep : bool) -> _MspRoot)(_MspRoot(kind : MSP_PARAM, param : i, deep : deep, contents : false));
+_msp_root_same :: (fn(a : _MspRoot, b : _MspRoot) -> bool)((a.kind == b.kind) && (a.param == b.param) && (a.deep == b.deep) && (a.contents == b.contents));
+/// `r`, marked as possibly read out of the parameter storage it names.
+_msp_as_contents :: (fn(r : _MspRoot) -> _MspRoot)(
+  if(r.kind == MSP_PARAM, _MspRoot(kind : MSP_PARAM, param : r.param, deep : r.deep, contents : true), r)
+);
 /// May alias parameter or global storage.
 _msp_is_rootedish :: (fn(r : _MspRoot) -> bool)((r.kind == MSP_PARAM) || (r.kind == MSP_ROOTED));
 /// Holds (or may hold) rooted handles.
 _msp_holds_rooted :: (fn(r : _MspRoot) -> bool)((r.kind == MSP_SHELL) || (r.kind == MSP_PARAM) || (r.kind == MSP_ROOTED));
+/// A pure builtin whose result is its argument's value itself: a pointer
+/// offset or a cast. Any other pure builtin's result may be read out of its
+/// arguments' storage (`__yo_ptr_read`, `__yo_array_index`).
+_msp_builtin_keeps_value :: (fn(h : &String) -> bool)(
+  (h == "__yo_ptr_add") || (h == "__yo_ptr_sub") || (h == "__yo_as")
+);
 /// Lattice join.
 _msp_join :: (fn(a : _MspRoot, b : _MspRoot) -> _MspRoot)(
   cond(
@@ -683,7 +697,7 @@ _msp_join :: (fn(a : _MspRoot, b : _MspRoot) -> _MspRoot)(
     (b.kind == MSP_NONE) => a,
     ((a.kind == MSP_FRESH) && (b.kind == MSP_FRESH)) => a,
     (((a.kind == MSP_FRESH) || (a.kind == MSP_SHELL)) && ((b.kind == MSP_FRESH) || (b.kind == MSP_SHELL))) => _msp_root(MSP_SHELL),
-    ((a.kind == MSP_PARAM) && (b.kind == MSP_PARAM) && (a.param == b.param)) => _msp_param_root(a.param, a.deep || b.deep),
+    ((a.kind == MSP_PARAM) && (b.kind == MSP_PARAM) && (a.param == b.param)) => _MspRoot(kind : MSP_PARAM, param : a.param, deep : (a.deep || b.deep), contents : (a.contents || b.contents)),
     // "Fresh or parameter i": a fresh value holds nothing rooted, so
     // attributing the union to parameter i over-asserts and never
     // under-asserts (a `malloc`-or-`realloc` result, a `.None`-or-payload).
@@ -698,7 +712,7 @@ _msp_join :: (fn(a : _MspRoot, b : _MspRoot) -> _MspRoot)(
 _msp_extract :: (fn(r : _MspRoot, hop_is_rc : bool) -> _MspRoot)(
   cond(
     (r.kind == MSP_SHELL) => _msp_root(MSP_ROOTED),
-    (r.kind == MSP_PARAM) => _msp_param_root(r.param, r.deep || hop_is_rc),
+    (r.kind == MSP_PARAM) => _MspRoot(kind : MSP_PARAM, param : r.param, deep : (r.deep || hop_is_rc), contents : true),
     true => r
   )
 );
@@ -1847,7 +1861,11 @@ impl(
                 _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
                 .Some(av) => match(
                   av.get(an.ret.param),
-                  .Some(aj) => _msp_extract(_MsP.classify(&aj, ctx), an.ret.deep),
+                  // The callee returns argument j's value itself (a cast or
+                  // pointer offset of it, `p.add(n)`): it aliases what the
+                  // argument aliases, a fresh block included. Contents read
+                  // out of it are the argument's contents.
+                  .Some(aj) => if(!(an.ret.deep) && !(an.ret.contents), _MsP.classify(&aj, ctx), _msp_extract(_MsP.classify(&aj, ctx), an.ret.deep)),
                   .None => _msp_root(MSP_ROOTED)
                 ),
                 .None => _msp_root(MSP_ROOTED)
@@ -1877,7 +1895,7 @@ impl(
         );
         k = (k + usize(1));
       });
-      return(acc2);
+      return(if(_msp_builtin_keeps_value(&head), acc2, _msp_as_contents(acc2)));
     });
     _msp_debug_all(String.from("classify-unresolved"), e);
     _msp_root(MSP_ROOTED)
@@ -2209,7 +2227,7 @@ impl(
           .Atom(_, _) => ()
         );
       });
-      return(acc0);
+      return(if(_msp_builtin_keeps_value(&ex.name), acc0, _msp_as_contents(acc0)));
     });
     _msp_root(MSP_ROOTED)
   }),
