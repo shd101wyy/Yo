@@ -429,7 +429,9 @@ compiler. Generation B (B13) removed that carve-out: std and the compiler copy a
 `.clone()` or move it, like any other program. The rule only rejects programs. Every copy it
 accepts is the last use of its source and keeps the counted-share representation, so the emitted C
 changes only where a copy became a `.clone()`. Making the move the type's own (the explicit-copy
-and move-only predicates) is a later step.
+and move-only predicates) is a later step. Because std is judged too, a copying accessor on a
+collection of a non-`Clone` `Dyn` (`xs.get(i)`, `xs.last()`) is E0901 at the call: read the element
+through the subscript (`xs(i).m()`) or move it out (`xs.pop()`).
 
 **`AnyError` lists `Clone`.** A handler receives the error it catches as a borrow
 (`throw(error : &AnyError)`), so a handler that keeps the error (stores it, returns it, wraps it in
