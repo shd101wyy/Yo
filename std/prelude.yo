@@ -10468,7 +10468,9 @@ impl(
   /// The payload, written: when another handle of either kind shares the
   /// cell, `self` first moves to a fresh cell holding a clone of the payload.
   /// Rust's `Arc::make_mut`: an `ArcWeak` to the only `Arc`'s cell upgrades
-  /// to `.None` afterwards.
+  /// to `.None` afterwards. Unlike Rust's, the check is two loads, not a
+  /// CAS, so an `upgrade` racing it on another thread can still slip in
+  /// (`issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`).
   make_mut : (fn(self : &mut Self) -> &mut T)({
     // SAFETY: an `Arc` handle is the address of its live cell.
     cell := unsafe(unsafe.cast(self, *T));
