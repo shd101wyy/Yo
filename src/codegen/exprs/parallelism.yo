@@ -47,20 +47,12 @@
 /// module.)
 _capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> String)({
   target_key := type_key(capture_type);
-  vals := context.base.types.values();
-  (go : bool) = true;
   (found : Option(String)) = Option(String).None;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(entry) => if(type_key(&entry.ty) == target_key, {
-        found = Option(String).Some(entry.c_name.clone());
-        go = false;
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&context.base.types, (_tid, entry) => {
+    if(type_key(&entry.ty) == target_key, {
+      found = Option(String).Some(entry.c_name.clone());
+      break;
+    });
   });
   match(
     found,

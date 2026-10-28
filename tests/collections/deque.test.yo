@@ -530,3 +530,12 @@ test("with, take and swap work on the ring in place, wrapped around too", {
   t := d.take(usize(5));
   assert((t == `x2!`) && (d(usize(5)) == ``) && (d.len() == usize(6)), "take leaves the default");
 });
+test("with's body is an FnOnce: it moves a capture into the element", {
+  d := Deque(String).new();
+  d.push_back(`a`);
+  s := String.from("moved");
+  d.with(usize(0), { s }(v) => {
+    v = s;
+  });
+  assert(d(usize(0)) == `moved`, "the moved capture replaced the element");
+});

@@ -80,7 +80,7 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
     (pi : usize) = usize(0);
     while((pi < g_pending_warnings.with(xs => xs.len())) && !seen, {
       match(
-        g_pending_warnings.with(xs => xs.get(pi)),
+        g_pending_warnings.with(xs => xs.get_cloned(pi)),
         .Some(p) => if((p.span.path == d.span.path) && (p.span.row == d.span.row) && (p.span.col == d.span.col) && (p.message == d.message), {
           seen = true;
         }),
@@ -454,7 +454,7 @@ take_user_warnings :: (fn(std_root : &String, cache_root : &String) -> ArrayList
   (kwi : usize) = usize(0);
   while(kwi < ws.len(), {
     match(
-      ws.get(kwi),
+      ws.get_cloned(kwi),
       .Some(w) => {
         under_std := _path_is_under(&w.span.path, std_root);
         under_cache := _path_is_under(&w.span.path, cache_root);
@@ -584,9 +584,9 @@ lookup_std_exporters :: (fn(name : &String) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < g_std_export_names.with(xs => xs.len()), {
     match(
-      g_std_export_names.with(xs => xs.get(i)),
+      g_std_export_names.with(xs => xs.get_cloned(i)),
       .Some(n) => if(n == name, {
-        match(g_std_export_modules.with(xs => xs.get(i)), .Some(m) => out.push(m.clone()), .None => ());
+        match(g_std_export_modules.with(xs => xs.get_cloned(i)), .Some(m) => out.push(m.clone()), .None => ());
       }),
       .None => ()
     );
@@ -609,7 +609,7 @@ suggest_name :: (
   (i : usize) = usize(0);
   while(i < candidates.len(), {
     match(
-      candidates.get(i),
+      candidates.get_cloned(i),
       .Some(c) => {
         if(c == target, {
           return(Option(String).None);
@@ -647,7 +647,7 @@ _row_digits :: (fn(n : usize) -> usize)({
 _first_message_line :: (fn(message : &String) -> String)({
   lines := message.split(String.from("\n"));
   match(
-    lines.get(usize(0)),
+    lines.get_cloned(usize(0)),
     .Some(line) => line,
     .None => String.new()
   )
@@ -666,7 +666,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   (mi : usize) = usize(0);
   while(mi < msg_lines.len(), {
     match(
-      msg_lines.get(mi),
+      msg_lines.get_cloned(mi),
       .Some(line) => {
         if(mi == usize(0), {
           match(
@@ -740,7 +740,7 @@ _render_diagnostics_human_colored :: (
   (di : usize) = usize(0);
   while(di < diagnostics.len(), {
     match(
-      diagnostics.get(di),
+      diagnostics.get_cloned(di),
       .Some(d) => {
         w = _max_usize(w, _row_digits(d.span.row + usize(1)));
       },
@@ -751,7 +751,7 @@ _render_diagnostics_human_colored :: (
   (dj : usize) = usize(0);
   while(dj < diagnostics.len(), {
     match(
-      diagnostics.get(dj),
+      diagnostics.get_cloned(dj),
       .Some(d) => {
         if(dj > usize(0), {
           out.push(String.new());
@@ -771,7 +771,7 @@ render_diagnostics_short :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
   (di : usize) = usize(0);
   while(di < diagnostics.len(), {
     match(
-      diagnostics.get(di),
+      diagnostics.get_cloned(di),
       .Some(d) => {
         prefix := _severity_prefix(d.severity);
         head := _first_message_line(&d.message);
@@ -803,7 +803,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
   (di : usize) = usize(0);
   while(di < diagnostics.len(), {
     match(
-      diagnostics.get(di),
+      diagnostics.get_cloned(di),
       .Some(d) => {
         single := ArrayList(Diagnostic).new();
         single.push(d.clone());
@@ -909,7 +909,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
   (ri : usize) = usize(0);
   while(ri < diagnostics.len(), {
     match(
-      diagnostics.get(ri),
+      diagnostics.get_cloned(ri),
       .Some(d) => match(
         d.code,
         .Some(c) => {
@@ -939,7 +939,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
   (wi : usize) = usize(0);
   while(wi < rule_ids.len(), {
     match(
-      rule_ids.get(wi),
+      rule_ids.get_cloned(wi),
       .Some(id) => {
         rk := ArrayList(String).new();
         rv := ArrayList(JsonValue).new();
@@ -955,7 +955,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
   (di : usize) = usize(0);
   while(di < diagnostics.len(), {
     match(
-      diagnostics.get(di),
+      diagnostics.get_cloned(di),
       .Some(d) => {
         keys := ArrayList(String).new();
         vals := ArrayList(JsonValue).new();

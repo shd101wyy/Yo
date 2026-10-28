@@ -112,11 +112,13 @@ _nullable_payload_traverse_fn_expr :: (fn(ty : &TypeValue, context : &FunctionGe
 _emit_traversal_prototypes :: (fn(context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(`static void __yo_traverse_atomic_stop(void* ptr, void (*visit)(void*, void*)) { (void)ptr; (void)visit; }`);
-  vals := context.base.types.values();
-  (go : bool) = true;
-  while(go, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  vals_cur := context.base.types.walk_start();
+  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
+    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
     match(
-      vals.next(),
+      context.base.get_type_entry(&vals_key),
       .Some(entry) => {
         match(
           _traversal_fn_name(&entry.ty, entry.c_name.clone()),
@@ -129,9 +131,7 @@ _emit_traversal_prototypes :: (fn(context : &FunctionGenerationContext) -> unit)
           .None => ()
         );
       },
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
   });
 });
@@ -563,11 +563,13 @@ _generate_one_box_traversal :: (fn(type : &TypeValue, fn_name : &String, context
 /// Generate cycle-GC traversal functions for every concrete, non-atomic
 /// reference-semantics struct, and the trace functions of the `Box` types.
 generate_ref_struct_traversal_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  vals := context.base.types.values();
-  (go : bool) = true;
-  while(go, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  vals_cur := context.base.types.walk_start();
+  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
+    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
     match(
-      vals.next(),
+      context.base.get_type_entry(&vals_key),
       .Some(entry) => {
         ty := entry.ty;
         // Atomic objects don't participate in cycle GC — no traversal needed.
@@ -580,9 +582,7 @@ generate_ref_struct_traversal_functions :: (fn(context : &FunctionGenerationCont
           .None => ()
         );
       },
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
   });
 });
@@ -594,17 +594,17 @@ generate_ref_struct_constructor_functions :: (fn(context : &FunctionGenerationCo
     _emit_traversal_prototypes(context);
     generate_ref_struct_traversal_functions(context);
   });
-  vals := context.base.types.values();
-  (go : bool) = true;
-  while(go, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  vals_cur := context.base.types.walk_start();
+  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
+    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
     match(
-      vals.next(),
+      context.base.get_type_entry(&vals_key),
       .Some(entry) => if(is_reference_struct_type(&entry.ty), {
         _generate_one_constructor(&entry.ty, entry.c_name.clone(), context);
       }),
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
   });
 });
@@ -684,11 +684,13 @@ _generate_one_ref_enum_traversal :: (fn(type : &TypeValue, c_name : &String, con
 /// Generate cycle-GC traversal functions for every concrete, non-atomic
 /// reference-semantics enum.
 generate_ref_enum_traversal_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  vals := context.base.types.values();
-  (go : bool) = true;
-  while(go, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  vals_cur := context.base.types.walk_start();
+  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
+    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
     match(
-      vals.next(),
+      context.base.get_type_entry(&vals_key),
       .Some(entry) => {
         ty := entry.ty;
         // Atomic ref-enums never participate in cycle GC; generic enums skip.
@@ -696,9 +698,7 @@ generate_ref_enum_traversal_functions :: (fn(context : &FunctionGenerationContex
           _generate_one_ref_enum_traversal(&ty, entry.c_name.clone(), context);
         });
       },
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
   });
 });
@@ -849,17 +849,17 @@ generate_ref_enum_constructor_functions :: (fn(context : &FunctionGenerationCont
   if(needs_traversal_functions(context), {
     generate_ref_enum_traversal_functions(context);
   });
-  vals := context.base.types.values();
-  (go : bool) = true;
-  while(go, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  vals_cur := context.base.types.walk_start();
+  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
+    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
     match(
-      vals.next(),
+      context.base.get_type_entry(&vals_key),
       .Some(entry) => if(is_reference_enum_type(&entry.ty), {
         _generate_one_ref_enum_constructor_set(&entry.ty, entry.c_name.clone(), context);
       }),
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
   });
 });

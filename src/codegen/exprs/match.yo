@@ -15,7 +15,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
 {
@@ -164,7 +164,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
 _list_has :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
+    if(match(xs.get_cloned(i), .Some(y) => (y == x), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -832,7 +832,7 @@ _case_executed :: (fn(case_value : &AstExpr, context : &FunctionGenerationContex
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : &AstExpr) -> String)(
-  match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_token(&v).value, .None => String.from("")), .Atom(_, _) => String.from(""))
+  match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v), .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Add a name to the function's local-shadowed-variables set (creating it if
@@ -871,7 +871,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &FunctionGenerationConte
                 Option(String).Some(
                   match(
                     context.state_machine_field_aliases,
-                    .Some(al) => match(al.get(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
+                    .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
                     .None => sm_local_field_name(k.clone())
                   )
                 )
@@ -1103,7 +1103,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                       match(
                         context.variable_id_remapping,
                         .Some(rm) => match(
-                          rm.get(smb_id.clone()),
+                          rm.get_cloned(smb_id.clone()),
                           .Some(mapped) => {
                             smb_id = mapped;
                           },
@@ -1157,7 +1157,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
               smb_field := match(
                 context.state_machine_field_aliases,
                 .Some(al) => match(
-                  al.get(smb_id.clone()),
+                  al.get_cloned(smb_id.clone()),
                   .Some(af) => af,
                   .None => sm_local_field_name(smb_id.clone())
                 ),
@@ -1424,7 +1424,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
               dparams.get(pi),
               .Some(param) => if(ast_expr_is_fn_call_of(&param, ":", Option(usize).Some(usize(2))), {
                 pargs := _args(&param);
-                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_token(&le).value, String.from("")), .None => String.from(""));
+                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_text(&le), String.from("")), .None => String.from(""));
                 match(
                   pargs.get(usize(1)),
                   .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value == "_") && (label.len() > usize(0)), {
@@ -2563,7 +2563,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
         // after a hoisted `io.await` scrutinee is emitted by THIS generator
         // (issues/fixed/an-awaited-match-scrutinee-is-never-released.md).
         _store_temp_var_to_state_machine_if_needed(subject_var_name.clone(), indent.clone(), context);
-        matched_value_code = subject_var_name;
+        matched_value_code = subject_var_name.clone();
       });
       // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
       // scrutinee returning a borrowed read — e.g. merge_and_check_envs'

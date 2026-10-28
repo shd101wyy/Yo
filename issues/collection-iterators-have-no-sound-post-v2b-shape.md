@@ -92,8 +92,8 @@ The design is written out in `plans/VALUES_BY_DEFAULT.md`, decision 39,
        (2026-10-25)** — `entry(key, body)` lends the entry to a body, holds
        the map as `*HashMap` (not a handle copy), `and_modify` returns
        `unit`, and a vacant `or_insert` flips the entry's slot so the body
-       may keep using it; the `FnOnce` body spelling waits on
-       `issues/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md`,
+       may keep using it; the `FnOnce` body spelling landed 2026-10-28
+       (`issues/fixed/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md`),
        and `or_insert`/`or_insert_with` returning `&mut V` on
        `issues/2026-10-25-a-borrow-returning-generic-method-breaks-its-own-typed-parameters.md`;
      - a consuming `into_iter(self : Self)`;

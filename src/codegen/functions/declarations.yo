@@ -40,7 +40,7 @@ _join_double_underscore :: (fn(parts : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str("__");
     });
-    match(parts.get(i), .Some(p) => out.push_string(&p), .None => ());
+    match(parts.get_cloned(i), .Some(p) => out.push_string(&p), .None => ());
     i = (i + usize(1));
   });
   out
@@ -326,11 +326,13 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   em.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread_gc`);
   em.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
   // Per-object constructor declarations.
-  vals := context.types.values();
-  (go : bool) = true;
-  while(go, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  vals_cur := context.types.walk_start();
+  while(context.types.walk_valid(&vals_cur), vals_cur = context.types.walk_next(&vals_cur), {
+    vals_key := context.types.walk_ref(&vals_cur).key.clone();
     match(
-      vals.next(),
+      context.get_type_entry(&vals_key),
       .Some(entry) => if(is_reference_struct_type(&entry.ty), {
         runtime_fields := get_runtime_struct_fields(&entry.ty);
         if(!_object_decl_has_generic_fields(&runtime_fields), {
@@ -374,24 +376,22 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
           em.emit_declaration_string_line(&line);
         });
       }),
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
   });
   // Per-variant constructor declarations for reference-semantics enums
   // (`ref(enum(…))`).
-  evals := context.types.values();
-  (ego : bool) = true;
-  while(ego, {
+  // A live cursor walk of the registry, not a borrowed `for`: the body can
+  // register a late type (the on-demand hook), which a borrowed walk refuses.
+  evals_cur := context.types.walk_start();
+  while(context.types.walk_valid(&evals_cur), evals_cur = context.types.walk_next(&evals_cur), {
+    evals_key := context.types.walk_ref(&evals_cur).key.clone();
     match(
-      evals.next(),
+      context.get_type_entry(&evals_key),
       .Some(entry) => if(is_reference_enum_type(&entry.ty) && !type_contains_some_type(&entry.ty), {
         _emit_ref_enum_constructor_decls(&entry.ty, entry.c_name.clone(), context);
       }),
-      .None => {
-        ego = false;
-      }
+      .None => ()
     );
   });
 });
@@ -965,27 +965,17 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
   em := context.emitter;
   em.emit_declaration_line("// Function declarations");
   em.emit_declaration_line("/// Extern functions");
-  ext_vals := context.extern_functions.values();
-  (go_ext : bool) = true;
-  while(go_ext, {
-    match(
-      ext_vals.next(),
-      .Some(entry) => {
-        cn := entry.c_name.clone();
-        tag := _func_extern_tag(&entry.ty);
-        cond(
-          match(tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
-            generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
-          }),
-          (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
-          (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
-          true => {
-            generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
-          }
-        );
-      },
-      .None => {
-        go_ext = false;
+  for(&context.extern_functions, (_fid, entry) => {
+    cn := entry.c_name.clone();
+    tag := _func_extern_tag(&entry.ty);
+    cond(
+      match(tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
+        generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
+      }),
+      (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
+      (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
+      true => {
+        generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
       }
     );
   });
@@ -1023,7 +1013,7 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
     (aro_fi : usize) = usize(0);
     while(aro_fi < context.function_order.len(), {
       match(
-        context.function_order.get(aro_fi),
+        context.function_order.get_cloned(aro_fi),
         .Some(aro_fid) => match(
           context.get_function_entry(aro_fid.clone()),
           .Some(aro_entry) => {
@@ -1051,7 +1041,7 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
   (fi : usize) = usize(0);
   while(fi < context.function_order.len(), {
     match(
-      context.function_order.get(fi),
+      context.function_order.get_cloned(fi),
       .Some(func_id) => match(
         context.get_function_entry(func_id.clone()),
         .Some(entry) => {

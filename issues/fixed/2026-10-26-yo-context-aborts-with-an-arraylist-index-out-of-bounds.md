@@ -50,3 +50,14 @@ bisect between `4a6b4a1dc` and `fdab9d551` settles the PR). Found during the
 B6-c tests-half gate run; not caused by it (the branch changes only
 `tests/*.test.yo`, and the binary that aborts was built from unmodified
 develop before any edit).
+
+## Fixed (2026-10-26, `fix(develop)` #1633)
+
+b4-1a's hand edits (#1616) had moved the loop-counter increment above the
+surviving `corpora(ci)` / `entries(i)` reads in `_load_world`
+(src/context_command.yo) and `_sweep_dir` (src/fetch.yo); #1633 restores
+read-then-increment (the explicit-copy spelling stays). The companion doc
+with the `yo cache gc` side is
+`issues/fixed/2026-10-26-yo-context-and-cache-gc-abort-after-b4-1a-hand-edits-index-past-the-last-entry.md`.
+The cli-cases context-search / context-search-miss / context-not-found /
+cache-gc / cache-gc-context pass again.
