@@ -502,11 +502,15 @@ static inline size_t __yo_arc_weak_count_raw(void* ptr) {
   return (size_t)(w & __YO_WEAK_COUNT);
 }
 // The strong side's end of a locked cell whose payload the holder moved out.
-// The count stays 0, so no upgrade succeeds; one RMW hands the allocation to
-// the ArcWeak handles as dead (as __yo_arc_release_weak_held does after a
-// drop), and the cell is freed here when no ArcWeak is left. The holder's
-// handle owns no count afterwards and must not be released.
-static inline void __yo_arc_release_locked(void* ptr) {
+// slot is the address of the holder's handle (an Arc variable), not the cell:
+// the count stays 0, so no upgrade succeeds, and one RMW hands the allocation
+// to the ArcWeak handles as dead (as __yo_arc_release_weak_held does after a
+// drop), freeing it here when no ArcWeak is left. The handle owns no count
+// afterwards; an Arc is a copyable handle with no way to forget it, so the
+// slot is cleared, and the handle's own release of NULL is a no-op.
+static inline void __yo_arc_release_locked(void* slot) {
+  void* ptr = *(void**)slot;
+  *(void**)slot = NULL;
   uint16_t old = atomic_fetch_or_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, (uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel);
   if ((old & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
 }`
