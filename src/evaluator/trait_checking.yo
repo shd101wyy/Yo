@@ -468,7 +468,8 @@ type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
 // edge. A type-graph cycle is a cycle of values only when it passes through a
 // shared cell (a `ref`/`atomic` object: `Rc`, `Arc`, `RefCell`'s slot);
 // recursion through a value, a `Box` or an owned buffer (`Option(Box(Self))`,
-// `ArrayList(Self)`) builds a tree. So `T` is `Acyclic` iff no strongly
+// a value's `?*Self` buffer) builds a tree; `ArrayList` is a `ref` object
+// until decision 46's B8, so a recursion through it does run through a cell. So `T` is `Acyclic` iff no strongly
 // connected component reachable from it is cyclic and holds a cell: the
 // INDUCTIVE answer. The field-by-field derivation it replaces answered a
 // recursion through a cell coinductively (the in-progress obligation, or a

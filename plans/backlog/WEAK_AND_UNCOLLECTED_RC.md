@@ -351,10 +351,17 @@ consistent with it:
   holds inside a generic body. Verdicts are memoized per node for one
   `trait_impl_epoch`, except a walk that met a leaf or an unresolved shell.
 - "A node type with strong children and a weak parent" is pinned with
-  OWNED children (`children : ArrayList(Self)`): a tree whose children are
-  `Rc` handles is not `Acyclic`, since nothing in its type stops a child
-  edge from pointing at an ancestor, and the collector agrees (it tracks
-  that type).
+  OWNED children (`first_child`/`next_sibling : Option(Box(Self))`): a tree
+  whose children are `Rc` handles is not `Acyclic`, since nothing in its
+  type stops a child edge from pointing at an ancestor, and the collector
+  agrees (it tracks that type).
+- "`ArrayList(Self)` stays `Acyclic`" holds only after decision 46's B8:
+  `ArrayList` is still a `ref` object, so a value that holds a list of
+  itself recurs through a shared cell (a list can hold a value that holds the
+  list), and base answers the same. The row is pinned as NOT `Acyclic`
+  with a note that it flips with B8; the owned-buffer recursion the row
+  means is pinned on a value with a `?*Self` buffer
+  (`tests/send_sync_raw_pointer.test.yo`).
 - The pragma rule keeps `Send` and `Sync` only. The prelude's
   unconditional `impl(*T, Acyclic())` and `impl(Array(T, U), Acyclic())`
   went (the walk follows the pointee and the element), as did

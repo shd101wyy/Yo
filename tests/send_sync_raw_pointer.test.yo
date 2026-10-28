@@ -39,6 +39,11 @@ test("a raw pointer to a cyclic cell is not Acyclic, nor a struct holding one", 
   comptime_assert(!Type.impls(SrpHoldsCyclic, Acyclic), "a struct holding one neither");
   comptime_assert(Type.impls(SrpHolder, Acyclic), "a pointer to plain data is Acyclic");
 });
+// A value that owns a buffer of itself (V2b's unique buffers) is a tree.
+SrpBufNode :: struct(v : i32, _kids : ?*Self, _len : usize);
+test("a recursion through an owned buffer is Acyclic", {
+  comptime_assert(Type.impls(SrpBufNode, Acyclic), "the buffer holds no shared cell");
+});
 test("a raw-pointer struct that opts in is Send and Sync", {
   comptime_assert(Type.impls(SrpOptIn, Send), "the opt-in makes it Send");
   comptime_assert(Type.impls(SrpOptIn, Sync), "the opt-in makes it Sync");
