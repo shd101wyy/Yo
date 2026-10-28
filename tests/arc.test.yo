@@ -362,11 +362,13 @@ test("a locked Arc cell refuses ArcWeak.upgrade on another thread, and its weak 
   a.a = i32(10);
   _arc_unique.__yo_arc_unlock_unique(cell);
   assert(ref_count(a) == usize(1), "the unlock gives the count of 1 back");
-  t2 := Thread(i32).spawn({ w }(io) => match(w.upgrade(), .Some(h) => h.a, .None => i32(0)));
+  w3 := ArcWeak.clone(&w);
+  t2 := Thread(i32).spawn({ w3 }(io) => match(w3.upgrade(), .Some(h) => h.a, .None => i32(0)));
   assert(t2.join() == i32(10), "after the unlock an upgrade on another thread sees the write made under the lock");
-  b := a;
-  assert(!_arc_unique.__yo_arc_lock_unique(cell), "a shared cell does not lock");
-  assert(ref_count(b) == usize(2), "a failed lock leaves the count alone");
+  h := w.upgrade();
+  assert(!_arc_unique.__yo_arc_lock_unique(cell), "a cell an upgraded handle shares does not lock");
+  assert(ref_count(a) == usize(2), "a failed lock leaves the count alone");
+  consume(h);
 });
 test("a locked cell whose payload moved out goes to its ArcWeak handles as dead", {
   counts := _counts();
