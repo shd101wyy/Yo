@@ -1405,9 +1405,9 @@ generate_captured_variable_dup_expressions :: (
                 );
               },
               type_contains_rc_type(&ci.ty) => {
-                // The unique `Dyn`, Generation A (`check_dyn_capture`): the
-                // capture of a variable holding a `Dyn` moves it.
-                if(!borrow_captures && dyn_copy_rule_applies(&ci.ty, closure_tok, ctx), {
+                // The unique `Dyn` (`check_dyn_capture`): the capture of a
+                // variable holding a `Dyn` moves it.
+                if(!borrow_captures && dyn_copy_rule_applies(&ci.ty), {
                   match(get_variables_from_env(env, var_name.clone()).last(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
                 });
                 if(audit_implicit_copy_enabled(), {
