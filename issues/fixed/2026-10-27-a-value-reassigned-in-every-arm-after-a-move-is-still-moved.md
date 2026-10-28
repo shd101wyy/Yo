@@ -18,7 +18,9 @@ f :: (fn(c : bool) -> i32)({
   });
   x.n + y.n
 });
-main :: (fn() -> unit)({ f(true); });
+main :: (fn() -> unit)({
+  f(true);
+});
 export(main);
 ```
 
