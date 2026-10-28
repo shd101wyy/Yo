@@ -1100,7 +1100,7 @@ FuncParamsResult :: struct(
   (assumed_body : bool) ?= false,
   /// The `generic(p : Origin)` labels (decision 43 step 2): kept apart from
   /// `forall_params`, which an origin binder never joins.
-  (origin_params : ArrayList(String)) ?= ArrayList(String).new()
+  (origin_params : Option(ArrayList(String))) ?= Option(ArrayList(String)).None
 );
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -2059,6 +2059,22 @@ evaluate_function_parameter :: (
         format_error_message(
           ast_expr_token(expr),
           `Raw-pointer-carrying types ('${type_to_string(&final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'name : &mut T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+        )
+      )
+    );
+  });
+  // `Origin` is a kind a signature declares in `generic(...)` (decision 43
+  // step 2). A type constructor's origin parameter (`comptime(p) : Origin`)
+  // makes a type carry an origin: first-class storage, N2.
+  if(is_origin_kind(&final_param_type) && !is_parameter_comptime_by_default, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          cond(
+            is_compile_time_only => `\`comptime(${match(label, .Some(l) => l.clone(), .None => String.from("?"))}) : Origin\`, a type constructor's origin parameter, arrives with first-class storage (decision 43 step 3, N2); a function declares an origin in \`generic(...)\`.`,
+            true => `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
+          )
         )
       )
     );
@@ -3460,6 +3476,16 @@ evaluate_function_parameters :: (
         );
       });
       param := evaluate_function_parameter(&impl_expr, env_mut, ctx, true, true, exn);
+      if(is_origin_kind(&param.ty), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(&impl_expr),
+              `An origin parameter is declared in the signature's \`generic(...)\` clause (\`generic(${param.label} : Origin)\`), not in \`using(...)\`.`
+            )
+          )
+        );
+      });
       // Duplicate checks
       (dup_forall : bool) = false;
       (dfi : usize) = usize(0);
@@ -4139,7 +4165,22 @@ evaluate_function_parameters :: (
       _retry_errors := parse_where_clause_constraints(&one_failed, env_mut, ctx, false, exn);
     });
   });
-  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs, decreases_expr, assumed_body, origin_params)
+  FuncParamsResult(
+    params,
+    forall_params,
+    implicit_params,
+    where_clause_exprs,
+    has_variadic,
+    variadic_param,
+    requires_exprs,
+    ensures_exprs,
+    decreases_expr,
+    assumed_body,
+    cond(
+      origin_params.is_empty() => Option(ArrayList(String)).None,
+      true => Option(ArrayList(String)).Some(origin_params)
+    )
+  )
 });
 // Helper to get a param expr for error reporting
 param_exprs_for_error :: (fn(arg_list : &ArrayList(AstExpr), idx : usize) -> Option(AstExpr))(
@@ -4879,9 +4920,10 @@ evaluate_function_type :: (
           param_is_sink : Option(SharedList(bool)).Some(shared_list(param_is_sink)),
           // origin_labels — the `generic(p : Origin)` binders (decision 43
           // step 2), `.None` when there are none.
-          origin_labels : cond(
-            params_result.origin_params.is_empty() => Option(SharedList(String)).None,
-            true => Option(SharedList(String)).Some(shared_list(params_result.origin_params.clone()))
+          origin_labels : match(
+            params_result.origin_params,
+            .Some(ol) => Option(SharedList(String)).Some(shared_list(ol.clone())),
+            .None => Option(SharedList(String)).None
           )
         )
       ),

@@ -330,6 +330,13 @@ Placement rules for `&` and `&mut`:
   `f : &T` and `&&T` are errors ("a borrow mode, not a type"). Decision 43
   (confirmed 2026-10-10) makes `&T`/`&mut T` second-class types, which lifts
   these errors; until its phase lands, they are a mode.
+- The two-argument form `&(T, p)` / `&mut(T, p)` is an **origin-qualified
+  reference** (decision 43 step 2): as a parameter's type, `x : &(T, p)` is
+  `x : &T` whose origin is `p`, an origin parameter declared with
+  `generic(p : Origin)`, or a union `(p, q)` of them. The second argument is
+  read by its kind: a type there is E0922 (a reference to a tuple is
+  `&Tuple(A, B)`). In value position `&(a, b)` stays the operator-call form of
+  `a & b`.
 - In **return-type position** (`-> &T`, `-> &mut T`, `-> (name : &mut T)`)
   they declare a **projection** (decision 24): the body yields a place written
   with the result's sigil (`&self.a`, `&mut self.rows(i)`), rooted at one of
