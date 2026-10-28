@@ -1182,10 +1182,17 @@ impl(
   /// that logic lives in `remove`.
   remove : (fn(self : &mut Self) -> Option(V))(self._map.*.remove(&self._key))
 );
-/// Value iterator over a HashMap — yields each `MapEntry(K, V)` BY VALUE
-/// (both key and value dup'd for refcounted types). This is what
-/// `into_iter()`, and therefore `for(map, ...)`, returns; `iter()` yields
-/// pointers.
+/// Value iterator over a HashMap — yields each `MapEntry(K, V)` BY VALUE.
+/// This is what `into_iter()`, and therefore `for(map, ...)`, returns;
+/// `iter()` yields pointers.
+///
+/// It owns the map. When it holds the map's only handle, each entry MOVES
+/// out of its bucket (the bucket is vacated, so dropping the iterator drops
+/// only the entries it has not yielded) and nothing is copied. While
+/// `HashMap` is still a shared handle (until plans/VALUES_BY_DEFAULT.md's
+/// B9) another handle may share the map; the entries are then copied, so the
+/// other handle keeps them (lookahead D21, the rule `ArrayList.extend`
+/// follows).
 ///
 /// It walks the control-byte array from bucket 0, so the order is arbitrary
 /// but reproducible for a map keyed by `new()`'s fixed keys.
@@ -1212,7 +1219,20 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*);
+                cond(
+                  (ref_count(self._map) == usize(1)) => {
+                    // SAFETY: the iterator holds the map's only handle, so
+                    // no one else can read this bucket. The entry moves out
+                    // bitwise and the bucket is vacated: the map no longer
+                    // owns it, and its `Drop` skips it. Vacating never
+                    // rehashes, so the walk's order is unchanged.
+                    result = .Some(__yo_ptr_read(data_ptr.add(self._index)));
+                    self._map._vacate(self._index);
+                  },
+                  true => {
+                    result = .Some((data_ptr.add(self._index)).*);
+                  }
+                );
               },
               true => ()
             );
