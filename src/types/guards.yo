@@ -525,9 +525,10 @@ unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 );
 /// True if `t` is the prelude's unique cell `Box(V)` (`unique_box_payload_type`).
 is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is_some());
-/// True if `t` is the prelude's non-owning handle `Weak(V)`
-/// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3): a newtype over `?*V`, its
-/// one field `_cell`, stamped `Weak(V)`, identified as `Box` is
+/// True if `t` is one of the prelude's non-owning handles, `Weak(V)` or its
+/// atomic twin `ArcWeak(V)` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3): a
+/// newtype over `?*V`, its one field `_cell`, stamped with its constructor's
+/// name, identified as `Box` is
 /// (`unique_box_payload_type`). The field names its payload type so that a
 /// `Weak(RefCell(Self))` field's `Self` is fixed up with the declaration, but
 /// it holds the cell's address and owns nothing: a `Weak` is not an edge, so
@@ -536,7 +537,7 @@ is_weak_handle_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
     Rc(.Struct({ name, field_labels, is_reference_semantics : is_ref, is_newtype : is_nt })) =>
-      (!is_ref && is_nt && (field_labels.len() == usize(1)) && name.starts_with("Weak(") && match(field_labels.get(usize(0)), .Some(l) => (l == "_cell"), .None => false)),
+      (!is_ref && is_nt && (field_labels.len() == usize(1)) && (name.starts_with("Weak(") || name.starts_with("ArcWeak(")) && match(field_labels.get(usize(0)), .Some(l) => (l == "_cell"), .None => false)),
     _ => false
   )
 );

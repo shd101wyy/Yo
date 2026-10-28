@@ -4165,8 +4165,9 @@ a compiler built-in; it is defined in `std/prelude.yo` as a thin
 from its own thread, and `Send` because the last handle may be dropped (and the payload disposed) on
 any thread. So it only wraps thread-shareable values, and `Arc(T)` is itself `Send` and `Sync`
 under that bound. As in Rust, the payload need not be `Acyclic`: atomic RC is not
-cycle-collected, so a cycle of `Arc` handles leaks unless a back edge is cleared first
-([ARC.md](./ARC.md#cycles)). Use `Arc(T)` when you want to share a single value.
+cycle-collected, so a cycle of `Arc` handles leaks unless a back edge is cleared first or is an
+`ArcWeak` (`Arc.downgrade(&h)`, [WEAK.md](./WEAK.md#arcweakt-the-thread-safe-form);
+[ARC.md](./ARC.md#cycles)). Use `Arc(T)` when you want to share a single value.
 Use `atomic(ref(struct(...)))` when defining your own shared types.
 
 ```yo

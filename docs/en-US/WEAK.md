@@ -1,4 +1,4 @@
-# Weak(T) — Non-Owning Handles to an `Rc`
+# Weak(T) and ArcWeak(T) — Non-Owning Handles
 
 `Weak(T)` is Rust's `rc::Weak<T>`: a handle to an `Rc(T)` cell that does not keep
 the payload alive. It is defined in `std/prelude.yo` beside `Rc`, so `Weak` is
@@ -115,6 +115,35 @@ When the collector frees a garbage cycle, an `upgrade` from a `Drop` it runs is
 `.None` for a cell of that cycle and succeeds for a live cell. A garbage cell a
 `Weak` outside the cycle still names has its payload dropped and its allocation
 kept until that `Weak` goes; `tracked_count()` no longer counts it.
+
+## `ArcWeak(T)`: the thread-safe form
+
+`ArcWeak(T)` is Rust's `sync::Weak<T>`, the same handle for an `Arc(T)` cell:
+`Arc.downgrade(&h)` makes one, and `w.upgrade()` is `.Some(handle)`, a new
+`Arc`, while an `Arc` to the cell is alive on any thread. Its API is `Weak`'s
+(`new`, `upgrade`, `strong_count`, `weak_count`, `ptr_eq`, `Clone`, `Default`).
+The counts are atomic: an `upgrade` takes a strong count only while one is
+left, so it never revives a payload another thread is dropping, and exactly
+one handle frees the cell, whichever thread drops it last. Because `Arc`'s
+payload is `Send` and `Sync`, so is every `ArcWeak(T)`, and it can be moved
+into a spawned thread:
+
+```yo
+{ Thread } :: import("std/thread");
+
+a := arc(i32(7));
+w := Arc.downgrade(&a);
+t := Thread(unit).spawn({ w }(io) => {
+  n := match(w.upgrade(), .Some(h) => h.*, .None => i32(0));
+  assert(n == i32(7), "a is alive while the worker runs");
+});
+t.join();
+```
+
+A cycle of `Arc` handles leaks ([ARC.md](./ARC.md#cycles)); an `ArcWeak` back
+edge (`Arc(Mutex(Node))` with a `peer : ArcWeak(Mutex(Node))` field) does not.
+`Arc.make_mut` does not yet disassociate `ArcWeak` handles, as `Rc.make_mut`
+does not `Weak` ones.
 
 ## Related docs
 

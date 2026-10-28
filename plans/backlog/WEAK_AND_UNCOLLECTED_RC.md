@@ -18,8 +18,13 @@ clearing its back edge; §2's "gain the ArcWeak one" moves to W4, since
 the `Rc` header, the two free paths and the collector's weak-held cells
 ("As built" notes in §3.2 and §3.4). It landed before V2c (lookahead D15's
 soft dependency): a `Weak` has a `Drop`, so it is explicit-copy without
-V2c's rule (the probe: `~/Workspace/Yo-wt/vbd-logs/w3/PROBE.md`). The other
-phases have not started.
+V2c's rule (the probe: `~/Workspace/Yo-wt/vbd-logs/w3/PROBE.md`). **W4 is
+implemented (2026-10-27, `feat/w4-arc-weak`, stacked on W3):** `ArcWeak(T)`,
+`Arc.downgrade`, the atomic weak primitives and the atomic strong side's
+weak-held path (§3.2 "As built"); ARC.md and DESIGN.md (both languages)
+gained the `ArcWeak` sentence. `make_mut`'s disassociation of weak handles
+is seed-gated for both (`SEED_VERSION_AUTOMATION.md`). The other phases have
+not started.
 
 ## 0. Verdict
 
@@ -203,7 +208,13 @@ for two reasons: the lightweight runtime's header has no `gc_flags` byte
 (`type_id` sits there), and W4's atomic form needs the flag and the count in
 one atomic word, so that exactly one side frees. The strong side, after the
 payload's drop, sets the flag and frees iff the count it reads back is 0; a
-`Weak` release frees iff the word it leaves is the flag alone. "No borrow
+`Weak` release frees iff the word it leaves is the flag alone. W4's atomic form
+does the same with RMWs: an `upgrade` is a CAS loop that takes a strong count
+only while it is non-zero (an `Arc` cell is never collected, so 0 is the
+payload gone), the last strong release reads the weak word with acquire and
+takes the weak-held path only when it is non-zero (no `ArcWeak` can appear
+then: making one needs a strong or a weak handle), and the dead flag is set
+with one `fetch_or` whose result decides the free. "No borrow
 marks on an `Rc`" was proved and then made structural ("guard first",
 lookahead §5 PR 4): four codegen sites could still mark or check a counted
 cell's `borrow_count` (a borrowed `for` guard, an interior `&` argument, the
@@ -272,7 +283,8 @@ Neither walk follows a `Weak`: its one field is `?*V`, the cell's address
 typed by the payload (so a `Weak(RefCell(Self))` field's `Self` is fixed up
 with its declaration), which `traverse_fn` does not visit, and the type-level
 cycle walk skips it by name (`is_weak_handle_type`; the constructor stamps
-`Weak(…)` as it stamps `Box(…)`). `tests/cycle_collector.test.yo` pins the
+`Weak(…)` as it stamps `Box(…)`). W4's `ArcWeak` has the same field and the
+same stamp. `tests/cycle_collector.test.yo` pins the
 CollectWhite row on a cycle closed through a `ref(struct)`: an
 `Rc(RefCell(Node))` cycle is not collected at all yet
 (`issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`).

@@ -10334,7 +10334,9 @@ impl(
   Arc(T),
   /// The payload, written: when another handle shares the cell, `self` first
   /// moves to a fresh cell holding a clone of the payload. Rust's
-  /// `Arc::make_mut`.
+  /// `Arc::make_mut`, except that it does not yet disassociate `ArcWeak`
+  /// handles (plans/backlog/SEED_VERSION_AUTOMATION.md, "`make_mut`
+  /// disassociates `Weak`").
   make_mut : (fn(self : &mut Self) -> &mut T)({
     if(ref_count(self) != usize(1), {
       self = arc(self.*.clone());
@@ -10345,6 +10347,144 @@ impl(
   })
 );
 export(Arc, arc);
+/// === ArcWeak ===
+// The atomic weak-count hooks behind `ArcWeak(T)`
+// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2): `__yo_rc_weak_*`'s twins
+// for an `Arc` cell, whose counts other threads update at the same time.
+extern(
+  "Yo",
+  /// One more `ArcWeak` handle to `cell` (saturating).
+  __yo_arc_weak_retain :
+    (fn(cell : *void) -> unit),
+  /// One `ArcWeak` handle to `cell` fewer: frees the allocation when the
+  /// payload is gone and this was the last handle of either kind.
+  __yo_arc_weak_release :
+    (fn(cell : *void) -> unit),
+  /// A new strong count, taken atomically while the payload is alive: true and
+  /// the strong count raised by one, or false and nothing changed.
+  __yo_arc_weak_upgrade :
+    (fn(cell : *void) -> bool),
+  /// The strong count of `cell`, 0 once the payload is gone.
+  __yo_arc_weak_strong_count :
+    (fn(cell : *void) -> usize),
+  /// The weak count of `cell`: 0 once the payload is gone, `usize.MAX` when
+  /// it saturated.
+  __yo_arc_weak_weak_count :
+    (fn(cell : *void) -> usize)
+);
+/// ArcWeak — a non-owning handle to an `Arc` cell: Rust's `sync::Weak<T>`
+/// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3). `Weak(T)`'s thread-safe
+/// twin: `Arc.downgrade(&h)` makes one, `w.upgrade()` is `.Some(handle)`, a
+/// new `Arc` to the same cell, while any `Arc` to it is alive on any thread,
+/// and `.None` once the last one is dropped. The counts are atomic, so the
+/// handle is `Send` and `Sync` (the payload of an `Arc` is both). A cycle of
+/// `Arc` handles closed through an `ArcWeak` is not a leak.
+///
+/// ```yo
+/// a := arc(i32(7));
+/// w := Arc.downgrade(&a);
+/// assert(w.upgrade().unwrap().* == i32(7), "alive while a is");
+/// consume(a);
+/// assert(w.upgrade().is_none(), "the last Arc dropped the payload");
+/// ```
+ArcWeak :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
+  // The cell's address, `.None` for `ArcWeak.new()`. As for `Weak`, it points
+  // at the cell's header, is never dereferenced here, and is typed by the
+  // payload so that an `ArcWeak(Mutex(Self))` field's `Self` is fixed up with
+  // its declaration; the cycle walk does not follow it.
+  newtype(_cell : ?*V)
+);
+// The counts are atomic and the payload is `Send` and `Sync`, so any thread
+// may hold, upgrade or drop the handle. The raw `_cell` field derives
+// neither, so the impls are stated.
+impl(generic(T : Type), where(T <: (Send, Sync)), ArcWeak(T), Send());
+impl(generic(T : Type), where(T <: (Send, Sync)), ArcWeak(T), Sync());
+impl(
+  generic(T : Type),
+  where(T <: (Send, Sync)),
+  Arc(T),
+  /// An `ArcWeak` handle to `self`'s cell: Rust's `Arc::downgrade`. Spelled
+  /// `Arc.downgrade(&h)`, as `Arc.try_unwrap` is.
+  downgrade : (fn(self : &Self) -> ArcWeak(T))({
+    // SAFETY: an `Arc` handle is the address of its live cell.
+    cell := unsafe(unsafe.cast(self, *T));
+    __yo_arc_weak_retain((*void)(cell));
+    ArcWeak(T)(.Some(cell))
+  })
+);
+impl(
+  generic(T : Type),
+  where(T <: (Send, Sync)),
+  ArcWeak(T),
+  /// An `ArcWeak` that names no cell: `upgrade` is always `.None`.
+  new : (fn() -> Self)(ArcWeak(T)(.None)),
+  /// A new `Arc` to the cell while its payload is alive, else `.None`.
+  upgrade : (fn(self : &Self) -> Option(Arc(T)))(
+    match(
+      self._cell,
+      .Some(cell) => cond(
+        // SAFETY: the upgrade raised the strong count for the handle built
+        // here, which owns that count (`__yo_rc_own`: no second one).
+        __yo_arc_weak_upgrade((*void)(cell)) => .Some(__yo_rc_own(unsafe(unsafe.cast(&cell, Arc(T))))),
+        true => .None
+      ),
+      .None => .None
+    )
+  ),
+  /// The number of `Arc` handles to the cell: 0 once the payload is gone,
+  /// and for `ArcWeak.new()`. Another thread may change it at any time.
+  strong_count : (fn(self : &Self) -> usize)(
+    match(self._cell, .Some(cell) => __yo_arc_weak_strong_count((*void)(cell)), .None => usize(0))
+  ),
+  /// The number of `ArcWeak` handles to the cell, this one included: 0 once
+  /// the payload is gone, and for `ArcWeak.new()`; `usize.MAX` when the count
+  /// saturated. Another thread may change it at any time.
+  weak_count : (fn(self : &Self) -> usize)(
+    match(self._cell, .Some(cell) => __yo_arc_weak_weak_count((*void)(cell)), .None => usize(0))
+  ),
+  /// Whether `self` and `other` name the same cell (two `ArcWeak.new()` do).
+  ptr_eq : (fn(self : &Self, other : &Self) -> bool)(
+    match(
+      self._cell,
+      .Some(a) => match(other._cell, .Some(b) => (a == b), .None => false),
+      .None => other._cell.is_none()
+    )
+  )
+);
+/// `Clone` — a second `ArcWeak` to the same cell (the weak count rises).
+impl(
+  generic(T : Type),
+  where(T <: (Send, Sync)),
+  ArcWeak(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      match(self._cell, .Some(cell) => __yo_arc_weak_retain((*void)(cell)), .None => ());
+      ArcWeak(T)(self._cell)
+    })
+  )
+);
+/// `Default` — `ArcWeak.new()`.
+impl(
+  generic(T : Type),
+  where(T <: (Send, Sync)),
+  ArcWeak(T),
+  Default(
+    default : (fn() -> Self)(ArcWeak(T)(.None))
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Send, Sync)),
+  ArcWeak(T),
+  Drop(
+    /// One `ArcWeak` fewer; the cell is freed when its payload is gone and
+    /// this was the last handle. A zeroed handle names no cell.
+    drop : (fn(self : &mut Self) -> unit)(
+      match(self._cell, .Some(cell) => __yo_arc_weak_release((*void)(cell)), .None => ())
+    )
+  )
+);
+export(ArcWeak);
 /// === Deref ===
 /// Deref — marks a wrapper whose members forward to its payload `Target`
 /// (auto-dereference, plans/VALUES_BY_DEFAULT.md §3.3). Nothing is called at

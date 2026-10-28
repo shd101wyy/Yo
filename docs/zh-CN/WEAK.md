@@ -1,4 +1,4 @@
-# Weak(T) — 不拥有 `Rc` 的句柄
+# Weak(T) 与 ArcWeak(T) — 不拥有的句柄
 
 `Weak(T)` 对应 Rust 的 `rc::Weak<T>`：它是指向某个 `Rc(T)` 单元的句柄，但不会让载荷保持存活。
 它在 `std/prelude.yo` 中紧挨着 `Rc` 定义，因此 `Weak` 处处可用。`Weak` 是不泄漏地闭合一个环的办法：
@@ -98,6 +98,30 @@ assert(parent_value == i32(1), "the leaf reaches its parent");
 回收器释放一个垃圾环时，在它运行的 `Drop` 中调用 `upgrade`：对该环中的单元得到 `.None`，对存活单元则成功。
 若环外仍有 `Weak` 指向某个垃圾单元，该单元的载荷会被释放，分配保留到那个 `Weak` 消失为止；
 `tracked_count()` 不再计入它。
+
+## `ArcWeak(T)`：线程安全的形式
+
+`ArcWeak(T)` 对应 Rust 的 `sync::Weak<T>`，是针对 `Arc(T)` 单元的同一种句柄：`Arc.downgrade(&h)` 创建它，
+只要任一线程上仍有指向该单元的 `Arc`，`w.upgrade()` 就返回 `.Some(handle)`（一个新的 `Arc`）。它的 API 与
+`Weak` 相同（`new`、`upgrade`、`strong_count`、`weak_count`、`ptr_eq`、`Clone`、`Default`）。计数是原子的：
+`upgrade` 只在还剩强计数时才取得一个，因此绝不会复活另一个线程正在释放的载荷；无论最后在哪个线程释放，
+恰好有一个句柄释放单元。由于 `Arc` 的载荷是 `Send` 和 `Sync`，每个 `ArcWeak(T)` 也是，可以移入新线程：
+
+```yo
+{ Thread } :: import("std/thread");
+
+a := arc(i32(7));
+w := Arc.downgrade(&a);
+t := Thread(unit).spawn({ w }(io) => {
+  n := match(w.upgrade(), .Some(h) => h.*, .None => i32(0));
+  assert(n == i32(7), "a is alive while the worker runs");
+});
+t.join();
+```
+
+`Arc` 句柄形成的环会泄漏（[ARC.md](./ARC.md#环)）；`ArcWeak` 回边（`Arc(Mutex(Node))` 带有
+`peer : ArcWeak(Mutex(Node))` 字段）则不会。与 `Rc.make_mut` 对 `Weak` 一样，`Arc.make_mut` 目前还不会解除
+`ArcWeak` 句柄的关联。
 
 ## 相关文档
 

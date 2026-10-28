@@ -386,12 +386,12 @@ static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
 // ---------------------------------------------------------------------------
 // _weak_count_primitives
 // ---------------------------------------------------------------------------
-/// The weak-count primitives `Weak(T)` calls (std/prelude.yo's extern "Yo"
+/// The weak-count primitives `Weak(T)` and `ArcWeak(T)` call (std/prelude.yo's extern "Yo"
 /// hooks), shared by both reference-counting runtimes: they read only the
 /// layout-agnostic header prefix. Header-only `static inline` functions, so
 /// under `--emit-chunks` they ride the RC primitives' shared-header range.
 _weak_count_primitives :: (fn() -> String)(
-  `// Weak(T) (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2-§3.4).
+  `// Weak(T) and ArcWeak(T) (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2-§3.4).
 // A counted cell's weak count lives in the 16 bits of \`borrow_count\`. A
 // cell never carries borrow marks there: codegen emits no borrow primitive on
 // an Rc or Arc cell (\`is_counted_cell_type\`, plans/VALUES_BY_DEFAULT.md
@@ -435,6 +435,44 @@ static inline size_t __yo_rc_weak_weak_count(void* ptr) {
   __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
   uint16_t w = h->borrow_count;
   if ((w & __YO_WEAK_DEAD) || (h->ref_count & __YO_RC_COUNT) == 0) return 0;
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
+  return (size_t)(w & __YO_WEAK_COUNT);
+}
+// ArcWeak(T): the same word on an Arc cell, which other threads update at the
+// same time, read and written atomically. An upgrade takes a strong count
+// only while it is non-zero (an Arc cell is never collected, so a zero
+// strong count is the payload gone); the strong side, after the payload's
+// drop, sets the dead bit with one RMW, and a release frees when its RMW
+// turned the word into the bit alone, so the two sides agree on one free.
+static inline void __yo_arc_weak_retain(void* ptr) {
+  _Atomic uint16_t* w = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
+  uint16_t cur = atomic_load_explicit(w, memory_order_relaxed);
+  do {
+    if ((cur & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return;
+  } while (!atomic_compare_exchange_weak_explicit(w, &cur, (uint16_t)(cur + 1u), memory_order_relaxed, memory_order_relaxed));
+}
+static inline void __yo_arc_weak_release(void* ptr) {
+  _Atomic uint16_t* w = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
+  uint16_t cur = atomic_load_explicit(w, memory_order_relaxed);
+  do {
+    if ((cur & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return;
+  } while (!atomic_compare_exchange_weak_explicit(w, &cur, (uint16_t)(cur - 1u), memory_order_acq_rel, memory_order_relaxed));
+  if (cur == (uint16_t)(__YO_WEAK_DEAD | 1u)) __yo_rc_free(ptr);
+}
+static inline bool __yo_arc_weak_upgrade(void* ptr) {
+  _Atomic uint32_t* rc = (_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count;
+  uint32_t cur = atomic_load_explicit(rc, memory_order_relaxed);
+  do {
+    if ((cur & __YO_RC_COUNT) == 0) return false;
+  } while (!atomic_compare_exchange_weak_explicit(rc, &cur, cur + 1u, memory_order_acquire, memory_order_relaxed));
+  return true;
+}
+static inline size_t __yo_arc_weak_strong_count(void* ptr) {
+  return (size_t)(atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count, memory_order_acquire) & __YO_RC_COUNT);
+}
+static inline size_t __yo_arc_weak_weak_count(void* ptr) {
+  if (__yo_arc_weak_strong_count(ptr) == 0) return 0;
+  uint16_t w = atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire);
   if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
   return (size_t)(w & __YO_WEAK_COUNT);
 }`
@@ -528,11 +566,27 @@ static void* __yo_incr_rc_atomic(void* ptr) {
   return ptr;
 }
 
+// The last strong handle of an Arc cell some ArcWeak still names: the
+// strong count is already 0, so no upgrade on another thread succeeds while
+// the payload is dropped; then one RMW sets the dead bit and reads the weak
+// count it found, and the cell is freed here only if no ArcWeak was left.
+static void __yo_arc_release_weak_held(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if (h->type_id && __yo_dispose_dispatch(ptr)) return;
+  uint16_t old = atomic_fetch_or_explicit((_Atomic uint16_t*)&h->borrow_count, (uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel);
+  if ((old & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
+}
+
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
   if ((old_count & __YO_RC_COUNT) == 1) {
+    // No ArcWeak can appear now: making one takes a strong or a weak handle.
+    if (atomic_load_explicit((_Atomic uint16_t*)&header->borrow_count, memory_order_acquire)) {
+      __yo_arc_release_weak_held(ptr);
+      return;
+    }
     if (header->type_id && __yo_dispose_dispatch(ptr)) {
       return;
     }
@@ -797,6 +851,17 @@ static void* __yo_incr_rc_atomic(void* ptr) {
   return ptr;
 }
 
+// The last strong handle of an Arc cell some ArcWeak still names: the
+// strong count is already 0, so no upgrade on another thread succeeds while
+// the payload is dropped; then one RMW sets the dead bit and reads the weak
+// count it found, and the cell is freed here only if no ArcWeak was left.
+static void __yo_arc_release_weak_held(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if (h->dispose_fn) h->dispose_fn(ptr);
+  uint16_t old = atomic_fetch_or_explicit((_Atomic uint16_t*)&h->borrow_count, (uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel);
+  if ((old & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
+}
+
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
@@ -805,6 +870,11 @@ static void __yo_decr_rc_atomic(void* ptr) {
   if ((old_count & __YO_RC_COUNT) == 1) {
     // Last reference - deallocate
     // Note: No GC tracking needed for atomic objects (they don't participate in cycles)
+    // No ArcWeak can appear now: making one takes a strong or a weak handle.
+    if (atomic_load_explicit((_Atomic uint16_t*)&header->borrow_count, memory_order_acquire)) {
+      __yo_arc_release_weak_held(ptr);
+      return;
+    }
     if (header->dispose_fn) {
       header->dispose_fn(ptr);
     }
