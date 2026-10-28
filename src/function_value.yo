@@ -146,7 +146,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
       },
       _ => ()
     );
-    reg_src := match(g_closure_fid_source.with(m => m.get(func_id.clone())), .Some(sv) => sv, .None => `NO-SRC`.to_string());
+    reg_src := match(g_closure_fid_source.with(m => m.get_cloned(func_id.clone())), .Some(sv) => sv, .None => `NO-SRC`.to_string());
     eprintln(`[cap-reg] fid=${func_id} src=${reg_src} fields=${reg_flds}`);
   });
   // KEEP-LARGER: a closure definition can be re-evaluated (def-time trial,
@@ -166,7 +166,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
   );
   // Source-keyed keep-larger (cross-generation merge — see the note above).
   match(
-    g_closure_fid_source.with(m => m.get(func_id.clone())),
+    g_closure_fid_source.with(m => m.get_cloned(func_id.clone())),
     .Some(src_key1) => {
       (src_do_set : bool) = true;
       match(
@@ -222,7 +222,7 @@ get_closure_capture_info :: (fn(func_id : &String) -> Option(ClosureCaptureInfo)
   // Cross-generation fallback: prefer the LARGEST capture struct any
   // generation of this SOURCE closure recorded (see g_closure_capture_by_source).
   src_info := match(
-    g_closure_fid_source.with(m => m.get(func_id.clone())),
+    g_closure_fid_source.with(m => m.get_cloned(func_id.clone())),
     .Some(sk) => g_closure_capture_by_source.with(m => m.get(&sk)),
     .None => Option(ClosureCaptureInfo).None
   );
@@ -303,7 +303,7 @@ register_io_async_closure_fid :: (fn(expr_id : &String, func_id : &String) -> un
 });
 /// Look up the closure func_id recorded for an io.async call expr.
 lookup_io_async_closure_fid :: (fn(expr_id : &String) -> Option(String))(
-  g_io_async_closure_fid_by_expr.with(m => m.get(expr_id.clone()))
+  g_io_async_closure_fid_by_expr.with(m => m.get_cloned(expr_id.clone()))
 );
 /// Returns true if the function identified by `func_id` is an effect-record member.
 is_effect_record_member :: (fn(func_id : &String) -> bool)(
@@ -472,7 +472,7 @@ purge_function_value_tables :: (fn(ids : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < ids.len(), {
     match(
-      ids.get(i),
+      ids.get_cloned(i),
       .Some(id) => {
         _r0 := g_func_type_registry.with_mut(m => m.remove(id.clone()));
         _r1 := g_func_parameters_frame.with_mut(m => m.remove(id.clone()));

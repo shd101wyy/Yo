@@ -15,7 +15,7 @@
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_is_address_of_call, ast_expr_is_local_borrow_mode_call, ast_call_args_unmarked, ast_expr_is_capture_list_params, ast_expr_is_capture_mode_entry, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, ast_expr_is_address_of_call, ast_expr_is_local_borrow_mode_call, ast_call_args_unmarked, ast_expr_is_capture_list_params, ast_expr_is_capture_mode_entry, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
@@ -149,7 +149,7 @@ _lv_resolve_keyed :: (fn(key : ExprId, e : &AstExpr, name : &String, w : &_LiveW
 );
 _lv_id :: (fn(v : &Variable, w : &_LiveWalk) -> String)({
   id := v.id.to_string();
-  match(w.remap.get(id.clone()), .Some(orig) => orig, .None => id)
+  match(w.remap.get_cloned(id.clone()), .Some(orig) => orig, .None => id)
 });
 /// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
 _lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64, w : &_LiveWalk) -> unit)({
@@ -364,7 +364,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           .Some(ids) => {
             (ni : usize) = usize(0);
             while(ni < ids.len(), ni = (ni + usize(1)), {
-              match(ids.get(ni), .Some(nid) => _lv_use(&nid, stmt_end, w), .None => ());
+              match(ids.get_cloned(ni), .Some(nid) => _lv_use(&nid, stmt_end, w), .None => ());
             });
           },
           .None => ()
@@ -385,7 +385,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           recur(rhs.clone(), stmt_end, block_end, w, context);
           lhs := match(args.get(usize(0)), .Some(l) => l, .None => return(()));
           name_atom := match(lhs.clone(), .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs.clone()), .Atom(_, _) => lhs.clone());
-          name := ast_expr_token(&name_atom).value;
+          name := ast_expr_text(&name_atom);
           match(
             _lv_resolve_keyed(ast_expr_id(name_atom.clone()), e.clone(), &name, w, context),
             .Some(v) => _lv_declare(_lv_id(&v, w), name.clone(), _lv_span_end(rhs.clone(), w), block_end, w),
@@ -633,7 +633,7 @@ compute_cross_boundary_variables :: (
       });
       if(!later, {
         match(
-          w.await_sites.get(wi),
+          w.await_sites.get_cloned(wi),
           .Some(site) => {
             g_local_await_results.with_mut(s => s.insert(site.clone()));
           },
@@ -895,10 +895,10 @@ compute_overlapping_slots :: (
       conflicts := HashMap(String, HashSet(String)).new();
       (ii : usize) = usize(0);
       while(ii < var_ids.len(), {
-        id_i := match(var_ids.get(ii), .Some(x) => x, .None => String.new());
+        id_i := match(var_ids.get_cloned(ii), .Some(x) => x, .None => String.new());
         (jj : usize) = (ii + usize(1));
         while(jj < var_ids.len(), {
-          id_j := match(var_ids.get(jj), .Some(x) => x, .None => String.new());
+          id_j := match(var_ids.get_cloned(jj), .Some(x) => x, .None => String.new());
           ra := match(ranges.get(id_i.clone()), .Some(r) => r, .None => _SlotRange(min : usize(0), max : usize(0)));
           rb := match(ranges.get(id_j.clone()), .Some(r) => r, .None => _SlotRange(min : usize(0), max : usize(0)));
           if((ra.min <= rb.max) && (rb.min <= ra.max), {
@@ -917,7 +917,7 @@ compute_overlapping_slots :: (
       colors := HashMap(String, usize).new();
       (ki : usize) = usize(0);
       while(ki < var_ids.len(), {
-        var_id := match(var_ids.get(ki), .Some(x) => x, .None => String.new());
+        var_id := match(var_ids.get_cloned(ki), .Some(x) => x, .None => String.new());
         used_colors := HashSet(usize).new();
         cset := match(conflicts.get(var_id.clone()), .Some(s) => s, .None => HashSet(String).new());
         c_it := cset.into_iter();
@@ -949,7 +949,7 @@ compute_overlapping_slots :: (
       ordered_colors := ArrayList(usize).new();
       (cti : usize) = usize(0);
       while(cti < var_ids.len(), {
-        var_id := match(var_ids.get(cti), .Some(x) => x, .None => String.new());
+        var_id := match(var_ids.get_cloned(cti), .Some(x) => x, .None => String.new());
         col := match(colors.get(var_id.clone()), .Some(c) => c, .None => usize(0));
         if(!color_to_vars.contains_key(&col), {
           ordered_colors.push(col);
@@ -971,7 +971,7 @@ compute_overlapping_slots :: (
           (slot_ty : TypeValue) = rc(TypeValueNode.Unit);
           (vni : usize) = usize(0);
           while(vni < group_var_ids.len(), {
-            gid := match(group_var_ids.get(vni), .Some(x) => x, .None => String.new());
+            gid := match(group_var_ids.get_cloned(vni), .Some(x) => x, .None => String.new());
             nm := match(
               _find_captured_by_id(&eligible, gid.clone()),
               .Some(fv) => {
@@ -1015,30 +1015,20 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
       });
       if(is_struct_type(&resolved), {
         capture_id := match(resolved, Rc(.Struct({ id })) => id, _ => String.from(""));
-        it := context.base.types.into_iter();
-        (go : bool) = true;
-        while(go, {
-          match(
-            it.next(),
-            .Some(bucket) => {
-              ety := bucket.value.ty;
-              if(is_some_type(&ety) && type_implements_future(&ety), {
-                match(
-                  some_resolution(&ety),
-                  .Some(erc) => if(is_struct_type(&erc), {
-                    ercid := match(erc, Rc(.Struct({ id })) => id, _ => String.from(""));
-                    if(ercid == capture_id, {
-                      return(false);
-                    });
-                  }),
-                  .None => ()
-                );
-              });
-            },
-            .None => {
-              go = false;
-            }
-          );
+        for(&context.base.types, (_tid, entry) => {
+          ety := entry.ty;
+          if(is_some_type(&ety) && type_implements_future(&ety), {
+            match(
+              some_resolution(&ety),
+              .Some(erc) => if(is_struct_type(&erc), {
+                ercid := match(erc, Rc(.Struct({ id })) => id, _ => String.from(""));
+                if(ercid == capture_id, {
+                  return(false);
+                });
+              }),
+              .None => ()
+            );
+          });
         });
       });
     },
@@ -1214,7 +1204,7 @@ find_bundle_field_name :: (
               if(!is_outer, {
                 svid := match(smvar.base.ty, Rc(.Struct({ id })) => id, _ => String.from(""));
                 if(svid == target_id, {
-                  aliased := match(state_machine_field_aliases, .Some(al) => al.get(smvar.base.id.to_string()), .None => Option(String).None);
+                  aliased := match(state_machine_field_aliases, .Some(al) => al.get_cloned(smvar.base.id.to_string()), .None => Option(String).None);
                   match(
                     aliased,
                     .Some(a) => return(Option(String).Some(a)),
@@ -1295,7 +1285,7 @@ emit_effect_record_injection_for_sm :: (
               (ui : usize) = usize(0);
               while((ui < ulabels.len()) && member_code.is_none(), {
                 match(
-                  ulabels.get(ui),
+                  ulabels.get_cloned(ui),
                   .Some(ul) => if(ul == flabel, {
                     match(
                       uvals.get(ui),
@@ -1365,7 +1355,7 @@ emit_effect_record_injection_for_sm :: (
                       (vi : usize) = usize(0);
                       while((vi < vlabels.len()) && member_code.is_none(), {
                         match(
-                          vlabels.get(vi),
+                          vlabels.get_cloned(vi),
                           .Some(vl) => if(vl == flabel, {
                             match(
                               vvals.get(vi),
@@ -1685,7 +1675,7 @@ inline_await_result_field_of :: (fn(expr : &AstExpr, fields : &ArrayList(InlineA
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(f) => {
         if(ast_expr_id(&f.expr) == eid, {
           return(Option(InlineAwaitResultField).Some(f));

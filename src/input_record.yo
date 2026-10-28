@@ -100,7 +100,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < g_input_files.with(xs => xs.len()), {
     match(
-      g_input_files.with(xs => xs.get(i)),
+      g_input_files.with(xs => xs.get_cloned(i)),
       .Some(seen) => if(seen == fs, {
         return(());
       }),
@@ -154,7 +154,7 @@ module_load_end :: (fn(key : &String, mark : usize) -> unit)({
   (i : usize) = mark;
   while(i < g_touches.with(xs => xs.len()), {
     match(
-      g_touches.with(xs => xs.get(i)),
+      g_touches.with(xs => xs.get_cloned(i)),
       .Some(t) => out.push(t),
       .None => ()
     );
@@ -180,12 +180,12 @@ _replay_module :: (fn(key : &String) -> unit)({
   });
   g_replayed_modules.with_mut(s => s.insert(key.clone()));
   match(
-    g_module_touches.with(m => m.get(key)),
+    g_module_touches.with(m => m.get_cloned(key)),
     .Some(list) => {
       (i : usize) = usize(0);
       while(i < list.len(), {
         match(
-          list.get(i),
+          list.get_cloned(i),
           .Some(t) => _replay_touch(&t),
           .None => ()
         );
@@ -225,8 +225,8 @@ input_file_entries :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < g_input_files.with(xs => xs.len()), {
-    path := match(g_input_files.with(xs => xs.get(i)), .Some(p) => p, .None => String.new());
-    h := match(g_input_hashes.with(xs => xs.get(i)), .Some(x) => x, .None => String.new());
+    path := match(g_input_files.with(xs => xs.get_cloned(i)), .Some(p) => p, .None => String.new());
+    h := match(g_input_hashes.with(xs => xs.get_cloned(i)), .Some(x) => x, .None => String.new());
     marker := cond(
       (h.len() > usize(0)) => h,
       true => String.from("-")
@@ -253,7 +253,7 @@ record_env_read :: (fn(name : &String, rendered : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < g_env_reads.with(xs => xs.len()), {
     match(
-      g_env_reads.with(xs => xs.get(i)),
+      g_env_reads.with(xs => xs.get_cloned(i)),
       .Some(seen) => if(seen == entry, {
         return(());
       }),

@@ -36,5 +36,9 @@ main :: (fn() -> unit)({
   cell.with_mut(v => {
     v = i32(8);
   });
+  // Listed, proved: a list placed by an explicit allocator is fresh storage
+  // too; the owner record it carries roots nothing.
+  h := Node(n : i32(0), items : ArrayList(i32).new(alloc : .Some(Allocator.global())));
+  h.n = i32(2);
 });
 export(main);

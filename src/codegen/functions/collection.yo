@@ -16,7 +16,7 @@ pragma(Pragma.AllowUnsafe);
 { env : warm_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR, BF_UPCAST } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR, BF_UPCAST } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
 { ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global, extern_c_global_c_name, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_capture_field_inits, expr_info_dyn_call_trait_values, get_module_level_init_exprs, expr_info_deferred_dup_expressions, expr_info_index_method_value, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
@@ -352,7 +352,7 @@ _register_extern_fn_callee :: (
 _add_all_c_includes :: (fn(headers : &ArrayList(String), context : &CodeGenContext) -> unit)({
   (i : usize) = usize(0);
   while(i < headers.len(), {
-    match(headers.get(i), .Some(h) => context.add_c_include(&h), .None => ());
+    match(headers.get_cloned(i), .Some(h) => context.add_c_include(&h), .None => ());
     i = (i + usize(1));
   });
 });
@@ -586,7 +586,7 @@ collect_required_functions :: (
       n := field_names.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_names.get_cloned(i), .Some(l) => l, .None => String.from(""));
         match(
           field_values.get(i),
           .Some(value) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
@@ -599,7 +599,7 @@ collect_required_functions :: (
       n := field_names.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_names.get_cloned(i), .Some(l) => l, .None => String.from(""));
         match(
           field_values.get(i),
           .Some(.Some(value)) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
@@ -764,7 +764,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
         cdot_args := match(callee, .FnCall(_, _, da, _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
-        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_token(&m).value, String.from("")), .None => String.from(""));
+        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m), String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
         // is the metatype `Type`, not the receiver type P — `type_id_or_empty`
@@ -828,7 +828,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                 n_rm := rm_names.len();
                 (rmi : usize) = usize(0);
                 while(rmi < n_rm, {
-                  rm_hit := match(rm_names.get(rmi), .Some(nm) => (nm == cmname), .None => false);
+                  rm_hit := match(rm_names.get_cloned(rmi), .Some(nm) => (nm == cmname), .None => false);
                   if(rm_hit, {
                     match(
                       rm_vals.get(rmi),
@@ -1000,7 +1000,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           .Some(cinits) => {
             (cii : usize) = usize(0);
             while(cii < cinits.len(), {
-              match(cinits.get(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
+              match(cinits.get_cloned(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
               cii = (cii + usize(1));
             });
           },
@@ -1236,42 +1236,32 @@ collect_trace_methods_from_generic_impls :: (
   // Snapshot the concrete RC types first: registering specialized functions into
   // base.functions during the walk must not perturb the base.types iterator.
   type_list := ArrayList(TypeValue).new();
-  vals := base.types.values();
-  (go : bool) = true;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(entry) => {
-        ty := entry.ty;
-        // CONCRETE types only. A generic instance can reach the type registry
-        // — `is_registerable` admits a struct whose SomeType content sits
-        // behind function-typed fields — but monomorphizing its `trace` is
-        // meaningless: there is no element type to bind, so the body is
-        // re-evaluated with the impl's own `T` bound to itself and the first
-        // thing it does with an element (`tracer.visit(base.add(i))`, where
-        // `base : *(T)`) finds no method on an unresolved `*(T)`:
-        //
-        //     error: No matching call found with arguments: (base.add)(i)
-        //         --> std/collections/array_list.yo:862:30
-        //
-        // Nothing could ever call such a monomorphization either — the
-        // traversal generators look the trace function up by the CONCRETE
-        // container's type_key. The async `Channel` over wakers is what
-        // surfaced it (an `ArrayList(Waker)` field plus a park in `send`/`recv`
-        // put a generic `ArrayList(T)` in the registry beside the two concrete
-        // instances), and the error pointed at `array_list.yo` — a file the
-        // change never touched
-        // (issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md).
-        // A value that owns a heap buffer (V2b's unique buffers) is traced
-        // through its own `trace` too, called inline by its holder's walk.
-        if((is_reference_struct_type(&ty) || is_reference_enum_type(&ty) || value_type_owns_buffer(&ty)) && !type_contains_some_type_deep(&ty), {
-          type_list.push(ty);
-        });
-      },
-      .None => {
-        go = false;
-      }
-    );
+  for(&base.types, (_tid, entry) => {
+    ty := entry.ty;
+    // CONCRETE types only. A generic instance can reach the type registry
+    // — `is_registerable` admits a struct whose SomeType content sits
+    // behind function-typed fields — but monomorphizing its `trace` is
+    // meaningless: there is no element type to bind, so the body is
+    // re-evaluated with the impl's own `T` bound to itself and the first
+    // thing it does with an element (`tracer.visit(base.add(i))`, where
+    // `base : *(T)`) finds no method on an unresolved `*(T)`:
+    //
+    //     error: No matching call found with arguments: (base.add)(i)
+    //         --> std/collections/array_list.yo:862:30
+    //
+    // Nothing could ever call such a monomorphization either — the
+    // traversal generators look the trace function up by the CONCRETE
+    // container's type_key. The async `Channel` over wakers is what
+    // surfaced it (an `ArrayList(Waker)` field plus a park in `send`/`recv`
+    // put a generic `ArrayList(T)` in the registry beside the two concrete
+    // instances), and the error pointed at `array_list.yo` — a file the
+    // change never touched
+    // (issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md).
+    // A value that owns a heap buffer (V2b's unique buffers) is traced
+    // through its own `trace` too, called inline by its holder's walk.
+    if((is_reference_struct_type(&ty) || is_reference_enum_type(&ty) || value_type_owns_buffer(&ty)) && !type_contains_some_type_deep(&ty), {
+      type_list.push(ty);
+    });
   });
   nt := type_list.len();
   (ti : usize) = usize(0);
@@ -1758,30 +1748,22 @@ collect_dispose_methods :: (
   // instead would make `(___drop)(x)` resolve via method dispatch, which mis-lowers to a
   // double-application `f(x)(x)` when the method is already registered at synthesis time.
   type_list := ArrayList(TypeValue).new();
-  vals := base.types.values();
-  (go : bool) = true;
-  while(go, {
-    match(
-      vals.next(),
-      // Skip GENERIC (SomeT-bearing) RC struct types. `type_contains_some_type`
-      // is only
-      // SHALLOW (types/utils.yo:860-907 — SomeT and TypeAppT arms, no struct
-      // recursion), so the generic type IS registered here and gets a
-      // synthesized `___dispose` with a c_name. The constructor then mints a
-      // dispose type-tag for it (constructors.yo:107) and emit_dispose_dispatch
-      // emits `case N: yo_id_XXXX(ptr);` — but BOTH emission passes correctly
-      // refuse the generic body via the DEEP guard in
-      // should_skip_function_codegen, so the case call is left dangling
-      // ("call to undeclared function 'yo_id_XXXX'"). Filter with the deep
-      // predicate here so no `___dispose` is registered for a body that will
-      // never be emitted.
-      .Some(entry) => if((is_reference_struct_type(&entry.ty) || (is_reference_enum_type(&entry.ty) || (is_value_nominal_type(&entry.ty) && type_is_move_only(&entry.ty)))) && !type_contains_some_type_deep(&entry.ty), {
-        type_list.push(entry.ty);
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&base.types, (_tid, entry) => {
+    // Skip GENERIC (SomeT-bearing) RC struct types. `type_contains_some_type`
+    // is only
+    // SHALLOW (types/utils.yo:860-907 — SomeT and TypeAppT arms, no struct
+    // recursion), so the generic type IS registered here and gets a
+    // synthesized `___dispose` with a c_name. The constructor then mints a
+    // dispose type-tag for it (constructors.yo:107) and emit_dispose_dispatch
+    // emits `case N: yo_id_XXXX(ptr);` — but BOTH emission passes correctly
+    // refuse the generic body via the DEEP guard in
+    // should_skip_function_codegen, so the case call is left dangling
+    // ("call to undeclared function 'yo_id_XXXX'"). Filter with the deep
+    // predicate here so no `___dispose` is registered for a body that will
+    // never be emitted.
+    if((is_reference_struct_type(&entry.ty) || (is_reference_enum_type(&entry.ty) || (is_value_nominal_type(&entry.ty) && type_is_move_only(&entry.ty)))) && !type_contains_some_type_deep(&entry.ty), {
+      type_list.push(entry.ty);
+    });
   });
   nt := type_list.len();
   (ti : usize) = usize(0);

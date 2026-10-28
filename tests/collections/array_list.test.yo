@@ -1636,6 +1636,17 @@ test("with runs the body on the element in place and returns its result", {
   });
   assert(tags(usize(0)).n == i32(42), "an explicit-copy element is written without a copy");
 });
+test("with's body is an FnOnce: it moves a capture into the element", {
+  lists := ArrayList(ArrayList(_AlTag)).new();
+  lists.push(ArrayList(_AlTag).new());
+  t := _AlTag(n : i32(7));
+  n := lists.with(usize(0), { t }(l) => {
+    l.push(t);
+    l.len()
+  });
+  assert(n == usize(1), "the body's result");
+  assert(lists(usize(0))(usize(0)).n == i32(7), "the moved capture landed in the element");
+});
 test("take moves the element out and leaves the default", {
   names := ArrayList(String).new();
   names.push(`ada`);

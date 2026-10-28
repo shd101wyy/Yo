@@ -531,7 +531,7 @@ impl(
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
             element_ptr := base_ptr.add(i);
-            ___drop(element_ptr.*);
+            drop_in_place(element_ptr);
           });
         });
       },
@@ -602,7 +602,7 @@ impl(
                     tail_start := (r.start + elements_after);
                     while(j < count, j = (j + usize(1)), {
                       tail_ptr := _ptr.add(tail_start + j);
-                      ___drop(tail_ptr.*);
+                      drop_in_place(tail_ptr);
                     });
                   },
                   true => {
@@ -627,7 +627,7 @@ impl(
                     mut(i) := usize(0);
                     while(i < count, i = (i + usize(1)), {
                       element_ptr := _ptr.add(r.start + i);
-                      ___drop(element_ptr.*);
+                      drop_in_place(element_ptr);
                     });
                   },
                   true => ()
@@ -697,7 +697,8 @@ impl(
   /// Run `body` on the element at `index`, borrowed in place, and return
   /// its result — decision 20's non-copying access (plans/VALUES_BY_DEFAULT.md):
   /// the element is neither copied out nor written back. Panics when
-  /// `index >= len()`.
+  /// `index >= len()`. The body runs once, so it is an `FnOnce` moved in
+  /// (decision 37) and may move its captures into the element.
   ///
   /// ```yo
   /// { ArrayList } :: import("std/collections/array_list");
@@ -710,7 +711,7 @@ impl(
   /// });
   /// assert((n == usize(12)) && (names(usize(0)) == `ada lovelace`), "written in place");
   /// ```
-  with : (fn(generic(R : Type), self : &mut Self, index : usize, body : &Impl(Fn(v : &mut T) -> R)) -> R)(
+  with : (fn(generic(R : Type), self : &mut Self, index : usize, sink(body) : Impl(FnOnce(v : &mut T) -> R)) -> R)(
     body(&mut self(index))
   ),
   /// Move the element at `index` out and leave `T`'s default in its slot —
