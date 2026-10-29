@@ -7812,7 +7812,16 @@ _evaluate_function_call_trapped :: (
     out : &mut ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
+  // releases a bare body's parameter before the operand reads it
+  // (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  trap := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
   out.push(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, trap));
   Option(AnyError).None
 });
