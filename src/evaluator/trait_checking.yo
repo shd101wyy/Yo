@@ -912,7 +912,7 @@ set_flip_prelude_env :: (fn(env : &Environment) -> unit)({
 /// Mark `ty` as the target of a `derive` that includes `Copy` (see
 /// `g_copy_pending_keys`).
 push_copy_pending :: (fn(ty : &TypeValue) -> unit)({
-  g_copy_pending_keys.with_mut({ ty : Rc.clone(ty) }(xs) => xs.push(type_key(ty)));
+  g_copy_pending_keys.with_mut({ ty : Rc.clone(ty) }(xs) => xs.push(type_key(&ty)));
 });
 /// Forget every pending `Copy` derive target. Derives do not nest, so a
 /// derive clears the list on entry and on exit (and its guarded caller after
