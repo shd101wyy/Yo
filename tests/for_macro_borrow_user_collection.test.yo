@@ -488,6 +488,41 @@ test("borrowed for: boxing the object through an alias does not trip the flag", 
   assert(seen == usize(4), "the boxed handle reads the list once per element");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });
+// Moving the object into an `Rc` cell only stores it too. `rc` and `Rc.new`
+// save, set and restore the thread's allocation scope in their `.Some(a)` arm
+// (`__yo_scope_ctx`/`__yo_scope_vtable`/`__yo_scope_set`); the analysis
+// counted `__yo_scope_set` as writing through its arguments, which it read as
+// unknown storage, so `keep_rc`/`keep_rc_new` asserted `b` unborrowed and
+// panicked through the second handle
+// (issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md).
+keep_rc :: (fn(b : VBag) -> Rc(VBag))(rc(b));
+keep_rc_new :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
+test("borrowed for: moving the object into an Rc cell through an alias does not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  c := Counter(n : usize(3));
+  bag := VBag(
+    items : xs,
+    c : c.clone(),
+    local : CountLocal(c : c.clone()),
+    konst : CountConst(c : c.clone()),
+    chain : CountChain(c : c.clone()),
+    h : HCounter(n : usize(3)),
+    p : PCounter(n : usize(3))
+  );
+  other := bag;
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    kept := keep_rc(other);
+    seen = (seen + kept.*.items.len());
+    kept_new := keep_rc_new(other);
+    seen = (seen + kept_new.*.items.len());
+    x = (x * i32(10));
+  });
+  assert(seen == usize(8), "each cell reads the list once per element");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
+});
 // A callee that writes an INERT module-level global (an `i32`, a `Copy`
 // struct of scalars) mutates only that static: no argument's storage is reachable from
 // it, so it does not count as mutating every argument. Before the fix such a
