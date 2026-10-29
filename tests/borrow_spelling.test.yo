@@ -508,6 +508,17 @@ test("an impl may narrow its trait's result origin, and a trait call maps from t
   o = i32(3);
   assert((bs_ret_read(s) == i32(22)) && (o == i32(3)), "a Dyn call's result origin is the trait's `self`: `o` stays writable");
 });
+// A projection method behind a `Dyn` (issues/fixed/2026-10-29-a-dyn-over-a-trait-with-a-projection-method-emits-invalid-c.md):
+// the vtable slot and its wrapper take `&T` parameters and return the result
+// by pointer, as the impl does.
+BsPk :: trait(pk : (fn(self : &Self, other : &i32) -> &i32));
+impl(BsOne, BsPk(pk : (fn(self : &Self, other : &i32) -> &i32)(&self.v)));
+test("a Dyn over a trait with an elided-origin projection method", {
+  (d : Dyn(BsPk)) = dyn(BsOne(v : i32(23)));
+  o := i32(2);
+  r := d.pk(&o);
+  assert(bs_ret_read(r) == i32(23), "the Dyn projection call reads the payload's field");
+});
 BsTwo :: struct(v : i32);
 comptime_expect_error(
   impl(BsTwo, BsPick(pick : (fn(self : &Self, other : &i32) -> &i32)(&self.v))),
