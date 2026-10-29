@@ -34,7 +34,8 @@
   Environment,
   get_variables_from_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+PROBE_env_mod :: import("std/env");
 { t_unit } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -1031,7 +1032,20 @@ closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
       out := String.from("(");
       (csk_i : usize) = usize(0);
       while(csk_i < csk_pts.len(), {
-        match(slot_pointee_at(&csk_pts, csk_i), .Some(csk_t) => out.push_string(type_key(&csk_t)), .None => ());
+        match(
+          csk_pts.get(csk_i),
+          .Some(csk_slot) => {
+            if(PROBE_env_mod.env.get(`YO_DEBUG_CSK_OLD`).is_none(), {
+              cond(
+                t_slot_is_mut_ref(&csk_slot) => out.push_str("&mut "),
+                t_slot_is_borrow(&csk_slot) => out.push_str("&"),
+                true => ()
+              );
+            });
+            match(slot_pointee_at(&csk_pts, csk_i), .Some(csk_t) => out.push_string(type_key(&csk_t)), .None => ());
+          },
+          .None => ()
+        );
         out.push_str(",");
         csk_i = (csk_i + usize(1));
       });
