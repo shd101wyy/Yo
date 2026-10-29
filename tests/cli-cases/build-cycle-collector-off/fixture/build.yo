@@ -1,11 +1,13 @@
 build :: import("std/build");
 
 // plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1: `cycle_collector` on an
-// executable reaches the child compile as `--cycle-collector off`. The same
-// probe is built twice; only the `off` build leaks its cycle.
+// executable reaches the child compile as `--cycle-collector auto`; `off` is
+// the default (W6a) and adds nothing. The same probe is built twice; only the
+// `off` build leaks its cycle.
 auto_exe :: build.executable({
   name : "probe-auto",
-  root : "./src/main.yo"
+  root : "./src/main.yo",
+  cycle_collector : build.CycleCollector.Auto
 });
 off_exe :: build.executable({
   name : "probe-off",

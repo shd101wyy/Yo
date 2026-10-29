@@ -1,5 +1,10 @@
 # 循环引用回收
 
+> **默认关闭。** 自 v0.2.73 起，程序默认不带回收器编译，除非用 `--cycle-collector auto` 显式要求
+> （[见下文](#不带回收器编译--cycle-collector-off)）。回收器正在被移除（决策 48，
+> `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`）：请改用 `Weak`（[WEAK.md](./WEAK.md)）打断环的回边。
+> 本页描述的是 `auto` 下运行的回收器。
+
 Yo 使用**非原子引用计数**结合**线程局部循环回收**来回收循环引用结构。循环回收器采用 **QuickJS 的试验性删除算法**，比 [Nim 的 ORC 着色方案](https://nim-works.github.io/nimskull/gc.html)更为简单，同时性能相当。该实现针对 Yo 的**隔离 spawn 模型**进行了适配——每个线程完全隔离，不共享内存。
 
 ## 为什么需要循环回收？
@@ -362,12 +367,14 @@ tracked_count(); // u64——回收器当前跟踪的对象数
 ## 不带回收器编译：`--cycle-collector off`
 
 回收器正在分阶段移除（决策 48，`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`）。
-在此之前，程序可以选择不带回收器编译。这就是 Rust 的 `Rc` 模型：单元由最后一个
-引用释放，引用环会泄漏。
+自 v0.2.73 起，程序默认不带回收器编译，在删除之前保持一个版本。这就是 Rust 的 `Rc`
+模型：单元由最后一个引用释放，引用环会泄漏。在删除之前，`--cycle-collector auto`
+仍可保留回收器。
 
 ```bash
-yo compile main.yo --cycle-collector off      # auto（默认）| off
-yo test ./tests --cycle-collector off         # 转发给每个测试二进制
+yo compile main.yo                            # off（默认）
+yo compile main.yo --cycle-collector auto     # 保留回收器
+yo test ./tests --cycle-collector auto        # 转发给每个测试二进制
 ```
 
 在 `build.yo` 中，这一选择是可执行产物的一个字段：
@@ -378,7 +385,7 @@ build :: import("std/build");
 exe :: build.executable({
   name : "app",
   root : "./src/main.yo",
-  cycle_collector : build.CycleCollector.Off
+  cycle_collector : build.CycleCollector.Auto
 });
 ```
 
@@ -403,13 +410,13 @@ exe :: build.executable({
 对于只有一个两单元垃圾环的程序：
 
 ```bash
-yo compile main.yo --cycle-collector off --allocator fixed --debug-heap -o app
+yo compile main.yo --allocator fixed --debug-heap -o app
 ./app
 # heap: peak 448.0 B of 16.0 MiB, 16 allocations, live at exit: 2 blocks / 96 bytes
 ```
 
 `YO_GC_THRESHOLD=0` 是同一选择的运行时形式。它停止自动回收，但保留跟踪代码、
-注册和大对象头，`collect()` 仍会回收。`--cycle-collector off` 则在编译时把这些
+注册和大对象头，`collect()` 仍会回收。默认的 `--cycle-collector off` 则在编译时把这些
 全部去掉。
 
 ## 编译器支持
@@ -654,10 +661,10 @@ S1）。因此两个回收器都在 dispose 遍**之后**复查每个白色单�
 路径（`__yo_gc_collect`）仍是全堆试删扫描，可回收这类环，也可按需运行。因此该设计是混合
 式：热（自动）路径用廉价的增量回收，显式路径用彻底的全堆回收。
 
-这使回收器默认开启且无需环境变量覆盖（`YO_GC_THRESHOLD` 开关保留作下限/禁用）。这是一项
-关乎正确性的改动（涉及释放路径），已在 AddressSanitizer 下针对环回收测试
-（`tests/cycle_collector.test.yo`、`tests/codegen-bootstrap/*_self_cycle.yo`、
-`ref_enum_cycle.yo`，16/16，外加 `arc` / `closure_capture_rc_leak` /
+这使回收器在无需环境变量覆盖的情况下保持开启（`YO_GC_THRESHOLD` 开关保留作下限/禁用），直到 v0.2.73
+把 `--cycle-collector off` 设为默认。这是一项关乎正确性的改动（涉及释放路径），曾在 AddressSanitizer 下
+针对环回收测试（`tests/cycle_collector.test.yo`，以及代码生成语料中的 `*_self_cycle.yo` 和
+`ref_enum_cycle.yo` 程序——它们随默认值的切换一并删除；16/16，外加 `arc` / `closure_capture_rc_leak` /
 `continue_rc_cleanup` / `ref_enum` 套件）验证。
 
 ## 总结
