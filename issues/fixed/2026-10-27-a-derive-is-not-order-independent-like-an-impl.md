@@ -1,5 +1,7 @@
 # A `derive` is not order-independent like an `impl`
 
+**Status: FIXED** 2026-10-29 (`src/evaluator/context.yo`: a `derive` is a pending impl of its target type).
+
 **Severity:** S2 — a valid module is rejected with E0610 (`No method "clone"`) when a function forced before a `derive(T, Clone)` statement uses the derived method; the workaround is to move the derive above the first forward reference or write the `impl` by hand.
 
 ## Symptom
@@ -71,3 +73,53 @@ label in a derive. That changes when every derive in the tree is evaluated, so t
 fix needs P2's byte-identity gate (a self-emit diff) and the lazy-binding tests.
 The regression test is the module above, added to `tests/lazy_toplevel_bindings.test.yo`
 with the fix (it fails before the fix, so it cannot be added on its own).
+
+## Fix (2026-10-29, branch `fix/derive-order-independence`)
+
+One root cause for this doc and
+`issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`:
+a top-level `derive(...)` was an ordered statement, so no lookup miss could
+force it. `classify_pending_def` (`src/evaluator/context.yo`) now classifies
+`derive([generic(...)], [where(...)], T, Trait...)` as a pending impl of `T`'s
+head (`PendingDef.is_derive`, with `is_impl` set), exactly as it classifies
+`impl(T, ...)`. A method or trait miss on `T` reaches
+`force_pending_impls_for_type_name`; no derive declares a member label, so the
+named pass passes it over and the "force every pending impl of the type"
+fallback forces it. Three adjustments keep everything else as it was:
+
+- **Inside an impl of `T`** the fallback used to be skipped (the in-block
+  guard). A named miss there now falls back to `T`'s pending derives only: a
+  derive declares its methods only once it runs, and forcing it registers
+  whole impls rather than touching the half-registered block (a member calling
+  `self.clone()` above `derive(T, Clone)`).
+- **A derive in flight does not take the in-impl guard.** It declares no
+  member and registers whole impls, so a trait-bound miss under it still forces
+  later impls, as when derives were ordered: `derive(K, Ord(K))` above
+  `impl(K, Eq(K)(...))` keeps checking, and above `derive(K, Eq(K))` now checks
+  too (it was E0603 before).
+- **Identity anchors are unchanged.** `register_module_anchors` keeps a
+  derive's unnamed-statement label (`<prev>_s<n>`); naming it `impl_<T>` would
+  rename every id minted in it and in the statements after it, and the next
+  `impl_<T>`.
+
+A forced derive that fails reports its own error with the note
+`` `derive(T, …)` (line N) was evaluated here because a method or trait of `T`
+is used before that derive in the source ``.
+
+Regression tests: `tests/lazy_toplevel_bindings.test.yo` — "a method call
+above the derive that provides it", "a definition forced before the derive its
+body needs", "an impl member calls a method from a later derive of its type",
+"a derive whose trait bound is met by a later derive or impl" (all but the
+last case's impl half fail on develop `d25241bdf`: the module is E0610 at the
+first one).
+
+Byte identity: the compiler's own emitted C for `src/main.yo` (155 MB) is
+identical before and after (sha256 `ca2f00db…`, develop `d25241bdf`'s binary
+against this branch's), as are `tests/derive.test.yo`'s and
+`tests/derive_clone_complex.test.yo`'s emissions: no derive in the corpus is
+forced out of order.
+
+Seed gate: `std/` and `src/` keep their derives above first use until
+`SEED_VERSION` carries the release with this fix; `yo fix --migrate
+explicit-copy` keeps listing (not cloning) a copy made above its type's
+`derive(T, Clone)` for the same reason.
