@@ -535,7 +535,7 @@ _acy_memo_get :: (fn(key : &String) -> Option(bool))({
 _acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves : &mut ArrayList(TypeValue)) -> unit)({
   t := resolve_enum_shell(resolve_struct_shell(t_in));
   match(
-    t,
+    &t,
     Rc(.Struct({ id : _ })) => if(!is_weak_handle_type(&t), {
       nodes.push(t.clone());
     }),
@@ -739,7 +739,7 @@ _acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environmen
   nodes := ArrayList(TypeValue).new();
   leaves := ArrayList(TypeValue).new();
   match(
-    t,
+    &t,
     Rc(.Struct({ id : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
     Rc(.EnumT({ id : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
     Rc(.Tuple({ field_types : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
