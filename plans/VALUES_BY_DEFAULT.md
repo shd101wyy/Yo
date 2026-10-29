@@ -8686,10 +8686,14 @@ heavy run, the command is given in item 2.
       (`issues/2026-10-28-a-yo-fix-batch-over-tests-poisons-later-files-after-copy-trait-test.md`).
   - **Hand edits**, each for a shape the tool does not reach:
     - Five `mut` globals the sweep clones are `RefCell` cells
-      (`src/env.yo`, `src/expr_info.yo`, `src/module_manager.yo`). The seeds
-      v0.2.71 and v0.2.72 reject their `G.clone()` (E0916); the fix
-      (`issues/fixed/2026-10-25-a-clone-through-an-rc-payloads-user-clone-is-e0916-on-a-mut-global.md`)
-      lands in this PR, so a later seed can take the edit back.
+      (`src/env.yo`, `src/expr_info.yo`, `src/module_manager.yo`), and they
+      stay cells (decided 2026-10-29): a handle-holding reassigned global is
+      a cell, Rust's `thread_local!` `RefCell` idiom, which needs no E0916
+      exemption; B5's `mut(G) : String` carve-out stays for strings. These
+      five plus `g_cached_prelude_module_value` were the only handle-holding
+      `mut(G)` globals in `src/`. The seeds v0.2.71 and v0.2.72 also reject
+      their `G.clone()` (E0916), a user-facing S2 the PR fixes
+      (`issues/fixed/2026-10-25-a-clone-through-an-rc-payloads-user-clone-is-e0916-on-a-mut-global.md`).
     - Test sites in seven files: a thread capture whose implicit copy is
       now a move (`arc`), an element copy in a generic reader
       (`async/combinators`), a nested closure's capture (`async_await`,
@@ -8701,13 +8705,26 @@ heavy run, the command is given in item 2.
       a generic method, and `ref_count` expectations that encoded the dup/drop
       cancellation of an implicit copy (`rc`).
   - **std's generic bodies stay exempt** (`set_counted_handle_std_generic`,
-    the knob `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges them). Measured on
-    the swept tree before B6-c: `std/` is clean, and `check ./src` fails
-    238 of 276 files, every one at `HashMap.get` or `ArrayList.get`
-    instantiated at a handle element (the readers copy their element
-    through `T`). The exemption goes once `src/` reads handle elements
-    through B6's accessors (`get_cloned`, `xs(i)` in place, `with`). User
-    generic bodies are judged at each instantiation.
+    the knob `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges them). The exemption
+    is diagnostic-only: an exempt body's handle copy still lowers to a
+    retain. User generic bodies are judged at each instantiation.
+    - Measured with B6-c's `src/` half in the tree: `std/` is clean, and
+      `check ./src` passes 38 of 276 files. The first errors of the other
+      238 name four `src/` call sites, each a std reader copying a handle
+      element through `T`: `src/utils.yo:447` (`HashMap.get`),
+      `src/types/definitions.yo:83` (`SharedList.get`),
+      `src/verifier/terms.yo:313` and `src/doc/render_json.yo:423`.
+    - **Its removal is one follow-up PR in the v0.2.74 window, and it must
+      merge before V5 Generation A** (decided 2026-10-29). While exempt std
+      bodies still emit implicit dups, "once V5 lands, the dup/drop pair
+      optimizer has no implicit copy left to cancel" does not hold. The
+      follow-up moves those sites to B6's accessors (`get_cloned`, `with`,
+      `xs(i)` in place) and re-runs the knob's `check ./src` until 276/276.
+      It then deletes the exemption and the knob, and decides the diagnostic
+      shape for std readers that copy `T`: a bound on the reader, or the
+      blame at the instantiation site. V2b's Generation B for `String`
+      elements reuses that answer. Until then, no std code or test may
+      depend on the exemption, and the knob's `check ./std` is a ratchet.
   - **Bugs the sweep found,** all pre-existing and fixed in the PR:
     - a value reassigned in every arm after a move stayed moved where the
       arms meet
