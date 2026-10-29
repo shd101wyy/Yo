@@ -614,12 +614,14 @@ _acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeV
   st.low.push(v);
   st.on_stack.push(true);
   st.stack.push(v);
-  st.is_cell.push(match(
-    t,
-    Rc(.Struct({ is_reference_semantics : sr })) => sr,
-    Rc(.EnumT({ is_reference_semantics : er })) => er,
-    _ => false
-  ));
+  st.is_cell.push(
+    match(
+      t,
+      Rc(.Struct({ is_reference_semantics : sr })) => sr,
+      Rc(.EnumT({ is_reference_semantics : er })) => er,
+      _ => false
+    )
+  );
   st.self_edge.push(false);
   st.reach.push(false);
   // An unresolved self shell reads as an empty type, and a re-entered
