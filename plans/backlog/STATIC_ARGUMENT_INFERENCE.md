@@ -216,6 +216,14 @@ the tree's prelude**, and src has such sites (`analyze_await_points`'s closure).
 after the seed no longer synthesizes it. A third gate comes from the migration itself: `handle-ctors` types an
 old call through the prelude's `rc`, so every release that ships the mode must still carry the builtins (B3 below).
 
+H1 (Fable consultation #5, v0.2.73 window) clears the second gate with its fallback (a): `dyn` boxes a type-variable
+payload through the prelude's `__yo_rc_cell`/`__yo_arc_cell` (copies of `rc`/`arc`, not exported, which B3 keeps),
+so a seed carrying H1 no longer looks `rc`/`arc` up. Option (b), a cell built as `Rc(resolve_cell_chain(T)).new` plus
+the open-slot dispatch rule widened to the nameless `Dyn` payload wrapper, failed both acceptance checks: the
+emit-diff of `src/main.yo` gained a second cell type `Rc(W)` beside `Rc(<capture struct>)` at
+`analyze_await_points`'s closures, and `dyn(Rc.new(<closure>))` emitted a cell whose payload is `void*` (clang
+rejects it). V5 Generation A rewrites the two bodies onto `__yo_cell` with `rc`'s.
+
 **Generation A: compiler and std additions; no src or std call uses them.**
 
 - **A1, the rule** (§2): the explain text, E0613 and E0601 wording, the tests, and the rewritten statements of the

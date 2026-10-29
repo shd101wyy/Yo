@@ -159,63 +159,80 @@ _mark_preset_receiver :: (fn(recv : &Option(usize), on : bool) -> unit)(
     .None => ()
   )
 );
-/// The call that boxes a `dyn(...)` payload `value` in the cell type
-/// `cell_ty` (`Rc(T)`, or `Arc(T)` for a Send Dyn; `cell_name` names it),
-/// with the receiver node the caller marks pre-evaluated around its
-/// evaluation (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A3).
+/// The call that boxes a `dyn(...)` payload `value` of type `payload_ty` in
+/// the cell type `cell_ty` (`Rc(T)`, or `Arc(T)` for a Send Dyn; `cell_name`
+/// names its constructor), with the node ids the caller marks pre-evaluated
+/// around its evaluation (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A3).
 ///
 /// It is `Rc(T).new(value)`: the receiver is a fresh node whose ExprInfo is
 /// `.TypeVal(cell_ty)` before the call is evaluated, the written
-/// `Rc(T).new(value)`. The caller builds `cell_ty` over the payload's
-/// RESOLVED type (`resolve_cell_chain`): a type variable resolved to a
-/// closure's capture struct (each call's specialization of a body with an
-/// `Impl(Fn(...))` parameter, a closure literal) boxes that struct, the one
-/// C type the prelude's generic `rc` bound from the same argument. An
-/// unresolved `Impl(Fn(...))` parameter type, or the nameless variable a
-/// closure literal is evaluated under, dispatches `new` outside a
-/// definition-time trial too (`_is_open_fn_param_slot`, values/impl.yo;
-/// issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
-/// No name is looked up, so a binding named `rc` cannot capture the call.
+/// `Rc(T).new(value)`. A payload whose type mentions a type variable
+/// (`_is_open_payload`: `dyn(f)` for `f : Impl(Fn(...))`, a closure literal)
+/// is boxed by the prelude's generic cell constructor (`__yo_rc_cell`,
+/// `__yo_arc_cell`; `_prelude_cell_constructor`).
+/// Over a resolved variable (each call's specialization of a body with an
+/// `Impl(Fn(...))` parameter, a closure literal) `Rc(T).new` keeps the
+/// variable in the cell's type. Over an unresolved one only an open
+/// `Impl(Fn(...))` parameter type dispatches `new` outside a
+/// definition-time trial (`_is_open_fn_param_slot`, values/impl.yo;
+/// issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md);
+/// the nameless variable a closure literal is evaluated under does not. The
+/// constructor's function value is bound to the callee node, so no name is
+/// looked up either way and a binding named `rc` cannot capture the call.
 _synthesized_cell_call :: (
-  fn(cell_ty : &TypeValue, cell_name : &String, value : AstExpr, at : &Token, env : &Environment, ctx : &EvalContext) -> Tuple(AstExpr, usize)
+  fn(cell_ty : &TypeValue, cell_name : &String, payload_ty : &TypeValue, value : AstExpr, at : &Token, env : &Environment, ctx : &EvalContext) -> Tuple(AstExpr, usize)
 )({
   call_args := ArrayList(AstExpr).new();
   call_args.push(value);
-  recv_id := alloc_global_expr_id();
-  recv := AstExpr.Atom(recv_id, synthetic_token(cell_name.clone(), &env.module_path.*));
-  recv_info := new_expr_info(env, t_type());
-  recv_info.value = Option(EvalValue).Some(create_type_value(cell_ty));
-  expr_info_table_set(&ctx.expr_info_table, recv_id, &recv_info);
-  dot_tok := Token(
-    kind : TokenKind.Operator,
-    value : intern_token_str(String.from(BF_DOT)),
-    row : at.row,
-    column : at.column,
-    character : at.character,
-    byte_offset : at.byte_offset,
-    module_path : at.module_path,
-    input : at.input
+  ctor_callee := cond(
+    _is_open_payload(payload_ty) => _prelude_cell_callee(cell_name, env, ctx),
+    true => Option(AstExpr).None
   );
-  dot_args := ArrayList(AstExpr).new();
-  dot_args.push(recv);
-  dot_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("new"), &env.module_path.*)));
-  callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), dot_args, true, dot_tok);
-  (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), recv_id)
+  match(
+    ctor_callee,
+    .Some(callee) => {
+      callee_id := ast_expr_id(&callee);
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), callee_id)
+    },
+    .None => {
+      recv_id := alloc_global_expr_id();
+      recv := AstExpr.Atom(recv_id, synthetic_token(cell_name.clone(), &env.module_path.*));
+      recv_info := new_expr_info(env, t_type());
+      recv_info.value = Option(EvalValue).Some(create_type_value(cell_ty));
+      expr_info_table_set(&ctx.expr_info_table, recv_id, &recv_info);
+      dot_tok := Token(
+        kind : TokenKind.Operator,
+        value : intern_token_str(String.from(BF_DOT)),
+        row : at.row,
+        column : at.column,
+        character : at.character,
+        byte_offset : at.byte_offset,
+        module_path : at.module_path,
+        input : at.input
+      );
+      dot_args := ArrayList(AstExpr).new();
+      dot_args.push(recv);
+      dot_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("new"), &env.module_path.*)));
+      callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), dot_args, true, dot_tok);
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), recv_id)
+    }
+  )
 });
 /// Does `payload_ty` mention a type variable: an `Impl(...)` parameter, or
-/// the `Dyn`-carrying variable a closure literal is evaluated under?
-///
-/// Unreferenced since `dyn(...)` builds its cell over the payload's resolved
-/// type (`_synthesized_cell_call`), as are `_prelude_cell_callee` and
-/// `_prelude_cell_constructor` below: static-argument inference B3 deletes
-/// all three with the prelude's `rc`/`arc`
-/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5).
+/// the `Dyn`-carrying variable a closure literal is evaluated under? Such a
+/// payload is boxed by the prelude's generic cell constructor. An unresolved
+/// variable other than an `Impl(Fn(...))` parameter's has no `new` to
+/// dispatch outside a definition-time trial (`_synthesized_cell_call`); for a
+/// resolved one the generic
+/// function binds the concrete type (the closure's capture struct), where
+/// `Rc(T).new` on a receiver built over the variable keeps the variable in
+/// the cell's type: a second C type, with the cycle-capable header.
 _is_open_payload :: (fn(payload_ty : &TypeValue) -> bool)(
   is_some_type(payload_ty) || (get_all_some_types(payload_ty).len() > usize(0))
 );
-/// A fresh callee node bound to the prelude's generic constructor of
+/// A fresh callee node bound to the prelude's generic cell constructor of
 /// `cell_name` by value (its ExprInfo carries the function value, so the
-/// caller marks it pre-evaluated and no name is looked up).
+/// caller marks it pre-evaluated and the call site looks no name up).
 _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &EvalContext) -> Option(AstExpr))(
   match(
     _prelude_cell_constructor(cell_name, env),
@@ -229,12 +246,19 @@ _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &Eval
     .None => .None
   )
 );
-/// The prelude's generic constructor of the cell `cell_name` (`Rc` → `rc`,
-/// `Arc` → `arc`): the OUTERMOST function value of that name, the prelude's,
-/// which a module-level definition cannot shadow (a parameter or a pattern
-/// binding is inner).
+/// The prelude's generic cell constructor `dyn(...)` boxes a type-variable
+/// payload with (`Rc` → `__yo_rc_cell`, `Arc` → `__yo_arc_cell`): the
+/// OUTERMOST function value of that name, the prelude's, which a module-level
+/// definition cannot shadow (a parameter or a pattern binding is inner).
+///
+/// Not `rc`/`arc`: static-argument inference B3 deletes those, and a seed
+/// that looked `rc` up by name could not build a tree without it. Not
+/// `Rc(T).new` either: over the variable a closure literal is evaluated under
+/// (`t_dyn_payload_wrapper`) that binds `T` to the open variable, a second C
+/// type for the cell whose payload lowers to `void*` (Fable consultation #5
+/// H1, fallback (a); plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5).
 _prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Option(Variable))({
-  ctor_name := cond((cell_name == "Arc") => String.from("arc"), true => String.from(shared_cell_canonical_names().constructor));
+  ctor_name := cond((cell_name == "Arc") => String.from("__yo_arc_cell"), true => String.from("__yo_rc_cell"));
   vars := get_variables_from_env(env, &ctor_name);
   (vi : usize) = usize(0);
   while(vi < vars.len(), vi = (vi + usize(1)), {
@@ -1196,12 +1220,13 @@ evaluate_dyn_value :: (
         // from a closure or the expected type
         // (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2 steps 3 and 5), so
         // its receiver is that cell type, `.TypeVal(Rc(W))`, before the call
-        // is evaluated (§5 A3). The wrapper `W` is still an open type
-        // variable then; `Rc(W).new` dispatches over it outside a
-        // definition-time trial too (`_is_open_fn_param_slot`, values/impl.yo),
-        // and the call specializes over the closure `W` resolves to.
-        // (`Rc(T)(...)` and `Rc(T).new(...)` are not recognized; the
-        // constructor call covers the dyn-closure pattern.)
+        // is evaluated (§5 A3). The wrapper `W` is an open type variable,
+        // though, and `Rc(W)` has no `new` to dispatch outside a
+        // definition-time trial (the issue `_synthesized_cell_call` cites):
+        // such a call is the prelude's `__yo_rc_cell`/`__yo_arc_cell`, its
+        // function value bound to the callee, as `dyn(<closure>)` boxes. (`Rc(T)(...)`
+        // and `Rc(T).new(...)` are not recognized; the constructor call
+        // covers the dyn-closure pattern.)
         dyn_cell_closure := match(
           value_arg,
           .FnCall(_, dbc_fn, dbc_args, _, _) => cond(
@@ -1223,12 +1248,34 @@ evaluate_dyn_value :: (
             .Some(dbc_bt) => {
               match(
                 dbc_cell.unapplied_receiver,
-                .Some(dbc_recv) => {
-                  dbc_recv_info := new_expr_info(env, t_type());
-                  dbc_recv_info.value = Option(EvalValue).Some(create_type_value(&dbc_bt));
-                  expr_info_table_set(&ctx.expr_info_table, dbc_recv, &dbc_recv_info);
-                  dyn_cell_preset_receiver = Option(usize).Some(dbc_recv);
-                },
+                .Some(dbc_recv) => cond(
+                  _is_open_payload(&w_ty) => match(
+                    _prelude_cell_callee(&dbc_cell.type_name, env, ctx),
+                    .Some(dbc_callee) => {
+                      dbc_callee_id := ast_expr_id(&dbc_callee);
+                      rebuilt := match(
+                        value_arg,
+                        .FnCall(dbc_id, _, dbc_call_args, dbc_flag, dbc_tok) => Option(AstExpr).Some(AstExpr.FnCall(dbc_id, dbc_callee, dbc_call_args.clone(), dbc_flag, dbc_tok.clone())),
+                        _ => Option(AstExpr).None
+                      );
+                      match(
+                        rebuilt,
+                        .Some(r) => {
+                          dyn_cell_preset_receiver = Option(usize).Some(dbc_callee_id);
+                          value_arg = r;
+                        },
+                        .None => ()
+                      );
+                    },
+                    .None => ()
+                  ),
+                  true => {
+                    dbc_recv_info := new_expr_info(env, t_type());
+                    dbc_recv_info.value = Option(EvalValue).Some(create_type_value(&dbc_bt));
+                    expr_info_table_set(&ctx.expr_info_table, dbc_recv, &dbc_recv_info);
+                    dyn_cell_preset_receiver = Option(usize).Some(dbc_recv);
+                  }
+                ),
                 .None => ()
               );
               exp_ty = dbc_bt;
@@ -1378,12 +1425,10 @@ evaluate_dyn_value :: (
       // The same box the executing path below picks: `Arc` for a Send Dyn.
       ne_send := _dyn_target_requires_send(&ctx.expected_type, &ne_value_type);
       ne_cell := shared_cell_canonical_names();
-      // The cell is built over the payload's RESOLVED type (`_synthesized_cell_call`).
-      ne_box_cell_inner := resolve_cell_chain(&ne_box_inner_ty);
       match(
-        _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_cell_inner, env, ctx, exn),
+        _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), inner_ne, &expr_tok, env, ctx);
+          (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, inner_ne, &expr_tok, env, ctx);
           saved_bet := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env));
           // The inner value is evaluated once: as the box call's argument it
@@ -1479,12 +1524,10 @@ evaluate_dyn_value :: (
     // every other node built with it, so the callee could read another node's
     // entry — a test-body trial reported "box is not callable: it has type
     // unit" (issues/fixed/an-auto-boxed-dyn-value-builds-its-box-call-with-node-id-zero.md).
-    // The cell is built over the payload's RESOLVED type (`_synthesized_cell_call`).
-    box_cell_inner := resolve_cell_chain(&value_type);
     boxed_info_opt := match(
-      _create_box_type_via(&box_cell_name, &box_cell_inner, &cur_env, ctx, exn),
+      _create_box_type_via(&box_cell_name, &value_type, &cur_env, ctx, exn),
       .Some(box_cell_ty) => {
-        (box_call, box_recv) := _synthesized_cell_call(&box_cell_ty, &box_cell_name, eval_inner, &expr_tok, &cur_env, ctx);
+        (box_call, box_recv) := _synthesized_cell_call(&box_cell_ty, &box_cell_name, &value_type, eval_inner, &expr_tok, &cur_env, ctx);
         mark_node_preevaluated(ast_expr_id(&eval_inner));
         mark_node_preevaluated(box_recv);
         boxed_expr := evaluate_expression_raw(&box_call, &cur_env, ctx, exn);
