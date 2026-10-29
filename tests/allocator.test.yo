@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("std/sys/future");
 { aligned_alloc, aligned_free } :: GlobalAllocator;
 { SIZE_MAX } :: import("std/libc/stdint");
+{ atomic_int, atomic_llong } :: import("std/libc/stdatomic");
 
 test("size_would_overflow at the exact boundary", {
   // A one-byte element can never overflow: count IS the byte count.
@@ -189,4 +190,24 @@ test("sizeof of a resolved Impl type is its lowered C type", {
   assert(f == size_of(*u8), "a heap-backed future is one pointer");
   n :: size_of(IoFuture);
   assert(n == f, "the comptime binding agrees");
+});
+// `align_of` of a type whose layout only the C compiler knows — an `extern`
+// type, or a struct holding one — had no emitter, so the call stayed
+// untranspiled: E1301 in `main`, and a poisoned specialization inside a std
+// generic such as a placed container's buffer request
+// (issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md).
+// `size_of` of an extern type lowered its argument through the collected-type
+// registry, which never holds one
+// (issues/fixed/2026-10-28-sizeof-of-an-extern-opaque-type-has-no-c-type-name.md).
+_HoldsExtern :: struct(flag : u8, n : atomic_llong);
+test("size_of and align_of of an extern C type, and align_of of a struct holding one, are the C compiler's", {
+  assert(align_of(atomic_int) == size_of(atomic_int), "atomic_int is aligned to its size");
+  a := align_of(atomic_llong);
+  assert((a != usize(0)) && ((a & (a - usize(1))) == usize(0)), "a power of two");
+  assert(align_of(_HoldsExtern) == a, "a struct is aligned to its most aligned field");
+  assert(align_of(int) == size_of(int), "a C platform type");
+  // A placed list asks its allocator for that alignment.
+  xs := ArrayList(_HoldsExtern).with_capacity(usize(4), alloc : .Some(Allocator.global()));
+  assert(xs.capacity() == usize(4), "the placed buffer");
+  assert(xs.allocator().unwrap().same(Allocator.global()), "placed in the allocator it was given");
 });

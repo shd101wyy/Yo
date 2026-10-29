@@ -86,23 +86,22 @@ StringBuilder :: ref(
 );
 impl(
   StringBuilder,
-  /// Create a new, empty `StringBuilder`.
-  new : (fn() -> Self)(
-    Self(_buf : ArrayList(u8).new())
+  /// Create a new, empty `StringBuilder`. `alloc : .Some(a)` places its
+  /// buffer in `a` (see `ArrayList.new`): a `String` detached by `to_string`
+  /// keeps that buffer, and the builder's next buffer comes from `a` too. The
+  /// default is the global allocator.
+  new : (fn((alloc : Option(Allocator)) ?= .None) -> Self)(
+    Self(_buf : ArrayList(u8).new(alloc : alloc))
   ),
-  /// Create a `StringBuilder` pre-allocated for `capacity` bytes.
-  with_capacity : (fn(capacity : usize) -> Self)(
-    Self(_buf : ArrayList(u8).with_capacity(capacity))
+  /// Create a `StringBuilder` pre-allocated for `capacity` bytes, its buffer
+  /// in `alloc` as for `new`.
+  with_capacity : (fn(capacity : usize, (alloc : Option(Allocator)) ?= .None) -> Self)(
+    Self(_buf : ArrayList(u8).with_capacity(capacity, alloc : alloc))
   ),
-  /// An empty builder whose buffer lives in `alloc` (see `ArrayList.new_in`).
-  /// A `String` detached by `to_string` keeps that buffer, and the builder's
-  /// next buffer comes from `alloc` too.
-  new_in : (fn(alloc : Allocator) -> Self)(
-    Self(_buf : ArrayList(u8).new_in(alloc))
-  ),
-  /// `with_capacity` with the buffer in `alloc`.
-  with_capacity_in : (fn(alloc : Allocator, capacity : usize) -> Self)(
-    Self(_buf : ArrayList(u8).with_capacity_in(alloc, capacity))
+  /// A new builder holding a copy of this one's bytes, its buffer in `a`,
+  /// wherever this builder's buffer lives. The source is unchanged.
+  clone_in : (fn(self : &Self, a : Allocator) -> Self)(
+    Self(_buf : self._buf.clone_in(a))
   ),
   /// Returns the current number of bytes in the buffer.
   /// Bytes the builder can hold before it must grow — Rust's
@@ -186,11 +185,7 @@ impl(
     // mutate a `String` already handed to a caller
     // (issues/fixed/writer-to-string-shares-its-buffer.md). `replace` moves
     // the buffer out and the fresh one in, so the field is never copied.
-    fresh := match(
-      self._buf.allocator(),
-      .Some(a) => ArrayList(u8).new_in(a),
-      .None => ArrayList(u8).new()
-    );
+    fresh := ArrayList(u8).new(alloc : self._buf.allocator());
     String.from_bytes(replace(&mut self._buf, fresh))
   }),
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.

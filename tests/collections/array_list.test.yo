@@ -1385,7 +1385,7 @@ test("windows at or beyond the length", {
 // blocks it holds (`live`) and the alloc/realloc requests it served.
 // A request larger than `limit` bytes fails, as from an exhausted region.
 _Counts :: struct(live : usize, requests : usize, limit : usize);
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   p := cond(
     (size > unsafe(c.*.limit)) => Option(*void).None,
@@ -1400,7 +1400,7 @@ _count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
   );
   p
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   q := cond(
     (new_size > unsafe(c.*.limit)) => Option(*void).None,
@@ -1420,7 +1420,7 @@ _count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
   );
   q
 });
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   cond(
     ptr.is_some() => {
       c := (*_Counts)(ctx.unwrap());
@@ -1435,13 +1435,13 @@ _counts_capped :: (fn(limit : usize) -> _Counts)(_Counts(live : usize(0), reques
 _counts :: (fn() -> _Counts)(_counts_capped(usize(1) << usize(30)));
 // An `Allocator` over `c`, which must outlive every block it hands out.
 _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
-test("ArrayList.new_in keeps its buffer in its allocator through growth", {
+test("ArrayList.new(alloc : .Some(a)) keeps its buffer in its allocator through growth", {
   counts := _counts();
   a := _counting(addr_of(counts));
   {
-    list := ArrayList(i32).new_in(a);
-    // The owner prefix is the one allocation `new_in` makes up front.
-    assert(counts.live == usize(1), "new_in allocates the owner prefix");
+    list := ArrayList(i32).new(alloc : .Some(a));
+    // The owner prefix is the one allocation a placed `new` makes up front.
+    assert(counts.live == usize(1), "a placed new allocates the owner prefix");
     assert(list.capacity() == usize(0), "and no element storage");
     mut(i) := i32(0);
     while(i < i32(1000), {
@@ -1457,10 +1457,10 @@ test("ArrayList.new_in keeps its buffer in its allocator through growth", {
   };
   assert(counts.live == usize(0), "dispose released the buffer into its allocator");
 });
-test("ArrayList.with_capacity_in reserves inside its allocator", {
+test("ArrayList.with_capacity(n, alloc : .Some(a)) reserves inside its allocator", {
   counts := _counts();
   {
-    list := ArrayList(u64).with_capacity_in(_counting(addr_of(counts)), usize(64));
+    list := ArrayList(u64).with_capacity(usize(64), alloc : .Some(_counting(addr_of(counts))));
     assert(list.capacity() == usize(64), "capacity");
     before := counts.requests;
     mut(k) := usize(0);
@@ -1476,7 +1476,7 @@ test("A cloned list lives in its source's allocator; a plain list stays global",
   counts := _counts();
   a := _counting(addr_of(counts));
   {
-    list := ArrayList(String).new_in(a);
+    list := ArrayList(String).new(alloc : .Some(a));
     list.push(String.from("one"));
     list.push(String.from("two"));
     c := list.clone();
@@ -1492,7 +1492,7 @@ test("shrink_to_fit on an empty list keeps its explicit allocator", {
   counts := _counts();
   a := _counting(addr_of(counts));
   {
-    list := ArrayList(i32).new_in(a);
+    list := ArrayList(i32).new(alloc : .Some(a));
     list.push(i32(1));
     list.clear();
     assert(list.shrink_to_fit().is_ok(), "shrink");
@@ -1505,7 +1505,7 @@ test("shrink_to_fit on an empty list keeps its explicit allocator", {
 test("try_push reports an exhausted allocator as OutOfMemory", {
   counts := _counts_capped(usize(256));
   {
-    list := ArrayList(u64).new_in(_counting(addr_of(counts)));
+    list := ArrayList(u64).new(alloc : .Some(_counting(addr_of(counts))));
     (mut(full) : bool) = false;
     mut(k) := usize(0);
     while(!full && (k < usize(1000)), {
@@ -1541,7 +1541,7 @@ test("reserve on an empty zero-sized-element list takes the anchor and drops it 
 test("A zero-sized element list in an explicit allocator", {
   counts := _counts();
   {
-    list := ArrayList(unit).new_in(_counting(addr_of(counts)));
+    list := ArrayList(unit).new(alloc : .Some(_counting(addr_of(counts))));
     list.push(());
     list.push(());
     assert(list.len() == usize(2), "len");
@@ -1558,7 +1558,7 @@ test("A zero-sized element list in an explicit allocator", {
 test("clone inside a borrowed for does not trip the flag, for a list in an explicit allocator too", {
   counts := _counts();
   {
-    xs := ArrayList(i32).new_in(_counting(addr_of(counts)));
+    xs := ArrayList(i32).new(alloc : .Some(_counting(addr_of(counts))));
     xs.push(i32(1));
     xs.push(i32(2));
     ys := xs;

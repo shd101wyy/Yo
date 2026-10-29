@@ -11,6 +11,13 @@
 > without `alloc :` goes to the global allocator, and the containers take `alloc :` instead of `new_in`. That is B1
 > at v0.2.71 and B2 at v0.2.72. This page is rewritten when B2 lands.
 >
+> **Amended 2026-10-28 (built, v0.2.73 window): allocator interface version 2 Generation B and placement B2a.**
+> std speaks version 2 (`alloc(ctx, size, align)`, `realloc(ctx, ptr, old_size, new_size, align)`,
+> `free(ctx, ptr, size, align)`; `Allocator.alloc/realloc/free` take the size and alignment too). The containers take
+> `(alloc : Option(Allocator)) ?= .None` on `new`/`with_capacity`, `new_in`/`with_capacity_in` are deleted, and
+> `clone_in(a)` places a copy (`ArrayList`, `HashMap`, `String`, `StringBuilder`). B2b (the codegen scope) is still
+> to come, so the full rewrite waits for it.
+>
 > **Amended 2026-10-24 (maintainer decision, built):** `std/arena` is deleted, with its `--debug-heap` exit
 > listing (the codegen hook `__yo_debug_heap_on` went with it). The `Arena` bullets below are history; std ships
 > no arena until [`plans/backlog/ZIG_STYLE_ALLOCATORS.md`](../backlog/ZIG_STYLE_ALLOCATORS.md)'s
@@ -22,9 +29,11 @@
   reference counting (and the cycle collector) decides when it dies. No
   object is ever freed by its allocator ahead of its last reference.
 - **Frees route by owner, never by call site.** A block from an explicit
-  allocator carries a 16-byte prefix `{ctx, vtable}` in front of the pointer
-  handed out (`std/allocator.yo` `_AllocPrefix`, C `__yo_alloc_prefix_t`).
-  Every release reads it, on any thread.
+  allocator carries its owner `{ctx, vtable}` in the 16 bytes before the
+  pointer handed out (`std/allocator.yo` `_AllocPrefix`, C
+  `__yo_alloc_prefix_t`), inside a prefix of `max(16, align)` bytes; a placed
+  RC object's prefix is `max(32, align)`, with its extent `{size, align}` in
+  front of the owner. Every release reads it, on any thread.
 - **The fallback is the global allocator.** Code that never names an
   allocator emits exactly what it emitted before; the only new cost on that
   path is the masked tag test in the free path.
@@ -47,11 +56,11 @@ No container grew a field: the owner bit lives in a word each already had.
   `Send`, never reference counted. The vtable is `alloc`, `realloc`, `free`,
   context first; frozen. Global vtables are module-level `:=` values
   (D9).
-  - **Version 2 is queued after V2b** (maintainer, 2026-10-13): an
-    alignment parameter on `alloc`/`realloc`, and `free` told the block's
-    size and alignment, so Zig-style allocators (aligned, page, pool, slab)
-    fit. The design is in `plans/VALUES_BY_DEFAULT.md` §6 ("After V2b: the
-    allocator interface, version 2"). This page is amended when it lands.
+  - **Version 2** (maintainer, 2026-10-13; Generation A #1593, Generation B
+    2026-10-28): an alignment parameter on `alloc`/`realloc`, and `free` told
+    the block's size and alignment, so Zig-style allocators (aligned, page,
+    pool, slab) fit. The design is in `plans/VALUES_BY_DEFAULT.md` §6 ("After
+    V2b: the allocator interface, version 2").
 - `with_allocator(a, f)` — a std function, not a keyword (D2). It makes `a`
   current on this thread while `f` runs; an RAII guard (a plain `ref`
   struct, not generic in `T`) restores the previous scope on every exit. The five user-visible RC constructor sites (`ref`
@@ -62,7 +71,8 @@ No container grew a field: the owner bit lives in a word each already had.
   the global allocator.
 - Containers follow the scope (P3c: `ArrayList.new()`, `HashMap.new()`,
   `Deque.new()` and what is built on them) and take one explicitly with
-  `new_in` / `with_capacity_in`.
+  `new_in` / `with_capacity_in`. *(Superseded: global by default since B1,
+  `new(alloc : .Some(a))` / `with_capacity(n, alloc : .Some(a))` since B2a.)*
   The `imm` collections follow the scope.
 - *(Deleted 2026-10-24.)* `std/arena.yo` `Arena`: a bump region. `deinit` (and the handle's
   dispose) **panics** while a block is live; `abandon()` is the
@@ -78,7 +88,8 @@ No container grew a field: the owner bit lives in a word each already had.
 - No `alloc_in` keyword or lazy-expression builtin (D2).
 - No allocator-aware `Dispose` (D7): the buffer and the object each route
   through their own prefix.
-- No nested arenas (D8) and no over-aligned buffers (D10) yet.
+- No nested arenas (D8). Over-aligned buffers (D10) came with interface
+  version 2, except a `Box`'s cell, which still asks for 16.
 - `Mutex(Arena)` is not a pattern: the arena locks itself.
 
 ## Docs

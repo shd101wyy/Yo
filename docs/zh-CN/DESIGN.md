@@ -1190,7 +1190,7 @@ s3 := s2; // RC = 3
 
 #### 显式分配器
 
-引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`box`、`rc` 和 `arc` 用 `alloc : .Some(a)`，容器用 `new_in(a)`：
+引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`box`、`rc`、`arc` 以及容器的 `new` / `with_capacity` 都用 `alloc : .Some(a)`：
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
@@ -1199,7 +1199,7 @@ Point :: struct(x : i32, y : i32);
 // `a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
 p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // 放在 `a` 里
 p2 := rc(Point(x : i32(1), y : i32(2))); // 没有参数：全局分配器
-xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
+xs := ArrayList(i32).new(alloc : .Some(a)); // 缓冲区在 `a` 里
 ```
 
 不需要新关键字，也没有分配作用域：一个调用做什么从不取决于它的调用者。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。

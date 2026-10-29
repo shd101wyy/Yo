@@ -8826,6 +8826,27 @@ plugs in. Two of its signatures stop Zig-style allocators from fitting.
   No Yo type is aligned above 16 today, so "an over-aligned element in an
   `ArrayList`" is tested through `Allocator.alloc(size, align)` directly;
   the element-type form waits for a way to declare an over-aligned type.
+- **As built, Generation B (2026-10-28, branch `vbd/alloc-v2-gen-b-r2`,
+  v0.2.73 window, on the v0.2.71 seed).** std's `AllocatorVTable` takes the
+  version 2 shape, so codegen emits the version 2 runtime for every program.
+  `Allocator.alloc(size, align)`, `realloc(ptr, old_size, new_size, align)`
+  and `free(ptr, size, align)` place the owner record in the last 16 bytes of
+  a `max(16, align)` prefix and refuse an alignment that is not a power of
+  two; the global vtable serves alignments above 16 from the aligned family.
+  `ArrayList`, `Deque` and `HashMap` tell every release the buffer's byte
+  size and the element alignment. Allocator placement B2a rides the same
+  PR (`plans/backlog/ALLOCATOR_PLACEMENT.md` §6 B2). Tests: a ledger
+  allocator that checks every `realloc`/`free` against the size and
+  alignment it handed out, over `rc`, `arc`, `box`, `dyn` and the four
+  containers; a 256-aligned block through `Allocator.alloc`/`realloc`; a
+  header-free pool that frees by the size it is told
+  (`tests/explicit_allocators.test.yo`). **Departures:** `box` still asks
+  for alignment 16, because `align_of(T)` of a type holding an `extern`
+  type had no emitter
+  (`issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md`,
+  fixed in the same PR) and the seed that compiles std does not carry the
+  fix; `Box`'s layout PR revisits it. The version 1 emitter stays until no
+  supported seed's std is version 1.
 
 ### V4: the compiler's trees
 

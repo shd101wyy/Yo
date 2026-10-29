@@ -1229,7 +1229,7 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 
 #### Explicit Allocators
 
-RC decides when an object dies; an explicit allocator decides where it lives. A creation with no allocator argument goes to the global allocator; a placement is one argument at the creation site: `alloc : .Some(a)` for `box`, `rc` and `arc`, `new_in(a)` for the containers:
+RC decides when an object dies; an explicit allocator decides where it lives. A creation with no allocator argument goes to the global allocator; a placement is one argument at the creation site: `alloc : .Some(a)`, for `box`, `rc` and `arc` and for the containers' `new` / `with_capacity`:
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
@@ -1238,7 +1238,7 @@ Point :: struct(x : i32, y : i32);
 // `a` is any `Allocator` value, e.g. `Allocator.global()`.
 p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // placed in `a`
 p2 := rc(Point(x : i32(1), y : i32(2))); // no argument: the global allocator
-xs := ArrayList(i32).new_in(a); // the buffer lives in `a`
+xs := ArrayList(i32).new(alloc : .Some(a)); // the buffer lives in `a`
 ```
 
 No new keyword is involved, and there is no allocation scope: what a call does never depends on its caller. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. The safety rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators); the full guide is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).

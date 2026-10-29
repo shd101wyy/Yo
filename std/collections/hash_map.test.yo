@@ -10,7 +10,7 @@
 // This file exists to give the C35 capacity-overflow guard its regression
 // coverage (issues/fixed/hash-container-capacity-overflow-guard-has-no-regression-test.md):
 // before it, a revert of the `size_would_overflow` check in
-// `_alloc_with_capacity_in` passed the entire suite green.
+// `_alloc_with_capacity` passed the entire suite green.
 { assert } :: import("std/assert");
 { HashMap, MapEntry } :: import("./hash_map");
 { SIZE_MAX } :: import("std/libc/stdint");
@@ -22,7 +22,7 @@ test("_alloc_with_capacity rejects a capacity whose byte size would wrap usize",
   // same way).
   big := ((SIZE_MAX / size_of(MapEntry(i64, i64))) + usize(1));
   match(
-    HashMap(i64, i64)._alloc_with_capacity(big),
+    HashMap(i64, i64)._alloc_with_capacity(big, .None),
     .Err(.CapacityOverflow) => assert(true, "the wrapped byte size is refused"),
     .Err(.AllocError(_)) => assert(false, "an allocation was attempted: the overflow guard is gone"),
     .Ok(_) => assert(false, "the wrapped capacity was accepted: the overflow guard is gone")
@@ -33,7 +33,7 @@ test("_alloc_with_capacity accepts an ordinary capacity", {
   // The guard must reject only the wrap: an everyday count comes back .Ok,
   // so the test above cannot pass by rejecting everything.
   match(
-    HashMap(i64, i64)._alloc_with_capacity(usize(16)),
+    HashMap(i64, i64)._alloc_with_capacity(usize(16), .None),
     .Ok(_) => assert(true, "16 buckets is a normal allocation"),
     .Err(_) => assert(false, "an ordinary capacity was rejected")
   );

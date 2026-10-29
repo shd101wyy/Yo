@@ -11,12 +11,12 @@ pragma(Pragma.AllowUnsafe);
 // A counting allocator: forwards to the global allocator and counts the
 // blocks it holds (`live`).
 _Counts :: struct(live : usize);
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.live = (c.*.live + usize(1)));
   GlobalAllocator.malloc(size)
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   cond(
     ptr.is_none() => {
@@ -26,7 +26,7 @@ _count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
   );
   GlobalAllocator.realloc(ptr, new_size)
 });
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   cond(
     ptr.is_some() => {
       c := (*_Counts)(ctx.unwrap());
