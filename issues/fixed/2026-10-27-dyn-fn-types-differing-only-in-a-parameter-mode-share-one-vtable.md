@@ -2,10 +2,10 @@
 
 **Severity:** S2 — a program that boxes a `Fn(x : &mut i32) -> unit` and a `Fn(x : i32) -> unit` behind `Dyn` fails the C compile (incompatible function pointer types), because both trait objects get one vtable struct.
 
-**Status:** open. Found 2026-10-27 by the adversarial review of decision 43 step 1
-(`vbd/d43-step1-reference-type`). The bug predates that branch: the v0.2.70 seed, develop 476cfb700 and
-the branch fail the same way. The branch must not fix it, because that step's gate is
-byte-identical emitted C, and the fix changes C type names.
+**Status:** fixed on branch `fix/dyn-fn-mode-vtable` (2026-10-29). Found 2026-10-27 by the adversarial
+review of decision 43 step 1 (`vbd/d43-step1-reference-type`). The bug predated that branch: the v0.2.70
+seed, develop 476cfb700 and the branch failed the same way. That branch did not fix it, because its gate
+was byte-identical emitted C, and the fix changes C type names.
 
 ## Evidence
 
@@ -43,3 +43,26 @@ Print the mode in the `FnTraitT` key, the way the `Func` arm does with `format_p
 Do the same in `closure_signature_key`, for example by keying the slot instead of its pointee.
 Both change emitted C names, so the fix ships as its own PR with an expected emit-diff rather
 than inside a no-C-change refactor. The reproducer becomes a `tests/` case that compiles and runs.
+
+## Fix
+
+- `type_to_string`'s `FnTraitT` arm prints each slot whole, through the `Reference` arm: `&mut T`,
+  `&T`, or bare `T` by value. That arm prints no origin, so origins stay out of every key (decision 43
+  step 1's rule). `Fn(x : &mut i32) -> unit` now prints and keys as `Fn(&mut i32) -> unit`, and a
+  `Fn` type whose slots are all by value prints exactly as before.
+- `closure_signature_key` prefixes each parameter's `type_key` with its mode (`&mut `, `&`, nothing
+  by value).
+
+The second half is a real bug, not a hypothetical one. One closure literal in a generic body, boxed
+with `dyn(...)` at a `Dyn(Fn(x : &mut i32) -> unit)` slot in one instantiation and at a
+`Dyn(Fn(x : i32) -> unit)` slot in another, gets one capture struct for both mints. The `Dyn`
+boxing then resolves both vtable instances to the same closure function through
+`impl_closure_call_map` (`src/codegen/functions/dyn.yo`). A probe build that keyed the vtable but
+not the capture struct still failed that program in the C compiler (`passing 'int32_t *' to
+parameter of type 'int32_t'`).
+
+## Test
+
+`tests/dyn.test.yo`: "Dyn(Fn(...)) types differing only in a parameter mode get their own vtables"
+(the reproducer, plus a `&` slot) and "one closure literal boxed at a &mut slot and at a by-value
+slot" (the capture-struct half). Both fail to C-compile on develop d25241bdf and pass with the fix.
