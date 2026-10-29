@@ -7744,8 +7744,10 @@ run_compile :: (
   (heap_size : usize) = usize(16777216);
   (debug_heap : bool) = false;
   // `--cycle-collector auto|off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1):
-  // `off` forces the lightweight RC runtime, so a reference cycle leaks.
-  (cycle_collector : String) = String.from("auto");
+  // `off` forces the lightweight RC runtime, so a reference cycle leaks. `off`
+  // is the default for one release before the collector is deleted (W6a, §6
+  // precondition 3); `auto` keeps the collector.
+  (cycle_collector : String) = String.from("off");
   (emit_chunks : usize) = usize(0);
   // `--emit-chunks auto` (Phase 1, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
   // §4): N is resolved AFTER emission, from the actual emitted bytes —
@@ -13213,7 +13215,8 @@ Options:
                             a run that ends with live blocks
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed; 64K..4G)
   --debug-heap              Print heap stats + live-at-exit leak oracle at exit (fixed only)
-  --cycle-collector <mode>  Cycle collector (auto|off); off leaks reference cycles
+  --cycle-collector <mode>  Cycle collector (off|auto, default off); off leaks
+                            reference cycles a Weak does not break
   --emit-c                  Print the generated C to stdout and stop
   --emit-c-to <path>        Write the generated C to <path> instead of <output>.c
   --emit-deps <path>        Write the files this compile read, one per line
@@ -13272,7 +13275,8 @@ Examples:
                             退出仍有存活块的运行失败
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed；64K..4G）
   --debug-heap              退出时打印堆统计与存活块泄漏检查（仅 fixed）
-  --cycle-collector <mode>  循环回收器（auto|off）；off 时引用环会泄漏
+  --cycle-collector <mode>  循环回收器（off|auto，默认 off）；off 时未被 Weak
+                            打断的引用环会泄漏
   --emit-c                  把生成的 C 打印到 stdout 然后停止
   --emit-c-to <path>        把生成的 C 写到 <path>，代替 <output>.c
   --emit-deps <path>        把本次编译读取的文件逐行写入该文件
@@ -13398,7 +13402,7 @@ Options:
                             debug fails a test that ends with live blocks
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed)
   --debug-heap              Heap stats + live-at-exit oracle per test (fixed only)
-  --cycle-collector <mode>  Cycle collector for test binaries (auto|off)
+  --cycle-collector <mode>  Cycle collector for test binaries (off|auto, default off)
   --disable-sanitize        Skip AddressSanitizer linkage
   -k, --keep-generated-files  Keep generated batch files
   --profile                 Print per-phase timing
@@ -13446,7 +13450,7 @@ Examples:
                             debug 时结束仍有存活块的测试失败
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed）
   --debug-heap              每个测试退出时打印堆统计与存活块检查（仅 fixed）
-  --cycle-collector <mode>  测试二进制的循环回收器（auto|off）
+  --cycle-collector <mode>  测试二进制的循环回收器（off|auto，默认 off）
   --disable-sanitize        跳过 AddressSanitizer 链接
   -k, --keep-generated-files  保留生成的批次文件
   --profile                 打印分阶段耗时

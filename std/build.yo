@@ -82,11 +82,12 @@ export(AllocatorKind);
 /// plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1).
 CycleCollector :: enum(
   /// The collector runs whenever some type of the program can form a
-  /// reference cycle (the default).
+  /// reference cycle.
   Auto,
-  /// No collector: every reference cell uses the lightweight RC runtime,
-  /// `Gc.collect()` does nothing and `Gc.tracked_count()` is 0. A reference
-  /// cycle leaks, as in Rust; `--debug-heap` reports it at exit.
+  /// No collector (the default): every reference cell uses the lightweight
+  /// RC runtime, `Gc.collect()` does nothing and `Gc.tracked_count()` is 0.
+  /// A reference cycle leaks unless a `Weak` breaks it, as in Rust;
+  /// `--allocator debug` and `--debug-heap` report it at exit.
   Off
 );
 derive(CycleCollector, Copy, Clone);
@@ -148,9 +149,9 @@ Executable :: struct(
   /// 64 KiB..4 GiB, rounded down to a 16-byte granule). Ignored by the other
   /// allocators.
   (heap_size : usize) ?= usize(16777216),
-  /// Reference-cycle collector (`CycleCollector.Off` = Rust's model: a cycle
-  /// leaks).
-  (cycle_collector : CycleCollector) ?= CycleCollector.Auto,
+  /// Reference-cycle collector (`CycleCollector.Off`, the default = Rust's
+  /// model: a cycle leaks; `CycleCollector.Auto` keeps the collector).
+  (cycle_collector : CycleCollector) ?= CycleCollector.Off,
   /// Runtime sanitizer.
   (sanitize : Sanitize) ?= Sanitize.None,
   /// Write the single generated C file to this path instead of the default

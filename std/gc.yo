@@ -10,9 +10,11 @@
 //! proven `Acyclic` never reaches the collector — so `tracked_count()` is a
 //! count of cycle CANDIDATES, not of live objects.
 //!
-//! A program compiled with `--cycle-collector off` (or `build.cycle_collector :
-//! build.CycleCollector.Off`) has no collector: `collect()` does nothing,
-//! `tracked_count()` is always 0, and a cycle leaks.
+//! A program compiled with `--cycle-collector off`, the default since v0.2.73
+//! (or `build.cycle_collector : build.CycleCollector.Off`), has no collector:
+//! `collect()` does nothing, `tracked_count()` is always 0, and a cycle leaks.
+//! `--cycle-collector auto` keeps the collector until it is deleted
+//! (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §6).
 //!
 //! ```yo
 //! { collect, tracked_count } :: import("std/gc");
