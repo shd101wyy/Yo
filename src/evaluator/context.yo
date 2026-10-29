@@ -38,8 +38,10 @@
   BK_COMPTIME,
   BK_IMPORT,
   BK_GENERIC,
+  BK_WHERE,
   BK_BEGIN,
   BF_DOT,
+  BF_DERIVE,
   BF_GHOST_FN
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
@@ -1229,6 +1231,10 @@ PendingDef :: ref(
     index : usize,
     row : usize,
     is_impl : bool,
+    /// A `derive(T, Trait...)` statement: an impl registration of `T`
+    /// (`is_impl` is set too) that declares no member labels — the generated
+    /// impls do, and only once it runs.
+    is_derive : bool,
     state : PendingDefState,
     failure : Option(String),
     /// Phase A (§4.3): the FuncVal + Func type that
@@ -2065,6 +2071,7 @@ _make_pending_def :: (fn(name : &String, e : &AstExpr, index : usize, is_impl : 
       index : index,
       row : usize(ast_expr_token(e).row),
       is_impl : is_impl,
+      is_derive : false,
       state : PendingDefState.Unforced,
       failure : Option(String).None,
       phase_a_value : Option(EvalValue).None,
@@ -2197,9 +2204,25 @@ _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
 /// above it that calls one of them forces the whole statement —
 /// issues/fixed/extern-declarations-are-not-forward-referenceable.md). A
 /// bare `extern(...)` node is kept for ASTs built without the parse-time
-/// desugar.
+/// desugar. A `derive([generic(...)], [where(...)], T, ...)` is a pending
+/// impl of `T`'s head, as `impl(T, ...)` is: a method or trait miss on `T`
+/// forces it (issues/fixed/2026-10-27-a-derive-is-not-order-independent-like-an-impl.md).
 classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
   cond(
+    ast_expr_is_fn_call_of(e, BF_DERIVE, .None) => match(
+      _derive_target(e),
+      .Some(target) => match(
+        _make_pending_def(impl_receiver_head_name(&target), e, index, true),
+        .Some(def) => {
+          def.is_derive = true;
+          Option(PendingDef).Some(def)
+        },
+        .None => Option(PendingDef).None
+      ),
+      // No target type and trait: `evaluate_derive` reports the malformed
+      // statement at its own position.
+      .None => Option(PendingDef).None
+    ),
     _is_extern_decl_destructure(e) => {
       members := _extern_decl_bound_names(e);
       cond(
@@ -2272,6 +2295,28 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
     true => Option(PendingDef).None
   )
 );
+/// The target type argument of `derive([generic(...)], [where(...)], T,
+/// Trait...)` — the argument `evaluate_derive` evaluates as the target — when
+/// at least one trait argument follows it.
+_derive_target :: (fn(e : &AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .FnCall(_, _, dargs, _, _) => {
+      (ti : usize) = usize(0);
+      if(match(dargs.get(ti), .Some(a) => ast_expr_is_fn_call_of(&a, BK_GENERIC, .None), .None => false), {
+        ti = (ti + usize(1));
+      });
+      if(match(dargs.get(ti), .Some(a) => ast_expr_is_fn_call_of(&a, BK_WHERE, .None), .None => false), {
+        ti = (ti + usize(1));
+      });
+      cond(
+        ((ti + usize(1)) < dargs.len()) => dargs.get(ti),
+        true => Option(AstExpr).None
+      )
+    },
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
 /// Keep `[A-Za-z0-9_]` of an anchor label; anything else becomes `_`.
 _anchor_label_chars :: (fn(raw : &String) -> String)({
   out := String.new();
@@ -2332,9 +2377,13 @@ register_module_anchors :: (fn(begin_exprs : &ArrayList(AstExpr)) -> unit)({
     match(
       begin_exprs.get(i),
       .Some(e) => {
+        // A derive keeps the unnamed-statement label it had while it was an
+        // ordered statement: a label feeds every id (and C name) minted in
+        // the statements it anchors, so naming it `impl_<T>` would rename the
+        // derive's and its successors' ids, and the next `impl_<T>` too.
         named := match(
           classify_pending_def(&e, i),
-          .Some(def) => if(def.name.len() > usize(0), Option(String).Some(if(def.is_impl, `impl_${_anchor_label_chars(&def.name)}`, _anchor_label_chars(&def.name))), Option(String).None),
+          .Some(def) => if((def.name.len() > usize(0)) && !(def.is_derive), Option(String).Some(if(def.is_impl, `impl_${_anchor_label_chars(&def.name)}`, _anchor_label_chars(&def.name))), Option(String).None),
           .None => Option(String).None
         );
         raw := match(
@@ -2566,6 +2615,7 @@ pop_forcing_def :: (fn() -> unit)({
 /// Token rows are 0-based; diagnostics print 1-based lines (error.yo).
 _def_display :: (fn(d : &PendingDef) -> String)(
   cond(
+    d.is_derive => `derive(${d.name}, …) (line ${(d.row + usize(1)).to_string()})`,
     d.is_impl => `impl(${d.name}, …) (line ${(d.row + usize(1)).to_string()})`,
     true => `${d.name} (line ${(d.row + usize(1)).to_string()})`
   )
@@ -3047,7 +3097,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     (stack : String) = String.new();
     (si : usize) = usize(0);
     while(si < g_forcing_stack.with(xs => xs.len()), {
-      match(g_forcing_stack.with(xs => xs.get(si)), .Some(fd) => stack.push_string(cond(fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
+      match(g_forcing_stack.with(xs => xs.get(si)), .Some(fd) => stack.push_string(cond(fd.is_derive => ` derive(${fd.name})`, fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
       si = (si + usize(1));
     });
     eprintln(`[force-miss] ${type_name}.${m} (forcing stack:${stack})`);
@@ -3064,12 +3114,16 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   // `impl(S, Clone(...))` was E0610
   // (issues/fixed/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md).
   // A trait-satisfaction check names no member and keeps the guard.
+  // A derive in flight is not such a registration: it declares no member, and
+  // each impl it generates registers whole, so a miss under it — `Ord`'s
+  // `Self <: Eq` against an `impl(P, Eq(...))` further down — forces the
+  // later impls as it did while derives were ordered statements.
   (in_own_impl : bool) = false;
   (fi : usize) = usize(0);
   while(fi < g_forcing_stack.with(xs => xs.len()), {
     match(
       g_forcing_stack.with(xs => xs.get(fi)),
-      .Some(fd) => if(fd.is_impl && (fd.name == type_name), {
+      .Some(fd) => if((fd.is_impl && !(fd.is_derive)) && (fd.name == type_name), {
         if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr, &m), .None => true), {
           return(PendingImplOutcome.NoneForced);
         });
@@ -3308,6 +3362,7 @@ make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index
       index : top_index,
       row : usize(ast_expr_token(colon_expr).row),
       is_impl : false,
+      is_derive : false,
       state : PendingDefState.Unforced,
       failure : Option(String).None,
       phase_a_value : Option(EvalValue).None,

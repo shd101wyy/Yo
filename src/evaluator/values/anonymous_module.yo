@@ -228,6 +228,7 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
     _take_force_failure(),
     .Some(msg) => Option(String).Some(
       cond(
+        def.is_derive => `${msg}\n  note: \`derive(${def.name}, …)\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that derive in the source`,
         def.is_impl => `${msg}\n  note: \`impl(${def.name}, …)\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that impl in the source`,
         true => `${msg}\n  note: \`${def.name}\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
       )
