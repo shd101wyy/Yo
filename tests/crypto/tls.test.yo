@@ -104,7 +104,7 @@ test("live TLS fetch of example.com (mandatory under CI)", {
       err -> {
         detail := err.to_string();
         cond(
-          (_network_required() && !_is_dns_failure(err)) => {
+          (_network_required() && !_is_dns_failure(&err)) => {
             // eprintln, not a buffered println: the panic below aborts the
             // test child and a buffered line would be lost with it.
             eprintln(`  TLS FAILED where the network is required: ${detail}`);
