@@ -166,17 +166,18 @@ evaluated again per specialization, which types the capture-struct cell `dyn` bu
 `dyn(v)` on a non-object synthesizes `Rc(T).new(v)` (`Arc(T).new` for a Send Dyn) with a
 receiver node preset to the cell type (`_synthesized_cell_call`, `values/dyn.yo`). A payload whose
 type mentions a type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) is boxed by the
-prelude's `rc`/`arc` FUNCTION VALUE bound to the callee node: an unresolved variable other than an
+prelude's `__yo_rc_cell`/`__yo_arc_cell` FUNCTION VALUE bound to the callee node (copies of `rc`/`arc`
+that outlive them at B3, so a seed never looks `rc` up; plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5 H1): an unresolved variable other than an
 `Impl(Fn(...))` parameter's type cannot dispatch `new` outside a def-time trial (the parameter's can,
 `_is_open_fn_param_slot` in `values/impl.yo`,
 `issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md`),
-and a cell built as `Rc(T).new` over a resolved one keeps the variable in its type (a second C type
-with the cycle-capable header, measured by the emit-diff), where the generic `rc` binds the capture
-struct. Either way no
+and a cell built as `Rc(T).new` keeps the variable in its type (a second C type, measured by the
+emit-diff; over the still-open wrapper of `dyn(Rc.new(<closure>))` its payload lowers to `void*`),
+where the generic function's binder binds the capture struct. Either way no
 name is looked up and a parameter named `rc` cannot capture the call. `dyn(Rc.new(<closure>))` is
 recognized beside `dyn(rc(<closure>))`; the applied `Rc(T).new(<closure>)` is not (a closure's type
 cannot be written as `T`). The recognized cell is `Rc(W)` over the Dyn's Fn-carrying wrapper `W`, an
-type variable, so that call too becomes the prelude `rc` value bound to the callee; its receiver is
+type variable, so that call too becomes the prelude `__yo_rc_cell` value bound to the callee; its receiver is
 preset to `.TypeVal(Rc(W))` only when `W` mentions no type variable. As a prelude name `rc` cannot be redefined: a module-level or local
 binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
 named `rc` shadows it in its scope. `ref_count` is not in

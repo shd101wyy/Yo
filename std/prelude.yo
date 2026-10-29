@@ -13548,3 +13548,48 @@ impl(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )
 );
+/// `dyn(...)`'s cell constructor: `dyn(v)` boxes a payload whose type is a
+/// type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) with
+/// `__yo_rc_cell(v)`, bound to the call by value. Compiler-internal, not
+/// exported; `rc` and `Rc.new` are the spellings to write. It outlives `rc`
+/// (static-argument inference B3) until V5 builds cells through `__yo_cell`
+/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a)).
+__yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
+  // `rc`'s body (and `Rc.new`'s), kept as `dyn(...)`'s own constructor:
+  // a closure literal's payload type is the `Dyn`'s open payload wrapper, and
+  // only a generic FUNCTION's binder resolves it to the capture struct
+  // (`_prelude_cell_constructor`, src/evaluator/values/dyn.yo). The `match` is
+  // bound for `rc`'s reason.
+  cell := match(
+    alloc,
+    .Some(a) => {
+      saved_ctx := __yo_scope_ctx();
+      saved_vtable := __yo_scope_vtable();
+      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+      placed := Rc(V)(value);
+      __yo_scope_set(saved_ctx, saved_vtable);
+      placed
+    },
+    .None => Rc(V)(value)
+  );
+  cell
+});
+/// `dyn(...)`'s atomically counted cell constructor, for a `Dyn(..., Send)`
+/// target: `__yo_rc_cell`'s twin. Compiler-internal, not exported.
+__yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))({
+  // `arc`'s body, kept as `dyn(...)`'s constructor for a Send target, for
+  // `__yo_rc_cell`'s reason.
+  cell := match(
+    alloc,
+    .Some(a) => {
+      saved_ctx := __yo_scope_ctx();
+      saved_vtable := __yo_scope_vtable();
+      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+      placed := Arc(V)(value);
+      __yo_scope_set(saved_ctx, saved_vtable);
+      placed
+    },
+    .None => Arc(V)(value)
+  );
+  cell
+});
