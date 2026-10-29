@@ -264,7 +264,13 @@ FunctionGenerationContext :: ref(
     /// fresh ids). Keyed by expr IDENTITY, not target name: two same-named
     /// locals in sibling C scopes are distinct drop exprs and must each emit
     /// once.
-    emitted_deferred_drop_ids : HashSet(usize)
+    emitted_deferred_drop_ids : HashSet(usize),
+    /// The `unwind(...)` that is a bare-expression function body (a handler
+    /// `e -> unwind(f(e))`). Its shared-id node carries the function's
+    /// own-parameter drops, which `generate_unwind` emits AFTER evaluating
+    /// the operand, not before it: the operand may read the parameter
+    /// (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+    unwind_tail_param_drops_id : Option(usize)
   )
 );
 impl(
@@ -307,7 +313,8 @@ impl(
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
       deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
       current_assignment_save_temp : Option(String).None,
-      emitted_deferred_drop_ids : HashSet(usize).new()
+      emitted_deferred_drop_ids : HashSet(usize).new(),
+      unwind_tail_param_drops_id : Option(usize).None
     )
   )
 );
