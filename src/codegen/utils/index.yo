@@ -2515,25 +2515,6 @@ dyn_concrete_c_name :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(
     )
   )
 );
-/// The C type of one parameter of a Dyn vtable slot and of the wrapper the
-/// slot points at. A `&mut T` slot is `T*`, exactly as the function
-/// prototype spells it (`functions/declarations.yo`): the call site hands the
-/// slot the address of the place, and the impl or closure the wrapper forwards
-/// to takes a `T*` (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
-dyn_slot_param_type_string :: (fn(t : &Option(TypeValue), context : &CodeGenContext) -> String)(
-  match(
-    t,
-    .Some(slot) => {
-      pt := t_slot_pointee(&slot);
-      pts := get_type_string(&pt, context);
-      if(t_slot_is_mut_ref(&slot), {
-        pts.push_str("*");
-      });
-      pts
-    },
-    .None => String.from("void*")
-  )
-);
 /// Parameter `i`'s C type in a `Dyn` vtable slot or wrapper for the method
 /// type `ft`, by its C ABI (`fn_abi_param_is_ptr`): a `&mut T`, or a `&T` of
 /// a projection (`-> &T`, decision 34), is `T*`; every other parameter its
@@ -2549,7 +2530,7 @@ dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &CodeGenC
 /// The C result type of the method type `ft` in a `Dyn` vtable slot or
 /// wrapper: a projection's (`-> &T`) is `T*`.
 dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &CodeGenContext) -> String)({
-  rs := get_type_string(&fn_result_pointee(ft), context);
+  rs := get_type_string(&match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr), _ => fn_result_pointee(ft)), context);
   if(fn_result_is_ref(ft), {
     rs.push_str("*");
   });
@@ -2596,7 +2577,6 @@ export(
   get_type_string,
   erased_future_result_type_string,
   get_storage_type_string,
-  dyn_slot_param_type_string,
   dyn_slot_param_abi_string,
   dyn_slot_result_abi_string,
   dyn_concrete_func_type,

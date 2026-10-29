@@ -28,7 +28,7 @@ import("std/fmt");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_reference } :: import("../../types/definitions.yo");
 { t_fn_trait } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { note_move_only_possible } :: import("../../types/utils.yo");
@@ -74,7 +74,7 @@ evaluate_fn_trait_type :: (
   });
   expr_args := _fn_trait_call_args(expr);
   fn_call_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  return_type_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  (return_type_expr : AstExpr) = match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   is_once := ast_expr_is_fn_call_of(&fn_call_expr, BK_FN_ONCE_TRAIT, Option(usize).None);
   if(is_once, {
     // `Dyn(FnOnce(...))` is move-only: arm the move-only checks.
@@ -99,17 +99,28 @@ evaluate_fn_trait_type :: (
   ctx.is_evaluating_function_type = true;
   (env_mut : Environment) = env;
   params_result := evaluate_function_parameters(&param_exprs, &env_mut, ctx, exn);
-  // A borrowed result, `Fn(...) -> &T`: a function TYPE's result slot holds
-  // one (decision 43 step 2, N1b), a closure's has no lowering yet.
-  if(ast_expr_is_fn_call_of(&return_type_expr, BK_MUT, Option(usize).None) || ast_expr_is_fn_call_of(&return_type_expr, BK_IMM, Option(usize).None) || is_origin_qualified_reference_expr(&return_type_expr), {
+  // A borrowed result, `Fn(...) -> &T` / `Fn(...) -> &mut T` (decision 43
+  // step 2, N1c): the result slot is a `Reference`, as a function type's is
+  // (N1b). Its origin is O2's per-call default, the union of the call's
+  // reference parameters; it is never spelled with a parameter's name, and
+  // an origin PARAMETER on it (a closure returning a captured reference)
+  // arrives with reference-typed bindings.
+  if(is_origin_qualified_reference_expr(&return_type_expr), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(&return_type_expr),
-          `A closure trait's result is a value: \`${ast_expr_to_string(expr)}\` returns a reference, which arrives with per-call closure origins (decision 43 step 2, plans/backlog/REFERENCES_AND_ORIGINS.md O2). A named function can return one: \`fn(xs : &T) -> &T\`.`
+          `A closure trait's result origin is elided: \`${ast_expr_to_string(expr)}\` spells one. \`Fn(...) -> &T\` borrows from the call's reference arguments (decision 43 step 2, plans/backlog/REFERENCES_AND_ORIGINS.md O2); an origin parameter there (a closure returning a captured reference) arrives with references as binding types (N1e).`
         )
       )
     );
+  });
+  (ret_is_ref : bool) = false;
+  (ret_is_mut_ref : bool) = false;
+  if(ast_expr_is_fn_call_of(&return_type_expr, BK_MUT, Option(usize).None) || ast_expr_is_fn_call_of(&return_type_expr, BK_IMM, Option(usize).None), {
+    ret_is_ref = true;
+    ret_is_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_MUT, Option(usize).None);
+    return_type_expr = match(_fn_trait_call_args(&return_type_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
 
   // Evaluate the return type via the raw evaluator path so any
@@ -186,7 +197,8 @@ evaluate_fn_trait_type :: (
     implicit_types.push(ip.ty);
     ii = (ii + usize(1));
   });
-  fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, &return_type, implicit_labels, implicit_types);
+  result_slot := if(ret_is_ref, t_reference(&return_type, ret_is_mut_ref), return_type);
+  fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, &result_slot, implicit_labels, implicit_types);
   // Set expr info
   out_info := new_expr_info(&env_mut, type_of_type(&fn_trait_type));
   out_info.value = .Some(create_type_value(&fn_trait_type));
