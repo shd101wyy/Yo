@@ -7983,7 +7983,10 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
     _ => return(())
   );
   name_tok := match(callee, .Atom(_, t) => t, _ => return(()));
-  if(name_tok.module_path.*.starts_with("auto-generated://"), {
+  // Compiler-synthesized calls are not sites: generated code, and the
+  // callee `dyn(...)` binds to the prelude's `rc`/`arc` for a type-variable
+  // payload (a synthetic token, whose source text is empty).
+  if(name_tok.module_path.*.starts_with("auto-generated://") || (name_tok.input.*.len() == usize(0)), {
     return(());
   });
   name := name_tok.value.clone();
