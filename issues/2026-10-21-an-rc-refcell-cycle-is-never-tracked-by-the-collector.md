@@ -9,7 +9,7 @@ life of the process, like
 `issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`.
 
 **Status:** open. **Found:** 2026-10-21 with the v0.2.67 seed, as the
-control for `issues/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`.
+control for `issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`.
 
 ## Reproducer
 

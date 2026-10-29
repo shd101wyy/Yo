@@ -24,7 +24,11 @@ implemented (2026-10-27, `feat/w4-arc-weak`, stacked on W3):** `ArcWeak(T)`,
 weak-held path (§3.2 "As built"); ARC.md and DESIGN.md (both languages)
 gained the `ArcWeak` sentence. `make_mut`'s disassociation of weak handles
 landed for both on 2026-10-28, once the v0.2.72 seed emitted the weak-count
-runtime (§3.3). The other phases have not started.
+runtime (§3.3). **W5 is implemented (2026-10-29,
+`vbd/w5-acyclic-weak-edges`):** `Acyclic` is answered by one strong-cycle
+reach walk instead of the field-by-field derivation, the declared form needs
+no pragma, and std's `SAFETY:` sentences that justified an `Acyclic`
+declaration are gone (§4 "As built"). The other phases have not started.
 
 ## 0. Verdict
 
@@ -44,7 +48,7 @@ runtime (§3.3). The other phases have not started.
    only purpose was to make an uncollectable cycle unrepresentable; with
    `ArcWeak` the cycle is breakable instead, which is Rust's answer, and the
    bound today does not even hold for a self-recursive payload
-   (`issues/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`).
+   (`issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`).
    `Mutex`, `RwLock`, `Channel` and the thread APIs drop it with `Arc`.
 4. **`Weak(T)` and `ArcWeak(T)` are Rust's `rc::Weak` and `sync::Weak`:**
    `downgrade`, `upgrade -> Option(Rc(T))`, a weak count in the cell, the
@@ -328,6 +332,52 @@ no cycle of STRONG edges is reachable from a value of `T`. Three changes:
   struct that reaches itself through an atomic cell) is fixed on its own
   at W5, because the derived marker is what user bounds will read.
 
+**As built (W5).** Where the text above left a choice, the simplest one
+consistent with it:
+
+- The marker is no longer registered at definition time. `type_implements_trait`
+  answers `Acyclic` on demand (`_acyclic_by_reach`,
+  `src/evaluator/trait_checking.yo`) with Tarjan's walk over the nominal types
+  reachable from `T`: an edge is a field, a variant payload, or the pointee of
+  a raw pointer (an owned buffer `?*E`, `Box`'s `*V`, `Channel`'s `*T`), seen
+  through tuples, arrays, unions and refinements; a `Weak`/`ArcWeak` is no
+  edge. `T` is `Acyclic` iff no strongly connected component reachable from
+  it is cyclic AND holds a shared cell (a `ref`/`atomic` object). That is the
+  inductive answer: the old derivation read a self shell as an empty struct,
+  and an in-progress obligation as satisfied, so a recursion through a cell
+  came out `Acyclic` (`issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`),
+  and it answered an object from the collector's root test, which asks
+  whether the object is ON a cycle, not whether it reaches one
+  (`issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`).
+- A node with a negative impl reaches a cycle; a node with a declared impl,
+  concrete or generic, is trusted and not entered. A leaf the walk cannot
+  see into (an open type parameter, a `Dyn`, an unapplied constructor) is
+  asked through `type_implements_trait`, so `where(T <: Acyclic)` still
+  holds inside a generic body. Verdicts are memoized per node for one
+  `trait_impl_epoch`, except a walk that met a leaf or an unresolved shell.
+- "A node type with strong children and a weak parent" is pinned with
+  OWNED children (`first_child`/`next_sibling : Option(Box(Self))`): a tree
+  whose children are `Rc` handles is not `Acyclic`, since nothing in its
+  type stops a child edge from pointing at an ancestor, and the collector
+  agrees (it tracks that type).
+- "`ArrayList(Self)` stays `Acyclic`" holds only after decision 46's B8:
+  `ArrayList` is still a `ref` object, so a value that holds a list of
+  itself recurs through a shared cell (a list can hold a value that holds the
+  list), and base answers the same. The row is pinned as NOT `Acyclic`
+  with a note that it flips with B8; the owned-buffer recursion the row
+  means is pinned on a value with a `?*Self` buffer
+  (`tests/send_sync_raw_pointer.test.yo`).
+- The pragma rule keeps `Send` and `Sync` only. The prelude's
+  unconditional `impl(*T, Acyclic())` and `impl(Array(T, U), Acyclic())`
+  went (the walk follows the pointee and the element), as did
+  `std/async/mutex.yo`'s `Mutex(T)` and `_Core` declarations, which the walk
+  now derives. "`yo fix` drops the `SAFETY:` comments" was done by hand:
+  every std `SAFETY:` comment that mentions `Acyclic` also justifies a
+  `Send`, so the edit removes a sentence, not a comment, which no `yo fix`
+  mode can do safely; a user's stale `SAFETY:` comment is harmless. The
+  compiler's decision-21 declarations keep their comments until W6b deletes
+  the declarations.
+
 Where it is required: nowhere in std after W2 (`Arc` and the sync types
 drop it, §2; Rust's `Arc` has no such bound, the bound is viral through
 every generic wrapper around an `Arc`, and it rejects graphs that are torn
@@ -427,7 +477,7 @@ exclusion of `Rc`-reaching values keeps its other reason (aliasing).
 | W2 | `Arc` without `Acyclic` (std/sync, thread, prelude); `ARC.md` and `DESIGN.md` in both languages; the S2 issue retired, its reproducer kept as a derivation test | `tests/send_sync.test.yo`; an `Arc(Mutex(Node))` cycle compiles and `--debug-heap` reports it |
 | W3 | `Weak(T)`: the weak count in the freed 16 bits, `downgrade`/`upgrade`/`new`/counts/`ptr_eq`, `Clone`, the dead flag, the two free paths, `traverse_fn` skipping `Weak` | upgrade after the last strong is `.None`; the allocation is freed at the last `Weak` (`--debug-heap` count); a parent pointer through `Weak(RefCell(Node))`; a cycle broken by a `Weak` is untracked under `Auto` and leak-free under `Off`; an `upgrade` from a `Drop` during CollectWhite returns `.None`; ASan on all of it |
 | W4 | `ArcWeak(T)` with atomic counts; `Send`/`Sync`; ARC.md and DESIGN.md (both languages) gain the `ArcWeak` sentence deferred from W2 | the W3 rows across a `Thread.spawn`; TSan |
-| W5 | the derived `Acyclic` walk ignores `Weak` edges and answers a cycle through a cell inductively (the S2 derivation fix); the declared exemption without the pragma; `yo fix` drops the `SAFETY:` comments in std | `tests/send_sync.test.yo` rows: a weak-parent tree is `Acyclic`, a strong-parent one is not, `Option(Box(Self))` and `ArrayList(Self)` stay `Acyclic`; the S2 reproducer's types not `Acyclic`; an object holding a cyclic cell behind an `Option` or a pointer not `Acyclic` (`issues/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`, found at W2) |
+| W5 | the derived `Acyclic` walk ignores `Weak` edges and answers a cycle through a cell inductively (the S2 derivation fix); the declared exemption without the pragma; `yo fix` drops the `SAFETY:` comments in std | `tests/send_sync.test.yo` rows: a weak-parent tree is `Acyclic`, a strong-parent one is not, `Option(Box(Self))` and `ArrayList(Self)` stay `Acyclic`; the S2 reproducer's types not `Acyclic`; an object holding a cyclic cell behind an `Option` or a pointer not `Acyclic` (`issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`, found at W2) |
 | W6 | the default flips to `Off` for one release (the measurement of §6), then the collector, `Trace`, the declared `Acyclic` form, the large header and the knob are deleted (the derived `Acyclic` marker stays); docs in both languages; the origins plan's O9/O10 amended | §6's three preconditions recorded as met; the fixpoint and the memory ratchet (headers shrink); `yo test --allocator debug` green over the corpus with no collector |
 
 Each phase is one PR; W3 is Generation A (the prelude gains the types; std

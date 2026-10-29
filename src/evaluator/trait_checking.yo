@@ -32,9 +32,10 @@ pragma(Pragma.AllowUnsafe);
   is_primitive_type,
   is_counted_handle_value_type,
   unique_box_payload_type,
-  cell_handle_view
+  cell_handle_view,
+  is_weak_handle_type
 } :: import("../types/guards.yo");
-{ enum_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../types/type_key.yo");
+{ enum_instance_node_id, nominal_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../types/type_key.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -73,7 +74,6 @@ pragma(Pragma.AllowUnsafe);
   trait_impl_epoch,
   is_drop_trait_name,
   value_type_owns_buffer,
-  value_acyclic_obligations,
   buffer_element_types
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
@@ -457,6 +457,342 @@ type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     _ => Option(bool).None
   )
 );
+// ---------------------------------------------------------------------------
+// Acyclic: the strong-cycle reach walk
+// ---------------------------------------------------------------------------
+// `T <: Acyclic` holds when no cycle of STRONG edges is reachable from a value
+// of `T` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4). The walk's nodes are
+// the nominal types (struct and enum instances) reachable from `T`; an edge
+// is a field, a variant payload, or the pointee of a raw pointer inside one
+// (an owned buffer `?*E`, `Box`'s `*V`, `Channel`'s `*T`), seen through
+// tuples, arrays, unions and refinements. A `Weak`/`ArcWeak` handle is no
+// edge. A type-graph cycle is a cycle of values only when it passes through a
+// shared cell (a `ref`/`atomic` object: `Rc`, `Arc`, `RefCell`'s slot);
+// recursion through a value, a `Box` or an owned buffer (`Option(Box(Self))`,
+// a value's `?*Self` buffer) builds a tree; `ArrayList` is a `ref` object
+// until decision 46's B8, so a recursion through it does run through a cell.
+// So `T` is `Acyclic` iff no strongly connected component reachable from it
+// is cyclic and holds a cell: the INDUCTIVE answer. The field-by-field derivation it replaces answered a
+// recursion through a cell coinductively (the in-progress obligation, or a
+// self shell read as an empty struct, counted as satisfied), which accepted
+// `struct(peer : Option(Arc(Mutex(Self))))`
+// (issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md),
+// and an object's answer came from the collector's root test, which asks
+// whether the object is ON a cycle, not whether it reaches one
+// (issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md).
+//
+// A node with a negative impl (`impl(T, !Acyclic)`) reaches a cycle; a node
+// with a declared impl, concrete or generic, is trusted and not entered (the
+// declared form exists until W6b). A leaf the walk cannot see into (an open
+// type parameter, a `Dyn`, an unapplied constructor) is asked through
+// `type_implements_trait`, so a `where(T <: Acyclic)` bound still holds.
+/// Tarjan's bookkeeping for one walk, one entry per node in discovery order.
+_AcyWalk :: struct(
+  index : HashMap(String, usize),
+  keys : ArrayList(String),
+  low : ArrayList(usize),
+  on_stack : ArrayList(bool),
+  is_cell : ArrayList(bool),
+  self_edge : ArrayList(bool),
+  reach : ArrayList(bool),
+  stack : ArrayList(usize),
+  /// False once the walk met a leaf query (its answer can depend on the
+  /// where-clauses in scope) or an unresolved self shell: such a walk's
+  /// verdicts are not memoized.
+  memo_ok : bool
+);
+_acy_walk_new :: (fn() -> _AcyWalk)(
+  _AcyWalk(
+    index : HashMap(String, usize).new(),
+    keys : ArrayList(String).new(),
+    low : ArrayList(usize).new(),
+    on_stack : ArrayList(bool).new(),
+    is_cell : ArrayList(bool).new(),
+    self_edge : ArrayList(bool).new(),
+    reach : ArrayList(bool).new(),
+    stack : ArrayList(usize).new(),
+    memo_ok : true
+  )
+);
+/// Completed nodes' verdicts (`true` = reaches a strong cycle), keyed by
+/// `nominal_instance_node_id`, valid for one `trait_impl_epoch` (an impl
+/// registered later can declare or negate `Acyclic` on a node).
+(g_acy_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+(mut(g_acy_memo_epoch) : u64) = u64(0);
+/// Nodes whose generic-impl check is in progress: the impl's where-clause
+/// can ask about the node again (`impl(generic(T), where(T <: Acyclic),
+/// Mutex(T), Acyclic())` over a `T` that holds the `Mutex`), and the
+/// re-entered check answers "not declared", inductively.
+(g_acy_generic_guard : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+_acy_memo_get :: (fn(key : &String) -> Option(bool))({
+  if(g_acy_memo_epoch != trait_impl_epoch(), {
+    g_acy_memo.with_mut(m => m.clear());
+    g_acy_memo_epoch = trait_impl_epoch();
+  });
+  g_acy_memo.with(m => m.get(key))
+});
+/// The nominal types and leaves `t` holds, seen through the structural types.
+_acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves : &mut ArrayList(TypeValue)) -> unit)({
+  t := resolve_enum_shell(resolve_struct_shell(t_in));
+  match(
+    t,
+    Rc(.Struct({ id : _ })) => if(!is_weak_handle_type(&t), {
+      nodes.push(t.clone());
+    }),
+    Rc(.EnumT({ id : _ })) => nodes.push(t.clone()),
+    Rc(.Tuple({ field_types : tfs })) => {
+      (i : usize) = usize(0);
+      while(i < tfs.len(), i = (i + usize(1)), {
+        match(tfs.get(i), .Some(ft) => recur(&ft, nodes, leaves), .None => ());
+      });
+    },
+    Rc(.Union({ field_types : ufs })) => {
+      (i : usize) = usize(0);
+      while(i < ufs.len(), i = (i + usize(1)), {
+        match(ufs.get(i), .Some(ft) => recur(&ft, nodes, leaves), .None => ());
+      });
+    },
+    Rc(.Array({ element : el })) => recur(&el, nodes, leaves),
+    Rc(.Pointer(pointee)) => recur(&pointee, nodes, leaves),
+    Rc(.RefineT(inner, _)) => recur(&inner, nodes, leaves),
+    Rc(.Reference({ pointee : rp })) => recur(&rp, nodes, leaves),
+    Rc(.SomeT(name : _)) => cond(
+      is_bound_closure_identity(&t) => recur(resolve_cell_chain(&t), nodes, leaves),
+      true => leaves.push(t.clone())
+    ),
+    Rc(.DynT(required_trait_types : _)) => leaves.push(t.clone()),
+    Rc(.TypeAppT(constructor : _)) => leaves.push(t.clone()),
+    Rc(.FnTraitT(_, _, _, _, _, _)) => leaves.push(t.clone()),
+    Rc(.FutureTraitT(_, _, _, _)) => leaves.push(t.clone()),
+    // Primitives, functions (a code pointer), extern opaque C types,
+    // comptime lists, types and origins hold no Yo reference.
+    _ => ()
+  );
+});
+/// A nominal node's direct contents: a struct's fields, an enum's variant
+/// payloads.
+_acy_node_contents :: (fn(t : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves : &mut ArrayList(TypeValue)) -> unit)(
+  match(
+    t,
+    Rc(.Struct({ field_types : fts })) => {
+      (i : usize) = usize(0);
+      while(i < fts.len(), i = (i + usize(1)), {
+        match(fts.get(i), .Some(ft) => _acy_expand(&ft, nodes, leaves), .None => ());
+      });
+    },
+    Rc(.EnumT({ variant_fields : vfs })) => {
+      (vi : usize) = usize(0);
+      while(vi < vfs.len(), vi = (vi + usize(1)), {
+        vf := match(vfs.get(vi), .Some(f) => f, .None => no_types());
+        (fi : usize) = usize(0);
+        while(fi < vf.len(), fi = (fi + usize(1)), {
+          match(vf.get(fi), .Some(ft) => _acy_expand(&ft, nodes, leaves), .None => ());
+        });
+      });
+    },
+    _ => ()
+  )
+);
+/// Does a nominal node declare `Acyclic` (a concrete or a generic impl)?
+_acy_declared :: (fn(t : &TypeValue, key : &String, at : &TypeValue, env : &Environment) -> bool)({
+  tid := _type_id_for_trait_check(t);
+  if(!tid.is_empty() && is_type_registered_as_trait(&tid, at, env), {
+    return(true);
+  });
+  if(g_acy_generic_guard.with(xs => xs.contains(key)), {
+    return(false);
+  });
+  g_acy_generic_guard.with_mut(xs => xs.push(key.clone()));
+  declared := _find_matching_generic_impl(t, at, env);
+  g_acy_generic_guard.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
+  declared
+});
+/// Tarjan's visit of one nominal node; returns its index in `st`.
+_acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeValue, env : &Environment) -> usize)({
+  v := st.keys.len();
+  st.index.insert(key.clone(), v);
+  st.keys.push(key.clone());
+  st.low.push(v);
+  st.on_stack.push(true);
+  st.stack.push(v);
+  st.is_cell.push(
+    match(
+      t,
+      Rc(.Struct({ is_reference_semantics : sr })) => sr,
+      Rc(.EnumT({ is_reference_semantics : er })) => er,
+      _ => false
+    )
+  );
+  st.self_edge.push(false);
+  st.reach.push(false);
+  // An unresolved self shell reads as an empty type, and a re-entered
+  // generic-impl check answers "not declared" for this query only: neither
+  // verdict is final.
+  if(g_acy_generic_guard.with(xs => xs.contains(key)) || match(
+    t,
+    Rc(.Struct({ field_types : sfts })) => (sfts.len() == usize(0)),
+    Rc(.EnumT({ variant_names : evns })) => (evns.len() == usize(0)),
+    _ => false
+  ), {
+    st.memo_ok = false;
+  });
+  cond(
+    (has_negative_impl(type_id_or_empty(t), get_trait_key(at)) || find_matching_negative_generic_impl(t, at, env)) => {
+      st.reach(v) = true;
+    },
+    _acy_declared(t, key, at, env) => (),
+    true => {
+      nodes := ArrayList(TypeValue).new();
+      leaves := ArrayList(TypeValue).new();
+      _acy_node_contents(t, &mut nodes, &mut leaves);
+      (li : usize) = usize(0);
+      while(li < leaves.len(), li = (li + usize(1)), {
+        st.memo_ok = false;
+        match(
+          leaves.get(li),
+          .Some(leaf) => if(!type_implements_trait(&leaf, at, env).implemented, {
+            st.reach(v) = true;
+          }),
+          .None => ()
+        );
+      });
+      (ni : usize) = usize(0);
+      while(ni < nodes.len(), ni = (ni + usize(1)), {
+        n := match(nodes.get(ni), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+        nk := nominal_instance_node_id(&n);
+        match(
+          st.index.get(&nk),
+          .Some(w) => if(st.on_stack(w), {
+            // A back edge: `w` is in this node's component.
+            if(w < st.low(v), {
+              st.low(v) = w;
+            });
+            if(w == v, {
+              st.self_edge(v) = true;
+            });
+          }, {
+            if(st.reach(w), {
+              st.reach(v) = true;
+            });
+          }),
+          .None => match(
+            _acy_memo_get(&nk),
+            .Some(r) => if(r, {
+              st.reach(v) = true;
+            }),
+            .None => {
+              w := recur(&n, &nk, st, at, env);
+              if(st.on_stack(w), {
+                if(st.low(w) < st.low(v), {
+                  st.low(v) = st.low(w);
+                });
+              }, {
+                if(st.reach(w), {
+                  st.reach(v) = true;
+                });
+              });
+            }
+          )
+        );
+      });
+    }
+  );
+  // The root of a component: pop it and settle every member's verdict.
+  if(st.low(v) == v, {
+    members := ArrayList(usize).new();
+    (popping : bool) = true;
+    while(popping, {
+      m := match(st.stack.pop(), .Some(x) => x, .None => v);
+      members.push(m);
+      if(m == v, {
+        popping = false;
+      });
+    });
+    (has_cell : bool) = false;
+    (any_reach : bool) = false;
+    (mi : usize) = usize(0);
+    while(mi < members.len(), mi = (mi + usize(1)), {
+      m := members(mi);
+      if(st.is_cell(m), {
+        has_cell = true;
+      });
+      if(st.reach(m), {
+        any_reach = true;
+      });
+    });
+    cyclic := ((members.len() > usize(1)) || st.self_edge(v));
+    verdict := (any_reach || (cyclic && has_cell));
+    (mj : usize) = usize(0);
+    while(mj < members.len(), mj = (mj + usize(1)), {
+      m := members(mj);
+      st.on_stack(m) = false;
+      st.reach(m) = verdict;
+    });
+  });
+  v
+});
+/// The walk's answer for a type the trait checker asks about, or `.None` for
+/// a shape it leaves to the other steps (an open type parameter, a `Dyn`, a
+/// primitive the builtin fast path or a prelude impl answers).
+_acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environment) -> Option(bool))({
+  t := resolve_enum_shell(resolve_struct_shell(target));
+  nodes := ArrayList(TypeValue).new();
+  leaves := ArrayList(TypeValue).new();
+  match(
+    t,
+    Rc(.Struct({ id : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.EnumT({ id : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.Tuple({ field_types : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.Union({ field_types : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.Array({ element : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.Pointer(_)) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.RefineT(_, _)) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.Reference({ pointee : _ })) => _acy_expand(&t, &mut nodes, &mut leaves),
+    Rc(.Func({ result : _ })) => {
+      return(Option(bool).Some(true));
+    },
+    _ => {
+      return(Option(bool).None);
+    }
+  );
+  (li : usize) = usize(0);
+  while(li < leaves.len(), li = (li + usize(1)), {
+    match(
+      leaves.get(li),
+      .Some(leaf) => if(!type_implements_trait(&leaf, at, env).implemented, {
+        return(Option(bool).Some(false));
+      }),
+      .None => ()
+    );
+  });
+  st := _acy_walk_new();
+  (reaches : bool) = false;
+  (ni : usize) = usize(0);
+  while((ni < nodes.len()) && !reaches, ni = (ni + usize(1)), {
+    n := match(nodes.get(ni), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+    nk := nominal_instance_node_id(&n);
+    reaches = match(
+      st.index.get(&nk),
+      .Some(w) => st.reach(w),
+      .None => match(
+        _acy_memo_get(&nk),
+        .Some(r) => r,
+        .None => {
+          w := _acy_visit(&n, &nk, &mut st, at, env);
+          st.reach(w)
+        }
+      )
+    );
+  });
+  // Every node a finished visit discovered is settled.
+  if(st.memo_ok, {
+    (ki : usize) = usize(0);
+    while(ki < st.keys.len(), ki = (ki + usize(1)), {
+      g_acy_memo.with_mut(m => m.insert(st.keys(ki).clone(), st.reach(ki)));
+    });
+  });
+  Option(bool).Some(!reaches)
+});
 // ---------------------------------------------------------------------------
 // Phase 3 stubs
 // ---------------------------------------------------------------------------
@@ -1430,7 +1766,11 @@ type_implements_trait :: (
       .None => ()
     );
   });
-  // 2b. Acyclic builtin fast path (primitive leaves) — same rationale as Send.
+  // 2b. Acyclic: the builtin fast path for primitive leaves (the rationale
+  // is Send's), then the strong-cycle reach walk for every shape it covers
+  // (`_acyclic_by_reach`). The walk is the whole answer for those shapes: a
+  // declared impl is one of its node checks, and no auto-derived `Acyclic`
+  // is registered.
   match(
     get_trait_type_from_env(env, String.from("Acyclic")),
     .None => (),
@@ -1438,6 +1778,13 @@ type_implements_trait :: (
       if(_trait_type_id(trait_type) == _trait_type_id(&at), {
         match(
           type_implements_acyclic_builtin(&target),
+          .Some(b) => {
+            return(TraitCheckResult(implemented : b, env : env));
+          },
+          .None => ()
+        );
+        match(
+          _acyclic_by_reach(&target, trait_type, env),
           .Some(b) => {
             return(TraitCheckResult(implemented : b, env : env));
           },
@@ -1523,7 +1870,7 @@ type_implements_trait :: (
   // its CONCRETE field types, so the name-keyed registry has no entry. Recompute
   // the marker on demand from the type's current fields, mirroring auto_derive's
   // rules. This is path-independent (unlike re-running auto_derive at one
-  // instantiation site). Only the auto-derived markers (Send/Comptime/Acyclic/
+  // instantiation site). Only the auto-derived markers (Send/Sync/Comptime/
   // Runtime) are recomputable this way; the field check recurses through
   // `type_implements_trait` (so it picks up the same builtins / registry /
   // generic-impls), guarded against self-referential cycles.
@@ -1550,7 +1897,8 @@ type_implements_trait :: (
   if(!marker_name.is_empty() && !_ondemand_guard_contains(&ondemand_key), {
     tn := marker_name.clone();
     is_thread_marker := ((tn == "Send") || (tn == "Sync"));
-    marker_relevant := (is_thread_marker || (tn == "Comptime") || (tn == "Acyclic") || (tn == "Runtime"));
+    // `Acyclic` is answered by step 2b's reach walk, never here.
+    marker_relevant := (is_thread_marker || (tn == "Comptime") || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).
       (fields_opt : Option(SharedList(TypeValue))) = Option(SharedList(TypeValue)).None;
@@ -1591,13 +1939,6 @@ type_implements_trait :: (
           // Comptime: objects never; value structs need all fields Comptime.
           (tn == "Comptime") => if(!is_ref, {
             fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
-          }),
-          // Acyclic: a value struct needs its fields Acyclic, and the
-          // elements of a buffer it owns that reach a cell (V2b's unique
-          // buffers; the auto-derive's rule); objects defer to the registry
-          // (their Acyclic uses can_type_form_rc_cycle at definition).
-          (tn == "Acyclic") => if(!is_ref, {
-            fields_opt = Option(SharedList(TypeValue)).Some(shared_list(value_acyclic_obligations(&fts.items)));
           }),
           true => ()
         ),
@@ -1647,29 +1988,17 @@ type_implements_trait :: (
         Rc(.Tuple({ field_types : tuple_fts })) => {
           fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(tuple_fts));
         },
-        // A `fn(...)` type is a code pointer: it holds no reference, so it is
-        // Acyclic. It is NOT Send as a type: whether a function may run on
-        // another thread depends on what its CODE touches (rule D1), and every
-        // function of the signature shares the type. `Send` for a function
-        // value is judged from the value where the value is known — an
-        // argument, a captured variable, a callee parameter bound to it
+        // A `fn(...)` type is NOT Send as a type: whether a function may run
+        // on another thread depends on what its CODE touches (rule D1), and
+        // every function of the signature shares the type. `Send` for a
+        // function value is judged from the value where the value is known —
+        // an argument, a captured variable, a callee parameter bound to it
         // (`function_value_marker`, utils/closure.yo); a bare `fn` whose value
         // is unknown here (a struct field, a `Channel(fn() -> unit)` payload)
         // is not Send, Swift's rule for plain function types
-        // (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
-        Rc(.Func({ result : _ })) => if(tn == "Acyclic", {
-          direct_true = true;
-        }),
-        // `*(T)`: Acyclic iff `T` is. A raw pointer is neither `Send` nor
-        // `Sync` (plans/VALUES_BY_DEFAULT.md decision 38 E): nothing says
-        // who owns the pointee or who else reads it, so a type holding one
-        // opts in with an `impl(T, Send())` / `impl(T, Sync())` under
-        // pragma(Pragma.AllowUnsafe).
-        Rc(.Pointer(pointee_box)) => if(tn == "Acyclic", {
-          pfields := ArrayList(TypeValue).new();
-          pfields.push(Rc.clone(pointee_box));
-          fields_opt = Option(SharedList(TypeValue)).Some(shared_list(pfields));
-        }),
+        // (issues/fixed/function-values-bypass-the-d1-reach-walk.md). Its
+        // `Acyclic` (a code pointer holds no reference), like every
+        // `Acyclic`, is answered by step 2b.
         _ => ()
       );
       if(direct_true, {

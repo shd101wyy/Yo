@@ -5685,36 +5685,33 @@ evaluate_module_value :: (
           );
         });
         // Phase A (THREAD_SAFETY): a manual `impl(T, Send())` / `impl(T, Sync())`
-        // / `impl(T, Acyclic())` requires `pragma(Pragma.AllowUnsafe)`.
+        // requires `pragma(Pragma.AllowUnsafe)`: a wrong claim is a data race.
+        // A manual `impl(T, Acyclic())` does not (decision 48 W5,
+        // plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4): a wrong claim leaks,
+        // it never dangles.
         if(!is_negative_field && (ast_expr_is_fn_call(&field_expr) && !ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2)))), {
           pos_trait_name := match(
             field_expr,
             .FnCall(_, pfb, _, _, _) => ast_expr_text(&pfb),
             .Atom(_, _) => String.new()
           );
-          if((pos_trait_name == "Send") || (pos_trait_name == "Sync") || (pos_trait_name == "Acyclic"), {
-            if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
-              suffix := cond(
-                (pos_trait_name == "Send") => String.from("send across threads"),
-                (pos_trait_name == "Sync") => String.from("share across threads"),
-                true => String.from("declare Acyclic")
-              );
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(&field_expr),
-                    `Manual 'impl(..., ${pos_trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`
-                  )
+          if(((pos_trait_name == "Send") || (pos_trait_name == "Sync")) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
+            suffix := if(pos_trait_name == "Send", String.from("send across threads"), String.from("share across threads"));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(&field_expr),
+                  `Manual 'impl(..., ${pos_trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`
                 )
-              );
-            });
-            // A declared `Acyclic` exempts the type from cycle collection
-            // (plans/VALUES_BY_DEFAULT.md §3.12, decision 21's trees): record
-            // it where `can_type_form_rc_cycle`'s codegen callers, which have
-            // no Environment, can read it.
-            if((pos_trait_name == "Acyclic") && (receiver_type_id != ""), {
-              declare_acyclic_type_id(&receiver_type_id);
-            });
+              )
+            );
+          });
+          // A declared `Acyclic` exempts the type from cycle collection
+          // (plans/VALUES_BY_DEFAULT.md §3.12, decision 21's trees): record
+          // it where `can_type_form_rc_cycle`'s codegen callers, which have
+          // no Environment, can read it.
+          if((pos_trait_name == "Acyclic") && (receiver_type_id != ""), {
+            declare_acyclic_type_id(&receiver_type_id);
           });
         });
         if(ast_expr_is_fn_call(&field_expr) && ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2))), {
