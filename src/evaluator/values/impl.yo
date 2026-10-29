@@ -831,15 +831,18 @@ _abstract_bindings_ok :: (fn() -> bool)(in_def_time_trial() || g_open_pattern_qu
 /// a generic impl matched over `G(type_of(f))` binds its parameter to the
 /// variable itself
 /// (issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md).
-/// Only the `Impl` annotation wrapper qualifies: a nameless `dyn(...)`
-/// coercion wrapper and a resolved variable (a closure identity) are not
-/// parameter types.
+/// The nameless `dyn(...)` payload wrapper (`t_dyn_payload_wrapper`) of a
+/// `Dyn(Fn(...))` qualifies beside it: a recognized `dyn(Rc.new(<closure>))`
+/// presets its receiver to `Rc(W)` before the closure resolves `W`, so
+/// `Rc(W).new` dispatches over the open wrapper and the call specializes
+/// over the closure (`evaluate_dyn_value`, values/dyn.yo). A resolved
+/// variable (a closure identity) is bound through its resolution instead.
 _is_open_fn_param_slot :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.SomeT({ name : ofp_nm, required_trait_types : ofp_rtts, resolution : ofp_rc })) => {
       (ofp_found : bool) = false;
-      if((ofp_nm == "Impl") && ofp_rc.is_none(), {
+      if(((ofp_nm == "Impl") || ofp_nm.is_empty()) && ofp_rc.is_none(), {
         (ofp_i : usize) = usize(0);
         while((ofp_i < ofp_rtts.len()) && !ofp_found, ofp_i = (ofp_i + usize(1)), {
           if(match(ofp_rtts.get(ofp_i), .Some(ofp_t) => is_fn_trait_type(&ofp_t), .None => false), {
