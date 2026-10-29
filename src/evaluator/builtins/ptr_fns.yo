@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   record_addr_of_site,
   migrate_addr_of_on
 } :: import("../../expr_info.yo");
-{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at } :: import("../../env.yo");
+{ Variable, Environment, snapshot_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
   EvalValue,
@@ -117,21 +117,25 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
   });
   Option(_ProjRootError).None
 });
-/// Whether `name` (bound to `v`) is captured by the closure whose body is
-/// being evaluated: bound below the closure's own frames, the test closure
-/// capture tracking uses (`identifer_and_operator.yo`).
-_place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
-  ctx.captured_variables.is_some() && !v.is_module_level && match(
-    ctx.is_evaluating_function_body_or_async_block,
-    .Some(fb) => match(
-      fb.kind,
-      .FunctionBody => {
-        idx := ArrayList(usize).new();
-        match(find_variable_in_env_at(env, name, &mut idx), .Some(_) => match(idx.get(usize(0)), .Some(fi) => (fi < fb.eval_env.frame_count()), .None => false), .None => false)
-      },
-      _ => false
-    ),
-    .None => false
+/// Whether `name` (bound to `v`) is a parameter of an ENCLOSING function,
+/// which a closure or handler body reaches as a capture: a parameter the
+/// function being evaluated does not declare.
+_place_root_is_closure_capture :: (fn(name : &String, v : &Variable, ctx : &EvalContext) -> bool)(
+  v.is_parameter && !v.is_module_level && match(
+    _enclosing_fn_type(ctx),
+    .Some(Rc(.Func({ meta : pc_m }))) => {
+      labels := pc_m.*.param_labels;
+      (own : bool) = false;
+      (i : usize) = usize(0);
+      while(i < labels.len(), {
+        if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+          own = true;
+        });
+        i = (i + usize(1));
+      });
+      !own
+    },
+    _ => false
   )
 );
 _join_names :: (fn(names : &SharedList(String)) -> String)({
@@ -161,8 +165,8 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
       .Some(v) => cond(
         // A closure's result origin is per-call (O2): its own reference
         // parameters, never a capture, which outlives the call.
-        _place_root_is_closure_capture(&pr_tok.value, &v, env, ctx) => _proj_err(
-          `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${pr_tok.value}\` is a capture of the enclosing function.`,
+        _place_root_is_closure_capture(&pr_tok.value, &v, ctx) => _proj_err(
+          `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${pr_tok.value}\` is a parameter of the enclosing function, which the closure captures.`,
           Option(str).Some(E_ORIGIN_MISMATCH)
         ),
         (!v.is_parameter || v.is_compile_time_only || !(v.is_ref || v.is_imm_borrow)) => _proj_err(
