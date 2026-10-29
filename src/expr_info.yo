@@ -3289,6 +3289,41 @@ take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
   out
 });
 export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, record_dyn_spelling_site, take_dyn_spelling_sites);
+/// One call of the prelude's `rc`/`box`/`arc` that `yo fix --migrate
+/// handle-ctors` rewrites to `Rc.new`/`Box.new`/`Arc.new`
+/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5 B1). `row`/`col` are the
+/// callee token's, `name` its text, `cell` the constructor (`Rc`, `Box`,
+/// `Arc`). `ty_arg` is the type argument the old call bound, printed, and
+/// `ty_key` its `type_key`: one position evaluated at two keys is a generic
+/// body. `printable` says whether `ty_arg` can be written back as source.
+/// `arg_kind` is the value argument's shape as static-argument inference
+/// sees it: `contextual` (a closure literal or an enum shorthand, which
+/// inference does not consult), `literal` (a number literal the old call
+/// typed from its context rather than by its default), or empty.
+HandleCtorSite :: struct(path : String, row : usize, col : usize, name : String, cell : String, ty_arg : String, ty_key : String, printable : bool, arg_kind : String);
+derive(HandleCtorSite, Clone);
+(mut(g_migrate_handle_ctors) : bool) = false;
+(g_handle_ctor_sites : RefCell(ArrayList(HandleCtorSite))) = RefCell(ArrayList(HandleCtorSite)).new(ArrayList(HandleCtorSite).new());
+(g_handle_ctor_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+set_migrate_handle_ctors :: (fn(on : bool) -> unit)({
+  g_migrate_handle_ctors = on;
+});
+/// Whether `yo fix --migrate handle-ctors` is recording.
+migrate_handle_ctors_on :: (fn() -> bool)(g_migrate_handle_ctors);
+/// Record one site, once per (position, type argument, argument shape).
+record_handle_ctor_site :: (fn(site : HandleCtorSite) -> unit)({
+  key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty_key}:${site.arg_kind}`;
+  if(!g_handle_ctor_site_keys.with_mut(s => s.insert(key.clone())), {
+    return(());
+  });
+  g_handle_ctor_sites.with_mut(xs => xs.push(site));
+});
+take_handle_ctor_sites :: (fn() -> ArrayList(HandleCtorSite))({
+  out := g_handle_ctor_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_handle_ctor_site_keys.with_mut(s => s.clear());
+  out
+});
+export(HandleCtorSite, set_migrate_handle_ctors, migrate_handle_ctors_on, record_handle_ctor_site, take_handle_ctor_sites);
 /// One module-level binding `yo fix --migrate mutable-globals` marks
 /// `mut(name)` (decision 47): `row`/`col` are its declared name's token,
 /// `expect` the name, which the rewrite matches against the source text.
