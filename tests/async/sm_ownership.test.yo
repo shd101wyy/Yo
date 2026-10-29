@@ -10,6 +10,7 @@ pragma(Pragma.AllowUnsafe);
 { sleep } :: import("std/sys/timer");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
 { __yo_async_yield_start } :: import("std/sys/externs");
 { IoFuture } :: import("std/sys/future");
 { Error, Exception, IoExn } :: import("std/error");
@@ -1146,4 +1147,53 @@ test("a downcast receiver inside io.async releases its reference", {
   before := g_disposed;
   assert(io.await(_downcast_across_awaits(io), io) == i32(2), "both downcasts see the thing");
   assert((g_disposed - before) == i32(1), "the thing is released once the task ends");
+});
+// issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md:
+// an early `return` inside an `io.async` body dropped every task-slot local,
+// including one the path had already moved out (into a call, or into an
+// owning closure's capture), so the value was released twice.
+_sm_er_take :: (fn(b : Box(i32), r : &Rc(RefCell(i32))) -> unit)({
+  r.with_mut(cur => {
+    cur = b.*;
+  });
+});
+test("an early return after moving a task-slot local into a call drops it once", {
+  result := rc(RefCell(i32).new(0));
+  task := io.async({ result : Rc.clone(result) }(io : Io) => {
+    s := box(i32(100));
+    cond(
+      result.with(cur => (cur == i32(0))) => {
+        io.await(yield(io), io);
+        _sm_er_take(s, &result);
+        return;
+      },
+      true => ()
+    );
+    result.with_mut(cur => {
+      cur = i32(999);
+    });
+  });
+  io.await(task, io);
+  assert(result.with(cur => cur) == i32(100), "the early return ran after the move");
+});
+test("an early return after moving a task-slot local into a closure's capture drops it once", {
+  result := rc(RefCell(i32).new(0));
+  task := io.async({ result : Rc.clone(result) }(io : Io) => {
+    s := box(i32(200));
+    cond(
+      result.with(cur => (cur == i32(0))) => {
+        io.await(yield(io), io);
+        result.with_mut(cur => {
+          cur = s.*;
+        });
+        return;
+      },
+      true => ()
+    );
+    result.with_mut(cur => {
+      cur = i32(999);
+    });
+  });
+  io.await(task, io);
+  assert(result.with(cur => cur) == i32(200), "the closure owned the moved local");
 });

@@ -7,13 +7,13 @@
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { ExprInfo, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
-{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, element_wise_dup_target, element_wise_dup_elements, sanitize_for_c_identifier, scope_stack_contains, c_field_name } :: import("../utils/index.yo");
+{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, element_wise_dup_target, element_wise_dup_elements, sanitize_for_c_identifier, scope_stack_contains, c_field_name, fresh_local_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sm_slot_of } :: import("../async/state_machine_naming.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ sm_slot_of, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, variable_undone_moves } :: import("../../env.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Monotonic counter for unique closure capture temp names.
 (mut(g_closure_capture_counter) : usize) = usize(0);
@@ -194,6 +194,69 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &F
 /// DEFERRED: Dyn(Fn(...)) heap-allocated closures + the
 /// ARC dup-expr capture-field path (Rc captures) — the corpus/repro paths are
 /// value-type Impl closures with plain captures.
+/// The read of an enclosing state machine's slot `sm_code` for the implicit
+/// capture `label`. When the evaluator MOVED the variable into this closure
+/// (its `consumed_at_token` is the closure literal: a move-only value, or a
+/// counted handle under decision 17), the slot no longer owns the value.
+/// After the line holding the literal, its move flag is set, or the slot is
+/// emptied when it has no flag, as `_sm_consuming_read` (exprs/atom.yo) does
+/// for a moved atom. Otherwise the machine's early-completion and dispose
+/// drops released the value the closure owns
+/// (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
+_sm_moved_capture_read :: (fn(expr : &AstExpr, label : &String, sm_code : String, ei : &ExprInfo, context : &FunctionGenerationContext) -> String)({
+  if(!sm_code.starts_with("sm->"), {
+    return(sm_code);
+  });
+  tok := ast_expr_token(expr);
+  // Every binding of the name: the literal's env also holds the closure's
+  // own capture frame, whose binding of `label` shadows the moved one.
+  vs := scope_variables(ast_expr_id(expr), &ei.env, label);
+  (moved : bool) = false;
+  (vi : usize) = usize(0);
+  while((vi < vs.len()) && !moved, vi = (vi + usize(1)), {
+    match(
+      vs.get(vi),
+      .Some(v) => {
+        match(
+          v.consumed_at_token,
+          .Some(ct) => {
+            moved = ((ct.module_path == tok.module_path) && ((ct.row == tok.row) && (ct.column == tok.column)));
+          },
+          .None => ()
+        );
+        // A move in a branch arm is not the variable's `consumed_at_token`
+        // (the join marks it moved where the branch ends); the flow log
+        // keeps the move itself, as `_is_kept_move_site` (exprs/atom.yo) reads it.
+        if(!moved, {
+          ms := variable_undone_moves(&v);
+          (mi : usize) = usize(0);
+          while((mi < ms.len()) && !moved, mi = (mi + usize(1)), {
+            match(
+              ms.get(mi),
+              .Some(m) => if(!m.arm_drop && !m.after && ((m.moved_at.module_path == tok.module_path) && ((m.moved_at.row == tok.row) && (m.moved_at.column == tok.column))), {
+                moved = true;
+              }),
+              .None => ()
+            );
+          });
+        });
+      },
+      .None => ()
+    );
+  });
+  if(!moved, {
+    return(sm_code);
+  });
+  marker := `/*yo_mv:${fresh_local_name(String.from("m"), context.base.current_function_name.clone())}*/`;
+  stmts := match(
+    sm_move_flag_of(sm_code.clone(), sm_owns_fnonce_captures(context)),
+    .Some(flag) => `${flag} = 1;  // moved into a closure's capture`,
+    .None => `memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved into a closure's capture`
+  );
+  em := context.base.emitter;
+  em.defer_move_zero(marker.clone(), &stmts);
+  `${sm_code} ${marker}`
+});
 generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("Missing closure metadata"))));
   // A capture-record rebuild (a closure's clone) has no function value: its
@@ -351,7 +414,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
           // (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md).
           .None => match(
             _resolve_sm_atom(expr, label.clone(), context),
-            .Some(sm_name) => sm_name,
+            .Some(sm_name) => _sm_moved_capture_read(expr, &label, sm_name, &ei, context),
             .None => match(
               _enclosing_closure_capture_read(ast_expr_id(expr), label.clone(), &ei.env, context),
               .Some(cap_read) => cap_read,

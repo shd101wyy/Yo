@@ -24,6 +24,7 @@
   get_variable_name_for_codegen,
   get_variable_name_for_codegen_at,
   get_deferred_drop_target_atom_name,
+  get_deferred_drop_target_atom,
   scope_stack_contains,
   get_type_string,
   sanitize_for_c_identifier,
@@ -641,6 +642,21 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
                 // call-scoped share holds its +1 only once its dup is in scope
                 // (`_emit_loop_body_drops_before_exit`).
                 .Some(pe) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&pe))) && (!is_call_scoped_share_drop(ast_expr_id(&pe)) || match(get_deferred_drop_target_atom_name(&pe), .Some(sn) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&sn, false))), .None => false)), {
+                  // A slot whose value was moved out on this path (its move
+                  // flag is set) no longer owns it: empty it first, as the
+                  // abort dispose does, so the drop is a no-op. The drop
+                  // emitter writes its statements as it generates, so the
+                  // guard goes first
+                  // (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
+                  match(
+                    match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value, context), .None => Option(String).None),
+                    .Some(slot) => match(
+                      sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
+                      .Some(flag) => em.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
                   pc := _call_generate_expr(&pe, indent.clone(), context);
                   if((pc.len() > usize(0)) && pc.contains("sm->"), {
                     em.emit_string_line(`${indent.clone()}${pc.clone()};`);
