@@ -1118,22 +1118,30 @@ test("Dyn(Fn(...)) types differing only in a parameter mode get their own vtable
   assert(c(&v) == i32(102), "the & slot reads through the borrow");
 });
 _DmA :: struct(n : i32);
-impl(_DmA, apply : (fn(self : &Self, f : Dyn(Fn(x : &mut i32) -> unit)) -> i32)({
-  (mut(v) : i32) = self.n;
-  f(&mut v);
-  v
-}));
+impl(
+  _DmA,
+  apply : (fn(self : &Self, f : Dyn(Fn(x : &mut i32) -> unit)) -> i32)({
+    (mut(v) : i32) = self.n;
+    f(&mut v);
+    v
+  })
+);
 _DmB :: struct(n : i32);
-impl(_DmB, apply : (fn(self : &Self, f : Dyn(Fn(x : i32) -> unit)) -> i32)({
-  f(self.n);
-  self.n
-}));
+impl(
+  _DmB,
+  apply : (fn(self : &Self, f : Dyn(Fn(x : i32) -> unit)) -> i32)({
+    f(self.n);
+    self.n
+  })
+);
 // One closure literal minted at two instantiations whose expected `Fn` slots
 // differ only in a mode: each mint is boxed with its own closure function.
 _dm_run :: (fn(generic(T : Type), t : T, k : i32) -> i32)(
-  t.apply(dyn(x => {
-    _y := (x + k);
-  }))
+  t.apply(
+    dyn(x => {
+      _y := (x + k);
+    })
+  )
 );
 test("one closure literal boxed at a &mut slot and at a by-value slot", {
   assert(_dm_run(_DmA(n : i32(1)), i32(5)) == i32(1), "the &mut mint");
