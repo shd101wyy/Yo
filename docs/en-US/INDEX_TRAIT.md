@@ -98,7 +98,7 @@ The rules a projection follows:
 - **The sigil matches the result.** A `-> &T` projection writes `&place`, and a `-> &mut T` one writes `&mut place`.
 - **Raw-pointer places.** In a `pragma(Pragma.AllowUnsafe)` file the place may be a raw-pointer dereference (`&(p &+ i).*`), and the result may be the raw pointer `*T` itself. This is the form std's buffers use.
 - **ABI.** A projection's `&T` parameters are passed by pointer (a `&T` parameter is passed by value elsewhere), so the place it returns is the caller's.
-- **Calling a projection directly.** A projection is also an ordinary function or method, called by name: `t.index(i)`, `Trio.index(&t, i)`, `first(&t)`. Calling one through a function value is an error. The call's result is the place itself, never a copy:
+- **Calling a projection directly.** A projection is also an ordinary function or method, called by name: `t.index(i)`, `Trio.index(&t, i)`, `first(&t)`. A function value of a projection type is called the same way: a `fn(s : &T) -> &U` parameter or field, an `Impl(Fn(s : &T) -> &U)` or `Dyn(Fn(s : &T) -> &U)` holding a named projection or a closure whose body yields `&place`, and an effect operation `ctl(...) -> &U` (decision 43 step 2). The call's result is the place itself, never a copy:
   - as an operand it is read through (`t.index(i) + 1`);
   - as a receiver it is lent (`n.name(0).len()`, `n.name_mut(0).push_str("!")`), and a subscript on it indexes the place (`g.index_mut(0)(2) = v`);
   - as the argument of a `&T` or `&mut T` parameter it is lent as written (`f(t.index(i))`);
