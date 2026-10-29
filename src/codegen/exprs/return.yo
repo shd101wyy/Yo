@@ -1667,7 +1667,20 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       _unwind_dummy_return(indent.clone(), context)
     },
     .Some(arg) => {
-      argc := _call_generate_expr(&arg, indent.clone(), context);
+      argc_expr := _call_generate_expr(&arg, indent.clone(), context);
+      // The operand is a C EXPRESSION, not a value: evaluate it into a temp
+      // BEFORE the drop preamble below, or a handler local (or the handler's
+      // own by-value parameter, `e -> unwind(e.to_string())`) it reads is
+      // released first and read freed
+      // (issues/fixed/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md).
+      // `generate_return` evaluates its operand the same way. Still before the
+      // flag is raised (the ordering note above).
+      arg_ty := match(context.base.get_expr_info(&arg), .Some(ei) => ei.ty, .None => t_unit());
+      argc := if(is_unit_type(&arg_ty) || (argc_expr.len() == usize(0)) || (argc_expr == "(void)0"), argc_expr, {
+        unw_tmp := fresh_local_name(String.from("__yo_unw_operand_"), &context.base.current_function_name);
+        em.emit_string_line(`${indent.clone()}${get_type_string(&arg_ty, &context.base)} ${unw_tmp.clone()} = ${argc_expr};`);
+        unw_tmp
+      });
       _emit_unwind_target(indent.clone(), context);
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       drops_from := _code_position(context);
@@ -1682,7 +1695,6 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         match(
           context.current_function_type,
           .Some(_) => {
-            arg_ty := match(context.base.get_expr_info(&arg), .Some(ei) => ei.ty, .None => t_unit());
             if(!is_unit_type(&arg_ty), {
               ats := get_type_string(&arg_ty, &context.base);
               em.emit_string_line(`${indent.clone()}{ ${ats.clone()} _unw_val = ${argc.clone()}; memcpy(__yo_unwind_value, &_unw_val, sizeof(${ats})); }`);
