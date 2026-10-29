@@ -4266,7 +4266,7 @@ _handle_ctor_name_continues :: (fn(before : &String) -> bool)({
   if(before.len() != usize(1), {
     return(false);
   });
-  b := before.get_byte(usize(0));
+  b := match(before.get_byte(usize(0)), .Some(x) => x, .None => return(false));
   (b == u8(46)) || (b == u8(95)) || ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122)))
 });
 /// `yo fix --migrate mutable-globals` (plans/VALUES_BY_DEFAULT.md decision
