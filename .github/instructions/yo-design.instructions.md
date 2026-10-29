@@ -790,10 +790,11 @@ Rules that follow from it:
   generated `__yo_wrap_…` symbol — see
   `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`).
   `AnyError` is `Dyn(Error, Clone)` (B13), so the type must be `Clone` too
-  (`derive(E, Clone)`): a handler borrows the error it catches and keeps it
-  with `e.clone()`. The `Clone` bound is a v0.2.73 interim, not a decision:
-  v0.2.74 returns `AnyError` to a move-only `Dyn(Error)` with a by-value
-  `throw` and a borrowing `Error.source`.
+  (`derive(E, Clone)`). `throw` takes the error BY VALUE (B13-b): a handler
+  owns the error it catches, keeps it by moving it (`unwind(.Some(e))`,
+  `xs.push(e)`) and lends it with `&e` to a read-only helper. The `Clone`
+  bound is a v0.2.73 interim, not a decision: v0.2.74 returns `AnyError` to a
+  move-only `Dyn(Error)` with a borrowing `Error.source`.
 - **Spell an error enum with `derive(T, Error)`, not two hand-written impls.**
   One message per variant, in DECLARATION ORDER, emits `ToString` and `Error`
   together; each message is checked against the variant it lands on, so a
