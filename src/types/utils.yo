@@ -4350,6 +4350,11 @@ fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
     Rc(.Func({ param_types : pb_pts, result : pb_r })) => (
       t_slot_is_borrow(&pb_r) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
     ),
+    // A closure trait returning a reference (`Fn(s : &T) -> &U`, decision
+    // 43 step 2, N1c) has the projection's ABI too.
+    Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => (
+      t_slot_is_borrow(&pb_cr) && match(pb_cpts.get(i), .Some(pb_cs) => (t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs)), .None => false)
+    ),
     _ => false
   )
 );
@@ -4366,6 +4371,13 @@ fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
       while(i < ap_pts.len(), {
         out.push(match(ap_pts.get(i), .Some(ap_s) => t_slot_is_mut_ref(&ap_s), .None => false) || fn_param_is_ptr_borrow(fn_ty, i));
         i = (i + usize(1));
+      });
+    },
+    Rc(.FnTraitT({ call_param_types : ap_cpts })) => {
+      (j : usize) = usize(0);
+      while(j < ap_cpts.len(), {
+        out.push(match(ap_cpts.get(j), .Some(ap_cs) => t_slot_is_mut_ref(&ap_cs), .None => false) || fn_param_is_ptr_borrow(fn_ty, j));
+        j = (j + usize(1));
       });
     },
     _ => ()
