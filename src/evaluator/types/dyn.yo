@@ -209,6 +209,18 @@ evaluate_dyn_type :: (
         )
       );
     });
+    // `Dyn(Trait, p)`: a payload bounded by an origin (decision 43,
+    // plans/backlog/REFERENCES_AND_ORIGINS.md O4) is first-class storage.
+    if(match(inner_ty, Rc(.OriginSet(_, _)) => true, _ => false), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(&actual_arg),
+            `\`Dyn(Trait, ${ast_expr_to_string(&actual_arg)})\`, a payload bounded by an origin, arrives with first-class storage (decision 43 step 3, N2).`
+          )
+        )
+      );
+    });
     if(!is_trait_type(&inner_ty), {
       exn.throw(
         dyn(
