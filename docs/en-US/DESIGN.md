@@ -3472,7 +3472,8 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > list, `{ a : Rc.clone(a) }() => a.*`. `yo fix <path> --migrate rc-clone`
 > spells the clones in existing code. The clone is spelled through the type,
 > `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`
-> (decision 32). A generic body is judged at each instantiation, so a copy
+> (decision 32). `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
+> clone is always a second handle; a deep copy is `rc(h.*.clone())`. A generic body is judged at each instantiation, so a copy
 > of a `T` that is a handle needs `.clone()` there too (`where(T <: Clone)`).
 > std's generic bodies are the exception for now: their readers copy the
 > element through `T` (`ArrayList(Rc(T)).get(i)`, `HashMap.get`), so a copy

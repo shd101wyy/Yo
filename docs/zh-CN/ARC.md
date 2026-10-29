@@ -83,7 +83,8 @@ assert(copied == i32(42), "inner value is 42");
 
 `Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出
 （[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决定 17）：源值之后仍被使用的隐式拷贝是 E0901，句柄的最后一次
-使用会移动它。`yo fix <path> --migrate rc-clone` 为已有代码写出这些克隆。
+使用会移动它。`yo fix <path> --migrate rc-clone` 为已有代码写出这些克隆。`Arc(T)` 对任何 `T` 都实现
+`Clone`，它的克隆总是第二个句柄；值的深拷贝写作 `arc(a.*.clone())`。
 
 ```yo
 a := arc(i32(42));
