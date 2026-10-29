@@ -2028,7 +2028,7 @@ _type_signature_string :: (fn(t : &TypeValue) -> String)({
       g_type_sig_fast_strings.with_mut(xs => xs.clear());
     });
     (at : usize) = g_type_sig_fast.with(xs => type_identity_slot(xs, t));
-    g_type_sig_fast.with_mut(xs => xs.insert(at, Rc.clone(t)));
+    g_type_sig_fast.with_mut({ at, t : Rc.clone(t) }(xs) => xs.insert(at, Rc.clone(t)));
     g_type_sig_fast_strings.with_mut(xs => xs.insert(at, sig.clone()));
   });
   sig

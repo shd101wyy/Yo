@@ -335,7 +335,7 @@ is_effect_record_member :: (fn(func_id : &String) -> bool)(
 /// Called when creating a FuncVal (in `evaluator/values/anonymous_function.yo`)
 /// if the function is defined inside another function body.
 register_definition_site_return :: (fn(func_id : &String, return_ty : &TypeValue) -> unit)({
-  g_definition_site_return_registry.with_mut(m => m.insert(func_id.clone(), Rc.clone(return_ty)));
+  g_definition_site_return_registry.with_mut({ func_id, return_ty : Rc.clone(return_ty) }(m) => m.insert(func_id.clone(), Rc.clone(return_ty)));
 });
 /// Get the enclosing function's return type at a function's definition site.
 /// Returns `t_unit()` if the function was not defined inside another function
@@ -362,7 +362,7 @@ get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
 /// SAME env channel the spec body eval reads.
 (g_closure_body_type_registry : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_closure_body_type :: (fn(func_id : &String, body_ty : &TypeValue) -> unit)({
-  g_closure_body_type_registry.with_mut(m => m.insert(func_id.clone(), Rc.clone(body_ty)));
+  g_closure_body_type_registry.with_mut({ body_ty : Rc.clone(body_ty), func_id }(m) => m.insert(func_id.clone(), Rc.clone(body_ty)));
 });
 get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
   g_closure_body_type_registry.with(m => m.get(func_id.clone()))
@@ -375,7 +375,7 @@ get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
 /// Function ids are never mutated in place once minted.
 register_func_type :: (fn(func_id : &String, func_ty : &TypeValue) -> unit)({
   record_owned_func_id(func_id);
-  g_func_type_registry.with_mut(m => m.insert(func_id.clone(), Rc.clone(func_ty)));
+  g_func_type_registry.with_mut({ func_id, func_ty : Rc.clone(func_ty) }(m) => m.insert(func_id.clone(), Rc.clone(func_ty)));
 });
 // ---------------------------------------------------------------------------
 // Unemittable-fn side-table

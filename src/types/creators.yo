@@ -849,7 +849,7 @@ _patch_self_shell :: (
 (g_enum_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
   if((enum_id.len() > usize(0)) && g_enum_finals.with(m => m.get(enum_id)).is_none(), {
-    g_enum_finals.with_mut(m => m.insert(enum_id.clone(), Rc.clone(ty)));
+    g_enum_finals.with_mut({ enum_id, ty : Rc.clone(ty) }(m) => m.insert(enum_id.clone(), Rc.clone(ty)));
     bump_type_key_epoch();
   });
 });
@@ -946,7 +946,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
       final_ty,
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
         _register_enum_phantom_positions(fid.clone(), phantom.clone());
-        _ := g_enum_finals.with_mut(m => m.insert(shell_key.clone(), rc(TypeValueNode.EnumT(fid.clone(), fnm.clone(), Rc.clone(fvns), Rc.clone(fvfs), fsvn.clone(), Rc.clone(fvfl), Rc.clone(fdis), firs, fiar, Rc.clone(args)))));
+        _ := g_enum_finals.with_mut({ args : Rc.clone(args), fdis : Rc.clone(fdis), fiar, fid, firs, fnm, fsvn, fvfl : Rc.clone(fvfl), fvfs : Rc.clone(fvfs), fvns : Rc.clone(fvns), shell_key }(m) => m.insert(shell_key.clone(), rc(TypeValueNode.EnumT(fid.clone(), fnm.clone(), Rc.clone(fvns), Rc.clone(fvfs), fsvn.clone(), Rc.clone(fvfl), Rc.clone(fdis), firs, fiar, Rc.clone(args)))));
         bump_type_key_epoch();
       }),
       _ => ()
@@ -971,7 +971,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
 (g_struct_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
   if((struct_id.len() > usize(0)) && g_struct_finals.with(m => m.get(struct_id)).is_none(), {
-    g_struct_finals.with_mut(m => m.insert(struct_id.clone(), Rc.clone(ty)));
+    g_struct_finals.with_mut({ struct_id, ty : Rc.clone(ty) }(m) => m.insert(struct_id.clone(), Rc.clone(ty)));
     bump_type_key_epoch();
   });
 });

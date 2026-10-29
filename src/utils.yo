@@ -448,7 +448,7 @@ _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(module_path));
-      g_stable_type_id_owner_memo.with_mut(m => m.insert(module_path.clone(), Rc.clone(c)));
+      g_stable_type_id_owner_memo.with_mut({ c : Rc.clone(c), module_path }(m) => m.insert(module_path.clone(), Rc.clone(c)));
       c
     }
   )

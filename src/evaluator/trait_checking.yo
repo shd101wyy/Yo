@@ -912,7 +912,7 @@ set_flip_prelude_env :: (fn(env : &Environment) -> unit)({
 /// Mark `ty` as the target of a `derive` that includes `Copy` (see
 /// `g_copy_pending_keys`).
 push_copy_pending :: (fn(ty : &TypeValue) -> unit)({
-  g_copy_pending_keys.with_mut(xs => xs.push(type_key(ty)));
+  g_copy_pending_keys.with_mut({ ty : Rc.clone(ty) }(xs) => xs.push(type_key(ty)));
 });
 /// Forget every pending `Copy` derive target. Derives do not nest, so a
 /// derive clears the list on entry and on exit (and its guarded caller after
@@ -1139,7 +1139,7 @@ _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) 
   });
   (slot : usize) = g_lacks_copy_fast.with(xs => type_identity_slot(xs, ty));
   if(!g_lacks_copy_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
-    g_lacks_copy_fast.with_mut(xs => xs.insert(slot, Rc.clone(ty)));
+    g_lacks_copy_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
     g_lacks_copy_fast_answers.with_mut(xs => xs.insert(slot, answer));
   });
 });

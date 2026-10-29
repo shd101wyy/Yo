@@ -218,7 +218,7 @@ _cached_range_type :: (
       match(
         resolved,
         .Some(rt) => {
-          if(inclusive, g_range_incl_ty_cache.with_mut(xs => xs.push(rt.clone())), g_range_ty_cache.with_mut(xs => xs.push(rt.clone())));
+          if(inclusive, g_range_incl_ty_cache.with_mut({ rt : Rc.clone(rt) }(xs) => xs.push(rt.clone())), g_range_ty_cache.with_mut({ rt : Rc.clone(rt) }(xs) => xs.push(rt.clone())));
           Option(TypeValue).Some(Rc.clone(rt))
         },
         .None => Option(TypeValue).None

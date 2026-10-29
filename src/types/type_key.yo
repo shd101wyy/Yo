@@ -856,7 +856,7 @@ type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
       g_tk_cacheable_answers.with_mut(xs => xs.clear());
     });
     (at : usize) = g_tk_cacheable_handles.with(xs => type_identity_slot(xs, ty));
-    g_tk_cacheable_handles.with_mut(xs => xs.insert(at, Rc.clone(ty)));
+    g_tk_cacheable_handles.with_mut({ at, ty : Rc.clone(ty) }(xs) => xs.insert(at, Rc.clone(ty)));
     g_tk_cacheable_answers.with_mut(xs => xs.insert(at, answer));
   });
   answer
