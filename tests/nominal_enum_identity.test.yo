@@ -152,6 +152,7 @@ test("two recursive enums of one shape have distinct ArrayList(Self) instantiati
 MyErr :: struct(code : i32);
 impl(MyErr, ToString(to_string : (self -> `my err`)));
 impl(MyErr, Error());
+derive(MyErr, Clone);
 MaybeErr :: enum(None, Some(value : MyErr));
 _maybe_err_code :: (fn(m : MaybeErr) -> i32)(match(m, .Some(e) => e.code, .None => i32(0)));
 downcast_my_err :: (fn(err : AnyError) -> Option(MyErr))(downcast(err, MyErr));

@@ -463,7 +463,10 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 ```
 
 - Custom error types implement both `ToString` and `Error` traits
-- `AnyError` is `Dyn(Error)` — wraps any error: `(err : AnyError) = dyn(MyError.Foo)`
+- `AnyError` is `Dyn(Error, Clone)` — wraps any `Clone` error: `(err : AnyError) = dyn(MyError.Foo)`
+  (`derive(MyError, Clone)`). A handler borrows the error it catches (`throw(error : &AnyError)`),
+  so keeping it (a trap's `unwind(Option(AnyError).Some(e.clone()))`, a stored first error) is
+  `e.clone()`; `Context.new(msg, cause)` takes the cause by value
 - Use `downcast(err, MyError)` to recover the concrete type from `AnyError`
 - A downcast to a type nothing in the program ever puts in a `dyn()` is legal and
   answers `.None` — that is how a negative "is this error some OTHER type?"
@@ -480,8 +483,10 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 - A `Dyn` owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): `Dyn(Trait, Clone)` copies
   with `d.clone()` (an independent payload, through the vtable's clone slot), any other `Dyn` is
   move-only, and so is a value holding one (`Option(Dyn(...))`, a struct field). A copy whose
-  source is used again is E0901 outside std and src (Generation A), and so is a read after a
-  by-value `match(o, …)` of a local holding one (`match(&o, …)` borrows); share one payload with
+  source is used again is E0901 everywhere (std and src too since B13), and so is a read after a
+  by-value `match(o, …)` of a local holding one (`match(&o, …)` borrows). A copying accessor on a
+  collection of a non-`Clone` `Dyn` (`xs.get(i)`, `xs.last()`) is E0901 too: read through the
+  subscript (`xs(i).m()`) or move one out (`xs.pop()`); share one payload with
   `Rc(Dyn(Trait))` (`r.*.method()`, `r.*(args)` for a `Dyn(Fn)`) or `Arc(Dyn(Trait, Send, Sync))`.
 - For exception-style control flow, see [yo-async-effects](../yo-async-effects/SKILL.md)
 

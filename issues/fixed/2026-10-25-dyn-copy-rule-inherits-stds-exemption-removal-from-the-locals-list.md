@@ -66,3 +66,15 @@ dyn_copy_rule_applies :: (fn(ty : &TypeValue, tok : &Token, ctx : &EvalContext) 
 (`is_std_module_path` from the same module, memoized per std root.) B13 removes that conjunct when
 it sweeps std's Dyn copies. Fixed on `vbd/p5-std-mut-locals` with the regression test named above;
 move this doc to `issues/fixed/` with the merge.
+
+## Resolution (B13, 2026-10-28)
+
+The explicit std conjunct shipped with p5 (#1612). B13 (decision 7 Generation B,
+branch `vbd/b13-dyn-gen-b`) then swept std's and src's `Dyn` copies and deleted
+both conjuncts: `dyn_copy_rule_applies` is now `type_holds_dyn_by_value(ty)` alone
+and consults no exemption list, so no later change to decision 47's list can
+widen or narrow it. `yo check ./std` and `yo check ./src` pass with the rule
+applied to every tree; `tests/error_source_chain.test.yo` (the regression test
+named above) passes, as does
+`tests/cli-cases/a-dyn-copy-in-a-fetched-dependency-is-e0901` (a store path, which
+the shared list exempts, gets the rule).

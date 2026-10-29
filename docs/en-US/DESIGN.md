@@ -4041,13 +4041,17 @@ derive(
     .NegativeSqrt => `Square root of a negative number`
   )
 );
+// An AnyError's payload is Clone (see below):
+derive(MathError, Clone);
 
 // The message is ordinary Yo, spliced into the arm that binds the payload, so
 // a variant's own fields interpolate by name:
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // Writing the two impls by hand still works, and is the way to go when the
 // message is not a simple per-variant string.
-// AnyError is Dyn(Error) — any type implementing Error can be wrapped:
+// AnyError is Dyn(Error, Clone) — any type implementing Error and Clone can
+// be wrapped. A Dyn owns its payload uniquely and a handler borrows the error
+// it catches, so keeping a caught error takes `err.clone()`:
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // Downcast back to the concrete type:

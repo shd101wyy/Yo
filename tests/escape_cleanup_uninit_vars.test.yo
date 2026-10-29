@@ -22,6 +22,12 @@ impl(
   )
 );
 impl(ParseError, Error());
+impl(
+  ParseError,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(ParseError(message : self.message.clone()))
+  )
+);
 Token :: ref(struct(name : String));
 ParseResult :: ref(struct(label : String, index : usize));
 get_opt_token :: (fn(present : bool) -> Option(Token))(

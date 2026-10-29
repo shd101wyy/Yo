@@ -30,6 +30,10 @@ pragma(Pragma.AllowUnsafe);
 /// hashing requirement; the semantics — membership of a `kind` for a
 /// `module_path` — are identical.)
 PragmaEntry :: struct(module_path : String, kind : Pragma);
+/// `Clone` before the first use (a derive is not order-independent like an
+/// `impl`): the registry's element reads clone an entry once `String` is a
+/// value (plans/VALUES_BY_DEFAULT.md B8).
+derive(PragmaEntry, Clone);
 /// Per-file pragma registry. Keyed by canonical module URI (the value of
 /// `token.module_path`, e.g. `file:///path/to/foo.yo`).
 (g_privileged_files : RefCell(ArrayList(PragmaEntry))) = RefCell(ArrayList(PragmaEntry)).new(ArrayList(PragmaEntry).new());

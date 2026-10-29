@@ -42,13 +42,13 @@ typedef struct {
 
 - `Dyn` is a **value type** - copied by value like a struct
 - `data` **must** point to an reference-semantics type (always has ref_header)
-- When std or the compiler copies a `Dyn`, it retains the `data` pointer; when a `Dyn` is
-  dropped, it releases it. Both go through the vtable's `__yo_retain` / `__yo_release` slots
+- A copy of a `Dyn` the ownership rule accepts (the last use of its source) still retains the
+  `data` pointer, and the source's drop releases it; when a `Dyn` is dropped, it releases it. Both go through the vtable's `__yo_retain` / `__yo_release` slots
   (after `__yo_type_id`), which the concrete payload type fills: the atomic RC operations for an
   atomic reference object (`Arc`, an `atomic` struct), the plain ones otherwise
 - The third prefix slot, `__yo_clone`, makes an independent payload for `d.clone()` on a
-  `Dyn(Trait, Clone)`; it is `NULL` for a `Dyn` without `Clone`. A program outside std and the
-  compiler copies a `Dyn` only through it (see [Ownership](#ownership-a-dyn-owns-its-payload))
+  `Dyn(Trait, Clone)`; it is `NULL` for a `Dyn` without `Clone`. A program copies a `Dyn` only
+  through it (see [Ownership](#ownership-a-dyn-owns-its-payload))
 - The `Dyn` struct itself is not heap-allocated
 
 ### 2. Data Storage (Reference-Semantics Type Constraint)
@@ -346,7 +346,7 @@ value — it cannot be used to test a `Dyn` at runtime.
 (both : Dyn(Speak, Run)) = dyn(Dog());
 (s : Dyn(Speak)) = upcast(both, Dyn(Speak)); // Dyn(Speak)
 (e : AnyError) = dyn(ParseError.Bad);
-(t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError is Dyn(Error, ToString)
+(t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError is Dyn(Error, Clone); Error requires ToString
 ```
 
 It is checked at compile time, so it returns the `Dyn`, not an `Option`: every trait the target
@@ -424,11 +424,20 @@ closure passed to a `&Impl(Fn(...))` parameter only borrows its captures. A by-v
 local holding a `Dyn` moves the local (decision 26), so a later read of it is E0901 as well;
 `match(&o, …)` borrows instead.
 
-**Generation A.** The rule applies to programs outside std and the compiler: the trees the
-seed compiler builds still copy a `Dyn` by sharing its payload (the `__yo_retain` slot) until
-Generation B sweeps them. The rule only rejects programs. Every copy it accepts is the last use of
-its source, and it keeps today's representation, so the emitted C does not change. Generation B
-removes the carve-out and makes the move the type's own.
+**Generations A and B.** Generation A (B12) applied the rule to programs outside std and the
+compiler. Generation B (B13) removed that carve-out: std and the compiler copy a `Dyn` with
+`.clone()` or move it, like any other program. The rule only rejects programs. Every copy it
+accepts is the last use of its source and keeps the counted-share representation, so the emitted C
+changes only where a copy became a `.clone()`. Making the move the type's own (the explicit-copy
+and move-only predicates) is a later step. Because std is judged too, a copying accessor on a
+collection of a non-`Clone` `Dyn` (`xs.get(i)`, `xs.last()`) is E0901 at the call: read the element
+through the subscript (`xs(i).m()`) or move it out (`xs.pop()`).
+
+**`AnyError` lists `Clone`.** A handler receives the error it catches as a borrow
+(`throw(error : &AnyError)`), so a handler that keeps the error (stores it, returns it, wraps it in
+a `Context`) copies it. `AnyError` is therefore `Dyn(Error, Clone)`, and a type erased into it must
+be `Clone` (`derive(MyError, Clone)`). `Error.source` returns a clone of the cause, and
+`Context.new` takes its cause by value.
 
 ## Reference Counting for Dyn
 
