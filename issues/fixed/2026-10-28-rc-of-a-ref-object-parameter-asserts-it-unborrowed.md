@@ -71,6 +71,13 @@ line of the `Rc.new(b)` spelling), and both spellings print `4` with rc 0.
 `arc`/`Arc(T).new` share the arm and the fix; a `ref` object is not
 `Send + Sync`, so the test cannot spell them with this `VBag`.
 
+The compiler's own C (`src/main.yo`, base `c39c574be` vs the fix) loses 38
+false entry asserts (7633 → 7595: four in `rc`/`Rc(T).new` specializations
+over `ref` payloads, 34 in callers that hand a `ref` parameter to one) and
+10 Aliasing Stage 0 dup/drop pairs around calls whose callees now classify
+as read-only (`function_may_mutate_rc_storage`: they only build a type
+through `Rc.new`). Every other delta is `__yo_escaped_keep_N` renumbering.
+
 ## Regression test
 
 `tests/for_macro_borrow_user_collection.test.yo`, "borrowed for: moving the
