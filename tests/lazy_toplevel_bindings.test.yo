@@ -256,6 +256,21 @@ _pair_probe :: (fn() -> usize)({
 test("a definition forced before the derive its body needs", {
   assert(_pair_first_user() == usize(2), "the cloned pair's first field");
 });
+// An impl member above the derive: the in-block miss forces the type's
+// pending derives (they declare their methods only once they run).
+DPt :: struct(x : i32);
+impl(
+  DPt,
+  twin : (fn(self : &Self) -> DPt)({
+    (r : DPt) = self.clone();
+    r
+  })
+);
+derive(DPt, Clone);
+test("an impl member calls a method from a later derive of its type", {
+  p := DPt(x : i32(5));
+  assert(p.twin().x == i32(5), "twin goes through the later derived clone");
+});
 // ---------- surfaced along the way: unit-valued body vs non-unit result ----------
 // A `{ ...; }` body's value is `()` (the parser appends a trailing unit); the
 // mismatch used to reach clang ("non-void function does not return a value").

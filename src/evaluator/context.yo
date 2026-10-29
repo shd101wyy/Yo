@@ -3154,22 +3154,25 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   // `import("../string")` — E0906 on `String`, then one fresh `Pattern` trait
   // per re-entry (issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md).
   // Outside an impl of the type, a name no pending impl declares (a trait
-  // default, a derive) falls back to forcing them all, as before.
+  // default, a derived method) falls back to forcing them all, as before.
+  // Inside one, it falls back to the type's pending DERIVES only: a derive
+  // declares its methods only once it runs, so `_impl_expr_declares` cannot
+  // select it, and forcing it registers whole impls rather than reaching
+  // into the half-registered block (a member calling `self.clone()` above
+  // `derive(S, Clone)`).
   match(
     missed,
     .Some(m) => {
-      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()));
-      cond(
-        in_own_impl => declaring,
-        true => match(declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None), _ => declaring)
-      )
+      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()), false);
+      match(declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None, in_own_impl), _ => declaring)
     },
-    .None => _force_pending_impls_pass(type_name, Option(String).None)
+    .None => _force_pending_impls_pass(type_name, Option(String).None, false)
   )
 });
 /// One forcing pass over the active walks (innermost first): every Unforced
 /// impl whose receiver head is `type_name` (or is un-nameable), restricted to
-/// the impls that declare `declaring` when it is given.
+/// the impls that declare `declaring` when it is given, and to derives when
+/// `derives_only`.
 ///
 /// Walks nest strictly, so every walk below the innermost is parked on the
 /// import that is running now, and none of its imported names is bound yet.
@@ -3179,7 +3182,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
 /// An outer walk is searched only when it declares `type_name` itself, which
 /// is the import-cycle case (the running module reached back into a module
 /// still loading, whose own type's impl is pending).
-_force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String)) -> PendingImplOutcome)({
+_force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String), derives_only : bool) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
   (wi : usize) = g_module_walks.with(xs => xs.len());
@@ -3194,7 +3197,7 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := (def.is_impl && match(def.state, .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr, &m), .None => true));
+              is_target := (def.is_impl && (def.is_derive || !(derives_only)) && match(def.state, .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr, &m), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
