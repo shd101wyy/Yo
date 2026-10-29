@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   record_addr_of_site,
   migrate_addr_of_on
 } :: import("../../expr_info.yo");
-{ Variable, Environment, snapshot_env, get_variables_from_env } :: import("../../env.yo");
+{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
   EvalValue,
@@ -117,6 +117,23 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
   });
   Option(_ProjRootError).None
 });
+/// Whether `name` (bound to `v`) is captured by the closure whose body is
+/// being evaluated: bound below the closure's own frames, the test closure
+/// capture tracking uses (`identifer_and_operator.yo`).
+_place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
+  ctx.captured_variables.is_some() && !v.is_module_level && match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      fb.kind,
+      .FunctionBody => {
+        idx := ArrayList(usize).new();
+        match(find_variable_in_env_at(env, name, &mut idx), .Some(_) => match(idx.get(usize(0)), .Some(fi) => (fi < fb.eval_env.frame_count()), .None => false), .None => false)
+      },
+      _ => false
+    ),
+    .None => false
+  )
+);
 _join_names :: (fn(names : &SharedList(String)) -> String)({
   out := String.new();
   (i : usize) = usize(0);
@@ -142,6 +159,12 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
     .Atom(_, pr_tok) => match(
       get_variables_from_env(env, pr_tok.value.clone()).last(),
       .Some(v) => cond(
+        // A closure's result origin is per-call (O2): its own reference
+        // parameters, never a capture, which outlives the call.
+        _place_root_is_closure_capture(&pr_tok.value, &v, env, ctx) => _proj_err(
+          `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${pr_tok.value}\` is a capture of the enclosing function.`,
+          Option(str).Some(E_ORIGIN_MISMATCH)
+        ),
         (!v.is_parameter || v.is_compile_time_only || !(v.is_ref || v.is_imm_borrow)) => _proj_err(
           `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value}\` is ${cond(v.is_parameter => "a by-value parameter", v.is_module_level => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
           if(v.is_module_level, Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
