@@ -42,8 +42,8 @@ typedef struct {
 
 - `Dyn` 是**值类型** — 像结构体一样按值复制
 - `data` **必须**指向引用语义类型（始终具有 ref_header）
-- std 或编译器复制 `Dyn` 时 retain `data` 指针，销毁 `Dyn` 时 release 它。两者都经由虚表的 `__yo_retain` / `__yo_release` 槽位（位于 `__yo_type_id` 之后），由具体的载荷类型填写：原子引用对象（`Arc`、`atomic` 结构体）使用原子引用计数操作，其余使用普通操作
-- 前缀的第三个槽位 `__yo_clone` 为 `Dyn(Trait, Clone)` 上的 `d.clone()` 生成一份独立的载荷；不含 `Clone` 的 `Dyn` 中它是 `NULL`。std 和编译器之外的程序只能通过它复制 `Dyn`（见[所有权](#所有权dyn-独占其载荷)）
+- 所有权规则接受的 `Dyn` 复制（源值的最后一次使用）仍会 retain `data` 指针，并由源值的销毁 release 它；销毁 `Dyn` 时 release 它。两者都经由虚表的 `__yo_retain` / `__yo_release` 槽位（位于 `__yo_type_id` 之后），由具体的载荷类型填写：原子引用对象（`Arc`、`atomic` 结构体）使用原子引用计数操作，其余使用普通操作
+- 前缀的第三个槽位 `__yo_clone` 为 `Dyn(Trait, Clone)` 上的 `d.clone()` 生成一份独立的载荷；不含 `Clone` 的 `Dyn` 中它是 `NULL`。程序只能通过它复制 `Dyn`（见[所有权](#所有权dyn-独占其载荷)）
 - `Dyn` 结构体本身不在堆上分配
 
 ### 2. 数据存储（引用语义类型约束）
@@ -315,7 +315,7 @@ panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见�
 (both : Dyn(Speak, Run)) = dyn(Dog());
 (s : Dyn(Speak)) = upcast(both, Dyn(Speak)); // Dyn(Speak)
 (e : AnyError) = dyn(ParseError.Bad);
-(t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError 是 Dyn(Error, ToString)
+(t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError 是 Dyn(Error, Clone)；Error 要求 ToString
 ```
 
 它在编译期检查，因此返回 `Dyn` 而不是 `Option`：目标要求的每个 trait 都必须是源携带的（包括展开后的父 trait），目标排除的每个 trait（`!Send`）都必须是源也排除的。从 `Dyn(Speak)` 做 `upcast(one, Dyn(Speak, Run))` 会报 E0602。对已经是 `Dyn` 的值调用 `dyn(d)` 是一个错误，并会提示使用 `upcast`：载荷的类型已被擦除，没有东西可以用来构造新的 vtable。
@@ -366,7 +366,9 @@ d.speak(); // error[E0901]: use of moved value: `d`
 
 从无法交出值的存储中复制，会在复制处直接被拒绝。这类存储包括字段或元素、解引用、模块级绑定、`&mut` 借用、`&T` 参数以及闭包的捕获。附注会说明适用的修复：若 `Dyn` 列出了 `Clone`，就用 `d.clone()`；否则建议移动该值、用 `&` 借出、在特征列表中加入 `Clone`，或通过 `Rc(Dyn(...))` 共享。捕获 `Dyn` 的逃逸闭包同样会移动它；传给 `&Impl(Fn(...))` 参数的闭包只借用其捕获。按值 `match` 一个持有 `Dyn` 的局部变量也会移动该变量（决策 26），之后再读取它同样是 E0901；`match(&o, …)` 则只借用。
 
-**第 A 代（Generation A）。** 该规则作用于 std 和编译器之外的程序：在第 B 代清理这些代码之前，种子编译器构建的代码树仍通过共享载荷（`__yo_retain` 槽位）复制 `Dyn`。该规则只会拒绝程序。它接受的每次复制都是源值的最后一次使用，并保持现有的表示，因此生成的 C 代码不变。第 B 代会移除这一例外，让移动成为类型本身的语义。
+**第 A 代与第 B 代（Generation A / B）。** 第 A 代（B12）让该规则作用于 std 和编译器之外的程序。第 B 代（B13）移除了这一例外：std 和编译器像其他程序一样，用 `.clone()` 复制 `Dyn` 或移动它。该规则只会拒绝程序。它接受的每次复制都是源值的最后一次使用，并保持计数共享的表示，因此生成的 C 代码只在某次复制改成 `.clone()` 的地方变化。让移动成为类型本身的语义（显式复制与仅移动的谓词）是之后的一步。由于 std 也受该规则约束，在不含 `Clone` 的 `Dyn` 集合上调用复制型访问器（`xs.get(i)`、`xs.last()`）会在调用处报 E0901：请通过下标读取元素（`xs(i).m()`），或把它移出（`xs.pop()`）。
+
+**`AnyError` 列出了 `Clone`。** 处理器以借用的方式接收它捕获的错误（`throw(error : &AnyError)`），所以保留该错误（存储、返回、包进 `Context`）的处理器需要复制它。因此 `AnyError` 是 `Dyn(Error, Clone)`，被擦除进它的类型必须实现 `Clone`（`derive(MyError, Clone)`）。`Error.source` 返回原因的克隆，`Context.new` 按值接收其原因。
 
 ## Dyn 的引用计数
 

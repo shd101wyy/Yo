@@ -8363,6 +8363,30 @@ heavy run, the command is given in item 2.
      `docs/*/DYN_DESIGN.md`.
    - **B13 (f). `Dyn`, Generation B,** on the seed after B12: the std/src
      copies take `.clone()` or move, then the error applies everywhere.
+     As built (2026-10-28, branch `vbd/b13-dyn-gen-b`):
+     - `dyn_copy_rule_applies` is `type_holds_dyn_by_value(ty)` alone. It
+       consults no exemption list, so the store, scripts, `build.yo` and
+       macro expansions are judged too
+       (`issues/fixed/2026-10-25-dyn-copy-rule-inherits-stds-exemption-removal-from-the-locals-list.md`).
+     - Nearly every std/src copy was an error being kept. A handler borrows
+       the error it catches (`throw(error : &AnyError)`), so a trap that
+       returns it, a stored first error and `Error.source` all copy a
+       borrowed `Dyn`. `AnyError` therefore lists `Clone`
+       (`Dyn(Error, Clone)`): `Error.source` returns
+       `Option(Dyn(SelfTrait, Clone))`, a clone of the cause; `Context`
+       derives `Clone` and `Context.new` takes its cause by value; the std
+       error types derive `Clone` (nine of them), and so do `YoError` and
+       `ExitWith`. The other options were rejected. A by-value `throw`
+       still leaves `Error.source` without a way to hand back its cause,
+       and `Rc` links would change what `downcast` and `is` see on a link.
+     - A `mut` global holding a `Dyn` can be neither lent (E0916) nor copied
+       (E0901), so std/log's sink and two src globals (`g_codegen_error`,
+       `g_walk_abort`) became unmarked `RefCell` cells. `std/log.set_sink`
+       takes the sink by value. The guarded-evaluation error lists `pop`
+       their error instead of copying `last()`.
+     - The kind is still off the type predicates. The lookahead's "B13
+       moves the kind into the predicates and deletes these checks" is
+       deferred, because it changes the C emitted at every `Dyn` copy.
    - **B14. Follow-ups the flips make possible.**
      - The verifier drops its list-alias model (`list_alias_locals` and the
        `distinct(...)` hints, `src/verifier/vc.yo` around L773, L5320 and

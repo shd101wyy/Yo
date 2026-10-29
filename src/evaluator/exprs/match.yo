@@ -315,14 +315,14 @@ _evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContex
   cond(
     (out.len() > usize(0)) => Option(AnyError).None,
     (g_guard_block_err.with(xs => xs.len()) == usize(0)) => Option(AnyError).None,
-    true => g_guard_block_err.with(xs => xs.last())
+    true => g_guard_block_err.with_mut(xs => xs.pop())
   )
 });
 _evaluate_guard_block_inner :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit)({
   guard_exn := Exception(
     throw : (
       _g_err -> {
-        g_guard_block_err.with_mut(xs => xs.push(_g_err));
+        g_guard_block_err.with_mut(xs => xs.push(_g_err.clone()));
         unwind(())
       }
     )
@@ -542,13 +542,12 @@ _decide_match_mode :: (
       .None => ()
     );
   });
-  // The unique `Dyn`, Generation A (plans/VALUES_BY_DEFAULT.md decision 7):
-  // outside std and src, a by-value match of a local holding a `Dyn` moves it
-  // as Generation B will, so a read of it after the match is E0901
-  // (`judge_dyn_copies`, exprs/begin.yo), and one it cannot move from is
-  // rejected at once. It is still lowered as a borrowing match.
+  // The unique `Dyn` (plans/VALUES_BY_DEFAULT.md decision 7): a by-value
+  // match of a local holding a `Dyn` moves it, so a read of it after the
+  // match is E0901 (`judge_dyn_copies`, exprs/begin.yo), and one it cannot
+  // move from is rejected at once. It is still lowered as a borrowing match.
   dyn_tok := ast_expr_token(&scr);
-  if(is_atom && !type_requires_explicit_copy(&ty) && dyn_copy_rule_applies(&ty, &dyn_tok, ctx), {
+  if(is_atom && !type_requires_explicit_copy(&ty) && dyn_copy_rule_applies(&ty), {
     match(
       root,
       .Some(rv) => cond(

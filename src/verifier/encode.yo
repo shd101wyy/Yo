@@ -472,15 +472,9 @@ encode_content :: (fn(q : &VcQuery) -> String)({
   });
   (di : usize) = usize(0);
   while(di < q.declarations.len(), {
-    match(
-      // `VcSort` (inside `VcDecl`) has no Clone; the declaration-list copy
-      // stays today's share until the verifier IR grows one (B8's design).
-      q.declarations.get(di),
-      .Some(d) => {
-        sb.write_string(`(declare-fun ${d.name} () ${encode_sort(&d.sort)})\n`);
-      },
-      .None => ()
-    );
+    // Read in place: `VcSort` (inside `VcDecl`) has no `Clone`, so the
+    // declaration is never copied out of the list.
+    sb.write_string(`(declare-fun ${q.declarations(di).name} () ${encode_sort(&q.declarations(di).sort)})\n`);
     di = (di + usize(1));
   });
   // The `__yo_msof_<elem>` functions, then their axioms — both ahead of
@@ -592,16 +586,10 @@ encode_script :: (fn(q : &VcQuery, opts : EncodeOptions) -> String)({
     sb.write_str("(get-value (");
     (i : usize) = usize(0);
     while(i < q.declarations.len(), {
-      match(
-        q.declarations.get(i),
-        .Some(d) => {
-          if(i > usize(0), {
-            sb.write_byte(u8(0x20));
-          });
-          sb.write_string(&d.name);
-        },
-        .None => ()
-      );
+      if(i > usize(0), {
+        sb.write_byte(u8(0x20));
+      });
+      sb.write_string(&q.declarations(i).name);
       i = (i + usize(1));
     });
     sb.write_str("))\n");
