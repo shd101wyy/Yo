@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
   ImplConcreteTypeInfo
 } :: import("../context.yo");
 { EvalValue, is_type_value, value_contains_unknown } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -2458,7 +2458,7 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
       fb_ctx.kind,
       .FunctionBody => match(
         fb_ctx.func_type,
-        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(ret_box),
+        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box)),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -2881,7 +2881,7 @@ _evaluate_begin_expression_impl :: (
               .FunctionBody => match(
                 fb_ctx.func_type,
                 // A projection returns its place's address (decision 24).
-                .Some(Rc(.Func({ result : ret_box, meta : ret_meta }))) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box), ret_box)),
+                .Some(Rc(.Func({ result : ret_slot }))) => Option(TypeValue).Some(if(t_slot_is_borrow(&ret_slot), t_ptr(&t_slot_pointee(&ret_slot)), t_slot_pointee(&ret_slot))),
                 .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
@@ -2942,7 +2942,8 @@ _evaluate_begin_expression_impl :: (
                 rfb_ctx.func_type,
                 .Some(rft) => match(
                   rft,
-                  Rc(.Func({ result : rfb, meta : __fm1 })) => {
+                  Rc(.Func({ result : rfb_slot, meta : __fm1 })) => {
+                    rfb := t_slot_pointee(&rfb_slot);
                     rfco := __fm1.*.result_is_comptime_only;
                     if(!rfco && type_representation_contains_raw_ptr(&rfb)
                     && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.*.clone())), {
@@ -2986,7 +2987,7 @@ _evaluate_begin_expression_impl :: (
               ir_fb.kind,
               .FunctionBody => match(
                 ir_fb.func_type,
-                .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&ir_ret),
+                .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&t_slot_pointee(&ir_ret)),
                 .Some(_) => false,
                 .None => false
               ),
@@ -3426,13 +3427,15 @@ _evaluate_begin_expression_impl :: (
               .Some(ft) => {
                 match(
                   ft,
-                  Rc(.Func({ result : result_box, meta : rb_meta })) => {
+                  Rc(.Func({ result : result_slot })) => {
+                    result_box := t_slot_pointee(&result_slot);
+                    rb_is_ref := t_slot_is_borrow(&result_slot);
                     // A projection's `return(&place)` yields the place's
                     // address (decision 24, `rewrite_projection_tails`).
-                    expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box);
+                    expected_ret := if(rb_is_ref, t_ptr(&result_box), result_box);
                     // Decision 44: `return(f)` into a `Dyn(Fn(...))` result is
                     // `return(dyn(f))`.
-                    if(!rb_meta.*.result_is_ref, {
+                    if(!rb_is_ref, {
                       match(
                         last_expr,
                         .FnCall(_, _, rv_args, _, _) => match(rv_args.get(usize(0)), .Some(rv_value) => reject_bare_callable_into_dyn_fn(&expected_ret, &return_type, &rv_value, String.from("the result"), ctx, exn), .None => ()),
@@ -3443,7 +3446,14 @@ _evaluate_begin_expression_impl :: (
                     if(!synth_ok, {
                       // A `return(f)` `yo fix --migrate dyn-spelling` recorded
                       // stands for the rewrite's `return(dyn(f))`.
-                      compat := ((!rb_meta.*.result_is_ref && bare_callable_recorded_into_dyn_fn(&expected_ret, &return_type)) || are_types_compatible(&return_type, &expected_ret));
+                      compat := (
+                        (
+                          !rb_is_ref && bare_callable_recorded_into_dyn_fn(
+                            &expected_ret,
+                            &return_type
+                          )
+                        ) || are_types_compatible(&return_type, &expected_ret)
+                      );
                       if(!is_some_type(&expected_ret) && !compat, {
                         exn.throw(
                           dyn(

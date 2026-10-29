@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
 { some_resolution } :: import("../../expr_info.yo");
@@ -1621,8 +1621,9 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.
         if(dyn_member_is_method(field_ty) && dyn_member_unsafe_reason(field_ty).is_none(), {
-          ret_str := get_type_string(&result, context);
+          ret_str := get_type_string(&t_slot_pointee(&result), context);
           plist := String.new();
+
           np := param_labels.len();
           (pi : usize) = usize(0);
           while(pi < np, {

@@ -64,7 +64,7 @@ pragma(Pragma.AllowUnsafe);
   is_enum_val,
   is_unknown_val
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_bool, t_never, resolve_enum_shell } :: import("../../types/creators.yo");
 {
   is_bool_type,
@@ -2255,8 +2255,9 @@ evaluate_match :: (
                     .Some(ft) => {
                       match(
                         ft,
-                        Rc(.Func({ result : result_box, meta : rb_meta })) => {
-                          ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
+                        Rc(.Func({ result : result_slot })) => {
+                          ret_type_em = Option(TypeValue).Some(if(t_slot_is_borrow(&result_slot), t_ptr(&t_slot_pointee(&result_slot)), t_slot_pointee(&result_slot)));
+
                         },
                         _ => ()
                       );

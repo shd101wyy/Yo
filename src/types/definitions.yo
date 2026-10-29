@@ -247,10 +247,6 @@ FuncMeta :: struct(
   /// CTFE; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
   result_is_comptime_only : bool,
-  /// True when the return is a borrow, `-> &T` or `-> &mut T`: a projection
-  /// (decision 24). It returns `T*` at the C ABI; `result_is_mut_ref` tells
-  /// the two modes apart. `is_flowable_expr` requires a flowable return.
-  result_is_ref : bool,
   /// True when the param list ends with a `...` variadic marker (C-style
   /// variadic externs). The
   /// call-site arg-count check is skipped when set.
@@ -294,11 +290,6 @@ FuncMeta :: struct(
   /// Caller-side only, so not part of the function type's identity; `.None`
   /// means none is `sink`.
   (param_is_sink : Option(SharedList(bool))) ?= Option(SharedList(bool)).None,
-  /// With `result_is_ref`: the result is `-> &mut T` (a mutable projection,
-  /// decision 24) rather than `-> &T` (a read projection). Defaulted so a
-  /// construction site that drops it degrades to the read projection, which
-  /// rejects writes instead of admitting them.
-  (result_is_mut_ref : bool) ?= false,
   /// The `generic(p : Origin)` binders (decision 43 step 2, N1a): the
   /// origin parameters a slot's `OriginSet` may name. They are not
   /// `forall_labels` — a function abstract only over origins is not generic
@@ -623,9 +614,10 @@ TypeValueNode :: enum(
     is_elided : bool
   ),
   /// `&T` (`mutable = false`) or `&mut T` (`mutable = true`) with its origin,
-  /// a value of the `Origin` kind. In step 1 only a parameter SLOT holds one
-  /// (`Func.param_types`, `FnTraitT.call_param_types`): the slot's mode IS
-  /// its type, and a by-value parameter's slot is the bare `T`. A reader
+  /// a value of the `Origin` kind. Only a SLOT holds one: a parameter slot
+  /// (`Func.param_types`, `FnTraitT.call_param_types`, step 1) or a `Func`'s
+  /// result slot (a projection, step 2 N1b): the slot's mode IS its type, and
+  /// a by-value parameter's slot or an ordinary result is the bare `T`. A reader
   /// that wants the parameter's value type takes `t_slot_pointee`. The
   /// origin is erased from every identity but the borrow checker's
   /// (`type_key`, the memos, specialization keys and C type identity never
@@ -812,6 +804,18 @@ fn_param_slots :: (fn(ft : &TypeValue) -> SharedList(TypeValue))(
     _ => g_no_types
   )
 );
+/// The result slot of a `Func` (decision 43 step 2, N1b): a projection's
+/// result (`-> &T` / `-> &mut T`, decision 24) is `Reference(T, mutable,
+/// origin)`, every other result the bare `T` — the encoding parameter slots
+/// have had since step 1. Unit for a non-`Func`.
+fn_result_slot :: (fn(ft : &TypeValue) -> TypeValue)(match(ft, Rc(.Func({ result : frs_r })) => frs_r, _ => rc(TypeValueNode.Unit)));
+/// The value type a `Func` returns or projects: `T` for `-> T`, `-> &T` and
+/// `-> &mut T`. Unit for a non-`Func`.
+fn_result_pointee :: (fn(ft : &TypeValue) -> TypeValue)(t_slot_pointee(&fn_result_slot(ft)));
+/// The `Func` `ft` is a projection (`-> &T` or `-> &mut T`).
+fn_result_is_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : fri_r })) => t_slot_is_borrow(&fri_r), _ => false));
+/// The `Func` `ft` is a mutable projection (`-> &mut T`).
+fn_result_is_mut_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : frm_r })) => t_slot_is_mut_ref(&frm_r), _ => false));
 /// Parameter `i` of the `Func` / `FnTraitT` `ft` is `&mut T` (false past the
 /// last parameter).
 fn_param_is_mut_ref :: (fn(ft : &TypeValue, i : usize) -> bool)(
@@ -880,4 +884,5 @@ get_struct_field_comptime_flags :: (
   g_struct_field_comptime_flags.with(m => m.get(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref);
 export(t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

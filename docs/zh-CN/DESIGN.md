@@ -718,11 +718,14 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 在这一代中，`&T` 与 `&mut T` 是位置所写的借用**模式**，而不是类型：它们加在参数、接收者（`self : &Self`、`self : &mut Self`）、闭包参数（`(v : &T) => ...`）或带标签的 `Fn` 位置（`Fn(v : &T) -> R`；不接受无标签的 `Fn(&T)`）的类型之前。在类型单独出现的任何地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`、`&&T`），借用符号都是错误，"a borrow mode, not a type"。借用结果（`-> &T` / `-> &mut T`）是投影（决策 24）：函数体产出用结果符号书写、以借用参数为根的位置，并通过下标（`x(i)`）到达（[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
 
-**Origin**（决策 43 第 2 步的第一部分；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O1）。参数的引用可以写出它的 **origin**，即它可能指向的位置集合：`x : &(T, p)` 与 `x : &mut(T, p)`，其中 `p` 在签名的 `generic(...)` 子句中以种类 `Origin` 声明，就像类型参数以 `Type` 声明一样。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。第二个参数按其种类解读，必须是 origin：那里出现类型是错误 E0922（Yo 把元组类型写作 `Tuple(A, B)`，所以指向元组的引用是 `&Tuple(A, B)`），未被任何 `generic(p : Origin)` 声明的名字或另一个参数的名字也是如此。origin 参数不是类型参数，所以只对 origin 抽象的函数不是泛型函数，只编译一次。在这一部分中，origin 只被携带，尚未检查：`fn(generic(p : Origin), v : &(i32, p)) -> i32` 与 `fn(v : &i32) -> i32` 是同一个函数类型，生成的 C 也相同。结果类型（`-> &(T, xs)`）、引用的被指类型（`&mut &(T, p)`）、局部绑定的标注和类型实参在后续部分中才能带 origin。`Origin` 与 `Type` 一样是保留的类型名。
+**Origin**（决策 43 第 2 步的第一部分；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O1）。参数的引用可以写出它的 **origin**，即它可能指向的位置集合：`x : &(T, p)` 与 `x : &mut(T, p)`，其中 `p` 在签名的 `generic(...)` 子句中以种类 `Origin` 声明，就像类型参数以 `Type` 声明一样。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。第二个参数按其种类解读，必须是 origin：那里出现类型是错误 E0922（Yo 把元组类型写作 `Tuple(A, B)`，所以指向元组的引用是 `&Tuple(A, B)`），未被任何 `generic(p : Origin)` 声明的名字或另一个参数的名字也是如此。origin 参数不是类型参数，所以只对 origin 抽象的函数不是泛型函数，只编译一次。投影的结果类型（决策 24）也可以写出 origin：`-> &(T, p)` 借自 origin 参数，`-> &(T, xs)` 借自引用参数 `xs`，`-> &(T, (p, xs))` 借自两者之一。按值参数的位置属于被调函数自己的栈帧，所以对 `v : T` 写 `-> &(T, v)` 是错误 E0912。在这些部分中，origin 只被携带，尚未检查：`fn(generic(p : Origin), v : &(i32, p)) -> i32` 与 `fn(v : &i32) -> i32` 是同一个函数类型，生成的 C 也相同；`-> &(T, xs)` 与 `-> &T` 亦然。引用的被指类型（`&mut &(T, p)`）、局部绑定的标注、类型实参和闭包 trait 的结果（`Fn(&T) -> &T`）在后续部分中才能带 origin。`Origin` 与 `Type` 一样是保留的类型名。
 
 ```yo
 first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v);
 sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a + b);
+Pair :: struct(a : i32, b : i32);
+first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
+second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 ```
 
 旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。

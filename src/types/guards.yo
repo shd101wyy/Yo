@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, no_types } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
-{ t_refine_inner, slot_pointee_at } :: import("./definitions.yo");
+{ t_refine_inner, slot_pointee_at, t_slot_pointee } :: import("./definitions.yo");
 { BK_YO_CELL, BK_YO_ATOMIC_CELL } :: import("../expr.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
@@ -615,7 +615,7 @@ is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
 is_function_type_and_is_type_function :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.Func({ result : r })) => match(r, Rc(.TypeUni(_)) => true, _ => false),
+    Rc(.Func({ result : r })) => match(t_slot_pointee(&r), Rc(.TypeUni(_)) => true, _ => false),
     _ => false
   )
 );
@@ -655,7 +655,7 @@ is_function_type_and_returns_comptime_value :: (fn(t : &TypeValue) -> bool)(
     // result type with the comptime-ness carried in the meta flag. The
     // type-based test alone made every "runtime binding in a comptime-only
     // fn body" gate silently never fire (tests/fn.test.yo).
-    Rc(.Func({ result : r, meta : __gm })) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(&r)),
+    Rc(.Func({ result : r, meta : __gm })) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(&t_slot_pointee(&r))),
     _ => false
   )
 );

@@ -23,7 +23,7 @@
 { stable_position_id, stable_label_id, debug_knob, is_temp_variable_name, is_any_temp_variable_name } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_is_mut_ref, slot_pointee_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_is_mut_ref, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 {
   is_function_type,
   is_struct_type,
@@ -2856,8 +2856,8 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
           .Some(res_fid) => match(
             get_func_type(res_fid.clone()),
-            Rc(.Func({ result : frr })) => if(!is_some_type(&frr) && !type_implements_future(&frr), {
-              result_type = frr.clone();
+            Rc(.Func({ result : frr_slot })) => if(!is_some_type(&t_slot_pointee(&frr_slot)) && !type_implements_future(&t_slot_pointee(&frr_slot)), {
+              result_type = t_slot_pointee(&frr_slot);
               resolved_via_fn_ret = true;
             }),
             _ => ()
@@ -3642,8 +3642,9 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         fv,
         .FuncVal(__fvd5, _) => match(
           get_func_type(&__fvd5.*.func_id),
-          Rc(.Func({ result : rb })) => if(!is_some_type(&rb), {
-            result_type = rb.clone();
+          Rc(.Func({ result : rb })) => if(!is_some_type(&t_slot_pointee(&rb)), {
+            result_type = t_slot_pointee(&rb);
+
           }),
           _ => ()
         ),

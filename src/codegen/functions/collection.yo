@@ -202,7 +202,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
 _is_non_control_async_fn :: (fn(func_id : &String) -> bool)(
   !is_control_fn(func_id.clone()) && match(
     get_func_type(func_id.clone()),
-    Rc(.Func({ result : r, meta : m })) => (!m.*.is_control && type_implements_future(&r)),
+    Rc(.Func({ result : r, meta : m })) => (!m.*.is_control && type_implements_future(&t_slot_pointee(&r))),
     _ => false
   )
 );

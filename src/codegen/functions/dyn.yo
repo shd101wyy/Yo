@@ -710,7 +710,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                               context.base.get_function_entry(func_id.clone()),
                               .Some(entry) => match(
                                 get_func_type(func_id.clone()),
-                                Rc(.Func({ param_types, result })) => {
+                                Rc(.Func({ param_types, result : result_slot })) => {
+                                  result := t_slot_pointee(&result_slot);
                                   impl_cname := entry.c_name.clone();
                                   // The label is sanitized like the slot's field
                                   // name: an operator member (`LogicalNot`'s `!`)
@@ -725,7 +726,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // differs: the impl returns its concrete future,
                                   // the trait the Future interface pointer.
                                   slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt, _ => param_types.clone());
-                                  slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&sres, &context.base), _ => return_str.clone());
+                                  slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&t_slot_pointee(&sres), &context.base), _ => return_str.clone());
+
                                   params := _wrapper_params(slot_params_tys.items.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
                                   (ac_j : usize) = usize(1);
