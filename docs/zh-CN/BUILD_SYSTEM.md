@@ -117,7 +117,7 @@ test_step.depend_on(tests);
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | 优化级别                               |
 | `allocator` | `AllocatorKind` | `AllocatorKind.System` | 内存分配器                             |
 | `heap_size` | `usize`        | `16777216`（16 MiB） | 固定区域堆大小（仅 `AllocatorKind.Fixed`） |
-| `cycle_collector` | `CycleCollector` | `CycleCollector.Auto` | 引用环回收器；`Off` 表示不带回收器编译（`--cycle-collector off`） |
+| `cycle_collector` | `CycleCollector` | `CycleCollector.Off` | 引用环回收器；`Auto` 表示带回收器编译（`--cycle-collector auto`） |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | 检测器                                 |
 
 ### `StaticLibrary`
@@ -198,10 +198,10 @@ libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执�
 
 | 值                    | 描述                                           |
 | --------------------- | ---------------------------------------------- |
-| `CycleCollector.Auto` | 当某个类型可能形成引用环时启用回收器（默认）   |
-| `CycleCollector.Off`  | 不带回收器：引用环会泄漏，与 Rust 相同         |
+| `CycleCollector.Auto` | 当某个类型可能形成引用环时启用回收器           |
+| `CycleCollector.Off`  | 不带回收器：引用环会泄漏，与 Rust 相同（默认） |
 
-`CycleCollector.Off` 即 `yo compile --cycle-collector off`：`Gc.collect()`
+`CycleCollector.Off` 即 `yo compile --cycle-collector off`（默认）：`Gc.collect()`
 什么也不做，`Gc.tracked_count()` 恒为 0，环上的单元永远不会被释放。
 详见[循环引用回收](CYCLE_COLLECTION.md#不带回收器编译--cycle-collector-off)。
 该字段是过渡性的：回收器正在被移除，移除之后 `Off` 将是唯一的行为。

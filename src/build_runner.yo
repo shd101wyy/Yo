@@ -2011,10 +2011,10 @@ compile_artifact :: (
       cmd.arg(String.from("--heap-size"));
       cmd.arg(artifact.heap_size.to_string());
     });
-    // `cycle_collector : CycleCollector.Off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
-    // §1). The default `auto` adds nothing, so an unset field leaves the child
+    // `cycle_collector : CycleCollector.Auto` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+    // §1). The default `off` adds nothing, so an unset field leaves the child
     // argv — and the artifact stamp hashed from it — unchanged.
-    if(artifact.cycle_collector != "auto", {
+    if(artifact.cycle_collector != "off", {
       cmd.arg(String.from("--cycle-collector"));
       cmd.arg(artifact.cycle_collector.clone());
     });
