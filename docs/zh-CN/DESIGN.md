@@ -722,7 +722,7 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 ```yo
 first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v);
-sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)((a + b));
+sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a + b);
 ```
 
 旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。

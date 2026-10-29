@@ -745,7 +745,7 @@ The one exception is the receiver of an `impl` member: a trait method declared w
 
 ```yo
 first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v);
-sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)((a + b));
+sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a + b);
 ```
 
 The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and `yo fix <path> --migrate borrow-spelling` rewrites a tree to it. `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.

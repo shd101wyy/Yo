@@ -1154,10 +1154,6 @@ _evaluate_expression :: (
           evaluate_import(expr, env, ctx, exn),
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR, .Some(usize(1)))) =>
           evaluate_raw_pointer_call(expr, env, ctx, exn),
-        // `&x` is only a borrow marker (decision 33, V3b Generation B step
-        // 3): a call argument lending to an `imm` parameter is peeled before
-        // evaluation, so one that reaches here is not lending. `yo fix
-        // --migrate addr-of` evaluates old code, where it was the address-of.
         // `&(T, o)` (the operator-call form, not infix `a & b`) whose first
         // argument is a type: decision 43's origin-qualified reference, in a
         // position other than a parameter's type (which
@@ -1171,6 +1167,10 @@ _evaluate_expression :: (
           exn.throw(dyn(format_error_message(ast_expr_token(expr), _origin_reference_position_message(expr))));
           expr
         },
+        // `&x` is only a borrow marker (decision 33, V3b Generation B step
+        // 3): a call argument lending to an `imm` parameter is peeled before
+        // evaluation, so one that reaches here is not lending. `yo fix
+        // --migrate addr-of` evaluates old code, where it was the address-of.
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(1)))) => cond(
           migrate_addr_of_on() => evaluate_address_call(expr, env, ctx, exn),
           true => {
