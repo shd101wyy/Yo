@@ -8400,11 +8400,15 @@ heavy run, the command is given in item 2.
          takes `err : AnyError` and returns or stores it by move; a read-only
          use lends it (`render_any_error(&err)`, 8 sites by `yo fix
          --migrate markers`, the rest by hand); `downcast(err, T)` takes the
-         owned error. Flipping the parameter surfaced the open S1
-         `issues/fixed/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md`
-         in a by-value shape (`e -> unwind(e.to_string())` read the freed
-         error); `generate_unwind` now evaluates the operand into a temp
-         before the handler's drop preamble.
+         owned error. Flipping the parameter surfaced a new S1: a handler
+         whose body is a bare `unwind(...)` released its parameter before
+         the operand read it (`e -> unwind(e.to_string())`,
+         `issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md`).
+         B13-b fixes it together with the open S1
+         `issues/fixed/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md`.
+         `generate_unwind` now evaluates the operand into a temp, then emits
+         the tail's parameter drops with its drop preamble. The compiler's
+         three traps are block bodies until the seed carries the fix.
        - **v0.2.74, with decision 43 step 3 (N2).** `AnyError ::
          Dyn(Error)`, and `Error.source` returns `Option(&Dyn(SelfTrait))`.
          `root_cause` returns `&AnyError`, `error_chain` lends, `Context`
