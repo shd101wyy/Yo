@@ -284,7 +284,7 @@ evaluate_address_call :: (
   eval_arg_gout := ArrayList(AstExpr).new();
   eval_arg_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut eval_arg_gout);
   ctx.expected_type = old_expected;
-  match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(&eval_arg_ge), .None => ());
+  match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(eval_arg_ge), .None => ());
   eval_arg := match(eval_arg_gout.get(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
   // `yo fix --migrate explicit-copy`: the pointer reaches the storage of the
   // variable the operand is rooted in (`addr_of(marks(i))`), whose copies

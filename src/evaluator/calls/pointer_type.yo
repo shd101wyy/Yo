@@ -63,7 +63,7 @@ try_to_convert_to_pointer_type :: (
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
-  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(&evaluated_ge), .None => ());
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
   evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   if(info_opt.is_none(), {

@@ -57,7 +57,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     evaluated_arg_gout := ArrayList(AstExpr).new();
     evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
     ctx.expected_type = saved_expected;
-    match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(&evaluated_arg_ge), .None => ());
+    match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
     evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     info := match(

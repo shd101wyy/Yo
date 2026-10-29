@@ -199,9 +199,9 @@ is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
 /// be neither lent nor copied (decisions 7 and 18), and the cell's
 /// `with`/`replace` read and take it.
 (g_codegen_error : RefCell(Option(AnyError))) = RefCell(Option(AnyError)).new(Option(AnyError).None);
-_record_codegen_error :: (fn(err : &AnyError) -> unit)(
+_record_codegen_error :: (fn(err : AnyError) -> unit)(
   if(g_codegen_error.with(o => o.is_none()), {
-    g_codegen_error.replace(Option(AnyError).Some(err.clone()));
+    g_codegen_error.replace(Option(AnyError).Some(err));
   })
 );
 /// Forget an error a previous compile recorded but never raised (it threw
@@ -215,7 +215,7 @@ raise_codegen_error :: (fn(exn : Exception) -> unit)(
   match(
     g_codegen_error.replace(Option(AnyError).None),
     .Some(err) => {
-      exn.throw(&err);
+      exn.throw(err);
       ()
     },
     .None => ()
@@ -273,7 +273,7 @@ codegen_user_error :: (fn(tok : &Token, message : &String) -> unit)({
 });
 /// Record a user error that is already formatted (an evaluator diagnostic
 /// codegen reports on the evaluator's behalf, with its own code and span).
-codegen_report_error :: (fn(err : &AnyError) -> unit)({
+codegen_report_error :: (fn(err : AnyError) -> unit)({
   _record_codegen_error(err);
 });
 /// `codegen_user_error` in EXPRESSION position.
