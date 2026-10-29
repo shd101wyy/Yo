@@ -3612,7 +3612,7 @@ _ic_migrate_site :: (
 PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue, clone_scrutinee : bool);
 (g_pending_scrutinee_borrows : RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow)))) = RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow))).new(HashMap(usize, ArrayList(PendingScrutineeBorrow)).new());
 record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
-  g_pending_scrutinee_borrows.with_mut(m => {
+  g_pending_scrutinee_borrows.with_mut({ clone_scrutinee, scr, ty : Rc.clone(ty), var_id }(m) => {
     xs := match(m.get(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new());
     xs.push(PendingScrutineeBorrow(scr : scr, ty : Rc.clone(ty), clone_scrutinee : clone_scrutinee));
     m.insert(var_id, xs);

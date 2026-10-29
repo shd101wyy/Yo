@@ -1651,7 +1651,7 @@ expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize
 /// Record the resolved method `Func` type for a method-call expr id.
 record_method_callee_type :: (fn(call_id : ExprId, ty : &TypeValue) -> unit)({
   record_owned_expr_id(call_id);
-  g_method_callee_types.with_mut(m => m.insert(call_id, Rc.clone(ty)));
+  g_method_callee_types.with_mut({ call_id, ty : Rc.clone(ty) }(m) => m.insert(call_id, Rc.clone(ty)));
   ()
 });
 /// Look up the resolved method `Func` type for a method-call expr id, if any.
@@ -2084,21 +2084,19 @@ record_flow_event :: (
   ) -> unit
 )({
   idx := g_branch_init_log.with(xs => xs.len());
-  g_branch_init_log.with_mut(
-    xs => xs.push(
-      BranchInitRecord(
-        var_id : var_id,
-        ty : Rc.clone(ty),
-        capture : capture.clone(),
-        kind : kind,
-        token : token,
-        before_init : before_init,
-        before_consumed : before_consumed,
-        after_init : after_init,
-        after_consumed : after_consumed
-      )
+  g_branch_init_log.with_mut({ after_consumed, after_init, before_consumed, before_init, capture : capture.clone(), kind, token, ty : Rc.clone(ty), var_id }(xs) => xs.push(
+    BranchInitRecord(
+      var_id : var_id,
+      ty : Rc.clone(ty),
+      capture : capture.clone(),
+      kind : kind,
+      token : token,
+      before_init : before_init,
+      before_consumed : before_consumed,
+      after_init : after_init,
+      after_consumed : after_consumed
     )
-  );
+  ));
   lst := match(g_branch_init_by_var.with_mut(m => m.remove(&var_id)), .Some(l) => l, .None => ArrayList(usize).new());
   lst.push(idx);
   g_branch_init_by_var.with_mut(m => m.insert(var_id, lst.clone()));

@@ -566,7 +566,7 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
   forget_trait_impl_site_if_from(String.from("generic"), &_generic_impl_trait_site_shape(entry), &entry.site);
   // A hand-written `Clone` the exclusion check itself recorded just before
   // throwing on it.
-  g_hand_written_clone_sites.with_mut(m => m.remove(entry.site.clone()));
+  g_hand_written_clone_sites.with_mut({ entry : entry.clone() }(m) => m.remove(entry.site.clone()));
   bump_trait_impl_epoch();
 });
 // ---------------------------------------------------------------------------
@@ -998,7 +998,7 @@ _resolve_one_forall_binding_from :: (
                         });
                         nb_id2 := match(b, Rc(.SomeT({ id : __nbi2 })) => __nbi2, _ => String.from(""));
                         if(_abstract_binding_ok(&b) && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
-                          return(Option(TypeValue).Some(b));
+                          return(Option(TypeValue).Some(Rc.clone(b)));
                         });
                       },
                       .IntLit(_) => {
@@ -2135,7 +2135,7 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
     );
     bi = (bi + usize(1));
   });
-  g_concrete_trait_impls.with_mut(xs => xs.push(ConcreteTraitImpl(base_key : base.clone(), receiver_ty : Rc.clone(receiver_ty), trait_ty : Rc.clone(trait_ty), site : site.clone())));
+  g_concrete_trait_impls.with_mut({ base, receiver_ty : Rc.clone(receiver_ty), site, trait_ty : Rc.clone(trait_ty) }(xs) => xs.push(ConcreteTraitImpl(base_key : base.clone(), receiver_ty : Rc.clone(receiver_ty), trait_ty : Rc.clone(trait_ty), site : site.clone())));
   g_concrete_trait_impl_owners.with_mut(xs => xs.push(registration_owner()));
 });
 /// A canonical DECLARATION-IDENTITY render of `t`, for the generic-impl
@@ -2380,7 +2380,7 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
 /// !(Send))` makes `Container(i32)` NOT `Send`).
 (g_negative_generic_impl_entries : RefCell(ArrayList(GenericImplEntry))) = RefCell(ArrayList(GenericImplEntry)).new(ArrayList(GenericImplEntry).new());
 register_negative_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
-  g_negative_generic_impl_entries.with_mut(xs => xs.push(entry.clone()));
+  g_negative_generic_impl_entries.with_mut({ entry : entry.clone() }(xs) => xs.push(entry.clone()));
 });
 /// Returns true if some registered negative generic impl for `trait_type`
 /// matches `concrete_type`: filter by trait key, then `try_match_generic_impl`.
@@ -6571,7 +6571,7 @@ _record_move_only_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : &String
   });
   (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
   if(!g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
-    g_move_only_fast.with_mut(xs => xs.insert(slot, Rc.clone(ty)));
+    g_move_only_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
     g_move_only_fast_answers.with_mut(xs => xs.insert(slot, answer.clone()));
   });
 });
@@ -6581,7 +6581,7 @@ _clear_move_only_memo :: (fn() -> unit)({
   g_move_only_fast_answers.with_mut(xs => xs.clear());
 });
 _add_move_only_decl :: (fn(d : &MoveOnlyDecl) -> unit)({
-  g_move_only_decls.with_mut(xs => xs.push(d.clone()));
+  g_move_only_decls.with_mut({ d : d.clone() }(xs) => xs.push(d.clone()));
   _clear_move_only_memo();
   note_move_only_possible();
 });
@@ -6722,9 +6722,9 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
       clone_key := get_base_trait_key(&cc.clone_tt);
       if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
-          g_user_clone_sites.with_mut(m => m.insert(entry.site.clone(), true));
+          g_user_clone_sites.with_mut({ entry : entry.clone() }(m) => m.insert(entry.site.clone(), true));
         });
-        g_hand_written_clone_sites.with_mut(m => m.insert(entry.site.clone(), true));
+        g_hand_written_clone_sites.with_mut({ entry : entry.clone() }(m) => m.insert(entry.site.clone(), true));
         if(_pattern_implements_via_hook(&entry.receiver_type_pattern, &cc.copy_tt, &env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).None))));
         });
@@ -6919,7 +6919,7 @@ note_concrete_ctor_method :: (fn(receiver_ty : &TypeValue, method : &String, met
     seen = match(g_ctor_concrete_methods.with(xs => xs.get(si)), .Some(cm) => ((cm.site == site) && (cm.method == method)), .None => false);
   });
   if(!seen, {
-    g_ctor_concrete_methods.with_mut(xs => xs.push(_CtorConcreteMethod(ctor_fid : fid, method : method.clone(), receiver_ty : receiver_ty.clone(), method_ty : method_ty.clone(), site : site.clone())));
+    g_ctor_concrete_methods.with_mut({ fid, method, method_ty : Rc.clone(method_ty), receiver_ty : Rc.clone(receiver_ty), site }(xs) => xs.push(_CtorConcreteMethod(ctor_fid : fid, method : method.clone(), receiver_ty : receiver_ty.clone(), method_ty : method_ty.clone(), site : site.clone())));
   });
 });
 /// Every impl, inherent or trait, generic or concrete, whose receiver is an

@@ -676,7 +676,7 @@ analyze_effect_call_points :: (
     get_info,
     SuspensionPointDetector(
       detect : dyn({ effect_extras : Rc.clone(effect_extras), effect_field_path, effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name, get_info, include_transitive_calls }(expr, parent_expr) =>
-        effect_extras.with_mut(extras => {
+        effect_extras.with_mut({ effect_field_path, effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name, expr, get_info, include_transitive_calls, parent_expr }(extras) => {
           found := ArrayList(SuspensionPoint).new();
           detect_effect_expr_(
             expr,

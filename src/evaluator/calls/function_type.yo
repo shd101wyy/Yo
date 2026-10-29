@@ -1966,23 +1966,21 @@ Result type: ${type_to_string(&result_box)}`
           // re-run refreshes the ORIGINAL nodes codegen reads (fn arm 14's
           // mutual recursion).
           if(has_fwd_comptime_fn_cap, {
-            g_pending_def_evals.with_mut(
-              xs => xs.push(
-                PendingDefEval(
-                  body : body_expr.clone(),
-                  param_labels : param_labels.items.clone(),
-                  param_types : param_types.items.clone(),
-                  param_is_comptime : def_ct_flags.clone(),
-                  result_ty : Rc.clone(result_box),
-                  where_entries : def_where_entries,
-                  function_type : Rc.clone(function_type),
-                  strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
-                  attempts : usize(3),
-                  param_decl_tokens : def_param_toks.clone(),
-                  fwd_vars : fwd_cap_vars
-                )
+            g_pending_def_evals.with_mut({ body_expr, ctx, def_ct_flags, def_param_toks, def_where_entries, function_type : Rc.clone(function_type), fwd_cap_vars, param_labels, param_types : Rc.clone(param_types), result_box : Rc.clone(result_box) }(xs) => xs.push(
+              PendingDefEval(
+                body : body_expr.clone(),
+                param_labels : param_labels.items.clone(),
+                param_types : param_types.items.clone(),
+                param_is_comptime : def_ct_flags.clone(),
+                result_ty : Rc.clone(result_box),
+                where_entries : def_where_entries,
+                function_type : Rc.clone(function_type),
+                strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
+                attempts : usize(3),
+                param_decl_tokens : def_param_toks.clone(),
+                fwd_vars : fwd_cap_vars
               )
-            );
+            ));
           });
           // Re-raise a deliberate rejection that the trial-eval swallowed
           // (a `name := &mut <non-flowable>` binding, an argument that does

@@ -2916,7 +2916,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // Register under the per-closure key so future lookups (by the same closure
   // or await site) resolve to this concrete type without clobbering siblings.
   if(!is_some_type(&result_type), {
-    g_async_block_result_types.with_mut(m => m.insert(_per_clone_rsid.clone(), result_type.clone()));
+    g_async_block_result_types.with_mut({ _per_clone_rsid, result_type : Rc.clone(result_type) }(m) => m.insert(_per_clone_rsid.clone(), result_type.clone()));
   });
   result_type_c_name := get_type_string(&result_type, &context.base);
   em := context.base.emitter;
@@ -3679,7 +3679,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // resolve the awaited value's type. The await site matches because it shares
   // the same async_block_id (it awaits the same io.async expression).
   if(!is_some_type(&result_type) && !per_clone_key.is_empty(), {
-    g_async_block_result_types.with_mut(m => m.insert(per_clone_key.clone(), result_type.clone()));
+    g_async_block_result_types.with_mut({ per_clone_key, result_type : Rc.clone(result_type) }(m) => m.insert(per_clone_key.clone(), result_type.clone()));
   });
   result_type_c_name := get_type_string(&result_type, &context.base);
   struct_name := match(expr_info_async_state_machine_struct_name(&ei), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("Missing sync future struct name"))));

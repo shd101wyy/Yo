@@ -257,7 +257,7 @@ derive(VariadicParamEntry, Clone);
 register_func_variadic_param :: (fn(func_id : &String, label : &String, ty : &TypeValue) -> unit)({
   if(label != "...", {
     record_owned_func_id(func_id.clone());
-    g_func_variadic_params.with_mut(m => m.insert(func_id.clone(), VariadicParamEntry(label : label.clone(), ty : Rc.clone(ty))));
+    g_func_variadic_params.with_mut({ func_id, label, ty : Rc.clone(ty) }(m) => m.insert(func_id.clone(), VariadicParamEntry(label : label.clone(), ty : Rc.clone(ty))));
   });
 });
 copy_func_variadic_param :: (fn(from_id : &String, to_id : &String) -> unit)({

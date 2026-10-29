@@ -147,7 +147,7 @@ _canonical :: (fn(p : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(p));
-      _canonical_memo.with_mut(m => m.insert(p.clone(), Rc.clone(c)));
+      _canonical_memo.with_mut({ c : Rc.clone(c), p }(m) => m.insert(p.clone(), Rc.clone(c)));
       c
     }
   )
@@ -216,7 +216,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
     });
   });
   closure := rc(seen);
-  g_import_closure_memo.with_mut(m => m.insert(start.*.clone(), Rc.clone(closure)));
+  g_import_closure_memo.with_mut({ closure : Rc.clone(closure), start }(m) => m.insert(start.*.clone(), Rc.clone(closure)));
   closure
 });
 /// Record that `importer` imports `imported`. Exact-pair duplicates are
@@ -299,7 +299,7 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
   if(!module_cache_has(path.clone()), {
     g_module_cache_keys.with_mut(xs => xs.push(path.clone()));
     g_module_cache_vals.with_mut(xs => xs.push(module_value));
-    g_module_cache_types.with_mut(xs => xs.push(Rc.clone(module_type)));
+    g_module_cache_types.with_mut({ module_type : Rc.clone(module_type) }(xs) => xs.push(Rc.clone(module_type)));
   });
 });
 /// Pure lookup used as `ctx.load_module`. On a hit, returns the cached

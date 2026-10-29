@@ -426,7 +426,7 @@ _cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
   id := String.from(if(is_atomic, BK_YO_ATOMIC_CELL, BK_YO_CELL));
   id.push_str("#");
   id.push_string(type_key(v));
-  g_cell_instances.with_mut(xs => xs.push(_CellInstance(is_atomic : is_atomic, payload : v.clone(), id : id.clone())));
+  g_cell_instances.with_mut({ id, is_atomic, v : Rc.clone(v) }(xs) => xs.push(_CellInstance(is_atomic : is_atomic, payload : v.clone(), id : id.clone())));
   id
 });
 /// `__yo_cell(V)` / `__yo_atomic_cell(V)`: the private heap-cell primitive
