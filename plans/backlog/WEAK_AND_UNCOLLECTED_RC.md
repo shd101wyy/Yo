@@ -136,7 +136,9 @@ declaration are gone (§4 "As built"). The other phases have not started.
     `cycle-collector-off-leaks-a-cycle-the-debug-heap-reports`. The
     language suite runs `tests/cycle_collector.test.yo` under `Auto`, and
     the cli-case `test-cycle-collector-suite-under-off` runs it under
-    `Off`. `build-cycle-collector-off` pins the build path.
+    `Off`. `build-cycle-collector-off` pins the build path. (W6a: the
+    language suite runs the file under `Off`, the new default, so that
+    cli-case was deleted as a duplicate; nothing runs it under `Auto`.)
 - **Why a build choice and not a type.** The collector's cost and benefit
   are program-wide (the compiler itself runs with the collector mostly
   idle; a request server with per-request graphs wants it on), and a
@@ -438,6 +440,25 @@ API that promises not to leak — and a possible `yo check` lint under
    `prev`/`next` cells, is already gone: the list was removed on 2026-10-24
    rather than migrated (`plans/handover/VBD_LOOKAHEAD_2026-10-23.md` D23
    amendment), so W6a's std count starts without it.
+
+   **As built (W6a, 2026-10-29, `vbd/w6a-collector-off-default`).** `yo
+   compile`/`yo test` default to `--cycle-collector off`;
+   `--cycle-collector auto` and `build.CycleCollector.Auto` keep the
+   collector for this one release. `std/build.yo`'s default is `.Off`, the
+   build builtin reads a missing tenth argument as `off`, the libraries'
+   artifacts say `off`, and the build runner adds `--cycle-collector auto`
+   only for `Auto`, so a default build's argv and stamp are unchanged. The
+   compiler itself is built with the default, i.e. without the collector.
+   Collector-only test cases the flip broke were deleted, per the maintainer
+   rule (no collector coverage is preserved): `tests/explicit_allocators`'
+   "a cycle … is collected into its allocator", the codegen corpus's
+   `arraylist_self_cycle`, `deque_self_cycle`, `hashmap_self_cycle`,
+   `ref_enum_cycle` and `ref_enum_option_cycle`, and the cli-case
+   `test-cycle-collector-suite-under-off` (a duplicate of the suite's run).
+   The cli-cases that contrast the two modes name `auto` explicitly.
+   The measurement:
+
+W6A_MEASUREMENT
 
 **What the deletion removes:**
 
