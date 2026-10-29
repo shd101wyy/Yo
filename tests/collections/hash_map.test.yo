@@ -530,6 +530,52 @@ test("HashMap into_iter - multiple entries all visited", {
   assert(val_sum == i32(60));
   assert(count == i32(3));
 });
+/// A fresh map whose only handle is the returned value: the consuming walk of
+/// a temporary is the unique case. A named local passed by value keeps its
+/// own handle until its scope ends, so its walk copies.
+_two_entry_rc_map :: (fn(a : Rc(i32), b : Rc(i32)) -> HashMap(i32, Rc(i32)))({
+  m := HashMap(i32, Rc(i32)).new();
+  m.insert(i32(1), a);
+  m.insert(i32(2), b);
+  m
+});
+test("HashMap into_iter - a unique map moves its entries out", {
+  // The iterator holds the map's only handle, so each entry moves out of its
+  // bucket: the yielded `Rc` is the map's own, with no second owner.
+  mut(counts) := usize(0);
+  mut(sum) := i32(0);
+  for(_two_entry_rc_map(Rc(i32)(10), Rc(i32)(20)).into_iter(), e => {
+    counts = (counts + ref_count(e.value));
+    sum = (sum + e.value.*);
+  });
+  assert(counts == usize(2), `each moved value has one owner: ${counts}`);
+  assert(sum == i32(30));
+});
+test("HashMap into_iter - a shared map copies its entries", {
+  // Another handle shares the map (lookahead D21), so the entries are copied
+  // and stay in the map.
+  map := HashMap(i32, Rc(i32)).new();
+  map.insert(i32(1), Rc(i32)(10));
+  other := map;
+  mut(counts) := usize(0);
+  for(map.into_iter(), e => {
+    counts = (counts + ref_count(e.value));
+  });
+  assert(counts == usize(2), `the copy and the map's entry: ${counts}`);
+  assert(other.len() == usize(1), "the other handle keeps the entry");
+  assert(other(i32(1)).* == i32(10));
+});
+test("HashMap into_iter - a partial walk drops the entries it did not yield", {
+  keep := Rc(i32)(5);
+  {
+    mut(it) := _two_entry_rc_map(keep, keep).into_iter();
+    assert(ref_count(keep) == usize(3));
+    first := it.next();
+    assert(first.is_some());
+    assert(ref_count(keep) == usize(3), `the entry moved, it was not copied: ${ref_count(keep)}`);
+  };
+  assert(ref_count(keep) == usize(1), `every entry dropped exactly once: ${ref_count(keep)}`);
+});
 test("HashMap iter - yields pointers to buckets", {
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));

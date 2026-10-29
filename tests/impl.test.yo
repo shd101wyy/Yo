@@ -554,3 +554,38 @@ test("a generic impl wrapping ArrayList of its same-named parameter compiles", {
   c := Ch2(i32).new();
   assert(c._st._value.len() == usize(0), "empty");
 });
+// A static method of a generic impl over a type built from an `Impl(Fn(...))`
+// parameter's type dispatches in that function's body
+// (issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md):
+// the body is checked at definition with the parameter's open type, and each
+// call specializes it with the closure's own type.
+_OpenHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(n : usize));
+impl(generic(T : Type), _OpenHolder(T), make : (fn(n : usize) -> Self)(Self(n : n)));
+_OpenKeep :: (fn(comptime(T) : Type) -> comptime(Type))(struct(f : T, n : i32));
+impl(
+  generic(T : Type),
+  _OpenKeep(T),
+  keep : (fn(f : T, n : i32) -> Self)(Self(f : f, n : n))
+);
+_open_make :: (fn(f : Impl(Fn(x : i32) -> i32)) -> usize)({
+  h := _OpenHolder(type_of(f)).make(usize(f(i32(2))));
+  h.n
+});
+_open_keep :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)({
+  k := _OpenKeep(type_of(f)).keep(f, i32(3));
+  (k.f)(k.n)
+});
+// The unapplied spelling infers `T := type_of(f)` from the argument.
+_open_keep_inferred :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)({
+  k := _OpenKeep.keep(f, i32(3));
+  (k.f)(k.n)
+});
+test("a static method over an Impl(Fn) parameter's type dispatches, per closure", {
+  base := i32(1);
+  assert(_open_make(x => (x + base)) == usize(3), "a phantom parameter");
+  assert(_open_make(x => (x * i32(4))) == usize(8), "a second closure type");
+  assert(_open_keep(x => (x + base)) == i32(4), "a parameter a field mentions");
+  assert(_open_keep(x => (x * i32(5))) == i32(15), "a second closure type");
+  assert(_open_keep_inferred(x => (x + base)) == i32(4), "_OpenKeep.keep(f, n) infers T");
+  assert(_open_keep_inferred(x => (x * i32(5))) == i32(15), "a second closure type");
+});

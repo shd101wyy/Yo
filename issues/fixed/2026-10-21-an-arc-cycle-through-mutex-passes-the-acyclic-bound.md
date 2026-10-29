@@ -7,7 +7,8 @@ strong edges. The marker exists to reject exactly this shape. Bounded: it
 needs a self-recursive payload type, and since decision 48 W2 no std API
 requires the bound, so only a user-written bound reads the wrong answer.
 
-**Status:** open, as a DERIVATION bug; retired as a LEAK by W2.
+**Status:** fixed 2026-10-29 by decision 48 W5 (`vbd/w5-acyclic-weak-edges`);
+retired as a LEAK by W2.
 **Found:** 2026-10-21 with the v0.2.67 seed, while answering the
 maintainer's question whether an `UnsafeArc` without the `Acyclic` bound is
 needed (it already is not enforced for this shape).
@@ -125,3 +126,34 @@ std carries no `Acyclic` bound after W2.
 A related shape with a different cause, an object that holds a cyclic cell
 behind an `Option` or a raw pointer (`OnceCell(Cyclic)`, `Channel(Cyclic)`), is
 `issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`.
+
+## Resolution (2026-10-29, decision 48 W5)
+
+`Acyclic` is no longer derived field by field at definition time.
+`type_implements_trait` answers it on demand with one walk over the nominal
+types reachable from `T` (`_acyclic_by_reach`, `src/evaluator/trait_checking.yo`):
+Tarjan's strongly connected components over fields, variant payloads and raw
+pointees, `Weak`/`ArcWeak` skipped. `T` is `Acyclic` iff no reachable
+component is cyclic and holds a shared cell, so a recursion through
+`Arc(Mutex(Self))` is a cycle (the inductive answer) and `Option(Box(Self))`
+stays a tree. The walk runs when the question is asked, after the
+declarations are final, so neither an in-progress obligation nor a
+definition-time self shell can stand in for the answer.
+
+The reproducer, compiled and run with the tree binary (base = develop
+`e582ecb20`'s code):
+
+```text
+Node <: Acyclic: false (expected false)
+Arc(Mutex(Node)) <: Acyclic: false (expected false)
+NodeDirect <: Acyclic: false (expected false)
+Peer <: Acyclic: false (expected false)
+Arc(Mutex(Peer)) <: Acyclic: false (expected false)
+Mutex(Peer) <: Acyclic: false (expected false)
+Arc(PeerDirect) <: Acyclic: false (expected false)
+BoxNode <: Acyclic: true (expected true)
+```
+
+Test: `tests/send_sync.test.yo`, "a value struct that reaches itself through
+an Arc is not Acyclic" (the reproducer's verdicts plus an async `Mutex` of
+it); on the base binary the file fails at the first of the new rows.
