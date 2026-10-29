@@ -40,7 +40,7 @@ test("an Allocator parameter and a struct holding one pass placement on", {
   assert(counting_live() == base, `both cells went back: ${counting_live()}`);
 });
 test("the handle's raw words stay gated in a safe file", {
-  comptime_expect_error(Allocator.global().alloc(usize(8)), "Raw pointer values are not available in safe code");
+  comptime_expect_error(Allocator.global().alloc(usize(8), usize(8)), "Raw pointer values are not available in safe code");
   // The opaque handle is the prelude's `Allocator` only: any other struct
   // carrying a raw pointer is still rejected as a parameter type.
   comptime_expect_error((fn(h : RawHolder) -> unit)(()), "Raw-pointer-carrying types ('RawHolder')");

@@ -371,19 +371,27 @@ export(Trace);
 /// The functions behind an `Allocator`. Implementing one needs
 /// `pragma(Pragma.AllowUnsafe)`.
 ///
-/// - `alloc(ctx, size)` returns a block of at least `size` bytes aligned to
-///   16, or `.None`.
-/// - `realloc(ctx, ptr, new_size)` resizes a block this vtable's `alloc`
-///   returned, keeping its first `min(old, new_size)` bytes. `.None` leaves
-///   the original block untouched and still owned by the caller.
-/// - `free(ctx, ptr)` releases such a block.
+/// Allocator interface version 2, Zig's `std.mem.Allocator` calls:
 ///
-/// There is no size at `free` and no aligned family: every container buffer
-/// and every RC block uses the plain family (see `std/allocator.yo`'s module notes).
+/// - `alloc(ctx, size, align)` returns a block of at least `size` bytes
+///   aligned to `align` (a power of two, at least 16), or `.None`.
+/// - `realloc(ctx, ptr, old_size, new_size, align)` resizes a block this
+///   vtable's `alloc` returned for `old_size` bytes at `align`, keeping its
+///   first `min(old_size, new_size)` bytes. `.None` leaves the original block
+///   untouched and still owned by the caller.
+/// - `free(ctx, ptr, size, align)` releases such a block; `size` and `align`
+///   are the ones it was allocated (or last reallocated) with, so a
+///   size-class allocator needs no header of its own.
+///
+/// A block can be freed on another thread (an `Arc` dropped elsewhere), so an
+/// allocator shared across threads makes its `free` thread-safe. Codegen calls
+/// these slots for the reference-counted objects an `alloc` argument places,
+/// so the shape is a contract with the compiler: it reads the vtable's shape
+/// to pick the runtime it emits (see `std/allocator.yo`'s module notes).
 AllocatorVTable :: struct(
-  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
-  realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
-  free : (fn(ctx : ?*void, ptr : ?*void) -> unit)
+  alloc : (fn(ctx : ?*void, size : usize, align : usize) -> ?*void),
+  realloc : (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void),
+  free : (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)
 );
 /// An allocator value: an opaque context plus an immortal vtable. Two words,
 /// copied freely; it is not reference counted, because an allocator must not
@@ -10121,9 +10129,10 @@ export(Weak);
 ///
 /// The cell is one allocation: a 16-byte owner prefix, then the payload. The
 /// prefix records the allocator that placed the cell (the `alloc` argument),
-/// or the global allocator, and the
-/// drop frees the cell through it (§3.11). A placed cell's prefix is the one
-/// `std/allocator.yo`'s `Allocator.alloc` writes, so `Allocator.owner_of`
+/// or the global allocator, and the drop frees the cell through it (§3.11),
+/// telling a placed cell's allocator the size and alignment the cell was
+/// allocated with. A placed cell's prefix is the one `std/allocator.yo`'s
+/// `Allocator.alloc` writes for an alignment of 16, so `Allocator.owner_of`
 /// reads it.
 ///
 /// ```yo
@@ -10205,7 +10214,7 @@ impl(
     );
     size := (size_of(T) + _BOX_PREFIX_SIZE);
     block := match(
-      match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size), .None => __yo_malloc(size)),
+      match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size, _BOX_PREFIX_SIZE), .None => __yo_malloc(size)),
       .Some(b) => b,
       .None => __yo_panic("Box.new: out of memory")
     );
@@ -10254,7 +10263,7 @@ impl(
           owner := unsafe(block.*);
           match(
             owner.vtable,
-            .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block))),
+            .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block)), size_of(T) + _BOX_PREFIX_SIZE, _BOX_PREFIX_SIZE),
             .None => __yo_free(.Some((*void)(block)))
           );
         }

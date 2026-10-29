@@ -50,7 +50,7 @@ test("HashSet churn keeps the backing map's live + tombstones under the load thr
 test("the backing map's _alloc_with_capacity rejects a capacity that would overflow at the set's entry width", {
   big := ((SIZE_MAX / size_of(MapEntry(i64, unit))) + usize(1));
   match(
-    HashMap(i64, unit)._alloc_with_capacity(big),
+    HashMap(i64, unit)._alloc_with_capacity(big, .None),
     .Err(.CapacityOverflow) => assert(true, "the wrapped byte size is refused"),
     .Err(.AllocError(_)) => assert(false, "an allocation was attempted: the overflow guard is gone"),
     .Ok(_) => assert(false, "the wrapped capacity was accepted: the overflow guard is gone")
@@ -59,7 +59,7 @@ test("the backing map's _alloc_with_capacity rejects a capacity that would overf
 
 test("the backing map's _alloc_with_capacity accepts an ordinary capacity at the set's entry width", {
   match(
-    HashMap(i64, unit)._alloc_with_capacity(usize(16)),
+    HashMap(i64, unit)._alloc_with_capacity(usize(16), .None),
     .Ok(_) => assert(true, "16 buckets is a normal allocation"),
     .Err(_) => assert(false, "an ordinary capacity was rejected")
   );

@@ -1,11 +1,14 @@
 //! Objects placed by an explicit allocator: an `alloc : .Some(a)` argument at
-//! the creation site (`rc`, `box`, `arc`) or a container's `new_in(a)` places
-//! the block in `a`, and its release is routed back to `a`. A creation without
+//! the creation site (`rc`, `box`, `arc`, a container's `new` /
+//! `with_capacity`) places the block in `a`, `clone_in(a)` places a copy
+//! there, and its release is routed back to `a`. A creation without
 //! one is global; there is no allocation scope
 //! (`plans/backlog/ALLOCATOR_PLACEMENT.md`). Also the `Allocator` vtable
 //! surface itself (`plans/archive/EXPLICIT_ALLOCATORS.md` P0): the owner
-//! prefix, the global allocator's value, and an `Allocator` value shared
-//! across threads.
+//! prefix, the global allocator's value, an `Allocator` value shared across
+//! threads, and interface version 2's aligned blocks and sized free
+//! (`plans/VALUES_BY_DEFAULT.md` "After V2b: the allocator interface, version
+//! 2").
 //!
 //! The counting allocator below is a user-written `Allocator` implementor: it
 //! forwards to the global allocator and keeps totals, which is what freezes
@@ -16,6 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { GlobalAllocator } :: import("std/allocator");
+{ memcpy } :: import("std/libc/string");
 { Thread } :: import("std/thread");
 { AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { HashMap } :: import("std/collections/hash_map");
@@ -26,14 +30,14 @@ pragma(Pragma.AllowUnsafe);
 // that shares an allocator across threads uses `_SHARED_VTABLE` below.
 _Counts :: struct(live : usize, allocs : usize, frees : usize, reallocs : usize, bytes : usize);
 derive(_Counts, Copy, Clone);
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.allocs = (c.*.allocs + usize(1)));
   unsafe(c.*.live = (c.*.live + usize(1)));
   unsafe(c.*.bytes = (c.*.bytes + size));
   GlobalAllocator.malloc(size)
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.reallocs = (c.*.reallocs + usize(1)));
   cond(
@@ -44,7 +48,7 @@ _count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
   );
   GlobalAllocator.realloc(ptr, new_size)
 });
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.frees = (c.*.frees + usize(1)));
   cond(
@@ -133,11 +137,11 @@ test("ArrayList.new, HashMap.new, Deque.new and box(v) are on the global allocat
   b := box(i32(2));
   assert(Box.allocator(b).is_none(), "box(v)");
 });
-test("An ArrayList placed by new_in keeps growing in its allocator", {
+test("An ArrayList placed by its alloc argument keeps growing in its allocator", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    list := ArrayList(i32).new_in(heap);
+    list := ArrayList(i32).new(alloc : .Some(heap));
     mut(i) := i32(0);
     while(i < i32(500), {
       list.push(i);
@@ -147,14 +151,14 @@ test("An ArrayList placed by new_in keeps growing in its allocator", {
   };
   assert(counts.live == usize(0), `released: ${counts.live}`);
 });
-test("A HashMap and a StringBuilder placed by new_in live there; an interpolated String is global", {
+test("A HashMap and a StringBuilder placed by their alloc argument live there; an interpolated String is global", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    m := HashMap(i32, i32).new_in(heap);
+    m := HashMap(i32, i32).new(alloc : .Some(heap));
     m.insert(i32(1), i32(10));
     assert(m.allocator().is_some(), "the map's tables");
-    sb := StringBuilder.new_in(heap);
+    sb := StringBuilder.new(alloc : .Some(heap));
     sb.write_str("placed");
     placed := counts.live;
     assert(placed >= usize(2), `the map's tables and the builder's bytes: ${placed}`);
@@ -168,25 +172,25 @@ test("A HashMap and a StringBuilder placed by new_in live there; an interpolated
 test("A counting allocator sees every block it owns, prefix included", {
   counts := _counts();
   a := _counting(addr_of(counts));
-  p := a.alloc(usize(10));
-  q := a.alloc(usize(20));
+  p := a.alloc(usize(10), usize(8));
+  q := a.alloc(usize(20), usize(8));
   assert(counts.allocs == usize(2), "two allocations");
   // Each request carries the 16-byte owner prefix.
   assert(counts.bytes == usize(62), `bytes: ${counts.bytes}`);
-  r := Allocator.realloc(q.unwrap(), usize(500));
+  r := Allocator.realloc(q.unwrap(), usize(20), usize(500), usize(8));
   assert(r.is_some(), "realloc succeeds");
   assert(counts.reallocs == usize(1), "one realloc");
   assert(Allocator.owner_of(r.unwrap()).same(a), "the owner survives a realloc");
-  Allocator.free(p);
-  Allocator.free(r);
+  Allocator.free(p, usize(10), usize(8));
+  Allocator.free(r, usize(500), usize(8));
   assert(counts.frees == usize(2), "balanced");
-  Allocator.free(.None);
+  Allocator.free(.None, usize(0), usize(8));
   assert(counts.frees == usize(2), "freeing .None is a no-op");
 });
 test("The owner prefix is ctx then vtable, 16 bytes before the block", {
   counts := _counts();
   a := _counting(addr_of(counts));
-  p := (*u8)(a.alloc(usize(8)).unwrap());
+  p := (*u8)(a.alloc(usize(8), usize(8)).unwrap());
   // SAFETY: every Allocator.alloc block is preceded by its 16-byte prefix:
   // `ctx` at offset 0, `vtable` at `sizeof(*void)` (4 on wasm32, not 8).
   prefix := p.sub(usize(16));
@@ -194,27 +198,27 @@ test("The owner prefix is ctx then vtable, 16 bytes before the block", {
   word1 := unsafe((**AllocatorVTable)(prefix.add(size_of(*void))).*);
   assert(word0 == a.ctx, "prefix word 0 is ctx");
   assert(word1 == a.vtable, "prefix word 1 is the vtable");
-  Allocator.free(.Some((*void)(p)));
+  Allocator.free(.Some((*void)(p)), usize(8), usize(8));
   assert(counts.live == usize(0), "the free was routed back through the prefix");
 });
 test("Allocator.global round-trips and owns its blocks", {
   g := Allocator.global();
   assert(g.same(Allocator.global()), "one global allocator");
-  p := g.alloc(usize(64));
+  p := g.alloc(usize(64), usize(8));
   assert(p.is_some(), "alloc");
-  q := Allocator.realloc(p.unwrap(), usize(1 << 16));
+  q := Allocator.realloc(p.unwrap(), usize(64), usize(1 << 16), usize(8));
   assert(q.is_some(), "realloc");
   assert(Allocator.owner_of(q.unwrap()).same(g), "owner");
-  Allocator.free(q);
+  Allocator.free(q, usize(1 << 16), usize(8));
 });
 // A thread-safe counter for the allocator two threads share: the counting
 // allocator above is not.
 _SHARED_LIVE := AtomicUsize.new(usize(0));
-_shared_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_shared_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   _SHARED_LIVE.fetch_add(usize(1), MemoryOrder.AcqRel);
   GlobalAllocator.malloc(size)
 });
-_shared_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_shared_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   cond(
     ptr.is_none() => {
       _SHARED_LIVE.fetch_add(usize(1), MemoryOrder.AcqRel);
@@ -223,7 +227,7 @@ _shared_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
   );
   GlobalAllocator.realloc(ptr, new_size)
 });
-_shared_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_shared_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   cond(
     ptr.is_some() => {
       _SHARED_LIVE.fetch_sub(usize(1), MemoryOrder.AcqRel);
@@ -238,10 +242,10 @@ _churn :: (fn(a : Allocator) -> unit)({
   blocks := ArrayList(*void).new();
   mut(k) := usize(0);
   while(k < usize(500), {
-    blocks.push(a.alloc(usize(24)).unwrap());
+    blocks.push(a.alloc(usize(24), usize(8)).unwrap());
     k = (k + usize(1));
   });
-  for(blocks, b => Allocator.free(.Some(b)));
+  for(blocks, b => Allocator.free(.Some(b), usize(24), usize(8)));
 });
 test("An Allocator value crosses threads and every release comes back to it", {
   a := Allocator(ctx : .None, vtable : addr_of(_SHARED_VTABLE));
@@ -253,4 +257,340 @@ test("An Allocator value crosses threads and every release comes back to it", {
   g := Allocator.global();
   t3 := Thread(unit).spawn(io => _churn(g));
   t3.join();
+});
+// ===== clone_in: a copy placed explicitly (ALLOCATOR_PLACEMENT.md B2a) =====
+test("clone_in places a copy in the allocator it names, wherever the source lives", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  // A placed source copied to the global allocator: once the source is gone,
+  // nothing is left in `heap`.
+  copy := {
+    src := ArrayList(i32).new(alloc : .Some(heap));
+    src.push(i32(1));
+    src.push(i32(2));
+    assert(counts.live == usize(1), "the source's buffer is placed");
+    c := src.clone_in(Allocator.global());
+    assert(counts.live == usize(1), `the copy is not in the source's allocator: ${counts.live}`);
+    assert(c.allocator().unwrap().same(Allocator.global()), "the copy names the global Allocator value");
+    c
+  };
+  assert(counts.live == usize(0), `the source released and the copy lives elsewhere: ${counts.live}`);
+  assert((copy(usize(0)) + copy(usize(1))) == i32(3), "the copy has the elements");
+  // A global source copied into `heap`: every container kind with clone_in.
+  {
+    xs := ArrayList(String).new();
+    xs.push(String.from("one"));
+    m := HashMap(i32, i32).new();
+    m.insert(i32(1), i32(10));
+    s := String.from("placed text");
+    sb := StringBuilder.new();
+    sb.write_str("built");
+    xs_c := xs.clone_in(heap);
+    m_c := m.clone_in(heap);
+    s_c := s.clone_in(heap);
+    sb_c := sb.clone_in(heap);
+    assert(xs_c.allocator().unwrap().same(heap), "ArrayList.clone_in");
+    assert(m_c.allocator().unwrap().same(heap), "HashMap.clone_in");
+    assert(xs.allocator().is_none() && m.allocator().is_none(), "the sources stay global");
+    assert((xs_c(usize(0)) == String.from("one")) && (m_c.get(i32(1)) == Option(i32).Some(i32(10))), "the copies' contents");
+    assert(s_c == s, "String.clone_in copies the bytes");
+    assert(sb_c.to_string() == `built`, "StringBuilder.clone_in copies the bytes");
+    // The list's buffer, the map's two tables, the string's buffer and the
+    // builder's buffer; the copied elements' own blocks follow their `clone`.
+    assert(counts.live >= usize(5), `the copies' buffers are in heap: ${counts.live}`);
+  };
+  assert(counts.live == usize(0), `every copy released into heap: ${counts.live}`);
+});
+test("clone() keeps the copy where the source lives, clone_in moves it", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    s := String.from("abc").clone_in(heap);
+    kept := s.clone();
+    assert(counts.live == usize(2), `the source and its clone are both in heap: ${counts.live}`);
+    moved := kept.clone_in(Allocator.global());
+    assert(counts.live == usize(2), "clone_in to the global allocator adds nothing to heap");
+    assert(moved == `abc`, "contents");
+  };
+  assert(counts.live == usize(0), `released: ${counts.live}`);
+});
+// ===== Allocator interface version 2: aligned blocks, a sized free =====
+// A ledger allocator: every block it hands out is recorded with the size and
+// alignment it was asked for, and `realloc`/`free` must be told exactly those.
+// Its storage is raw global memory, never an RC object, so recording a block
+// allocates nothing in the allocator it serves.
+_Rec :: struct(ptr : ?*void, size : usize, align : usize);
+derive(_Rec, Copy, Clone);
+_LEDGER_CAP :: usize(1024);
+_Ledger :: struct(recs : ?*void, n : usize, live : usize, mismatches : usize, misaligned : usize, max_align : usize);
+derive(_Ledger, Copy, Clone);
+// A pointer's address, for alignment checks.
+_addr :: (fn(p : ?*void) -> usize)({
+  c := p;
+  mut(w) := usize(0);
+  unsafe(memcpy((*void)(addr_of(w)), (*void)(addr_of(c)), size_of(usize)));
+  w
+});
+_rec_at :: (fn(l : *_Ledger, i : usize) -> *_Rec)(
+  // SAFETY: `recs` holds `_LEDGER_CAP` records and `i` is below `n`.
+  (*_Rec)(unsafe((*u8)(l.*.recs.unwrap()).add(i * size_of(_Rec))))
+);
+// Retire the record of `ptr`, checked against `size` and `align`; a mismatch
+// is counted, and so is a `ptr` the ledger never handed out.
+_ledger_take :: (fn(l : *_Ledger, ptr : ?*void, size : usize, align : usize) -> unit)({
+  mut(i) := usize(0);
+  mut(found) := false;
+  while((i < unsafe(l.*.n)) && !found, {
+    r := _rec_at(l, i);
+    if(unsafe(r.*.ptr) == ptr, {
+      found = true;
+      if((unsafe(r.*.size) != size) || (unsafe(r.*.align) != align), {
+        unsafe(l.*.mismatches = (l.*.mismatches + usize(1)));
+      });
+      unsafe(r.*.ptr = .None);
+      unsafe(l.*.live = (l.*.live - usize(1)));
+    });
+    i = (i + usize(1));
+  });
+  if(!found, {
+    unsafe(l.*.mismatches = (l.*.mismatches + usize(1)));
+  });
+});
+_ledger_put :: (fn(l : *_Ledger, p : ?*void, size : usize, align : usize) -> unit)({
+  if((_addr(p) % align) != usize(0), {
+    unsafe(l.*.misaligned = (l.*.misaligned + usize(1)));
+  });
+  if(align > unsafe(l.*.max_align), {
+    unsafe(l.*.max_align = align);
+  });
+  assert(unsafe(l.*.n) < _LEDGER_CAP, "ledger full");
+  unsafe(_rec_at(l, l.*.n).* = _Rec(ptr : p, size : size, align : align));
+  unsafe(l.*.n = (l.*.n + usize(1)));
+  unsafe(l.*.live = (l.*.live + usize(1)));
+});
+_ledger_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
+  l := (*_Ledger)(ctx.unwrap());
+  p := GlobalAllocator.aligned_alloc(align, size);
+  if(p.is_some(), _ledger_put(l, p, size, align));
+  p
+});
+_ledger_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
+  l := (*_Ledger)(ctx.unwrap());
+  q := GlobalAllocator.aligned_alloc(align, new_size);
+  match(
+    q,
+    .Some(qp) => {
+      n := cond((old_size < new_size) => old_size, true => new_size);
+      // SAFETY: `ptr` holds `old_size` bytes (the ledger checks it), `qp`
+      // `new_size`.
+      unsafe(memcpy(qp, ptr.unwrap(), n));
+      _ledger_take(l, ptr, old_size, align);
+      GlobalAllocator.aligned_free(ptr);
+      _ledger_put(l, q, new_size, align);
+    },
+    .None => ()
+  );
+  q
+});
+_ledger_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
+  _ledger_take((*_Ledger)(ctx.unwrap()), ptr, size, align);
+  GlobalAllocator.aligned_free(ptr);
+});
+_LEDGER_VTABLE := AllocatorVTable(alloc : _ledger_alloc, realloc : _ledger_realloc, free : _ledger_free);
+_new_ledger :: (fn() -> _Ledger)(
+  _Ledger(
+    recs : GlobalAllocator.calloc(_LEDGER_CAP, size_of(_Rec)),
+    n : usize(0),
+    live : usize(0),
+    mismatches : usize(0),
+    misaligned : usize(0),
+    max_align : usize(0)
+  )
+);
+test("Every release tells the allocator the size and alignment the block was allocated with", {
+  mut(ledger) := _new_ledger();
+  a := Allocator(ctx : .Some((*void)(addr_of(ledger))), vtable : addr_of(_LEDGER_VTABLE));
+  placed := Option(Allocator).Some(a);
+  {
+    p := rc(_Point(x : i32(3), y : i32(4)), alloc : placed);
+    b := rc(i64(9), alloc : placed);
+    at := arc(i64(5), alloc : placed);
+    bx := box(i32(2), alloc : placed);
+    (d : Dyn(_Speak)) = dyn(rc(_Dog(volume : i32(6)), alloc : placed));
+    list := ArrayList(i64).new(alloc : placed);
+    mut(i) := i64(0);
+    while(i < i64(300), {
+      list.push(i);
+      i = (i + i64(1));
+    });
+    map := HashMap(i32, i32).new(alloc : placed);
+    mut(k) := i32(0);
+    while(k < i32(100), {
+      map.insert(k, k * i32(2));
+      k = (k + i32(1));
+    });
+    q := Deque(i32).new(alloc : placed);
+    mut(j) := i32(0);
+    while(j < i32(40), {
+      q.push_back(j);
+      j = (j + i32(1));
+    });
+    sb := StringBuilder.with_capacity(usize(4), alloc : placed);
+    sb.write_str("grows past its first buffer");
+    assert((p.x + p.y) == i32(7), "rc of a struct");
+    assert(b.* == i64(9), "rc");
+    assert(at.* == i64(5), "arc");
+    assert(bx.* == i32(2), "box");
+    assert(d.speak() == i32(6), "dyn");
+    assert(list.get(usize(299)) == Option(i64).Some(i64(299)), "list");
+    assert(map.get(i32(99)) == Option(i32).Some(i32(198)), "map");
+    assert(q.len() == usize(40), "deque");
+    assert(sb.len() == usize(27), "builder");
+    assert(ledger.live >= usize(10), `every kind placed in the ledger: ${ledger.live}`);
+  };
+  assert(ledger.live == usize(0), `every block went back: ${ledger.live} live`);
+  assert(ledger.mismatches == usize(0), `every free and realloc was told the allocated size and alignment: ${ledger.mismatches}`);
+  assert(ledger.misaligned == usize(0), "every block honours its alignment");
+  GlobalAllocator.free(ledger.recs);
+});
+test("Allocator.alloc places an over-aligned block and keeps it aligned across realloc", {
+  mut(ledger) := _new_ledger();
+  a := Allocator(ctx : .Some((*void)(addr_of(ledger))), vtable : addr_of(_LEDGER_VTABLE));
+  p := a.alloc(usize(100), usize(256)).unwrap();
+  assert((_addr(.Some(p)) % usize(256)) == usize(0), "256-aligned");
+  assert(ledger.max_align == usize(256), "the raw block was asked for the alignment");
+  assert(Allocator.owner_of(p).same(a), "the owner record sits before an over-aligned block too");
+  unsafe((*u8)(p).* = u8(7));
+  unsafe((*u8)(p).add(usize(99)).* = u8(9));
+  q := Allocator.realloc(p, usize(100), usize(5000), usize(256)).unwrap();
+  assert((_addr(.Some(q)) % usize(256)) == usize(0), "still 256-aligned");
+  assert(unsafe((*u8)(q).*) == u8(7), "first byte kept");
+  assert(unsafe((*u8)(q).add(usize(99)).*) == u8(9), "last byte kept");
+  Allocator.free(.Some(q), usize(5000), usize(256));
+  assert(ledger.live == usize(0), "released");
+  assert(ledger.mismatches == usize(0), "sized free matched");
+  assert(a.alloc(usize(8), usize(48)).is_none(), "an alignment that is not a power of two is refused");
+  assert(a.alloc(usize(8), usize(0)).is_none(), "and so is an alignment of zero");
+  // The global allocator's value serves the alignment too, through the
+  // aligned family.
+  g := Allocator.global().alloc(usize(10), usize(64)).unwrap();
+  assert((_addr(.Some(g)) % usize(64)) == usize(0), "global: 64-aligned");
+  g2 := Allocator.realloc(g, usize(10), usize(3000), usize(64)).unwrap();
+  assert((_addr(.Some(g2)) % usize(64)) == usize(0), "global: still 64-aligned after realloc");
+  Allocator.free(.Some(g2), usize(3000), usize(64));
+  GlobalAllocator.free(ledger.recs);
+});
+// A header-free pool: size classes of 64/128/256/512 bytes, each a free list
+// threaded through the free blocks themselves. It keeps no per-block header:
+// `free` finds the class from the size it is told, so a release told a wrong
+// size lands on the wrong list and the per-class counts stop balancing.
+_POOL_CLASSES :: usize(4);
+_Pool :: struct(heads : Array(?*void, 4), allocs : Array(usize, 4), frees : Array(usize, 4), refused : usize);
+derive(_Pool, Copy, Clone);
+_pool_class :: (fn(size : usize) -> usize)(
+  cond(
+    (size <= usize(64)) => usize(0),
+    (size <= usize(128)) => usize(1),
+    (size <= usize(256)) => usize(2),
+    (size <= usize(512)) => usize(3),
+    true => _POOL_CLASSES
+  )
+);
+_pool_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
+  pl := (*_Pool)(ctx.unwrap());
+  c := _pool_class(size);
+  cond(
+    ((c == _POOL_CLASSES) || (align > usize(16))) => {
+      unsafe(pl.*.refused = (pl.*.refused + usize(1)));
+      .None
+    },
+    true => {
+      unsafe(pl.*.allocs(c) = (pl.*.allocs(c) + usize(1)));
+      match(
+        unsafe(pl.*.heads(c)),
+        .Some(h) => {
+          // SAFETY: a free block's first word is the next free block.
+          unsafe(pl.*.heads(c) = (*?*void)(h).*);
+          .Some(h)
+        },
+        .None => GlobalAllocator.malloc(usize(64) << c)
+      )
+    }
+  )
+});
+_pool_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
+  pl := (*_Pool)(ctx.unwrap());
+  c := _pool_class(size);
+  unsafe(pl.*.frees(c) = (pl.*.frees(c) + usize(1)));
+  // SAFETY: `ptr` is a block of class `c` (the size says so), at least a word.
+  unsafe((*?*void)(ptr.unwrap()).* = pl.*.heads(c));
+  unsafe(pl.*.heads(c) = ptr);
+});
+_pool_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(
+  cond(
+    (_pool_class(old_size) == _pool_class(new_size)) => ptr,
+    true => match(
+      _pool_alloc(ctx, new_size, align),
+      .Some(q) => {
+        n := cond((old_size < new_size) => old_size, true => new_size);
+        // SAFETY: distinct blocks of at least `n` bytes.
+        unsafe(memcpy(q, ptr.unwrap(), n));
+        _pool_free(ctx, ptr, old_size, align);
+        .Some(q)
+      },
+      .None => .None
+    )
+  )
+);
+_POOL_VTABLE := AllocatorVTable(alloc : _pool_alloc, realloc : _pool_realloc, free : _pool_free);
+test("A header-free pool allocator frees by the size it is given", {
+  mut(pool) := _Pool(
+    heads : Array(?*void, 4)(.None, .None, .None, .None),
+    allocs : Array(usize, 4)(usize(0), usize(0), usize(0), usize(0)),
+    frees : Array(usize, 4)(usize(0), usize(0), usize(0), usize(0)),
+    refused : usize(0)
+  );
+  a := Allocator(ctx : .Some((*void)(addr_of(pool))), vtable : addr_of(_POOL_VTABLE));
+  placed := Option(Allocator).Some(a);
+  mut(round) := usize(0);
+  while(round < usize(3), {
+    {
+      pts := ArrayList(Rc(_Point)).new();
+      mut(i) := i32(0);
+      while(i < i32(20), {
+        pts.push(rc(_Point(x : i32(i), y : i32(1)), alloc : placed));
+        i = (i + i32(1));
+      });
+      bx := box(i64(3), alloc : placed);
+      (d : Dyn(_Speak)) = dyn(rc(_Dog(volume : i32(6)), alloc : placed));
+      list := ArrayList(i32).new(alloc : placed);
+      mut(j) := i32(0);
+      while(j < i32(60), {
+        list.push(j);
+        j = (j + i32(1));
+      });
+      assert(list.len() == usize(60), "list");
+      assert(pts(usize(19)).x == i32(19), "points");
+      assert((bx.* + i64(d.speak())) == i64(9), "box and dyn");
+    };
+    round = (round + usize(1));
+  });
+  assert(pool.refused == usize(0), "every request fit a class");
+  mut(c) := usize(0);
+  while(c < _POOL_CLASSES, {
+    assert(pool.allocs(c) == pool.frees(c), `class ${c}: ${pool.allocs(c)} allocations, ${pool.frees(c)} frees`);
+    c = (c + usize(1));
+  });
+  assert(pool.allocs(usize(0)) > usize(0), "the small objects took the smallest class");
+  // Return the pooled blocks to the global allocator.
+  mut(e) := usize(0);
+  while(e < _POOL_CLASSES, {
+    while(pool.heads(e).is_some(), {
+      h := pool.heads(e);
+      // SAFETY: a free block's first word is the next free block.
+      pool.heads(e) = unsafe((*?*void)(h.unwrap()).*);
+      GlobalAllocator.free(h);
+    });
+    e = (e + usize(1));
+  });
 });

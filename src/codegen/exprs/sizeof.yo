@@ -1,7 +1,9 @@
-//! `sizeof(...)` emitter.
+//! `sizeof(...)` and `align_of(...)` emitters.
 { String } :: import("std/string");
 { AstExpr } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ get_type_string } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// `sizeof(<arg>)` — the C sizeof operator on the argument.
@@ -21,4 +23,34 @@ generate_sizeof :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     .Atom(_, _) => codegen_fatal_expr(String.from("sizeof requires a call expression"))
   )
 );
-export(generate_sizeof);
+/// `align_of(<arg>)` whose alignment the evaluator could not compute — a type
+/// holding an opaque `extern` type, whose layout only the C compiler knows —
+/// becomes C11's `_Alignof` on the measured type: the type argument, or the
+/// argument expression's type, as `evaluate_align_of` reads it. A known
+/// alignment never reaches here, since the call folds to its constant.
+/// Without this the call had no emitter and stayed untranspiled
+/// (issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md).
+generate_alignof :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  arg := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
+      .Some(a) => a,
+      .None => return(codegen_fatal_expr(String.from("align_of requires exactly 1 argument")))
+    ),
+    .Atom(_, _) => return(codegen_fatal_expr(String.from("align_of requires a call expression")))
+  );
+  // A type argument lowers the way `sizeof`'s does (its structural C name,
+  // never the collected-type registry); a value argument is measured by its
+  // type.
+  measured := match(
+    context.base.get_expr_info(&arg),
+    .Some(ai) => match(ai.value, .Some(.TypeVal(_)) => _call_generate_expr(&arg, indent, context), _ => get_type_string(&ai.ty, &context.base)),
+    .None => return(codegen_fatal_expr(String.from("align_of argument has no evaluation info")))
+  );
+  out := String.from("_Alignof(");
+  out.push_string(&measured);
+  out.push_str(")");
+  out
+});
+export(generate_sizeof, generate_alignof);
