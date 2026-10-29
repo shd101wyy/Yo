@@ -116,8 +116,8 @@ _synth_token :: (fn(base : &Token, kind : TokenKind, value : &String) -> Token)(
     column : base.column,
     character : base.character,
     byte_offset : base.byte_offset,
-    module_path : base.module_path,
-    input : base.input
+    module_path : Rc.clone(base.module_path),
+    input : Rc.clone(base.input)
   )
 );
 _synth_atom :: (fn(base : &Token, kind : TokenKind, value : &String) -> AstExpr)(
@@ -217,7 +217,7 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
   )
 });
 _enum_variant_names :: (fn(t : &TypeValue) -> SharedList(String))(
-  match(t, Rc(.EnumT({ variant_names : vns })) => vns, _ => no_labels())
+  match(t, Rc(.EnumT({ variant_names : vns })) => Rc.clone(vns), _ => no_labels())
 );
 _enum_variant_labels :: (fn(t : &TypeValue, idx : usize) -> SharedList(String))(
   match(
@@ -253,8 +253,8 @@ _variant_name_eq :: (fn(stored : &String, arm_name : &String) -> bool)(
 _select_variant :: (fn(enum_ty : &TypeValue, name : &String) -> TypeValue)(
   match(
     enum_ty,
-    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), vn, vf, Option(String).Some(name.clone()), vfl, discs, eirs, eiar, etas)),
-    _ => enum_ty
+    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(name.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
+    _ => Rc.clone(enum_ty)
   )
 );
 /// Bind the hidden subject variable for a constant/range test and evaluate the
@@ -382,7 +382,7 @@ _enum_const_to_variant :: (fn(value : &EvalValue, position_ty : &TypeValue) -> O
                   idx : vi,
                   field_idx : ArrayList(usize).new(),
                   subs : ArrayList(Pattern).new(),
-                  enum_ty : position_ty,
+                  enum_ty : Rc.clone(position_ty),
                   through_ptr : false,
                   arity : variant_field_types(position_ty, vi).len()
                 )
@@ -481,13 +481,13 @@ _compile_const_expr :: (
       },
       .None => ()
     );
-    const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(i) => i.ty, .None => position_ty);
+    const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(i) => Rc.clone(i.ty), .None => Rc.clone(position_ty));
     test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
     return(Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(&test), test : test));
   });
   test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
   value := _const_value_of(e, e, ctx, exn);
-  const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => i.ty, .None => position_ty);
+  const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => Rc.clone(i.ty), .None => Rc.clone(position_ty));
   Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(&test), test : test)
 });
 /// Compile a range pattern `(lo..hi)` / `(lo..=hi)`.
@@ -555,7 +555,7 @@ _compile_range :: (
     src : e,
     subject : subject,
     test : test,
-    ty : position_ty,
+    ty : Rc.clone(position_ty),
     lo : match(bound_vals.get(usize(0)), .Some(v) => v, .None => Option(EvalValue).None),
     hi : match(bound_vals.get(usize(1)), .Some(v) => v, .None => Option(EvalValue).None),
     inclusive : inclusive
@@ -997,7 +997,7 @@ _struct_type_in_scope :: (fn(name : &String, env : &Environment) -> Option(TypeV
     v.value.last(),
     .Some(val) => match(
       val,
-      .TypeVal(t) => cond(is_struct_type(&t) => Option(TypeValue).Some(t), true => Option(TypeValue).None),
+      .TypeVal(t) => cond(is_struct_type(&t) => Option(TypeValue).Some(Rc.clone(t)), true => Option(TypeValue).None),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -1222,7 +1222,7 @@ _compile_struct :: (
     subs.push(sub);
     pi = (pi + usize(1));
   });
-  Pattern.Struct(struct_ty : struct_ty, field_idx : field_idx, subs : subs, arity : arity)
+  Pattern.Struct(struct_ty : Rc.clone(struct_ty), field_idx : field_idx, subs : subs, arity : arity)
 });
 /// The name a struct-pattern diagnostic addresses (the named struct, or the
 /// position's type for the anonymous form).
@@ -1376,7 +1376,7 @@ compile_pattern :: (
       bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf, _ => String.from("-"));
       eprintln(`[tmint-bind] name=${nm} id=${bid2} n_ta=${bta2.to_string()} cfid=${bcf2} fields=${fs}`);
     });
-    pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : name_expr));
+    pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt, atom : name_expr));
     // The self-calls that can throw are by NAME, not `recur`: seeds up to
     // v0.2.45 emit `recur` without the escape check, so a seed-built compiler
     // continued past a throw here with a NULL sub-pattern
@@ -1416,7 +1416,7 @@ compile_pattern :: (
         bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4, _ => String.from("-"));
         eprintln(`[tmint-bind] name=${nm} id=${bid3} n_ta=${bta3.to_string()} cfid=${bcf3} fields=${fs2}`);
       });
-      pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : e));
+      pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt, atom : e));
       return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : e));
     });
   });
@@ -1429,7 +1429,7 @@ compile_pattern :: (
     _wrapper_pattern_ctor(e, env),
     .Some(ctor) => {
       // One pointer level is looked through first, as at every position.
-      cell_ty := match(position_ty, Rc(.Pointer(p)) => p, _ => position_ty);
+      cell_ty := match(position_ty, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(position_ty));
       if(!_wrapper_position_matches(&cell_ty, &ctor), {
         article := if(ctor.name == "Box", String.from("a"), String.from("an"));
         exn.throw(
@@ -1446,7 +1446,7 @@ compile_pattern :: (
       inner := match(
         box_inner_type(&cell_ty),
         .Some(i) => resolve_enum_shell(&i),
-        .None => cell_ty
+        .None => Rc.clone(cell_ty)
       );
       // A unique `Box`'s one field is its cell pointer, and a cell handle's
       // its cell, not the payload: the payload has no compile-time value here.
@@ -1480,7 +1480,7 @@ compile_pattern :: (
     inner := match(
       box_inner_type(position_ty),
       .Some(i) => resolve_enum_shell(&i),
-      .None => position_ty
+      .None => Rc.clone(position_ty)
     );
     // A `Box`'s one field is its cell pointer, and a cell handle's its cell,
     // not the payload: the payload has no compile-time value here.
@@ -1491,7 +1491,7 @@ compile_pattern :: (
       .None => Option(EvalValue).None
     );
     sub := compile_pattern(e, &inner, &inner_val, pc, env, ctx, exn);
-    return(Pattern.ThroughBox(box_ty : position_ty, inner_ty : inner, sub : box(sub)));
+    return(Pattern.ThroughBox(box_ty : Rc.clone(position_ty), inner_ty : inner, sub : box(sub)));
   });
   // An `Rc(T)` or `Arc(T)` cell is never looked through implicitly: the
   // pattern spells the wrapper it crosses (decision 31).
@@ -1540,7 +1540,7 @@ compile_pattern :: (
             _compile_struct(
               e,
               &struct_ty,
-              Option(TypeValue).Some(struct_ty),
+              Option(TypeValue).Some(Rc.clone(struct_ty)),
               _args_of(e),
               position_ty,
               value_opt,

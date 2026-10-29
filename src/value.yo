@@ -215,6 +215,16 @@ EvalValue :: ref(
     UnknownVal(ty : TypeValue, is_runtime_only : bool)
   )
 );
+/// `EvalValue` is a `ref(...)`: every copy of one is a second handle to the same
+/// object, so its `clone` is that handle copy too. It lets a value aggregate
+/// holding an `EvalValue` beside a counted handle `derive(..., Clone)` (decision 17,
+/// plans/VALUES_BY_DEFAULT.md V2c).
+impl(
+  EvalValue,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(self)
+  )
+);
 /// Element-wise equality for `EvalValue`.
 ///
 /// Implemented manually (not via `derive`) because `derive(EvalValue, Eq)` would
@@ -898,12 +908,12 @@ is_type_value :: (fn(opt : &Option(EvalValue)) -> bool)(
 /// declared type is `Type` so that later expressions can use the name as a type
 /// (e.g. `INT_LEAST8_MIN : int_least8_t`).
 create_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(ty, false)
+  EvalValue.UnknownVal(Rc.clone(ty), false)
 );
 /// Create a RUNTIME-ONLY unknown placeholder. Values are immutable copies,
 /// so the flag is set at construction instead of mutated afterwards.
 create_runtime_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(ty, true)
+  EvalValue.UnknownVal(Rc.clone(ty), true)
 );
 /// Create a compile-time unknown placeholder, promoting to `TypeVal(SomeType)` when
 /// `ty` is the `Type` universe (i.e. the binding is type-level): a fresh
@@ -913,7 +923,7 @@ create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValu
   cond(
     is_type_0(ty) =>
       EvalValue.TypeVal(t_some_t(name, usize(0))),
-    true => EvalValue.UnknownVal(ty, false)
+    true => EvalValue.UnknownVal(Rc.clone(ty), false)
   )
 );
 /// `create_unknown_val_with_name`, but RUNTIME-ONLY: the placeholder stands for a
@@ -925,7 +935,7 @@ create_runtime_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> 
   cond(
     is_type_0(ty) =>
       EvalValue.TypeVal(t_some_t(name, usize(0))),
-    true => EvalValue.UnknownVal(ty, true)
+    true => EvalValue.UnknownVal(Rc.clone(ty), true)
   )
 );
 /// The result of evaluating a single `AstExpr` node.
@@ -939,12 +949,12 @@ EvalResult :: ref(
 );
 /// Construct an `EvalResult` with the given value and type.
 eval_result :: (fn(value : &EvalValue, ty : &TypeValue) -> EvalResult)(
-  EvalResult(value : value, ty : ty)
+  EvalResult(value : value, ty : Rc.clone(ty))
 );
 /// Wrap a TypeValue as a TypeVal EvalValue. The "meta type" (TypeUni) is
 /// computed separately via `type_of_type` at call sites that need it.
 create_type_value :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.TypeVal(ty)
+  EvalValue.TypeVal(Rc.clone(ty))
 );
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
@@ -987,7 +997,7 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
         true => rc(TypeValueNode.Struct(String.from(""), name.clone(), shared_list(labels.clone()), shared_list(tys), false, false, false, String.from(""), no_types(), false))
       )
     },
-    .UnknownVal(ty, _) => ty,
+    .UnknownVal(ty, _) => Rc.clone(ty),
     _ => t_unit()
   )
 );

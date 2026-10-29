@@ -24,6 +24,7 @@
   get_variable_name_for_codegen,
   get_variable_name_for_codegen_at,
   get_deferred_drop_target_atom_name,
+  get_deferred_drop_target_atom,
   scope_stack_contains,
   get_type_string,
   sanitize_for_c_identifier,
@@ -308,7 +309,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
           .None => false
         );
         if(is_ct_const, {
-          return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => ei5.ty), &context.base)));
+          return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => Rc.clone(ei5.ty)), &context.base)));
         });
         // By the SOURCE TOKEN, as the general path below reads a plain
         // identifier: a bare reference used as a cond/match arm value can
@@ -598,7 +599,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
         em := context.base.emitter;
         child_type := match(
           extract_future_trait_from_type(&iasm.future_type),
-          .Some(ftt) => match(ftt, Rc(.FutureTraitT({ output : o })) => o, _ => t_unit()),
+          .Some(ftt) => match(ftt, Rc(.FutureTraitT({ output : o })) => Rc.clone(o), _ => t_unit()),
           .None => t_unit()
         );
         is_unit_result := is_unit_type(&child_type);
@@ -641,6 +642,21 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
                 // call-scoped share holds its +1 only once its dup is in scope
                 // (`_emit_loop_body_drops_before_exit`).
                 .Some(pe) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&pe))) && (!is_call_scoped_share_drop(ast_expr_id(&pe)) || match(get_deferred_drop_target_atom_name(&pe), .Some(sn) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&sn, false))), .None => false)), {
+                  // A slot whose value was moved out on this path (its move
+                  // flag is set) no longer owns it: empty it first, as the
+                  // abort dispose does, so the drop is a no-op. The drop
+                  // emitter writes its statements as it generates, so the
+                  // guard goes first
+                  // (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
+                  match(
+                    match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value, context), .None => Option(String).None),
+                    .Some(slot) => match(
+                      sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
+                      .Some(flag) => em.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
                   pc := _call_generate_expr(&pe, indent.clone(), context);
                   if((pc.len() > usize(0)) && pc.contains("sm->"), {
                     em.emit_string_line(`${indent.clone()}${pc.clone()};`);
@@ -742,7 +758,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty), &context.base), .None => String.from("")));
+            return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &context.base), .None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           //
@@ -800,7 +816,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
         match(ei.value, .Some(v) => !is_unknown_val(&v), .None => false) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty), &context.base),
+          .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &context.base),
           .None => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
         ),
         true => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)

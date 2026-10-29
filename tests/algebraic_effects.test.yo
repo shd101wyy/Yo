@@ -397,7 +397,7 @@ test("Test break from cond after fn resume", {
         },
         true => ()
       );
-      sum.with_mut(cur_ => {
+      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
         cur_ = (cur_ + counter.with(cur => cur));
       });
     });
@@ -464,7 +464,7 @@ test("Test mixed continue then break after fn resume", {
         },
         true => ()
       );
-      sum.with_mut(cur_ => {
+      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
         cur_ = (cur_ + counter.with(cur => cur));
       });
     });
@@ -919,15 +919,13 @@ test("Test closure with using() effect - resume", {
     }
   );
   (closure : Impl(Fn(v : i32, msg : &String) -> i32)) =
-    (
-      (v, msg) => {
-        log(msg);
-        x.with_mut(cur => {
-          cur = (cur + v);
-        });
-        return(x.with(cur => cur));
-      }
-    );
+    ({ log, x : Rc.clone(x) }(v, msg) => {
+      log(msg);
+      x.with_mut(cur => {
+        cur = (cur + v);
+      });
+      return(x.with(cur => cur));
+    });
   result1 := closure(1, `hello`);
   assert(result1 == 1, "closure+effect resume: expected result1 to be 1");
   assert(x.with(cur => cur) == 1, "closure+effect resume: expected x to be 1");
@@ -1201,7 +1199,7 @@ test("Transitive SM while loop with mixed continue and break", {
         },
         true => ()
       );
-      sum.with_mut(cur_ => {
+      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
         cur_ = (cur_ + counter.with(cur => cur));
       });
     });
@@ -1952,7 +1950,7 @@ test("Test transitive SM with struct-record effect in while loop", {
       c.with_mut(cur => {
         cur = next_c;
       });
-      sum.with_mut(cur_ => {
+      sum.with_mut({ c : Rc.clone(c) }(cur_) => {
         cur_ = (cur_ + c.with(cur => cur));
       });
       i.with_mut(cur => {

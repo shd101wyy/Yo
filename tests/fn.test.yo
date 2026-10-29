@@ -383,15 +383,17 @@ test("Test generic functions", {
     );
   };
   {
+    // `id` copies its `&T` into a `T`: decision 17 rejects that at an
+    // `Rc(i32)` instantiation (E0901, `Rc.clone(val)`), as Rust's
+    // `fn id<T>(v: &T) -> T { *v }` needs `T: Copy`.
     id :: (fn(comptime(T) : Type, val : &T) -> T)(val);
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
-    assert(b.* == 123);
+    comptime_expect_error(id(Rc(i32), rc(i32(123))), "is a counted handle");
   };
   {
     id :: (fn(comptime(T) : Type, val : &T) -> T)({
@@ -401,11 +403,9 @@ test("Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
-    assert(b.* == 123);
   };
   {
     id :: (fn(comptime(T) : Type, val : &T) -> T)({
@@ -415,11 +415,9 @@ test("Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
-    assert(b.* == 123);
   };
   {
     comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)(x + y);
@@ -907,4 +905,13 @@ test("A comptime literal argument is checked against a concrete parameter type",
   comptime_expect_error(_lit_i32(1.5), "Cannot unify incompatible types");
   comptime_expect_error(_lit_defaulted("a"), "Cannot unify incompatible types");
   assert(_lit_string(`abc`) == usize(3));
+});
+// A `where(T <: Clone)` body's `val.clone()` at `T := Rc(i32)` is the Rc's
+// own clone: a second handle to the same cell (decision 17).
+_fn_clone_any :: (fn(comptime(T) : Type, val : &T, where(T <: Clone)) -> T)(val.clone());
+test("a where(T <: Clone) clone at T := Rc(i32) is a second handle", {
+  a := rc(i32(123));
+  b := _fn_clone_any(Rc(i32), &a);
+  assert(b.* == i32(123), "the clone reads the payload");
+  assert(ref_count(a) == usize(2), "the Rc's own clone: a second handle");
 });

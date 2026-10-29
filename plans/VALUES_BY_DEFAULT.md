@@ -181,14 +181,16 @@ Progress:
     outside src/std, `YO_AUDIT_MUT_BINDINGS` and
     `yo fix --migrate mut-bindings`, with the tests/ sweep (§6
     "Decision 47" step 2's "as built").
+  - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
+    --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
+    with it (V2c's "As built").
 - **In progress:**
-  - V3's remaining async work (§3.13): A6's `Rc`-field half (V2c). A4's
-    std half (`timeout`/`select` over futures) landed 2026-10-20, see A4's
-    "As built".
+  - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
+    over futures) landed 2026-10-20, see A4's "As built".
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
-  (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
+  (§6, after V2b), decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -8679,6 +8681,87 @@ heavy run, the command is given in item 2.
         because a bundle cannot hold owned state;
       - lending the bundle (`e : &E`), because there is no borrowed state
         to lend, and `&` would mark every effect parameter again.
+- **As built (one PR, v0.2.73 window; the numbers are this PR's sweep, on
+  the tree that carries B6-c's `src/` half and the B4 follow-ups).**
+  - **The rule** is E0901 for an implicit copy of a value holding a counted
+    handle whose source is used again (`type_holds_counted_handle`,
+    `src/types/utils.yo`), with the moves, borrows and capture lists of
+    decisions 26, 30, 33 and 35 unchanged. The repair the diagnostic names
+    is `Rc.clone(h)` / `Arc.clone(h)`, `.clone()` for an aggregate, or a
+    capture-list entry.
+  - **`yo fix <path> --migrate rc-clone`** suspends the rule and records
+    every copy it would reject. It spells `Rc.clone`/`Arc.clone`/`.clone()`,
+    capture-list entries, decision 33's call-site markers a capture list
+    makes necessary, and `&`/`&mut` before a `match` scrutinee the rule
+    would consume. A module-level scrutinee, or one an arm writes, is cloned
+    instead (a borrow of it cannot be live across the arm's calls or
+    writes). The migration is two-phase: a `&x` scrutinee is decided at the
+    block epilogue, after its arm bindings' copies were judged as moves, so
+    a second pass spells the copies of the now-borrowing bindings. The sweep
+    runs passes until one inserts nothing (three).
+  - **The sweep** is the tool's output, regenerated on the merge base, never
+    hand-merged:
+    - `std/`: 3 clones (`std/http`).
+    - `src/`: 2,420 clones, 2 capture lists, 663 `&` scrutinees and 2
+      call-site markers in 177 files (passes 3,083 / 4 / 0), 0 sites listed.
+    - `tests/` (outside `tests/cli-cases`): 190 clones, 149 capture lists,
+      24 `&` scrutinees and 2 call-site markers in 65 files (passes 345 / 20
+      / 0). `tests/internal` is swept as its own batch
+      (`issues/2026-10-28-a-yo-fix-batch-over-tests-poisons-later-files-after-copy-trait-test.md`).
+  - **Hand edits**, each for a shape the tool does not reach:
+    - Five `mut` globals the sweep clones are `RefCell` cells
+      (`src/env.yo`, `src/expr_info.yo`, `src/module_manager.yo`), and they
+      stay cells (decided 2026-10-29): a handle-holding reassigned global is
+      a cell, Rust's `thread_local!` `RefCell` idiom, which needs no E0916
+      exemption; B5's `mut(G) : String` carve-out stays for strings. These
+      five plus `g_cached_prelude_module_value` were the only handle-holding
+      `mut(G)` globals in `src/`. The seeds v0.2.71 and v0.2.72 also reject
+      their `G.clone()` (E0916), a user-facing S2 the PR fixes
+      (`issues/fixed/2026-10-25-a-clone-through-an-rc-payloads-user-clone-is-e0916-on-a-mut-global.md`).
+    - Test sites in seven files: a thread capture whose implicit copy is
+      now a move (`arc`), an element copy in a generic reader
+      (`async/combinators`), a nested closure's capture (`async_await`,
+      `issues/2026-10-28-rc-clone-misses-a-nested-closures-capture-of-an-enclosing-closures-capture.md`),
+      a last-use move an earlier argument lends (`internal/env_lookup`,
+      `issues/2026-10-28-rc-clone-moves-a-handle-an-earlier-argument-of-the-same-call-lends.md`),
+      `Rc` instantiations of a generic `id` that copies `&T` (`fn`), a
+      handle holder that is not `Clone` (`sync/refcell`), an `Rc(T)` copy in
+      a generic method, and `ref_count` expectations that encoded the dup/drop
+      cancellation of an implicit copy (`rc`).
+  - **std's generic bodies stay exempt** (`set_counted_handle_std_generic`,
+    the knob `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges them). The exemption
+    is diagnostic-only: an exempt body's handle copy still lowers to a
+    retain. User generic bodies are judged at each instantiation.
+    - Measured with B6-c's `src/` half in the tree: `std/` is clean, and
+      `check ./src` passes 38 of 276 files. The first errors of the other
+      238 name four `src/` call sites, each a std reader copying a handle
+      element through `T`: `src/utils.yo:447` (`HashMap.get`),
+      `src/types/definitions.yo:83` (`SharedList.get`),
+      `src/verifier/terms.yo:313` and `src/doc/render_json.yo:423`.
+    - **Its removal is one follow-up PR in the v0.2.74 window, and it must
+      merge before V5 Generation A** (decided 2026-10-29). While exempt std
+      bodies still emit implicit dups, "once V5 lands, the dup/drop pair
+      optimizer has no implicit copy left to cancel" does not hold. The
+      follow-up moves those sites to B6's accessors (`get_cloned`, `with`,
+      `xs(i)` in place) and re-runs the knob's `check ./src` until 276/276.
+      It then deletes the exemption and the knob, and decides the diagnostic
+      shape for std readers that copy `T`: a bound on the reader, or the
+      blame at the instantiation site. V2b's Generation B for `String`
+      elements reuses that answer. Until then, no std code or test may
+      depend on the exemption, and the knob's `check ./std` is a ratchet.
+  - **Bugs the sweep found,** all pre-existing and fixed in the PR:
+    - a value reassigned in every arm after a move stayed moved where the
+      arms meet
+      (`issues/fixed/2026-10-27-a-value-reassigned-in-every-arm-after-a-move-is-still-moved.md`);
+    - a move inside a unary operator's operand was a use after move
+      (`!match(o, …)`;
+      `issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md`);
+    - a nested `io.async` whose implicit capture moves an enclosing
+      capture left the enclosing machine dropping it too, a use-after-free
+      (`issues/fixed/2026-10-28-a-nested-io-async-implicitly-capturing-a-moved-capture-is-dropped-twice.md`);
+    - a structural `clone()` of a record or closure holding an `Rc` was
+      E0616 in its own generated code
+      (`issues/fixed/2026-10-28-a-structural-clone-of-a-record-with-an-rc-field-is-e0616.md`).
 
 **After V2b: the allocator interface, version 2** (queued by the maintainer
 2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's

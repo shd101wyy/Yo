@@ -8,7 +8,7 @@ test("Test basic Arc with primitive type", {
 });
 test("Test Arc copy shares value", {
   a := arc(i32(100));
-  b := a;
+  b := Arc.clone(a);
   assert(a.* == 100);
   assert(b.* == 100);
 });
@@ -24,7 +24,7 @@ test("Test Arc with struct type", {
 test("Test Arc copy of struct type", {
   Counter :: struct(count : i32);
   c := arc(Counter(i32(20)));
-  d := c;
+  d := Arc.clone(c);
   assert(c.*.count == 20);
   assert(d.*.count == 20);
 });
@@ -53,9 +53,9 @@ test("Test Arc rejects non-Send object type", {
 });
 test("Test Arc multiple copies", {
   a := arc(i32(7));
-  b := a;
-  c := a;
-  d := b;
+  b := Arc.clone(a);
+  c := Arc.clone(a);
+  d := Arc.clone(b);
   assert(a.* == 7);
   assert(b.* == 7);
   assert(c.* == 7);
@@ -140,7 +140,7 @@ test("arc alloc : .Some(a) shared across a thread is released into a", {
   heap := _counting(addr_of(counts));
   {
     shared := arc(i32(42), alloc : .Some(heap));
-    t := Thread(unit).spawn(io => {
+    t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
       assert(shared.* == i32(42), "the worker reads the placed cell");
     });
     t.join();
@@ -163,7 +163,7 @@ test("a Send dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes 
 });
 test("Test Arc shared across thread", {
   shared := arc(i32(42));
-  t := Thread(unit).spawn(io => {
+  t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
     assert(shared.* == 42);
   });
   t.join();
@@ -172,7 +172,7 @@ test("Test Arc shared across thread", {
 test("Test Arc of struct shared across thread", {
   Counter :: struct(count : i32);
   shared := arc(Counter(i32(99)));
-  t := Thread(unit).spawn(io => {
+  t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
     assert(shared.*.count == 99);
   });
   t.join();
@@ -180,10 +180,10 @@ test("Test Arc of struct shared across thread", {
 });
 test("Test Arc shared across multiple threads", {
   shared := arc(i32(7));
-  t1 := Thread(unit).spawn(io => {
+  t1 := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
     assert(shared.* == 7);
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
     assert(shared.* == 7);
   });
   t1.join();
@@ -204,11 +204,11 @@ test("Arc.try_unwrap on the only handle moves the payload out", {
 });
 test("Arc.try_unwrap on a handle another thread holds returns it", {
   a := arc(i32(5));
-  b := a;
+  b := Arc.clone(a);
   t := Thread(unit).spawn(io => {
     assert(b.* == i32(5));
   });
-  c := a;
+  c := Arc.clone(a);
   back := match(
     Arc.try_unwrap(c),
     .Ok(_) => {
@@ -223,7 +223,7 @@ test("Arc.try_unwrap on a handle another thread holds returns it", {
 });
 test("Arc.make_mut clones a shared payload and writes a unique one in place", {
   a := arc(_ArcPair(a : i32(1), b : i32(2)));
-  b := a;
+  b := Arc.clone(a);
   Arc.make_mut(&mut b).a = i32(10);
   assert(a.a == i32(1), "the other handle does not see the write");
   assert(b.a == i32(10), "the write landed in b's own cell");
@@ -269,7 +269,7 @@ test("the last Arc dropped on another thread leaves the cell to the last ArcWeak
   w := {
     a := arc(_ArcWeakProbe(n : i32(1)), alloc : .Some(heap));
     w0 := Arc.downgrade(&a);
-    t := Thread(unit).spawn({ a }(io) => {
+    t := Thread(unit).spawn({ a : Arc.clone(a) }(io) => {
       assert(a.n == i32(1), "the worker holds the last Arc");
     });
     consume(a);
@@ -341,10 +341,23 @@ _ArcWeakNode :: struct(parent : ArcWeak(Self), tag : i32);
 test("an ArcWeak parent pointer in a recursive payload upgrades on another thread", {
   root := arc(_ArcWeakNode(parent : ArcWeak(_ArcWeakNode).new(), tag : i32(1)));
   leaf := arc(_ArcWeakNode(parent : Arc.downgrade(&root), tag : i32(2)));
-  t := Thread(unit).spawn({ leaf }(io) => {
+  t := Thread(unit).spawn({ leaf : Arc.clone(leaf) }(io) => {
     n := match(leaf.parent.upgrade(), .Some(p) => p.tag, .None => i32(0));
     assert(n == i32(1), "the leaf reaches its parent");
   });
   t.join();
   assert(root.parent.upgrade().is_none(), "the root has no parent");
+});
+// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Arc` needs
+// `.clone()`, as in Rust.
+test("Arc.clone is a second handle, and an implicit copy whose source is used again is E0901", {
+  a := arc(i32(8));
+  b := Arc.clone(a);
+  assert(ref_count(a) == usize(2), "two handles to one cell");
+  comptime_expect_error({
+    c := a;
+    a.* + c.*
+  }, "Arc.clone(a)");
+  d := b;
+  assert(ref_count(d) == usize(2), "the last use moved b: still two handles");
 });

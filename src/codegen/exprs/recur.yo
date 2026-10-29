@@ -89,7 +89,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
                         already_arg := match(context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
                         if(!already_arg, {
                           record_declared_temp_var(context, sanitized_arg_temp.clone());
-                          eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => aei2.ty);
+                          eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => Rc.clone(aei2.ty));
                           dline := indent.clone();
                           dline.push_string(get_variable_type_string(&eff_ty, avn.clone(), &context.base));
                           dline.push_str(" = ");

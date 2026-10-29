@@ -48,6 +48,7 @@ _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), 
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
+derive(Wrapper, Clone);
 test("Test 'ref_count' function", {
   // Value type
   {
@@ -62,18 +63,19 @@ test("Test 'ref_count' function", {
     b1 := Rc(i32)(3);
     assert(ref_count(b1) == 1, "ref_count(b1) == 1");
     {
-      b2 := b1; // Yo performs dup/drop cancellation here.
-      // So ref_count(b1) should remain 1.
-      assert(ref_count(b1) == 1, "ref_count(b1) == 1");
-      assert(ref_count(b2) == 1, "ref_count(b2) == 1");
+      // Decision 17: `Rc.clone` makes a second handle (no dup/drop
+      // cancellation joins the two).
+      b2 := Rc.clone(b1);
+      assert(ref_count(b1) == 2, "ref_count(b1) == 2");
+      assert(ref_count(b2) == 2, "ref_count(b2) == 2");
       {
-        b3 := b2;
-        assert(ref_count(b1) == 2, "ref_count(b1) == 2");
-        assert(ref_count(b2) == 2, "ref_count(b2) == 2");
-        assert(ref_count(b3) == 2, "ref_count(b3) == 2");
+        b3 := Rc.clone(b2);
+        assert(ref_count(b1) == 3, "ref_count(b1) == 3");
+        assert(ref_count(b2) == 3, "ref_count(b2) == 3");
+        assert(ref_count(b3) == 3, "ref_count(b3) == 3");
       };
-      assert(ref_count(b1) == 1, "ref_count(b1) == 1");
-      assert(ref_count(b2) == 1, "ref_count(b2) == 1");
+      assert(ref_count(b1) == 2, "ref_count(b1) == 2");
+      assert(ref_count(b2) == 2, "ref_count(b2) == 2");
     }
   };
   // Value type containing reference type
@@ -81,10 +83,10 @@ test("Test 'ref_count' function", {
     w1 := Wrapper(Rc(i32)(5));
     assert(ref_count(w1) == 1, "ref_count(w1) == 1");
     assert(ref_count(w1.v) == 1, "ref_count(w1.v) == 1");
-    w2 := w1;
+    w2 := w1.clone();
     assert(ref_count(w1) == 1, "ref_count(w1) == 1"); // Should be no change.
     assert(ref_count(w2) == 1, "ref_count(w2) == 1");
-    assert(ref_count(w1.v) == 2, "ref_count(w1.v) == 2"); // Also no change, due to dup/drop cancellation.
+    assert(ref_count(w1.v) == 2, "ref_count(w1.v) == 2"); // The clone holds a second handle.
     assert(ref_count(w2.v) == 2, "ref_count(w2.v) == 2");
   };
 });
@@ -101,11 +103,11 @@ test("Test explicit return and implicit return", {
     ),
     // This should generate a dup call
     get_data_implicit : (fn(self : &Self) -> Rc(i32))(
-      self.data
+      Rc.clone(self.data)
     ),
     // THIS WORKS:
     get_data_explicit : (fn(self : &Self) -> Rc(i32))({
-      return(self.data);
+      return(Rc.clone(self.data));
     })
   );
   foo := Foo.new(42);
@@ -118,8 +120,8 @@ test("Test Rc in different data structures", {
   // Anonymous struct
   {
     x := Rc(i32)(3);
-    mut(y) := { x };
-    z := { y };
+    mut(y) := { x : Rc.clone(x) };
+    z := { y : y.clone() };
     assert(x.* == 3, "x.* == 3");
     assert(y.x.* == 3, "y.x.* == 3");
     assert(z.y.x.* == 3, "z.y.x.* == 3");
@@ -137,10 +139,10 @@ test("Test Rc in different data structures", {
   // Array containing Rc
   {
     x := Rc(i32)(3);
-    y := [x,];
-    z := [y,];
-    m := [z,];
-    n := [m,];
+    y := [Rc.clone(x),];
+    z := [y.clone(),];
+    m := [z.clone(),];
+    n := [m.clone(),];
     assert(x.* == 3, "x.* == 3");
     assert(y(0).* == 3, "y(0).* ==");
     assert(z(0)(0).* == 3, "z(0)(0).* ==");
@@ -150,10 +152,10 @@ test("Test Rc in different data structures", {
   // Tuple containing Rc
   {
     x := Rc(i32)(3);
-    y := (x,);
-    mut(z) := (y,);
-    m := (z,);
-    n := (m,);
+    y := (Rc.clone(x),);
+    mut(z) := (y.clone(),);
+    m := (z.clone(),);
+    n := (m.clone(),);
     z.0 = (rc(10),);
     assert(x.* == 3, "x.* == 3");
     assert(y.0.* == 3, "y.0.* == 3");
@@ -232,11 +234,12 @@ test("Test array index access - no RC leak for inline use", {
   // Assigned access: tmp := y(0) should dup exactly once
   {
     x := Rc(i32)(7);
-    y := [x,];
-    tmp := y(0);
+    y := [Rc.clone(x),];
+    tmp := Rc.clone(y(0));
     assert(tmp.* == 7, "assigned y(0) should work");
-    assert(ref_count(tmp) == 2, "tmp and y(0) should share RC=2");
-    assert(ref_count(x) == 2, "x and y(0) are the same allocation");
+    // Decision 17: x, y(0) and tmp are three handles to one cell.
+    assert(ref_count(tmp) == 3, "tmp, y(0) and x share RC=3");
+    assert(ref_count(x) == 3, "x and y(0) are the same allocation");
   };
   // Multi-element array with inline access
   {
@@ -257,7 +260,7 @@ test("Test array index access - no RC leak for inline use", {
   };
   // Array index used as function argument
   {
-    identity :: (fn(b : &Rc(i32)) -> Rc(i32))(b);
+    identity :: (fn(b : &Rc(i32)) -> Rc(i32))(Rc.clone(b));
     x := Rc(i32)(55);
     y := [x,];
     result := identity(&y(0));
@@ -282,7 +285,7 @@ test("Test ArrayList index access - no RC leak", {
   {
     list := ArrayList(Rc(i32)).new();
     list.push(Rc(i32)(42));
-    elem := list(usize(0));
+    elem := Rc.clone(list(usize(0)));
     assert(elem.* == 42, "assigned elem.* should work");
   };
   // ArrayList of String - inline access
@@ -717,7 +720,7 @@ alias_poke_loop :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> unit)({
 });
 test("borrowed projection argument survives aliased container mutation", {
   w := AliasWrap(b : rc(i32(42)));
-  b0 := w.b;
+  b0 := Rc.clone(w.b);
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   {
     alias_poke_loop(&w, &w.b);
@@ -751,7 +754,7 @@ stage1_rc_of :: (fn(generic(T : Type), borrowed : &T) -> usize)(
 );
 test("read-only callee elides the Stage-0 borrowed-projection dup", {
   w := AliasWrap(b : rc(i32(42)));
-  b0 := w.b;
+  b0 := Rc.clone(w.b);
   assert(ref_count(b0) == 2, "w.b + b0 before the calls");
   assert(
     stage1_read_borrow(&w, &w.b) == 2,
@@ -793,11 +796,11 @@ stage1_honest :: (fn(w : &AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
 // array-LITERAL form already guarded correctly, so the two must agree.
 test("arrays of RC elements build at runtime, constructor and literal alike", {
   b1 := rc(i32(42));
-  lit := [b1, rc(i32(7)),];
+  lit := [Rc.clone(b1), rc(i32(7)),];
   assert(lit(0).* == i32(42), "literal element 0");
   assert(lit(1).* == i32(7), "literal element 1");
   b2 := rc(i32(42));
-  ctor := Array(Rc(i32), 2)(b2, rc(i32(7)));
+  ctor := Array(Rc(i32), 2)(Rc.clone(b2), rc(i32(7)));
   assert(ctor(0).* == i32(42), "constructor element 0");
   assert(ctor(1).* == i32(7), "constructor element 1");
   // The two forms must not diverge in ownership either.
@@ -948,7 +951,7 @@ test("mutation three calls deep keeps the borrow alive", {
 });
 test("a benign extern does not defeat the read-only elision", {
   w := AliasWrap(b : rc(i32(42)));
-  b0 := w.b;
+  b0 := Rc.clone(w.b);
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   assert(
     stage1_benign_extern(&w, &w.b) == 2,
@@ -963,7 +966,7 @@ test("a callee containing an explicit ___drop keeps the borrow alive", {
   // explicitly releases RC storage was classified read-only, which is how
   // `___drop` sitting in the safe-recurse list used to read.
   assert(
-    stage1_drop_owned(w.b, &w.b) == 2,
+    stage1_drop_owned(Rc.clone(w.b), &w.b) == 2,
     "an explicit ___drop must not be walked through as safe"
   );
   assert(w.b.* == i32(42), "the container's own handle is still valid");
@@ -1795,31 +1798,33 @@ test("a borrowed value is changed through an owned copy", {
 // a value-with-RC pair ("both copies need their own drop"), unlike the
 // reference-type alias above that legitimately shares one count.
 _CowLike :: struct(b : Rc(i32), n : i32);
+// Decision 17: a value holding an `Rc` is copied explicitly, by its `Clone`.
+derive(_CowLike, Clone);
 _cow_task :: (fn(w : &_CowLike, io : Io) -> Impl(Future(usize, Io)))(
-  io.async((io : Io) => {
+  io.async({ w : w.clone() }(io : Io) => {
     io.await(yield(io), io);
     ref_count(w.b)
   })
 );
 _cow_local_copy :: (fn(w : &_CowLike) -> usize)({
-  q := w;
+  q := w.clone();
   ref_count(q.b)
 });
 test("ref_count: copies of a value holding RC data are counted in every position (COW S2)", {
   w := _CowLike(b : rc(i32(7)), n : i32(1));
   assert(ref_count(w.b) == usize(1), "alone");
   {
-    w2 := w;
+    w2 := w.clone();
     assert((ref_count(w.b) == usize(2)) && (ref_count(w2.b) == usize(2)), "a nested-scope copy counts");
   };
   assert(ref_count(w.b) == usize(1), "the nested copy released its count");
-  w3 := w;
+  w3 := w.clone();
   assert(ref_count(w.b) == usize(2), "a same-scope copy counts");
   assert(_cow_local_copy(&w) >= usize(3), "a callee's local copy of a parameter counts");
   h := ArrayList(_CowLike).new();
-  h.push(w);
+  h.push(w.clone());
   assert(ref_count(w.b) >= usize(3), "a list element counts");
-  (f : Impl(Fn() -> usize)) = (() => ref_count(w.b));
+  (f : Impl(Fn() -> usize)) = ({ w : w.clone() }() => ref_count(w.b));
   assert(f() >= usize(4), "a closure capture counts");
   task := _cow_task(&w, io);
   assert(ref_count(w.b) >= usize(5), "an async task slot counts");
@@ -1961,7 +1966,7 @@ test("ref_count(x) reads the count of every cell shape", {
   // Rc
   b1 := Rc(i32)(3);
   {
-    b2 := b1;
+    b2 := Rc.clone(b1);
     {
       b3 := b2;
       assert(ref_count(b1) == usize(2), "ref_count(b1) == 2");
@@ -1972,7 +1977,7 @@ test("ref_count(x) reads the count of every cell shape", {
   // Arc: an atomic count, read atomically.
   a1 := arc(i32(42));
   {
-    a2 := a1;
+    a2 := Arc.clone(a1);
     {
       a3 := a2;
       assert(ref_count(a1) == usize(2), "ref_count(a1) == 2");
@@ -2452,7 +2457,7 @@ test("Rc(T) with a Drop payload drops it once, with the last handle", {
   before := g_rc_drop_payload;
   {
     a := rc(RcDropPayload(n : i32(5)));
-    b := a;
+    b := Rc.clone(a);
     assert(b.n == i32(5), "both handles see the payload");
     drop(a);
     assert(g_rc_drop_payload == before, "one handle is still live: nothing dropped");
@@ -2547,7 +2552,7 @@ test("Rc.try_unwrap on a shared handle returns the handle", {
   before := g_door_dropped;
   {
     a := rc(_DoorToken(tag : i32(7)));
-    b := a;
+    b := Rc.clone(a);
     back := match(
       Rc.try_unwrap(b),
       .Ok(_) => {
@@ -2574,7 +2579,7 @@ test("Rc.make_mut on the only handle writes the payload in place", {
 });
 test("Rc.make_mut on a shared handle clones the payload first", {
   a := rc(_DoorPoint(x : i32(1), label : String.from("a")));
-  b := a;
+  b := Rc.clone(a);
   Rc.make_mut(&mut b).x = i32(9);
   assert(a.x == i32(1), "the other handle does not see the write");
   assert(b.x == i32(9), "the write landed in b's own cell");
@@ -2821,7 +2826,7 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   // handle itself is lent and rebound, not its payload
   // (issues/fixed/2026-10-24-an-rc-handle-cannot-be-lent-as-mut-to-a-generic-parameter.md).
   mut(g) := rc(i32(1));
-  other_g := g;
+  other_g := Rc.clone(g);
   _ro_set_gen(&mut g, rc(i32(3)));
   assert((g.* == i32(3)) && (other_g.* == i32(1)), "the handle is rebound; the other handle still sees the old cell");
   _ro_set_gen(&mut holder.h, _ro_make());
@@ -2835,7 +2840,7 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   Rc.make_mut(&mut p) = i32(8);
   assert(p.* == i32(8), "make_mut on the only handle");
   cell := rc(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))));
-  other := cell;
+  other := Rc.clone(cell);
   other.with_mut(s => {
     s.n = i32(9);
     s.items.push(i32(1));
@@ -2864,7 +2869,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
   {
     shared := rc(i32(42), alloc : .Some(heap));
     holder := ArrayList(Rc(i32)).new();
-    holder.push(shared);
+    holder.push(Rc.clone(shared));
     assert(ref_count(shared) == usize(2), "two handles, one cell");
     assert(counts.live == usize(1), "one cell, two handles");
     assert(holder.get(usize(0)).unwrap().* == i32(42), "the held handle reads the placed cell");
@@ -4002,7 +4007,7 @@ impl(
   generic(T : Type),
   _RcHolder(T),
   get : (fn(self : &Self) -> Option(Rc(T)))(
-    match(self._h, .Some(h) => .Some(h), .None => .None)
+    match(&self._h, .Some(h) => .Some(Rc.clone(h)), .None => .None)
   )
 );
 _RcRecNode :: struct(next : Option(Rc(RefCell(Self))), tag : i32);
@@ -4017,4 +4022,88 @@ test("Weak.upgrade over a recursive payload reads the cell", {
   w := Rc.downgrade(&a);
   t := match(w.upgrade(), .Some(p) => p.with(v => v.tag), .None => i32(0));
   assert(t == i32(9), "the upgraded handle reads the payload");
+});
+// ---------------------------------------------------------------------------
+// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc` needs
+// `.clone()`. A second handle is a new owner, spelled `Rc.clone(h)`; a
+// handle's last use moves it.
+// ---------------------------------------------------------------------------
+_V2cNode :: struct(label : Rc(i32), weight : i32);
+derive(_V2cNode, Clone);
+_V2cBare :: struct(h : Rc(i32));
+_v2c_keep :: (fn(h : &Rc(i32)) -> Rc(i32))(Rc.clone(h));
+_v2c_peek :: (fn(h : &Rc(i32)) -> i32)(h.*);
+_v2c_take :: (fn(h : Rc(i32)) -> i32)(h.*);
+_v2c_first :: (fn(xs : &ArrayList(Rc(i32))) -> Rc(i32))(match(xs.get(usize(0)), .Some(h) => h, .None => rc(i32(0))));
+_v2c_some :: (fn() -> Option(Rc(i32)))(.Some(rc(i32(5))));
+test("Rc.clone is a second handle to the same cell, whatever the payload", {
+  a := rc(i32(1));
+  b := Rc.clone(a);
+  assert(ref_count(a) == usize(2), "two handles");
+  assert(b.* == a.*, "one value");
+  c := rc(_V2cBare(h : rc(i32(2))));
+  d := Rc.clone(c);
+  assert(ref_count(c) == usize(2), "a payload that is not Clone shares its cell too");
+  assert(d.h.* == i32(2), "through the second handle");
+  // A call's temporary lives to the end of its block.
+  {
+    assert(ref_count(_v2c_keep(&a)) == usize(3), "a clone of a borrowed handle");
+  };
+  assert(ref_count(a) == usize(2), "the temporary clone is released with its block");
+});
+test("a handle's last use moves it, and a copy whose source is used again is E0901", {
+  a := rc(i32(1));
+  assert(_v2c_peek(&a) == i32(1), "a `&Rc(T)` parameter borrows the handle");
+  assert(_v2c_take(Rc.clone(a)) == i32(1), "a clone into a by-value parameter");
+  b := a;
+  assert(ref_count(b) == usize(1), "the last use moved the handle: no second count");
+  comptime_expect_error(a.*, "use of moved value");
+  c := rc(i32(2));
+  comptime_expect_error({
+    d := c;
+    c.* + d.*
+  }, "Rc.clone(c)");
+});
+test("a handle copied out of a borrow, a field or a module-level binding is E0901", {
+  comptime_expect_error((fn(h : &Rc(i32)) -> Rc(i32))(h), "is a counted handle, copied only explicitly");
+  comptime_expect_error((fn(n : &_V2cNode) -> Rc(i32))(n.label), "Rc.clone(...)");
+  n := _V2cNode(label : rc(i32(3)), weight : i32(1));
+  l := Rc.clone(n.label);
+  assert(ref_count(l) == usize(2), "a field's handle, cloned");
+});
+test("a value holding a handle copies with .clone(), which clones each handle", {
+  n := _V2cNode(label : rc(i32(3)), weight : i32(1));
+  m := n.clone();
+  assert(ref_count(n.label) == usize(2), "the derived clone took a second handle");
+  assert(m.weight == n.weight, "the plain field is copied");
+  comptime_expect_error({
+    k := n;
+    k.weight + n.weight
+  }, "n.clone()");
+  o := Option(Rc(i32)).Some(rc(i32(4)));
+  o2 := o.clone();
+  assert(o.is_some() && o2.is_some(), "an Option(Rc(T)) clones its handle");
+  bare := _V2cBare(h : rc(i32(5)));
+  comptime_expect_error({
+    bare2 := bare;
+    bare.h.* + bare2.h.*
+  }, "derive(_V2cBare, Clone)");
+});
+test("a closure takes a second handle in its capture list", {
+  a := rc(i32(6));
+  (f : Impl(Fn() -> i32)) = ({ a : Rc.clone(a) }() => a.*);
+  assert(f() == a.*, "the closure and the caller each hold a handle");
+  assert(ref_count(a) == usize(2), "the capture is a second handle");
+  (g : Impl(Fn() -> i32)) = (() => a.*);
+  assert(g() == i32(6), "an implicit capture moves the handle in");
+  comptime_expect_error(a.*, "use of moved value");
+});
+test("a generic body copies a handle that is its T implicitly", {
+  xs := ArrayList(Rc(i32)).new();
+  xs.push(rc(i32(7)));
+  h := _v2c_first(&xs);
+  assert(h.* == i32(7), "ArrayList(Rc(T)).get copies through T");
+  assert(ref_count(h) == usize(2), "the list and the caller each hold a handle");
+  o := match(_v2c_some(), .Some(v) => v, .None => rc(i32(0)));
+  assert(ref_count(o) == usize(1), "a match binding of a temporary moves");
 });

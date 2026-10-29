@@ -25,7 +25,7 @@ _strip_panic_quotes :: (fn(raw : &String) -> String)({
 /// (panic never returns).
 generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
-  return_type := match(ei_opt, .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));
+  return_type := match(ei_opt, .Some(ei) => Rc.clone(ei.ty), .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   na := args.len();
   cond(
@@ -66,7 +66,7 @@ generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
           // Runtime message — evaluate it; str uses the fat-pointer fields,
           // *(u8) is a C string pointer.
           msg_code := _call_generate_expr(&msg_arg, indent.clone(), context);
-          msg_ei_ty := match(msg_ei, .Some(mei) => Option(TypeValue).Some(mei.ty), .None => .None);
+          msg_ei_ty := match(msg_ei, .Some(mei) => Option(TypeValue).Some(Rc.clone(mei.ty)), .None => .None);
           msg_is_str := match(msg_ei, .Some(mei) => is_str_type(&mei.ty), .None => false);
           msg_is_ptr_u8 := match(
             msg_ei_ty,

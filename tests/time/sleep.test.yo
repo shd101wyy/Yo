@@ -55,7 +55,7 @@ test("sleep suspends the task instead of blocking the loop", {
   // measured 198ms, while ubuntu on the same run measured `200 ms (order=11)`
   // (issues/fixed/sleep-overlap-test-measured-runner-load.md).
   order := rc(RefCell(i32).new(0));
-  slow := io.async((io : Io) => {
+  slow := io.async({ order : Rc.clone(order) }(io : Io) => {
     order.with_mut(cur => {
       cur = (cur + i32(100));
     });
@@ -64,7 +64,7 @@ test("sleep suspends the task instead of blocking the loop", {
       cur = (cur + i32(10));
     });
   });
-  fast := io.async((io : Io) => {
+  fast := io.async({ order : Rc.clone(order) }(io : Io) => {
     io.await(sleep(Duration.from_millis(i64(20)), io), io);
     // 100 = the slow task started and has NOT finished. 0 would mean it never
     // started (fast ran first, serially); 110 would mean it finished first.

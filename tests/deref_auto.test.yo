@@ -69,7 +69,7 @@ test("auto-deref: a method the wrapper and its payload both have is E0616", {
   // The annotations are the check: each spelling has its own type.
   (c : Rc(_P)) = Rc.clone(b);
   Rc.make_mut(&mut c).n = i32(6);
-  assert(b.n == i32(5), "the clone is a new cell");
+  assert(b.n == i32(5), "make_mut gave the second handle a cell of its own");
   assert(c.n == i32(6), "and its payload is reachable");
   (d : _P) = b.*.clone();
   assert(d.n == i32(5), "the payload's clone is a _P");
@@ -147,7 +147,7 @@ test("auto-deref: a wrapper method against a payload field is E0616", {
   (c : Rc(_HC)) = Rc.clone(w);
   f := w.*.clone;
   assert(f() == i32(7), "the payload's field");
-  assert(ref_count(c) == usize(1), "the Rc's own clone is a fresh cell");
+  assert(ref_count(c) == usize(2), "the Rc's own clone is a second handle (decision 17)");
 });
 // A name only the payload has still forwards; a name only the wrapper has
 // is the wrapper's. Only a name both have is the error.
@@ -162,10 +162,10 @@ _clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone())
 test("auto-deref: a trait-bound call at a wrapper instantiation is not the clash", {
   b := rc(_mk(i32(3)));
   c := _clone_any(&b);
-  // A write through `c` would be E0919 (decision 46), so the fresh cell
-  // shows in the counts: neither handle shares the other's.
+  // The bound's `clone` at `T := Rc(_P)` is the Rc's own: a second handle
+  // to the same cell (decision 17), which the counts show.
   assert(c.n == i32(3), "T := Rc(_P): the clone reads the payload");
-  assert((ref_count(b) == usize(1)) && (ref_count(c) == usize(1)), "T := Rc(_P): the Rc's own clone, a new cell");
+  assert((ref_count(b) == usize(2)) && (ref_count(c) == usize(2)), "T := Rc(_P): the Rc's own clone, a second handle");
 });
 // derive(Clone) spells a wrapper field's clone through its Clone impl, so a
 // struct holding an `Rc` derives Clone with no clash.

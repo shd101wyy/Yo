@@ -88,7 +88,7 @@ evaluate_panic :: (
   // in an `-> i64` function a spurious "Previous: i32, Current: i64".
   (return_ty : TypeValue) = match(
     ctx.expected_type,
-    .Some(et) => et.ty,
+    .Some(et) => Rc.clone(et.ty),
     .None => t_never()
   );
   // If there's a message argument, evaluate it and validate its type.
@@ -125,7 +125,7 @@ evaluate_panic :: (
       },
       .Some(info) => {
         cur_env = expr_info_adopt_env(&info);
-        msg_type := info.ty;
+        msg_type := Rc.clone(info.ty);
         msg_value := info.value;
         match(
           msg_value,

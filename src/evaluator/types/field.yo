@@ -74,6 +74,7 @@ TypeField :: struct(
   (default_value_expr : Option(AstExpr)) ?= Option(AstExpr).None,
   (assigned_value_expr : Option(AstExpr)) ?= Option(AstExpr).None
 );
+derive(TypeField, Clone);
 /// Result type for evaluate_type_field.
 EvalTypeFieldResult :: struct(
   field : TypeField,
@@ -263,7 +264,7 @@ evaluate_type_field :: (
   // --- Determine expected type for this field (from context) ---
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
   if(ctx.expected_type.is_some(), {
-    expected_type_val := match(ctx.expected_type, .Some(e) => e.ty, .None => rc(TypeValueNode.Unit));
+    expected_type_val := match(ctx.expected_type, .Some(e) => Rc.clone(e.ty), .None => rc(TypeValueNode.Unit));
     if(is_tuple_type(&expected_type_val) || is_struct_type(&expected_type_val) || is_module_type(&expected_type_val) || is_trait_type(&expected_type_val), {
       maybe_field_ty := match(
         expected_type_val,
@@ -294,7 +295,7 @@ evaluate_type_field :: (
       elem_env := match(ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => env);
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(expected_tuple_element_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+          ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
           env : elem_env
         )
       );
@@ -318,7 +319,7 @@ evaluate_type_field :: (
     });
     field_type = match(
       te_info.value,
-      .Some(.TypeVal(inner)) => Option(TypeValue).Some(inner),
+      .Some(.TypeVal(inner)) => Option(TypeValue).Some(Rc.clone(inner)),
       .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
     );
@@ -327,7 +328,7 @@ evaluate_type_field :: (
     // `fn_type_unrepresentable_impl`).
     if(!is_comptime, {
       match(
-        match(field_type, .Some(fft) => fn_type_unrepresentable_impl(&fft), .None => Option(TypeValue).None),
+        match(&field_type, .Some(fft) => fn_type_unrepresentable_impl(&fft), .None => Option(TypeValue).None),
         .Some(ffi_impl) => {
           exn.throw(
             dyn(
@@ -335,7 +336,7 @@ evaluate_type_field :: (
                 ast_expr_token(&te),
                 fn_type_unrepresentable_impl_message(
                   `${for_type} field "${match(label, .Some(l) => l.clone(), .None => `${tuple_field_index}`)}"`,
-                  match(field_type, .Some(fft2) => fft2, .None => rc(TypeValueNode.Unit)),
+                  match(&field_type, .Some(fft2) => Rc.clone(fft2), .None => rc(TypeValueNode.Unit)),
                   &ffi_impl
                 ),
                 Option(String).Some(fn_type_unrepresentable_impl_help())
@@ -364,7 +365,7 @@ evaluate_type_field :: (
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+          ty : match(field_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
           env : env
         )
       ),
@@ -372,7 +373,7 @@ evaluate_type_field :: (
         expected_tuple_element_type.is_some(),
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
-            ty : match(expected_tuple_element_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+            ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
             env : env
           )
         ),
@@ -415,7 +416,7 @@ evaluate_type_field :: (
       );
     });
     assigned_value = av_info.value;
-    av_type := av_info.ty;
+    av_type := Rc.clone(av_info.ty);
     // Same UnknownVal hole as the ?= gate above, for the `name = value`
     // comptime-field form: a runtime call is not a compile-time value.
     match(
@@ -433,7 +434,7 @@ evaluate_type_field :: (
       .None => ()
     );
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => rc(TypeValueNode.Unit));
+      ft := match(field_expected_ctx, .Some(e) => Rc.clone(e.ty), .None => rc(TypeValueNode.Unit));
       if(!are_types_compatible(&av_type, &ft), {
         exn.throw(
           dyn(
@@ -456,7 +457,7 @@ evaluate_type_field :: (
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+          ty : match(field_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
           env : env
         )
       ),
@@ -464,7 +465,7 @@ evaluate_type_field :: (
         expected_tuple_element_type.is_some(),
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
-            ty : match(expected_tuple_element_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+            ty : match(expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit)),
             env : env
           )
         ),
@@ -503,7 +504,7 @@ evaluate_type_field :: (
       );
     });
     default_value = dv_info.value;
-    dv_type := dv_info.ty;
+    dv_type := Rc.clone(dv_info.ty);
     // The known-value gate above tests only `.is_none()` — an UnknownVal
     // ("type known, value not") is `.Some` and slips it: a runtime CALL
     // default (`(y : i32) ?= mk()`, `(xs : ArrayList(usize)) ?=
@@ -531,7 +532,7 @@ evaluate_type_field :: (
       .None => ()
     );
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => rc(TypeValueNode.Unit));
+      ft := match(field_expected_ctx, .Some(e) => Rc.clone(e.ty), .None => rc(TypeValueNode.Unit));
       if(!are_types_compatible(&dv_type, &ft), {
         exn.throw(
           dyn(
@@ -558,7 +559,7 @@ evaluate_type_field :: (
       )
     );
   });
-  final_type := match(field_type, .Some(t) => t, .None => rc(TypeValueNode.Unit));
+  final_type := match(field_type, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit));
   // For non-tuple types, a label is required
   if((for_type != "tuple") && label_expr.is_none(), {
     exn.throw(

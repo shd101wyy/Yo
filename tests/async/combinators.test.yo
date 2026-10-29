@@ -52,8 +52,8 @@ test("Test join_all drains the list it takes", {
   outs := io.await(join_all(handles, io), io);
   assert(handles.len() == usize(0), "join_all drained the list");
   // Each result moves out of its joined task.
-  assert(match(outs(usize(0)), .Some(r) => (r.* == i32(4)), .None => false), "slot 0 moved out");
-  assert(match(outs(usize(1)), .Some(r) => (r.* == i32(5)), .None => false), "slot 1 moved out");
+  assert(match(outs(usize(0)).clone(), .Some(r) => (r.* == i32(4)), .None => false), "slot 0 moved out");
+  assert(match(outs(usize(1)).clone(), .Some(r) => (r.* == i32(5)), .None => false), "slot 1 moved out");
 });
 // ---------------------------------------------------------------------------
 // 2. join_all — an aborted task's slot is .None, siblings unaffected
@@ -195,7 +195,7 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
 // ---------------------------------------------------------------------------
 test("Test timeout aborts on deadline", {
   ran := rc(RefCell(bool).new(false));
-  fut := io.async((io : Io) => {
+  fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(100)), io);
     ran.with_mut(cur => {
       cur = true;
@@ -222,7 +222,7 @@ test("Test timeout aborts on deadline", {
 /// A task that sleeps `ms`, then records that it ran past its sleep and
 /// returns `value`.
 sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(RefCell(bool)), io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ value, ms, ran }(io : Io) => {
+  io.async({ value, ms, ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(ms), io);
     ran.with_mut(r => {
       r = true;
@@ -234,9 +234,9 @@ test("Test race_first returns the fastest task's value", {
   ran0 := rc(RefCell(bool).new(false));
   ran2 := rc(RefCell(bool).new(false));
   handles := ArrayList(JoinHandle(i32)).new();
-  handles.push(io.spawn(sleepy_flag(i32(10), u64(60), ran0, io), io));
+  handles.push(io.spawn(sleepy_flag(i32(10), u64(60), Rc.clone(ran0), io), io));
   handles.push(io.spawn(sleepy(i32(20), u64(1), io), io));
-  handles.push(io.spawn(sleepy_flag(i32(30), u64(60), ran2, io), io));
+  handles.push(io.spawn(sleepy_flag(i32(30), u64(60), Rc.clone(ran2), io), io));
   r := io.await(race_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(20)), .None => false), "the 1 ms task wins");
   // Both losers were aborted and joined: neither runs past its sleep.
@@ -253,7 +253,7 @@ test("Test race_first with a single handle", {
 test("Test any_first returns the first COMPLETED value and aborts the rest", {
   ran0 := rc(RefCell(bool).new(false));
   handles := ArrayList(JoinHandle(i32)).new();
-  handles.push(io.spawn(sleepy_flag(i32(1), u64(60), ran0, io), io));
+  handles.push(io.spawn(sleepy_flag(i32(1), u64(60), Rc.clone(ran0), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
   r := io.await(any_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(2)), .None => false), "the fast task's value comes back");
@@ -404,7 +404,7 @@ test("Test any inside a task skips an aborted handle", {
 });
 test("Test aborting the joining task leaves the joined task running", {
   done := rc(RefCell(bool).new(false));
-  worker := io.async((io : Io) => {
+  worker := io.async({ done : Rc.clone(done) }(io : Io) => {
     io.await(sleep(u64(20)), io);
     done.with_mut(cur => {
       cur = true;
@@ -832,7 +832,7 @@ test("Test a stream loop suspends its task between items", {
   ticks := rc(RefCell(i32).new(0));
   seen := ArrayList(i32).new();
   t := Ticker(_n : i32(3));
-  task := io.async({ t, seen, ticks }(io : Io) => {
+  task := io.async({ t, seen, ticks : Rc.clone(ticks) }(io : Io) => {
     mut(s) := t;
     while(true, {
       n := io.await(s.next(io), io);
@@ -880,7 +880,7 @@ test("Stream.for_each releases what its body closure captures", {
     t := _FeThing(n : i32(2));
     total := rc(RefCell(i32).new(0));
     io.await(
-      Countdown(_n : i32(3)).for_each(x => {
+      Countdown(_n : i32(3)).for_each({ t, total : Rc.clone(total) }(x) => {
         total.with_mut(cur => {
           cur = (cur + (x * t.n));
         });

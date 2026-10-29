@@ -218,6 +218,7 @@ ReceiverMethodResult :: struct(
   // array is kept for overload resolution.
   all_hits : ArrayList(MethodEntry)
 );
+derive(ReceiverMethodResult, Clone);
 // ---------------------------------------------------------------------------
 // _try_find_receiver_method — when the callee is a property-access expression
 // `.(receiver, method_name)` with no ExprInfo, look up the method via env.yo's
@@ -278,7 +279,7 @@ _reject_private_method_call :: (
 )({
   mi := match(
     method_info_opt,
-    .Some(m) => m,
+    .Some(m) => m.clone(),
     .None => {
       return(());
     }
@@ -344,7 +345,7 @@ _reject_dyn_uncallable_method_call :: (
 )({
   mi := match(
     method_info_opt,
-    .Some(m) => m,
+    .Some(m) => m.clone(),
     .None => {
       return(());
     }
@@ -354,7 +355,7 @@ _reject_dyn_uncallable_method_call :: (
   });
   recv_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mi.receiver_expr)),
-    .Some(ri) => match(ri.ty, Rc(.Pointer(inner)) => inner, _ => ri.ty),
+    .Some(ri) => match(&ri.ty, Rc(.Pointer(inner)) => Rc.clone(inner), _ => Rc.clone(ri.ty)),
     .None => {
       return(());
     }
@@ -374,14 +375,14 @@ _reject_dyn_uncallable_method_call :: (
   );
   name_tok := ast_expr_token(&name_expr);
   match(
-    recv_ty,
+    &recv_ty,
     Rc(.DynT({ required_trait_types : rtt })) => {
       (i : usize) = usize(0);
       while(i < rtt.len(), {
         match(
           rtt.get(i),
           .Some(tt) => match(
-            tt,
+            &tt,
             // `Clone`'s `clone` returns the erased `Self`, yet a `Dyn` that
             // lists `Clone` reaches it through the vtable prefix's clone slot,
             // which returns a `Dyn` of the receiver's type
@@ -523,7 +524,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
         recv_ty = Option(TypeValue).None;
       },
       _ => {
-        recv_ty = Option(TypeValue).Some(tv);
+        recv_ty = Option(TypeValue).Some(Rc.clone(tv));
       }
     ),
     _ => ()
@@ -531,7 +532,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   obj_is_type := match(oi.value, .Some(.TypeVal(_)) => true, _ => false);
   (depth : u32) = u32(0);
   while(found.is_empty() && recv_ty.is_some() && (depth < u32(8)), depth = (depth + u32(1)), {
-    cur := match(recv_ty, .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    cur := match(&recv_ty, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit));
     recv_ty = Option(TypeValue).None;
     // A field of that name: `x.drop` reads the field, never a method.
     if(!obj_is_type && match(resolve_struct_shell(&cur), Rc(.Struct({ field_labels : dfl })) => _labels_contain(&dfl.items, &name), _ => false), {
@@ -642,7 +643,7 @@ _reject_wrapper_payload_clash :: (
 )({
   mi := match(
     method_info_opt,
-    .Some(m) => m,
+    .Some(m) => m.clone(),
     .None => {
       return(());
     }
@@ -652,7 +653,7 @@ _reject_wrapper_payload_clash :: (
   });
   recv_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mi.receiver_expr)),
-    .Some(ri) => ri.ty,
+    .Some(ri) => Rc.clone(ri.ty),
     .None => {
       return(());
     }
@@ -683,7 +684,7 @@ _reject_wrapper_payload_clash :: (
   name := name_tok.value.clone();
   // The payload's reading: its own method, or one its own wrappers forward.
   (payload_has : bool) = false;
-  (cur : TypeValue) = payload_ty;
+  (cur : TypeValue) = Rc.clone(payload_ty);
   (searching : bool) = true;
   while(searching, {
     if(is_pointer_type(&cur), {
@@ -754,7 +755,7 @@ _wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &St
   if((recv_tok.kind != TokenKind.Identifier) || (recv_tok.row != name_tok.row) || (recv_tok.module_path != name_tok.module_path), {
     return(Option(Repair).None);
   });
-  src := name_tok.input;
+  src := Rc.clone(name_tok.input);
   r_start := usize(recv_tok.byte_offset);
   n_start := usize(name_tok.byte_offset);
   n_end := (n_start + name_tok.value.len());
@@ -785,7 +786,7 @@ _reject_class1_panic_method_call :: (
 )({
   c1_mi := match(
     method_info_opt,
-    .Some(m) => m,
+    .Some(m) => m.clone(),
     .None => {
       return(());
     }
@@ -815,7 +816,7 @@ _reject_class1_panic_method_call :: (
       .None => false
     ),
     true => match(
-      c1_mi.method_ty,
+      &c1_mi.method_ty,
       Rc(.Func({ param_types : c1_pts })) => match(
         slot_pointee_at(&c1_pts, usize(0)),
         .Some(c1_p0) => is_class1_panic_receiver_type(&c1_p0),
@@ -865,8 +866,8 @@ _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
       column : at.column,
       character : at.character,
       byte_offset : at.byte_offset,
-      module_path : at.module_path,
-      input : at.input
+      module_path : Rc.clone(at.module_path),
+      input : Rc.clone(at.input)
     )
   )
 );
@@ -883,7 +884,7 @@ _cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &EvalContext,
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&opt_eval)),
     .Some(oi) => match(
       oi.value,
-      .Some(.TypeVal(ot)) => ot,
+      .Some(.TypeVal(ot)) => Rc.clone(ot),
       _ => {
         exn.throw(dyn(format_error_message(at, String.from("A cell's allocator argument needs the prelude's `Option(Allocator)`, which did not evaluate to a type here."))));
         rc(TypeValueNode.Unit)
@@ -976,7 +977,7 @@ _try_structural_copy_clone :: (
       return(Option(AstExpr).None);
     }
   );
-  recv_ty := ri.ty;
+  recv_ty := Rc.clone(ri.ty);
   // A generic `T` bound to one of these types answers through its
   // resolution, a closure's type through its capture record.
   sc_target := resolve_cell_chain(&recv_ty);
@@ -1015,7 +1016,7 @@ _structural_clone_precedes_lookup :: (fn(callee : &AstExpr, arg_count : usize, c
     callee,
     .FnCall(_, _, sp_args, _, _) => match(
       sp_args.get(usize(0)),
-      .Some(sp_recv) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sp_recv)), .Some(sp_ri) => Option(TypeValue).Some(sp_ri.ty), .None => Option(TypeValue).None),
+      .Some(sp_recv) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sp_recv)), .Some(sp_ri) => Option(TypeValue).Some(Rc.clone(sp_ri.ty)), .None => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     _ => Option(TypeValue).None
@@ -1024,7 +1025,7 @@ _structural_clone_precedes_lookup :: (fn(callee : &AstExpr, arg_count : usize, c
     recv_ty,
     .Some(rt) => {
       sp_target := resolve_cell_chain(&rt);
-      is_some_type(&rt) && match(sp_target, Rc(.Struct({ field_types : _ })) => copy_structural_parts(&sp_target).is_some(), _ => false)
+      is_some_type(&rt) && match(&sp_target, Rc(.Struct({ field_types : _ })) => copy_structural_parts(&sp_target).is_some(), _ => false)
     },
     .None => false
   )
@@ -1127,10 +1128,10 @@ _try_find_receiver_method :: (
   lookup_ty := cond(
     is_static => match(
       receiver_value,
-      .Some(rv) => match(rv, .TypeVal(inner_b) => inner_b, _ => receiver_type),
-      .None => receiver_type
+      .Some(rv) => match(rv, .TypeVal(inner_b) => Rc.clone(inner_b), _ => Rc.clone(receiver_type)),
+      .None => Rc.clone(receiver_type)
     ),
-    true => receiver_type
+    true => Rc.clone(receiver_type)
   );
   (hits : ArrayList(MethodEntry)) = cond(
     is_static => get_type_trait_methods_by_name_from_env(env, method_name.clone(), &lookup_ty),
@@ -1223,7 +1224,7 @@ _try_find_receiver_method :: (
   Option(ReceiverMethodResult).Some(
     ReceiverMethodResult(
       method_val_opt : first.value,
-      method_ty : first.ty,
+      method_ty : Rc.clone(first.ty),
       // The (possibly on-demand-evaluated) receiver node — its id carries the
       // ExprInfo the arg-building + codegen read.
       receiver_expr : receiver_expr_r,
@@ -1368,7 +1369,7 @@ _infer_unapplied_ctor_receiver :: (
   });
   uc_arg0_ty := _sai_arg_type(args, usize(0), &mut uc_nodes, &mut uc_tys, env, ctx, exn);
   uc_has_arg0 := uc_arg0_ty.is_some();
-  uc_arg_ty := match(uc_arg0_ty, .Some(t) => t, .None => t_unit());
+  uc_arg_ty := match(uc_arg0_ty, .Some(t) => Rc.clone(t), .None => t_unit());
   uc_own := resolve_enum_shell(resolve_struct_shell(t_refine_inner(&uc_arg_ty)));
   uc_inst := cond(
     (uc_has_arg0 && (instance_constructor_fid(&uc_own) == uc_ctor_fid)) => Option(TypeValue).Some(uc_own.clone()),
@@ -1525,7 +1526,7 @@ _sai_arg_type :: (
       // is the one marked pre-evaluated, as decision 32 marked its receiver.
       nodes(i) = Option(AstExpr).Some(place);
       tys(i) = Option(TypeValue).Some(ai.ty.clone());
-      Option(TypeValue).Some(ai.ty)
+      Option(TypeValue).Some(Rc.clone(ai.ty))
     },
     .None => Option(TypeValue).None
   )
@@ -1634,7 +1635,7 @@ _sai_normalize_binder_levels :: (fn(ty : &TypeValue, names : &ArrayList(String),
   while(bi < names.len(), bi = (bi + usize(1)), {
     b_name := match(names.get(bi), .Some(n) => n, .None => String.new());
     b_some := match(somes.get(bi), .Some(t) => t, .None => t_unit());
-    b_lvl := match(b_some, Rc(.SomeT({ frame_level : l })) => l, _ => usize(0));
+    b_lvl := match(&b_some, Rc(.SomeT({ frame_level : l })) => l, _ => usize(0));
     (ai : usize) = usize(0);
     while(ai < all.len(), ai = (ai + usize(1)), {
       match(
@@ -1675,7 +1676,7 @@ _sai_try_candidate :: (
     exn : Exception
   ) -> _SaiOutcome
 )({
-  pts := match(c.method_ty, Rc(.Func({ param_types : p })) => p.items.clone(), _ => ArrayList(TypeValue).new());
+  pts := match(&c.method_ty, Rc(.Func({ param_types : p })) => p.items.clone(), _ => ArrayList(TypeValue).new());
   binds := ArrayList(Option(_SaiBinding)).new();
   (bi0 : usize) = usize(0);
   while(bi0 < c.binder_names.len(), bi0 = (bi0 + usize(1)), {
@@ -1706,7 +1707,7 @@ _sai_try_candidate :: (
                           return(
                             _SaiOutcome.Conflict(
                               binder : match(c.binder_names.get(gi), .Some(n) => n, .None => String.new()),
-                              first : prev.ty,
+                              first : Rc.clone(prev.ty),
                               first_arg : prev.arg,
                               later : now,
                               later_arg : ai
@@ -1759,7 +1760,7 @@ _sai_try_candidate :: (
     );
   });
   match(
-    c.generic_entry,
+    &c.generic_entry,
     .Some(ge) => match(
       first_failed_impl_where(&ge, &bindings, env),
       .Some((wf_binder, wf_bound, wf_trait)) => {
@@ -1781,7 +1782,7 @@ _sai_is_literal_type :: (fn(t : &TypeValue) -> bool)(is_comptime_int_type(t) || 
 /// (the receiver node, still the constructor, as the callee), so the type is
 /// the memoized, stamped instance a written `G(A…)` evaluates to.
 _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeValue)), recv : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue))({
-  targs := match(c.receiver_pattern, Rc(.Struct({ type_arguments : ta })) => ta.items.clone(), Rc(.EnumT({ type_arguments : ta })) => ta.items.clone(), _ => ArrayList(TypeValue).new());
+  targs := match(&c.receiver_pattern, Rc(.Struct({ type_arguments : ta })) => ta.items.clone(), Rc(.EnumT({ type_arguments : ta })) => ta.items.clone(), _ => ArrayList(TypeValue).new());
   if((targs.len() == usize(0)) || (c.binder_names.len() == usize(0)), {
     return(Option(TypeValue).Some(c.receiver_pattern.clone()));
   });
@@ -1832,7 +1833,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   });
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&built)),
-    .Some(bi_info) => match(bi_info.value, .Some(.TypeVal(t)) => Option(TypeValue).Some(t), _ => Option(TypeValue).None),
+    .Some(bi_info) => match(bi_info.value, .Some(.TypeVal(t)) => Option(TypeValue).Some(Rc.clone(t)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   )
 });
@@ -2093,7 +2094,7 @@ _instance_dot_receiver_self_type :: (
   if(is_static_recv, {
     return(Option(TypeValue).None);
   });
-  recv_ty := ri.ty;
+  recv_ty := Rc.clone(ri.ty);
   is_ctor_struct := (struct_effective_ctor_fid(&recv_ty).len() > usize(0));
   cond(
     (is_ctor_struct && struct_fully_concrete_instance(&recv_ty)) => Option(TypeValue).Some(recv_ty),
@@ -2150,7 +2151,7 @@ _rre_dot_receiver_type :: (
       if(recv_is_module, {
         return(Option(TypeValue).None);
       });
-      Option(TypeValue).Some(ri.ty)
+      Option(TypeValue).Some(Rc.clone(ri.ty))
     },
     .None => Option(TypeValue).None
   )
@@ -2177,14 +2178,14 @@ _resolve_array_length_vars_from_self :: (
         new_lvar := cond(resolve => String.from(""), true => lvar.clone());
         rc(TypeValueNode.Array(new_elem, new_len, new_lvar))
       },
-      _ => ty
+      _ => Rc.clone(ty)
     ),
     Rc(.Pointer(inner)) => match(
       self_ty,
       Rc(.Pointer(s_inner)) => rc(TypeValueNode.Pointer(recur(&inner, &s_inner))),
-      _ => ty
+      _ => Rc.clone(ty)
     ),
-    _ => ty
+    _ => Rc.clone(ty)
   )
 );
 /// Trial-call one Call-overload candidate with CLONED exprs and a swallowing
@@ -2223,7 +2224,16 @@ _trial_call_overload_candidate :: (
   });
   cloned_call := clone_expr_fresh_ids(call_expr);
   clone_hi := next_global_expr_id();
+  // The trial evaluates the arguments in the caller's environment, and the
+  // real call evaluates them again: a move the trial records
+  // (`!match(o, …)` consumes `o`) would make that second evaluation a use of
+  // a moved value (E0901), so every binding's move state is put back
+  // (issues/fixed/2026-10-27-a-move-inside-a-unary-operators-operand-is-a-use-after-move.md).
+  saved_vars := ArrayList(Variable).new();
+  saved_moves := ArrayList(Option(Token)).new();
+  _save_move_states(callee_env, &mut saved_vars, &mut saved_moves);
   _run_overload_trial(fn_val, fn_ty, &cloned_call, func_expr, &cloned_args, callee_env, ctx, ok_out);
+  _restore_move_states(&saved_vars, &saved_moves);
   // Only the verdict survives the trial: the clones' own metadata is dead
   // either way (the real call evaluates the originals). Specializations the
   // trial created have ids past `clone_hi` and stay.
@@ -2287,7 +2297,7 @@ _build_receiver_call_args :: (
           character : recv_tok.character,
           byte_offset : recv_tok.byte_offset,
           module_path : rc(String.from(AUTO_REF_RECEIVER_PATH)),
-          input : recv_tok.input
+          input : Rc.clone(recv_tok.input)
         )
       );
       amp_args := ArrayList(AstExpr).new();
@@ -2403,7 +2413,7 @@ _select_matching_overload :: (
   });
   ctx.is_in_function_call_checking_phase = smo_checking_was;
   if(matching.len() == usize(0), {
-    return(base);
+    return(base.clone());
   });
   (winner_hi : usize) = match(matching.get(usize(0)), .Some(i) => i, .None => usize(0));
   // WHERE-CONSTRAINT preference: when the enclosing SPECIALIZATION carries
@@ -2455,7 +2465,7 @@ _select_matching_overload :: (
       m_idx := match(matching.get(mi), .Some(i) => i, .None => usize(0));
       m_ct := match(
         base.all_hits.get(m_idx),
-        .Some(mc) => match(mc.ty, Rc(.Func({ meta : __smm1 })) => __smm1.*.result_is_comptime_only, _ => false),
+        .Some(mc) => match(&mc.ty, Rc(.Func({ meta : __smm1 })) => __smm1.*.result_is_comptime_only, _ => false),
         .None => false
       );
       // One entry per trait: the same comptime impl can be registered
@@ -2498,7 +2508,7 @@ _select_matching_overload :: (
       match(
         base.all_hits.get(am_idx),
         .Some(amc) => {
-          am_ct := match(amc.ty, Rc(.Func({ meta : __amm })) => __amm.*.result_is_comptime_only, _ => false);
+          am_ct := match(&amc.ty, Rc(.Func({ meta : __amm })) => __amm.*.result_is_comptime_only, _ => false);
           cond(
             (amc.source_trait_id == "") => if(inh_hi.is_none(), {
               inh_hi = Option(usize).Some(am_idx);
@@ -2556,14 +2566,14 @@ _select_matching_overload :: (
     base.all_hits.get(winner_hi),
     .Some(w_cand) => ReceiverMethodResult(
       method_val_opt : w_cand.value,
-      method_ty : w_cand.ty,
+      method_ty : Rc.clone(w_cand.ty),
       receiver_expr : base.receiver_expr.clone(),
       is_static : base.is_static,
       needs_pointer_conversion : w_cand.needs_pointer_conversion,
       receiver_value : base.receiver_value,
       all_hits : base.all_hits
     ),
-    .None => base
+    .None => base.clone()
   )
 });
 /// ModuleT/Call overload dispatch. When the callee
@@ -2595,7 +2605,7 @@ _try_expand_call_overload :: (
   );
   // Type side: a source-namespace struct with a `Call` field.
   sns_parts := match(
-    info.ty,
+    &info.ty,
     Rc(.Struct({ field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns })) => cond(
       s_sns => Option(usize).Some(usize(0)),
       true => Option(usize).None
@@ -2605,8 +2615,8 @@ _try_expand_call_overload :: (
   if(sns_parts.is_none(), {
     return(());
   });
-  s_fls := match(info.ty, Rc(.Struct({ field_labels : f })) => f, _ => no_labels());
-  s_fts := match(info.ty, Rc(.Struct({ field_types : t })) => t, _ => no_types());
+  s_fls := match(&info.ty, Rc(.Struct({ field_labels : f })) => Rc.clone(f), _ => no_labels());
+  s_fts := match(&info.ty, Rc(.Struct({ field_types : t })) => Rc.clone(t), _ => no_types());
   (call_idx : Option(usize)) = Option(usize).None;
   (li : usize) = usize(0);
   while((li < s_fls.len()) && call_idx.is_none(), {
@@ -2690,7 +2700,7 @@ _try_expand_call_overload :: (
   );
   cand_tys := ArrayList(TypeValue).new();
   match(
-    call_field_ty,
+    &call_field_ty,
     Rc(.Tuple(_, t_tys)) => {
       (ty_i : usize) = usize(0);
       while(ty_i < t_tys.len(), {
@@ -2705,7 +2715,7 @@ _try_expand_call_overload :: (
       });
     },
     _ => {
-      cand_tys.push(call_field_ty);
+      cand_tys.push(Rc.clone(call_field_ty));
     }
   );
   if(cand_vals.len() != cand_tys.len(), {
@@ -2944,22 +2954,22 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
           fw_rtt.get(i),
           .Some(rt) => new_rtt.push(
             match(
-              rt,
+              &rt,
               Rc(.FutureTraitT(fb, fo, fel, fet)) => match(
                 fo,
-                Rc(.SomeT({ id : _ })) => rc(TypeValueNode.FutureTraitT(fb, t_with_resolution(&fo, concrete), fel, fet)),
-                _ => rt
+                Rc(.SomeT({ id : _ })) => rc(TypeValueNode.FutureTraitT(fb, t_with_resolution(&fo, concrete), Rc.clone(fel), Rc.clone(fet))),
+                _ => Rc.clone(rt)
               ),
-              _ => rt
+              _ => Rc.clone(rt)
             )
           ),
           .None => ()
         );
         i = (i + usize(1));
       });
-      rc(TypeValueNode.SomeT(fw_id.clone(), fw_nm.clone(), fw_fl, fw_pt, new_rtt, fw_rtl.clone(), fw_ntt.clone(), fw_ntl.clone(), fw_kft, fw_rc))
+      rc(TypeValueNode.SomeT(fw_id.clone(), fw_nm.clone(), fw_fl, Rc.clone(fw_pt), new_rtt, fw_rtl.clone(), fw_ntt.clone(), fw_ntl.clone(), fw_kft.clone(), fw_rc.clone()))
     },
-    _ => wrapper
+    _ => Rc.clone(wrapper)
   )
 );
 _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
@@ -3022,7 +3032,7 @@ _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
         Option(TypeValue).None
       )
     ),
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 
@@ -3054,12 +3064,12 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
   // borrows are on the closure's capture struct.
   cap_ty := match(
     body_info.value,
-    .Some(.FuncVal(body_fv, _)) => match(get_closure_capture_info(&body_fv.*.func_id), .Some(cci) => cci.capture_type, .None => return(())),
+    .Some(.FuncVal(body_fv, _)) => match(get_closure_capture_info(&body_fv.*.func_id), .Some(cci) => Rc.clone(cci.capture_type), .None => return(())),
     _ => return(())
   );
   bs := ArrayList(CaptureBorrow).new();
   match(
-    cap_ty,
+    &cap_ty,
     Rc(.Struct({ id : cap_sid, field_labels : cap_labels, field_types : cap_types })) => {
       match(
         capture_struct_borrows(&cap_sid),
@@ -3143,14 +3153,17 @@ _note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &Array
 /// §3.13 A6: `io.spawn` and a cold `io.await` copy the effect bundle into the
 /// future bitwise, since one bundle starts many futures. A field that is not
 /// implicitly copyable (move-only, or plain data without `Copy`) would be
-/// copied by that, so it is an error at the site; shared state goes in an
-/// `Rc` field.
+/// copied by that, so it is an error at the site. A counted handle is one
+/// since decision 17 (V2c): a bundle holds no owned value, and shared state
+/// reaches a task through its capture list (`{ st : Rc.clone(st) }`) or a
+/// handler as an argument of the effect call (plans/VALUES_BY_DEFAULT.md,
+/// "A6, the bundle").
 _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
   if(!(is_io_await_call(expr) || is_io_spawn_call(expr)), {
     return(());
   });
   bundle := match(args.get(usize(1)), .Some(a) => _unlabeled_argument(&a), .None => return(()));
-  bundle_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&bundle)), .Some(bi) => bi.ty, .None => return(()));
+  bundle_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&bundle)), .Some(bi) => Rc.clone(bi.ty), .None => return(()));
   match(
     bundle_ty,
     Rc(.Struct({ field_labels : labels, field_types : types })) => {
@@ -3164,7 +3177,7 @@ _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ct
               format_error_message_with_help(
                 ast_expr_token(&bundle),
                 `The effect bundle's field \`${label}\` (\`${type_to_string(&fty)}\`) is not implicitly copyable, and \`${if(is_io_spawn_call(expr), "io.spawn", "io.await")}\` copies the bundle into the future it starts (one bundle starts many futures, plans/VALUES_BY_DEFAULT.md §3.13 A6).`,
-                Option(String).Some(`keep shared state in an \`Rc\` field of the bundle, or pass the value to the task through its capture list instead`)
+                Option(String).Some(`a bundle holds no owned value: pass shared state to the task through its capture list (\`io.async({ st : Rc.clone(st) }(e : Io) => ...)\`), or to a handler as an argument of the effect call`)
               ),
               E_USE_OF_MOVED_VALUE
             ),
@@ -3357,7 +3370,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // The callee's parameter labels name the assumed borrows.
     labels := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
-      .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+      .Some(ci) => match(&ci.ty, Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
       .None => no_labels()
     );
     tok := ast_expr_token(expr);
@@ -3392,7 +3405,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // A fresh wrapper for this call, resolving to the type the call had (so
     // codegen lowers it as before), carries the assumed borrows.
     assumed_ty := match(
-      info.ty,
+      &info.ty,
       Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft })) => rc(
         TypeValueNode.SomeT(
           generate_some_type_id(),
@@ -3409,7 +3422,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
       ),
       _ => return(())
     );
-    match(assumed_ty, Rc(.SomeT({ id : a_id })) => register_capture_borrows(&a_id, &bs), _ => ());
+    match(&assumed_ty, Rc(.SomeT({ id : a_id })) => register_capture_borrows(&a_id, &bs), _ => ());
     info.ty = assumed_ty;
     expr_info_table_set(&ctx.expr_info_table, call_id, &info);
   });
@@ -3450,7 +3463,7 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
     return(false);
   });
   // An extern's future is the runtime's, and it borrows nothing.
-  if(match(callee_info.ty, Rc(.Func({ meta : em })) => em.*.is_extern.is_some(), _ => false), {
+  if(match(&callee_info.ty, Rc(.Func({ meta : em })) => em.*.is_extern.is_some(), _ => false), {
     return(false);
   });
   if(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
@@ -3458,7 +3471,7 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
       return(false);
     });
     recv := match(callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(false)), .Atom(_, _) => return(false));
-    recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => return(false));
+    recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => return(false));
     if(is_dyn_type(&recv_ty) || match(recv_ty, Rc(.Pointer(inner)) => is_dyn_type(&inner), _ => false), {
       return(false);
     });
@@ -3490,7 +3503,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
   // (issues/fixed/2026-10-24-a-borrowing-method-future-on-a-ref-receiver-is-rejected-as-a-cell-lend.md).
   (callee_fn_ty : Option(TypeValue)) = match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => if(is_function_type(&ci.ty), Option(TypeValue).Some(ci.ty), lookup_method_callee_type(ast_expr_id(call))),
+    .Some(ci) => if(is_function_type(&ci.ty), Option(TypeValue).Some(Rc.clone(ci.ty)), lookup_method_callee_type(ast_expr_id(call))),
     .None => lookup_method_callee_type(ast_expr_id(call))
   );
   match(
@@ -3498,7 +3511,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
     .Some(cft) => match(
       cft,
       Rc(.Func({ param_types : opt, meta : om })) => {
-        labels = om.*.param_labels;
+        labels = Rc.clone(om.*.param_labels);
         self_ty = slot_pointee_at(&opt, usize(0));
       },
       _ => ()
@@ -3516,7 +3529,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
     arg_offset = usize(1);
     recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
-    recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit));
+    recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => rc(TypeValueNode.Unit));
     recv_is_cell := is_counted_handle_type(&recv_ty);
     self_is_cell := match(self_ty, .Some(st) => is_counted_handle_type(&st), .None => false);
     if(_borrows_root_named(bs, &self_label), {
@@ -3561,7 +3574,7 @@ _future_call_receiver_offset :: (fn(op_callee : &AstExpr, op_args : &ArrayList(A
 _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .Some(ci) => match(&ci.ty, Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
@@ -3646,7 +3659,7 @@ _future_call_lends_into :: (
 )({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .Some(ci) => match(&ci.ty, Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
@@ -3691,7 +3704,7 @@ _future_call_lends_into :: (
 _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .Some(ci) => match(&ci.ty, Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
@@ -3804,7 +3817,7 @@ _lent_place_string :: (fn(lp : &_LentPlace) -> String)({
 _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .Some(ci) => match(&ci.ty, Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
@@ -4319,7 +4332,7 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, env :
   place_text := _place_display(&l.place);
   at := ast_expr_token(&l.lent_arg);
   pp := global_place_path(&l.place, ctx);
-  place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => pi.ty, .None => gv.ty.clone());
+  place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => Rc.clone(pi.ty), .None => gv.ty.clone());
   place_is_handle := is_counted_handle_type(&place_ty);
   marked := is_mut_global(&gv.token.module_path.*, &gv.name);
   is_write := (l.exclusive && !place_is_handle && !pp.through_handle);
@@ -4424,9 +4437,9 @@ _operator_operand_is_lent :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   owning := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
     .Some(ci) => match(
-      ci.ty,
+      &ci.ty,
       Rc(.Func({ result : _ })) => fn_param_by_value_flags(&ci.ty),
-      _ => match(extract_fn_trait_from_type(&ci.ty), .Some(ftt_op) => match(ftt_op, Rc(.FnTraitT(base_name : _)) => fn_param_by_value_flags(&ftt_op), _ => return(none)), .None => return(none))
+      _ => match(extract_fn_trait_from_type(&ci.ty), .Some(ftt_op) => match(&ftt_op, Rc(.FnTraitT(base_name : _)) => fn_param_by_value_flags(&ftt_op), _ => return(none)), .None => return(none))
     ),
     .None => return(none)
   );
@@ -4688,7 +4701,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
       });
       substitute(&fbs, ft.clone())
     },
-    _ => ft
+    _ => Rc.clone(ft)
   )
 );
 /// Per-call identity for a USER generic callee's own forall binders — the
@@ -4763,19 +4776,19 @@ _gc_collect_binder_sites :: (
     return(());
   });
   work := ArrayList(TypeValue).new();
-  work.push(t);
+  work.push(Rc.clone(t));
   (steps : usize) = usize(0);
   while((work.len() > usize(0)) && (steps < usize(4096)), {
     steps = (steps + usize(1));
     cur := match(work.pop(), .Some(c) => c, .None => rc(TypeValueNode.Unit));
     somes := get_all_some_types(&cur);
-    match(cur, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => (), _ => somes.push(cur));
+    match(&cur, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => (), _ => somes.push(Rc.clone(cur)));
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
         somes.get(si),
         .Some(sv) => match(
-          sv,
+          &sv,
           Rc(.SomeT({ id : sid, name : snm, frame_level : slvl, required_trait_types : srt })) => {
             (ni : usize) = usize(0);
             while(ni < forall_names.len(), {
@@ -4815,7 +4828,7 @@ _gc_collect_binder_sites :: (
               match(slot_pointee_at(&fcp, fi), .Some(fp) => work.push(fp), .None => ());
               fi = (fi + usize(1));
             });
-            work.push(fcr);
+            work.push(Rc.clone(fcr));
             (gi : usize) = usize(0);
             while(gi < fit.len(), {
               match(fit.get(gi), .Some(it) => work.push(it), .None => ());
@@ -4823,7 +4836,7 @@ _gc_collect_binder_sites :: (
             });
           },
           Rc(.FutureTraitT(_, fo, _, fet)) => {
-            work.push(fo);
+            work.push(Rc.clone(fo));
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
               match(fet.get(ei), .Some(et) => work.push(et), .None => ());
@@ -4852,7 +4865,7 @@ _gc_freshen_all_sites :: (
   site_protos := ArrayList(TypeValue).new();
   _gc_collect_binder_sites(ft, forall_names, &mut site_names, &mut site_levels, &mut site_ids, &mut site_protos);
   if(site_names.len() == usize(0), {
-    return(ft);
+    return(Rc.clone(ft));
   });
   // One fresh binder per ORIGINAL ID — not per NAME.
   //
@@ -4889,7 +4902,7 @@ _gc_freshen_all_sites :: (
       // same type variable, only with a per-call identity.
       g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => rc(TypeValueNode.Unit));
       g_made := match(
-        g_proto,
+        &g_proto,
         Rc(.SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, kind_function_type : g_pkft })) => rc(
           TypeValueNode.SomeT(
             generate_some_type_id(),
@@ -4904,7 +4917,7 @@ _gc_freshen_all_sites :: (
             Option(TypeValue).None
           )
         ),
-        _ => g_proto
+        _ => Rc.clone(g_proto)
       );
       fresh_ids.push(g_id.clone());
       fresh_types.push(g_made);
@@ -4962,13 +4975,13 @@ _freshen_generic_closure_callee :: (
   fn(ft : &TypeValue, forall_names : &ArrayList(String)) -> TypeValue
 )({
   if(forall_names.len() == usize(0), {
-    return(ft);
+    return(Rc.clone(ft));
   });
   match(
     ft,
     Rc(.Func({ param_types : gc_pts, result : gc_res, forall_types : gc_fts })) => {
       if(gc_fts.len() == usize(0), {
-        return(ft);
+        return(Rc.clone(ft));
       });
       // The result must be a FUTURE-implementing existential. That is not a
       // convenience narrowing — it IS the id-keyed channel this whole fix is
@@ -4984,14 +4997,14 @@ _freshen_generic_closure_callee :: (
       // (tests/async/channel.test.yo, measured 2026-09-13). Their binder is
       // carried by ordinary per-call substitution and needs no id at all.
       if(!type_implements_future(&gc_res), {
-        return(ft);
+        return(Rc.clone(ft));
       });
       // The read-back side: which of this callee's binders survive into the
       // declared result (nested inside the existential's required traits, which
       // is where `Impl(Future(R, Io))` carries `R`).
       gc_ret_ids := _rre_binder_ids(&gc_res, forall_names);
       if(gc_ret_ids.len() == usize(0), {
-        return(ft);
+        return(Rc.clone(ft));
       });
       // The registration side: a closure-typed parameter whose `Fn` bound
       // mentions one of those same ids. That pair — published under an id on
@@ -5028,7 +5041,7 @@ _freshen_generic_closure_callee :: (
         gc_i = (gc_i + usize(1));
       });
       if(!gc_hit, {
-        return(ft);
+        return(Rc.clone(ft));
       });
       gc_out := _gc_freshen_all_sites(ft, forall_names);
       if(debug_knob(`YO_DEBUG_FRESHEN`).is_some(), {
@@ -5039,7 +5052,7 @@ _freshen_generic_closure_callee :: (
       });
       gc_out
     },
-    _ => ft
+    _ => Rc.clone(ft)
   )
 });
 /// True if this function type has a regular parameter that is a SomeType
@@ -5104,10 +5117,10 @@ _fv_fn_trait_with_result :: (fn(ftt : &TypeValue, result : &TypeValue) -> TypeVa
     ftt,
     Rc(.FnTraitT(bn, cpl, cpt, cr, il, it)) => if(
       is_some_type(&cr) || (get_all_some_types(&cr).len() > usize(0)),
-      rc(TypeValueNode.FnTraitT(bn.clone(), cpl, cpt, result, il, it)),
-      ftt
+      rc(TypeValueNode.FnTraitT(bn.clone(), Rc.clone(cpl), Rc.clone(cpt), Rc.clone(result), Rc.clone(il), Rc.clone(it))),
+      Rc.clone(ftt)
     ),
-    _ => ftt
+    _ => Rc.clone(ftt)
   )
 );
 /// A closure argument's type as binder inference sees it. A closure checked
@@ -5127,9 +5140,9 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
   match(
     body_opt,
     .Some(body) => cond(
-      (is_some_type(&body) || (get_all_some_types(&body).len() > usize(0))) => info.ty,
+      (is_some_type(&body) || (get_all_some_types(&body).len() > usize(0))) => Rc.clone(info.ty),
       true => match(
-        info.ty,
+        &info.ty,
         Rc(
           .Func({
             forall_types : cb_ft,
@@ -5141,8 +5154,8 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           })
         ) => if(
           is_some_type(&cb_res) || (get_all_some_types(&cb_res).len() > usize(0)),
-          rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, no_types())),
-          info.ty
+          rc(TypeValueNode.Func(Rc.clone(cb_ft), Rc.clone(cb_pt), Rc.clone(cb_it), Rc.clone(cb_wt), Rc.clone(body), Rc.clone(cb_meta), no_types())),
+          Rc.clone(info.ty)
         ),
         Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)) => {
           new_rtt := ArrayList(TypeValue).new();
@@ -5151,13 +5164,13 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
             match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
-          rc(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, rf_pt, new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft, rf_rc))
+          rc(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, Rc.clone(rf_pt), new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft.clone(), rf_rc.clone()))
         },
         Rc(.FnTraitT(_, _, _, _, _, _)) => _fv_fn_trait_with_result(&info.ty, &body),
-        _ => info.ty
+        _ => Rc.clone(info.ty)
       )
     ),
-    .None => info.ty
+    .None => Rc.clone(info.ty)
   )
 });
 /// Synthesize one declared parameter type against its argument into a
@@ -5220,9 +5233,9 @@ _funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_
   cond(
     is_comptime_string_type(arg_ty) => rc(TypeValueNode.Str),
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
-    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(exp_pt)) => exp_pt,
-    (is_unit_type(arg_ty) && is_some_type(exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(exp_pt))) => exp_pt,
-    true => arg_ty
+    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(exp_pt)) => Rc.clone(exp_pt),
+    (is_unit_type(arg_ty) && is_some_type(exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(exp_pt))) => Rc.clone(exp_pt),
+    true => Rc.clone(arg_ty)
   )
 );
 /// Do two concrete bindings of one binder disagree? Only SomeT-free types are
@@ -5277,7 +5290,7 @@ _scratch_len_binding :: (fn(se : &Environment, name : &String) -> Option(String)
 /// still left to the later fallbacks.
 _fv_type_vars_are_callers_binders :: (fn(env : &Environment, t : &TypeValue) -> bool)({
   somes := get_all_some_types(t);
-  match(t, Rc(.SomeT({ id : _ })) => somes.push(t), _ => ());
+  match(t, Rc(.SomeT({ id : _ })) => somes.push(Rc.clone(t)), _ => ());
   (any_open : bool) = false;
   (si : usize) = usize(0);
   while(si < somes.len(), {
@@ -5324,7 +5337,7 @@ _scratch_concrete_binding :: (fn(se : &Environment, name : &String) -> Option(Ty
         ev,
         .TypeVal(t) => cond(
           ((get_all_some_types(&t).len() > usize(0)) || is_some_type(&t)) => Option(TypeValue).None,
-          true => Option(TypeValue).Some(t)
+          true => Option(TypeValue).Some(Rc.clone(t))
         ),
         _ => Option(TypeValue).None
       ),
@@ -5508,7 +5521,7 @@ _fv_refine_closure_expected :: (
         se_opt,
         .Some(e) => e,
         .None => {
-          se_new := Environment.new(env.module_path);
+          se_new := Environment.new(Rc.clone(env.module_path));
           (sq : usize) = usize(0);
           while(sq < info_arg_idx.len(), {
             sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
@@ -5552,7 +5565,7 @@ _fv_refine_closure_expected :: (
   });
   cond(
     any => substitute(&sb, param_ty),
-    true => param_ty
+    true => Rc.clone(param_ty)
   )
 });
 /// Put per-argument infos evaluated out of order (`idx[i]` is the argument
@@ -5657,9 +5670,9 @@ _fv_bind_unbound_forall_placeholders :: (
       match(
         sig_somes.get(si),
         .Some(st) => match(
-          st,
+          &st,
           Rc(.SomeT({ name : sn })) => if(sn == fname, {
-            sig_st = Option(TypeValue).Some(st);
+            sig_st = Option(TypeValue).Some(Rc.clone(st));
           }),
           _ => ()
         ),
@@ -5695,7 +5708,7 @@ _fv_bind_unbound_forall_placeholders :: (
           fresh_env,
           fname.clone(),
           rc(TypeValueNode.TypeUni(usize(0))),
-          Option(EvalValue).Some(EvalValue.TypeVal(st)),
+          Option(EvalValue).Some(EvalValue.TypeVal(Rc.clone(st))),
           true,
           false,
           false,
@@ -5727,8 +5740,8 @@ _phantom_binder_args :: (fn(decl : &TypeValue, arg : &TypeValue, name : &String,
     Rc(.EnumT({ id : d_id, type_arguments : dt })) => match(
       arg,
       Rc(.EnumT({ id : a_id, type_arguments : at })) => {
-        d_tas = dt;
-        a_tas = at;
+        d_tas = Rc.clone(dt);
+        a_tas = Rc.clone(at);
         flags = enum_phantom_positions(&d_id);
         if(flags.len() == usize(0), {
           flags = enum_phantom_positions(&a_id);
@@ -5809,7 +5822,7 @@ _funcval_bind_foralls :: (
           // name-match arm below produces); a VALUE argument for a
           // value-generic (`generic(N : usize)`) keeps its own declared type.
           pf_decl_ty := match(pf_val, .TypeVal(_) => rc(TypeValueNode.TypeUni(usize(0))), _ => pf_ty.clone());
-          pf_bound_ty := match(pf_val, .TypeVal(pf_tb) => pf_tb, _ => pf_ty.clone());
+          pf_bound_ty := match(pf_val, .TypeVal(pf_tb) => Rc.clone(pf_tb), _ => pf_ty.clone());
           _add_pre_forall := add_variable_to_env(
             fresh_env,
             fa_name.clone(),
@@ -5841,7 +5854,7 @@ _funcval_bind_foralls :: (
       // y (issues/fixed/generic-type-var-rebinds-per-argument.md).
       if((ptn == fa_name) && fa_bound, {
         match(
-          fa_first_ty,
+          &fa_first_ty,
           .Some(fa_prev) => {
             later_info := match(evaled_arg_infos.get(ptn_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             later_ty := _funcval_infer_forall_ty(
@@ -5904,7 +5917,7 @@ _funcval_bind_foralls :: (
           (pp_i : usize) = usize(0);
           while(pp_i < declared_param_types.len(), {
             pp_decl := match(slot_pointee_at(&declared_param_types, pp_i), .Some(t) => t, .None => t_unit());
-            pp_arg := match(evaled_arg_infos.get(pp_i), .Some(i) => i.ty, .None => t_unit());
+            pp_arg := match(evaled_arg_infos.get(pp_i), .Some(i) => Rc.clone(i.ty), .None => t_unit());
             pp_found := ArrayList(TypeValue).new();
             _phantom_binder_args(&pp_decl, &pp_arg, fa_name.clone(), &mut pp_found);
             (pp_k : usize) = usize(0);
@@ -5937,7 +5950,7 @@ _funcval_bind_foralls :: (
         fa_synth_env,
         .Some(e) => e,
         .None => {
-          se_new := Environment.new(env.module_path);
+          se_new := Environment.new(Rc.clone(env.module_path));
           n_dp := declared_param_types.len();
           // Per-call consistency for binders reached STRUCTURALLY
           // (`x : Option(A), y : Option(A)`): the synthesizer rebinds in
@@ -5962,11 +5975,11 @@ _funcval_bind_foralls :: (
               sn_name := match(forall_names.get(sn_i), .Some(n) => n, .None => String.new());
               sn_i = (sn_i + usize(1));
               sn_ty := _scratch_concrete_binding(&se_new, sn_name.clone());
-              sn_len := match(sn_ty, .Some(_) => String.new(), .None => match(_scratch_len_binding(&se_new, sn_name.clone()), .Some(l) => l, .None => String.new()));
+              sn_len := match(&sn_ty, .Some(_) => String.new(), .None => match(_scratch_len_binding(&se_new, sn_name.clone()), .Some(l) => l, .None => String.new()));
               if(sn_ty.is_none() && (sn_len.len() == usize(0)), {
                 continue;
               });
-              sn_now := match(sn_ty, .Some(t) => t, .None => t_usize());
+              sn_now := match(sn_ty, .Some(t) => Rc.clone(t), .None => t_usize());
               (sn_k : usize) = usize(0);
               (sn_found : bool) = false;
               while((sn_k < se_seen_names.len()) && !sn_found, {
@@ -6054,7 +6067,7 @@ _funcval_bind_foralls :: (
               // imm_list/imm_vec unify(usize, Type) hollow root) is skipped.
               .IntLit(se_il) => {
                 fa_bound_names.push(fa_name.clone());
-                fa_bound_types.push(se_var.ty);
+                fa_bound_types.push(Rc.clone(se_var.ty));
                 _add_forall_il := add_variable_to_env(
                   fresh_env,
                   &fa_name,
@@ -6073,7 +6086,7 @@ _funcval_bind_foralls :: (
               // case): bind the value, typed by its kind.
               .FuncVal(_, _) => {
                 fa_bound_names.push(fa_name.clone());
-                fa_bound_types.push(se_var.ty);
+                fa_bound_types.push(Rc.clone(se_var.ty));
                 _add_forall_fv := add_variable_to_env(
                   fresh_env,
                   &fa_name,
@@ -6141,7 +6154,7 @@ _funcval_bind_foralls :: (
                 fa_bound = true;
               },
               .TypeVal(ctb) => {
-                cap_ty := ctb;
+                cap_ty := Rc.clone(ctb);
                 // Bind from the capture only when it is CONCRETE. A capture
                 // can hold a still-unresolved SomeT (a def-time trial's own
                 // binder echoed back) — binding that here poisons the body
@@ -6240,7 +6253,7 @@ _funcval_bind_foralls :: (
       if(is_function_type(&cx_info.ty) || is_fn_trait_type(&cx_info.ty) || is_some_type(&cx_info.ty), {
         continue;
       });
-      cx_env := Environment.new(env.module_path);
+      cx_env := Environment.new(Rc.clone(env.module_path));
       _funcval_try_synthesize_param(&cx_dpt, &cx_env, &cx_info.ty, env);
       (cx_b : usize) = usize(0);
       while(cx_b < fa_bound_names.len(), {
@@ -6281,13 +6294,13 @@ _rre_binder_ids :: (
     return(out);
   });
   work := ArrayList(TypeValue).new();
-  work.push(ret);
+  work.push(Rc.clone(ret));
   (steps : usize) = usize(0);
   while((work.len() > usize(0)) && (steps < usize(4096)), {
     steps = (steps + usize(1));
     cur := match(work.pop(), .Some(c) => c, .None => rc(TypeValueNode.Unit));
     somes := get_all_some_types(&cur);
-    match(cur, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => (), _ => somes.push(cur));
+    match(&cur, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => (), _ => somes.push(Rc.clone(cur)));
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
@@ -6318,7 +6331,7 @@ _rre_binder_ids :: (
               match(slot_pointee_at(&fcp, fi), .Some(fp) => work.push(fp), .None => ());
               fi = (fi + usize(1));
             });
-            work.push(fcr);
+            work.push(Rc.clone(fcr));
             (gi : usize) = usize(0);
             while(gi < fit.len(), {
               match(fit.get(gi), .Some(it) => work.push(it), .None => ());
@@ -6326,7 +6339,7 @@ _rre_binder_ids :: (
             });
           },
           Rc(.FutureTraitT(_, fo, _, fet)) => {
-            work.push(fo);
+            work.push(Rc.clone(fo));
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
               match(fet.get(ei), .Some(et) => work.push(et), .None => ());
@@ -6367,7 +6380,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
     return(true);
   });
   work := ArrayList(TypeValue).new();
-  work.push(t);
+  work.push(Rc.clone(t));
   (steps : usize) = usize(0);
   (found : bool) = false;
   while((work.len() > usize(0)) && !found && (steps < usize(4096)), {
@@ -6377,7 +6390,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
     // array element or a pointee is collected here, and each collected SomeT
     // is re-examined below.
     somes := get_all_some_types(&cur);
-    match(cur, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => (), _ => somes.push(cur));
+    match(&cur, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => (), _ => somes.push(Rc.clone(cur)));
     (si : usize) = usize(0);
     while((si < somes.len()) && !found, {
       match(
@@ -6408,7 +6421,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
               match(slot_pointee_at(&fcp, fi), .Some(fp) => work.push(fp), .None => ());
               fi = (fi + usize(1));
             });
-            work.push(fcr);
+            work.push(Rc.clone(fcr));
             (gi : usize) = usize(0);
             while(gi < fit.len(), {
               match(fit.get(gi), .Some(it) => work.push(it), .None => ());
@@ -6416,7 +6429,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
             });
           },
           Rc(.FutureTraitT(_, fo, _, fet)) => {
-            work.push(fo);
+            work.push(Rc.clone(fo));
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
               match(fet.get(ei), .Some(et) => work.push(et), .None => ());
@@ -6513,7 +6526,7 @@ _evaluate_funcval_runtime_call :: (
           match(
             evaled_arg_infos.get(_ac_i),
             .Some(_ac_ai) => {
-              _ac_aty := match(expr_info_capture_type(&_ac_ai), .Some(_ac_ct) => _ac_ct, .None => _ac_ai.ty);
+              _ac_aty := match(expr_info_capture_type(&_ac_ai), .Some(_ac_ct) => _ac_ct, .None => Rc.clone(_ac_ai.ty));
               match(
                 slot_pointee_at(&_ac_pts, _ac_i),
                 .Some(_ac_pty) => {
@@ -6604,7 +6617,7 @@ _evaluate_funcval_runtime_call :: (
   // so the env-lookup resolver returns them unresolved.) E.g. `(bit_not) ::
   // (fn(generic(_Self), self : _Self, ...) -> _Self)` called with
   // `self : u32` must return u32, not the abstract `_Self` SomeT.
-  (resolved_ret : TypeValue) = ret_type;
+  (resolved_ret : TypeValue) = Rc.clone(ret_type);
   if(fa_bound_names.len() > usize(0), {
     ret_somes := get_all_some_types(ret_type);
     if(ret_somes.len() > usize(0), {
@@ -6738,7 +6751,7 @@ _evaluate_funcval_runtime_call :: (
         // see _rre_dot_receiver_type. Without
         // it a bare-`Self` return-type expr adopts the ENCLOSING impl's
         // Self during def-time body evals.
-        hkt_prev_self := ctx.self_type;
+        hkt_prev_self := ctx.self_type.clone();
         match(
           _rre_dot_receiver_type(func_expr, ctx),
           .Some(hkt_rs) => {
@@ -6749,7 +6762,7 @@ _evaluate_funcval_runtime_call :: (
         hkt_out := ArrayList(TypeValue).new();
         _trial_eval_ret_type_expr(clone_expr_fresh_ids(&hkt_expr), fresh_env, ctx, &mut hkt_out);
         if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
-          rre_dbg_self := match(ctx.self_type, .Some(st) => type_to_string(&st), .None => String.from("<none>"));
+          rre_dbg_self := match(&ctx.self_type, .Some(st) => type_to_string(&st), .None => String.from("<none>"));
           rre_dbg_out := match(hkt_out.get(usize(0)), .Some(t) => type_to_string(&t), .None => String.from("<none>"));
           eprintln(`[rre] callee=${ast_expr_to_string(func_expr)} old=${rre_old_wanted.to_string()} era=${rre_era_suspect.to_string()} self=${rre_dbg_self} hkt=${rre_dbg_out} resolved_ret=${type_to_string(&resolved_ret)}`);
         });
@@ -6866,7 +6879,7 @@ _evaluate_funcval_runtime_call :: (
       .FuncVal(rc_fvd, _) => match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rc_fvd.*.body)),
         .Some(rc_binfo) => {
-          (rc_conc : TypeValue) = rc_binfo.ty;
+          (rc_conc : TypeValue) = Rc.clone(rc_binfo.ty);
           match(
             some_resolution(&rc_conc),
             .Some(rc_inner) => {
@@ -6956,12 +6969,12 @@ _evaluate_funcval_runtime_call :: (
       _func_type_has_closure_param(&spec_ft) => true,
       true => {
         (ou_sg_all_concrete : bool) = true;
-        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p, _ => no_types());
+        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => Rc.clone(ou_sg_p), _ => no_types());
         (ou_sg_i : usize) = usize(0);
         while(ou_sg_i < ou_sg_pts.len(), {
           ou_sg_pt := match(slot_pointee_at(&ou_sg_pts, ou_sg_i), .Some(t) => t, .None => t_unit());
           if(get_all_some_types(&ou_sg_pt).len() > usize(0), {
-            ou_sg_aty := match(evaled_arg_infos.get(ou_sg_i), .Some(ai) => ai.ty, .None => t_unit());
+            ou_sg_aty := match(evaled_arg_infos.get(ou_sg_i), .Some(ai) => Rc.clone(ai.ty), .None => t_unit());
             if(get_all_some_types(&ou_sg_aty).len() > usize(0), {
               ou_sg_all_concrete = false;
             });
@@ -7032,7 +7045,7 @@ _evaluate_funcval_runtime_call :: (
     // `fresh_env` by the capture fallback in the generic-binding loop
     // above; `Self` is the remaining piece for static methods (instance
     // methods get it from the concrete `self` arg). Restored after spec.
-    spec_self_saved := ctx.self_type;
+    spec_self_saved := ctx.self_type.clone();
     match(
       _static_dot_receiver_self_type(func_expr, ctx),
       .Some(spec_st) => {
@@ -7052,7 +7065,7 @@ _evaluate_funcval_runtime_call :: (
         // issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md).
         // Concrete returns are untouched as before.
         ret_some_is_self := match(
-          resolved_ret,
+          &resolved_ret,
           Rc(.SomeT({ name : sdr_nm })) => (sdr_nm == "Self"),
           _ => false
         );
@@ -7071,7 +7084,7 @@ _evaluate_funcval_runtime_call :: (
             adopt_receiver_struct_instance(&resolved_ret, spec_st.clone()),
             .Some(adopted_st) => {
               resolved_ret = adopted_st;
-              out_rt.ty = resolved_ret;
+              out_rt.ty = Rc.clone(resolved_ret);
               out_rt.value = Option(EvalValue).Some(_call_result_unknown(&resolved_ret, env));
             },
             .None => ()
@@ -7091,7 +7104,7 @@ _evaluate_funcval_runtime_call :: (
             adopt_receiver_struct_instance(&resolved_ret, spec_ist.clone()),
             .Some(adopted_ist) => {
               resolved_ret = adopted_ist;
-              out_rt.ty = resolved_ret;
+              out_rt.ty = Rc.clone(resolved_ret);
               out_rt.value = Option(EvalValue).Some(_call_result_unknown(&resolved_ret, env));
             },
             .None => ()
@@ -7101,7 +7114,7 @@ _evaluate_funcval_runtime_call :: (
         .None => ()
       )
     );
-    spec_ct := match(callee_func_type_opt, .Some(t) => t, .None => t_unit());
+    spec_ct := match(callee_func_type_opt, .Some(t) => Rc.clone(t), .None => t_unit());
     spec_forall_args := ArrayList(ArgEntry).new();
     (sfa_i : usize) = usize(0);
     while(sfa_i < fa_bound_names.len(), {
@@ -7150,7 +7163,7 @@ _evaluate_funcval_runtime_call :: (
       // Send)`) lowers to its concrete capture struct in the specialized C
       // function — the same concretion `resolved_concrete` carries
       // elsewhere.
-      (arg_ty_spec : TypeValue) = match(expr_info_capture_type(&ainfo), .Some(ct) => ct, .None => ainfo.ty);
+      (arg_ty_spec : TypeValue) = match(expr_info_capture_type(&ainfo), .Some(ct) => ct, .None => Rc.clone(ainfo.ty));
       // Lower a comptime-only ARG type (comptime_int/float/str) to its
       // runtime equivalent when the param is a RUNTIME param — the inline
       // arm's mirror of check_if_function_parameter_matches_argument's
@@ -7171,7 +7184,7 @@ _evaluate_funcval_runtime_call :: (
         arg_ty_spec = convert_comptime_type_to_runtime_type(&arg_ty_spec, env);
       });
       spec_reg_args.push(
-        ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : arg_ty_spec)
+        ArgEntry(value : ainfo.value, parameter_type : Rc.clone(ainfo.ty), arg_type : arg_ty_spec)
       );
       sra_i = (sra_i + usize(1));
     });
@@ -7244,7 +7257,7 @@ _evaluate_funcval_runtime_call :: (
         Rc(.Func({ result : mint_ret_ct })) => {
           if((ou_mint_closure_ret || (get_all_some_types(&mint_ret_ct).len() == usize(0))) && !is_unit_type(&mint_ret_ct), {
             resolved_ret = mint_ret_ct.clone();
-            out_rt.ty = resolved_ret;
+            out_rt.ty = Rc.clone(resolved_ret);
             out_rt.value = Option(EvalValue).Some(_call_result_unknown(&resolved_ret, env));
           });
         },
@@ -7260,7 +7273,7 @@ _evaluate_funcval_runtime_call :: (
     // re-register the specialized type with the result corrected.
     base_spec_ty := get_func_type(&spec_fid);
     spec_ty_candidate := match(
-      base_spec_ty,
+      &base_spec_ty,
       Rc(
         .Func({
           forall_types : fx_ft,
@@ -7271,16 +7284,16 @@ _evaluate_funcval_runtime_call :: (
         })
       ) => rc(
         TypeValueNode.Func(
-          fx_ft,
-          fx_pt,
-          fx_it,
-          fx_wt,
+          Rc.clone(fx_ft),
+          Rc.clone(fx_pt),
+          Rc.clone(fx_it),
+          Rc.clone(fx_wt),
           resolved_ret.clone(),
-          fx_meta,
+          Rc.clone(fx_meta),
           no_types()
         )
       ),
-      _ => base_spec_ty
+      _ => Rc.clone(base_spec_ty)
     );
     // Never REGRESS the registered return: create_specialized's declared-
     // param bridge (helper.yo) can concretize a return this arm cannot —
@@ -7292,7 +7305,7 @@ _evaluate_funcval_runtime_call :: (
     // dyn(rc(closure)) FTT). Override only when this arm's return is at
     // least as resolved as the registered one.
     base_ret_somes := match(
-      base_spec_ty,
+      &base_spec_ty,
       Rc(.Func({ result : fx_r0 })) => get_all_some_types(&fx_r0).len(),
       _ => usize(0)
     );
@@ -7329,7 +7342,7 @@ _evaluate_funcval_runtime_call :: (
         .FuncVal(rb_fvd, _) => match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rb_fvd.*.body)),
           .Some(rb_binfo) => {
-            (rb_conc : TypeValue) = rb_binfo.ty;
+            (rb_conc : TypeValue) = Rc.clone(rb_binfo.ty);
             match(
               some_resolution(&rb_conc),
               .Some(rb_inner) => {
@@ -7339,7 +7352,7 @@ _evaluate_funcval_runtime_call :: (
             );
             if(!is_unit_type(&rb_conc), {
               resolved_ret = t_with_resolution(&resolved_ret, &rb_conc);
-              out_rt.ty = resolved_ret;
+              out_rt.ty = Rc.clone(resolved_ret);
               out_rt.value = Option(EvalValue).Some(_call_result_unknown(&resolved_ret, env));
             });
           },
@@ -7479,6 +7492,14 @@ _try_eval_operand_type :: (
   // (issues/fixed/a-move-inside-an-overloaded-operators-operand-is-a-use-after-move.md).
   saved_vars := ArrayList(Variable).new();
   saved_moves := ArrayList(Option(Token)).new();
+  _save_move_states(env, &mut saved_vars, &mut saved_moves);
+  _probe_operand_type(arg, env, ctx, out);
+  _restore_move_states(&saved_vars, &saved_moves);
+});
+/// Record every binding of `env` with its move state (`consumed_at_token`),
+/// for `_restore_move_states` to put back after a probe or a trial that
+/// evaluates an expression the real call evaluates again.
+_save_move_states :: (fn(env : &Environment, saved_vars : &mut ArrayList(Variable), saved_moves : &mut ArrayList(Option(Token))) -> unit)({
   (fi : usize) = usize(0);
   while(fi < env.frames.len(), fi = (fi + usize(1)), {
     match(
@@ -7499,7 +7520,8 @@ _try_eval_operand_type :: (
       .None => ()
     );
   });
-  _probe_operand_type(arg, env, ctx, out);
+});
+_restore_move_states :: (fn(saved_vars : &ArrayList(Variable), saved_moves : &ArrayList(Option(Token))) -> unit)({
   (ri : usize) = usize(0);
   while(ri < saved_vars.len(), ri = (ri + usize(1)), {
     match(
@@ -7521,7 +7543,7 @@ _probe_operand_type :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&oe_evaled)),
     .Some(si) => {
-      out.push(si.ty);
+      out.push(Rc.clone(si.ty));
     },
     .None => ()
   );
@@ -7701,7 +7723,7 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   );
   ca_recv_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ca_recv)),
-    .Some(ri) => match(ri.ty, Rc(.Pointer(pt)) => pt, _ => ri.ty),
+    .Some(ri) => match(&ri.ty, Rc(.Pointer(pt)) => Rc.clone(pt), _ => Rc.clone(ri.ty)),
     .None => return(Option(AccessorCallInfo).None)
   );
   ca_rid := type_id_or_empty(&ca_recv_ty);
@@ -7848,7 +7870,7 @@ _instantiate_struct_over_closure_args :: (
                   match(
                     ic_fts.get(lj),
                     .Some(ic_decl) => match(
-                      ic_decl,
+                      &ic_decl,
                       Rc(.SomeT({ id : ic_sid, resolution : ic_res })) => if(ic_res.is_none() && (ic_sid.len() > usize(0)) && extract_fn_trait_from_type(&ic_decl).is_some(), {
                         rep_ids.push(ic_sid.clone());
                         rep_tys.push(ic_arg.clone());
@@ -7868,11 +7890,11 @@ _instantiate_struct_over_closure_args :: (
         fi = (fi + usize(1));
       });
       if(rep_ids.len() == usize(0), {
-        return(st);
+        return(Rc.clone(st));
       });
-      rc(TypeValueNode.Struct(ic_id.clone(), ic_nm.clone(), ic_labels, shared_list(_replace_some_ids(&ic_fts.items, &rep_ids, &rep_tys)), ic_ref, ic_at, ic_nt, ic_cfid.clone(), shared_list(_replace_some_ids(&ic_tas.items, &rep_ids, &rep_tys)), ic_sns))
+      rc(TypeValueNode.Struct(ic_id.clone(), ic_nm.clone(), Rc.clone(ic_labels), shared_list(_replace_some_ids(&ic_fts.items, &rep_ids, &rep_tys)), ic_ref, ic_at, ic_nt, ic_cfid.clone(), shared_list(_replace_some_ids(&ic_tas.items, &rep_ids, &rep_tys)), ic_sns))
     },
-    _ => st
+    _ => Rc.clone(st)
   )
 );
 /// `tys` with each SomeT whose id is `ids[k]` replaced by `with[k]`.
@@ -7883,14 +7905,14 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
     match(
       tys.get(i),
       .Some(t) => {
-        (r : TypeValue) = t;
+        (r : TypeValue) = Rc.clone(t);
         match(
-          t,
+          &t,
           Rc(.SomeT({ id : t_id })) => {
             (k : usize) = usize(0);
             while(k < ids.len(), {
               if(match(ids.get(k), .Some(x) => (x == t_id), .None => false), {
-                r = match(with.get(k), .Some(w) => w, .None => t);
+                r = match(with.get(k), .Some(w) => w, .None => Rc.clone(t));
               });
               k = (k + usize(1));
             });
@@ -7979,8 +8001,8 @@ _audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &E
   ai := match(_copying_accessor_info(call, env, ctx), .Some(x) => x, .None => return(()));
   res_ty0 := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
-    .Some(ri) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => ci.ty, .None => ri.ty),
-    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => ci.ty, .None => return(()))
+    .Some(ri) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => Rc.clone(ci.ty), .None => Rc.clone(ri.ty)),
+    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => Rc.clone(ci.ty), .None => return(()))
   );
   // A specialized generic accessor's recorded result still mentions its
   // open parameter (`Option(T)` with T resolved to the element): resolve the
@@ -8125,7 +8147,7 @@ _local_borrow_note_call_site :: (fn(call : &AstExpr, call_tok : &Token, ctx : &E
 /// captures, or a `Dyn` (its call-once wrapper releases the box itself):
 /// then the call needs no release after it.
 _fnonce_callee_releases_itself :: (fn(callee_info : &ExprInfo) -> bool)({
-  if(match(callee_info.ty, Rc(.DynT({ required_trait_types : _ })) => true, _ => false), {
+  if(match(&callee_info.ty, Rc(.DynT({ required_trait_types : _ })) => true, _ => false), {
     return(true);
   });
   fv_opt := match(
@@ -8138,7 +8160,7 @@ _fnonce_callee_releases_itself :: (fn(callee_info : &ExprInfo) -> bool)({
   });
   // A local typed `Impl(FnOnce(...))` carries no function value; its type
   // resolves to the closure's capture struct.
-  resolved := match(callee_info.ty, Rc(.SomeT({ resolution : sr })) => match(sr, .Some(c) => c, .None => callee_info.ty), _ => callee_info.ty);
+  resolved := match(&callee_info.ty, Rc(.SomeT({ resolution : sr })) => match(sr, .Some(c) => Rc.clone(c), .None => Rc.clone(callee_info.ty)), _ => Rc.clone(callee_info.ty));
   match(resolved, Rc(.Struct({ id : cs_id })) => is_fnonce_capture_struct(&cs_id), _ => false)
 });
 /// Record `___drop(<name>)` as the release to run after `call`. The drop is
@@ -8317,7 +8339,7 @@ _evaluate_function_call_unanchored :: (
           // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
           neg_ty := match(
             ctx.expected_type,
-            .Some(neg_et) => if(target_integer_type_range(&neg_et.ty).is_some(), neg_et.ty, t_comptime_int()),
+            .Some(neg_et) => if(target_integer_type_range(&neg_et.ty).is_some(), Rc.clone(neg_et.ty), t_comptime_int()),
             .None => t_comptime_int()
           );
           check_literal_fits(neg_raw.clone(), &neg_ty, &atok, exn);
@@ -8381,7 +8403,7 @@ _evaluate_function_call_unanchored :: (
     // prelude's `Eq(Option(T))` body at `T = EvalValue`, the inner `a == b`
     // dispatches here with `a` typed as EvalValue's shell.
     // See issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md.
-    receiver_ty := resolve_enum_shell(match(first_info_opt, .Some(ri) => ri.ty, .None => t_unit()));
+    receiver_ty := resolve_enum_shell(match(first_info_opt, .Some(ri) => Rc.clone(ri.ty), .None => t_unit()));
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
     (op_methods : ArrayList(MethodEntry)) = get_receiver_methods_by_name_from_env(env, op_name.clone(), &receiver_ty, true);
@@ -8502,7 +8524,7 @@ _evaluate_function_call_unanchored :: (
             while((osi < op_methods.len()) && !osel, {
               ocand := match(op_methods.get(osi), .Some(m) => m, .None => first_m_0);
               ocand_p1 := match(
-                ocand.ty,
+                &ocand.ty,
                 Rc(.Func({ param_types : ocpt })) => match(slot_pointee_at(&ocpt, usize(1)), .Some(t) => t, .None => t_unit()),
                 _ => t_unit()
               );
@@ -8524,7 +8546,7 @@ _evaluate_function_call_unanchored :: (
       // Classify by the method's return shape: an associated-type return
       // (contains a SomeT, e.g. `comptime(Self.Output)`) marks arithmetic;
       // a SomeT-free return (e.g. `bool`) marks comparison.
-      m_ret_op := match(first_m.ty, Rc(.Func({ result : _rb })) => _rb, _ => t_unit());
+      m_ret_op := match(&first_m.ty, Rc(.Func({ result : _rb })) => Rc.clone(_rb), _ => t_unit());
       op_ret_has_some := (get_all_some_types(&m_ret_op).len() > usize(0));
       // Associated-type return pre-hint: `try_to_call_function_with_arguments`
       // validates the return type and throws "Failed to infer the function
@@ -8535,7 +8557,7 @@ _evaluate_function_call_unanchored :: (
       // arithmetic traits all set `Output = Self`).
       saved_op_et := ctx.expected_type;
       if(op_ret_has_some && ctx.expected_type.is_none(), {
-        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : receiver_ty, env : env));
+        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(receiver_ty), env : env));
       });
       // Thread `Self` = the receiver (lhs) type into the call so a trait-default
       // operator lambda (`Eq.!= : (lhs, rhs) -> not(Self.(==)(lhs, rhs))`) that
@@ -8543,8 +8565,8 @@ _evaluate_function_call_unanchored :: (
       // create_specialized only reconstructs `ctx.self_type` from a param NAMED
       // `self` (helper.yo); the `!=` lambda's first param is `lhs`, so without
       // this its body emits "// Failed to transpile Self.(==)".
-      saved_op_self := ctx.self_type;
-      ctx.self_type = Option(TypeValue).Some(receiver_ty);
+      saved_op_self := ctx.self_type.clone();
+      ctx.self_type = Option(TypeValue).Some(Rc.clone(receiver_ty));
       call_result_op := try_to_call_function_with_arguments(
         &first_m.value,
         &first_m.ty,
@@ -8570,9 +8592,9 @@ _evaluate_function_call_unanchored :: (
       // associated types of this name only when they UNANIMOUSLY agree (they
       // do for every numeric type — all of `usize`'s `Output` entries are
       // `usize`). Diverging → leave unresolved (no wrong resolution).
-      resolved_ret := call_result_op.return_type;
+      resolved_ret := Rc.clone(call_result_op.return_type);
       if(is_some_type(&resolved_ret), {
-        assoc_nm := match(resolved_ret, Rc(.SomeT(name : nm)) => nm.clone(), _ => String.new());
+        assoc_nm := match(&resolved_ret, Rc(.SomeT(name : nm)) => nm.clone(), _ => String.new());
         recv_id := type_id_or_empty(&receiver_ty);
         if((assoc_nm.len() > usize(0)) && (recv_id.len() > usize(0)), {
           assoc_entries := get_assoc_type_entries(&receiver_ty, assoc_nm.clone());
@@ -8587,9 +8609,9 @@ _evaluate_function_call_unanchored :: (
                 .Some(av) => match(
                   av,
                   .TypeVal(tb) => {
-                    cand_ty := tb;
+                    cand_ty := Rc.clone(tb);
                     match(
-                      agreed,
+                      agreed.clone(),
                       .None => {
                         agreed = Option(TypeValue).Some(cand_ty);
                       },
@@ -8612,7 +8634,7 @@ _evaluate_function_call_unanchored :: (
             match(
               agreed,
               .Some(a) => {
-                resolved_ret = a;
+                resolved_ret = Rc.clone(a);
               },
               .None => ()
             );
@@ -8655,7 +8677,7 @@ _evaluate_function_call_unanchored :: (
         while((ocm_i < op_methods.len()) && op_comptime_m.is_none(), {
           match(
             op_methods.get(ocm_i),
-            .Some(ocm) => if(match(ocm.ty, Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_comptime_only, _ => false), {
+            .Some(ocm) => if(match(&ocm.ty, Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_comptime_only, _ => false), {
               op_comptime_m = Option(MethodEntry).Some(ocm);
             }),
             .None => ()
@@ -8664,7 +8686,7 @@ _evaluate_function_call_unanchored :: (
         });
       };
       op_eff_m := match(op_comptime_m, .Some(m) => m, .None => first_m);
-      op_is_comptime := match(op_eff_m.ty, Rc(.Func({ meta : __fm2 })) => __fm2.*.result_is_comptime_only, _ => false);
+      op_is_comptime := match(&op_eff_m.ty, Rc(.Func({ meta : __fm2 })) => __fm2.*.result_is_comptime_only, _ => false);
       // Only FOLD the operator at comptime when EVERY operand is a concrete
       // value (present and not an `UnknownVal`). With a runtime-unknown operand
       // (e.g. `idx < len` inside a runtime-return method body being evaluated at
@@ -8700,7 +8722,7 @@ _evaluate_function_call_unanchored :: (
       };
       (op_result_val : Option(EvalValue)) = if((is_type_hierarchy_type(&resolved_ret) || op_is_comptime) && op_operands_concrete, {
         op_fv := match(op_eff_m.value, .Some(v) => v, .None => EvalValue.UnitVal);
-        op_env := Environment.new(call_result_op.callee_env.module_path);
+        op_env := Environment.new(Rc.clone(call_result_op.callee_env.module_path));
         match(
           op_fv,
           .FuncVal(__fvm4, op_cvals) => {
@@ -8864,7 +8886,7 @@ _evaluate_function_call_unanchored :: (
   match(
     callee_info_opt,
     .Some(pj_ci) => match(
-      pj_ci.ty,
+      &pj_ci.ty,
       Rc(.Func({ meta : pj_m })) => if(pj_m.*.result_is_ref && !callee_is_marked_dot && match(pj_ci.value, .Some(pj_v) => !is_func_val(&pj_v), .None => true), {
         exn.throw(
           dyn(
@@ -8897,7 +8919,7 @@ _evaluate_function_call_unanchored :: (
     match(
       callee_info_opt,
       .Some(iob_ci) => match(
-        iob_ci.ty,
+        &iob_ci.ty,
         Rc(.Func({ meta : iob_m })) => match(
           iob_m.*.extern_name,
           .Some(iob_en) => if((iob_en == "__yo_io_async") || (iob_en == "__yo_io_await")
@@ -8926,7 +8948,7 @@ _evaluate_function_call_unanchored :: (
             iob_dargs.get(usize(0)),
             .Some(iob_re) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&iob_re)),
-              .Some(iob_ri) => match(iob_ri.ty, Rc(.Struct({ id : iob_sid })) => iob_sid.clone(), _ => String.new()),
+              .Some(iob_ri) => match(&iob_ri.ty, Rc(.Struct({ id : iob_sid })) => iob_sid.clone(), _ => String.new()),
               .None => String.new()
             ),
             .None => String.new()
@@ -8969,7 +8991,7 @@ _evaluate_function_call_unanchored :: (
             .Some(iob_re2) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&iob_re2)),
               .Some(iob_ri2) => match(
-                iob_ri2.ty,
+                &iob_ri2.ty,
                 // A type the prelude declares (`Io`, any `JoinHandle(T)`) is
                 // never user code; one with no recorded module is judged by
                 // name, so a `JoinHandle` instance is never marked.
@@ -9040,9 +9062,9 @@ _evaluate_function_call_unanchored :: (
   // The callee's TYPE carries the FFI marker (extern symbols bind as an
   // `UnknownVal` of the extern `Func` type, not a `FuncVal`), so the gate
   // reads `callee_info_opt.ty`, not the value.
-  callee_ty_for_gate := match(callee_info_opt, .Some(ci) => ci.ty, .None => t_unit());
+  callee_ty_for_gate := match(callee_info_opt, .Some(ci) => Rc.clone(ci.ty), .None => t_unit());
   gate_is_extern_c := match(
-    callee_ty_for_gate,
+    &callee_ty_for_gate,
     Rc(.Func({ meta : __fm3 })) => match(__fm3.*.is_extern, .Some(lang) => (lang == "c"), .None => false),
     _ => false
   );
@@ -9058,7 +9080,7 @@ _evaluate_function_call_unanchored :: (
   // is a by-name call (`_d6_callee_is_by_name`). An extern "c" callee is
   // gated by the `unsafe(...)` rule below.
   gate_is_extern_runtime := match(
-    callee_ty_for_gate,
+    &callee_ty_for_gate,
     Rc(.Func({ meta : __fm_d6 })) => match(__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
     _ => false
   );
@@ -9067,7 +9089,7 @@ _evaluate_function_call_unanchored :: (
       dyn(
         format_error_message(
           &tok,
-          `Calling the runtime extern '${match(callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(__fm_d6n.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Calling the runtime extern '${match(&callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(__fm_d6n.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -9102,9 +9124,9 @@ Fix: wrap the call:
     .Some(cv) => match(
       cv,
       .TypeVal(func_type_box) => {
-        func_type := func_type_box;
+        func_type := Rc.clone(func_type_box);
         match(
-          func_type,
+          &func_type,
           Rc(.Func({ result : _ })) => {
             if(args.len() != usize(1), {
               exn.throw(
@@ -9162,7 +9184,7 @@ Fix: wrap the call:
                   ta_info := match(ta_info_opt, .Some(ii) => ii, .None => new_expr_info(env, t_unit()));
                   ta_ty := match(
                     ta_info.value,
-                    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+                    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
                     .None => rc(TypeValueNode.Unit)
                   );
                   ta_args.push(ta_ty);
@@ -9328,7 +9350,7 @@ Fix: wrap the call:
                   // its `ty` with the value's substituted type (metadata moves with
                   // it — no clone of `default_value`/`assigned_value`/`doc_comment`).
                   (fld_m : TypeField) = fld;
-                  (subst_ty : TypeValue) = fld_m.ty;
+                  (subst_ty : TypeValue) = Rc.clone(fld_m.ty);
                   (sl_i : usize) = usize(0);
                   (found_sl : bool) = false;
                   while((sl_i < struct_field_labels.len()) && !found_sl, {
@@ -9395,7 +9417,7 @@ Fix: wrap the call:
                 iobp_ty := match(
                   iobp_v,
                   .Some(.FuncVal(iobp_fvd, _)) => get_func_type(&iobp_fvd.*.func_id),
-                  .Some(.UnknownVal(iobp_uty, _)) => iobp_uty,
+                  .Some(.UnknownVal(iobp_uty, _)) => Rc.clone(iobp_uty),
                   .Some(_) => t_unit(),
                   .None => t_unit()
                 );
@@ -9668,7 +9690,7 @@ Fix: wrap the call:
                 exn
               );
               out_ts := new_expr_info(&result_ts.caller_env, t_type());
-              out_ts.value = Option(EvalValue).Some(EvalValue.TypeVal(result_ts.specialized_trait_type));
+              out_ts.value = Option(EvalValue).Some(EvalValue.TypeVal(Rc.clone(result_ts.specialized_trait_type)));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ts);
               expr
             }, {
@@ -9802,7 +9824,7 @@ Fix: wrap the call:
         // for every callee but the closure-param/existential-result shape;
         // see `_freshen_generic_closure_callee`.
         fv_callee_ty := _freshen_generic_closure_callee(
-          match(callee_info_opt, .Some(fv_ci0) => fv_ci0.ty, .None => t_unit()),
+          match(callee_info_opt, .Some(fv_ci0) => Rc.clone(fv_ci0.ty), .None => t_unit()),
           &forall_names
         );
         // V5 task 3: a `ghost_fn(...)` definition is callable ONLY from
@@ -9840,11 +9862,11 @@ Fix: wrap the call:
               pa_i = (pa_i + usize(1));
             });
           };
-          pa_fty := match(callee_info_opt, .Some(pa_ci) => pa_ci.ty, .None => t_unit());
-          pa_ret_ct := match(pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
+          pa_fty := match(callee_info_opt, .Some(pa_ci) => Rc.clone(pa_ci.ty), .None => t_unit());
+          pa_ret_ct := match(&pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
           if(pa_has_hole && pa_ret_ct, {
-            pa_pt := match(pa_fty, Rc(.Func({ param_types : ppt })) => ppt, _ => no_types());
-            pa_res := match(pa_fty, Rc(.Func({ result : pr })) => pr, _ => t_unit());
+            pa_pt := match(&pa_fty, Rc(.Func({ param_types : ppt })) => Rc.clone(ppt), _ => no_types());
+            pa_res := match(&pa_fty, Rc(.Func({ result : pr })) => Rc.clone(pr), _ => t_unit());
             if(n_a != pa_pt.len(), {
               exn.throw(
                 dyn(
@@ -9890,8 +9912,8 @@ Fix: wrap the call:
                   .None => new_expr_info(env, t_unit())
                 );
                 pa_cap_names.push(pa_cname.clone());
-                pa_cap_tys.push(pa_info.ty);
-                pa_cap_vals.push(match(pa_info.value, .Some(v) => v, .None => EvalValue.UnknownVal(pa_info.ty, false)));
+                pa_cap_tys.push(Rc.clone(pa_info.ty));
+                pa_cap_vals.push(match(pa_info.value, .Some(v) => v, .None => EvalValue.UnknownVal(Rc.clone(pa_info.ty), false)));
                 pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&pa_cname, &env.module_path.*)));
               });
               pa_i2 = (pa_i2 + usize(1));
@@ -10016,7 +10038,7 @@ Fix: wrap the call:
                       .Some(fv_g_val) => {
                         fv_pre_forall_names.push(match(forall_names.get(gi), .Some(n) => n, .None => String.from("")));
                         fv_pre_forall_vals.push(fv_g_val);
-                        fv_pre_forall_tys.push(fv_g_info.ty);
+                        fv_pre_forall_tys.push(Rc.clone(fv_g_info.ty));
                       },
                       .None => ()
                     ),
@@ -10038,11 +10060,11 @@ Fix: wrap the call:
         // it): its call parameters come from the trait, as `fv_param_is_ref`
         // below does, so the call-site markers see every position.
         fv_param_types := match(
-          fv_callee_ty,
-          Rc(.Func({ param_types : fpts })) => fpts,
+          &fv_callee_ty,
+          Rc(.Func({ param_types : fpts })) => Rc.clone(fpts),
           _ => match(
             extract_fn_trait_from_type(&fv_callee_ty),
-            .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _))) => fv_cpt,
+            .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _))) => Rc.clone(fv_cpt),
             _ => no_types()
           )
         );
@@ -10056,11 +10078,11 @@ Fix: wrap the call:
         fv_param_labels := match(
           callee_info_opt,
           .Some(ci) => match(
-            ci.ty,
-            Rc(.Func({ meta : __fm5 })) => __fm5.*.param_labels,
+            &ci.ty,
+            Rc(.Func({ meta : __fm5 })) => Rc.clone(__fm5.*.param_labels),
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _))) => fv_cpl,
+              .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _))) => Rc.clone(fv_cpl),
               _ => no_labels()
             )
           ),
@@ -10069,7 +10091,7 @@ Fix: wrap the call:
         fv_param_is_ref := match(
           callee_info_opt,
           .Some(ci) => match(
-            ci.ty,
+            &ci.ty,
             Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&ci.ty),
             // Closure callee: the variable's type is the Fn TRAIT (or a SomeT
             // wrapping it), not a Func — read the trait's `inout` call-param
@@ -10078,7 +10100,7 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(fv_rft) => match(fv_rft, Rc(.FnTraitT(base_name : _)) => fn_param_mut_ref_flags(&fv_rft), _ => no_flags()),
+              .Some(fv_rft) => match(&fv_rft, Rc(.FnTraitT(base_name : _)) => fn_param_mut_ref_flags(&fv_rft), _ => no_flags()),
               .None => no_flags()
             )
           ),
@@ -10098,11 +10120,11 @@ Fix: wrap the call:
         fv_param_is_owning := match(
           callee_info_opt,
           .Some(ci) => match(
-            ci.ty,
+            &ci.ty,
             Rc(.Func({ result : _ })) => fn_param_by_value_flags(&ci.ty),
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(fv_oft) => match(fv_oft, Rc(.FnTraitT(base_name : _)) => fn_param_by_value_flags(&fv_oft), _ => no_flags()),
+              .Some(fv_oft) => match(&fv_oft, Rc(.FnTraitT(base_name : _)) => fn_param_by_value_flags(&fv_oft), _ => no_flags()),
               .None => no_flags()
             )
           ),
@@ -10111,8 +10133,8 @@ Fix: wrap the call:
         fv_param_is_sink := match(
           callee_info_opt,
           .Some(ci_s) => match(
-            ci_s.ty,
-            Rc(.Func({ meta : __fm7s })) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => no_flags()),
+            &ci_s.ty,
+            Rc(.Func({ meta : __fm7s })) => match(&__fm7s.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags()),
             _ => no_flags()
           ),
           .None => no_flags()
@@ -10166,7 +10188,7 @@ Fix: wrap the call:
           fv_variadic_entry_opt,
           .Some(vpe) => {
             fv_variadic_label = vpe.label.clone();
-            fv_variadic_ty = vpe.ty;
+            fv_variadic_ty = Rc.clone(vpe.ty);
             fv_variadic_is_quote = is_expr_list_type(fv_variadic_ty.clone());
             fv_variadic_is_comptime = (!fv_variadic_is_quote && is_comptime_list_type(fv_variadic_ty.clone()));
           },
@@ -10207,9 +10229,9 @@ Fix: wrap the call:
         // in the loop below. Without this, `(.Atom(...))` with expected
         // `Rc(Tree)` left `.Atom` with no expected enum type → "Failed to
         // infer enum variant type".
-        fv_func_type := fv_callee_ty;
+        fv_func_type := Rc.clone(fv_callee_ty);
         fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
-        (resolved_param_types : SharedList(TypeValue)) = fv_param_types;
+        (resolved_param_types : SharedList(TypeValue)) = Rc.clone(fv_param_types);
         (rpt_from_expected : bool) = false;
         // The binders the expected type alone fixes (bound below when no
         // argument binds them).
@@ -10497,7 +10519,7 @@ Fix: wrap the call:
               );
               if(lp_go, {
                 _lpf := env.push_frame(false);
-                lp_se := Environment.new(env.module_path);
+                lp_se := Environment.new(Rc.clone(env.module_path));
                 lp_ct_flags := get_func_param_comptime(func_id_fv.clone());
                 (lp_j : usize) = usize(0);
                 while(lp_j < ai, {
@@ -10512,7 +10534,7 @@ Fix: wrap the call:
                       // `T = i32` and not `T = comptime_int`. Measured
                       // without this: the override came out as
                       // `fn(v : comptime_int) -> comptime_int`.
-                      (lp_aty : TypeValue) = lp_info.ty;
+                      (lp_aty : TypeValue) = Rc.clone(lp_info.ty);
                       lp_j_ct := match(lp_ct_flags.get(lp_j), .Some(f) => f, .None => false);
                       if(!lp_j_ct && (is_comptime_int_type(&lp_aty) || is_comptime_float_type(&lp_aty)), {
                         lp_aty = convert_comptime_type_to_runtime_type(&lp_aty, env);
@@ -10592,7 +10614,7 @@ Fix: wrap the call:
             arg_saved_expected := ctx.expected_type;
             ctx.expected_type = match(
               vs_override,
-              .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : vs_ovr, env : env)),
+              .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(vs_ovr), env : env)),
               .None => match(
                 cond(
                   (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types.items, &forall_names)) => match(
@@ -10706,7 +10728,7 @@ Fix: wrap the call:
             fv_callee_is_extern := match(
               callee_info_opt,
               .Some(fv_ci_ext) => match(
-                fv_ci_ext.ty,
+                &fv_ci_ext.ty,
                 Rc(.Func({ meta : __fmext })) => __fmext.*.extern_name.is_some(),
                 _ => false
               ),
@@ -10750,7 +10772,7 @@ Fix: wrap the call:
               // type from the argument's recorded ExprInfo, so it is retyped
               // for the transfer only: generic inference below still reads
               // the `fn(...)` type.
-              fv_arg_ty_as_written := arg_info.ty;
+              fv_arg_ty_as_written := Rc.clone(arg_info.ty);
               match(
                 closure_argument_owned_type(&arg_info, match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit()), fv_p_owning && !fv_p_is_ct && !fv_p_is_ref),
                 .Some(fv_cap_ty) => {
@@ -10776,8 +10798,8 @@ Fix: wrap the call:
                   _param_accepts_second_class(
                     expr,
                     match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit()),
-                    match(fv_callee_ty, Rc(.Func({ result : fv_res_sc })) => fv_res_sc, _ => t_unit()),
-                    match(fv_callee_ty, Rc(.Func({ forall_types : fv_ft_sc })) => (fv_ft_sc.len() > usize(0)), _ => false),
+                    match(&fv_callee_ty, Rc(.Func({ result : fv_res_sc })) => Rc.clone(fv_res_sc), _ => t_unit()),
+                    match(&fv_callee_ty, Rc(.Func({ forall_types : fv_ft_sc })) => (fv_ft_sc.len() > usize(0)), _ => false),
                     ctx
                   )
                 ),
@@ -11005,7 +11027,7 @@ Fix: wrap the call:
           &cap_names,
           &cap_tys,
           &cap_vals,
-          env.module_path
+          Rc.clone(env.module_path)
         );
         // Push a frame and bind `__recur_fn`. The recur FuncVal's id is
         // minted from the CALL's source position: unique per mint
@@ -11047,7 +11069,7 @@ Fix: wrap the call:
         // issues/fixed/self-dispatch-loses-type-args.md.
         recv_type_args := match(
           _static_dot_receiver_self_type(&func_expr, ctx),
-          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta, _ => no_types()),
+          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => Rc.clone(ta), _ => no_types()),
           .None => no_types()
         );
         // Infer generic type params from argument types.
@@ -11074,7 +11096,7 @@ Fix: wrap the call:
           if(rpt_from_expected, resolved_param_types.items.clone(), ArrayList(TypeValue).new()),
           &fv_param_types,
           &fv_param_ct,
-          match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => no_types()),
+          match(&fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => Rc.clone(fk_fts), _ => no_types()),
           &fv_pre_forall_names,
           &fv_pre_forall_vals,
           &fv_pre_forall_tys,
@@ -11138,7 +11160,7 @@ Fix: wrap the call:
         fv_future_callee := match(
           callee_info_opt,
           .Some(ci) => match(
-            ci.ty,
+            &ci.ty,
             Rc(.Func({ result : fv_fr })) => is_future_value_type(&fv_fr),
             _ => false
           ),
@@ -11146,7 +11168,7 @@ Fix: wrap the call:
         );
         require_valid_ref_argument_places(&fv_param_is_ref.items, fv_future_callee, ast_expr_id(expr), &fv_param_labels.items, &fv_args, env, ctx, exn);
         require_capture_borrow_exclusivity(&fv_param_is_ref.items, &fv_param_is_owning.items, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
-        fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
+        fv_returns_place := match(callee_info_opt, .Some(rpi) => match(&rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
         require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels.items, &fv_param_is_ref.items, &fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
@@ -11206,14 +11228,14 @@ Fix: wrap the call:
           // str" while specializing println/print (Gap-6).
           resolved_decl_pt := cond(
             is_some_type(&bind_decl_pt) => {
-              sname := match(bind_decl_pt, Rc(.SomeT({ name : sn })) => sn.clone(), _ => String.from(""));
-              (rt : TypeValue) = bind_decl_pt;
+              sname := match(&bind_decl_pt, Rc(.SomeT({ name : sn })) => sn.clone(), _ => String.from(""));
+              (rt : TypeValue) = Rc.clone(bind_decl_pt);
               (rk : usize) = usize(0);
               (rn : usize) = fa_bound_names.len();
               while(rk < rn, {
                 bn := match(fa_bound_names.get(rk), .Some(s) => s, .None => String.from(""));
                 if((sname.len() > usize(0)) && (bn == sname), {
-                  rt = match(fa_bound_types.get(rk), .Some(t) => t, .None => bind_decl_pt);
+                  rt = match(fa_bound_types.get(rk), .Some(t) => t, .None => Rc.clone(bind_decl_pt));
                   rk = rn;
                 }, {
                   rk = (rk + usize(1));
@@ -11223,7 +11245,7 @@ Fix: wrap the call:
             },
             true => bind_decl_pt
           );
-          (bind_ty : TypeValue) = arg_info.ty;
+          (bind_ty : TypeValue) = Rc.clone(arg_info.ty);
           (bind_val : Option(EvalValue)) = arg_info.value;
           // A concrete arg value binds the param compile-time-only (the
           // comptime-folding heuristic) — EXCEPT a closure/function value: a
@@ -11286,7 +11308,7 @@ Fix: wrap the call:
           // degenerate/def-eval shapes (unit args, fn-typed args, params
           // that still carry a SomeT after resolution).
           if(fv_forall_arg_exprs.is_some() && (pi < n_supplied_reg) && !type_contains_some_type_deep(&resolved_decl_pt), {
-            etc_arg_ty := arg_info.ty;
+            etc_arg_ty := Rc.clone(arg_info.ty);
             etc_skip := (is_unit_type(&etc_arg_ty) || is_function_type(&etc_arg_ty) || is_fn_trait_type(&etc_arg_ty) || is_some_type(&etc_arg_ty));
             if(!etc_skip && !are_types_compatible(&etc_arg_ty, &resolved_decl_pt), {
               exn.throw(
@@ -11487,8 +11509,8 @@ Fix: wrap the call:
         // Set function body context on ctx.
         // We need the declared return type from the callee's type (if available).
         ret_type := match(
-          fv_callee_ty,
-          Rc(.Func({ result : result_b })) => result_b,
+          &fv_callee_ty,
+          Rc(.Func({ result : result_b })) => Rc.clone(result_b),
           _ => t_unit()
         );
         callee_func_type_opt := match(
@@ -11514,7 +11536,7 @@ Fix: wrap the call:
         // concrete struct (e.g. in a type-annotation position) — those would
         // otherwise wrongly take the non-memoized inline path.
         callee_result_is_comptime := match(
-          callee_func_type_opt,
+          &callee_func_type_opt,
           .Some(cft) => match(cft, Rc(.Func({ meta : __fm8 })) => __fm8.*.result_is_comptime_only, _ => false),
           .None => false
         );
@@ -11590,8 +11612,8 @@ Fix: wrap the call:
             ct_arg_entries.push(
               ArgEntry(
                 value : ct_info.value,
-                parameter_type : ct_info.ty,
-                arg_type : ct_info.ty
+                parameter_type : Rc.clone(ct_info.ty),
+                arg_type : Rc.clone(ct_info.ty)
               )
             );
             ct_ai = (ct_ai + usize(1));
@@ -11602,7 +11624,7 @@ Fix: wrap the call:
             implicit_args : Option(ArrayList(ArgEntry)).None,
             variadic_args : ArrayList(VarArgEntry).new()
           );
-          ct_func_type := match(callee_func_type_opt, .Some(t) => t, .None => t_unit());
+          ct_func_type := match(callee_func_type_opt, .Some(t) => Rc.clone(t), .None => t_unit());
           ct_func_value := match(callee_value, .Some(v) => v, .None => EvalValue.UnitVal);
           // Bind `Self` to the static dot-receiver for the CTFE route too —
           // previously only the inline-body path did this, so a
@@ -11610,7 +11632,7 @@ Fix: wrap the call:
           // `fill : (fn(comptime(val) : T) -> comptime(Self))`) executed
           // with the CALLER's stale ctx.self_type ("__yo_array_fill expects
           // an ArrayType, got i8" inside i8's ToString impl).
-          old_self_ty_ct := ctx.self_type;
+          old_self_ty_ct := ctx.self_type.clone();
           match(
             _static_dot_receiver_self_type(&func_expr, ctx),
             .Some(st_ct) => {
@@ -11740,7 +11762,7 @@ Fix: wrap the call:
           // passed VACUOUSLY inside test arms (tests/comptime.test.yo arm 0's
           // negative-number block; scratchpad m5/m9 repros).
           if(get_all_some_types(&resolved_ret_ct).len() > usize(0), {
-            (ct_res_ret : TypeValue) = resolved_ret_ct;
+            (ct_res_ret : TypeValue) = Rc.clone(resolved_ret_ct);
             if(fa_bound_names.len() > usize(0), {
               ct_ret_somes := get_all_some_types(&ct_res_ret);
               s_ct_ret := subst_new();
@@ -11815,7 +11837,7 @@ Fix: wrap the call:
                 rl_t,
                 Rc(.Array(rl_elem, rl_len, rl_var)) => cond(
                   (rl_var.len() > usize(0)) => {
-                    (rl_out : TypeValue) = rl_t;
+                    (rl_out : TypeValue) = Rc.clone(rl_t);
                     (rl_i : usize) = usize(0);
                     while(rl_i < rl_labels.len(), {
                       rl_nm := match(rl_labels.get(rl_i), .Some(l) => l, .None => String.from(""));
@@ -11846,7 +11868,7 @@ Fix: wrap the call:
                   },
                   true => rc(TypeValueNode.Array(recur(&rl_elem, rl_labels, rl_infos), rl_len, rl_var.clone()))
                 ),
-                _ => rl_t
+                _ => Rc.clone(rl_t)
               )
             );
             resolved_ret_ct = _rlv(&resolved_ret_ct, &fv_param_labels.items, &evaled_arg_infos);
@@ -11919,7 +11941,7 @@ Fix: wrap the call:
           );
         });
         old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
-        old_ret_ty := ctx.enclosing_function_return_type;
+        old_ret_ty := ctx.enclosing_function_return_type.clone();
         fn_ctx := FuncOrAsyncBlockCtx(
           kind : .FunctionBody,
           func_type : callee_func_type_opt,
@@ -11927,12 +11949,12 @@ Fix: wrap the call:
           eval_env : snapshot_env(&fresh_env)
         );
         ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(fn_ctx);
-        ctx.enclosing_function_return_type = Option(TypeValue).Some(ret_type);
+        ctx.enclosing_function_return_type = Option(TypeValue).Some(Rc.clone(ret_type));
         // For a static method call (`Type.method()`), bind `ctx.self_type` to
         // the receiver type so `Self` references inside the body resolve to the
         // concrete receiver (e.g. `Self._alloc_with_capacity(...)` inside
         // `HashMap(String,X).new()`). Cascades to nested `Self.method()` calls.
-        old_self_ty_fv := ctx.self_type;
+        old_self_ty_fv := ctx.self_type.clone();
         match(
           _static_dot_receiver_self_type(&func_expr, ctx),
           .Some(st_fv) => {
@@ -11947,7 +11969,7 @@ Fix: wrap the call:
         // arms.
         old_expected_fv := ctx.expected_type;
         ctx.expected_type = Option(ExpectedTypeCtx).Some(
-          ExpectedTypeCtx(ty : ret_type, env : fresh_env)
+          ExpectedTypeCtx(ty : Rc.clone(ret_type), env : fresh_env)
         );
         // Evaluate the function body.
         evaled_body := evaluate_begin_expression(
@@ -12022,7 +12044,7 @@ Fix: wrap the call:
         // Extract the callee's type from the ExprInfo.
         callee_ty := match(
           callee_info_opt,
-          .Some(ci) => ci.ty,
+          .Some(ci) => Rc.clone(ci.ty),
           .None => t_unit()
         );
         // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
@@ -12056,10 +12078,10 @@ Fix: wrap the call:
           // Record the `*(T)` the index method returns (before auto-deref)
           // so the ref-argument place gate recognizes `xs(i)` as a pointer
           // into the container's buffer.
-          expr_info_set_index_trait_ptr_type(&out_idx_rt, Option(TypeValue).Some(idx_result_rt.ptr_type));
+          expr_info_set_index_trait_ptr_type(&out_idx_rt, Option(TypeValue).Some(Rc.clone(idx_result_rt.ptr_type)));
           // Also record the specialized index() method type + value so codegen
           // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
-          expr_info_set_index_method_type(&out_idx_rt, match(idx_result_rt.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None));
+          expr_info_set_index_method_type(&out_idx_rt, match(&idx_result_rt.index_method_type, .Some(imt) => Option(TypeValue).Some(Rc.clone(imt)), .None => Option(TypeValue).None));
           expr_info_set_index_method_value(&out_idx_rt, &idx_result_rt.index_method_value);
           // ComptimeIndex place-reference: lets
           // `p(0) = v` write the struct field and `&(p(0))` build a comptime
@@ -12077,7 +12099,7 @@ Fix: wrap the call:
         });
         // Per-call whole-callee freshening for io.async — see
         // _freshen_io_builtin_callee.
-        (callee_ty_call_rt : TypeValue) = callee_ty;
+        (callee_ty_call_rt : TypeValue) = Rc.clone(callee_ty);
         if(is_io_async_call(expr), {
           callee_ty_call_rt = _freshen_io_builtin_callee(&callee_ty_call_rt);
         });
@@ -12094,7 +12116,7 @@ Fix: wrap the call:
           false,
           exn
         );
-        (ret_type_rt : TypeValue) = call_result_rt.return_type;
+        (ret_type_rt : TypeValue) = Rc.clone(call_result_rt.return_type);
         // Narrow async result-type refinement (io.async/io.await reach
         // evaluate_function_call HERE: extern builtins dispatched via
         // try_to_call_function_with_arguments — confirmed by instrumentation).
@@ -12224,7 +12246,7 @@ Fix: wrap the call:
         method_info_opt0,
         .Some(mi0) => cond(
           (mi0.all_hits.len() > usize(1)) => Option(ReceiverMethodResult).Some(_select_matching_overload(&mi0, &args, &evaluated_callee, &callee_env, ctx, exn)),
-          true => Option(ReceiverMethodResult).Some(mi0)
+          true => Option(ReceiverMethodResult).Some(mi0.clone())
         ),
         .None => Option(ReceiverMethodResult).None
       );
@@ -12259,7 +12281,7 @@ Fix: wrap the call:
           // reads whichever call wrote last.
           // The forall labels come from the Func's meta, which is the method's
           // own binder list; the gate inside the helper is unchanged.
-          m_forall := match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => no_labels());
+          m_forall := match(&method_info.method_ty, Rc(.Func({ meta : __mfm })) => Rc.clone(__mfm.*.forall_labels), _ => no_labels());
           m_callee_ty := _freshen_generic_closure_callee(&method_info.method_ty, &m_forall.items);
           all_args := ArrayList(AstExpr).new();
           if(!method_info.is_static, {
@@ -12283,7 +12305,7 @@ Fix: wrap the call:
                   character : recv_tok.character,
                   byte_offset : recv_tok.byte_offset,
                   module_path : rc(String.from(AUTO_REF_RECEIVER_PATH)),
-                  input : recv_tok.input
+                  input : Rc.clone(recv_tok.input)
                 )
               );
               amp_args := ArrayList(AstExpr).new();
@@ -12300,7 +12322,7 @@ Fix: wrap the call:
           // method-form, which leaves position 0 unpeeled.
           uc_args := cond(
             uc_inf.bound => match(
-              method_info.method_ty,
+              &method_info.method_ty,
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
                 match(args.get(usize(0)), .Some(a0) => uc_head.push(a0), .None => ());
@@ -12345,7 +12367,7 @@ Fix: wrap the call:
             match(
               method_info.receiver_value,
               .Some(.TypeVal(m_rt)) => {
-                ctx.pending_method_self_type = Option(TypeValue).Some(m_rt);
+                ctx.pending_method_self_type = Option(TypeValue).Some(Rc.clone(m_rt));
               },
               .Some(_) => (),
               .None => ()
@@ -12355,9 +12377,9 @@ Fix: wrap the call:
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&method_info.receiver_expr)),
               .Some(m_ri) => {
                 m_recv_ty := match(
-                  m_ri.ty,
-                  Rc(.Pointer(m_pt)) => m_pt,
-                  _ => m_ri.ty
+                  &m_ri.ty,
+                  Rc(.Pointer(m_pt)) => Rc.clone(m_pt),
+                  _ => Rc.clone(m_ri.ty)
                 );
                 ctx.pending_method_self_type = Option(TypeValue).Some(m_recv_ty);
               },
@@ -12413,15 +12435,15 @@ Fix: wrap the call:
                 // (its own resolution / the registry) and record THAT.
                 rm_recv_ty0 := match(
                   expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&method_info.receiver_expr)),
-                  .Some(rm_ri) => rm_ri.ty,
+                  .Some(rm_ri) => Rc.clone(rm_ri.ty),
                   .None => t_unit()
                 );
                 // An explicitly-&'d receiver (`&(r).return_i32()`) carries
                 // `*(Impl(...))` — unwrap the pointer before the SomeT deref.
                 rm_recv_ty := match(
-                  rm_recv_ty0,
-                  Rc(.Pointer(rm_ptr_inner)) => rm_ptr_inner,
-                  _ => rm_recv_ty0
+                  &rm_recv_ty0,
+                  Rc(.Pointer(rm_ptr_inner)) => Rc.clone(rm_ptr_inner),
+                  _ => Rc.clone(rm_recv_ty0)
                 );
                 rm_res := some_resolution(&rm_recv_ty);
                 match(
@@ -12478,10 +12500,10 @@ Fix: wrap the call:
           // keep the cheap path. `evaluate_comptime_fn_call` itself returns
           // an UnknownVal (without executing) when any arg is unknown, so a
           // runtime receiver is handled safely.
-          m_ret_ty := match(m_callee_ty, Rc(.Func({ result : _mrb })) => _mrb, _ => t_unit());
-          m_is_comptime := match(method_info.method_ty, Rc(.Func({ meta : __fm9 })) => __fm9.*.result_is_comptime_only, _ => false);
+          m_ret_ty := match(m_callee_ty, Rc(.Func({ result : _mrb })) => Rc.clone(_mrb), _ => t_unit());
+          m_is_comptime := match(&method_info.method_ty, Rc(.Func({ meta : __fm9 })) => __fm9.*.result_is_comptime_only, _ => false);
           (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(&m_ret_ty) || m_is_comptime, {
-            m_self_ty_saved := ctx.self_type;
+            m_self_ty_saved := ctx.self_type.clone();
             match(
               _static_dot_receiver_self_type(&func_expr, ctx),
               .Some(m_st) => {
@@ -12527,7 +12549,7 @@ Fix: wrap the call:
             // not execution), so passing it to the CTFE would leave `self`
             // unknown in the body. Mirror the inline FuncVal arm, which binds
             // params to `arg_info.value` in a fresh env before CTFE.
-            m_env := Environment.new(call_result_m.callee_env.module_path);
+            m_env := Environment.new(Rc.clone(call_result_m.callee_env.module_path));
             match(
               m_fv,
               .FuncVal(__fvm5, m_cvals) => {
@@ -12570,7 +12592,7 @@ Fix: wrap the call:
           // chained method results (`...prepend(3)` → the := RHS). Adopt the
           // call's concrete receiver instance over a pattern-era declared-Self
           // return, mirroring the runtime/CTFE arms.
-          (m_out_ty : TypeValue) = call_result_m.return_type;
+          (m_out_ty : TypeValue) = Rc.clone(call_result_m.return_type);
           m_recv_self := match(
             _static_dot_receiver_self_type(&func_expr, ctx),
             .Some(m_rst) => Option(TypeValue).Some(m_rst),
@@ -12624,7 +12646,7 @@ Fix: wrap the call:
                 .FuncVal(m_bfvd, _) => match(
                   expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&m_bfvd.*.body)),
                   .Some(m_binfo) => {
-                    (m_conc : TypeValue) = m_binfo.ty;
+                    (m_conc : TypeValue) = Rc.clone(m_binfo.ty);
                     match(
                       some_resolution(&m_conc),
                       .Some(m_inner) => {
@@ -12689,7 +12711,7 @@ Fix: wrap the call:
           );
           callee_ty_none := match(
             callee_info_opt,
-            .Some(ci) => ci.ty,
+            .Some(ci) => Rc.clone(ci.ty),
             .None => t_unit()
           );
           // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
@@ -12723,10 +12745,10 @@ Fix: wrap the call:
             out_idx.value = idx_result.value;
             // Record the index method's `*(T)` so the ref-argument place
             // gate recognizes `xs(i)` as a buffer pointer.
-            expr_info_set_index_trait_ptr_type(&out_idx, Option(TypeValue).Some(idx_result.ptr_type));
+            expr_info_set_index_trait_ptr_type(&out_idx, Option(TypeValue).Some(Rc.clone(idx_result.ptr_type)));
             // Also record the specialized index() method type + value so codegen
             // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
-            expr_info_set_index_method_type(&out_idx, match(idx_result.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None));
+            expr_info_set_index_method_type(&out_idx, match(&idx_result.index_method_type, .Some(imt) => Option(TypeValue).Some(Rc.clone(imt)), .None => Option(TypeValue).None));
             expr_info_set_index_method_value(&out_idx, &idx_result.index_method_value);
             // ComptimeIndex place-reference — see the FuncVal-callee index arm
             // above.
@@ -12779,7 +12801,7 @@ Fix: wrap the call:
             // Without this arm the gate threw inside a SILENT closure-spec
             // channel and the aborted eval leaked a Type(1) stamp downstream
             // (tests/iterator_combinators.test.yo, `[vcall-throw]`-pinned).
-            cvl_cap_sid := match(callee_ty_none, Rc(.Struct({ id : cvl_s })) => cvl_s.clone(), _ => String.from(""));
+            cvl_cap_sid := match(&callee_ty_none, Rc(.Struct({ id : cvl_s })) => cvl_s.clone(), _ => String.from(""));
             cvl_is_fnish = cvl_cap_sid.starts_with("capture_");
           });
           //   - NOT during a deferred-generic def-time trial: dg trials leave
@@ -12820,7 +12842,7 @@ Fix: wrap the call:
           });
           // Per-call whole-callee freshening for io.async — see
           // _freshen_io_builtin_callee.
-          (callee_ty_call_none : TypeValue) = callee_ty_none;
+          (callee_ty_call_none : TypeValue) = Rc.clone(callee_ty_none);
           if(is_io_async_call(expr), {
             callee_ty_call_none = _freshen_io_builtin_callee(&callee_ty_call_none);
           });
@@ -12837,7 +12859,7 @@ Fix: wrap the call:
             false,
             exn
           );
-          (ret_type_none : TypeValue) = call_result_none.return_type;
+          (ret_type_none : TypeValue) = Rc.clone(call_result_none.return_type);
           // io.async / io.await result-type refinement — SAME logic as the
           // FuncVal-callee branch above. This VALUELESS-callee path runs when
           // the receiver is a runtime param with no compile-time value (def-time

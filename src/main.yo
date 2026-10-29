@@ -140,7 +140,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, explicit_copy_type_is_collection, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, take_copying_accessor_sites } :: import("./evaluator/utils.yo");
+{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, set_migrate_rc_clone, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, explicit_copy_type_is_collection, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, take_copying_accessor_sites } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -334,7 +334,7 @@ try_populate_expr_info_table :: (
     true,
     local_exn
   );
-  Option(ExprInfoTable).Some(ctx.expr_info_table)
+  Option(ExprInfoTable).Some(ctx.expr_info_table.clone())
 });
 /// Extract the test name string from a `test("name", { body })` expression.
 /// Returns None if the expression is not a 2-arg test call.
@@ -2262,6 +2262,54 @@ _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, 
 _is_word_rune :: (fn(r : rune) -> bool)(
   r.is_digit() || (r.char == u32(0x5F)) || ((r.char >= u32(0x41)) && (r.char <= u32(0x5A))) || ((r.char >= u32(0x61)) && (r.char <= u32(0x7A))) || (r.char > u32(0x7F))
 );
+/// `runes[start, end)` is a whole entry of a brace group, a record's or a
+/// capture list's shorthand field `x` (`{ x }`, `{ a, x }`): the entry names
+/// the field and its source together, so `yo fix --migrate rc-clone` spells
+/// its clone `x : Rc.clone(x)`. The entry is an identifier between a `{` or
+/// `,` and a `}` or `,`, and the innermost bracket around it is a `{`.
+_is_brace_shorthand_entry :: (fn(runes : &ArrayList(rune), start : usize, end : usize) -> bool)({
+  if((start >= end) || (end > runes.len()) || runes(start).is_digit(), {
+    return(false);
+  });
+  (k : usize) = start;
+  while(k < end, k = (k + usize(1)), {
+    if(!_is_word_rune(runes(k)), {
+      return(false);
+    });
+  });
+  (b : usize) = start;
+  while((b > usize(0)) && runes(b - usize(1)).is_whitespace(), {
+    b = (b - usize(1));
+  });
+  if((b == usize(0)) || !((runes(b - usize(1)).char == u32(0x7B)) || (runes(b - usize(1)).char == u32(0x2C))), {
+    return(false);
+  });
+  (a : usize) = end;
+  while((a < runes.len()) && runes(a).is_whitespace(), {
+    a = (a + usize(1));
+  });
+  if((a >= runes.len()) || !((runes(a).char == u32(0x7D)) || (runes(a).char == u32(0x2C))), {
+    return(false);
+  });
+  (depth : i64) = i64(0);
+  (j : usize) = start;
+  while(j > usize(0), j = (j - usize(1)), {
+    c := runes(j - usize(1)).char;
+    cond(
+      ((c == u32(0x29)) || (c == u32(0x5D)) || (c == u32(0x7D))) => {
+        depth = (depth + i64(1));
+      },
+      ((c == u32(0x28)) || (c == u32(0x5B)) || (c == u32(0x7B))) => {
+        if(depth == i64(0), {
+          return(c == u32(0x7B));
+        });
+        depth = (depth - i64(1));
+      },
+      true => ()
+    );
+  });
+  false
+});
 /// The rune span `[col, end)` of `line` that is the `&x` expression the
 /// evaluator printed as `expect`, or `.None`. Grammar-agnostic: every end on
 /// the line where the brackets balance is parsed, and the first whose AST
@@ -3287,7 +3335,7 @@ _run_migrate_explicit_copy :: (
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
-        st := sites(si);
+        st := sites(si).clone();
         key := `${st.row.to_string()}:${st.col.to_string()}`;
         if(st.in_generic, {
           in_generic.insert(key.clone());
@@ -3351,7 +3399,7 @@ _run_migrate_explicit_copy :: (
     at_close := ArrayList(bool).new();
     (mi : usize) = usize(0);
     while(mi < mine.len(), mi = (mi + usize(1)), {
-      st := mine(mi);
+      st := mine(mi).clone();
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       // A copy inside a `Clone` impl's member is the depth that impl
       // chose: `AstExpr`'s shares its children on purpose, `Pattern`'s
@@ -3761,7 +3809,7 @@ _run_migrate_cloned_accessors :: (
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
-        st := sites(si);
+        st := sites(si).clone();
         key := `${st.row.to_string()}:${st.col.to_string()}`;
         if(st.in_generic, {
           in_generic.insert(key.clone());
@@ -3819,7 +3867,7 @@ _run_migrate_cloned_accessors :: (
     at_text := ArrayList(String).new();
     (mi : usize) = usize(0);
     while(mi < mine.len(), mi = (mi + usize(1)), {
-      st := mine(mi);
+      st := mine(mi).clone();
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       if(generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
@@ -3859,7 +3907,9 @@ _run_migrate_cloned_accessors :: (
           src_dying : String.new(),
           capture_label : String.new(),
           ty_value : st.ty_value.clone(),
-          lacks_clone_at_copy : false
+          lacks_clone_at_copy : false,
+          spelling : String.new(),
+          capture_names : String.new()
         ),
         &loops_by_module,
         &flows_by_src,
@@ -3966,6 +4016,460 @@ _run_migrate_cloned_accessors :: (
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated accessor calls were not migrated`));
   }
+});
+/// `yo fix <path> --migrate rc-clone` — decision 17 (plans/VALUES_BY_DEFAULT.md,
+/// V2c): copying an `Rc`/`Arc` needs `.clone()`. The tree is evaluated with
+/// the counted-handle rule suspended and the explicit-copy recorder kept to
+/// the copies that rule rejects (`set_migrate_rc_clone`): a copy of a handle,
+/// or of a value holding one, whose source stays alive (a binding, an
+/// assignment, a field or element store, an argument, a return, a capture).
+/// A handle becomes `Rc.clone(e)` / `Arc.clone(e)`, spelled through the
+/// constructor so no payload method can shadow it (decision 32); a value
+/// holding one becomes `e.clone()`, or `(e).clone()` when `e` is not a postfix
+/// operand. A capture list's shorthand entry `h` becomes `h : Rc.clone(h)`,
+/// and a closure that captures a handle implicitly gets a capture list
+/// (decision 35's form) naming every value it captures, the copied handles
+/// as `h : Rc.clone(h)`: a capture list is exhaustive.
+///
+/// `Rc.clone` is a count bump, exactly the implicit copy it replaces, so none
+/// of `--migrate explicit-copy`'s sharing guards apply. Listed and left as
+/// written: a value holding a handle whose type is not `Clone` (give it
+/// `derive(T, Clone)`), a copy in a generic body (a function with
+/// `generic`/`comptime` parameters, a generic impl's method, or a closure
+/// specialized in one: the copied value may be a type parameter there, and
+/// one spelling serves one instantiation), a position copied at two
+/// spellings, a site whose source text no longer prints as the evaluated
+/// expression (a macro's), a closure whose parameter list cannot be found,
+/// and a `test(...)` body that does not evaluate.
+_run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      load_err := _take_load_error();
+      if(proc_env.get(`YO_DEBUG_FIX`).is_some(), {
+        eprintln(`[fix] ${file}: ${match(load_err, .Some(le) => le, .None => String.from("(no load error)"))}`);
+      });
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its copies are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_rc_clone(false);
+  sites := take_explicit_copy_sites();
+  skipped_tests := take_skipped_test_bodies();
+  // The sharing guards' tables are not read here: drain them.
+  _writes := take_copy_writes();
+  _pointers := take_copy_pointers();
+  _tails := take_copy_tail_dests();
+  _flows := take_copy_flows();
+  _bodies := take_clone_impl_bodies();
+  // Decision 33's call-site markers a capture list made necessary (a
+  // captured `&T` borrow passed bare to a `&T` parameter), spelled `marker&`
+  // / `marker&mut ` and inserted like a `&` scrutinee.
+  set_migrate_markers(false);
+  markers := take_marker_sites();
+  (mki : usize) = usize(0);
+  while(mki < markers.len(), mki = (mki + usize(1)), {
+    mk := markers(mki);
+    sites.push(
+      ExplicitCopySite(
+        path : mk.path.clone(),
+        row : mk.row,
+        col : mk.col,
+        expect : mk.expect.clone(),
+        ty : String.new(),
+        copy_path : String.from("call-site marker"),
+        src_decl : String.new(),
+        dst_decl : String.new(),
+        at_module : canonical_module_path(mk.path.clone()),
+        at_offset : u32(0),
+        src_borrow : String.new(),
+        in_generic : false,
+        src_dying : String.new(),
+        capture_label : String.new(),
+        ty_value : rc(TypeValueNode.Unit),
+        lacks_clone_at_copy : false,
+        spelling : `marker${mk.marker}`,
+        capture_names : String.new()
+      )
+    );
+  });
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_inserted : usize) = usize(0);
+  (n_markers : usize) = usize(0);
+  (n_captures : usize) = usize(0);
+  (n_borrows : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (n_skipped_tests : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    // One position per copied expression, and one closure per `=>` with the
+    // names it copies. A position recorded at two spellings is a generic
+    // body that one rewrite cannot serve.
+    mine := ArrayList(ExplicitCopySite).new();
+    pos_spelling := HashMap(String, String).new();
+    conflicting := HashSet(String).new();
+    closures := ArrayList(ExplicitCopySite).new();
+    closure_copied := HashMap(String, String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if(site_paths(si) == canon, {
+        st := sites(si).clone();
+        if(st.copy_path == "capture", {
+          ckey := `${st.row.to_string()}:${st.col.to_string()}`;
+          prev := match(closure_copied.get(ckey.clone()), .Some(p) => p, .None => String.new());
+          if(prev.is_empty(), {
+            closures.push(st.clone());
+          });
+          closure_copied.insert(ckey, `${prev}|${st.expect}=${st.spelling}`);
+          continue;
+        });
+        key := `${st.row.to_string()}:${st.col.to_string()}`;
+        match(
+          pos_spelling.get(key.clone()),
+          .Some(sp) => if(sp != st.spelling, {
+            conflicting.insert(key);
+          }),
+          .None => {
+            pos_spelling.insert(key, st.spelling.clone());
+            mine.push(st);
+          }
+        );
+      });
+    });
+    listed_tests := HashSet(String).new();
+    (sti : usize) = usize(0);
+    while(sti < skipped_tests.len(), sti = (sti + usize(1)), {
+      sk := skipped_tests(sti);
+      if((canonical_module_path(sk.test_tok.module_path.*.clone()) == canon) && listed_tests.insert(sk.test_tok.byte_offset.to_string()), {
+        n_skipped_tests = (n_skipped_tests + usize(1));
+        println(`fix: ${file}:${(sk.test_tok.row + u32(1)).to_string()}:${(sk.test_tok.column + u32(1)).to_string()}: the body of test ${sk.name} does not evaluate (${sk.error}); its copies may be left unmigrated, so review the body by hand`);
+      });
+    });
+    if((mine.len() == usize(0)) && (closures.len() == usize(0)), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    runes := ArrayList(rune).new();
+    line_starts := ArrayList(usize).new();
+    line_starts.push(usize(0));
+    sit := src.chars();
+    (sgo : bool) = true;
+    while(sgo, {
+      match(
+        sit.next(),
+        .Some(r) => {
+          runes.push(r);
+          if(r.char == u32(0x0A), {
+            line_starts.push(runes.len());
+          });
+        },
+        .None => {
+          sgo = false;
+        }
+      );
+    });
+    at_idx := ArrayList(usize).new();
+    at_text := ArrayList(String).new();
+    at_close := ArrayList(bool).new();
+    (mi : usize) = usize(0);
+    while(mi < mine.len(), mi = (mi + usize(1)), {
+      st := mine(mi).clone();
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      if(conflicting.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied at types that spell the copy differently (a generic body); left as written`);
+        continue;
+      });
+      if(st.spelling == "derive", {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` holds a counted handle and its type \`${st.ty}\` is not \`Clone\`; give the type \`derive(..., Clone)\` and spell \`.clone()\` by hand`);
+        continue;
+      });
+      if(st.in_generic, {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where the copied value may be a type parameter (\`${st.spelling}.clone(...)\` or \`.clone()\` serves one instantiation, not every one); left as written`);
+        continue;
+      });
+      start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(ls + st.col), .None => Option(usize).None);
+      span_e := match(
+        start_opt,
+        .Some(start) => if(start < runes.len(), _expr_span_end(&runes, start, start, &st.expect, &file), Option(usize).None),
+        .None => Option(usize).None
+      );
+      match(
+        span_e,
+        .Some(end) => {
+          start := match(start_opt, .Some(x) => x, .None => usize(0));
+          cand := String.new();
+          (k : usize) = start;
+          while(k < end, k = (k + usize(1)), {
+            cand.push_rune(runes(k));
+          });
+          label_prefix := cond(
+            !st.capture_label.is_empty() => `${st.capture_label} : `,
+            _is_brace_shorthand_entry(&runes, start, end) => `${cand} : `,
+            true => String.new()
+          );
+          if((st.spelling == "borrow") || st.spelling.starts_with("marker"), {
+            // A consuming `match` on a place the rule cannot move: match
+            // through a borrow.
+            // An arm writes through one of the match's bindings: `&mut`.
+            sigil := cond(
+              (st.spelling == "marker&") => String.from("&"),
+              st.spelling.starts_with("marker") => String.from("&mut "),
+              migrate_mut_scrutinee_at(`${canon}:${st.row.to_string()}:${st.col.to_string()}`) => String.from("&mut "),
+              true => String.from("&")
+            );
+            bare_b := _parse_or_none(`${sigil}${cand}`, file.clone());
+            wrapped_b := _parse_or_none(`${sigil}(${cand})`, file.clone());
+            (parens_b : bool) = match(
+              bare_b,
+              .Some(b_asts) => match(
+                wrapped_b,
+                .Some(w_asts) => !((b_asts.len() == usize(1)) && (w_asts.len() == usize(1)) && (ast_expr_to_string(&b_asts(usize(0))) == ast_expr_to_string(&w_asts(usize(0))))),
+                .None => false
+              ),
+              .None => true
+            );
+            if(st.spelling.starts_with("marker"), {
+              n_markers = (n_markers + usize(1));
+            }, {
+              n_borrows = (n_borrows + usize(1));
+            });
+            if(dry_run, {
+              println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${sigil}${if(parens_b, `(${cand})`, cand.clone())}\``);
+            });
+            at_idx.push(start);
+            at_text.push(if(parens_b, `${sigil}(`, sigil.clone()));
+            at_close.push(false);
+            if(parens_b, {
+              at_idx.push(end);
+              at_text.push(String.from(")"));
+              at_close.push(true);
+            });
+            continue;
+          });
+          n_inserted = (n_inserted + usize(1));
+          if(st.spelling == "clone", {
+            bare := _parse_or_none(`${cand}.clone()`, file.clone());
+            wrapped := _parse_or_none(`(${cand}).clone()`, file.clone());
+            (needs_parens : bool) = match(
+              bare,
+              .Some(b_asts) => match(
+                wrapped,
+                .Some(w_asts) => !((b_asts.len() == usize(1)) && (w_asts.len() == usize(1)) && (ast_expr_to_string(&b_asts(usize(0))) == ast_expr_to_string(&w_asts(usize(0))))),
+                .None => false
+              ),
+              .None => true
+            );
+            if(dry_run, {
+              println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${label_prefix}${if(needs_parens, `(${cand})`, cand.clone())}.clone()\``);
+            });
+            at_idx.push(start);
+            at_text.push(`${label_prefix}${if(needs_parens, "(", "")}`);
+            at_close.push(false);
+            at_idx.push(end);
+            at_text.push(if(needs_parens, String.from(").clone()"), String.from(".clone()")));
+            at_close.push(true);
+          }, {
+            if(dry_run, {
+              println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${label_prefix}${st.spelling}.clone(${cand})\``);
+            });
+            at_idx.push(start);
+            at_text.push(`${label_prefix}${st.spelling}.clone(`);
+            at_close.push(false);
+            at_idx.push(end);
+            at_text.push(String.from(")"));
+            at_close.push(true);
+          });
+        },
+        .None => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the source text does not print as \`${st.expect}\`; left as written`);
+        }
+      );
+    });
+    // A closure that copies a handle it captures implicitly: its capture
+    // list names every value it captures, the copied ones as their clone.
+    (ci : usize) = usize(0);
+    while(ci < closures.len(), ci = (ci + usize(1)), {
+      st := closures(ci).clone();
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      copied := match(closure_copied.get(`${st.row.to_string()}:${st.col.to_string()}`), .Some(c) => c, .None => String.new());
+      arrow := match(line_starts.get(st.row), .Some(ls) => (ls + st.col), .None => runes.len());
+      is_arrow := (((arrow + usize(1)) < runes.len()) && (runes(arrow).char == u32(0x3D)) && (runes(arrow + usize(1)).char == u32(0x3E)));
+      // The parameter list ends right before the `=>`: a `(...)` list, or
+      // one bare parameter name.
+      (p_end : usize) = arrow;
+      while((p_end > usize(0)) && runes(p_end - usize(1)).is_whitespace(), {
+        p_end = (p_end - usize(1));
+      });
+      (p_start : Option(usize)) = Option(usize).None;
+      (bare_param : bool) = false;
+      if(is_arrow && (p_end > usize(0)), {
+        last := runes(p_end - usize(1));
+        cond(
+          (last.char == u32(0x29)) => {
+            (depth : i64) = i64(0);
+            (k : usize) = p_end;
+            while((k > usize(0)) && p_start.is_none(), {
+              k = (k - usize(1));
+              cond(
+                (runes(k).char == u32(0x29)) => {
+                  depth = (depth + i64(1));
+                },
+                (runes(k).char == u32(0x28)) => {
+                  depth = (depth - i64(1));
+                  if(depth == i64(0), {
+                    p_start = Option(usize).Some(k);
+                  });
+                },
+                true => ()
+              );
+            });
+          },
+          _is_word_rune(last) => {
+            (k : usize) = p_end;
+            while((k > usize(0)) && _is_word_rune(runes(k - usize(1))), {
+              k = (k - usize(1));
+            });
+            p_start = Option(usize).Some(k);
+            bare_param = true;
+          },
+          true => ()
+        );
+      });
+      // A capture list cannot be added where one is already written (its
+      // entries were judged as copies themselves).
+      has_list := match(
+        p_start,
+        .Some(ps) => {
+          (k : usize) = ps;
+          while((k > usize(0)) && runes(k - usize(1)).is_whitespace(), {
+            k = (k - usize(1));
+          });
+          (k > usize(0)) && (runes(k - usize(1)).char == u32(0x7D))
+        },
+        .None => false
+      );
+      // The entries: every runtime capture, sorted, the copied ones cloned.
+      (derive_needed : bool) = false;
+      (entries : String) = String.new();
+      names := st.capture_names.split(",");
+      parts := copied.split("|");
+      (ni : usize) = usize(0);
+      while(ni < names.len(), ni = (ni + usize(1)), {
+        n := names(ni);
+        if(n.is_empty(), {
+          continue;
+        });
+        (spelling : String) = String.new();
+        (pi : usize) = usize(0);
+        while(pi < parts.len(), pi = (pi + usize(1)), {
+          if(parts(pi).starts_with(`${n}=`), {
+            spelling = parts(pi).substring(n.len() + usize(1), parts(pi).len());
+          });
+        });
+        entry := cond(
+          spelling.is_empty() => n.clone(),
+          (spelling == "derive") => {
+            derive_needed = true;
+            n.clone()
+          },
+          (spelling == "clone") => `${n} : ${n}.clone()`,
+          true => `${n} : ${spelling}.clone(${n})`
+        );
+        entries = if(entries.is_empty(), entry, `${entries}, ${entry}`);
+      });
+      cond(
+        (!is_arrow || p_start.is_none() || has_list) => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the closure copies a handle it captures implicitly (${copied.replace("|", String.from(" ")).trim()}), and its parameter list was not found; give it a capture list by hand: \`{ ${entries} }(...) => ...\``);
+        },
+        derive_needed => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the closure copies a captured value that holds a counted handle and is not \`Clone\`; give its type \`derive(..., Clone)\` and a capture list by hand`);
+        },
+        true => {
+          ps := match(p_start, .Some(x) => x, .None => usize(0));
+          n_captures = (n_captures + usize(1));
+          if(dry_run, {
+            println(`fix: ${at}: capture: the closure gets the capture list \`{ ${entries} }\``);
+          });
+          at_idx.push(ps);
+          at_text.push(if(bare_param, `{ ${entries} }(`, `{ ${entries} }`));
+          at_close.push(false);
+          if(bare_param, {
+            at_idx.push(p_end);
+            at_text.push(String.from(")"));
+            at_close.push(true);
+          });
+        }
+      );
+    });
+    if(dry_run || (at_idx.len() == usize(0)), {
+      continue;
+    });
+    // Order the insertions by index, closers before openers at one index.
+    (n : usize) = at_idx.len();
+    (oi : usize) = usize(0);
+    while(oi < n, oi = (oi + usize(1)), {
+      (best : usize) = oi;
+      (bi : usize) = (oi + usize(1));
+      while(bi < n, bi = (bi + usize(1)), {
+        if((at_idx(bi) < at_idx(best)) || ((at_idx(bi) == at_idx(best)) && at_close(bi) && !at_close(best)), {
+          best = bi;
+        });
+      });
+      if(best != oi, {
+        swap_i := at_idx(oi);
+        at_idx(oi) = at_idx(best);
+        at_idx(best) = swap_i;
+        swap_t := at_text(oi).clone();
+        at_text(oi) = at_text(best).clone();
+        at_text(best) = swap_t;
+        swap_c := at_close(oi);
+        at_close(oi) = at_close(best);
+        at_close(best) = swap_c;
+      });
+    });
+    out := String.new();
+    (nx : usize) = usize(0);
+    (k : usize) = usize(0);
+    while(k <= runes.len(), k = (k + usize(1)), {
+      while((nx < n) && (at_idx(nx) == k), nx = (nx + usize(1)), {
+        out.push_string(&at_text(nx));
+      });
+      if(k < runes.len(), {
+        out.push_rune(runes(k));
+      });
+    });
+    io.await(write_string(Path.new(file.clone()), &out, io), IoExn(io : io, exn : exn));
+    fmt_argv := ArrayList(String).new();
+    fmt_argv.push(String.from("yo"));
+    fmt_argv.push(String.from("fmt"));
+    fmt_argv.push(file.clone());
+    run_fmt(&fmt_argv, io, exn);
+  });
+  verb := if(dry_run, String.from("would insert"), String.from("inserted"));
+  tests_note := if(n_skipped_tests > usize(0), `; ${n_skipped_tests.to_string()} test body(ies) did not evaluate (listed above)`, String.new());
+  clear_migrate_mut_scrutinees();
+  borrows_note := if(n_borrows > usize(0), ` and ${n_borrows.to_string()} \`&\` before a \`match\` scrutinee`, String.new());
+  markers_note := if(n_markers > usize(0), ` and ${n_markers.to_string()} call-site marker(s)`, String.new());
+  println(`fix: ${verb} ${n_inserted.to_string()} clone(s) and ${n_captures.to_string()} capture list(s)${borrows_note}${markers_note}; ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated copies were not migrated`));
+  });
 });
 /// `yo fix <path> --migrate dyn-spelling` — decision 44's spelled erasure
 /// (plans/VALUES_BY_DEFAULT.md, amended 2026-10-12). Semantic: only the
@@ -4250,7 +4754,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors] [--hot-path PATH]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone] [--hot-path PATH]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -4276,8 +4780,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy") && (argv(next_m) != "cloned-accessors")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings, explicit-copy or cloned-accessors`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy") && (argv(next_m) != "cloned-accessors") && (argv(next_m) != "rc-clone")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings, explicit-copy, cloned-accessors or rc-clone`));
         });
         migrate = argv(next_m).clone();
         ai = (ai + usize(2));
@@ -4300,7 +4804,7 @@ run_fix :: (
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors] [--hot-path PATH]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone] [--hot-path PATH]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -4410,6 +4914,14 @@ run_fix :: (
   if(migrate == "cloned-accessors", {
     set_migrate_cloned_accessors(true);
   });
+  if(migrate == "rc-clone", {
+    set_migrate_rc_clone(true);
+    // A capture list this migration writes makes a captured `&T` borrow an
+    // explicit capture, whose body uses then need decision 33's call-site
+    // marker (`f(&get_info)`, E0914): the next pass records and inserts
+    // them as `--migrate markers` does.
+    set_migrate_markers(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -4461,6 +4973,10 @@ run_fix :: (
   });
   if(migrate == "cloned-accessors", {
     _run_migrate_cloned_accessors(&files, std_path.clone(), &hot_paths, dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "rc-clone", {
+    _run_migrate_rc_clone(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -8096,7 +8612,7 @@ run_compile :: (
     // The table goes in through its own handle (written back after): passing
     // `&mut ctx.expr_info_table` beside `&ctx` lends one place twice, which
     // decision 28's value-root rule rejects once it lands with V2b.
-    info_table := ctx.expr_info_table;
+    info_table := ctx.expr_info_table.clone();
     (c_spilled_bytes : usize) = usize(0);
     c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, cycle_collector == "off", &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
     ctx.expr_info_table = info_table;
@@ -10941,10 +11457,10 @@ run_effects :: (
     (labels : SharedList(String)) = no_labels();
     (types : SharedList(TypeValue)) = no_types();
     match(
-      outcome.module_type,
+      &outcome.module_type,
       Rc(.Struct({ field_labels, field_types })) => {
-        labels = field_labels;
-        types = field_types;
+        labels = Rc.clone(field_labels);
+        types = Rc.clone(field_types);
       },
       _ => ()
     );
@@ -10979,7 +11495,7 @@ run_effects :: (
           fn_sep := if(seen_fns < n_fns, String.from(","), String.new());
           entries := ArrayList(String).new();
           json_entries := ArrayList(String).new();
-          param_labels := meta.*.param_labels;
+          param_labels := Rc.clone(meta.*.param_labels);
           (pi : usize) = usize(0);
           while((pi < param_labels.len()) && (pi < param_types.len()), {
             plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
@@ -10991,7 +11507,7 @@ run_effects :: (
               json_entries.push(`{"param":"${_json_escape(plabel.clone())}","type":"${_json_escape(type_to_string(&pty))}","via":"param","kinds":[${_json_string_list(&kinds)}]}`);
             });
           });
-          implicit_labels := meta.*.implicit_labels;
+          implicit_labels := Rc.clone(meta.*.implicit_labels);
           (ii : usize) = usize(0);
           while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
             ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
@@ -11069,7 +11585,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
         fty := match(field_types.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         fi = (fi + usize(1));
         match(
-          fty,
+          &fty,
           Rc(.Func({ meta : fmeta })) => {
             if(fmeta.*.is_control, {
               has_ctl = true;
@@ -11115,7 +11631,7 @@ _collect_future_effects :: (
       (i : usize) = usize(0);
       while((i < effect_labels.len()) && (i < effect_types.len()), {
         labels.push(effect_labels(i).clone());
-        types.push(effect_types(i));
+        types.push(Rc.clone(effect_types(i)));
         i = (i + usize(1));
       });
     },
@@ -12986,10 +13502,14 @@ Options:
                             pattern or comptime binding the program
                             writes), explicit-copy (.clone() on an
                             implicit copy of a String or collection
-                            whose source is used again), or
+                            whose source is used again),
                             cloned-accessors (r.m(...) -> r.m_cloned(...)
                             on a copying accessor whose result holds a
-                            String or collection)
+                            String or collection), or rc-clone
+                            (Rc.clone(h) / Arc.clone(h) on an implicit
+                            copy of a counted handle whose source is
+                            used again, a capture list on a closure
+                            that captures one)
   --hot-path <path>         With --migrate explicit-copy or
                             cloned-accessors: list the sites in this file
                             or directory for a hand edit instead of
@@ -13026,9 +13546,12 @@ Examples:
                             （给程序写入的每个模块级绑定加上 mut(G)），
                             mut-bindings（给程序写入的每个局部、模式或
                             编译期绑定加上 mut(x)），explicit-copy（源值之后仍被使用的
-                            String / 集合隐式复制加上 .clone()），或
+                            String / 集合隐式复制加上 .clone()），
                             cloned-accessors（把结果持有 String / 集合的
-                            拷贝式读取 r.m(...) 改写为 r.m_cloned(...)）
+                            拷贝式读取 r.m(...) 改写为 r.m_cloned(...)），或
+                            rc-clone（源值之后仍被使用的计数句柄隐式复制
+                            改写为 Rc.clone(h) / Arc.clone(h)，捕获句柄的
+                            闭包加上捕获列表）
   --hot-path <path>         与 --migrate explicit-copy 或 cloned-accessors
                             一起使用：列出该文件或目录中的拷贝留待手工修改，
                             而不是改写它们（可重复）

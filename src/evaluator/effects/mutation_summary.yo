@@ -542,8 +542,8 @@ impl(
             callee_ty,
             Rc(.Func({ param_types : cpt, meta : cm, variadic_types : cvt })) => {
               callee_extern = cm.*.extern_name.clone();
-              callee_ptypes = cpt;
-              callee_vtypes = cvt;
+              callee_ptypes = Rc.clone(cpt);
+              callee_vtypes = Rc.clone(cvt);
             },
             _ => ()
           );
@@ -580,14 +580,14 @@ impl(
     // declarations resolve this way).
     (type_only : Option(TypeValue)) = match(
       expr_info_table_get(table, ast_expr_id(&func_expr)),
-      .Some(fi2) => Option(TypeValue).Some(fi2.ty),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty)),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
       type_only,
       .Some(t0) => if(
         is_function_type(&t0),
-        Option(TypeValue).Some(t0),
+        Option(TypeValue).Some(Rc.clone(t0)),
         lookup_method_callee_type(ast_expr_id(e))
       ),
       .None => lookup_method_callee_type(ast_expr_id(e))
@@ -880,7 +880,7 @@ _msp_type_may_root :: (fn(ty : &TypeValue) -> bool)(
   type_contains_rc_type(ty) || _msp_type_contains_pointer_inner(ty, u32(0))
 );
 _msp_labels :: (fn(fid : &String) -> SharedList(String))(
-  match(get_func_type(fid), Rc(.Func({ meta : m })) => m.*.param_labels, _ => no_labels())
+  match(get_func_type(fid), Rc(.Func({ meta : m })) => Rc.clone(m.*.param_labels), _ => no_labels())
 );
 /// Allocation externs hand back storage nothing else references.
 _msp_extern_returns_fresh :: (fn(h : &String) -> bool)(
@@ -930,13 +930,13 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
   });
   recv_ty := match(
     recv_opt,
-    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => Option(TypeValue).Some(ri.ty), .None => Option(TypeValue).None),
+    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty)), .None => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   is_vtable := match(
     recv_ty,
     .Some(rt) => {
-      pointee := match(rt, Rc(.Pointer({ pointee : pt })) => pt, _ => rt);
+      pointee := match(&rt, Rc(.Pointer({ pointee : pt })) => Rc.clone(pt), _ => Rc.clone(rt));
       match(
         resolve_struct_shell(&pointee),
         // The declaring module is std/allocator.yo, or std/prelude.yo once
@@ -1200,7 +1200,7 @@ _msp_type_of_name_in :: (fn(e : &AstExpr, name : &String, table : &ExprInfoTable
           table,
           ast_expr_id(e)
         ),
-        .Some(i) => Option(TypeValue).Some(i.ty),
+        .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty)),
         .None => Option(TypeValue).None
       ),
       Option(TypeValue).None
@@ -1504,7 +1504,7 @@ impl(
       labels : _msp_labels(fid.clone()).items,
       roots : HashMap(String, _MspRoot).new(),
       names : ArrayList(String).new(),
-      table : table,
+      table : table.clone(),
       touched : local_touched,
       changed : false
     );
@@ -2152,7 +2152,7 @@ impl(
           Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => match(
             cm.*.extern_name,
             .Some(en) => {
-              return(Option(_MspExtern).Some(_MspExtern(name : en.clone(), ptypes : p0, vtypes : v0)));
+              return(Option(_MspExtern).Some(_MspExtern(name : en.clone(), ptypes : Rc.clone(p0), vtypes : Rc.clone(v0))));
             },
             .None => {
               return(Option(_MspExtern).None);
@@ -2170,12 +2170,12 @@ impl(
     );
     (type_only : Option(TypeValue)) = match(
       expr_info_table_get(table, ast_expr_id(func_expr)),
-      .Some(fi2) => Option(TypeValue).Some(fi2.ty),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty)),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
       type_only,
-      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(t0), lookup_method_callee_type(ast_expr_id(e))),
+      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(Rc.clone(t0)), lookup_method_callee_type(ast_expr_id(e))),
       .None => lookup_method_callee_type(ast_expr_id(e))
     );
     match(
@@ -2184,7 +2184,7 @@ impl(
         t2,
         Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => match(
           tm.*.extern_name,
-          .Some(ten) => Option(_MspExtern).Some(_MspExtern(name : ten.clone(), ptypes : tpt, vtypes : tvt)),
+          .Some(ten) => Option(_MspExtern).Some(_MspExtern(name : ten.clone(), ptypes : Rc.clone(tpt), vtypes : Rc.clone(tvt))),
           .None => Option(_MspExtern).None
         ),
         _ => Option(_MspExtern).None
@@ -3284,8 +3284,8 @@ impl(
             get_func_type(fid.clone()),
             Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => {
               callee_extern = cm.*.extern_name.clone();
-              cpt = p0;
-              cvt = v0;
+              cpt = Rc.clone(p0);
+              cvt = Rc.clone(v0);
             },
             _ => ()
           );
@@ -3439,12 +3439,12 @@ impl(
     // declarations resolve this way).
     (type_only : Option(TypeValue)) = match(
       expr_info_table_get(&ctx.table, ast_expr_id(&func_expr)),
-      .Some(fi2) => Option(TypeValue).Some(fi2.ty),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty)),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
       type_only,
-      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(t0), lookup_method_callee_type(ast_expr_id(e))),
+      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(Rc.clone(t0)), lookup_method_callee_type(ast_expr_id(e))),
       .None => lookup_method_callee_type(ast_expr_id(e))
     );
     match(
@@ -3624,8 +3624,9 @@ _rcw_handle_kind :: (fn(t : &TypeValue) -> String)(
 /// step reads, its kind, and its type; `nearest` is the handle of the cell
 /// step nearest the written storage (the cell the write lands in).
 _RcwCross :: struct(handle : AstExpr, kind : String, ty : TypeValue, nearest : AstExpr);
+derive(_RcwCross, Clone);
 _rcw_type_of :: (fn(e : &AstExpr, table : &ExprInfoTable) -> Option(TypeValue))(
-  match(expr_info_table_get(table, ast_expr_id(e)), .Some(i) => Option(TypeValue).Some(i.ty), .None => Option(TypeValue).None)
+  match(expr_info_table_get(table, ast_expr_id(e)), .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty)), .None => Option(TypeValue).None)
 );
 /// The head name of a call's callee, "" for a callee that is not an atom.
 _rcw_head :: (fn(f : &AstExpr) -> String)(
@@ -3693,7 +3694,7 @@ _rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCro
                 });
                 near := match(nearest, .Some(nb) => nb, .None => base);
                 if((kind == "rc") && first_rc.is_none(), {
-                  first_rc = Option(_RcwCross).Some(_RcwCross(handle : base, kind : kind.clone(), ty : bt, nearest : near));
+                  first_rc = Option(_RcwCross).Some(_RcwCross(handle : base, kind : kind.clone(), ty : Rc.clone(bt), nearest : near));
                 });
                 if((kind == "ref") && first_ref.is_none(), {
                   first_ref = Option(_RcwCross).Some(_RcwCross(handle : base, kind : kind, ty : bt, nearest : near));
@@ -3716,7 +3717,7 @@ _rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCro
       }
     );
   });
-  match(first_rc, .Some(c) => Option(_RcwCross).Some(c), .None => first_ref)
+  match(first_rc, .Some(c) => Option(_RcwCross).Some(c.clone()), .None => first_ref)
 });
 _rcw_root_name :: (fn(r : _MspRoot) -> String)(
   cond(
@@ -3808,7 +3809,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
       match(
         get_func_type(cfid.clone()),
         Rc(.Func({ param_types : cpts, meta : cm })) => if(cm.*.extern_name.is_none() && !is_control_fn(cfid.clone()), {
-          labels := cm.*.param_labels;
+          labels := Rc.clone(cm.*.param_labels);
           match(
             _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
             .Some(av) => {
@@ -3846,7 +3847,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
                             // an `ArrayList`) lends the callee that handle's
                             // storage: the write lands there.
                             arg_is_handle := match(_rcw_type_of(&aj, &ctx.table), .Some(ajt) => (_rcw_handle_kind(&ajt).len() > usize(0)), .None => false);
-                            written := _RcwCross(handle : c.handle, kind : c.kind.clone(), ty : c.ty, nearest : if(arg_is_handle, aj, c.nearest));
+                            written := _RcwCross(handle : c.handle, kind : c.kind.clone(), ty : Rc.clone(c.ty), nearest : if(arg_is_handle, aj, c.nearest));
                             _rcw_report(if(is_recv, "mut-recv", "mut-arg"), &aj, &written, in_closure, ctx);
                           });
                         },
@@ -3888,7 +3889,7 @@ audit_rc_writes :: (fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -
     labels : _msp_labels(fid.clone()).items,
     roots : HashMap(String, _MspRoot).new(),
     names : ArrayList(String).new(),
-    table : table,
+    table : table.clone(),
     touched : ArrayList(String).new(),
     changed : false
   );
@@ -4136,7 +4137,7 @@ _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     return(Option(String).None);
   });
   send_ok := match(
-    ctx.send,
+    &ctx.send,
     .Some(st) => type_implements_trait_bool(&v.ty, &st, &env),
     .None => true
   );
@@ -4415,7 +4416,7 @@ function_reaches_non_send_global :: (
   // A module-level binding is one static every thread shares: the question is
   // sharing, so the global must be `Sync` (Rust's `static: Sync`;
   // plans/VALUES_BY_DEFAULT.md §3.8).
-  ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
+  ctx := _GrCtx(table : table.clone(), env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
   r := _gr_walk(body, &ctx);
   g_gr_in_progress.with_mut(m => m.remove(fid.clone()));
   g_gr_depth = my_depth;

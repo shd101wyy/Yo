@@ -1,15 +1,15 @@
-// `Rc(T).clone()` where `T` has no `Clone`: the prelude's
-// `impl(generic(T : Type), where(T <: Clone), Rc(T), Clone(...))` should not
-// apply, so the call should be rejected AT THE CALL SITE ("no method clone on
-// Rc(Cell)"). Instead the impl is selected and its body fails inside the
-// prelude (E0610 at `rc(self.*.clone())`).
+// A generic impl whose `where` clause fails is selected anyway: `W(NC).dup2()`
+// should be rejected AT THE CALL SITE (no method `dup2` on `W(NC)`, since `NC`
+// is not `Clone`). Instead the impl is selected and its body fails
+// (E0610 at `self.v.clone()`). Until V2c this was shown on the prelude's
+// `Rc(T)` `Clone`, whose `where(T <: Clone)` decision 17 removed.
 // issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md
-{ println } :: import("std/fmt");
-{ String } :: import("std/string");
-Cell :: struct(x : String);
+W :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), where(T <: Clone), W(T), dup2 : (fn(self : &Self) -> Self)(W(T)(v : self.v.clone())));
+NC :: struct(n : i32);
 main :: (fn() -> unit)({
-  a := rc(Cell(x : String.from("q")));
-  b := a.clone();
-  println(ref_count(a));
+  w := W(NC)(v : NC(n : i32(1)));
+  x := w.dup2();
+  assert(x.v.n == i32(1), "x");
 });
 export(main);

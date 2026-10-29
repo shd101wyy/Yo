@@ -319,9 +319,9 @@ test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it",
   comptime_assert(!Type.impls(SsPeer, Acyclic), "the peer reaches itself");
   comptime_assert(Type.impls(SsBoxNode, Acyclic), "a Box back edge is no cycle");
   a := arc(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
-  b := a;
+  b := Arc.clone(a);
   a.with_lock(v => {
-    v = SsPeer(id : i32(1), peer : .Some(b));
+    v = SsPeer(id : i32(1), peer : .Some(Arc.clone(b)));
   });
   assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
   a.with_lock(v => {

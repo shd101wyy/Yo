@@ -86,7 +86,7 @@ _span_of_token :: (fn(token : &Token) -> Span)(
 /// a split of the 10k-line prelude per message was 12% of a derive-heavy check
 /// (issues/derive-clone-costs-17-ms-per-type.md).
 _source_line_of_token :: (fn(token : &Token) -> String)({
-  input := token.input;
+  input := Rc.clone(token.input);
   n := input.*.len();
   (target : usize) = usize(token.row);
   (row : usize) = usize(0);

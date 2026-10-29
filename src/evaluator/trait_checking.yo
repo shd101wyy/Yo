@@ -30,6 +30,7 @@ pragma(Pragma.AllowUnsafe);
   is_reference_struct_type,
   is_reference_enum_type,
   is_primitive_type,
+  is_counted_handle_value_type,
   unique_box_payload_type,
   cell_handle_view
 } :: import("../types/guards.yo");
@@ -172,7 +173,7 @@ register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> un
   // Taken out of the registry and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   list := match(g_type_trait_registry.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
-  list.push(trait_ty);
+  list.push(Rc.clone(trait_ty));
   g_type_trait_registry.with_mut(m => m.insert(type_id.clone(), list));
   bump_trait_impl_epoch();
 });
@@ -527,7 +528,7 @@ resolve_assoc_type_for_target :: (
           .Some(re) => match(
             re.value,
             .Some(.TypeVal(re_t)) => {
-              resolved_opt = Option(TypeValue).Some(re_t);
+              resolved_opt = Option(TypeValue).Some(Rc.clone(re_t));
             },
             .Some(_) => (),
             .None => ()
@@ -562,12 +563,12 @@ _check_associated_type_constraints :: (
 )({
   atc_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l,
+    Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => Rc.clone(l),
     _ => no_labels()
   );
   atc_types := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t,
+    Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => Rc.clone(t),
     _ => no_types()
   );
   n_atc := atc_labels.len();
@@ -601,7 +602,7 @@ _check_associated_type_constraints :: (
             .Some(ae) => match(
               ae.value,
               .Some(.TypeVal(ae_t)) => {
-                resolved_opt = Option(TypeValue).Some(ae_t);
+                resolved_opt = Option(TypeValue).Some(Rc.clone(ae_t));
               },
               .Some(_) => (),
               .None => ()
@@ -682,22 +683,22 @@ copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(SharedList(TypeValue)
     return(
       match(
         resolve_cell_chain(&ty),
-        Rc(.Struct({ field_types : cs_fields })) => Option(SharedList(TypeValue)).Some(cs_fields),
+        Rc(.Struct({ field_types : cs_fields })) => Option(SharedList(TypeValue)).Some(Rc.clone(cs_fields)),
         _ => Option(SharedList(TypeValue)).None
       )
     );
   });
   match(
-    ty,
-    Rc(.Tuple({ field_types : tp_fields })) => Option(SharedList(TypeValue)).Some(tp_fields),
+    &ty,
+    Rc(.Tuple({ field_types : tp_fields })) => Option(SharedList(TypeValue)).Some(Rc.clone(tp_fields)),
     Rc(.Array(element : ar_elem, length : _, length_var : _)) => {
       parts := ArrayList(TypeValue).new();
-      parts.push(ar_elem);
+      parts.push(Rc.clone(ar_elem));
       Option(SharedList(TypeValue)).Some(shared_list(parts))
     },
     Rc(.Func({ result : _ })) => Option(SharedList(TypeValue)).Some(no_types()),
     Rc(.Struct({ field_types : rec_fields })) => cond(
-      (_is_anonymous_record_type(&ty) || is_closure_capture_struct(&ty)) => Option(SharedList(TypeValue)).Some(rec_fields),
+      (_is_anonymous_record_type(&ty) || is_closure_capture_struct(&ty)) => Option(SharedList(TypeValue)).Some(Rc.clone(rec_fields)),
       true => Option(SharedList(TypeValue)).None
     ),
     _ => Option(SharedList(TypeValue)).None
@@ -911,7 +912,7 @@ set_flip_prelude_env :: (fn(env : &Environment) -> unit)({
 /// Mark `ty` as the target of a `derive` that includes `Copy` (see
 /// `g_copy_pending_keys`).
 push_copy_pending :: (fn(ty : &TypeValue) -> unit)({
-  g_copy_pending_keys.with_mut(xs => xs.push(type_key(ty)));
+  g_copy_pending_keys.with_mut({ ty : Rc.clone(ty) }(xs) => xs.push(type_key(&ty)));
 });
 /// Forget every pending `Copy` derive target. Derives do not nest, so a
 /// derive clears the list on entry and on exit (and its guarded caller after
@@ -942,7 +943,12 @@ _type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
 /// `Box`'s payload. A hand-written `Clone` outside std anywhere inside
 /// (`type_has_user_clone_impl`) runs user code, which can reach the global
 /// while the clone holds it; so does a `Dyn` or a closure, whose clone is not
-/// known here.
+/// known here. The prelude's counted handle (`Rc(V)`, `Arc(V)`) stops the
+/// walk: its `Clone` is the prelude's count bump, which never touches the
+/// payload, so a hand-written `Clone` inside `V` cannot run — judging the
+/// payload kept `env.yo`'s `g_synthetic_token_last.clone()`
+/// (`Option(Rc(_SyntheticTokenModule))`, whose payload reaches `Token`'s
+/// hand-written `Clone`) an E0916 lend.
 type_clone_runs_no_user_code :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from("Clone")),
@@ -975,6 +981,13 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
   visited.insert(key, true);
   if(type_has_user_clone_impl(&ty, clone_tt), {
     return(false);
+  });
+  // The prelude's `Rc`/`Arc` clones as a count bump (decision 17): the
+  // payload is never touched, so the walk stops here instead of judging the
+  // handle's storage field. Not every `ref` object: a collection's `Clone`
+  // still clones its elements (`ArrayList(_GlLoud)`, tests/global_lend.test.yo).
+  if(is_counted_handle_value_type(&t_refine_inner(&ty)), {
+    return(true);
   });
   match(
     unique_box_payload_type(&ty),
@@ -1011,8 +1024,8 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
 /// counted cells.
 type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // A refinement `refine(T, p)` copies as its `T` (the erasure rule).
-  (ty : TypeValue) = ty_in;
-  while(match(ty, Rc(.RefineT(_, _)) => true, _ => false), {
+  (ty : TypeValue) = Rc.clone(ty_in);
+  while(match(&ty, Rc(.RefineT(_, _)) => true, _ => false), {
     ty = t_refine_inner(&ty);
   });
   // A type still mentioning a type variable is judged per instantiation (a
@@ -1036,7 +1049,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   );
   // A `union` copies its raw bits, as in C, and `derive` cannot give it
   // `Copy`, so it keeps copying implicitly, like a C opaque type.
-  if(is_some_type(&ty) || match(ty, Rc(.ExternOpaqueT(_, _)) => true, Rc(.Union(name : _, field_labels : _, field_types : _)) => true, _ => false), {
+  if(is_some_type(&ty) || match(&ty, Rc(.ExternOpaqueT(_, _)) => true, Rc(.Union(name : _, field_labels : _, field_types : _)) => true, _ => false), {
     return(false);
   });
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
@@ -1126,7 +1139,7 @@ _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) 
   });
   (slot : usize) = g_lacks_copy_fast.with(xs => type_identity_slot(xs, ty));
   if(!g_lacks_copy_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
-    g_lacks_copy_fast.with_mut(xs => xs.insert(slot, ty));
+    g_lacks_copy_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
     g_lacks_copy_fast_answers.with_mut(xs => xs.insert(slot, answer));
   });
 });
@@ -1172,7 +1185,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
       });
     });
     match(
-      ty,
+      &ty,
       Rc(.Struct({ field_types : bl_fields })) => {
         (i : usize) = usize(0);
         while(i < bl_fields.len(), {
@@ -1195,7 +1208,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
       _ => ()
     );
   });
-  if(match(ty, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
+  if(match(&ty, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
     shown := type_to_string(&ty);
     if(!out.contains(&shown), {
       out.push(shown);
@@ -1253,7 +1266,7 @@ type_implements_trait :: (
     env : &Environment
   ) -> TraitCheckResult
 )({
-  (target : TypeValue) = target_type;
+  (target : TypeValue) = Rc.clone(target_type);
   // A recursive enum's `Self` placeholder carries NO impls. Unlike a struct
   // shell — which reuses the final's `struct_id`, so every id-keyed lookup
   // treats shell and final as one type for free (creators.yo:605-615) — an
@@ -1322,7 +1335,7 @@ type_implements_trait :: (
   // value. std cannot state these as impls: the seed that
   // compiles std reads an extern `X : Type` as a SomeT, so `impl(X, Send())`
   // would be a blanket impl. Any other trait needs a real impl.
-  if(match(target, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
+  if(match(&target, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
     eom := _marker_name_of(trait_type, env);
     if((eom == "Runtime") || (eom == "Send") || (eom == "Sync") || (eom == "Acyclic"), {
       return(TraitCheckResult(implemented : true, env : env));
@@ -1441,14 +1454,14 @@ type_implements_trait :: (
       Rc(.FnTraitT(_, param_labels, param_types, result, _, _)) => rc(
         TypeValueNode.Func(
           no_types(),
-          param_types,
+          Rc.clone(param_types),
           no_types(),
           no_types(),
-          result,
+          Rc.clone(result),
           rc(
             FuncMeta(
               forall_labels : no_labels(),
-              param_labels : param_labels,
+              param_labels : Rc.clone(param_labels),
               implicit_labels : no_labels(),
               result_is_comptime_only : false,
               // Fn-trait call type (runtime); the call params' slots carry
@@ -1549,13 +1562,13 @@ type_implements_trait :: (
       sync_trait := get_trait_type_from_env(env, String.from("Sync"));
       (direct_true : bool) = false;
       match(
-        target,
+        &target,
         Rc(.Struct({ field_types : fts, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => cond(
           // Runtime: objects always; value structs need all fields Runtime.
           (tn == "Runtime") => if(is_ref, {
             direct_true = true;
           }, {
-            fields_opt = Option(SharedList(TypeValue)).Some(fts);
+            fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
           }),
           // Send / Sync: a value struct needs every field to hold the
           // marker; an atomic object needs every field `Sync`; a non-atomic
@@ -1563,13 +1576,13 @@ type_implements_trait :: (
           // to impls (fall through).
           is_thread_marker => cond(
             !is_ref => {
-              fields_opt = Option(SharedList(TypeValue)).Some(fts);
+              fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
             },
             is_atomic => match(
               sync_trait,
               .Some(st) => {
-                fields_opt = Option(SharedList(TypeValue)).Some(fts);
-                field_trait = st;
+                fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
+                field_trait = Rc.clone(st);
               },
               .None => ()
             ),
@@ -1577,7 +1590,7 @@ type_implements_trait :: (
           ),
           // Comptime: objects never; value structs need all fields Comptime.
           (tn == "Comptime") => if(!is_ref, {
-            fields_opt = Option(SharedList(TypeValue)).Some(fts);
+            fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
           }),
           // Acyclic: a value struct needs its fields Acyclic, and the
           // elements of a buffer it owns that reach a cell (V2b's unique
@@ -1616,7 +1629,7 @@ type_implements_trait :: (
               sync_trait,
               .Some(st) => {
                 fields_opt = Option(SharedList(TypeValue)).Some(shared_list(flat));
-                field_trait = st;
+                field_trait = Rc.clone(st);
               },
               .None => ()
             ),
@@ -1632,7 +1645,7 @@ type_implements_trait :: (
         // marker holds iff every field type holds it.
         // See issues/fixed/tuple-types-derive-no-auto-derived-marker.md.
         Rc(.Tuple({ field_types : tuple_fts })) => {
-          fields_opt = Option(SharedList(TypeValue)).Some(tuple_fts);
+          fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(tuple_fts));
         },
         // A `fn(...)` type is a code pointer: it holds no reference, so it is
         // Acyclic. It is NOT Send as a type: whether a function may run on
@@ -1654,7 +1667,7 @@ type_implements_trait :: (
         // pragma(Pragma.AllowUnsafe).
         Rc(.Pointer(pointee_box)) => if(tn == "Acyclic", {
           pfields := ArrayList(TypeValue).new();
-          pfields.push(pointee_box);
+          pfields.push(Rc.clone(pointee_box));
           fields_opt = Option(SharedList(TypeValue)).Some(shared_list(pfields));
         }),
         _ => ()
@@ -1688,7 +1701,7 @@ type_implements_trait :: (
   });
   // 5. DynType: check required traits and selfConstraints.
   match(
-    target,
+    &target,
     Rc(.DynT(required_trait_types, _, negative_trait_types, _)) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
@@ -1754,7 +1767,7 @@ type_implements_trait :: (
   // Constraints are stored directly on SomeT.required_trait_types
   // via _add_where_clause_constraint (no separate env lookup needed).
   match(
-    target,
+    &target,
     Rc(.SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _)) => {
       (found_req : bool) = false;
       (found_neg : bool) = false;
@@ -2277,7 +2290,7 @@ deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValu
     .Some(deref_trait) => cond(
       type_implements_trait_bool(ty, &deref_trait, env) => match(
         cell_handle_view(ty),
-        .Some(hv) => Option(TypeValue).Some(hv.payload),
+        .Some(hv) => Option(TypeValue).Some(Rc.clone(hv.payload)),
         .None => resolve_assoc_type_for_target(ty, String.from("Target"), env)
       ),
       true => Option(TypeValue).None
@@ -2345,7 +2358,7 @@ type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
 extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
-    Rc(.FnTraitT(base_name : _)) => Option(TypeValue).Some(ty),
+    Rc(.FnTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
     Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => {
       // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
@@ -2353,13 +2366,13 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       // carries the Fn in ITS required list). Iterative with a visited-id
       // list — resolution chains can cycle (the get_type_string
       // SIGBUS family), which a plain recursive walk would not survive.
-      (eft_cur : TypeValue) = ty;
+      (eft_cur : TypeValue) = Rc.clone(ty);
       (eft_seen : ArrayList(String)) = ArrayList(String).new();
       (eft_out : Option(TypeValue)) = Option(TypeValue).None;
       (eft_going : bool) = true;
       while(eft_going, {
         match(
-          eft_cur,
+          Rc.clone(eft_cur),
           Rc(.SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, eft_rc)) => {
             n := eft_rtt.len();
             (i : usize) = usize(0);
@@ -2367,9 +2380,9 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
               match(
                 eft_rtt.get(i),
                 .Some(t) => match(
-                  t,
+                  &t,
                   Rc(.FnTraitT(base_name : _)) => {
-                    eft_out = Option(TypeValue).Some(t);
+                    eft_out = Option(TypeValue).Some(Rc.clone(t));
                   },
                   _ => ()
                 ),
@@ -2399,7 +2412,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
                 match(
                   eft_rc,
                   .Some(eft_next) => {
-                    eft_cur = eft_next;
+                    eft_cur = Rc.clone(eft_next);
                   },
                   .None => {
                     eft_going = false;
@@ -2409,7 +2422,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
             });
           },
           Rc(.FnTraitT(base_name : _)) => {
-            eft_out = Option(TypeValue).Some(eft_cur);
+            eft_out = Option(TypeValue).Some(Rc.clone(eft_cur));
             eft_going = false;
           },
           _ => {
@@ -2432,9 +2445,9 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
           }
         );
         match(
-          t,
+          &t,
           Rc(.FnTraitT(base_name : _)) => {
-            return(Option(TypeValue).Some(t));
+            return(Option(TypeValue).Some(Rc.clone(t)));
           },
           _ => ()
         );
@@ -2534,7 +2547,7 @@ _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
     _ => match(
       extract_fn_trait_from_type(ty),
       .Some(sm_ft) => match(
-        sm_ft,
+        &sm_ft,
         Rc(.FnTraitT({ call_param_labels : sm_l, call_param_types : sm_t })) => Option(_SigModes).Some(
           _SigModes(labels : sm_l.clone(), types : shared_list(slot_pointees(&sm_t)), refs : fn_param_mut_ref_flags(&sm_ft), owns : fn_param_by_value_flags(&sm_ft), n : sm_t.len(), complete : true)
         ),
@@ -2813,7 +2826,7 @@ type_contains_some_type_for_codegen_param :: (
     // issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md
     tc_rc := match(
       ty,
-      Rc(.SomeT({ resolution : rcl })) => rcl,
+      Rc(.SomeT({ resolution : rcl })) => rcl.clone(),
       _ => Option(TypeValue).None
     );
     match(
@@ -2925,7 +2938,7 @@ type_contains_some_type_for_codegen_param :: (
       found
     },
     Rc(.Func({ param_types : param_types, result : result_box, meta : __fm1 })) => {
-      forall_labels := __fm1.*.forall_labels;
+      forall_labels := Rc.clone(__fm1.*.forall_labels);
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {
@@ -2953,7 +2966,7 @@ type_contains_some_type_for_codegen_param :: (
 extract_future_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
-    Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(ty),
+    Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
     Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
@@ -3074,7 +3087,7 @@ find_some_type_missing_comptime_constraint :: (
     match(
       comptime_trait_opt,
       .None => {
-        return(Option(TypeValue).Some(ty));
+        return(Option(TypeValue).Some(Rc.clone(ty)));
       },
       .Some(comptime_trait) => {
         // Check required_trait_types.
@@ -3125,7 +3138,7 @@ find_some_type_missing_comptime_constraint :: (
               );
             });
             if(!has_comptime, {
-              return(Option(TypeValue).Some(ty));
+              return(Option(TypeValue).Some(Rc.clone(ty)));
             });
           },
           _ => ()
@@ -3191,7 +3204,7 @@ _type_implements_trait_full_adapter :: (
   ) -> bool
 )({
   r := type_implements_trait(t, trait_type, env);
-  env.frames = r.env.frames;
+  env.frames = Rc.clone(r.env.frames);
   r.implemented
 });
 _trait_checking_init := (fn() -> bool)({

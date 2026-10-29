@@ -125,13 +125,13 @@ test("two concurrent async reads on one pipe end both complete", {
       buf_b := (*u8)(buf_b_uninit.as_ptr());
       read_a := rc(RefCell(i32).new(-99));
       read_b := rc(RefCell(i32).new(-99));
-      task_a := io.async((io : Io) => {
+      task_a := io.async({ buf_a, read_a : Rc.clone(read_a), read_fd }(io : Io) => {
         n := io.await(file.read(read_fd, buf_a, u32(8), u64(0)), io);
         read_a.with_mut(cur => {
           cur = n;
         });
       });
-      task_b := io.async((io : Io) => {
+      task_b := io.async({ buf_b, read_b : Rc.clone(read_b), read_fd }(io : Io) => {
         n := io.await(file.read(read_fd, buf_b, u32(8), u64(0)), io);
         read_b.with_mut(cur => {
           cur = n;

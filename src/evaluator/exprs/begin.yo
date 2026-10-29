@@ -109,6 +109,11 @@ pragma(Pragma.AllowUnsafe);
   get_dup_use_site_token,
   snapshot_loop_flow,
   ImplicitCopyPending,
+  ExplicitCopySite,
+  migrate_rc_clone_on,
+  migrate_rc_clone_borrow_scrutinee,
+  take_pending_scrutinee_borrows,
+  _lb_mentions,
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
   take_dyn_copy_pending,
@@ -898,7 +903,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : &Variable) -> bool)({
     return(false);
   });
   some_undroppable := match(
-    v.ty,
+    &v.ty,
     Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
     _ => false
   );
@@ -1317,7 +1322,7 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
   method_ty := match(
     lookup_method_callee_type(ast_expr_id(e)),
     .Some(t) => t,
-    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(f)), .Some(fi) => fi.ty, .None => return(false))
+    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(f)), .Some(fi) => Rc.clone(fi.ty), .None => return(false))
   );
   receiver_is_mut := match(
     method_ty,
@@ -1552,7 +1557,7 @@ _optimize_dup_drop_pairs :: (
         // while a binding may still write through the slot (§9 H6).
         e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(&v));
         some_undroppable := match(
-          v.ty,
+          &v.ty,
           Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
           _ => false
         );
@@ -1987,6 +1992,13 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
           },
           .None => ()
         );
+        // `yo fix --migrate rc-clone`: a closure that borrows its captures
+        // (one lent to a `with_mut`/`for` body) has no deferred dup, but under
+        // decision 17's rule its read of the variable still follows the copy
+        // or the consuming `match`, so the copy is not the variable's last use.
+        if(migrate_rc_clone_on() && _lb_mentions(e, v.name.clone()), {
+          _ic_read(&tok, site, acc);
+        });
         return(());
       });
     },
@@ -2083,6 +2095,18 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         if(!taken && exhaustive && (n_arms > usize(0)) && (n_done == n_arms), {
           acc.done = true;
         });
+        // `yo fix --migrate rc-clone`: a copy of `v` inside an arm of a
+        // `match` on `v` itself is never a move. The match either borrows
+        // `v` (`match(&v, …)`, as the migration spells a scrutinee its arms
+        // mention), which freezes `v` while the arm runs, or consumes it, and
+        // then the arm reads a moved value; `cur = match(&cur, …, _ => cur)`
+        // needs `Rc.clone(cur)` in the arm.
+        if(taken && migrate_rc_clone_on() && ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+          scr_m := ast_expr_strip_borrow_marker(&first);
+          if(ast_expr_is_atom(&scr_m) && (ast_expr_token(&scr_m).value == v.name), {
+            acc.later = true;
+          });
+        });
         return(());
       });
       // Leaving the function: nothing after a `return` on a path through
@@ -2147,6 +2171,14 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
               sites.get(si),
               .Some(site) => {
                 acc := _ic_new_scan();
+                // `yo fix --migrate rc-clone` judges a copy as decision 17's
+                // rule judges the move it would be: a write after the copy
+                // ends the scan, and a loop runs the copy again only when the
+                // next iteration reads the variable before writing it
+                // (`_ic_next_iteration_reads`), so a copy inside a loop whose
+                // variable the loop also reassigns is not a last use when an
+                // iteration reaches a read first.
+                acc.stop_at_write = migrate_rc_clone_on();
                 (ci : usize) = usize(0);
                 while((ci < begin_args.len()) && !acc.later, {
                   match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &acc, ctx), .None => ());
@@ -2225,6 +2257,49 @@ discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
+/// `yo fix --migrate rc-clone`: judge the pending match-scrutinee borrows of
+/// `frame`'s variables against the block that declares them: a scrutinee the
+/// rule consumes (recorded by `_decide_match_mode`) whose variable the block
+/// reads after it (`_ic_scan`) borrows — `match(&x, …)` — instead of moving.
+_migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), {
+    match(
+      fvars.get(i),
+      .Some(v) => {
+        pendings := take_pending_scrutinee_borrows(v.id);
+        (pi : usize) = usize(0);
+        while(pi < pendings.len(), pi = (pi + usize(1)), {
+          match(
+            pendings.get(pi),
+            .Some(pb) => {
+              acc := _ic_new_scan();
+              acc.stop_at_write = true;
+              site := ImplicitCopyPending(
+                line : String.new(),
+                module_path : ast_expr_token(&pb.scr).module_path.*.clone(),
+                byte_offset : ast_expr_token(&pb.scr).byte_offset,
+                migrate_site : Option(ExplicitCopySite).None
+              );
+              (ci : usize) = usize(0);
+              while((ci < begin_args.len()) && !acc.later, {
+                match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &acc, ctx), .None => ());
+                ci = (ci + usize(1));
+              });
+              if(acc.later, {
+                migrate_rc_clone_borrow_scrutinee(&pb.scr, &pb.ty, clone_scrutinee : pb.clone_scrutinee);
+              });
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 /// Judge, at the end of a `match` arm, the pending copies of the arm's
 /// pattern bindings (`frame`) against the arm's body (`scanned`): a binding
 /// of an owned temporary holds its copies pending for `yo fix --migrate
@@ -2257,7 +2332,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
-export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies);
+export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows, _subtree_assigns_variable);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
@@ -2299,7 +2374,7 @@ _scope_end_drop_eligible :: (
   // drop possible). Bounded/resolved SomeTypes keep their drop — matching
   // the resolvedConcreteType/requiredTraits check.
   some_undroppable := match(
-    v.ty,
+    &v.ty,
     Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
     _ => false
   );
@@ -2459,8 +2534,8 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
     .Some(fb_ctx) => match(
       fb_ctx.kind,
       .FunctionBody => match(
-        fb_ctx.func_type,
-        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(ret_box),
+        &fb_ctx.func_type,
+        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(Rc.clone(ret_box)),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -2598,7 +2673,7 @@ _must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
   });
   inner := t_refine_inner(ty);
   is_result := match(
-    inner,
+    &inner,
     Rc(.EnumT({ id : _mu_eid })) => type_to_string(&inner).starts_with("Result("),
     _ => false
   );
@@ -2881,9 +2956,9 @@ _evaluate_begin_expression_impl :: (
             .Some(fb_ctx) => match(
               fb_ctx.kind,
               .FunctionBody => match(
-                fb_ctx.func_type,
+                &fb_ctx.func_type,
                 // A projection returns its place's address (decision 24).
-                .Some(Rc(.Func({ result : ret_box, meta : ret_meta }))) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box), ret_box)),
+                .Some(Rc(.Func({ result : ret_box, meta : ret_meta }))) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box), Rc.clone(ret_box))),
                 .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
@@ -2894,7 +2969,7 @@ _evaluate_begin_expression_impl :: (
           match(
             ret_expected,
             .Some(rt) => {
-              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt, env : env));
+              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(rt), env : env));
             },
             .None => ()
           );
@@ -2941,7 +3016,7 @@ _evaluate_begin_expression_impl :: (
             .Some(rfb_ctx) => match(
               rfb_ctx.kind,
               .FunctionBody => match(
-                rfb_ctx.func_type,
+                &rfb_ctx.func_type,
                 .Some(rft) => match(
                   rft,
                   Rc(.Func({ result : rfb, meta : __fm1 })) => {
@@ -2987,7 +3062,7 @@ _evaluate_begin_expression_impl :: (
             .Some(ir_fb) => match(
               ir_fb.kind,
               .FunctionBody => match(
-                ir_fb.func_type,
+                &ir_fb.func_type,
                 .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&ir_ret),
                 .Some(_) => false,
                 .None => false
@@ -3035,7 +3110,7 @@ _evaluate_begin_expression_impl :: (
                   grown := ir_list;
                   grown.push(
                     ImplConcreteTypeInfo(
-                      concrete_type : ret_info.ty,
+                      concrete_type : Rc.clone(ret_info.ty),
                       env : env,
                       token : ast_expr_token(&expr_to_eval)
                     )
@@ -3149,8 +3224,8 @@ _evaluate_begin_expression_impl :: (
           );
         });
         enclosing_ret := match(
-          ctx.enclosing_function_return_type,
-          .Some(t) => t,
+          &ctx.enclosing_function_return_type,
+          .Some(t) => Rc.clone(t),
           .None => rc(TypeValueNode.Unit)
         );
         // Zero-arg `unwind()` — unwind with unit:
@@ -3180,7 +3255,7 @@ _evaluate_begin_expression_impl :: (
           // Propagate the enclosing function's return type as the expected type.
           old_expected := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
-            ExpectedTypeCtx(ty : enclosing_ret, env : env)
+            ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env)
           );
           evaluated_esc_arg := evaluate_expression_raw(&esc_arg, &env, ctx, exn);
           ctx.expected_type = old_expected;
@@ -3396,7 +3471,7 @@ _evaluate_begin_expression_impl :: (
     );
   });
   last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
-  return_type := last_info.ty;
+  return_type := Rc.clone(last_info.ty);
   // Decision 38 A: the block's result may not carry a borrow of a binding the
   // block declares (this block's own frame is the innermost one).
   if(env.frames.len() > usize(0), {
@@ -3423,7 +3498,7 @@ _evaluate_begin_expression_impl :: (
           .FunctionBody => {
             // Check compatibility with the declared function return type.
             match(
-              fctx.func_type,
+              &fctx.func_type,
               .None => (),
               .Some(ft) => {
                 match(
@@ -3431,7 +3506,7 @@ _evaluate_begin_expression_impl :: (
                   Rc(.Func({ result : result_box, meta : rb_meta })) => {
                     // A projection's `return(&place)` yields the place's
                     // address (decision 24, `rewrite_projection_tails`).
-                    expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box);
+                    expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box), Rc.clone(result_box));
                     // Decision 44: `return(f)` into a `Dyn(Fn(...))` result is
                     // `return(dyn(f))`.
                     if(!rb_meta.*.result_is_ref, {
@@ -3622,12 +3697,12 @@ _evaluate_begin_expression_impl :: (
                   .Some(fc) => match(
                     fc.kind,
                     .FunctionBody => match(
-                      fc.func_type,
+                      &fc.func_type,
                       .Some(fty) => match(
                         fty,
                         Rc(.Func({ meta : own_fm })) => {
                           (own_found : bool) = false;
-                          own_labels := own_fm.*.param_labels;
+                          own_labels := Rc.clone(own_fm.*.param_labels);
                           own_flags := fn_param_by_value_flags(&fty);
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();
@@ -3683,6 +3758,15 @@ _evaluate_begin_expression_impl :: (
     match(current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr, &begin_args, ctx, exn), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
       match(env.frames.get(env.frames.len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
+    });
+  });
+  // `yo fix --migrate rc-clone`: judge the pending match-scrutinee borrows
+  // the same way — a scrutinee the rule consumes whose variable the block
+  // reads again (`_ic_scan`'s later) borrows: `match(&x, …)`.
+  if(migrate_rc_clone_on(), {
+    match(current_frame_opt, .Some(mig_fr) => _migrate_judge_scrutinee_borrows(&mig_fr, &begin_args, ctx), .None => ());
+    if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+      match(env.frames.get(env.frames.len() - usize(2)), .Some(mig_pfr) => _migrate_judge_scrutinee_borrows(&mig_pfr, &begin_args, ctx), .None => ());
     });
   });
   // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate
