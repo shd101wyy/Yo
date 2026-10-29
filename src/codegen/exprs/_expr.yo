@@ -15,6 +15,7 @@
 { expr_info_index_trait_ptr_type, lookup_method_callee_type } :: import("../../expr_info.yo");
 { TypeValue, fn_result_is_ref, fn_result_is_mut_ref } :: import("../../types/definitions.yo");
 { is_function_type } :: import("../../types/guards.yo");
+{ fn_trait_call_func_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { panic, assert } :: import("std/assert");
 /// The expression-emitter dispatch signature: emit C for `expr` at `indent`,
@@ -53,7 +54,8 @@ call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContex
         // function type; its type is recorded under the call's id.
         match(
           context.base.get_expr_info(&pc_callee),
-          .Some(cei) => if(is_function_type(&cei.ty), Option(TypeValue).Some(cei.ty), lookup_method_callee_type(ast_expr_id(expr))),
+          // A closure-typed callee whose trait returns a reference (N1c).
+          .Some(cei) => if(is_function_type(&cei.ty), Option(TypeValue).Some(cei.ty), match(fn_trait_call_func_type(&cei.ty), .Some(cft) => if(fn_result_is_ref(&cft), Option(TypeValue).Some(cft), lookup_method_callee_type(ast_expr_id(expr))), .None => lookup_method_callee_type(ast_expr_id(expr)))),
           .None => lookup_method_callee_type(ast_expr_id(expr))
         ),
         .Some(pc_ty) => if(fn_result_is_ref(&pc_ty), Option(bool).Some(fn_result_is_mut_ref(&pc_ty)), Option(bool).None),
