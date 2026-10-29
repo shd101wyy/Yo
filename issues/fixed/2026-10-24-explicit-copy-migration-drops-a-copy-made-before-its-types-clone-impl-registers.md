@@ -52,8 +52,10 @@ which time every module is evaluated and every impl registered:
   `record_clone_derive` in `src/evaluator/builtins/derive.yo`): listed as
   "copied above the `derive` that gives `T` its `Clone`". The lookup does
   not force a `derive`
-  (`issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`,
-  S2, open). Once that is fixed, these sites can be cloned too.
+  (`issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`,
+  S2, fixed 2026-10-29). These sites can be cloned once `SEED_VERSION`
+  carries that fix: until then the seed that compiles `std/` and `src/` does
+  not force a `derive`, so the listing stays.
 - `Clone` at the copy: unchanged.
 
 A first version listed every copy made above its type's `Clone`, an `impl`

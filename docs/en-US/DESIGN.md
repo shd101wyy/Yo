@@ -687,7 +687,7 @@ either order: `cond(c => 1, true => i64(2))` is an `i64`.
 
 Functions are declared using the `::` operator for compile-time definitions or `:=` for runtime values.
 
-Module-level `::` definitions and `impl(...)` registrations are order-independent: a function may call one defined later in the file, reference itself by name, or use a method whose `impl` appears below it. Imports, `open`, pragmas and runtime globals stay in source order. See [Definition Order](./DEFINITION_ORDER.md).
+Module-level `::` definitions, `impl(...)` registrations and `derive(T, ...)` statements are order-independent: a function may call one defined later in the file, reference itself by name, or use a method whose `impl` or `derive` appears below it. Imports, `open`, pragmas and runtime globals stay in source order. See [Definition Order](./DEFINITION_ORDER.md).
 
 ```yo
 // Function declaration with explicit type

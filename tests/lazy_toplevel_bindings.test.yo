@@ -271,6 +271,26 @@ test("an impl member calls a method from a later derive of its type", {
   p := DPt(x : i32(5));
   assert(p.twin().x == i32(5), "twin goes through the later derived clone");
 });
+// A derive whose bound names a later derive (`Ord` needs `Self <: Eq`) forces
+// it; one whose bound names a later hand-written impl still forces that impl
+// (a derive in flight does not take the in-impl guard).
+OrdK :: struct(a : i32);
+derive(OrdK, Ord(OrdK));
+derive(OrdK, Eq(OrdK));
+OrdH :: struct(a : i32);
+derive(OrdH, Ord(OrdH));
+impl(
+  OrdH,
+  Eq(OrdH)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.a == rhs.a),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.a != rhs.a)
+  )
+);
+test("a derive whose trait bound is met by a later derive or impl", {
+  assert(OrdK(a : i32(1)) < OrdK(a : i32(2)), "derived Ord over a later derived Eq");
+  assert(OrdH(a : i32(3)) > OrdH(a : i32(2)), "derived Ord over a later Eq impl");
+  assert(OrdK(a : i32(4)) == OrdK(a : i32(4)), "the later derived Eq");
+});
 // ---------- surfaced along the way: unit-valued body vs non-unit result ----------
 // A `{ ...; }` body's value is `()` (the parser appends a trailing unit); the
 // mismatch used to reach clang ("non-void function does not return a value").
