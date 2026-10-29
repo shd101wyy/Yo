@@ -2330,8 +2330,10 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   // Fill in implementors on traits (sorted).
   (mj : usize) = usize(0);
   while(mj < modules.len(), {
+    // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
+    // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
     m := match(
-      modules.get_cloned(mj),
+      modules.get(mj),
       .Some(x) => x,
       .None => {
         mj = (mj + usize(1));
@@ -2466,8 +2468,10 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   // Recipients: every type missing documentation a donor can supply.
   (mj : usize) = usize(0);
   while(mj < modules.len(), {
+    // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
+    // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
     m2 := match(
-      modules.get_cloned(mj),
+      modules.get(mj),
       .Some(x) => x,
       .None => {
         mj = (mj + usize(1));
@@ -2761,8 +2765,10 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   });
   (mj : usize) = usize(0);
   while(mj < modules.len(), {
+    // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
+    // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
     m2 := match(
-      modules.get_cloned(mj),
+      modules.get(mj),
       .Some(x) => x,
       .None => {
         mj = (mj + usize(1));
@@ -2771,8 +2777,10 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     );
     (tj : usize) = usize(0);
     while(tj < m2.types.len(), {
+      // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
+      // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
       ty := match(
-        m2.types.get_cloned(tj),
+        m2.types.get(tj),
         .Some(x) => x,
         .None => {
           tj = (tj + usize(1));
