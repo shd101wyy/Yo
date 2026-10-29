@@ -28,7 +28,11 @@ runtime (§3.3). **W5 is implemented (2026-10-29,
 `vbd/w5-acyclic-weak-edges`):** `Acyclic` is answered by one strong-cycle
 reach walk instead of the field-by-field derivation, the declared form needs
 no pragma, and std's `SAFETY:` sentences that justified an `Acyclic`
-declaration are gone (§4 "As built"). The other phases have not started.
+declaration are gone (§4 "As built"). **W6a is implemented (2026-10-29,
+`vbd/w6a-collector-off-default`, stacked on W5):** `--cycle-collector off`
+is the default for one release, and §6 precondition 3 records the
+tracked-type counts and the oracle's report over the corpus. W6b has not
+started.
 
 ## 0. Verdict
 
@@ -458,7 +462,47 @@ API that promises not to leak — and a possible `yo check` lint under
    The cli-cases that contrast the two modes name `auto` explicitly.
    The measurement:
 
-W6A_MEASUREMENT
+   - **Tracked types, `src/`.** `yo compile src/main.yo --cycle-collector
+     auto`, counting the constructors that call `__yo_gc_register`: **153
+     of 693** `ref`/atomic constructors. 60 are compiler records
+     (`EvalContext`, `Environment`, `Frame`, `CodeGenContext`,
+     `FunctionGenerationContext`, `ExprInfo`, `Variable`, `PendingDef`,
+     `CapturedVariable`, `RegexNode`, the LSP's `JsonObjBuilder`, the doc
+     model's `Rc(DocModule)`, …), which the type graph says can reach
+     themselves through a `ref` container (`ArrayList`, `HashMap` and
+     `HashSet` are shared cells until B8). The other 93 are those std
+     containers, `Rc` and `__BorrowGuard` instantiated over the 60. Under
+     `off`: 0. They are possible cycles in the type graph, closed through a
+     `ref` container, not parent pointers; the compiler built without the
+     collector passes `check ./src` and its gates (last bullet).
+   - **Tracked types, std.** No std type is tracked on its own. Over the
+     batches of `tests/collections`, `tests/sync`, `tests/async` and
+     `yo test ./std` under `auto` (350 constructors), 7 types are
+     tracked in `tests/sync` and 7 in `tests/async`, all std generics or
+     test records instantiated over a test's own cyclic type (`sync`'s
+     `CyclicNode` under the `Mutex`/`RwLock` unlockers and an
+     `ArrayList`) or a test record holding an opaque future
+     (`async`'s `_FutHolder`, `_PtrHolder`, `Holder`); `collections` and
+     std's own tests: 0.
+   - **The oracle over the corpus**, `yo test ./tests --exclude
+     tests/internal --exclude tests/cli-cases --allocator debug` under the
+     new default, verdict on: **5,711 passed, 24 failed**. 21 are
+     `tests/cycle_collector.test.yo`'s garbage-cycle cases: under `off` the
+     file expects the cycle to leak (`collected(n)` is 0), and the oracle
+     reports exactly that; the same file under `auto` passes the oracle.
+     The other 3 fail under `auto` too and are open issues:
+     `tests/io/async_traits.test.yo` (a rejected `dyn(x)` inside
+     `comptime_expect_error`,
+     `issues/2026-10-24-comptime-expect-error-over-a-rejected-dyn-leaks-its-operand.md`),
+     `tests/net/tcp.test.yo`'s non-routable connect
+     (`issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md`)
+     and `tests/net/unix.test.yo`'s aborted accept
+     (`issues/2026-10-22-an-aborted-accept-leaks-its-peer-address-buffers.md`).
+     `yo test ./std --allocator debug`: 7/7. **No test outside the
+     collector's own file leaks a cycle without the collector.**
+   - **The compiler built without the collector** (`check src/main.yo`,
+     A B B A against the same tree built with it): max RSS 1,315,900 →
+     1,216,600 KB (x0.925), instructions x0.873, cycles x0.942.
 
 **What the deletion removes:**
 
