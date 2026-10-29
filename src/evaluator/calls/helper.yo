@@ -5579,8 +5579,7 @@ _create_specialization_trapped :: (
 /// flagged rejection that is this error gets the note too: the
 /// definition-time re-raise throws the flag, not the error this frame sees.
 _with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description : &String, callee_in_std : bool) -> AnyError)({
-  err_view := &err;
-  ye := match(downcast(err_view, YoError), .Some(y) => y, .None => return(err));
+  ye := match(downcast(err, YoError), .Some(y) => y, .None => return(err));
   prim_at_call := match(
     ye.diagnostics.get(usize(0)),
     .Some(d) => ((d.span.path == call_tok.module_path.*) && (d.span.row == usize(call_tok.row)) && (d.span.col == usize(call_tok.column))),

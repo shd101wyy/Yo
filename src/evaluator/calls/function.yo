@@ -7813,9 +7813,8 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
     ),
     .None => ()
   );
-  err_view := &err;
   match(
-    downcast(err_view, YoError),
+    downcast(err, YoError),
     .Some(ye) => {
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
       dyn(match(accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
