@@ -8860,21 +8860,23 @@ _evaluate_function_call_unanchored :: (
   );
   // Decision 24: a projection (`-> &T` / `-> &mut T`) called directly
   // (`t.index(i)`, `first(&t)`) yields a place (`projection_call_mode_of`,
-  // `_stamp_projection_call` in `evaluate_function_call`). It is called by name: a
-  // function, or a method of the receiver's type. A function VALUE whose
-  // type is a projection (a parameter, a local holding one) has no named
-  // callee whose `T*` result the call site could read through, so it is
-  // rejected.
+  // `_stamp_projection_call` in `evaluate_function_call`). A function VALUE
+  // whose type is a projection (a parameter, a field, a local holding one)
+  // is called the same way (decision 43 step 2, N1c): its C value is a
+  // pointer to a function with the projection's ABI (`T*` result, `&T`
+  // parameters by address), and the call's roots are the arguments its
+  // type's result origin names (elided: every reference parameter, O2).
+  // An effect operation (`ctl`) returning a reference is not lowered yet.
   match(
     callee_info_opt,
     .Some(pj_ci) => match(
       pj_ci.ty,
-      Rc(.Func({ result : pj_r })) => if(t_slot_is_borrow(&pj_r) && !callee_is_marked_dot && match(pj_ci.value, .Some(pj_v) => !is_func_val(&pj_v), .None => true), {
+      Rc(.Func({ result : pj_r, meta : pj_m })) => if(t_slot_is_borrow(&pj_r) && pj_m.*.is_control && !callee_is_marked_dot && match(pj_ci.value, .Some(pj_v) => !is_func_val(&pj_v), .None => true), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              String.from("A projection (a function returning `&T` or `&mut T`, decision 24) is called by name: a function, or a method of the receiver. Calling one through a function value is not supported (plans/VALUES_BY_DEFAULT.md V2b).")
+              String.from("An effect operation returning `&T` or `&mut T` (a `ctl` projection) is not lowered yet: a handler resuming with a reference arrives with effect resume origins (decision 43 step 2, plans/backlog/REFERENCES_AND_ORIGINS.md O7).")
             )
           )
         );
