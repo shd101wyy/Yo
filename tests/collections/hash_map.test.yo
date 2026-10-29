@@ -568,7 +568,7 @@ test("HashMap into_iter - a shared map copies its entries", {
 test("HashMap into_iter - a partial walk drops the entries it did not yield", {
   keep := Rc(i32)(5);
   {
-    mut(it) := _two_entry_rc_map(keep, keep).into_iter();
+    mut(it) := _two_entry_rc_map(Rc.clone(keep), Rc.clone(keep)).into_iter();
     assert(ref_count(keep) == usize(3));
     first := it.next();
     assert(first.is_some());

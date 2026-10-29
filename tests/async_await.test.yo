@@ -753,7 +753,7 @@ test("Test break from cond in async while loop", {
         },
         true => ()
       );
-      sum.with_mut(cur_ => {
+      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
         cur_ = (cur_ + counter.with(cur => cur));
       });
     });
@@ -782,7 +782,7 @@ test("Test continue skips body after await", {
         },
         true => ()
       );
-      sum.with_mut(cur_ => {
+      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
         cur_ = (cur_ + counter.with(cur => cur));
       });
     });
@@ -958,7 +958,7 @@ test("Test mixed continue then break in async while loop", {
         },
         true => ()
       );
-      sum.with_mut(cur_ => {
+      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
         cur_ = (cur_ + counter.with(cur => cur));
       });
     });
@@ -1023,7 +1023,7 @@ test("Test nested async while with inner continue", {
           },
           true => ()
         );
-        inner_sum.with_mut(cur_ => {
+        inner_sum.with_mut({ inner_counter : Rc.clone(inner_counter) }(cur_) => {
           cur_ = (cur_ + inner_counter.with(cur => cur));
         });
       });
@@ -1060,7 +1060,7 @@ test("Test match branches with continue and break in async loop", {
           break;
         },
         _ => {
-          sum.with_mut(cur_ => {
+          sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
             cur_ = (cur_ + counter.with(cur => cur));
           });
         }
@@ -1093,7 +1093,7 @@ test("Test loop-local and captured values with continue across await", {
         },
         true => ()
       );
-      sum.with_mut(cur => {
+      sum.with_mut({ loop_value, offset : Rc.clone(offset) }(cur) => {
         cur = (cur + (loop_value.* + offset.*));
       });
     });
@@ -1125,7 +1125,7 @@ test("Test early return inside loop after continue", {
       );
       cond(
         (i.with(cur => cur) >= i32(5)) => {
-          found.with_mut(cur => {
+          found.with_mut({ i : Rc.clone(i) }(cur) => {
             cur = i.with(cur => cur);
           });
           return;
@@ -1167,7 +1167,7 @@ test("Test mixed pre-await break and post-await continue", {
         },
         true => ()
       );
-      sum.with_mut(cur_ => {
+      sum.with_mut({ counter : Rc.clone(counter) }(cur_) => {
         cur_ = (cur_ + counter.with(cur => cur));
       });
     });
@@ -1235,7 +1235,7 @@ test("Test non-async inner while with continue inside async while", {
           },
           true => ()
         );
-        inner_sum.with_mut(cur_ => {
+        inner_sum.with_mut({ inner : Rc.clone(inner) }(cur_) => {
           cur_ = (cur_ + inner.with(cur => cur));
         });
       });
@@ -1500,7 +1500,7 @@ test("Test multiple captured variables in nested while-with-await", {
           true => ()
         );
       });
-      z.with_mut(cur_ => {
+      z.with_mut({ inner, x : Rc.clone(x) }(cur_) => {
         cur_ = (cur_ + (x.with(cur => cur) + inner.with(cur => cur)));
       });
     });
@@ -3771,7 +3771,7 @@ test("Test await as a while condition with a step expression", {
         cur = (cur + i32(1));
       });
     }, {
-      sum.with_mut(cur_ => {
+      sum.with_mut({ n : Rc.clone(n) }(cur_) => {
         cur_ = (cur_ + n.with(cur => cur));
       });
     });
@@ -3790,7 +3790,7 @@ test("Test await in a while step expression", {
         cur = (cur + i32(1));
       });
     }, {
-      sum.with_mut(cur_ => {
+      sum.with_mut({ n : Rc.clone(n) }(cur_) => {
         cur_ = (cur_ + n.with(cur => cur));
       });
     });
@@ -3809,7 +3809,7 @@ test("Test await in a while step matches the non-await control", {
         cur = (cur + i32(1));
       });
     }, {
-      sum.with_mut(cur_ => {
+      sum.with_mut({ n : Rc.clone(n) }(cur_) => {
         cur_ = (cur_ + n.with(cur => cur));
       });
     });
