@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -126,8 +126,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
-{ format_error_message, render_any_error, reanchor_primary_at, YoError, with_code } :: import("../../error.yo");
-{ E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
+{ format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help } :: import("../../error.yo");
+{ E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
@@ -3918,7 +3918,58 @@ _plain_param_label_atom :: (fn(p : &AstExpr) -> Option(AstExpr))({
 _fn_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
+/// The parameters a projection's result may point into: every reference
+/// parameter for an elided result origin (O2), the ones a spelled origin
+/// names otherwise (decision 43 step 2, N1c). Empty for a non-projection.
+_result_origin_params :: (fn(ft : &TypeValue) -> ArrayList(usize))({
+  out := ArrayList(usize).new();
+  if(!fn_result_is_ref(ft), {
+    return(out);
+  });
+  names := fn_result_origin_names(ft);
+  slots := fn_param_slots(ft);
+  (i : usize) = usize(0);
+  while(i < slots.len(), i = (i + usize(1)), {
+    is_ref := match(slots.get(i), .Some(s) => t_slot_is_borrow(&s), .None => false);
+    if(is_ref && match(names, .Some(n) => fn_param_in_result_origin(ft, i, &n), .None => true), {
+      out.push(i);
+    });
+  });
+  out
+});
+/// O7's impl rule: an impl member's result origin is a subset of its trait
+/// member's (decision 43 step 2, N1c). `.None` when it is; otherwise the
+/// parameters (by the impl's labels) the impl's result may point into that
+/// the trait's does not name.
+_impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
+  if(!fn_result_is_ref(actual) || !fn_result_is_ref(expected), {
+    return(Option(String).None);
+  });
+  a_set := _result_origin_params(actual);
+  e_set := _result_origin_params(expected);
+  labels := match(actual, Rc(.Func({ meta : ir_m })) => ir_m.*.param_labels, _ => return(Option(String).None));
+  extra := String.new();
+  (ai : usize) = usize(0);
+  while(ai < a_set.len(), ai = (ai + usize(1)), {
+    idx := a_set(ai);
+    (found : bool) = false;
+    (ei : usize) = usize(0);
+    while(ei < e_set.len(), ei = (ei + usize(1)), {
+      if(e_set(ei) == idx, {
+        found = true;
+      });
+    });
+    if(!found, {
+      if(extra.len() > usize(0), {
+        extra.push_str(", ");
+      });
+      extra.push_string(`\`${match(labels.get(idx), .Some(l) => l, .None => String.from("?"))}\``);
+    });
+  });
+  if(extra.len() == usize(0), Option(String).None, Option(String).Some(extra))
+});
 /// `yo fix --migrate params`, the trait-conformance half (decision 34 as
+
 /// amended 2026-10-09: a parameter's mode is part of the member's type for
 /// every type, `Copy` or not). An impl member whose written parameters are
 /// plain where the trait's are borrows differs from the trait only in those
@@ -4172,6 +4223,24 @@ _c3_eval_colon_pair :: (
                 )
               );
             });
+            match(
+              _impl_result_origin_wider(&fi.ty, &conf_exp),
+              .Some(ro_msg) => {
+                exn.throw(
+                  dyn(
+                    with_code(
+                      format_error_message_with_help(
+                        &name_tok,
+                        `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}"'s result may point into ${ro_msg}, which the trait's result origin does not name. An impl may declare a narrower result origin than its trait, never a wider one: a call through the trait (a \`Dyn\`, or a generic body) frees the arguments the trait's origin leaves out (decision 43, O7).`,
+                        Option(String).Some(`spell the member's result origin within the trait's, e.g. \`-> &(T, self)\` when the trait's is \`self\``)
+                      ),
+                      E_ORIGIN_MISMATCH
+                    )
+                  )
+                );
+              },
+              .None => ()
+            );
             if(_receiver_writes_where_trait_reads(&fi.ty, &conf_exp), {
               exn.throw(
                 dyn(
