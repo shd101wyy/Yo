@@ -1,0 +1,14 @@
+{ AnyError } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+(g_errs : RefCell(ArrayList(AnyError))) = RefCell(ArrayList(AnyError)).new(ArrayList(AnyError).new());
+keep :: (fn(_g_err : AnyError) -> unit)({
+  g_errs.with_mut({ _g_err }(xs) => xs.push(_g_err));
+});
+main :: (fn() -> unit)({
+  keep(dyn(String.from("boom")));
+  println(g_errs.with(xs => xs.len()));
+});
+export(main);

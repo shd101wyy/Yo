@@ -322,8 +322,8 @@ _evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContex
 _evaluate_guard_block_inner :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit)({
   guard_exn := Exception(
     throw : (
-      _g_err -> {
-        g_guard_block_err.with_mut({ _g_err }(xs) => xs.push(_g_err));
+      guard_err -> {
+        g_guard_block_err.with_mut({ guard_err }(xs) => xs.push(guard_err));
         unwind(())
       }
     )
