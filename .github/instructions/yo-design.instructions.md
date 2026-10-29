@@ -166,9 +166,10 @@ evaluated again per specialization, which types the capture-struct cell `dyn` bu
 `dyn(v)` on a non-object synthesizes `Rc(T).new(v)` (`Arc(T).new` for a Send Dyn) with a
 receiver node preset to the cell type (`_synthesized_cell_call`, `values/dyn.yo`). A payload whose
 type mentions a type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) is boxed by the
-prelude's `rc`/`arc` FUNCTION VALUE bound to the callee node: an unresolved variable cannot dispatch
-`new` outside a def-time trial
-(`issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md`),
+prelude's `rc`/`arc` FUNCTION VALUE bound to the callee node: an unresolved variable other than an
+`Impl(Fn(...))` parameter's type cannot dispatch `new` outside a def-time trial (the parameter's can,
+`_is_open_fn_param_slot` in `values/impl.yo`,
+`issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md`),
 and a cell built as `Rc(T).new` over a resolved one keeps the variable in its type (a second C type
 with the cycle-capable header, measured by the emit-diff), where the generic `rc` binds the capture
 struct. Either way no
