@@ -104,7 +104,8 @@ assert(copied == i32(42), "inner value is 42");
 same value. A second handle is spelled, as in Rust (decision 17 of
 [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): an implicit copy whose source is
 used again is E0901, and a handle's last use moves it. `yo fix <path> --migrate rc-clone` spells
-the clones in existing code.
+the clones in existing code. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
+handle; a deep copy of the value is spelled `arc(a.*.clone())`.
 
 ```yo
 a := arc(i32(42));
