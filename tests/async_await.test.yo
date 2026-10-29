@@ -1093,7 +1093,7 @@ test("Test loop-local and captured values with continue across await", {
         },
         true => ()
       );
-      sum.with_mut({ loop_value, offset : Rc.clone(offset) }(cur) => {
+      sum.with_mut({ loop_value : Rc.clone(loop_value), offset : Rc.clone(offset) }(cur) => {
         cur = (cur + (loop_value.* + offset.*));
       });
     });
@@ -1500,7 +1500,7 @@ test("Test multiple captured variables in nested while-with-await", {
           true => ()
         );
       });
-      z.with_mut({ inner, x : Rc.clone(x) }(cur_) => {
+      z.with_mut({ inner : Rc.clone(inner), x : Rc.clone(x) }(cur_) => {
         cur_ = (cur_ + (x.with(cur => cur) + inner.with(cur => cur)));
       });
     });
