@@ -37,4 +37,4 @@ V2c (decision 17) makes an implicit copy of an `Rc`/`Arc` handle whose source is
 
 ## Regression test
 
-The two CI gates are the tests: tier-1 GATE 0 compiles the repro, and `tests/internal/diagnostics_registry_examples.test.yo` loads every good example. Both failed on `b8f86ebe2` and pass on the fix branch.
+The two CI gates are the tests: tier-1 GATE 0 compiles the repro, and `tests/internal/diagnostics_registry_examples.test.yo` loads every good example. Both failed on `b8f86ebe2`. On the fix branch the repro compiles and runs, and every registry example was checked one by one with the V2c binary; develop's shard 5 runs the test file itself.
