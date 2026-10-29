@@ -168,11 +168,14 @@ _mark_preset_receiver :: (fn(recv : &Option(usize), on : bool) -> unit)(
 /// `.TypeVal(cell_ty)` before the call is evaluated, the written
 /// `Rc(T).new(value)`. A payload whose type mentions a type variable
 /// (`_is_open_payload`: `dyn(f)` for `f : Impl(Fn(...))`, a closure literal)
-/// is boxed by the prelude's generic constructor (`rc`, `arc`) as before: an
-/// impl does not match an instantiation over an unresolved type parameter
-/// outside a definition-time trial
-/// (issues/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md),
-/// and over a resolved one the cell keeps the variable in its type. The
+/// is boxed by the prelude's generic constructor (`rc`, `arc`) as before.
+/// Over a resolved variable (each call's specialization of a body with an
+/// `Impl(Fn(...))` parameter, a closure literal) `Rc(T).new` keeps the
+/// variable in the cell's type. Over an unresolved one only an open
+/// `Impl(Fn(...))` parameter type dispatches `new` outside a
+/// definition-time trial (`_is_open_fn_param_slot`, values/impl.yo;
+/// issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md);
+/// the nameless variable a closure literal is evaluated under does not. The
 /// constructor's function value is bound to the callee node, so no name is
 /// looked up either way and a binding named `rc` cannot capture the call.
 _synthesized_cell_call :: (
@@ -217,8 +220,9 @@ _synthesized_cell_call :: (
 /// Does `payload_ty` mention a type variable: an `Impl(...)` parameter, or
 /// the `Dyn`-carrying variable a closure literal is evaluated under? Such a
 /// payload is boxed by the prelude's generic constructor. An unresolved
-/// variable has no `new` to dispatch outside a definition-time trial (the
-/// issue `_synthesized_cell_call` cites); for a resolved one the generic
+/// variable other than an `Impl(Fn(...))` parameter's has no `new` to
+/// dispatch outside a definition-time trial (`_synthesized_cell_call`); for a
+/// resolved one the generic
 /// function binds the concrete type (the closure's capture struct), where
 /// `Rc(T).new` on a receiver built over the variable keeps the variable in
 /// the cell's type: a second C type, with the cycle-capable header.
