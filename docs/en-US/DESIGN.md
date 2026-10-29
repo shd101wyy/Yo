@@ -3435,8 +3435,11 @@ assert(sum(&t) == 3);
 - **`Eq`, `Hash` and `Default`** compare, hash and build the payload.
   `Box(T)` is `Send`/`Sync` exactly when `T` is.
 - **Layout.** The `Box` value is one pointer, and `Option(Box(T))` is one
-  pointer too (`NULL` is `.None`). The cell carries a 16-byte owner prefix in
-  front of the payload, recording the allocator that placed it.
+  pointer too (`NULL` is `.None`). The cell carries an 8-byte flags word in
+  front of the payload (`max(8, align_of(T))` bytes of header), as an `Rc`
+  cell carries its count. A cell an `alloc` argument placed has the word's
+  placed bit set and, in front of the header, a 16-byte owner prefix
+  recording the allocator; a global cell carries no prefix.
 - **Allocators.** `box(v, alloc : .Some(a))` places the cell in `a`;
   without `alloc`, the cell is on the global allocator. The cell is freed through its owner, and `Box.clone(b)`
   lands where `b` lives (a box placed by an explicit allocator clones into that allocator).

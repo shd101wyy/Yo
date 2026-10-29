@@ -1472,7 +1472,7 @@ _code_position :: (fn(context : &FunctionGenerationContext) -> usize)({
 /// the escape path, that cleared the escape in flight: the frame returned its
 /// dummy result with the flag down, and its caller took the dummy for a real
 /// value (a `Box` local dropped while an unwind passed through: `Box.drop`
-/// calls `_box_owner_of`). So the flag is raised again after the drops when
+/// reads its flags word). So the flag is raised again after the drops when
 /// any were emitted (issues/fixed/an-unwind-through-a-frame-whose-destructor-calls-a-function-is-lost.md).
 _reraise_escape_after_drops :: (fn(indent : &String, context : &FunctionGenerationContext, before : usize) -> unit)(
   if(_code_position(context) > before, {
