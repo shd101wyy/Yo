@@ -70,3 +70,19 @@ drop the handler's locals, then copy it into `__yo_unwind_value`. The change
 needs the dup/drop emit-diff gate on `src/main.yo` and the algebraic-effects
 tests, and a test in `tests/algebraic_effects.test.yo` reading a handler
 local in the `unwind` operand under ASan.
+
+## Resolution
+
+Fixed 2026-10-29 in B13-b (errors by value, `vbd/b13b-errors-by-value`).
+B13-b made `throw` pass the error by value, so the handler owns its
+parameter and drops it in the preamble. That brought the bug out in the most
+common handler shape, `exn := Exception(throw : (e -> unwind(e.to_string())))`:
+the handler released `e`, then `e.to_string()` read it (ASan:
+heap-use-after-free). `generate_unwind`'s `.Some(arg)` arm now evaluates a
+non-unit operand into a fresh `__yo_unw_operand_*` temp right after rendering
+it. That happens before the unwind target and the flag are set and before the
+drop preamble. The memcpy into `__yo_unwind_value` (or the `return`) reads the
+temp. Test: `tests/algebraic_effects.test.yo`, "an unwind operand reads a
+handler local and the handler's error before they are released". It covers
+this issue's handler-local shape and the by-value error shape. Before the
+fix it fails under ASan with heap-use-after-free.
