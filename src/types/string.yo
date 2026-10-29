@@ -7,6 +7,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("./definitions.yo");
+PROBE_env_mod :: import("std/env");
 { RefCell } :: import("std/sync/refcell");
 
 // ---------------------------------------------------------------------------
@@ -396,9 +397,13 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           if(i > usize(0), {
             body = `${body}, `;
           });
-          // The slot's pointee only: an `Fn(...)` type prints without its
-          // parameter modes.
-          ts := match(cpts.get(i), .Some(t2) => recur(t_slot_pointee(&t2), _d + usize(1), visited), .None => `?`);
+          // The slot as a whole: `&mut T` / `&T` for a borrow (the
+          // `Reference` arm, which prints no origin), the bare `T` by value.
+          // The mode is part of the type, and this rendering is the codegen
+          // key of a `Dyn(Fn(...))` (`type_key`'s fallback), so two `Fn`
+          // types that differ only in a mode must never print alike
+          // (issues/fixed/2026-10-27-dyn-fn-types-differing-only-in-a-parameter-mode-share-one-vtable.md).
+          ts := match(cpts.get(i), .Some(t2) => if(PROBE_env_mod.env.get(`YO_DEBUG_FNT_OLD`).is_none(), recur(&t2, _d + usize(1), visited), recur(t_slot_pointee(&t2), _d + usize(1), visited)), .None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
