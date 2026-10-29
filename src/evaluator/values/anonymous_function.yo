@@ -145,7 +145,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, audit_pending_copies_enabled, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
-{ CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
+{ CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
@@ -1867,6 +1867,23 @@ evaluate_anonymous_function_implementation :: (
           // assignment TO an `inout` param is
           // the write-through (`v = i32(99)` in with_lock's closure).
           rp_v.is_reassignable = true;
+        },
+        .None => ()
+      );
+    });
+    // A closure or handler returning a reference is a projection (decision
+    // 24, N1c): its parameters are the roots its place may be reached from
+    // (`is_parameter`), and a `&T` one is passed by pointer
+    // (`fn_param_is_ptr_borrow`), so it binds as a non-reassignable
+    // reference, as `bind_parameter` binds a named projection's.
+    if(fn_result_is_ref(&function_type), {
+      match(
+        rp_v_opt,
+        .Some(rp_vp) => {
+          rp_vp.is_parameter = true;
+          if(fn_param_is_ptr_borrow(&function_type, rp_i), {
+            rp_vp.is_ref = true;
+          });
         },
         .None => ()
       );
