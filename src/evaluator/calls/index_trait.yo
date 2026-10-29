@@ -716,7 +716,7 @@ _try_comptime_array_index :: (
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = cai_saved_expected;
-  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(&evaluated_ge), .None => ());
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
   evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
@@ -940,7 +940,7 @@ _try_comptime_string_index :: (
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = csi_saved_expected;
-  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(&evaluated_ge), .None => ());
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
   evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
@@ -1696,7 +1696,7 @@ try_to_call_with_index_trait :: (
   evaluated_arg_gout := ArrayList(AstExpr).new();
   evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, caller_env, ctx, &mut evaluated_arg_gout);
   ctx.expected_type = rt_arg_saved_expected;
-  match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(&evaluated_arg_ge), .None => ());
+  match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
   evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   arg_info := match(

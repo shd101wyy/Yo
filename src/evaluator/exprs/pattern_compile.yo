@@ -471,7 +471,7 @@ _compile_const_expr :: (
     evaluated_gout := ArrayList(AstExpr).new();
     evaluated_gerr := evaluate_expression_guarded(e, env, ctx, &mut evaluated_gout);
     ctx.expected_type = old_expected;
-    match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(&evaluated_ge), .None => ());
+    match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
     evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
     value := _const_value_of(e, &evaluated, ctx, exn);
     match(
@@ -516,7 +516,7 @@ _compile_range :: (
     ev_gout := ArrayList(AstExpr).new();
     ev_gerr := evaluate_expression_guarded(&b, env, ctx, &mut ev_gout);
     ctx.expected_type = old_expected;
-    match(ev_gerr, .Some(ev_ge) => exn.throw(&ev_ge), .None => ());
+    match(ev_gerr, .Some(ev_ge) => exn.throw(ev_ge), .None => ());
     ev := match(ev_gout.get(usize(0)), .Some(ev_g) => ev_g, .None => make_err_expr());
     known := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)),

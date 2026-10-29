@@ -113,7 +113,7 @@ evaluate_the :: (
   eval_val_gout := ArrayList(AstExpr).new();
   eval_val_gerr := evaluate_expression_guarded(&value_arg, &cur_env, ctx, &mut eval_val_gout);
   ctx.expected_type = saved_expected;
-  match(eval_val_gerr, .Some(eval_val_ge) => exn.throw(&eval_val_ge), .None => ());
+  match(eval_val_gerr, .Some(eval_val_ge) => exn.throw(eval_val_ge), .None => ());
   eval_val := match(eval_val_gout.get(usize(0)), .Some(eval_val_g) => eval_val_g, .None => make_err_expr());
   val_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_val)),
