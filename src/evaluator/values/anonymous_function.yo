@@ -40,7 +40,8 @@ pragma(Pragma.AllowUnsafe);
   BK_MUT,
   BK_BORROW_MUT,
   BF_ADDRESS_OF,
-  BF_DOT
+  BF_DOT,
+  rewrite_projection_tails
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -95,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -331,6 +332,32 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
 /// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
 /// and wraps them in a no-generic, no-implicit Func.
+/// The body of a closure returning `&T` / `&mut T`: each result position
+/// rewritten to the marked `addr_of(place)` (`rewrite_projection_tails`,
+/// decision 24), a sigil of the other mode rejected.
+_closure_projection_body :: (fn(body : &AstExpr, is_mut : bool, exn : Exception) -> AstExpr)({
+  mismatches := ArrayList(Token).new();
+  out := rewrite_projection_tails(body, is_mut, &mut mismatches);
+  match(
+    mismatches.get(usize(0)),
+    .Some(mt) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            &mt,
+            if(
+              is_mut,
+              String.from("This closure returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
+              String.from("This closure returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+            )
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+  out
+});
 _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
   match(
     ftt,
@@ -1921,7 +1948,12 @@ evaluate_anonymous_function_implementation :: (
   });
   // Clone taken BEFORE `body_expr` below moves the body into the
   // FuncVal; the definition-time body evaluation further down needs it.
-  body_for_def_eval := body_expr.clone();
+  // A closure or handler returning a reference (`Fn(...) -> &T`, a `ctl`
+  // operation `-> &T`; decision 43 step 2, N1c) is a projection (decision
+  // 24): its body yields a place written with the result's sigil, rewritten
+  // to the marked `addr_of(place)` as a named projection's is.
+  proj_body := if(fn_result_is_ref(&function_type), _closure_projection_body(&body_expr, fn_result_is_mut_ref(&function_type), exn), body_expr.clone());
+  body_for_def_eval := proj_body.clone();
   func_val := EvalValue.FuncVal(
     rc(
       FuncValData(
@@ -1929,7 +1961,7 @@ evaluate_anonymous_function_implementation :: (
         params : actual_param_labels.clone(),
         param_type_names : param_type_names,
         evidence_params : implicit_labels.items.clone(),
-        body : body_expr,
+        body : proj_body,
         cap_names : ArrayList(String).new(),
         cap_tys : ArrayList(TypeValue).new(),
         func_id : func_id.clone(),
