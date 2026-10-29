@@ -2719,9 +2719,9 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// (issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md).
 /// An `impl` below the copy is forced by the `.clone()` method lookup, so
 /// that copy is cloned. One whose `Clone` comes from a `derive(T, Clone)`
-/// (`ic_clone_comes_from_derive`) is listed instead: the lookup does not
-/// force a `derive`, so a `.clone()` written there would not resolve
-/// (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
+/// (`ic_clone_comes_from_derive`) is listed instead: a seed older than the
+/// fix that forces a `derive` there would not resolve that `.clone()`
+/// (issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -3423,9 +3423,9 @@ record_clone_derive :: (fn(target : &TypeValue) -> unit)({
 /// type's `Clone` (`ExplicitCopySite.lacks_clone_at_copy`) is listed when
 /// it does: a `.clone()` method lookup that misses forces the pending
 /// `impl`s of the type (`force_pending_impls_for_type_name`), so a
-/// `.clone()` written above an `impl(T, Clone(…))` resolves, but a `derive`
-/// is not forced
-/// (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
+/// `.clone()` written above an `impl(T, Clone(…))` resolves; a `derive` is
+/// forced too, but not by a seed older than that fix
+/// (issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
 ic_clone_comes_from_derive :: (fn(ty : &TypeValue, (depth : u32) ?= u32(0)) -> bool)({
   head := type_head_name_for_impl_forcing(ty);
   if(!head.is_empty() && g_clone_derived_heads.with(hs => hs.contains(&head)), {
