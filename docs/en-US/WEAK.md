@@ -120,7 +120,9 @@ test("a Weak back edge keeps a type Acyclic", {
 });
 ```
 
-A tree whose children are `Rc` handles, like the parent-pointer example above,
+`Tree` shows the derivation, not a usable tree: its `parent` can only name a
+root held in an `Rc`, because a `Box`-owned child has no cell to downgrade
+from. A tree whose children are `Rc` handles, like the parent-pointer example above,
 is not `Acyclic`: nothing in its type stops a child edge from pointing back
 at an ancestor. Neither, for now, is a type that recurs through an
 `ArrayList`: the list is a shared object, so a list can hold a value that

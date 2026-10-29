@@ -370,7 +370,7 @@ SsArcWeakPeer :: atomic(ref(struct(id : i32, peer : ArcWeak(Mutex(Self)))));
 // that holds the list. This row flips with B8.
 SsListNode :: struct(v : i32, kids : ArrayList(Self));
 test("a Weak edge is no edge, and a value or Box recursion is a tree", {
-  comptime_assert(Type.impls(SsWeakParent, Acyclic), "a weak-parent tree is Acyclic");
+  comptime_assert(Type.impls(SsWeakParent, Acyclic), "a weak edge is no edge");
   comptime_assert(!Type.impls(SsStrongParent, Acyclic), "a strong-parent tree is not");
   comptime_assert(Type.impls(SsArcWeakPeer, Acyclic), "an ArcWeak back edge is no cycle");
   comptime_assert(Type.impls(Weak(RefCell(SsStrongParent)), Acyclic), "a Weak handle reaches nothing");
