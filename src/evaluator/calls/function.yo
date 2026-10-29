@@ -35,9 +35,9 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   AUTO_REF_RECEIVER_PATH
 } :: import("../../expr.yo");
-{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
+{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -7960,6 +7960,7 @@ evaluate_function_call :: (
     if(local_borrows_active() && local_borrow_is_macro_await(ast_expr_id(expr)), {
       _local_borrow_note_call_site(&std_r, &call_tok, ctx, exn);
     });
+    _record_handle_ctor_call(expr, &std_r, env, ctx);
     return(std_r);
   });
   out := ArrayList(AstExpr).new();
@@ -7982,9 +7983,105 @@ evaluate_function_call :: (
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });
       _audit_copying_accessor_call(expr, &r, env, ctx);
+      _record_handle_ctor_call(expr, &r, env, ctx);
       r
     }
   )
+});
+/// `yo fix --migrate handle-ctors` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md
+/// §5 B1): records `call` when it calls the prelude's `rc`, `box` or `arc`
+/// by name, the binding its callee name resolves to being the prelude's
+/// (a parameter or local named `rc` is not a site). The site carries the
+/// type argument the call bound and the value argument's shape, from which
+/// the rewrite decides between `Rc.new(` and `Rc(V).new(`. Inert unless the
+/// migration is recording.
+_record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
+  if(!migrate_handle_ctors_on(), {
+    return(());
+  });
+  (callee, args) := match(
+    call,
+    .FnCall(_, hc_callee, hc_args, false, _) => (hc_callee, hc_args),
+    _ => return(())
+  );
+  name_tok := match(callee, .Atom(_, t) => t, _ => return(()));
+  // Compiler-synthesized calls are not sites: generated code, and the
+  // callee `dyn(...)` binds to the prelude's `rc`/`arc` for a type-variable
+  // payload (a synthetic token, whose source text is empty).
+  if(name_tok.module_path.*.starts_with("auto-generated://") || (name_tok.input.*.len() == usize(0)), {
+    return(());
+  });
+  name := name_tok.value.clone();
+  cell := cond(
+    (name == "rc") => String.from("Rc"),
+    (name == "box") => String.from("Box"),
+    (name == "arc") => String.from("Arc"),
+    true => return(())
+  );
+  // The innermost binding of the name is the call's callee; it must be the
+  // prelude's function.
+  vars := get_variables_from_env(env, &name);
+  innermost := match(vars.last(), .Some(v) => v, .None => return(()));
+  if(!match(innermost.value.get(usize(0)), .Some(iv) => is_func_val(&iv), .None => false), {
+    return(());
+  });
+  if(!is_prelude_or_generated_file(&Option(String).Some(innermost.token.module_path.*.clone()), &ctx.std_path), {
+    return(());
+  });
+  res_ty0 := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
+    .Some(ci) => ci.ty,
+    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)), .Some(ri) => ri.ty, .None => return(()))
+  );
+  res_ty := _resolve_some_types_deep(&res_ty0, env);
+  ty_arg := match(
+    res_ty,
+    Rc(.Struct({ type_arguments : ta })) => match(ta.get(usize(0)), .Some(t) => t, .None => return(())),
+    _ => return(())
+  );
+  ty_text := type_to_string(&ty_arg);
+  // A type variable, a closure's capture struct or an `Impl(...)` wrapper
+  // has no spelling the call site could write back.
+  // So has the type of one specialization of a generic body: the body's
+  // source names its parameter, not this instance.
+  printable := (ctx.currently_specializing_function.is_none() && !is_some_type(&ty_arg) && !type_contains_some_type_deep(&ty_arg) && !ty_text.contains("struct(") && !ty_text.contains("Impl("));
+  // The value argument: the first one not labeled `alloc`.
+  (value_arg : Option(AstExpr)) = Option(AstExpr).None;
+  (ai : usize) = usize(0);
+  while((ai < args.len()) && value_arg.is_none(), ai = (ai + usize(1)), {
+    a := args(ai).clone();
+    is_alloc := (ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))) && match(a, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(.Atom(_, lt)) => (lt.value == "alloc"), _ => false), _ => false));
+    if(!is_alloc, {
+      value_arg = Option(AstExpr).Some(a);
+    });
+  });
+  arg_kind := match(
+    value_arg,
+    .Some(va) => {
+      place := _sai_arg_place(&va);
+      cond(
+        _sai_arg_is_contextual(&place) => String.from("contextual"),
+        // A number literal binds its default type when inference consults
+        // it; the old call may have taken another one from its context.
+        match(place, .Atom(_, lt) => (((lt.kind == TokenKind.Integer) && (ty_text != "i32")) || ((lt.kind == TokenKind.Float) && (ty_text != "f64"))), _ => false) => String.from("literal"),
+        true => String.new()
+      )
+    },
+    .None => String.new()
+  );
+  record_handle_ctor_site(
+    HandleCtorSite(
+      path : name_tok.module_path.*.clone(),
+      row : usize(name_tok.row),
+      col : usize(name_tok.column),
+      name : name,
+      cell : cell,
+      ty_arg : ty_text,
+      ty_key : type_key(&ty_arg),
+      printable : printable,
+      arg_kind : arg_kind
+    )
+  );
 });
 /// N7 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.2 B6-b): one copying
 /// accessor called in user code — a method call `r.m(args)` whose receiver
