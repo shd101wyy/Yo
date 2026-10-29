@@ -5567,7 +5567,7 @@ _create_specialization_trapped :: (
     out : &mut ArrayList(EvalValue)
   ) -> Option(AnyError)
 )({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e.clone()))));
+  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
   out.push(create_specialized_function_inline(fv, ft, av, callee_env, caller_env, ctx, trap));
   Option(AnyError).None
 });
@@ -5578,15 +5578,15 @@ _create_specialization_trapped :: (
 /// library (`evaluate_function_call` reports those at the user's call). A
 /// flagged rejection that is this error gets the note too: the
 /// definition-time re-raise throws the flag, not the error this frame sees.
-_with_instantiation_note :: (fn(err : &AnyError, call_tok : &Token, description : &String, callee_in_std : bool) -> AnyError)({
-  ye := match(downcast(err, YoError), .Some(y) => y, .None => return(err.clone()));
+_with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description : &String, callee_in_std : bool) -> AnyError)({
+  ye := match(downcast(&err, YoError), .Some(y) => y, .None => return(err));
   prim_at_call := match(
     ye.diagnostics.get(usize(0)),
     .Some(d) => ((d.span.path == call_tok.module_path.*) && (d.span.row == usize(call_tok.row)) && (d.span.col == usize(call_tok.column))),
     .None => true
   );
   if(callee_in_std || prim_at_call, {
-    return(err.clone());
+    return(err);
   });
   note := `in ${description}, instantiated here`;
   noted := YoError(diagnostics : ye.diagnostics.clone());
@@ -5666,7 +5666,7 @@ create_specialization_at_call :: (
         },
         .None => ()
       );
-      exn.throw(_with_instantiation_note(&err, call_tok, &description, callee_in_std));
+      exn.throw(_with_instantiation_note(err, call_tok, &description, callee_in_std));
       EvalValue.UnitVal
     },
     .None => match(

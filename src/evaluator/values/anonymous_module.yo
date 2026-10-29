@@ -1023,8 +1023,8 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
 /// A `RefCell` rather than a `mut` global: a `mut` global holding a `Dyn` can
 /// be neither lent nor copied (decisions 7 and 18).
 (g_walk_abort : RefCell(Option(AnyError))) = RefCell(Option(AnyError)).new(Option(AnyError).None);
-_flag_walk_abort :: (fn(err : &AnyError) -> unit)({
-  g_walk_abort.replace(Option(AnyError).Some(err.clone()));
+_flag_walk_abort :: (fn(err : AnyError) -> unit)({
+  g_walk_abort.replace(Option(AnyError).Some(err));
   ()
 });
 _take_walk_abort :: (fn() -> Option(AnyError))(g_walk_abort.replace(Option(AnyError).None));
@@ -1104,7 +1104,7 @@ evaluate_anonymous_module_begin_exprs :: (
       ctx.current_impl_trait_field_labels = wt_labels;
       ctx.current_impl_trait_field_types = wt_types;
       restore_module_walk(&prev_mod_exprs, prev_mod_idx);
-      exn.throw(&err);
+      exn.throw(err);
     },
     .None => ()
   );

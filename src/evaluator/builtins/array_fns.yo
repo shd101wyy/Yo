@@ -129,7 +129,7 @@ evaluate_yo_array_fill :: (
   eval_fv_arg_gout := ArrayList(AstExpr).new();
   eval_fv_arg_gerr := evaluate_expression_guarded(&fill_value_arg, &cur_env, ctx, &mut eval_fv_arg_gout);
   ctx.expected_type = old_expected;
-  match(eval_fv_arg_gerr, .Some(eval_fv_arg_ge) => exn.throw(&eval_fv_arg_ge), .None => ());
+  match(eval_fv_arg_gerr, .Some(eval_fv_arg_ge) => exn.throw(eval_fv_arg_ge), .None => ());
   eval_fv_arg := match(eval_fv_arg_gout.get(usize(0)), .Some(eval_fv_arg_g) => eval_fv_arg_g, .None => make_err_expr());
   fv_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_fv_arg)),
