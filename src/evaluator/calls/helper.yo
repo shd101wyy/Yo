@@ -5555,7 +5555,16 @@ _create_specialization_trapped :: (
     out : &mut ArrayList(EvalValue)
   ) -> Option(AnyError)
 )({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
+  // releases a bare body's parameter before the operand reads it
+  // (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  trap := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
   out.push(create_specialized_function_inline(fv, ft, av, callee_env, caller_env, ctx, trap));
   Option(AnyError).None
 });

@@ -6715,7 +6715,16 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
 /// handler is capture-free — the error rides the unwind value out (the
 /// `_try_ctfe_range_ctor` idiom).
 _try_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext) -> Option(AnyError))({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
+  // releases a bare body's parameter before the operand reads it
+  // (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  trap := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
   _check_generic_copy_clone_exclusion(entry, trait_tok, ctx, trap);
   Option(AnyError).None
 });
