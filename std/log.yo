@@ -51,6 +51,7 @@ pragma(Pragma.AllowUnsafe);
 { fwrite, stdout, stderr, FILE } :: import("./libc/stdio");
 { getenv } :: import("./libc/stdlib");
 { DateTime } :: import("./time/datetime");
+{ RefCell } :: import("./sync/refcell");
 // Reuse the parallelism runtime's mutex type + primitives (the same C
 // __YO_THREAD_SYNC_TYPE std/sync/mutex uses). Declaring our own extern type
 // alias emitted an undefined C typedef and clashed with std/sync/mutex when
@@ -144,7 +145,10 @@ export(level_from_string);
 mut(_global_level) := Level.Info;
 mut(_global_output) := LogOutput.Stderr;
 mut(_global_timestamps) := false;
-(mut(_global_sink) : ?Dyn(Sink)) = Option(Dyn(Sink)).None;
+/// A `RefCell` rather than a `mut` global: a `mut` global holding a `Dyn` can
+/// be neither lent nor copied (decisions 7 and 18). `_log_mutex` serialises
+/// every access, so the cell's borrow flag is never contended.
+(_global_sink : RefCell(?Dyn(Sink))) = RefCell(?Dyn(Sink)).new(Option(Dyn(Sink)).None);
 _log_mutex := __yo_mutex_create();
 // ============================================================================
 // Configuration
@@ -184,15 +188,15 @@ set_timestamps :: (fn(on : bool) -> unit)({
 /// `set_output` and `set_timestamps` stop having any effect while a sink is
 /// installed — rendering is the sink's job. The LEVEL filter still applies, so
 /// a sink never sees a record the configuration suppressed.
-set_sink :: (fn(sink : &Dyn(Sink)) -> unit)({
+set_sink :: (fn(sink : Dyn(Sink)) -> unit)({
   unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
-  _global_sink = Option(Dyn(Sink)).Some(sink);
+  _global_sink.replace(Option(Dyn(Sink)).Some(sink));
   unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// Go back to writing to stdout/stderr.
 clear_sink :: (fn() -> unit)({
   unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
-  _global_sink = Option(Dyn(Sink)).None;
+  _global_sink.replace(Option(Dyn(Sink)).None);
   unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 export(set_sink, clear_sink);
@@ -267,15 +271,20 @@ _emit :: (fn(level : Level, target : &String, msg : &String) -> unit)({
   );
   // A sink takes the record whole and renders it itself; the lock stays held
   // across the call, which is what serialises concurrent records.
-  match(
-    _global_sink,
-    .Some(sink) => {
-      sink.write_line(level, target, msg);
-      unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
-      return(());
-    },
-    .None => ()
+  sunk := _global_sink.with_mut(
+    o => match(
+      o,
+      .Some(sink) => {
+        sink.write_line(level, target, msg);
+        true
+      },
+      .None => false
+    )
   );
+  if(sunk, {
+    unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
+    return(());
+  });
   dest := match(_global_output, .Stdout => stdout, .Stderr => stderr);
   cond(
     _global_timestamps => {

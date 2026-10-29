@@ -460,6 +460,12 @@ test("aborting a task after it stored a local in a field releases the local once
 Oops :: ref(struct(thing : Thing));
 impl(Oops, ToString(to_string : (self -> String.from("oops"))));
 impl(Oops, Error());
+impl(
+  Oops,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(Oops(thing : self.thing))
+  )
+);
 _classify :: (fn(t : &Thing) -> Result(i32, Oops))(Result(i32, Oops).Err(Oops(thing : t)));
 _move_into_throw :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async((e : IoExn) => {

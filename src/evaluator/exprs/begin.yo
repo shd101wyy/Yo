@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
   record_branch_consume,
   lookup_method_callee_type
 } :: import("../../expr_info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt } :: import("../../env.yo");
 {
   EvalContext,
@@ -1649,8 +1649,10 @@ _optimize_dup_drop_pairs :: (
                   dups.get(ndi),
                   // A dup into an `FnOnce` closure's capture struct feeds a
                   // container that dies at its CALL, before the local's last
-                  // use: the same hazard (decision 37).
-                  .Some(nd) => if(is_call_once_capture_dup(ast_expr_id(&nd)), {
+                  // use: the same hazard (decision 37). So does a dup into a
+                  // temporary a by-value parameter takes, which the callee
+                  // drops at its return (`is_moved_container_dup`).
+                  .Some(nd) => if(is_call_once_capture_dup(ast_expr_id(&nd)) || is_moved_container_dup(ast_expr_id(&nd)), {
                     nested_dup = true;
                   }, match(
                     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&nd)),

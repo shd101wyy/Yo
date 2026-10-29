@@ -140,6 +140,7 @@ test("cancelling a task blocked on a channel releases it", {
 Boom :: struct(msg : String);
 impl(Boom, ToString(to_string : (self -> self.msg)));
 impl(Boom, Error());
+derive(Boom, Clone);
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     io.await(yield(e.io), e.io);
@@ -417,6 +418,12 @@ impl(
   )
 );
 impl(_SmErr, Error());
+impl(
+  _SmErr,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(_SmErr(n : self.n))
+  )
+);
 impl(
   _SmErr,
   Drop(

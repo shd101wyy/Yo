@@ -4,6 +4,7 @@
 Boom :: struct(msg : String);
 impl(Boom, ToString(to_string : (self -> self.msg)));
 impl(Boom, Error());
+derive(Boom, Clone);
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => cond(fail => e.exn.throw(dyn(Boom(msg : `framing broke`))), true => `ok body`))
 );

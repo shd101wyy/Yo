@@ -1360,6 +1360,54 @@ test("a container in a cond arm and in a while body behave the same way", {
     "still exactly one dispose: a loop body taking a reference per iteration must release it per iteration"
   );
 });
+// A local stored into a TEMPORARY container that is passed straight to a
+// by-value parameter: the callee owns the container and drops it at its
+// return, so the pair optimizer must not move the local's count into it (the
+// same hazard as the nested block above, with the call as the inner scope).
+// `dyn(sink)` is such a container too: `std/log.set_sink(dyn(r))` freed `r`
+// while the caller still read it
+// (issues/fixed/2026-10-28-a-local-stored-in-a-temporary-passed-by-value-is-freed-by-the-callee.md).
+_NestedValHolder :: struct(label : i32, sink : NestedSink);
+_take_holder :: (fn(h : _NestedValHolder) -> unit)({
+  kept := Option(_NestedValHolder).Some(h);
+  assert(match(&kept, .Some(k) => (k.label == i32(10)), .None => false), "the callee sees the container");
+});
+_NestedTag :: trait(tag_of : (fn(self : &Self) -> i32));
+impl(NestedSink, _NestedTag(tag_of : (fn(self : &Self) -> i32)(self.tag)));
+_take_dyn_tag :: (fn(d : Dyn(_NestedTag)) -> unit)({
+  kept := Option(Dyn(_NestedTag)).Some(d);
+  assert(match(&kept, .Some(k) => (k.tag_of() == i32(11)), .None => false), "the callee sees the payload");
+});
+// The holder is a value struct: a `ref` holding a `ref` is GC-tracked, which
+// defers its release and would hide the early free.
+test("a local stored into a temporary struct passed by value outlives the call", {
+  before := g_nested_disposed;
+  {
+    sink := NestedSink(tag : i32(12));
+    _take_holder(_NestedValHolder(label : i32(10), sink : sink));
+    assert(g_nested_disposed == before, "the callee's container did not take the caller's local with it");
+    assert(sink.tag == i32(12), "and the local still reads correctly");
+  };
+  assert(g_nested_disposed == (before + i32(1)), "disposed exactly once, when its own scope ended");
+});
+test("a local stored into a temporary Dyn passed by value outlives the call", {
+  before := g_nested_disposed;
+  {
+    sink := NestedSink(tag : i32(11));
+    _take_dyn_tag(dyn(sink));
+    assert(g_nested_disposed == before, "the callee's Dyn did not take the caller's local with it");
+    assert(sink.tag == i32(11), "and the local still reads correctly");
+  };
+  assert(g_nested_disposed == (before + i32(1)), "disposed exactly once, when its own scope ended");
+});
+test("a temporary passed by value takes a local that is not read again exactly once", {
+  before := g_nested_disposed;
+  {
+    sink := NestedSink(tag : i32(11));
+    _take_dyn_tag(dyn(sink));
+  };
+  assert(g_nested_disposed == (before + i32(1)), "disposed exactly once: no leak, no double drop");
+});
 // Regression: a short-circuit operand INSIDE a bare (non-block) body — a
 // match arm, a cond arm, a single-expression fn body, a loop body — declares
 // its temps inside the `if (lhs) {` C block the `&&`/`||` lowers to, and can
