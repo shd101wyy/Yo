@@ -252,11 +252,11 @@ _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &Eval
 /// definition cannot shadow (a parameter or a pattern binding is inner).
 ///
 /// Not `rc`/`arc`: static-argument inference B3 deletes those, and a seed
-/// that looked `rc` up by name could not build a tree without it. Not
-/// `Rc(T).new` either: over the variable a closure literal is evaluated under
-/// (`t_dyn_payload_wrapper`) that binds `T` to the open variable, a second C
-/// type for the cell whose payload lowers to `void*` (Fable consultation #5
-/// H1, fallback (a); plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5).
+/// that finds no `rc` falls back to `Rc(T).new`. Over the variable a closure
+/// literal is evaluated under (`t_dyn_payload_wrapper`), `Rc(T).new` binds
+/// `T` to that variable: a second C type for the cell, and for a recognized
+/// `dyn(Rc.new(<closure>))` a payload that lowers to `void*` (Fable
+/// consultation #5 H1, fallback (a); plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5).
 _prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Option(Variable))({
   ctor_name := cond((cell_name == "Arc") => String.from("__yo_arc_cell"), true => String.from("__yo_rc_cell"));
   vars := get_variables_from_env(env, &ctor_name);
