@@ -71,6 +71,7 @@ json :: import("std/encoding/json");
   E_DEREF_OF_BORROW,
   E_ADDR_OF_BORROW_PARAM,
   E_ORIGIN_NOT_DECLARED,
+  E_ORIGIN_MISMATCH,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -762,6 +763,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "first :: (fn(generic(q : Origin), v : &(i32, q)) -> i32)(v);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
       "`q` names no origin; `generic(q : Origin)` declares it, and the call instantiates it with the place `&x` lends.",
       "`q` 没有命名任何 origin；`generic(q : Origin)` 声明了它，调用时用 `&x` 借出的位置实例化它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ORIGIN_MISMATCH,
+      "a reference outside its declared origin",
+      "引用超出其声明的 origin",
+      "A projection whose result spells its origin, `-> &(T, o)`, yields a place reached from a parameter the origin does not name; or a trait impl declares a method result origin wider than the trait's.",
+      "结果写出 origin 的投影 `-> &(T, o)` 产出的位置来自该 origin 未列出的参数；或 trait 的 impl 为方法结果声明了比 trait 更宽的 origin。",
+      "A result origin is the set of places the returned reference may point into (decision 43). Elided, it is every reference parameter (O2); spelled, it names the parameters (`-> &(T, xs)`) or origin parameters (`-> &(T, p)`) the result borrows, and a call freezes only those arguments. The body is checked against it: the place a projection yields must be reached from a parameter the origin names. An impl of a trait method may declare a narrower origin than the trait (a subset), never a wider one: callers through the trait, a `Dyn` included, rely on the trait's.",
+      "结果 origin 是返回的引用可能指向的位置集合（决策 43）。省略时它是所有引用参数（O2）；写出时它列出结果借用的参数（`-> &(T, xs)`）或 origin 参数（`-> &(T, p)`），调用只冻结这些实参。函数体按它检查：投影产出的位置必须来自 origin 列出的参数。trait 方法的 impl 可以声明比 trait 更窄的 origin（子集），不能更宽：通过 trait 调用的代码（包括 `Dyn`）依赖 trait 的 origin。",
+      "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&t.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
+      "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&s.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
+      "the result is declared to point into `s`, so its place must be reached from `s`.",
+      "结果声明指向 `s`，因此其位置必须来自 `s`。"
     )
   );
   out.push(
