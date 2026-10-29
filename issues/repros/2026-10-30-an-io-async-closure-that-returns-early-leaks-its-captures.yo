@@ -1,0 +1,15 @@
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+main :: (fn(io : Io) -> unit)({
+  reached_middle := rc(RefCell(bool).new(false));
+  rm2 := Rc.clone(reached_middle);
+  task := io.async({ rm2 }(io : Io) => {
+    rm2.with_mut(cur => {
+      cur = true;
+    });
+    return;
+  });
+  io.await(task, io);
+  println(`done ${reached_middle.with(cur => cur)}`);
+});
+export(main);
