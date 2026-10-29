@@ -156,6 +156,9 @@ _ms_extern_may_mutate :: (
   if(_ms_head_is_pure_builtin(extern_name.clone()), {
     return(false);
   });
+  if(_msp_extern_is_scope_slot(extern_name.clone()), {
+    return(false);
+  });
   if(extern_name.starts_with("__yo_"), {
     return(true);
   });
@@ -955,6 +958,19 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
   );
   cond(is_vtable => field, true => String.new())
 });
+/// The thread's allocation-scope slots: `__yo_scope_ctx()` and
+/// `__yo_scope_vtable()` read them, `__yo_scope_set(ctx, vtable)` writes them.
+/// `rc`, `arc`, `Rc(T).new` and `Arc(T).new` save, set and restore the scope
+/// around an explicit allocator's cell construction; the arguments are
+/// allocator-private pointers the call stores, never storage it writes
+/// through, and no slot frees anything. Without this the `__yo_` prefix made
+/// `__yo_scope_set` mutate every argument, its arguments (the reads' results)
+/// were unknown storage, and every function moving a `ref` parameter into
+/// `rc(b)` or `Rc.new(b)` got the borrowed-`for` entry assert
+/// (issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md).
+_msp_extern_is_scope_slot :: (fn(h : &String) -> bool)(
+  (h == "__yo_scope_ctx") || (h == "__yo_scope_vtable") || (h == "__yo_scope_set")
+);
 /// Reallocation externs hand back the (possibly moved) block of their FIRST
 /// argument: the result is rooted where that pointer was.
 _msp_extern_reallocs :: (fn(h : &String) -> bool)(
