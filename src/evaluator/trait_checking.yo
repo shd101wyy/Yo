@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { panic } :: import("std/assert");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list, slot_pointee_at, slot_pointees, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list, slot_pointee_at, slot_pointees, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_pointee } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -1817,7 +1817,6 @@ type_implements_trait :: (
               result_is_comptime_only : false,
               // Fn-trait call type (runtime); the call params' slots carry
               // their modes
-              result_is_ref : false,
               has_variadic : false,
               is_extern : Option(String).None,
               // Fn-trait call type is not FFI
@@ -3282,7 +3281,7 @@ type_contains_some_type_for_codegen_param :: (
         i = (i + usize(1));
       });
       if(!found, {
-        found = recur(&result_box, checked_ids);
+        found = recur(&t_slot_pointee(&result_box), checked_ids);
       });
       found
     },

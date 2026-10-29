@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../../token.yo");
 { Environment, get_variables_from_env, Variable } :: import("../../env.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_integer_type, is_float_type, is_pointer_type, is_bool_type, is_comptime_string_type } :: import("../../types/guards.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -904,8 +904,8 @@ evaluate_asm :: (
         .Some(fab) => match(
           fab.kind,
           .FunctionBody => match(
-            &fab.func_type,
-            .Some(ft) => match(ft, Rc(.Func({ result : r })) => Rc.clone(r), _ => t_unit()),
+            fab.func_type,
+            .Some(ft) => match(ft, Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => t_unit()),
             .None => t_unit()
           ),
           _ => t_unit()

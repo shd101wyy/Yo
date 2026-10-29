@@ -2974,7 +2974,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       // `Impl(Fn(...))` and are no part of this function's representation.
       (i : usize) = usize(0);
       while(i <= fu_pt.len(), {
-        fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t_slot_pointee(&t), .None => rc(TypeValueNode.Unit)), true => Rc.clone(fu_res));
+        fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t_slot_pointee(&t), .None => rc(TypeValueNode.Unit)), true => t_slot_pointee(&fu_res));
         match(
           &fu_t,
           Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
@@ -3952,8 +3952,8 @@ dyn_member_unsafe_reason :: (fn(member_ty : &TypeValue) -> Option(String))(
         });
         i = (i + usize(1));
       });
-      if(_mentions_trait_self(&res), {
-        return(Option(String).Some(`it returns ${type_to_string(&res)}, which the Dyn erases`));
+      if(_mentions_trait_self(&t_slot_pointee(&res)), {
+        return(Option(String).Some(`it returns ${type_to_string(&t_slot_pointee(&res))}, which the Dyn erases`));
       });
       Option(String).None
     },
@@ -4315,8 +4315,8 @@ export(mark_generic_independent);
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
-    Rc(.Func({ param_types : pb_pts, meta : pb_m })) => (
-      pb_m.*.result_is_ref && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
+    Rc(.Func({ param_types : pb_pts, result : pb_r })) => (
+      t_slot_is_borrow(&pb_r) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
     ),
     _ => false
   )

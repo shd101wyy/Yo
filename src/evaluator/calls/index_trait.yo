@@ -17,7 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, fn_param_mut_ref_flags, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type } :: import("../../types/guards.yo");
 {
@@ -465,9 +465,10 @@ _IndexShape :: struct(is_projection : bool, is_mut : bool, output : TypeValue);
 _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Option(_IndexShape))(
   match(
     method_type,
-    Rc(.Func({ param_types, result : result_box, meta : __fm1 })) => cond(
+    Rc(.Func({ param_types, result : result_slot })) => cond(
       (param_types.len() != usize(2)) => Option(_IndexShape).None,
       true => {
+        result_box := t_slot_pointee(&result_slot);
         p0_is_ref := t_slot_is_mut_ref(&param_types(usize(0)));
         p0_is_ptr := is_pointer_type(&t_slot_pointee(&param_types(usize(0))));
         // `are_types_compatible(actual, expected)` — the ARGUMENT's type is the
@@ -482,7 +483,7 @@ _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Optio
         cond(
           !p1_compatible => Option(_IndexShape).None,
           // A projection: `&Self` for `index`, `&mut Self` for `index_mut`.
-          __fm1.*.result_is_ref => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : __fm1.*.result_is_mut_ref, output : Rc.clone(result_box))),
+          t_slot_is_borrow(&result_slot) => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : t_slot_is_mut_ref(&result_slot), output : result_box)),
           // The pre-V2b shape: self must be a pointer type OR a `&mut`
           // parameter, and the result a raw pointer to the element.
           ((p0_is_ptr || p0_is_ref) && is_pointer_type(&result_box)) => Option(_IndexShape).Some(
@@ -1260,7 +1261,7 @@ _find_comptime_index_method :: (
                       // while `Range(comptime_int)` and `Range(usize)` share one and stay
                       // compatible. Only fires when both sides carry a constructor id.
                       p1_compatible := (_ctor_ids_agree(arg_type, &p1) && are_types_compatible(arg_type, &p1));
-                      ret_is_ptr := is_pointer_type(&ci_result);
+                      ret_is_ptr := is_pointer_type(&t_slot_pointee(&ci_result));
                       if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         // Comptime-parameter gate.
                         ci_flags := match(
@@ -1379,7 +1380,7 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)`.
-  ct_ret_type := match(&ct_fn_type, Rc(.Func({ result : ct_r })) => Rc.clone(ct_r), _ => t_unit());
+  ct_ret_type := match(ct_fn_type, Rc(.Func({ result : ct_r })) => t_slot_pointee(&ct_r), _ => t_unit());
   if(!is_pointer_type(&ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
@@ -1884,10 +1885,12 @@ _record_index_unchecked_twin :: (
       // Its element is the subscript's: the pointee of a pre-V2b
       // `*(Output)`, or a projection's result.
       same_output := match(
-        &c.ty,
-        Rc(.Func({ result : twin_ret, meta : twin_m })) => {
-          twin_out := if(twin_m.*.result_is_ref, Rc.clone(twin_ret), match(twin_ret, Rc(.Pointer(tp)) => Rc.clone(tp), _ => t_unit()));
-          (twin_m.*.result_is_ref || is_pointer_type(&twin_ret)) && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
+        c.ty,
+        Rc(.Func({ result : twin_slot })) => {
+          twin_ret := t_slot_pointee(&twin_slot);
+          twin_out := if(t_slot_is_borrow(&twin_slot), twin_ret, match(twin_ret, Rc(.Pointer(tp)) => tp, _ => t_unit()));
+          (t_slot_is_borrow(&twin_slot) || is_pointer_type(&twin_ret))
+          && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
         },
         _ => false
       );

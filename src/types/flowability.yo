@@ -44,7 +44,7 @@
 { Exception, AnyError } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
-{ TypeValue, TypeValueNode, no_types, no_flags, t_refine_inner, slot_pointee_at, fn_param_mut_ref_flags } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_flags, t_refine_inner, slot_pointee_at, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_pointee } :: import("./definitions.yo");
 { is_function_type, is_pointer_type, is_counted_handle_type, unique_box_payload_type } :: import("./guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { type_key } :: import("./type_key.yo");
@@ -527,8 +527,8 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     return(false);
   });
   // Extract the Func's return/ref/param info.
-  is_ref_return := match(&callee_ty, Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_ref, _ => false);
-  ret_ty := match(&callee_ty, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => rc(TypeValueNode.Unit));
+  is_ref_return := fn_result_is_ref(&callee_ty);
+  ret_ty := fn_result_pointee(&callee_ty);
   _slice_pre := (opts.allow_parameter_source && !is_ref_return);
   is_slice_return := (_slice_pre && type_representation_contains_raw_ptr(&ret_ty));
   if(!is_ref_return && !is_slice_return, {

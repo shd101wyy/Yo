@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, shared_cell_type_name_of_constructor, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
@@ -707,8 +707,8 @@ _reject_dyn_borrowing_future_methods :: (
           match(
             fvals.get(fi),
             .Some(.Some(.FuncVal(fvd, _))) => {
-              res_ty = match(get_func_type(fvd.*.func_id.clone()), Rc(.Func({ result : r })) => Rc.clone(r), _ => rc(TypeValueNode.Unit));
-              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => Rc.clone(bi.ty), .None => rc(TypeValueNode.Unit));
+              res_ty = match(get_func_type(fvd.*.func_id.clone()), Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => rc(TypeValueNode.Unit));
+              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => bi.ty, .None => rc(TypeValueNode.Unit));
             },
             _ => ()
           );
