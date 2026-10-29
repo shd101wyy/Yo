@@ -3823,7 +3823,8 @@ derive(MathError, Clone);
 // 手写这两个 impl 依然可用；当消息不是简单的「每个变体一条字符串」时，就该那么写。
 // AnyError 是 Dyn(Error, Clone) — 任何实现了 Error 和 Clone 的类型都可以被包装。
 // Dyn 独占其载荷，而处理器以借用的方式接收捕获的错误，所以要保留一个捕获的错误
-// 需要 `err.clone()`：
+// 需要 `err.clone()`。（这是 v0.2.73 的临时方案：从 v0.2.74 起 AnyError 恢复为
+// Dyn(Error)，`throw` 按值传递错误，不再要求 Clone。）
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // 向下转型回具体类型：

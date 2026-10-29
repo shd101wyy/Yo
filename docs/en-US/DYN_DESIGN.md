@@ -437,7 +437,10 @@ through the subscript (`xs(i).m()`) or move it out (`xs.pop()`).
 (`throw(error : &AnyError)`), so a handler that keeps the error (stores it, returns it, wraps it in
 a `Context`) copies it. `AnyError` is therefore `Dyn(Error, Clone)`, and a type erased into it must
 be `Clone` (`derive(MyError, Clone)`). `Error.source` returns a clone of the cause, and
-`Context.new` takes its cause by value.
+`Context.new` takes its cause by value. **This is a v0.2.73 interim, not a decision.** At v0.2.74
+(decision 43 step 3), `AnyError` goes back to a move-only `Dyn(Error)` (Rust's `Box<dyn Error>`).
+`throw` takes the error by value, so a handler keeps it by moving, and `Error.source` returns
+`Option(&Dyn(...))`, so the `Clone` requirement goes away.
 
 ## Reference Counting for Dyn
 

@@ -463,7 +463,9 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 - `AnyError` is `Dyn(Error, Clone)` — wraps any `Clone` error: `(err : AnyError) = dyn(MyError.Foo)`
   (`derive(MyError, Clone)`). A handler borrows the error it catches (`throw(error : &AnyError)`),
   so keeping it (a trap's `unwind(Option(AnyError).Some(e.clone()))`, a stored first error) is
-  `e.clone()`; `Context.new(msg, cause)` takes the cause by value
+  `e.clone()`; `Context.new(msg, cause)` takes the cause by value. The `Clone` bound is a
+  v0.2.73 INTERIM: from v0.2.74 `AnyError` is a move-only `Dyn(Error)`, `throw` takes the error by
+  value (a handler keeps it by moving) and `Error.source` returns a borrow
 - Use `downcast(err, MyError)` to recover the concrete type from `AnyError`
 - A downcast to a type nothing in the program ever puts in a `dyn()` is legal and
   answers `.None` — that is how a negative "is this error some OTHER type?"
