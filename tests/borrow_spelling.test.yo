@@ -388,3 +388,11 @@ comptime_expect_error(
   }),
   "is an origin-qualified reference"
 );
+// `Origin` is reserved like `Type` (decision 43 step 2): a binding of the
+// name is rejected naming the kind.
+comptime_expect_error(
+  bs_origin_reserved :: (fn() -> unit)({
+    Origin := i32(1);
+  }),
+  "it is the kind of an origin"
+);

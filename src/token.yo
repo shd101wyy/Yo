@@ -176,12 +176,17 @@ is_reserved_builtin_binding_name :: (fn(name : &String) -> bool)(
                         // The private cell primitives (plans/VALUES_BY_DEFAULT.md
                         // §3.5): the only `__yo` names the evaluator dispatches on.
                         (name == "__yo_cell") || (name == "__yo_atomic_cell")
+                        ||
+                          // The `Origin` kind (decision 43 step 2), reserved like
+                          // `Type`: `generic(p : Origin)` means one thing in every module.
+                          (name == "Origin")
 );
 /// The error for a binding named by a reserved builtin word
 /// (`is_reserved_builtin_binding_name`).
 reserved_builtin_binding_message :: (fn(name : &String) -> String)(
   cond(
     (name == "mut") => String.from("\"mut\" is reserved: it follows `&` in a borrow (`x : &mut T`, `y := &mut place`, `f(&mut x)`) and cannot name a binding (plans/VALUES_BY_DEFAULT.md decision 42). Choose a different name."),
+    (name == "Origin") => String.from("\"Origin\" is reserved: it is the kind of an origin (`generic(p : Origin)`, decision 43), as `Type` is the kind of a type, and cannot name a binding. Choose a different name."),
     true => `"${name}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
   )
 );
