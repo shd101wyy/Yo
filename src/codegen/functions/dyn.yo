@@ -756,7 +756,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   ret_cast := if(slot_ret == return_str, String.new(), slot_ret.clone());
                                   // A projection's `self : &Self` is passed as a pointer too
                                   // (decision 34, `fn_abi_param_is_ptr`).
-                                  pbp := match(param_types.get(usize(0)), .Some(p0) => (is_pointer_type(&t_slot_pointee(&p0)) || t_slot_is_mut_ref(&p0)), .None => false) || match(fn_abi_param_is_ptr(&impl_fn_ty).get(usize(0)), .Some(b) => b, .None => false);
+                                  pbp := (match(param_types.get(usize(0)), .Some(p0) => (is_pointer_type(&t_slot_pointee(&p0)) || t_slot_is_mut_ref(&p0)), .None => false) || match(fn_abi_param_is_ptr(&impl_fn_ty).get(usize(0)), .Some(b) => b, .None => false));
                                   // A by-value `self` (`LogicalNot`'s `(!)`, decision 34
                                   // as amended 2026-10-11) is OWNED by the impl, which
                                   // drops it at its end, while the Dyn keeps owning its
