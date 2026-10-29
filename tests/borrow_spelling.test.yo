@@ -432,6 +432,87 @@ comptime_expect_error(
   bs_fn_trait_ref_result :: (fn(f : Impl(Fn(x : &i32) -> &i32)) -> unit)(()),
   "A closure trait's result is a value"
 );
+// Decision 43 step 2 (N1c; plans/backlog/REFERENCES_AND_ORIGINS.md O3): a
+// call of a projection whose result origin is spelled freezes only the
+// arguments that origin names; an elided one freezes every reference
+// argument (O2). The body is checked against the spelled origin (E0923).
+bs_pick_s :: (fn(s : &BsTrio, t : &BsTrio) -> &(i32, s))(&s.a);
+bs_pick_p :: (fn(generic(p : Origin), s : &(BsTrio, p), t : &BsTrio) -> &(i32, p))(&s.b);
+bs_pick_mut :: (fn(s : &mut BsTrio, t : &mut BsTrio) -> &mut(i32, s))(&mut s.c);
+bs_pick_gen :: (fn(generic(T : Type), s : &T, t : &T) -> &(T, s))(&s);
+test("a spelled result origin freezes only the arguments it names", {
+  t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+  mut(u) := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+  r := bs_pick_s(&t, &u);
+  u.a = i32(40);
+  assert(bs_ret_read(r) == i32(1), "`u` is not in the result's origin `s`: writing it while `r` lives is fine");
+  q := bs_pick_p(&t, &u);
+  u.b = i32(50);
+  assert(bs_ret_read(q) == i32(2), "an origin parameter names the arguments whose slots carry it");
+  mut(v) := BsTrio(a : i32(7), b : i32(8), c : i32(9));
+  m := bs_pick_mut(&mut v, &mut u);
+  m = i32(90);
+  u.c = i32(60);
+  assert((v.c == i32(90)) && (u.c == i32(60)), "a `&mut(i32, s)` result holds `s` alone");
+  x := i32(11);
+  mut(y) := i32(12);
+  g := bs_pick_gen(&x, &y);
+  y = i32(13);
+  assert((bs_ret_read(g) == i32(11)) && (y == i32(13)), "a generic projection keeps its spelled origin through the specialization");
+});
+comptime_expect_error(
+  bs_spelled_still_freezes :: (fn() -> unit)({
+    mut(t) := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+    u := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+    r := bs_pick_s(&t, &u);
+    t.a = i32(9);
+    _ := bs_ret_read(r);
+  }),
+  "Cannot write"
+);
+bs_pick_elided :: (fn(s : &BsTrio, t : &BsTrio) -> &i32)(&s.a);
+comptime_expect_error(
+  bs_elided_freezes_all :: (fn() -> unit)({
+    t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+    mut(u) := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+    r := bs_pick_elided(&t, &u);
+    u.a = i32(9);
+    _ := bs_ret_read(r);
+  }),
+  "whose result origin is elided"
+);
+comptime_expect_error(
+  bs_ret_outside_origin :: (fn(s : &BsTrio, t : &BsTrio) -> &(i32, s))(&t.a),
+  "which that origin does not name"
+);
+comptime_expect_error(
+  bs_ret_local_place :: (fn(s : &BsTrio) -> &(i32, s))({
+    y := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+    return(&y.a);
+  }),
+  "its storage ends with the call"
+);
+// O7: an impl member's result origin is within its trait member's.
+BsPick :: trait(pick : (fn(self : &Self, other : &i32) -> &(i32, self)));
+BsWide :: trait(pick_any : (fn(self : &Self, other : &i32) -> &i32));
+BsOne :: struct(v : i32);
+impl(BsOne, BsWide(pick_any : (fn(self : &Self, other : &i32) -> &(i32, self))(&self.v)));
+impl(BsOne, BsPick(pick : (fn(self : &Self, other : &i32) -> &(i32, self))(&self.v)));
+test("an impl may narrow its trait's result origin, and a trait call maps from the trait's", {
+  b := BsOne(v : i32(21));
+  mut(o) := i32(2);
+  r := b.pick_any(&o);
+  assert(bs_ret_read(r) == i32(21), "an impl narrower than its trait (`self` within the elided union)");
+  (d : Dyn(BsPick)) = dyn(BsOne(v : i32(22)));
+  s := d.pick(&o);
+  o = i32(3);
+  assert((bs_ret_read(s) == i32(22)) && (o == i32(3)), "a Dyn call's result origin is the trait's `self`: `o` stays writable");
+});
+BsTwo :: struct(v : i32);
+comptime_expect_error(
+  impl(BsTwo, BsPick(pick : (fn(self : &Self, other : &i32) -> &i32)(&self.v))),
+  "which the trait's result origin does not name"
+);
 // `Origin` is reserved like `Type` (decision 43 step 2): a binding of the
 
 // name is rejected naming the kind.
