@@ -28,7 +28,8 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  expr_info_set_original_expr
+  expr_info_set_original_expr,
+  migrate_handle_ctors_on
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -93,8 +94,9 @@ set_strict_test_bodies :: (fn(on : bool) -> unit)({
 });
 strict_test_bodies :: (fn() -> bool)(g_strict_test_bodies);
 /// A test body whose trial evaluation failed while `yo fix --migrate
-/// explicit-copy` was recording: the swallow keeps the module evaluating, but
-/// the body's copies past the error are never recorded, and one reached
+/// explicit-copy` (or `cloned-accessors`, `handle-ctors`) was recording: the
+/// swallow keeps the module evaluating, but the body's sites past the error
+/// are never recorded, and one reached
 /// before it whose judging waits for its block's end is lost when the trial
 /// unwinds. The migration lists and counts each one
 /// (`take_skipped_test_bodies`) instead of passing over it in silence.
@@ -132,7 +134,7 @@ _trial_eval_test_body :: (
         out.get(usize(0)),
         .Some(ev) => ev,
         .None => {
-          if(copy_migration_recording_on(), {
+          if(copy_migration_recording_on() || migrate_handle_ctors_on(), {
             message := match(trial_err, .Some(te) => render_any_error(&te), .None => String.from("the trial evaluation failed"));
             first_line := match(message.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.new());
             g_skipped_test_bodies.with_mut(xs => xs.push(SkippedTestBody(test_tok : test_tok.clone(), name : test_name.clone(), error : first_line.clone())));
