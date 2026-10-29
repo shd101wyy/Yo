@@ -1,7 +1,7 @@
 # Definition Order
 
-Within one module, **`name :: <definition>` bindings and `impl(...)` registrations
-are order-independent**. A definition may reference any other definition of the
+Within one module, **`name :: <definition>` bindings, `impl(...)` registrations
+and `derive(T, ...)` statements are order-independent**. A definition may reference any other definition of the
 same module regardless of where it appears in the file — a caller above its
 callee, a function above the type it returns, mutual recursion between free
 functions, a free function that calls a method or trait default whose `impl`
@@ -30,6 +30,11 @@ SCALE :: i32(7);
 say_hi :: (fn(d : Dog) -> String)(d.greet());
 Dog :: struct(n : String);
 impl(Dog, Greeter(name : (fn(self : Self) -> String)(self.n.clone())));
+
+// a derive below the function that calls the method it derives
+copy_bag :: (fn(b : &Bag) -> Bag)(b.clone());
+Bag :: struct(n : i32);
+derive(Bag, Clone);
 
 // `export` may name a definition that appears after it
 export(exported_later);
@@ -69,8 +74,9 @@ registrations are order-independent); move that statement above this use
 ## How it works
 
 The module walker still evaluates statements top to bottom. Before it starts,
-it pre-scans the module and records every `::` definition and every
-`impl(<receiver>, ...)` as a **pending** entry. Evaluation is then:
+it pre-scans the module and records every `::` definition, every
+`impl(<receiver>, ...)` and every `derive(T, ...)` as a **pending** entry (a
+derive is a pending impl of `T`). Evaluation is then:
 
 1. A statement whose entry is still pending is evaluated at its own position,
    exactly as before.
@@ -79,8 +85,8 @@ it pre-scans the module and records every `::` definition and every
    finds nothing — checks the pending table of the identifier's module. A
    pending definition is **forced**: its statement is evaluated right there (as
    a module-level statement, in the module's environment) and the resulting
-   binding is handed back. Pending `impl`s whose receiver head is the type in
-   question are forced the same way, then the lookup retries.
+   binding is handed back. Pending `impl`s and `derive`s whose receiver head is
+   the type in question are forced the same way, then the lookup retries.
 3. When the walker later reaches a statement that was already forced, it skips
    it. Everything is bound by module end: laziness changes *when*, never
    *whether*.
@@ -148,8 +154,10 @@ at the sibling's own position with a note saying it was evaluated early because
 a sibling referenced it.
 
 A free function, a generic body or a method of *another* type may use methods
-from any later `impl` block of a type — a miss on the type forces every pending
-impl of that type. From **inside** an `impl` block of `T`, a method of a later
-`impl(T, ...)` block is not forced: while an impl of `T` is being evaluated,
-misses on `T` belong to the in-block sibling machinery. Put methods that call
-each other in one block, or order the blocks.
+from any later `impl` block or `derive` of a type — a miss on the type forces
+every pending impl of that type. From **inside** an `impl` block of `T`, a miss
+on a method forces only the later `impl(T, ...)` blocks that declare that
+method by name, and failing those, the later `derive(T, ...)` statements (a
+derive declares its methods only once it runs). A trait-bound check from inside
+the block forces nothing: while an impl of `T` is being evaluated, those misses
+belong to the in-block sibling machinery.
