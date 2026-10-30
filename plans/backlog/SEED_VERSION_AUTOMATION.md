@@ -387,9 +387,8 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
 `Rc.make_mut` and `Arc.make_mut` place their fresh cell (another strong
 handle shares the cell: a clone; only weak handles share it: a move) with
 the default allocator, so a cell placed with `alloc : .Some(a)` moves to the
-global heap (the design question that `fix/arc-unique-lock-gen-b` files
-under `issues/questions/`, "Should `make_mut` place its fresh cell in the
-old cell's allocator?").
+global heap
+(`issues/questions/2026-10-29-make-mut-places-its-fresh-cell-with-the-default-allocator-not-the-old-cells.md`).
 The decision (Fable consultation #7, Q2, 2026-10-30) is Rust's
 `this.alloc.clone()`: the fresh cell reuses the old cell's allocator, on
 both paths of both handle kinds. `Box.clone` already places through
