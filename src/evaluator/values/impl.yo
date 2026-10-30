@@ -3874,7 +3874,7 @@ _member_fn_param_list :: (fn(e : &AstExpr, depth : usize) -> Option(ArrayList(As
   match(
     e,
     .Atom(_, _) => Option(ArrayList(AstExpr)).None,
-    .FnCall(_, f, args, _, _) => {
+    .FnCall(_, f, Rc(args), _, _) => {
       if(match(f, .Atom(_, ftok) => (ftok.value == BK_FN), .FnCall(_, _, _, _, _) => false), {
         return(Option(ArrayList(AstExpr)).Some(args.clone()));
       });
@@ -3917,7 +3917,7 @@ _plain_param_label_atom :: (fn(p : &AstExpr) -> Option(AstExpr))({
   if(ast_expr_is_atom(&lbl), Option(AstExpr).Some(lbl), Option(AstExpr).None)
 });
 _fn_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// `yo fix --migrate params`, the trait-conformance half (decision 34 as
 /// amended 2026-10-09: a parameter's mode is part of the member's type for
@@ -4047,7 +4047,7 @@ _c3_eval_colon_pair :: (
 )({
   colon_args := match(
     meth_expr,
-    .FnCall(_, _, ca, _, _) => ca,
+    .FnCall(_, _, Rc(ca), _, _) => ca,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   name_expr := match(colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
@@ -4453,7 +4453,7 @@ _c2_eval_direct_field :: (
 )({
   mf_colon_args := match(
     pf.colon_expr,
-    .FnCall(_, _, mca, _, _) => mca,
+    .FnCall(_, _, Rc(mca), _, _) => mca,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   mname_expr := match(mf_colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
@@ -4531,7 +4531,7 @@ _c2_eval_inner_field :: (
 )({
   g_colon_args := match(
     pf.colon_expr,
-    .FnCall(_, _, gca, _, _) => gca,
+    .FnCall(_, _, Rc(gca), _, _) => gca,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   g_name_expr := match(g_colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
@@ -4764,7 +4764,7 @@ _collect_impl_where_constraints :: (
 )({
   where_args := match(
     where_expr,
-    .FnCall(_, _, wa, _, _) => wa,
+    .FnCall(_, _, Rc(wa), _, _) => wa,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (wi : usize) = usize(0);
@@ -4774,7 +4774,7 @@ _collect_impl_where_constraints :: (
     if(ast_expr_is_fn_call_of(&c, "<:", Option(usize).Some(usize(2))), {
       c_args := match(
         c,
-        .FnCall(_, _, ca, _, _) => ca,
+        .FnCall(_, _, Rc(ca), _, _) => ca,
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       lhs := match(c_args.get(usize(0)), .Some(x) => x, .None => make_err_expr());
@@ -4804,7 +4804,7 @@ _collect_impl_where_constraints :: (
           if(ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None), {
             rhs_args := match(
               rhs,
-              .FnCall(_, _, ra, _, _) => ra,
+              .FnCall(_, _, Rc(ra), _, _) => ra,
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
             (rti : usize) = usize(0);
@@ -4885,7 +4885,7 @@ evaluate_module_value :: (
   // Extract args from the FnCall.
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := args.len();
@@ -4901,7 +4901,7 @@ evaluate_module_value :: (
     a0 := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     begin_exprs := match(
       a0,
-      .FnCall(_, _, be, _, _) => be,
+      .FnCall(_, _, Rc(be), _, _) => be,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     saved_expected := ctx.expected_type;
@@ -4936,7 +4936,7 @@ evaluate_module_value :: (
     forall_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     forall_args := match(
       forall_expr,
-      .FnCall(_, _, fa, _, _) => fa,
+      .FnCall(_, _, Rc(fa), _, _) => fa,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // Snapshot env (share frames — aliasing snapshot) and push a
@@ -4956,7 +4956,7 @@ evaluate_module_value :: (
       (param_name_opt : Option(String)) = if(ast_expr_is_fn_call(&fp_expr) && ast_expr_is_fn_call_of(&fp_expr, BK_COLON, .Some(usize(2))), {
         colon_args2 := match(
           fp_expr,
-          .FnCall(_, _, ca2, _, _) => ca2.clone(),
+          .FnCall(_, _, Rc(ca2), _, _) => ca2.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         lhs2 := match(colon_args2.get(usize(0)), .Some(e) => e, .None => make_err_expr());
@@ -5075,7 +5075,7 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call(&c2_pp_expr) && ast_expr_is_fn_call_of(&c2_pp_expr, BK_COLON, .Some(usize(2))), {
         c2_lbl := match(
           c2_pp_expr,
-          .FnCall(_, _, c2_ca, _, _) => match(c2_ca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
+          .FnCall(_, _, Rc(c2_ca), _, _) => match(c2_ca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
           .Atom(_, _) => String.new()
         );
         c2_fields.push(make_impl_pending_field(&c2_lbl, &c2_pp_expr, c2_pp, false));
@@ -5083,7 +5083,7 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call(&c2_pp_expr) && !ast_expr_is_fn_call_of(&c2_pp_expr, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c2_pp_expr, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c2_pp_expr, "!", .Some(usize(1)))), {
         c2_ta := match(
           c2_pp_expr,
-          .FnCall(_, _, ta, _, _) => ta,
+          .FnCall(_, _, Rc(ta), _, _) => ta,
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         (c2_ti : usize) = usize(0);
@@ -5093,7 +5093,7 @@ evaluate_module_value :: (
           if(ast_expr_is_fn_call(&c2_te) && ast_expr_is_fn_call_of(&c2_te, BK_COLON, .Some(usize(2))), {
             c2_ilbl := match(
               c2_te,
-              .FnCall(_, _, c2_ica, _, _) => match(c2_ica.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
+              .FnCall(_, _, Rc(c2_ica), _, _) => match(c2_ica.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
               .Atom(_, _) => String.new()
             );
             c2_fields.push(make_impl_pending_field(&c2_ilbl, &c2_te, c2_pp, true));
@@ -5130,7 +5130,7 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call_of(&mf_expr, "!", .Some(usize(1))), {
         neg_inner := match(
           mf_expr,
-          .FnCall(_, _, na, _, _) => match(na.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
+          .FnCall(_, _, Rc(na), _, _) => match(na.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
           .Atom(_, _) => make_err_expr()
         );
         neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
@@ -5249,7 +5249,7 @@ evaluate_module_value :: (
         ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
         trait_inner_args2 := match(
           mf_expr,
-          .FnCall(_, _, tia2, _, _) => tia2.clone(),
+          .FnCall(_, _, Rc(tia2), _, _) => tia2.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         c2_rec.current_trait_ty = g_trait_ty_opt;
@@ -5260,7 +5260,7 @@ evaluate_module_value :: (
           if(ast_expr_is_fn_call(&inner_e2) && ast_expr_is_fn_call_of(&inner_e2, BK_COLON, .Some(usize(2))), {
             g_mname := match(
               inner_e2,
-              .FnCall(_, _, gca, _, _) => match(gca.get(usize(0)), .Some(e) => ast_expr_token(&e).value.clone(), .None => String.new()),
+              .FnCall(_, _, Rc(gca), _, _) => match(gca.get(usize(0)), .Some(e) => ast_expr_token(&e).value.clone(), .None => String.new()),
               .Atom(_, _) => String.new()
             );
             // Through the member's pending entry (a sibling of THIS trait
@@ -5560,7 +5560,7 @@ evaluate_module_value :: (
       .Some(c3_fe) => if(ast_expr_is_fn_call(&c3_fe) && ast_expr_is_fn_call_of(&c3_fe, BK_COLON, .Some(usize(2))), {
         c3_lbl := match(
           c3_fe,
-          .FnCall(_, _, c3_ca, _, _) => match(c3_ca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
+          .FnCall(_, _, Rc(c3_ca), _, _) => match(c3_ca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
           .Atom(_, _) => String.new()
         );
         c3_fields.push(make_impl_pending_field(&c3_lbl, &c3_fe, c3_pi, false));
@@ -5579,7 +5579,7 @@ evaluate_module_value :: (
       .Some(c3_te_outer) => if(ast_expr_is_fn_call(&c3_te_outer) && !ast_expr_is_fn_call_of(&c3_te_outer, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c3_te_outer, "!", .Some(usize(1)))), {
         c3_ta := match(
           c3_te_outer,
-          .FnCall(_, _, ta, _, _) => ta,
+          .FnCall(_, _, Rc(ta), _, _) => ta,
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         (c3_ti : usize) = usize(0);
@@ -5589,7 +5589,7 @@ evaluate_module_value :: (
           if(ast_expr_is_fn_call(&c3_te) && ast_expr_is_fn_call_of(&c3_te, BK_COLON, .Some(usize(2))), {
             c3_ilbl := match(
               c3_te,
-              .FnCall(_, _, c3_ica, _, _) => match(c3_ica.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
+              .FnCall(_, _, Rc(c3_ica), _, _) => match(c3_ica.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
               .Atom(_, _) => String.new()
             );
             c3_fields.push(make_impl_pending_field(&c3_ilbl, &c3_te, c3_pi, true));
@@ -5641,7 +5641,7 @@ evaluate_module_value :: (
         if(is_negative_field, {
           neg_inner := match(
             field_expr,
-            .FnCall(_, _, na, _, _) => match(na.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
+            .FnCall(_, _, Rc(na), _, _) => match(na.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
           neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
@@ -5723,7 +5723,7 @@ evaluate_module_value :: (
           // (`where(...)` args are skipped — see the generic loop above.)
           trait_inner_args := match(
             field_expr,
-            .FnCall(_, _, tia, _, _) => tia,
+            .FnCall(_, _, Rc(tia), _, _) => tia,
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           // Look up the trait type by atom name in the env so we can
@@ -5885,7 +5885,7 @@ evaluate_module_value :: (
                   field_idx,
                   match(
                     meth_expr,
-                    .FnCall(_, _, c3_mca, _, _) => match(c3_mca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
+                    .FnCall(_, _, Rc(c3_mca), _, _) => match(c3_mca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
                     .Atom(_, _) => String.new()
                   )
                 )
@@ -5951,7 +5951,7 @@ evaluate_module_value :: (
                     .Some(dme) => {
                       dme_name := match(
                         dme,
-                        .FnCall(_, _, dca, _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_text(&dn), .None => String.from("")),
+                        .FnCall(_, _, Rc(dca), _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_text(&dn), .None => String.from("")),
                         .Atom(_, _) => String.from("")
                       );
                       if(dme_name == d_label, {

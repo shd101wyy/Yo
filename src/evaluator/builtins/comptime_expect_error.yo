@@ -82,7 +82,7 @@ evaluate_comptime_expect_error :: (
 )({
   arg_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(a) => a,
       .None => {
@@ -405,7 +405,7 @@ evaluate_comptime_expect_error :: (
     // went green on whatever unrelated error its snippet happened to hit.
     args := match(
       expr,
-      .FnCall(_, _, fargs, _, _) => fargs,
+      .FnCall(_, _, Rc(fargs), _, _) => fargs,
       _ => {
         return(expr);
       }
@@ -456,7 +456,7 @@ evaluate_comptime_expect_error :: (
   match(
     match(
       expr,
-      .FnCall(_, _, fargs, _, _) => fargs.get(usize(1)),
+      .FnCall(_, _, Rc(fargs), _, _) => fargs.get(usize(1)),
       _ => Option(AstExpr).None
     ),
     .Some(msg_expr) => {

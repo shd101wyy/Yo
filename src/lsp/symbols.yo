@@ -26,7 +26,7 @@ _is_fn_type_expr :: (fn(e : &AstExpr) -> bool)({
   if(ast_expr_is_fn_call_of(e, "->", .Some(usize(2))), {
     match(
       e,
-      .FnCall(_, _, arrow_args, _, _) => match(
+      .FnCall(_, _, Rc(arrow_args), _, _) => match(
         arrow_args.get(usize(0)),
         .Some(lhs) => {
           return(ast_expr_is_fn_call_of(&lhs, "fn", .None));
@@ -84,7 +84,7 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
   });
   match(
     e,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(lhs) => {
         if(!ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
@@ -92,7 +92,7 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
         });
         match(
           lhs,
-          .FnCall(_, _, pair, _, _) => match(
+          .FnCall(_, _, Rc(pair), _, _) => match(
             pair.get(usize(0)),
             .Some(name_expr) => {
               if(!ast_expr_is_atom(&name_expr), {
@@ -135,7 +135,7 @@ _decl_name_tok :: (fn(lhs : &AstExpr) -> Option(Token))(
   match(
     lhs,
     .Atom(_, t) => Option(Token).Some(t),
-    .FnCall(_, _, targs, _, _) => if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))) || ast_expr_is_fn_call_of(lhs, "mut", .Some(usize(1))), match(targs.get(usize(0)), .Some(inner) => recur(&inner), .None => Option(Token).None), Option(Token).None)
+    .FnCall(_, _, Rc(targs), _, _) => if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))) || ast_expr_is_fn_call_of(lhs, "mut", .Some(usize(1))), match(targs.get(usize(0)), .Some(inner) => recur(&inner), .None => Option(Token).None), Option(Token).None)
   )
 );
 
@@ -149,7 +149,7 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
   if(ast_expr_is_fn_call_of(e, ":=", .Some(usize(2))), {
     match(
       e,
-      .FnCall(_, _, args, _, _) =>
+      .FnCall(_, _, Rc(args), _, _) =>
         match(
           args.get(usize(0)),
           .Some(lhs) => {
@@ -180,14 +180,14 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
   if(ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
     match(
       e,
-      .FnCall(_, _, args, _, _) =>
+      .FnCall(_, _, Rc(args), _, _) =>
         match(
           args.get(usize(0)),
           .Some(lhs) => {
             if(ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
               match(
                 lhs,
-                .FnCall(_, _, pair, _, _) =>
+                .FnCall(_, _, Rc(pair), _, _) =>
                   match(
                     pair.get(usize(0)),
                     .Some(name_expr) => {
@@ -242,7 +242,7 @@ collect_document_symbols :: (
     if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
       match(
         e,
-        .FnCall(_, _, args, _, _) => {
+        .FnCall(_, _, Rc(args), _, _) => {
           name_expr := match(args.get(usize(0)), .Some(a) => a, .None => e);
           value_expr := match(args.get(usize(1)), .Some(a) => a, .None => e);
           if(ast_expr_is_atom(&name_expr), {
@@ -435,7 +435,7 @@ handle_implementations :: (
         if(ast_expr_is_fn_call_of(&e, "impl", .None), {
           match(
             e,
-            .FnCall(_, _, args, _, itok) => {
+            .FnCall(_, _, Rc(args), _, itok) => {
               // Skip the leading generic(...) clauses; the first remaining
               // argument is the Self type, the second (when present) the
               // trait.

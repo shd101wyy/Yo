@@ -188,11 +188,11 @@ _ids_list_contains :: (fn(lst : &ArrayList(String), s : &String) -> bool)({
 _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
-    .FnCall(_, f, eargs, _, _) => {
+    .FnCall(_, f, Rc(eargs), _, _) => {
       if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(&f, ".", Option(usize).Some(usize(2))), {
         match(
           f,
-          .FnCall(_, _, fargs, _, _) => {
+          .FnCall(_, _, Rc(fargs), _, _) => {
             a0 := match(
               fargs.get(usize(0)),
               .Some(x) => x,
@@ -382,7 +382,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
   if(is_cond || is_match, {
     cargs := match(
       expr,
-      .FnCall(_, _, xs, _, _) => xs,
+      .FnCall(_, _, Rc(xs), _, _) => xs,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // match: search the scrutinee first.
@@ -403,7 +403,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
         .Some(stmt) => if(ast_expr_is_fn_call_of(&stmt, "=>", Option(usize).Some(usize(2))), {
           match(
             stmt,
-            .FnCall(_, _, sargs, _, _) => match(
+            .FnCall(_, _, Rc(sargs), _, _) => match(
               sargs.get(usize(1)),
               .Some(body) => {
                 bres := _new_dup_calls_result();
@@ -524,7 +524,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
   // Generic recursion.
   match(
     expr,
-    .FnCall(_, f2, fargs2, _, _) => {
+    .FnCall(_, f2, Rc(fargs2), _, _) => {
       recur(&f2, res, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs2.len(), {
@@ -677,7 +677,7 @@ _m3_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Tok
   best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character > best.character), tok, best);
   match(
     node,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       (acc : Token) = recur(&func, reference, &best2);
       n := args.len();
       (i : usize) = usize(0);
@@ -706,7 +706,7 @@ _m3_min_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Tok
   best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character < best.character), tok, best);
   match(
     node,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       (acc : Token) = recur(&func, reference, &best2);
       n := args.len();
       (i : usize) = usize(0);
@@ -760,7 +760,7 @@ _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &V
       .Some(arm) => if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
         match(
           arm,
-          .FnCall(_, _, bargs, _, _) => match(
+          .FnCall(_, _, Rc(bargs), _, _) => match(
             bargs.get(usize(1)),
             .Some(body) => if(_m3_span_contains(&body, &ct), {
               return(Option(Token).None);
@@ -830,7 +830,7 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
 _m3_is_binding_statement_at :: (fn(stmt : &AstExpr, init_tok : &Token) -> bool)(
   match(
     stmt,
-    .FnCall(_, _, sargs, _, _) => (
+    .FnCall(_, _, Rc(sargs), _, _) => (
       (ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(stmt, BK_ASSIGN, Option(usize).Some(usize(2))))
       && match(sargs.get(usize(0)), .Some(lhs) => _m3_has_token_at(&lhs, init_tok), .None => false)
     ),
@@ -844,7 +844,7 @@ _m3_has_token_at :: (fn(node : &AstExpr, t : &Token) -> bool)({
   });
   match(
     node,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       if(recur(&func, t), {
         return(true);
       });
@@ -1006,7 +1006,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
   });
   match(
     expr,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
         // `consumed_at_token` is the variable's LAST move. A move the flow log
         // undid — made earlier inside the arm this return sits in, e.g. by the
@@ -1033,7 +1033,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
               arm_consumed := _m3_consumed_for_arm(&args, ci, variable, consumed);
               match(
                 arg,
-                .FnCall(_, _, bargs, _, _) => {
+                .FnCall(_, _, Rc(bargs), _, _) => {
                   (bj : usize) = usize(0);
                   while(bj < bargs.len(), {
                     match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, &arm_consumed, ctx), .None => ());
@@ -1092,7 +1092,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
   });
   match(
     expr,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) || _is_function_boundary_for_early_drop(expr, ctx), {
         return(());
       });
@@ -1118,7 +1118,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
               arm_consumed := _m3_consumed_for_arm(&args, ci, variable, consumed);
               match(
                 arg,
-                .FnCall(_, _, bargs, _, _) => {
+                .FnCall(_, _, Rc(bargs), _, _) => {
                   (bj : usize) = usize(0);
                   while(bj < bargs.len(), {
                     match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, &arm_consumed, ctx), .None => ());
@@ -1160,7 +1160,7 @@ _contains_return_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
   });
   match(
     e,
-    .FnCall(_, f, fargs, _, _) => {
+    .FnCall(_, f, Rc(fargs), _, _) => {
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
         .Some(ei) => match(
@@ -1199,7 +1199,7 @@ _contains_return_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
 _contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   match(
     e,
-    .FnCall(_, f, fargs, _, _) => cond(
+    .FnCall(_, f, Rc(fargs), _, _) => cond(
       is_io_await_call(e) => true,
       is_io_async_call(e) => false,
       true => {
@@ -1251,7 +1251,7 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
     .FnCall(
       _,
       f,
-      fargs,
+      Rc(fargs),
       _,
       _
     ) => {
@@ -1332,7 +1332,7 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
   if(!receiver_is_mut, {
     return(false);
   });
-  recv := match(f, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(r) => r, .None => return(false)), .Atom(_, _) => return(false));
+  recv := match(f, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(r) => r, .None => return(false)), .Atom(_, _) => return(false));
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
     .Some(ri) => match(ri.value, .Some(.TypeVal(_)) => true, .Some(.FuncVal(_, _)) => true, _ => false),
@@ -1386,7 +1386,7 @@ _remove_dup_calls_from_tree :: (fn(expr : &AstExpr, remove_ids : &HashSet(usize)
   );
   match(
     expr,
-    .FnCall(_, f, fargs, _, _) => {
+    .FnCall(_, f, Rc(fargs), _, _) => {
       recur(&f, remove_ids, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs.len(), {
@@ -1915,7 +1915,7 @@ _ic_jump_kind :: (fn(e : &AstExpr) -> Option(bool))(
 _ic_while_runs_body :: (fn(args : &ArrayList(AstExpr)) -> bool)(
   match(
     args.get(usize(0)),
-    .Some(c) => (ast_expr_is_atom_of(&c, "true") || (ast_expr_is_fn_call_of(&c, "runtime", Option(usize).Some(usize(1))) && match(c, .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(c0) => ast_expr_is_atom_of(&c0, "true"), .None => false), .Atom(_, _) => false))),
+    .Some(c) => (ast_expr_is_atom_of(&c, "true") || (ast_expr_is_fn_call_of(&c, "runtime", Option(usize).Some(usize(1))) && match(c, .FnCall(_, _, Rc(cargs), _, _) => match(cargs.get(usize(0)), .Some(c0) => ast_expr_is_atom_of(&c0, "true"), .None => false), .Atom(_, _) => false))),
     .None => false
   )
 );
@@ -2027,7 +2027,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         .None => ()
       );
     }),
-    .FnCall(_, f, args, _, _) => {
+    .FnCall(_, f, Rc(args), _, _) => {
       if(_dup_call_target_name(e).is_some() || ast_expr_is_fn_call_of(e, BF_DROP, Option(usize).None), {
         return(());
       });
@@ -2064,7 +2064,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
           if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
             match(
               arm,
-              .FnCall(_, _, arm_args, _, _) => {
+              .FnCall(_, _, Rc(arm_args), _, _) => {
                 arm_head := match(arm_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
                 arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                 if(ast_expr_is_atom_of(&arm_head, "true"), {
@@ -2474,7 +2474,7 @@ _is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
   head_ok := (fn(h : &AstExpr) -> bool)(
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
-      .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
+      .FnCall(_, _, Rc(hargs), _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
       .Atom(_, _) => false
     )
   );
@@ -2492,7 +2492,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
   if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))), {
     is_it := match(
       e,
-      .FnCall(_, _, rargs, _, _) => match(
+      .FnCall(_, _, Rc(rargs), _, _) => match(
         rargs.get(usize(0)),
         .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_token(&a).value == name)),
         .None => false
@@ -2505,7 +2505,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
   });
   match(
     e,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       if(recur(&func, name.clone()), {
         return(true);
       });
@@ -2569,7 +2569,7 @@ _variant_local_hint :: (
   if(!ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))), {
     return(Option(ExpectedTypeCtx).None);
   });
-  sargs := match(stmt, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  sargs := match(stmt, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(sargs.get(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs := match(sargs.get(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs_is_async := is_io_async_call(&rhs);
@@ -2626,7 +2626,7 @@ _stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => ((tok.value == BK_BREAK) || (tok.value == "continue")),
-    .FnCall(_, _, args, _, _) => cond(
+    .FnCall(_, _, Rc(args), _, _) => cond(
       (ast_expr_is_fn_call_of(e, BK_RETURN, .None) || ast_expr_is_fn_call_of(e, BF_UNWIND, .None)) => true,
       (ast_expr_is_fn_call_of(e, BK_BREAK, .None) || ast_expr_is_fn_call_of(e, "continue", .None)) => true,
       ast_expr_is_fn_call_of(e, BK_BEGIN, .None) => {
@@ -2649,7 +2649,7 @@ _stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
             arms = (arms + usize(1));
             match(
               a,
-              .FnCall(_, _, aargs, _, _) => if(!_stmt_always_exits(&aargs(usize(1))), {
+              .FnCall(_, _, Rc(aargs), _, _) => if(!_stmt_always_exits(&aargs(usize(1))), {
                 all_exit = false;
               }),
               .Atom(_, _) => ()
@@ -2696,7 +2696,7 @@ _must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
 reject_empty_record_arm :: (fn(body : &AstExpr, exn : Exception) -> unit)(
   match(
     body,
-    .FnCall(_, _, arm_args, _, _) => {
+    .FnCall(_, _, Rc(arm_args), _, _) => {
       if((arm_args.len() == usize(0)) && ast_expr_is_fn_call_of(body, BK_ANON_STRUCT, Option(usize).None), {
         exn.throw(
           dyn(
@@ -2777,7 +2777,7 @@ _evaluate_begin_expression_impl :: (
   is_begin_call := ast_expr_is_fn_call_of(expr, BK_BEGIN, .None);
   begin_args := if(is_begin_call, match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
   ), {
     single := ArrayList(AstExpr).new();
@@ -2887,7 +2887,7 @@ _evaluate_begin_expression_impl :: (
       is_return_atom || (
         is_return_call && match(
           expr_to_eval,
-          .FnCall(_, _, ret_call_args, _, _) => (ret_call_args.len() == usize(0)),
+          .FnCall(_, _, Rc(ret_call_args), _, _) => (ret_call_args.len() == usize(0)),
           .Atom(_, _) => false
         )
       )
@@ -2923,7 +2923,7 @@ _evaluate_begin_expression_impl :: (
           // `return(val)` — evaluate the argument.
           ret_arg := match(
             expr_to_eval,
-            .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+            .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
           // Decision 18 rule 1 (decision 38 A): a local borrow is
@@ -3209,7 +3209,7 @@ _evaluate_begin_expression_impl :: (
         return_expr = Option(AstExpr).Some(expr_to_eval);
         esc_n_args := match(
           expr_to_eval,
-          .FnCall(_, _, esc_args0, _, _) => esc_args0.len(),
+          .FnCall(_, _, Rc(esc_args0), _, _) => esc_args0.len(),
           .Atom(_, _) => usize(0)
         );
         // At most one argument.
@@ -3249,7 +3249,7 @@ _evaluate_begin_expression_impl :: (
         }, {
           esc_arg := match(
             expr_to_eval,
-            .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+            .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
           // Propagate the enclosing function's return type as the expected type.
@@ -3512,7 +3512,7 @@ _evaluate_begin_expression_impl :: (
                     if(!rb_meta.*.result_is_ref, {
                       match(
                         last_expr,
-                        .FnCall(_, _, rv_args, _, _) => match(rv_args.get(usize(0)), .Some(rv_value) => reject_bare_callable_into_dyn_fn(&expected_ret, &return_type, &rv_value, String.from("the result"), ctx, exn), .None => ()),
+                        .FnCall(_, _, Rc(rv_args), _, _) => match(rv_args.get(usize(0)), .Some(rv_value) => reject_bare_callable_into_dyn_fn(&expected_ret, &return_type, &rv_value, String.from("the result"), ctx, exn), .None => ()),
                         .Atom(_, _) => ()
                       );
                     });
@@ -3581,7 +3581,7 @@ _evaluate_begin_expression_impl :: (
   check_expr := cond(
     is_return_with_arg => match(
       re_base,
-      .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => re_base),
+      .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => re_base),
       .Atom(_, _) => re_base
     ),
     true => re_base
@@ -3635,7 +3635,7 @@ _evaluate_begin_expression_impl :: (
   if(ast_expr_is_fn_call_of(&last_expr, BK_RETURN, Option(usize).Some(usize(1))), {
     match(
       last_expr,
-      .FnCall(_, _, ret_args, _, _) => match(
+      .FnCall(_, _, Rc(ret_args), _, _) => match(
         ret_args.get(usize(0)),
         .Some(ra) => {
           return_value_expr = ra;

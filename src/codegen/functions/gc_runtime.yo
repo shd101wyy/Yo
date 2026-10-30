@@ -33,7 +33,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
   if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
     match(
       expr,
-      .FnCall(_, _, args, _, _) => match(
+      .FnCall(_, _, Rc(args), _, _) => match(
         args.get(usize(0)),
         .Some(arg0) => match(
           context.base.get_expr_info(&arg0),
@@ -50,7 +50,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
   if(ast_expr_is_fn_call(expr), {
     match(
       expr,
-      .FnCall(_, func, args, _, _) => {
+      .FnCall(_, func, Rc(args), _, _) => {
         n := args.len();
         (ai : usize) = usize(0);
         while(ai < n, {

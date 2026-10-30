@@ -415,7 +415,7 @@ evaluate_yo_comptime_numeric_functions :: (
   if(is_unary, {
     arg0 := match(
       expr,
-      .FnCall(_, _, fargs, _, _) => match(
+      .FnCall(_, _, Rc(fargs), _, _) => match(
         fargs.get(usize(0)),
         .Some(a) => a,
         .None => {
@@ -536,7 +536,7 @@ evaluate_yo_comptime_numeric_functions :: (
     // ---- 6. Binary operations. -------------------------------------------
     args := match(
       expr,
-      .FnCall(_, _, fargs, _, _) => fargs,
+      .FnCall(_, _, Rc(fargs), _, _) => fargs,
       _ => {
         return(expr);
       }
