@@ -1,0 +1,68 @@
+//! The mutation summary of a body that only dups its first parameter (the
+//! prelude's `Rc`/`Arc` `Clone.clone`, `___dup(self)`, the callee of every
+//! decision-17 `Rc.clone(h)`) is known from the body's shape. A
+//! specialization's body can have no ExprInfo in the table a caller is
+//! summarized against; the conservative answer there (`all`, not memoized,
+//! and recorded in the caller's touched list) kept every caller of `Rc.clone`
+//! from being memoized, and `check src/main.yo` re-analysed the
+//! `Pattern.clone` / `clone_patterns` cycle 180,000 times
+//! (issues/fixed/2026-10-30-rc-clone-calls-defeat-the-mutation-summary-memo.md).
+//!
+//! Each case analyses against an EMPTY ExprInfoTable, the situation a caller
+//! in another module's table is in.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ Token, TokenKind } :: import("../../src/token.yo");
+{ AstExpr } :: import("../../src/expr.yo");
+{ expr_info_table_new } :: import("../../src/expr_info.yo");
+{ TypeValue } :: import("../../src/types/definitions.yo");
+{ t_func_simple, t_unit, t_i32 } :: import("../../src/types/creators.yo");
+{ register_func_type } :: import("../../src/function_value.yo");
+{ function_param_mutation_mask, param_mutation_mask_is_empty } :: import("../../src/evaluator/effects/mutation_summary.yo");
+
+_tok :: (fn(v : str) -> Token)(
+  Token(
+    kind : TokenKind.Identifier,
+    value : String.from(v),
+    row : u32(0),
+    column : u32(0),
+    character : u32(0),
+    module_path : rc(String.from("app.yo")),
+    input : rc(String.new())
+  )
+);
+/// Register `fn(<labels> : i32 ...) -> unit` under `fid`.
+_register :: (fn(fid : str, label0 : str, label1 : str) -> unit)({
+  labels := ArrayList(String).new();
+  labels.push(String.from(label0));
+  labels.push(String.from(label1));
+  tys := ArrayList(TypeValue).new();
+  tys.push(t_i32());
+  tys.push(t_i32());
+  register_func_type(String.from(fid), t_func_simple(labels, tys, t_unit()));
+});
+/// `<head>(<arg>)` with fresh node ids.
+_call1 :: (fn(head : str, arg : str, id : usize) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(AstExpr.Atom(id + usize(2), _tok(arg)));
+  AstExpr.FnCall(id, AstExpr.Atom(id + usize(1), _tok(head)), args, false, _tok(head))
+});
+test("a body that dups its first parameter mutates nothing, even with no ExprInfo for it", {
+  _register("fn_yo_id_test_msp_dup_first", "self", "other");
+  body := _call1("___dup", "self", usize(900001));
+  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_dup_first"), &body, &expr_info_table_new());
+  assert(param_mutation_mask_is_empty(&mask), "`___dup(self)` writes nothing through any parameter");
+});
+test("the shape is exact: a dup of another parameter keeps the conservative answer", {
+  _register("fn_yo_id_test_msp_dup_second", "self", "other");
+  body := _call1("___dup", "other", usize(900011));
+  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_dup_second"), &body, &expr_info_table_new());
+  assert(!param_mutation_mask_is_empty(&mask), "an unevaluated body that is not `___dup(<first parameter>)` stays `all`");
+});
+test("the shape is exact: another call of the first parameter keeps the conservative answer", {
+  _register("fn_yo_id_test_msp_other_call", "self", "other");
+  body := _call1("___drop", "self", usize(900021));
+  mask := function_param_mutation_mask(&String.from("fn_yo_id_test_msp_other_call"), &body, &expr_info_table_new());
+  assert(!param_mutation_mask_is_empty(&mask), "`___drop(self)` is not a dup");
+});
