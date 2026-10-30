@@ -97,6 +97,24 @@ _byte_slice :: (fn(s : &String, from : usize, to : usize) -> String)({
   });
   String.from_bytes(out)
 });
+/// Whether `code` is a C cast to a pointer type of an identifier or an
+/// addressable expression: `(T*)p`, `(T *)(x->y)`.
+_is_pointer_cast_c_expr :: (fn(code : &String) -> bool)({
+  if(!code.starts_with("("), {
+    return(false);
+  });
+  n := code.len();
+  close := _match_bracket(code, usize(0), u8(40), u8(41));
+  if(close >= n, {
+    return(false);
+  });
+  ty := _byte_slice(code, usize(1), close).trim();
+  operand := _byte_slice(code, close + usize(1), n).trim();
+  if(!ty.ends_with("*") || (operand.len() == usize(0)), {
+    return(false);
+  });
+  (_scan_ident(&operand, usize(0)) == operand.len()) || _is_addressable_c_expr(&operand)
+});
 /// Whether `code` is an lvalue C expression whose address can be taken (a
 /// deref, or an identifier head + `.`/`->`/`[]` chain).
 _is_addressable_c_expr :: (fn(code : &String) -> bool)({
@@ -131,10 +149,20 @@ _is_addressable_c_expr :: (fn(code : &String) -> bool)({
       return(false);
     });
     inner := _byte_slice(&s, usize(1), close).trim();
-    if((inner.len() == usize(0)) || !(inner.byte_at(usize(0)) == u8(42)), {
+    if((inner.len() == usize(0)) || !((inner.byte_at(usize(0)) == u8(42)) || _is_pointer_cast_c_expr(&inner)), {
       return(false);
     });
     i = (close + usize(1));
+    // A pointer cast `((T*)p)` is not an lvalue itself; `((T*)p)->f` is.
+    // A closure body reads its captures that way (`((Ctx*)closure_context)
+    // ->__yo_v_h->__yo_v_xs`), so rejecting it spilled a `&mut` receiver
+    // reached through a captured `ref` handle to a copy and lost the write.
+    if(!(inner.byte_at(usize(0)) == u8(42)), {
+      rest := _byte_slice(&s, i, n).trim();
+      if(!rest.starts_with("->"), {
+        return(false);
+      });
+    });
   }, {
     idlen := _scan_ident(&s, usize(0));
     if(idlen == usize(0), {
