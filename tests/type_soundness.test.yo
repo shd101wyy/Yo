@@ -563,15 +563,15 @@ test("soundness canary: two method-call arguments bind one callee's type paramet
 // issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md
 // (Phase 2.4): a kind-annotated binder is inferred from an argument's
 // instantiation, and `F(A)` in the result is applied.
-_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : &F(A)) -> F(A))(x);
+_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
 test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
   o := Option(i32).Some(i32(7));
-  r := _hk_identity(&o);
+  r := _hk_identity(o);
   (r2 : Option(i32)) = r;
   assert(match(r2, .Some(v) => v, .None => i32(0)) == i32(7), "the constructor was applied");
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(3));
-  ys := _hk_identity(&xs);
+  ys := _hk_identity(xs);
   assert(ys.len() == usize(1), "a struct constructor too");
 });
 // issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md (Phase 2.4):
@@ -1159,11 +1159,13 @@ test("soundness: a `&mut` argument overlapping a `&` one on a value root is E091
   assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
   assert(x.s.starts_with(`fresh-value-2`), "the `&mut` write reached the caller");
 });
-// The same overlap on a collection, which is a reference type: the dup/drop
-// pair optimizer cancelled the caller-owned +1 against `xs`'s scope-end drop,
-// so the callee's `&` argument read the freed first list and the last list
-// leaked
+// The same overlap on a collection. While a collection was a reference type
+// the dup/drop pair optimizer cancelled the caller-owned +1 against `xs`'s
+// scope-end drop, so the callee's `&` argument read the freed first list and
+// the last list leaked
 // (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
+// Since B8 a collection is a value, so the overlap is decision 28's
+// value-root E0910, as for the struct above.
 _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> usize)({
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
@@ -1173,18 +1175,22 @@ _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> u
   });
   b.len()
 });
-_p5_clobber_list_caller :: (fn() -> usize)({
-  mut(xs) := ArrayList(_P5Box).new();
-  xs.push(_P5Box(tag : i32(7)));
-  xs.push(_P5Box(tag : i32(8)));
-  n := _p5_clobber_list(&mut xs, &xs);
-  n
-});
-test("soundness: a collection lent both &mut and & to one call keeps its share", {
+test("soundness: a collection lent both &mut and & to one call is E0910", {
+  comptime_expect_error({
+    mut(xs) := ArrayList(_P5Box).new();
+    xs.push(_P5Box(tag : i32(7)));
+    _p5_clobber_list(&mut xs, &xs)
+  }, "decision 28's value-root rule");
   before := g_p5_disposed;
-  n := _p5_clobber_list_caller();
-  assert(n == usize(2), `the borrowed list survived the writes, len ${n.to_string()}`);
-  assert(g_p5_disposed == (before + i32(5)), `every box released once, got ${(g_p5_disposed - before).to_string()}`);
+  {
+    mut(xs) := ArrayList(_P5Box).new();
+    xs.push(_P5Box(tag : i32(7)));
+    ys := ArrayList(_P5Box).new();
+    n := _p5_clobber_list(&mut xs, &ys);
+    assert(n == usize(0), "the separate list was lent beside it");
+    assert(xs.len() == usize(1), "the `&mut` write reached the caller");
+  };
+  assert(g_p5_disposed == (before + i32(4)), `every box released once, got ${(g_p5_disposed - before).to_string()}`);
 });
 // issues/fixed/std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md:
 // std/assert's `panic` is `-> never`, so it fits an arm that must produce a value.

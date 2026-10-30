@@ -11,7 +11,7 @@ test("Url parse simple HTTP URL", {
   url := Url.parse(String.from("http://example.com")).unwrap();
   assert(url.scheme() == String.from("http"), "scheme should be http");
   assert(url.host().is_some(), "host should be present");
-  assert(url.host.clone()().unwrap() == String.from("example.com"), "host should be example.com");
+  assert(url.host().clone().unwrap() == String.from("example.com"), "host should be example.com");
   assert(url.port().is_none(), "port should be None");
   assert(url.query().is_none(), "query should be None");
   assert(url.fragment().is_none(), "fragment should be None");
@@ -19,12 +19,12 @@ test("Url parse simple HTTP URL", {
 test("Url parse HTTPS URL with path", {
   url := Url.parse(String.from("https://example.com/path/to/resource")).unwrap();
   assert(url.scheme() == String.from("https"), "scheme should be https");
-  assert(url.host().unwrap() == String.from("example.com"), "host should be example.com");
+  assert(url.host().clone().unwrap() == String.from("example.com"), "host should be example.com");
   assert(url.path() == String.from("/path/to/resource"), "path should be /path/to/resource");
 });
 test("Url parse URL with port", {
   url := Url.parse(String.from("http://localhost:8080/api")).unwrap();
-  assert(url.host().unwrap() == String.from("localhost"), "host should be localhost");
+  assert(url.host().clone().unwrap() == String.from("localhost"), "host should be localhost");
   assert(url.port().is_some(), "port should be present");
   assert(url.port().unwrap() == u16(8080), "port should be 8080");
   assert(url.path() == String.from("/api"), "path should be /api");
@@ -33,23 +33,23 @@ test("Url parse URL with query", {
   url := Url.parse(String.from("http://example.com/search?q=hello&lang=en")).unwrap();
   assert(url.path() == String.from("/search"), "path should be /search");
   assert(url.query().is_some(), "query should be present");
-  assert(url.query().unwrap() == String.from("q=hello&lang=en"), "query should be q=hello&lang=en");
+  assert(url.query().clone().unwrap() == String.from("q=hello&lang=en"), "query should be q=hello&lang=en");
 });
 test("Url parse URL with fragment", {
   url := Url.parse(String.from("http://example.com/page#section1")).unwrap();
   assert(url.path() == String.from("/page"), "path should be /page");
   assert(url.fragment().is_some(), "fragment should be present");
-  assert(url.fragment().unwrap() == String.from("section1"), "fragment should be section1");
+  assert(url.fragment().clone().unwrap() == String.from("section1"), "fragment should be section1");
 });
 test("Url parse full URL with all components", {
   url := Url.parse(String.from("https://user:pass@example.com:443/path?key=val#frag")).unwrap();
   assert(url.scheme() == String.from("https"), "scheme");
-  assert(url.userinfo().unwrap() == String.from("user:pass"), "userinfo");
-  assert(url.host().unwrap() == String.from("example.com"), "host");
+  assert(url.userinfo().clone().unwrap() == String.from("user:pass"), "userinfo");
+  assert(url.host().clone().unwrap() == String.from("example.com"), "host");
   assert(url.port().unwrap() == u16(443), "port");
   assert(url.path() == String.from("/path"), "path");
-  assert(url.query().unwrap() == String.from("key=val"), "query");
-  assert(url.fragment().unwrap() == String.from("frag"), "fragment");
+  assert(url.query().clone().unwrap() == String.from("key=val"), "query");
+  assert(url.fragment().clone().unwrap() == String.from("frag"), "fragment");
 });
 // ============================================================================
 // Scheme handling
@@ -61,7 +61,7 @@ test("Url parse normalizes scheme to lowercase", {
 test("Url parse FTP scheme", {
   url := Url.parse(String.from("ftp://files.example.com/pub/data.txt")).unwrap();
   assert(url.scheme() == String.from("ftp"), "scheme should be ftp");
-  assert(url.host().unwrap() == String.from("files.example.com"), "host");
+  assert(url.host().clone().unwrap() == String.from("files.example.com"), "host");
   assert(url.path() == String.from("/pub/data.txt"), "path");
 });
 // ============================================================================
@@ -70,12 +70,12 @@ test("Url parse FTP scheme", {
 test("Url parse empty path with query", {
   url := Url.parse(String.from("http://example.com?q=1")).unwrap();
   assert(url.path().is_empty(), "path should be empty");
-  assert(url.query().unwrap() == String.from("q=1"), "query should be q=1");
+  assert(url.query().clone().unwrap() == String.from("q=1"), "query should be q=1");
 });
 test("Url parse empty path with fragment", {
   url := Url.parse(String.from("http://example.com#top")).unwrap();
   assert(url.path().is_empty(), "path should be empty");
-  assert(url.fragment().unwrap() == String.from("top"), "fragment should be top");
+  assert(url.fragment().clone().unwrap() == String.from("top"), "fragment should be top");
 });
 test("Url parse trailing slash", {
   url := Url.parse(String.from("http://example.com/")).unwrap();
@@ -392,8 +392,8 @@ test("Url setters replace each component and round-trip through to_string", {
   assert(again.scheme() == `https`, "scheme survives the round-trip");
   assert(again.port().unwrap() == u16(8443), "port survives");
   assert(again.path() == `/b/c`, "path survives");
-  assert(again.query().unwrap() == `y=2`, "query survives");
-  assert(again.fragment().unwrap() == `g`, "fragment survives");
+  assert(again.query().clone().unwrap() == `y=2`, "query survives");
+  assert(again.fragment().clone().unwrap() == `g`, "fragment survives");
 });
 test("Url setters remove optional components with .None", {
   u := Url.parse(String.from("http://user@example.com:99/a?x=1#f")).unwrap();

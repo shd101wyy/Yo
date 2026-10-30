@@ -7,6 +7,7 @@
 { String } :: import("std/string");
 { ToString } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { sleep } :: import("std/sys/timer");
 Boom :: struct(msg : String);
 impl(Boom, ToString(to_string : (self -> self.msg.clone())));
@@ -81,20 +82,23 @@ test("a throw in a fused tail unwinds to a handler two frames up", {
   assert(_unwound_two_up(io), "the outer handler catches it");
 });
 // Side effects in the prologue and the arguments run once, in order.
-_log_push :: (fn(log : &mut ArrayList(i32), x : i32) -> i32)({
-  log.push(x);
+// The log is one list the caller, the prologue and the block all reach: a
+// shared cell, since an `ArrayList` is a value (decision 46, B8).
+_log_push :: (fn(log : &Rc(RefCell(ArrayList(i32))), x : i32) -> i32)({
+  log.with_mut(l => l.push(x));
   x
 });
 (mut(g_fusion_arg_runs) : i32) = i32(0);
-_log_len_at_arg :: (fn(log : &ArrayList(i32)) -> i32)({
+_log_len_at_arg :: (fn(log : &Rc(RefCell(ArrayList(i32)))) -> i32)({
   g_fusion_arg_runs = (g_fusion_arg_runs + i32(1));
-  i32(log.len())
+  i32(log.with(l => l.len()))
 });
-_logged :: (fn(log : &ArrayList(i32), n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
+_logged :: (fn(log : &Rc(RefCell(ArrayList(i32))), n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
   _p := _log_push(log, i32(2));
+  h := Rc.clone(log);
   io.async(e => {
     r := e.io.await(_leaf(n, e.io), e.io);
-    _q := _log_push(log, i32(3));
+    _q := _log_push(&h, i32(3));
     r
   })
 });
@@ -107,15 +111,14 @@ test("prologue and argument effects run once, in order", {
       }
     )
   );
-  // The argument reads `log` (a later argument may not lend `&mut` the place
-  // `&log` lends, E0910) and counts its runs in a global.
-  log := ArrayList(i32).new();
+  // The argument reads `log` and counts its runs in a global.
+  log := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   v := io.await(_logged(&log, _log_len_at_arg(&log), io), IoExn(io : io, exn : exn));
   assert(v == i32(0), "the argument ran first, before the prologue's push");
   assert(g_fusion_arg_runs == i32(1), "the argument ran once");
-  assert(log.len() == usize(2), "two effects in the callee");
-  assert(log.get(usize(0)).unwrap() == i32(2), "prologue first");
-  assert(log.get(usize(1)).unwrap() == i32(3), "block second");
+  assert(log.with(l => l.len()) == usize(2), "two effects in the callee");
+  assert(log.with(l => l.get(usize(0)).unwrap()) == i32(2), "prologue first");
+  assert(log.with(l => l.get(usize(1)).unwrap()) == i32(3), "block second");
 });
 // Two awaits of one wrapper in one caller, and one in a loop.
 _twice_and_loop :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(

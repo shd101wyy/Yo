@@ -370,9 +370,9 @@ test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
 SsWeakParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Weak(RefCell(Self)));
 SsStrongParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Option(Rc(RefCell(Self))));
 SsArcWeakPeer :: atomic(ref(struct(id : i32, peer : ArcWeak(Mutex(Self)))));
-// `ArrayList` is a `ref` object until decision 46's B8 makes it a value, so a
-// recursion through it runs through a shared cell: a list may hold a value
-// that holds the list. This row flips with B8.
+// `ArrayList` is a value since decision 46's B8, so a recursion through it is
+// a tree: a list owns its elements, and no element can hold the list itself.
+// Before B8 the list was a shared `ref` object, and the row was not Acyclic.
 SsListNode :: struct(v : i32, kids : ArrayList(Self));
 test("a Weak edge is no edge, and a value or Box recursion is a tree", {
   comptime_assert(Type.impls(SsWeakParent, Acyclic), "a weak edge is no edge");
@@ -380,7 +380,7 @@ test("a Weak edge is no edge, and a value or Box recursion is a tree", {
   comptime_assert(Type.impls(SsArcWeakPeer, Acyclic), "an ArcWeak back edge is no cycle");
   comptime_assert(Type.impls(Weak(RefCell(SsStrongParent)), Acyclic), "a Weak handle reaches nothing");
   comptime_assert(Type.impls(SsBoxNode, Acyclic), "Option(Box(Self)) stays Acyclic");
-  comptime_assert(!Type.impls(SsListNode, Acyclic), "a recursion through the ArrayList object is not, until B8");
+  comptime_assert(Type.impls(SsListNode, Acyclic), "a recursion through a value ArrayList is a tree");
   comptime_assert(Type.impls(ArrayList(SsBoxNode), Acyclic), "a list of a tree is Acyclic");
 });
 // issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md:

@@ -38,8 +38,8 @@
 //! a `Box` (plans/VALUES_BY_DEFAULT.md V3). `f2 := f` moves the handle, and a
 //! copy that would leave two owners is error E0901. Lend it with `&f` (every
 //! method takes `self : &Self`), or share one handle as `Rc(File)` on one
-//! thread. A `File` cannot cross threads yet (it is not `Send` until V2b; see
-//! the type's doc). A method's future borrows the file until it is awaited
+//! thread. A `File` is `Send` but never `Sync` (see the type's doc): move it
+//! to another thread, or share it as `Arc(Mutex(File))`. A method's future borrows the file until it is awaited
 //! (`read`, `write_*`, `flush`, `set_len`, `metadata`, `close`): await it
 //! where it is made,
 //! `io.await(f.read_to_string(io), b)`, with the bundle `b` a variable.
@@ -144,10 +144,9 @@ _close_file_state :: (fn(st : *_FileState, io : Io) -> Impl(Future(unit, IoExn))
 /// A move-only value (its state is a `Box(_FileState)`): moving it moves the
 /// descriptor, and a copy is E0901. Every method takes `self : &Self`; the
 /// position and the closed flag change inside the box, as Rust's `&File`
-/// reads and writes. That is why a `File` is never `Sync`. It is not `Send`
-/// yet either: its path is a `String`, whose buffer is a non-atomically
-/// counted cell until V2b (plans/VALUES_BY_DEFAULT.md), so it cannot cross
-/// threads, not even inside an `Arc(Mutex(File))`.
+/// reads and writes. That is why a `File` is never `Sync`. It is `Send`: its
+/// path is a `String` value, owned by the file (decision 46, B8), so a `File`
+/// moves to another thread whole, and `Arc(Mutex(File))` shares one.
 File :: struct(_cell : Box(_FileState));
 impl(File, !Sync());
 impl(
