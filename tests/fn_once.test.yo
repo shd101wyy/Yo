@@ -634,8 +634,8 @@ test("FnOnce: a closure literal at an impl-method call releases its captures onc
   before := g_once_disposed;
   r := _OnceRunner(tag : String.from("r"));
   s2 := String.from("xy");
-  assert(r.run_once(() => s2.len()) == usize(2), "an implicit RC capture, by-value parameter");
-  assert(r.run_sink(() => s2.len()) == usize(2), "an implicit RC capture, sink parameter");
+  assert(r.run_once({ s : s2.clone() }() => s.len()) == usize(2), "a String capture, by-value parameter");
+  assert(r.run_sink({ s : s2.clone() }() => s.len()) == usize(2), "a String capture, sink parameter");
   assert(s2 == String.from("xy"), "the caller's String is intact");
   t := _OnceTok(n : i32(3));
   assert(r.run_once({ t }() => _once_take(t)) == i32(3), "a capture-list move, by-value parameter");
@@ -660,10 +660,10 @@ test("FnOnce: a generic container's FnOnce sink method takes a capture-list move
   s := String.from("k");
   c.with_mut({ s }(xs) => xs.push(s));
   t := String.from("t");
-  c.with_mut(xs => xs.push(t.clone()));
+  c.with_mut({ u : t.clone() }(xs) => xs.push(u));
   assert(c.v.len() == usize(2), "both bodies ran");
   assert(c.v(usize(0)) == String.from("k"), "the moved capture landed in the list");
-  assert(t == String.from("t"), "the implicit capture is intact");
+  assert(t == String.from("t"), "the caller's String is intact");
 });
 
 // --- a generic free function's FnOnce parameter, sink or plain by-value -----
