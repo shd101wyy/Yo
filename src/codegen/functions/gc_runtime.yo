@@ -158,24 +158,14 @@ emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
   match(
     context.unwind_value_c_types,
     .Some(types) => {
-      it := types.into_iter();
       (idx : usize) = usize(0);
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(t) => {
-            decl.push_str("    ");
-            decl.push_string(t.clone());
-            decl.push_str(" __m");
-            decl.push_string(idx.to_string());
-            decl.push_str(";\n");
-            idx = (idx + usize(1));
-          },
-          .None => {
-            go = false;
-          }
-        );
+      for(&types, t => {
+        decl.push_str("    ");
+        decl.push_string(t.clone());
+        decl.push_str(" __m");
+        decl.push_string(idx.to_string());
+        decl.push_str(";\n");
+        idx = (idx + usize(1));
       });
     },
     .None => ()

@@ -145,20 +145,8 @@ emit_c_includes :: (fn(context : &CodeGenContext) -> unit)({
   // The registered set, in its own iteration order — `ordered_c_includes`
   // applies the platform filters and the one C ordering constraint.
   registered := ArrayList(String).new();
-  include_iter := context.c_includes.into_iter();
-  // Loop via a flag, NOT `return(())`: a bare return would exit the whole
-  // function and skip the platform includes + allocator defines below.
-  (go_inc : bool) = true;
-  while(go_inc, {
-    match(
-      include_iter.next(),
-      .Some(include) => {
-        registered.push(include);
-      },
-      .None => {
-        go_inc = false;
-      }
-    );
+  for(&context.c_includes, include => {
+    registered.push(include.clone());
   });
   ordered := ordered_c_includes(&registered, is_windows, is_macos);
   (oi : usize) = usize(0);
