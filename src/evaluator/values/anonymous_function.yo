@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -2472,7 +2472,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
             // Decision 38 A: a second-class value is never returned, except
             // a borrowing future rooted at the closure's own borrow
             // parameters (§3.13 A2).
-            cr_ret_ty := match(&function_type, Rc(.Func({ result : cr_r })) => t_slot_pointee(&cr_r), _ => t_unit());
+            // A projection closure's body is its place's address (the marked
+            // `addr_of(place)`, `_closure_projection_body`), a `*(T)`.
+            cr_ret_ty := match(&function_type, Rc(.Func({ result : cr_r })) => if(t_slot_is_borrow(&cr_r), t_ptr(&t_slot_pointee(&cr_r)), t_slot_pointee(&cr_r)), _ => t_unit());
             if(!has_any_control_flow(cr_info.control_flow), {
               // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
               if(!fn_result_is_ref(&function_type), {
@@ -2575,7 +2577,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
           .Some(nrs_info) => {
-            nrs_body_ty := Rc.clone(nrs_info.ty);
+            // A projection closure's body is its place's address (`*(T)`);
+            // the result it binds is the place's type `T`.
+            nrs_body_ty := if(fn_result_is_ref(&function_type), match(&nrs_info.ty, Rc(.Pointer(nrs_pp)) => Rc.clone(nrs_pp), _ => Rc.clone(nrs_info.ty)), Rc.clone(nrs_info.ty));
             nrs_ret_ty := match(&function_type, Rc(.Func({ result : nrs_r })) => t_slot_pointee(&nrs_r), _ => t_unit());
             nrs_ret_nested := (!is_some_type(&nrs_ret_ty) && (get_all_some_types(&nrs_ret_ty).len() > usize(0)));
             // BARE-SomeT declared return (`-> B`, map's output forall): the
