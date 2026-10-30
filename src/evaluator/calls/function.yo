@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
+{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_holds_counted_handle_ignoring_migration } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -7745,16 +7745,19 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   )
 });
 /// Decision 20's guidance for a copying accessor, as a help sentence:
-/// "read it in place with `r(i)`, copy it with `r.m_cloned(...)`, or write
-/// through it with `r.with(i, ...)`" — the in-place read only where the
+/// "Read it in place with `r(i)`, copy it with `r.m_cloned(...)`, or write
+/// through it with `r.with(i, ...)`." — the in-place read only where the
 /// receiver is index-addressed, `with` only where the receiver has it, and
-/// every name from the registry (`_copying_accessor_info`).
+/// every name from the registry (`_copying_accessor_info`). It is appended
+/// to the help sentence before it (`_with_primary_help`), so it starts with a
+/// capital and ends with a period.
 _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
   parts := ArrayList(String).new();
   if(info.has_index, {
-    parts.push(`read it in place with \`${info.recv_text}(i)\``);
+    parts.push(`Read it in place with \`${info.recv_text}(i)\``);
   });
-  parts.push(`copy it with \`${info.recv_text}.${info.cloned}(...)\``);
+  copy_verb := if(parts.is_empty(), String.from("Copy"), String.from("copy"));
+  parts.push(`${copy_verb} it with \`${info.recv_text}.${info.cloned}(...)\``);
   if(info.has_with, {
     parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
   });
@@ -7772,6 +7775,7 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
     out.push_string(&parts(pi));
     pi = (pi + usize(1));
   });
+  out.push_str(".");
   out
 });
 /// An error raised inside the standard library while evaluating a call
@@ -8098,7 +8102,8 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
 /// carries a unique buffer (`_ic_category_is_unique_buffer`: `String`, a
 /// std collection, a value aggregate holding one). Prints one
 /// `[copying-accessor]` line per call site for `YO_AUDIT_COPYING_ACCESSOR`
-/// and records the site for `yo fix --migrate cloned-accessors`. Inert
+/// and records the site for `yo fix --migrate cloned-accessors`, which also
+/// records a call whose result holds a counted handle (decision 17). Inert
 /// unless one of them is on.
 _audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
   if(!audit_copying_accessor_enabled(), {
@@ -8117,7 +8122,11 @@ _audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &E
   // generic body) stays — that is exactly the in-generic case.
   res_ty := _resolve_some_types_deep(&res_ty0, env);
   category := implicit_copy_category(&res_ty);
-  if(!_ic_category_is_unique_buffer(&category), {
+  // A result holding a counted handle is a site of the migration only (the
+  // N7 audit counts unique buffers): the std reader's copy of the handle is
+  // decision 17's E0901 at this call.
+  is_handle := (!_ic_category_is_unique_buffer(&category) && migrate_cloned_accessors_on() && type_holds_counted_handle_ignoring_migration(&res_ty));
+  if(!_ic_category_is_unique_buffer(&category) && !is_handle, {
     return(());
   });
   // The method NAME's token is the rewrite point: `_cloned` inserts right
@@ -8137,7 +8146,9 @@ _audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &E
   });
   recv_text := if(ai.recv_text.len() > usize(40), `${ai.recv_text.substring(usize(0), usize(37))}...`, ai.recv_text.clone());
   line := `${display_module_path(&name_tok.module_path.*)}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()} [copying-accessor] ${category} ${type_to_string(&res_ty).replace(" ", String.from(""))} \`${recv_text}.${ai.method}(...)\``;
-  audit_print_copying_accessor(&line);
+  if(!is_handle, {
+    audit_print_copying_accessor(&line);
+  });
   if(migrate_cloned_accessors_on(), {
     recv_expr := _accessor_recv_of(call);
     record_copying_accessor_site(
@@ -8164,7 +8175,8 @@ _audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &E
         ),
         at_module : canonical_module_path(&name_tok.module_path.*),
         at_offset : name_tok.byte_offset,
-        in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&res_ty))
+        in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&res_ty)),
+        handle : is_handle
       )
     );
   });

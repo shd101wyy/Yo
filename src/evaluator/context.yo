@@ -15,7 +15,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
-{ note_move_only_possible, is_drop_trait_name, set_counted_handle_std_generic } :: import("../types/utils.yo");
+{ note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
@@ -205,21 +205,12 @@ SpecializingFunctionInfo :: ref(
     /// error there, not the placeholder a generic trial's degraded operand
     /// leaves.
     (is_concrete : bool) ?= false,
-    /// The specialized function is defined in std: decision 17 does not judge
-    /// its body's handle copies (`set_counted_handle_std_generic`).
-    (in_std : bool) ?= false,
     /// The body is generic: the function has `generic`/`comptime` parameters,
     /// is a generic impl's method, or is a closure specialized inside such a
     /// body. `yo fix --migrate rc-clone` lists a copy made there, which one
     /// run sees at one instantiation of many.
     (is_generic_body : bool) ?= false
   )
-);
-/// Point decision 17's std-generic exemption at the specialization `ctx` is
-/// in: called wherever `ctx.currently_specializing_function` is entered or
-/// restored, so an unwound specialization cannot leave it set.
-sync_counted_handle_std_generic :: (fn(ctx : &EvalContext) -> unit)(
-  set_counted_handle_std_generic(match(ctx.currently_specializing_function, .Some(s) => s.in_std, .None => false))
 );
 // ---------------------------------------------------------------------------
 // Impl concrete-type return tracking
@@ -3619,7 +3610,6 @@ export(
   CaptureUsage,
   CapturedVarInfo,
   SpecializingFunctionInfo,
-  sync_counted_handle_std_generic,
   ImplConcreteTypeInfo,
   CalledComptimeFnCache,
   ComptimeFnCacheEntry,
