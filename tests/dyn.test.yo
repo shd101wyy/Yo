@@ -1116,7 +1116,9 @@ test("a Dyn(Fn(...), Clone) clones its closure", {
   (h : Dyn(Fn(x : i32) -> i32, Clone)) = dyn((x : i32) => (x + n));
   k := h.clone();
   assert((h(i32(1)) + k(i32(2))) == i32(9), "a closure of Copy captures clones by copy");
-  (b : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(s.len())));
+  // `s` moved into `f`'s closure (a `String` is a value since B8).
+  t := String.from("abc");
+  (b : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(t.len())));
   (e : Dyn(Fn(x : i32) -> i32, Clone)) = dyn(b);
   e2 := e.clone();
   assert((e(i32(1)) + e2(i32(2))) == i32(9), "a typed closure binding clones too");
