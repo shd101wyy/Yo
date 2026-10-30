@@ -308,7 +308,7 @@ _is_primitive_unary_operator :: (fn(expr : &AstExpr, context : &FunctionGenerati
 /// deferred-dup rewrite, fed to generate_yo_inline_function_call.
 _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
-  arg_exprs := match(ei_opt, .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())), .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new()));
+  arg_exprs := match(ei_opt, .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())), .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new()));
   args := ArrayList(String).new();
   n := arg_exprs.len();
   (i : usize) = usize(0);

@@ -37,7 +37,7 @@ generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
 /// The `Option(T)` value of a downcast, as one C expression.
 _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
@@ -283,7 +283,7 @@ generate_upcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
 /// The target Dyn of an upcast, as one C expression.
 _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: upcast not evaluated */")));
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
   dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);

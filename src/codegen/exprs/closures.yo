@@ -159,7 +159,7 @@ _is_capture_record_rebuild :: (fn(ei : &ExprInfo) -> bool)(
 /// `__yo_capture_field(c, i)`: field `i` of closure `c`'s capture record, in
 /// place (`(c).<field>`, or `(c)-><field>` through a pointer).
 generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  cf_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  cf_args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => Rc.clone(ri.ty), .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
