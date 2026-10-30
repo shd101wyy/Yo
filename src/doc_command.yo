@@ -5,7 +5,7 @@
 //!   - `mm_load_file` already catches evaluator throws internally, so a
 //!     failed load needs no retry;
 //!   - `--format html` renders through doc/render_html.yo (markdown via the
-//!     vendored markdown_yo source — see that file's header).
+//!     `markdown-yo` dependency — see that file's header).
 { String } :: import("std/string");
 { println, eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -279,7 +279,7 @@ _scan_quoted_value_after :: (fn(content : &String, marker : &String, connector :
 /// directory name. Extends `_infer_project_name`, which predates the manifest.
 ///
 /// `[package] name` wins because since P1.3 it IS the project's name — the one
-/// every other command reads, validated (non-empty, no path separator) by the
+/// every other command reads, validated (`[A-Za-z0-9_-]+`, E1506) by the
 /// manifest parser, and what importers write in `import("<name>")`. The
 /// fallbacks serve a directory with no manifest: `package.json` for a project
 /// that is also an npm package, and a regex over `build.yo` for one that

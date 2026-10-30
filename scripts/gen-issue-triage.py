@@ -22,7 +22,7 @@ AREAS = [
     ("Std library", r"^(std-|stddoc-|http-|url-|ipaddr-|path-|json-|cli-|crypto-|utf16-|unicode-|writer-|hash-|bench-|tempfile-|file-|read-dir-|sys-|walker-|thread-safety|udpsocket|make-sockaddr|string-to-cstr|stringerror|httpmethod|error-source|float-to-string|redirect-|network-path|empty-path|s3-fs|tls-and-datetime|random-f64|blanket-into-iter)"),
     ("Tooling (fmt/doc/lsp)", r"^(yo-fmt|fmt-|yo-doc|doc-|diagnostic-|collection-|template-string|nested-backtick|std-doc-examples|user-facing-async|test-runner-std-path|fixed-async-cond-dispatch-doc)"),
     ("Self-hosting legacy", r"^(yo-self|yoself|self-built|self-hosted-emit|compiler-holds|debug-probe|desugar-token|ts-evaluator|emitted-c-flipped)"),
-    ("Vendor (markdown_yo)", r"^vendor-"),
+    ("Vendor (markdown-yo)", r"^vendor-"),
 ]
 ORDER = [a for a, _ in AREAS] + ["Other"]
 

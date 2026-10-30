@@ -971,7 +971,7 @@ snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 
 | 键            | 说明                                                             |
 | ------------- | ---------------------------------------------------------------- |
-| `name`        | 包名——导入方在 `import("name")` 中写的名字。必填。                |
+| `name`        | 包名——导入方在 `import("name")` 中写的名字。必填。使用 kebab-case（`markdown-yo`、`my-project`）；`-` 与 `_` 是不同的名字；包内的模块路径是 snake_case 文件名。只接受 `[A-Za-z0-9_-]`（E1506） |
 | `version`     | 本包的语义化版本（发布标签 `vX.Y.Z` 所携带的版本）                 |
 | `description` | 自由文本                                                         |
 | `license`     | SPDX 标识符                                                      |
@@ -997,7 +997,7 @@ install.depend_on(exe);
 
 ### 依赖条目
 
-一个依赖是一个表键（它的导入名）加一个内联表：
+一个依赖是一个表键（它的导入名，即包名：按约定使用 kebab-case，只能包含 `[A-Za-z0-9_-]`，E1506）加一个内联表：
 
 | 键        | 含义                                                                                     |
 | --------- | ---------------------------------------------------------------------------------------- |
@@ -1442,7 +1442,7 @@ DocConfig :: struct(
 - 客户端搜索
 - 侧边栏导航
 - 所有 CSS/JS 内联 — 可从 `file://` URL 直接打开，无需 CDN
-- 使用 [markdown_yo](https://github.com/shd101wyy/markdown_yo) 进行 Markdown 渲染 —— 它是编译器自身在 `yo.toml` 里声明的依赖，由 `yo install` 解析
+- 使用 [markdown-yo](https://github.com/shd101wyy/markdown-yo) 进行 Markdown 渲染 —— 它是编译器自身在 `yo.toml` 里声明的依赖，由 `yo install` 解析
 
 **Markdown**：生成 `README.md`（模块索引）和 `module/<name>.md`（每模块页面）。适合嵌入 GitHub 仓库或其他基于 Markdown 的文档系统。
 

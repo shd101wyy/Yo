@@ -1010,7 +1010,7 @@ snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 
 | Key           | Description                                                                        |
 | ------------- | ---------------------------------------------------------------------------------- |
-| `name`        | The package name — what importers write in `import("name")`. Required.             |
+| `name`        | The package name — what importers write in `import("name")`. Required. Kebab-case (`markdown-yo`, `my-project`); `-` and `_` are different names; module paths inside a package are snake_case file names. Only `[A-Za-z0-9_-]` is accepted (E1506) |
 | `version`     | Semver version of this package (the version a release tag `vX.Y.Z` carries)        |
 | `description` | Free text                                                                          |
 | `license`     | SPDX identifier                                                                    |
@@ -1037,7 +1037,7 @@ project's.
 
 ### Dependency entries
 
-A dependency is a table key (its import name) with an inline table:
+A dependency is a table key (its import name, a package name: kebab-case by convention, `[A-Za-z0-9_-]` only, E1506) with an inline table:
 
 | Key       | Meaning                                                                                                    |
 | --------- | ---------------------------------------------------------------------------------------------------------- |
@@ -1486,7 +1486,7 @@ and `yo doc --favicon <path>`.
 - Client-side search
 - Sidebar navigation
 - All CSS/JS inlined — works from `file://` URLs, no CDN needed
-- Uses [markdown_yo](https://github.com/shd101wyy/markdown_yo) for Markdown rendering — a `yo.toml` dependency of the compiler itself, resolved by `yo install`
+- Uses [markdown-yo](https://github.com/shd101wyy/markdown-yo) for Markdown rendering — a `yo.toml` dependency of the compiler itself, resolved by `yo install`
 
 **Markdown**: Generates `README.md` (module index) and `module/<name>.md` (per-module pages). Useful for embedding in GitHub repos or other Markdown-based documentation systems.
 

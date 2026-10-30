@@ -69,9 +69,21 @@ test("parse_manifest: [package] without a name is an error", {
   msg := _err("[package]\nversion = \"1.0.0\"\n");
   assert(msg.contains("name is required"), &msg);
 });
-test("parse_manifest: a name with a path separator is rejected", {
+test("parse_manifest: a name with a path separator is rejected (E1506)", {
   msg := _err("[package]\nname = \"a/b\"\n");
-  assert(msg.contains("path separator"), &msg);
+  assert(msg.contains("[package] name \"a/b\" is not a valid package name"), &msg);
+  assert(msg.contains("yo explain E1506"), &msg);
+});
+test("parse_manifest: a name outside [A-Za-z0-9_-] is rejected (E1506)", {
+  msg := _err("[package]\nname = \"my app\"\n");
+  assert(msg.contains("[package] name \"my app\" is not a valid package name"), &msg);
+  dot := _err("[package]\nname = \"..\"\n");
+  assert(dot.contains("is not a valid package name"), &dot);
+});
+test("parse_manifest: kebab, snake and upper-case names are all accepted, exactly as written", {
+  assert(_ok("[package]\nname = \"markdown-yo\"\n").name == "markdown-yo", "kebab");
+  assert(_ok("[package]\nname = \"markdown_yo\"\n").name == "markdown_yo", "snake is not rewritten");
+  assert(_ok("[package]\nname = \"MyLib2\"\n").name == "MyLib2", "upper case is not lowercased");
 });
 test("parse_manifest: a non-string field is an error naming the key", {
   msg := _err("[package]\nname = 42\n");
@@ -158,6 +170,19 @@ test("parse_manifest: every dependency shape parses", {
   s := m.find_dependency(String.from("snapshot")).unwrap();
   assert(s.dev, "dev-dependencies are flagged");
   assert(m.git_dependencies().len() == usize(7), "git_dependencies excludes the path dependency");
+});
+test("parse_manifest: a dependency key outside [A-Za-z0-9_-] is rejected (E1506)", {
+  msg := _err("[package]\nname = \"app\"\n[dependencies]\n\"my lib\" = { path = \"../my lib\" }\n");
+  assert(msg.contains("[dependencies] key \"my lib\" is not a valid package name"), &msg);
+  assert(msg.contains("yo explain E1506"), &msg);
+  dev := _err("[package]\nname = \"app\"\n[dev-dependencies]\n\"../x\" = { path = \"../x\" }\n");
+  assert(dev.contains("[dev-dependencies] key \"../x\" is not a valid package name"), &dev);
+});
+test("parse_manifest: '-' and '_' dependency keys are different names (no normalization)", {
+  m := _ok("[package]\nname = \"app\"\n[dependencies]\nmarkdown-yo = { path = \"../a\" }\nmarkdown_yo = { path = \"../b\" }\n");
+  assert(m.dependencies.len() == usize(2), "two distinct keys");
+  assert(m.find_dependency(String.from("markdown-yo")).is_some(), "kebab key");
+  assert(m.find_dependency(String.from("markdown_yo")).is_some(), "snake key");
 });
 test("parse_manifest: a dependency that is not an inline table is an error", {
   msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = \"1.0\"\n");

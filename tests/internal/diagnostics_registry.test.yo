@@ -50,7 +50,8 @@ import("std/fmt");
   E_MANIFEST_NOT_FOUND,
   E_LOCK_MISMATCH,
   E_STORE_INTEGRITY_MISMATCH,
-  E_NO_MATCHING_VERSION
+  E_NO_MATCHING_VERSION,
+  E_INVALID_PACKAGE_NAME
 } :: import("../../src/diagnostics.yo");
 _check_entry :: (fn(e : &Explain, label : &String) -> unit)({
   assert(e.title.len() > usize(0), `${label}: English title empty`);
@@ -101,6 +102,7 @@ test("every code the classifier emits has a registry entry", {
   codes.push(String.from(E_LOCK_MISMATCH));
   codes.push(String.from(E_STORE_INTEGRITY_MISMATCH));
   codes.push(String.from(E_NO_MATCHING_VERSION));
+  codes.push(String.from(E_INVALID_PACKAGE_NAME));
   (mut(i) : usize) = usize(0);
   while(i < codes.len(), {
     c := match(
@@ -240,6 +242,7 @@ test("the reserved E13xx and E15xx bands are allocated with full entries", {
   band.push(String.from(E_LOCK_MISMATCH));
   band.push(String.from(E_STORE_INTEGRITY_MISMATCH));
   band.push(String.from(E_NO_MATCHING_VERSION));
+  band.push(String.from(E_INVALID_PACKAGE_NAME));
   (mut(i) : usize) = usize(0);
   while(i < band.len(), {
     c := match(

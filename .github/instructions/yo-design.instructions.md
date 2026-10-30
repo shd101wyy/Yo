@@ -183,7 +183,7 @@ type variable, so that call too becomes the prelude `__yo_rc_cell` value bound t
 preset to `.TypeVal(Rc(W))` only when `W` mentions no type variable. As a prelude name `rc` cannot be redefined: a module-level or local
 binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
 named `rc` shadows it in its scope. `ref_count` is not in
-`is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local
+`is_reserved_builtin_binding_name`: the `markdown-yo` dependency binds a local
 `ref_count` counter, so reserving it breaks the build.
 
 ## Pointers

@@ -81,6 +81,7 @@ json :: import("std/encoding/json");
   E_LOCK_MISMATCH,
   E_STORE_INTEGRITY_MISMATCH,
   E_NO_MATCHING_VERSION,
+  E_INVALID_PACKAGE_NAME,
   suggest_name
 } :: import("./diagnostics.yo");
 /// One registry entry: a code, its bilingual prose, and one bad→good
@@ -1031,8 +1032,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "依赖工具链无法获取某个包：需要联网却被拒绝（--offline 且缓存中没有），或者仓库无法访问。",
       "yo install / yo add / yo update fetch git dependencies through a local cache: a bare mirror and a tag index per repository, one content-addressed tree per commit. This code covers every way getting one can fail: an --offline run whose cache lacks the mirror, tag list, commit or tree the lock names (run once WITHOUT --offline to fill the cache); a clone or git ls-remote that failed (network down, no credentials, wrong URL); a repository that does not exist or is not accessible; a commit no ref reaches and the remote refuses to fetch directly. Check the URL in yo.toml first, then the network, then run yo install once online.",
       "yo install / yo add / yo update 通过本地缓存获取 git 依赖：每个仓库一个裸镜像和一个标签索引，每个提交一棵按内容寻址的树。此错误码覆盖获取失败的所有方式：--offline 运行时缓存缺少锁所指定的镜像、标签列表、提交或树（先不带 --offline 运行一次以填充缓存）；clone 或 git ls-remote 失败（断网、没有凭据、URL 写错）；仓库不存在或无法访问；没有任何 ref 指向该提交且远端拒绝直接抓取。先检查 yo.toml 里的 URL，再检查网络，最后联网运行一次 yo install。",
-      "$ yo install --offline       # fresh clone, the cache is empty\nerror[E1501]: --offline: resolving \"markdown_yo\" needs the tags of https://github.com/o/markdown_yo, and the cache has no tag list for it\nhelp: run `yo explain E1501` for more information",
-      "$ yo install                 # once online: fills the cache\n  markdown_yo → v0.0.9 (8f14e45fceec)\n$ yo install --offline       # now the cache answers\n  markdown_yo → v0.0.9 (8f14e45fceec)",
+      "$ yo install --offline       # fresh clone, the cache is empty\nerror[E1501]: --offline: resolving \"markdown-yo\" needs the tags of https://github.com/o/markdown-yo, and the cache has no tag list for it\nhelp: run `yo explain E1501` for more information",
+      "$ yo install                 # once online: fills the cache\n  markdown-yo → v0.0.9 (8f14e45fceec)\n$ yo install --offline       # now the cache answers\n  markdown-yo → v0.0.9 (8f14e45fceec)",
       "--offline never touches the network; the first online install records the tag list and mirror the offline run needs.",
       "--offline 绝不联网；第一次联网安装会记录离线运行所需的标签列表与镜像。"
     )
@@ -1061,8 +1062,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "在 --locked 下，锁文件必须与清单完全一致；这里它缺失、不可用，或已过期。",
       "--locked is the CI contract: install must not change yo.lock. It fails when there is no yo.lock to obey (run yo install once without --locked to write it), when the file is present but does not parse (a normal install regenerates it — check it into git), or when resolving against it would pick different refs than it records (yo.toml, or a dependency's own yo.toml, changed; run yo install without --locked to update it, then commit the new yo.lock). The message shows the diff between the recorded and the re-resolved entries.",
       "--locked 是 CI 的契约：install 不得更改 yo.lock。它在以下情况失败：没有可遵守的 yo.lock（先不带 --locked 运行一次 yo install 生成它）；文件存在但无法解析（正常安装会重新生成 —— 请把它提交进 git）；或者依据它解析会得到与记录不同的 ref（yo.toml 或某个依赖自己的 yo.toml 变了；不带 --locked 运行 yo install 更新，然后提交新的 yo.lock）。错误信息会给出记录条目与重新解析条目之间的差异。",
-      "$ yo install --locked        # CI, yo.lock is stale\nerror[E1503]: --locked: yo.lock is out of date:\n~ markdown_yo: git+https://github.com/o/markdown_yo#v0.0.8 @ 8f14e45f… → git+…#v0.0.9 @ a1b2c3d4…\nRun 'yo install' without --locked to update it.\nhelp: run `yo explain E1503` for more information",
-      "$ yo install                 # locally: update the lock\n  markdown_yo → v0.0.9 (a1b2c3d4)\n$ git commit yo.lock\n$ yo install --locked        # CI: green",
+      "$ yo install --locked        # CI, yo.lock is stale\nerror[E1503]: --locked: yo.lock is out of date:\n~ markdown-yo: git+https://github.com/o/markdown-yo#v0.0.8 @ 8f14e45f… → git+…#v0.0.9 @ a1b2c3d4…\nRun 'yo install' without --locked to update it.\nhelp: run `yo explain E1503` for more information",
+      "$ yo install                 # locally: update the lock\n  markdown-yo → v0.0.9 (a1b2c3d4)\n$ git commit yo.lock\n$ yo install --locked        # CI: green",
       "--locked refuses to write; one unlocked install re-records what changed.",
       "--locked 拒绝写入；一次非 locked 的安装会重新记录变化。"
     )
@@ -1095,6 +1096,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "[dependencies]\nutil = { git = \"https://github.com/o/util\", version = \"^1\" }\n$ yo install\n  util → v1.4.2 (8f14e45fceec)",
       "One import name is one version: some tag must fit every requirement, and here none does.",
       "一个 import 名就是一个版本：必须有某个标签满足所有要求，而这里一个都没有。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_INVALID_PACKAGE_NAME,
+      "not a valid package name",
+      "不是合法的包名",
+      "A package name — `[package] name`, a `[dependencies]`/`[dev-dependencies]` key, or the name `yo add` uses — may contain only ASCII letters, digits, `_` and `-`.",
+      "包名 —— `[package] name`、`[dependencies]`/`[dev-dependencies]` 的键，或 `yo add` 使用的名字 —— 只能包含 ASCII 字母、数字、`_` 和 `-`。",
+      "A package name is a TOML key in yo.toml and yo.lock, the directory yo-out/<target>/deps/<name>/, a yo add / yo remove argument and the string importers write in import(\"<name>\"), so it is one or more of [A-Za-z0-9_-]: a space, a quote, `.`, `/` or `\\` is rejected wherever the name comes from — your own manifest, a fetched dependency's manifest, or yo add (which derives the name from the repository or directory basename unless you pass --name). The convention is kebab-case (markdown-yo, json-yo, my-project), and yo init writes that form; `_` and upper case are still accepted, and `-` and `_` are different names — nothing treats markdown-yo and markdown-yo as the same package. Rename the key or the [package] name, or pass yo add --name <name>.",
+      "包名是 yo.toml 与 yo.lock 中的 TOML 键、yo-out/<target>/deps/<name>/ 目录、yo add / yo remove 的参数，也是导入方在 import(\"<name>\") 中写的字符串，所以它由一个或多个 [A-Za-z0-9_-] 字符组成：无论名字来自哪里 —— 你自己的清单、获取到的依赖的清单，还是 yo add（除非传入 --name，否则它从仓库或目录的基本名推导名字）—— 空格、引号、`.`、`/` 或 `\\` 都会被拒绝。约定是 kebab-case（markdown-yo、json-yo、my-project），yo init 也会写出这种形式；`_` 和大写字母仍被接受，并且 `-` 与 `_` 是不同的名字 —— 没有任何地方把 markdown-yo 和 markdown-yo 视为同一个包。请重命名该键或 [package] name，或者给 yo add 传入 --name <name>。",
+      "[dependencies]\n\"my lib\" = { path = \"../my lib\" }\n$ yo install\nError: /home/you/app/yo.toml: [dependencies] key \"my lib\" is not a valid package name: use only ASCII letters, digits, \"_\" and \"-\" (package names are kebab-case by convention, e.g. \"markdown-yo\")\nhelp: run `yo explain E1506` for more information\n$ yo add ./libs/my.lib\nerror[E1506]: dependency name \"my.lib\" is not a valid package name: use only ASCII letters, digits, \"_\" and \"-\" (package names are kebab-case by convention, e.g. \"markdown-yo\"); pass --name <name> to choose a valid one\nhelp: run `yo explain E1506` for more information",
+      "[dependencies]\nmy-lib = { path = \"../my lib\" }\n$ yo install\n$ yo add ./libs/my.lib --name my-lib\nAdded my-lib = { path = \"libs/my.lib\" } to [dependencies] in yo.toml",
+      "The key is the import name, not the path: `import(\"my-lib\")` resolves the dependency whatever its directory is called.",
+      "键是导入名而不是路径：无论依赖所在目录叫什么，`import(\"my-lib\")` 都能解析到它。"
     )
   );
   out

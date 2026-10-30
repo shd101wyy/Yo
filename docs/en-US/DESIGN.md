@@ -4345,6 +4345,8 @@ inc :: (fn() -> unit)({
   - `type` and its variants
 - `UPPER_SNAKE_CASE`
   - `constant`
+- `kebab-case`
+  - `package name` (`yo.toml`'s `[package] name` and dependency keys, e.g. `markdown-yo`; `-` and `_` are different names)
 
 ## Testing
 

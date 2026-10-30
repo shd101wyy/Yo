@@ -420,6 +420,7 @@ println(&erased);
 
 | Kind                        | Style              | Example            |
 | --------------------------- | ------------------ | ------------------ |
+| Package name (`yo.toml`)    | `kebab-case`       | `markdown-yo`      |
 | File / directory / module   | `snake_case`       | `array_list`       |
 | Function / variable         | `snake_case`       | `safe_divide`      |
 | Trait / type / enum variant | `PascalCase`       | `ToString`, `Some` |

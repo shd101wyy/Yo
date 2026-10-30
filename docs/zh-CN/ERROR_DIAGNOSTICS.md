@@ -148,6 +148,7 @@ help: prefix the name with `_` to silence this warning
 | E1503 | `yo.lock` 与 `yo.toml` 不一致（`--locked` 下过期、缺失或不可用） |
 | E1504 | 获取到的依赖树哈希与 `yo.lock` 记录不符 |
 | E1505 | 依赖没有任何标签能满足对它的全部要求 |
+| E1506 | 包名（`[package] name`、依赖键、`yo add --name`）不在 `[A-Za-z0-9_-]+` 之内 |
 
 它们与其他错误一样带错误码和 `explain` 尾行渲染，`--error-format json` 也会携带错误码，因此错误路由可以按家族分支，而不必对散文做字符串匹配。
 

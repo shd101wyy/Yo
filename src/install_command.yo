@@ -29,7 +29,9 @@
   GitRequirement,
   MANIFEST_FILENAME,
   find_manifest,
-  load_manifest
+  load_manifest,
+  _is_valid_package_name,
+  _invalid_package_name_message
 } :: import("./manifest.yo");
 {
   parse_semver,
@@ -46,7 +48,7 @@
 } :: import("./resolver.yo");
 { set_entry, remove_entry, toml_string } :: import("./toml_edit.yo");
 { format_coded_error } :: import("./error.yo");
-{ E_DEP_FETCH_FAILED, E_MANIFEST_NOT_FOUND } :: import("./diagnostics.yo");
+{ E_DEP_FETCH_FAILED, E_MANIFEST_NOT_FOUND, E_INVALID_PACKAGE_NAME } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // Package specifiers (`yo add <spec>`)
 // ---------------------------------------------------------------------------
@@ -352,8 +354,9 @@ run_add :: (
     if(dep_name.len() == usize(0), {
       e.exn.throw(dyn(String.from("Error: cannot derive a dependency name from the specifier; pass --name <name>")));
     });
-    if(dep_name.contains("/"), {
-      e.exn.throw(dyn(`Error: dependency name "${dep_name}" may not contain "/"`));
+    if(!_is_valid_package_name(&dep_name), {
+      what := String.from("dependency name");
+      e.exn.throw(dyn(format_coded_error(E_INVALID_PACKAGE_NAME, `${_invalid_package_name_message(&what, &dep_name)}; pass --name <name> to choose a valid one`)));
     });
     if(is_path, {
       present := e.io.await(exists(Path.new(git_url.clone()), e.io), e.io);
