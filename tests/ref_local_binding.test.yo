@@ -222,10 +222,11 @@ comptime_expect_error(
     r = String.from("dangling");
   })
 );
-test("passing the binding itself to an own parameter copies; the root survives and the binding stays usable", {
+test("passing a clone of the binding to an own parameter; the root survives and the binding stays usable", {
   mut(s) := String.from("abc");
   r := &mut s;
-  n := sink(r);
+  // A `String` is a value: a sink takes a clone of the pointee.
+  n := sink(r.clone());
   assert(n == usize(3), "callee saw the value");
   r.push_str("!");
   assert(s == "abc!", "root intact, binding usable after the own call (issues/fixed/inout-arg-to-own-param-moves-without-dup.md)");
@@ -246,7 +247,7 @@ test("a struct literal reading a borrowed root after the binding's last use copi
   r = String.from("b");
   h := Holder(s : s, n : i32(1));
   s = String.from("c");
-  assert(h.s == "b", "the literal took a COPY of the handle, not the slot's count");
+  assert(h.s == "b", "the literal took the value the binding wrote");
   assert(ref_count(h.s) == 1, "the literal's field owns its value once");
   assert(ref_count(s) == 1, "the root owns its new value once");
 });
@@ -425,12 +426,13 @@ ret_rc :: (fn() -> String)({
   mut(s) := String.from("target");
   r := &mut s;
   r.push_str("!");
-  v := r;
+  // A `String` is a value: reading it out through the binding is a clone.
+  v := r.clone();
   v
 });
 test("reading a binding out before returning the copy is the way out (scalar, field, RC)", {
   assert(ret_scalar() == i32(2), "the scalar copy is the pointee, never the pointer");
   assert(ret_struct() == i32(10), "a value-struct field binding copies the field value");
-  assert(ret_rc() == "target!", "an RC binding's read-out is the pointee copy");
-  assert(ref_count(ret_rc()) == 1, "the returned RC value owns its count");
+  assert(ret_rc() == "target!", "a String binding's read-out is a clone of the pointee");
+  assert(ref_count(ret_rc()) == 1, "the returned String is a value of its own");
 });

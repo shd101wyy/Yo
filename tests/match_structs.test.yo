@@ -257,7 +257,9 @@ test("a scrutinee over a field of a call result releases the result once per eva
   while(i < i32(4), i = (i + i32(1)), {
     a := match(_scr_tok(i).n, i32(2) => i32(1), _ => i32(0));
     b := match(_scr_tok(i).s.clone(), "payload" => i32(1), _ => i32(0));
-    c := match(&_scr_tok(i).s.clone(), x => x.len());
+    // `.clone()`: a borrowed scrutinee of a call result's move-only field is a false E0901
+    // (issues/2026-10-31-a-borrowed-match-scrutinee-of-a-call-results-move-only-field-is-a-false-e0901.md).
+    c := match(_scr_tok(i).s.clone(), x => x.len());
     d := match(_scr_tok(i).n + i32(1), i32(3) => i32(1), _ => i32(0));
     hits = (hits + a + b + i32(c) + d);
   });

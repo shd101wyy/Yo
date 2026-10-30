@@ -2,10 +2,10 @@
 //! the `inout(name) := …` local binding; the binding form is BACK
 //! (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md, 2026-09-07) but it names a SLOT, not
 //! an element, so there is still nothing a container operation can
-//! invalidate. These tests pin the element-access model: `get` returns the
-//! element (a HANDLE for object types) that no container operation can
-//! invalidate, and a binding to the container VARIABLE survives any growth
-//! of the container it names.
+//! invalidate. These tests pin the element-access model: `get_cloned` copies
+//! an element out (a `String` is a value since B8), so no container
+//! operation can invalidate the copy, and a binding to the container
+//! VARIABLE survives any growth of the container it names.
 { assert } :: import("std/assert");
 import("std/fmt");
 { String } :: import("std/string");
@@ -43,42 +43,42 @@ comptime_expect_error(
   "`r` borrows `xs` with `&mut` and is still live"
 );
 
-// `get` returns a HANDLE to the element object — it points at the
-// String itself, not into the list's buffer, so container growth
-// (realloc) cannot invalidate it. 64 pushes is the realloc trigger from
-// the historical UAF repro that motivated the (now deleted) gates.
-test("get handle survives container growth", {
+// A `String` element is a value: `get_cloned` copies it out, so container
+// growth (realloc) cannot invalidate the copy. 64 pushes is the realloc
+// trigger from the historical UAF repro that motivated the (now deleted)
+// gates.
+test("a copied element survives container growth", {
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("element-zero"));
-  e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
+  e := match(xs.get_cloned(usize(0)), .Some(s) => s, .None => String.new());
   mut(i) := usize(0);
   while(i < usize(64), {
     xs.push(String.from("filler"));
     i = (i + usize(1));
   });
-  assert(e == "element-zero", "handle valid after 64 pushes (realloc)");
+  assert(e == "element-zero", "the copy is intact after 64 pushes (realloc)");
   assert(xs.len() == usize(65), "all pushes landed");
 });
 
-// Even REASSIGNING the container cannot invalidate a held element
-// handle — the handle owns a +1 on the element object. This exact shape
-// was a compile error under the old gates; under the value model it is
-// simply safe.
-test("container freely reassignable while holding an element handle", {
+// Reassigning the container cannot invalidate a copied element either: the
+// copy owns its own buffer.
+test("container freely reassignable while holding a copied element", {
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("element-zero"));
-  e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
+  e := match(xs.get_cloned(usize(0)), .Some(s) => s, .None => String.new());
   xs = ArrayList(String).new();
-  assert(e == "element-zero", "element handle survives the reassign");
+  assert(e == "element-zero", "the copy survives the reassign");
   assert(xs.len() == usize(0), "container replaced");
 });
 
-// Object elements mutate in place through the get handle — no borrow
-// needed.
-test("object element mutates in place through a get handle", {
+// A copied element is independent of the list; an element is written in
+// place through `with`.
+test("a copied element is independent; with writes the element in place", {
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("hello"));
-  mut(e) := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
-  e.push_str(" world");
-  assert(match(xs.get(usize(0)), .Some(s) => (s == "hello world"), .None => false), "mutated in place");
+  mut(e) := match(xs.get_cloned(usize(0)), .Some(s) => s, .None => String.new());
+  e.push_str(" copy");
+  assert(xs(usize(0)) == "hello", "the copy's write leaves the element alone");
+  xs.with(usize(0), s => s.push_str(" world"));
+  assert(xs(usize(0)) == "hello world", "mutated in place");
 });

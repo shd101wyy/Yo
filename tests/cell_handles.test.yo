@@ -271,22 +271,26 @@ _hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
   act();
   _hd_drops + (c.n - c.n)
 });
+// An `ArrayList` is a value since B8, so a second handle to ONE list is
+// spelled with a `ref` object around it: `hs2 := hs` shares the object, and
+// `hs2.xs.clear()` empties the list the receiver borrows from.
+_HdBag :: ref(struct(xs : ArrayList(TRc(_HdCell))));
 test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
   _hd_drops = i32(0);
-  mut(hs) := ArrayList(TRc(_HdCell)).new();
-  hs.push(trc(_HdCell(n : i32(1))));
-  mut(hs2) := hs.clone();
+  hs := _HdBag(xs : ArrayList(TRc(_HdCell)).new());
+  hs.xs.push(trc(_HdCell(n : i32(1))));
+  hs2 := hs;
   assert(
-    hs(usize(0)).peek(() => {
-      hs2.clear();
+    hs.xs(usize(0)).peek(() => {
+      hs2.xs.clear();
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_hd_drops == i32(1), "and is destroyed once, after it");
-  hs.push(trc(_HdCell(n : i32(2))));
+  hs.xs.push(trc(_HdCell(n : i32(2))));
   assert(
-    _hd_peek(&hs(usize(0)).*, () => {
-      hs2.clear();
+    _hd_peek(&hs.xs(usize(0)).*, () => {
+      hs2.xs.clear();
     }) == i32(1),
     "a `&` argument through the handle"
   );

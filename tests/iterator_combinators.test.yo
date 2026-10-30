@@ -182,7 +182,7 @@ test("iter.fold over ArrayList iter with multi-arg => lambda", {
 test("iter.for_each with closure that captures ArrayList", {
   mut(out) := ArrayList(i32).new();
   src := ArrayList(i32).from([i32(1), i32(2), i32(3), i32(4)]);
-  src.into_iter().for_each(x => {
+  src.into_iter().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(4), "out has 4 elements");
@@ -272,7 +272,7 @@ test("iter.sum, iter.min, iter.max", {
 test("iter.chain yields first then second", {
   it := my_range(i32(1), i32(3)).chain(my_range(i32(10), i32(12)));
   mut(out) := ArrayList(i32).new();
-  it.for_each(x => {
+  it.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(4), "4 chained");
@@ -297,7 +297,7 @@ test("iter.filter_map maps and filters in one pass", {
     )
   );
   mut(out) := ArrayList(i32).new();
-  halved.for_each(x => {
+  halved.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(4), "0,2,4,6 kept");
@@ -412,7 +412,7 @@ test("map then for_each — self-marker must not clobber the concrete F binding"
   // for_each's already-resolved concrete closure binding
   // (issues/fixed/varbound-combinator-receiver-impl-match.md).
   mut(out) := ArrayList(i32).new();
-  my_range(i32(1), i32(4)).map(x => (x * i32(2))).for_each(x => {
+  my_range(i32(1), i32(4)).map(x => (x * i32(2))).for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(3), "3 mapped elements");
@@ -546,12 +546,12 @@ test("B7b: a combinator chain owns its move-only source", {
 // --- D3.4: rev / DoubleEndedIterator (plans/archive/STD_API_AUDIT.md) ---------------
 test("rev on integer ranges", {
   mut(out) := ArrayList(i32).from([i32(0),]);
-  (i32(0) .. i32(5)).rev().for_each(x => {
+  (i32(0) .. i32(5)).rev().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 4, 3, 2, 1, 0]`, "half-open range backwards");
   mut(inc) := ArrayList(i32).from([i32(0),]);
-  (i32(1) ..= i32(4)).rev().for_each(x => {
+  (i32(1) ..= i32(4)).rev().for_each({ &mut inc }(x) => {
     inc.push(x);
   });
   assert(inc.to_string() == `[0, 4, 3, 2, 1]`, "inclusive range backwards");
@@ -565,12 +565,12 @@ test("rev on a range terminates at the type's MIN", {
 test("rev on an ArrayList and on an Array", {
   xs := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
   mut(got) := ArrayList(i32).from([i32(0),]);
-  xs.into_iter().rev().for_each(x => {
+  xs.into_iter().rev().for_each({ &mut got }(x) => {
     got.push(x);
   });
   assert(got.to_string() == `[0, 3, 2, 1]`, "ArrayList backwards");
   mut(arr_out) := ArrayList(i32).from([i32(0),]);
-  [i32(7), i32(8)].into_iter().rev().for_each(x => {
+  [i32(7), i32(8)].into_iter().rev().for_each({ &mut arr_out }(x) => {
     arr_out.push(x);
   });
   assert(arr_out.to_string() == `[0, 8, 7]`, "Array backwards");
@@ -580,14 +580,14 @@ test("rev on an ArrayList and on an Array", {
 // issues/fixed/nested-same-adaptor-instantiation-identity-split.md.
 test("rev of rev is the identity", {
   mut(out) := ArrayList(i32).from([i32(0),]);
-  (i32(0) .. i32(4)).rev().rev().for_each(x => {
+  (i32(0) .. i32(4)).rev().rev().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 0, 1, 2, 3]`, "double rev restores source order");
 });
 test("three levels of rev", {
   mut(out) := ArrayList(i32).from([i32(0),]);
-  (i32(0) .. i32(4)).rev().rev().rev().for_each(x => {
+  (i32(0) .. i32(4)).rev().rev().rev().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 3, 2, 1, 0]`, "triple rev reverses again");
@@ -597,7 +597,7 @@ test("self-nesting through a VARIABLE-BOUND receiver", {
   // the stamp, and only the stamp was repaired — so both are covered.
   it := (i32(0) .. i32(4)).rev().rev();
   mut(out) := ArrayList(i32).from([i32(0),]);
-  it.for_each(x => {
+  it.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 0, 1, 2, 3]`, "variable-bound double rev");
@@ -730,7 +730,7 @@ impl(
 test("a variable-bound doubly-derived combinator (user flat_map) is still an Iterator", {
   mut(out) := ArrayList(i32).new();
   it := my_range(i32(1), i32(4))._user_flat_map(x => my_range(i32(0), x));
-  it.for_each(x => {
+  it.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(6), "0 | 0 1 | 0 1 2");

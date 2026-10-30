@@ -16,7 +16,8 @@ pragma(Pragma.AllowUnsafe);
 test("for_each with ArrayList capture does not leak", {
   mut(out) := ArrayList(i32).new();
   src := ArrayList(i32).from([i32(1), i32(2), i32(3), i32(4)]);
-  src.into_iter().for_each(x => {
+  // A list is a value: the closure borrows `out` to write it.
+  src.into_iter().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(4), "out len=4");
@@ -24,7 +25,7 @@ test("for_each with ArrayList capture does not leak", {
 test("for_each with String capture does not leak", {
   mut(buf) := ArrayList(String).new();
   src := ArrayList(i32).from([i32(10), i32(20), i32(30)]);
-  src.into_iter().for_each(x => {
+  src.into_iter().for_each({ &mut buf }(x) => {
     consume(x);
     buf.push(`item`);
   });
@@ -56,7 +57,7 @@ test("all with RC capture does not leak", {
 test("for_each early break via short list", {
   mut(out) := ArrayList(i32).new();
   empty := ArrayList(i32).new();
-  empty.into_iter().for_each(x => {
+  empty.into_iter().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(0), "empty for_each leaves out empty");
@@ -64,7 +65,7 @@ test("for_each early break via short list", {
 test("any short-circuit drops capture", {
   mut(side) := ArrayList(i32).new();
   src := ArrayList(i32).from([i32(1), i32(2), i32(3), i32(4), i32(5)]);
-  found := src.into_iter().any(x => {
+  found := src.into_iter().any({ &mut side }(x) => {
     side.push(x);
     x == i32(2)
   });
