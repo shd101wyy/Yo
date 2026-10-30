@@ -220,7 +220,7 @@ impl(
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
       d := self.dependencies(i);
-      match(d.source, .Git(_, _, _) => out.push(d), .Path(_) => ());
+      match(&d.source, .Git(_, _, _) => out.push(d), .Path(_) => ());
       i = (i + usize(1));
     });
     out
@@ -511,7 +511,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
           (mi : usize) = usize(0);
           while(mi < items.len(), {
             match(
-              items.get(mi),
+              items.get_cloned(mi),
               .Some(item) => {
                 if(!item.is_string(), {
                   return(Result(Manifest, String).Err(`${where_}: [workspace] members entries must be strings`));
@@ -625,7 +625,7 @@ dependency_dir :: (
   ) -> Result(String, UnavailableImport)
 )(
   match(
-    dep.source,
+    &dep.source,
     .Path(p) => {
       dir := abs_under(declaring_dir, p.clone());
       if(!file_exists_sync(dir.clone()), {

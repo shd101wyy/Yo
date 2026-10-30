@@ -54,6 +54,7 @@ VcSort :: ref(
     Uninterpreted(name : String)
   )
 );
+impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self)));
 derive(VcSort, Eq(VcSort));
 // SAFETY: a VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
@@ -263,6 +264,8 @@ VcQuery :: ref(
     datatypes : ArrayList(String)
   )
 );
+derive(VcAssumption, Clone);
+derive(VcFunDecl, Clone);
 impl(
   VcQuery,
   /// Builder: push a declaration.

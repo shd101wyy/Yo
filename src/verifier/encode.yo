@@ -246,7 +246,7 @@ encode_term :: (fn(t : &VcTerm) -> String)(
       sb.write_str(" (");
       (i : usize) = usize(0);
       while(i < names.len(), {
-        n := match(names.get(i), .Some(x) => x, .None => String.from("_"));
+        n := match(names.get_cloned(i), .Some(x) => x, .None => String.from("_"));
         s := match(
           sorts.get(i),
           .Some(x) => encode_sort(&x),
@@ -310,7 +310,7 @@ _sorted_lines :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     match(
-      xs.get(i),
+      xs.get_cloned(i),
       .Some(x) => {
         out.push(x.clone());
       },
@@ -399,7 +399,7 @@ _wrap_ctor_segments :: (fn(ctors : &String) -> String)({
     if(j > usize(0), {
       sb.write_byte(u8(0x20));
     });
-    sb.write_string(parts.get(j).unwrap().clone());
+    sb.write_string(parts.get_cloned(j).unwrap().clone());
     j = (j + usize(1));
   });
   sb.to_string()
@@ -417,7 +417,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
     (si : usize) = usize(0);
     while(si < sort_entries.len(), {
       match(
-        sort_entries.get(si),
+        sort_entries.get_cloned(si),
         .Some(name) => {
           sb.write_str("(declare-sort ");
           sb.write_string(name.clone());
@@ -435,7 +435,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
     (ti : usize) = usize(0);
     while(ti < dt_entries.len(), {
       match(
-        dt_entries.get(ti),
+        dt_entries.get_cloned(ti),
         .Some(entry) => {
           // Each entry is "<name>|<ctors...>": split at the first '|'.
           bar := entry.index_of(String.from("|"));
@@ -454,7 +454,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
     (tj : usize) = usize(0);
     while(tj < dt_entries.len(), {
       match(
-        dt_entries.get(tj),
+        dt_entries.get_cloned(tj),
         .Some(entry) => {
           bar := entry.index_of(String.from("|"));
           ctors := match(
@@ -494,7 +494,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
   (ufi : usize) = usize(0);
   while(ufi < q.fun_decls.len(), {
     match(
-      q.fun_decls.get(ufi),
+      q.fun_decls.get_cloned(ufi),
       .Some(ufd) => {
         sb.write_string(`${encode_fun_decl(&ufd)}\n`);
       },
@@ -516,10 +516,10 @@ encode_content :: (fn(q : &VcQuery) -> String)({
   (ai : usize) = usize(0);
   while(ai < q.assumptions.len(), {
     match(
-      q.assumptions.get(ai),
+      q.assumptions.get_cloned(ai),
       .Some(a) => {
         match(
-          a.name,
+          &a.name,
           .Some(n) => {
             sb.write_string(`(assert (! ${encode_term(&a.term)} :named ${n}))\n`);
           },
