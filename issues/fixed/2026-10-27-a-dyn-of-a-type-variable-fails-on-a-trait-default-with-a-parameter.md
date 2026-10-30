@@ -10,9 +10,11 @@
 { println } :: import("std/fmt");
 Show :: trait(
   show : (fn(self : &Self) -> i32),
-  (show_into : (fn(self : &Self, out : &mut i32) -> unit)) ?= ((self, out) -> {
-    out = (out + self.show());
-  })
+  (show_into : (fn(self : &Self, out : &mut i32) -> unit)) ?= (
+    (self, out) -> {
+      out = (out + self.show());
+    }
+  )
 );
 P :: struct(x : i32);
 derive(P, Copy, Clone);
