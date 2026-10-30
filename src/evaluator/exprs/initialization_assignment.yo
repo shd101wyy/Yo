@@ -65,7 +65,7 @@
   record_pending_def_variable
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, fn_result_origin_names } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -112,9 +112,12 @@
   local_borrow_place_of_variable,
   local_borrow_info_placeholder,
   projection_call_mode_of,
-  projection_call_root_args
+  projection_call_root_args,
+  projection_call_callee_type,
+  LocalBorrowElidedOrigin
 } :: import("../utils.yo");
-{ generate_new_temp_variable_name } :: import("../../utils.yo");
+{ generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { is_io_async_call } :: import("../async/await_analysis.yo");
 { Exception } :: import("std/error");
@@ -555,6 +558,21 @@ _evaluate_inout_local_binding :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   expr
 });
+/// `YO_AUDIT_ELIDED_ROOTS=1`: the Q2 census of elided-origin projection
+/// bindings (decision 43 step 2, N1c).
+(_g_audit_elided_roots : bool) = debug_knob(`YO_AUDIT_ELIDED_ROOTS`).is_some();
+_join_labels :: (fn(xs : &ArrayList(String)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    if(i > usize(0), {
+      out.push_str(",");
+    });
+    match(xs.get(i), .Some(x) => out.push_string(&x), .None => ());
+    i = (i + usize(1));
+  });
+  out
+});
 /// `r := t.index(i)` / `r := t.index_mut(i)`: a binding of a projection
 /// call's result (plans/VALUES_BY_DEFAULT.md decision 24) is a local borrow
 /// of the place it yields, `&` or `&mut` as the projection's result is,
@@ -620,6 +638,8 @@ _bind_projection_result :: (
   places := ArrayList(LocalBorrowPlace).new();
   root_vars := ArrayList(Variable).new();
   roots := projection_call_root_args(rhs, ctx);
+  root_labels := ArrayList(String).new();
+  root_names := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     root := roots(ri);
@@ -628,6 +648,8 @@ _bind_projection_result :: (
         local_borrow_place_of(&root.arg, env, ctx),
         .Some(lp) => {
           match(get_variables_from_env(env, lp.root_name.clone()).last(), .Some(rv) => root_vars.push(rv), .None => ());
+          root_labels.push(root.label.clone());
+          root_names.push(lp.root_name.clone());
           places.push(lp);
         },
         .None => {
@@ -680,6 +702,18 @@ _bind_projection_result :: (
     match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
   });
   info := local_borrow_register(var_name.clone(), &name_tok, is_mut, &places(usize(0)), &range, &step_pin);
+  // An elided result origin is the union of the reference parameters (O2):
+  // every argument above is frozen. The E0911 a later access of one of them
+  // raises names the parameter and the spelling that releases it (decision
+  // 43 step 2, N1c; Q2's verdict). `YO_AUDIT_ELIDED_ROOTS=1` lists every
+  // such binding whose roots are more than one place (the Q2 census).
+  elided := match(projection_call_callee_type(rhs, ctx), .Some(ct) => fn_result_origin_names(&ct).is_none(), .None => false);
+  if(elided && (root_labels.len() > usize(1)), {
+    info.elided_origin = Option(LocalBorrowElidedOrigin).Some(LocalBorrowElidedOrigin(call_text : call_text.clone(), labels : root_labels.clone(), roots : root_names.clone()));
+    if(_g_audit_elided_roots, {
+      eprintln(`[elided-roots] ${name_tok.module_path.*}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()} ${call_text} params=${_join_labels(&root_labels)}`);
+    });
+  });
   (qi : usize) = usize(1);
   while(qi < places.len(), {
     info.places.push(places(qi));
