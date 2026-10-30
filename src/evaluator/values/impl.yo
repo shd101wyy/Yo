@@ -4636,7 +4636,7 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
   inner_exn := Exception(
     throw : (
       _err -> {
-        _flag_field_force_failure(render_any_error(_err));
+        _flag_field_force_failure(render_any_error(&_err));
         unwind(());
       }
     )
@@ -5382,7 +5382,7 @@ evaluate_module_value :: (
           _try_generic_copy_clone_exclusion(&g_entry, ast_expr_token(&mf_expr), ctx),
           .Some(excl_err) => {
             _undo_generic_impl_registration(&g_entry);
-            exn.throw(&excl_err);
+            exn.throw(excl_err);
           },
           .None => ()
         );
@@ -6752,7 +6752,16 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
 /// handler is capture-free — the error rides the unwind value out (the
 /// `_try_ctfe_range_ctor` idiom).
 _try_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext) -> Option(AnyError))({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e.clone()))));
+  // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
+  // releases a bare body's parameter before the operand reads it
+  // (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  trap := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
   _check_generic_copy_clone_exclusion(entry, trait_tok, ctx, trap);
   Option(AnyError).None
 });

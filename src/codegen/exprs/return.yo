@@ -1360,11 +1360,21 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
       // the `return` tail.
       // Own-param drops: a RETURN tail flushes its own node drops inside
       // generate_return (mode-unfiltered), which covers the shared-id body's
-      // param drops; an UNWIND tail does not — flush them here first.
+      // param drops. An UNWIND tail has generate_unwind emit them with its
+      // drop preamble, AFTER its operand is evaluated: flushing them here,
+      // first, released a parameter the operand then read (`e ->
+      // unwind(Option(AnyError).Some(e))`, issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+      prev_unwind_tail := context.unwind_tail_param_drops_id;
       if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
-        generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+        context.unwind_tail_param_drops_id = Option(usize).Some(ast_expr_id(expr));
       });
       code := _call_generate_expr(expr, indent.clone(), context);
+      // A lowering that did not reach generate_unwind still owes the drops.
+      if(match(context.unwind_tail_param_drops_id, .Some(owed) => (owed == ast_expr_id(expr)), .None => false), {
+        context.unwind_tail_param_drops_id = Option(usize).None;
+        generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+      });
+      context.unwind_tail_param_drops_id = prev_unwind_tail;
       line := indent.clone();
       line.push_string(&code);
       line.push_str(";");
@@ -1616,6 +1626,20 @@ _emit_unwind_target :: (fn(indent : &String, context : &FunctionGenerationContex
 /// the thread-local `__yo_effect_escaped` flag, drop locals, and — for an
 /// effect-record-member / evidence-passing handler — stash the unwound value into
 /// `__yo_unwind_value` (memcpy) before returning a dummy; otherwise `return <v>`.
+/// The own-parameter drops of an `unwind(...)` that is the bare-expression
+/// body (`unwind_tail_param_drops_id`, set by
+/// generate_implicit_return_statement): emitted with the drop preamble, after
+/// the operand. Once: the field is cleared.
+_emit_unwind_tail_param_drops :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)(
+  match(
+    context.unwind_tail_param_drops_id,
+    .Some(tail_id) => if(tail_id == ast_expr_id(expr), {
+      context.unwind_tail_param_drops_id = Option(usize).None;
+      generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+    }),
+    .None => ()
+  )
+);
 generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   arg_opt := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
   em := context.base.emitter;
@@ -1636,6 +1660,7 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       .None => ()
     );
     _emit_effect_handler_param_drops(context, indent.clone());
+    _emit_unwind_tail_param_drops(expr, indent, context);
     generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
     generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).Some(released_by_unwind), Option(String).None);
     // No handler's unwind: the abort carries no value for anyone to catch.
@@ -1659,6 +1684,7 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       drops_from := _code_position(context);
       _emit_effect_handler_param_drops(context, indent.clone());
+      _emit_unwind_tail_param_drops(expr, indent, context);
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
       if(!context.is_effect_record_member_function, {
         generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).Some(released_by_unwind), Option(String).None);
@@ -1667,11 +1693,25 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       _unwind_dummy_return(indent.clone(), context)
     },
     .Some(arg) => {
-      argc := _call_generate_expr(&arg, indent.clone(), context);
+      argc_expr := _call_generate_expr(&arg, indent.clone(), context);
+      // The operand is a C EXPRESSION, not a value: evaluate it into a temp
+      // BEFORE the drop preamble below, or a handler local (or the handler's
+      // own by-value parameter, `e -> unwind(e.to_string())`) it reads is
+      // released first and read freed
+      // (issues/fixed/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md).
+      // `generate_return` evaluates its operand the same way. Still before the
+      // flag is raised (the ordering note above).
+      arg_ty := match(context.base.get_expr_info(&arg), .Some(ei) => Rc.clone(ei.ty), .None => t_unit());
+      argc := if(is_unit_type(&arg_ty) || (argc_expr.len() == usize(0)) || (argc_expr == "(void)0"), argc_expr, {
+        unw_tmp := fresh_local_name(String.from("__yo_unw_operand_"), &context.base.current_function_name);
+        em.emit_string_line(`${indent.clone()}${get_type_string(&arg_ty, &context.base)} ${unw_tmp.clone()} = ${argc_expr};`);
+        unw_tmp
+      });
       _emit_unwind_target(indent.clone(), context);
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       drops_from := _code_position(context);
       _emit_effect_handler_param_drops(context, indent.clone());
+      _emit_unwind_tail_param_drops(expr, indent, context);
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
       if(!context.is_effect_record_member_function, {
         generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).Some(released_by_unwind), Option(String).None);
@@ -1682,7 +1722,6 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         match(
           &context.current_function_type,
           .Some(_) => {
-            arg_ty := match(context.base.get_expr_info(&arg), .Some(ei) => Rc.clone(ei.ty), .None => t_unit());
             if(!is_unit_type(&arg_ty), {
               ats := get_type_string(&arg_ty, &context.base);
               em.emit_string_line(`${indent.clone()}{ ${ats.clone()} _unw_val = ${argc.clone()}; memcpy(__yo_unwind_value, &_unw_val, sizeof(${ats})); }`);

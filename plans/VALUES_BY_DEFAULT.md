@@ -8393,7 +8393,22 @@ heavy run, the command is given in item 2.
          first PR of the v0.2.74 window, before step 2). It flips both
          `throw` signatures, rewrites the 36 `src/` `exn.throw(&x)` sites,
          and turns the handler keep sites into moves. It keeps the `Clone`
-         bound.
+         bound. As built (2026-10-29, branch `vbd/b13b-errors-by-value`):
+         the handler parameter is owned, so a handler-local helper taking
+         the error (`_reported_at_user_call`, `_with_instantiation_note`,
+         `_record_codegen_error`, `codegen_report_error`, `_flag_walk_abort`)
+         takes `err : AnyError` and returns or stores it by move; a read-only
+         use lends it (`render_any_error(&err)`, 8 sites by `yo fix
+         --migrate markers`, the rest by hand); `downcast(err, T)` takes the
+         owned error. Flipping the parameter surfaced a new S1: a handler
+         whose body is a bare `unwind(...)` released its parameter before
+         the operand read it (`e -> unwind(e.to_string())`,
+         `issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md`).
+         B13-b fixes it together with the open S1
+         `issues/fixed/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md`.
+         `generate_unwind` now evaluates the operand into a temp, then emits
+         the tail's parameter drops with its drop preamble. The compiler's
+         three traps are block bodies until the seed carries the fix.
        - **v0.2.74, with decision 43 step 3 (N2).** `AnyError ::
          Dyn(Error)`, and `Error.source` returns `Option(&Dyn(SelfTrait))`.
          `root_cause` returns `&AnyError`, `error_chain` lends, `Context`

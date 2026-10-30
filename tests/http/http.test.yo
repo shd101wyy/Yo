@@ -164,7 +164,7 @@ test("fetch over https returns a real response (mandatory under CI)", {
       err -> {
         detail := err.to_string();
         cond(
-          (_network_required() && !_is_dns_failure(err)) => {
+          (_network_required() && !_is_dns_failure(&err)) => {
             // eprintln, not println: a buffered println is lost when the
             // panic below aborts the test child.
             eprintln(`  https fetch FAILED where the network is required: ${detail}`);

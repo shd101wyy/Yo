@@ -7781,13 +7781,13 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
 /// rather than the error this frame sees. A re-anchored E0901/E0910 at a
 /// method call whose receiver type has an `<name>_cloned` sibling carries
 /// decision 20's guidance in the primary's help (`_accessor_help_sentence`).
-_reported_at_user_call :: (fn(err : &AnyError, call : &AstExpr, call_tok : &Token, env : &Environment, ctx : &EvalContext) -> AnyError)({
-  err_in_std := match(primary_diagnostic_path(err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
+_reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token, env : &Environment, ctx : &EvalContext) -> AnyError)({
+  err_in_std := match(primary_diagnostic_path(&err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
   if(!err_in_std, {
-    return(err.clone());
+    return(err);
   });
   accessor_help := match(
-    primary_diagnostic_code(err),
+    primary_diagnostic_code(&err),
     .Some(code) => cond(
       ((code == E_USE_OF_MOVED_VALUE) || (code == E_BORROW_CONFLICT)) => match(
         _copying_accessor_info(call, env, ctx),
@@ -7819,7 +7819,7 @@ _reported_at_user_call :: (fn(err : &AnyError, call : &AstExpr, call_tok : &Toke
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
       dyn(match(accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
     },
-    .None => err.clone()
+    .None => err
   )
 });
 /// `_evaluate_function_call_unanchored` under a trap that hands the error
@@ -7834,7 +7834,16 @@ _evaluate_function_call_trapped :: (
     out : &mut ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
-  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e.clone()))));
+  // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
+  // releases a bare body's parameter before the operand reads it
+  // (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  trap := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
   out.push(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, trap));
   Option(AnyError).None
 });
@@ -7966,7 +7975,7 @@ evaluate_function_call :: (
   match(
     _evaluate_function_call_trapped(expr, env, given_type, given_value, ctx, &mut out),
     .Some(err) => {
-      exn.throw(_reported_at_user_call(&err, expr, &call_tok, env, ctx));
+      exn.throw(_reported_at_user_call(err, expr, &call_tok, env, ctx));
       expr
     },
     .None => {

@@ -156,7 +156,7 @@ evaluate_tuple_element_value :: (
   evaluated_rhs_gout := ArrayList(AstExpr).new();
   evaluated_rhs_gerr := evaluate_expression_guarded(expr, &env, ctx, &mut evaluated_rhs_gout);
   ctx.expected_type = saved_expected;
-  match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(&evaluated_rhs_ge), .None => ());
+  match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(evaluated_rhs_ge), .None => ());
   evaluated_rhs := match(evaluated_rhs_gout.get(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
   // Mark the field value copy-semantics: a named RC value moved into the
   // tuple literal gets a deferred `___dup` (without it the literal aliased

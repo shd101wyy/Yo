@@ -4065,10 +4065,10 @@ derive(MathError, Clone);
 // Writing the two impls by hand still works, and is the way to go when the
 // message is not a simple per-variant string.
 // AnyError is Dyn(Error, Clone) — any type implementing Error and Clone can
-// be wrapped. A Dyn owns its payload uniquely and a handler borrows the error
-// it catches, so keeping a caught error takes `err.clone()`. (A v0.2.73
-// interim: from v0.2.74 AnyError is Dyn(Error) again and `throw` passes the
-// error by value, so the Clone requirement goes away.)
+// be wrapped. A Dyn owns its payload uniquely, and `throw` passes the error by
+// value, so a handler keeps a caught error by moving it. (The Clone bound is a
+// v0.2.73 interim: from v0.2.74 AnyError is Dyn(Error) again and
+// `Error.source` lends the cause, so the Clone requirement goes away.)
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // Downcast back to the concrete type:

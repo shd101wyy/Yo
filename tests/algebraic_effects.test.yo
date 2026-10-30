@@ -2,7 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string"); // Let's use `String` instead of `str`
 { println } :: import("std/fmt");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { RefCell } :: import("std/sync/refcell");
 test("Test fn unwind and return via using parameter", {
@@ -2586,4 +2586,44 @@ test("an unwind through a type-qualified method call is caught by the installing
   assert(_um_check(_um_via_receiver) == i32(107), "receiver call (control)");
   assert(_um_check(_um_via_generic) == i32(108), "generic type-qualified call (control)");
   assert(_um_check(_um_via_plain) == i32(109), "plain function call (control)");
+});
+// Regression (issues/fixed/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md,
+// issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md):
+// `unwind(<operand>)` dropped the handler's locals before evaluating the
+// operand, and a handler whose whole body is `unwind(...)` released its
+// by-value parameter before it, so an operand reading either read freed
+// memory (ASan: heap-use-after-free). The operand is now evaluated into a
+// temp first, and the parameter drops follow it.
+_UwR :: ref(struct(n : i32));
+_UwAsk :: (ctl(k : i32) -> _UwR);
+_uw_use_ask :: (fn(ask : _UwAsk) -> i32)({
+  a := ask(i32(1));
+  b := ask(i32(2));
+  a.n + b.n
+});
+_uw_local_operand :: (fn() -> i32)({
+  (ask : _UwAsk) = (
+    k -> {
+      x := _UwR(n : (k + i32(40)));
+      unwind(x.n + i32(1));
+    }
+  );
+  _uw_use_ask(ask)
+});
+_uw_fail :: (fn(exn : Exception) -> i32)(exn.throw(dyn(String.from("a fairly long error message to allocate"))));
+_uw_error_operand :: (fn() -> String)({
+  exn := Exception(throw : (e -> unwind(e.to_string())));
+  _x := _uw_fail(exn);
+  String.from("no")
+});
+_uw_trap :: (fn() -> Option(AnyError))({
+  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  _x := _uw_fail(trap);
+  Option(AnyError).None
+});
+test("an unwind operand reads a handler local and the handler's error before they are released", {
+  assert(_uw_local_operand() == i32(42), "the operand read the handler local x");
+  assert(_uw_error_operand() == "a fairly long error message to allocate", "the operand read the thrown error");
+  kept := match(_uw_trap(), .Some(k) => k.to_string(), .None => String.from("none"));
+  assert(kept == "a fairly long error message to allocate", "a trap moved the thrown error out");
 });
