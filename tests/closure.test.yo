@@ -130,7 +130,7 @@ test("Test multiple expected errors", {
 });
 test("Test closure with Dyn", {
   mut(x) := 1;
-  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc.new(
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(
       Rc.new(y => {
         x = (x + y);
@@ -227,7 +227,7 @@ test("Test anonymous closure value with Impl that captures Rc object", {
 });
 test("Test anonymous closure value with Dyn that captures Rc object", {
   x := MyBox(1);
-  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc.new(
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(
       Rc.new(y => {
         x.* = (x.* + y);
@@ -247,7 +247,7 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
 });
 test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := MyBox(1);
-  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc.new(
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(y => {
       // without explicitly calling `box`
       x.* = (x.* + y);

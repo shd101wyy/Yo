@@ -156,7 +156,7 @@ test("Test a waker is moved into a waiter list and back out", {
 //     for whoever will fire it.
 // ---------------------------------------------------------------------------
 test("Test park moves its waker into register, which keeps it", {
-  slot := rc(RefCell(Option(Waker)).new(Option(Waker).None));
+  slot := Rc.new(RefCell(Option(Waker)).new(Option(Waker).None));
   // The signaller: takes the kept waker out of the slot and fires it.
   h := io.spawn(
     io.async({ slot : Rc.clone(slot) }(io : Io) => {
@@ -208,7 +208,7 @@ test("Test waking twice is a no-op", {
 test("Test a spawned task parks until the top level wakes it", {
   p := Park.new();
   w := p.waker();
-  ran := rc(RefCell(bool).new(false));
+  ran := Rc.new(RefCell(bool).new(false));
   h := io.spawn(
     io.async({ p, ran : Rc.clone(ran) }(io : Io) => {
       io.await(p.wait(io), io);
@@ -238,7 +238,7 @@ test("Test one signal wakes every waiter in a list", {
   n := usize(8);
   wakers := ArrayList(Waker).new();
   handles := ArrayList(JoinHandle(i32)).new();
-  woken := rc(RefCell(i32).new(i32(0)));
+  woken := Rc.new(RefCell(i32).new(i32(0)));
   (mut(i) : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
     p := Park.new();
@@ -314,7 +314,7 @@ test("Test dropping a waker leaves the loop able to finish other work", {
 // ---------------------------------------------------------------------------
 test("Test a waker relay hands off without a millisecond floor", {
   n := usize(400);
-  hops := rc(RefCell(i32).new(i32(0)));
+  hops := Rc.new(RefCell(i32).new(i32(0)));
   handles := ArrayList(JoinHandle(i32)).new();
   // Built from the last task back: each park moves into its task, and the
   // task before it holds its waker.
