@@ -669,6 +669,6 @@ test("an FnOnce body moves a capture-list entry named `_x` or `var_x`", {
   var_moved := String.from("b");
   cell.with_mut({ var_moved }(xs) => xs.push(var_moved));
   assert(cell.with(xs => xs.len()) == usize(2), "both entries moved in");
-  assert(cell.with(xs => match(xs.get(usize(0)), .Some(s) => (s == String.from("a")), .None => false)), "the `_` entry");
-  assert(cell.with(xs => match(xs.get(usize(1)), .Some(s) => (s == String.from("b")), .None => false)), "the `var_` entry");
+  assert(cell.with(xs => (xs(usize(0)) == String.from("a"))), "the `_` entry");
+  assert(cell.with(xs => (xs(usize(1)) == String.from("b"))), "the `var_` entry");
 });

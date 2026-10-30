@@ -143,7 +143,7 @@ import("std/string");
 { ToString, print } :: import("std/fmt");
 test("Test downcast success", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_cat := downcast(animal, Cat);
@@ -159,9 +159,9 @@ test("Test downcast success", {
 });
 test("Test downcast failure", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : (self -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_dog := downcast(animal, Dog);
@@ -177,9 +177,9 @@ test("Test downcast failure", {
 });
 test("Test downcast type check via is_some", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : (self -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
@@ -194,7 +194,7 @@ test("Test downcast type check via is_some", {
 // their type ids and both answers are statically `.None`.
 test("Test downcast to a value type that no dyn() in the program wraps", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   // A PAYLOAD variant matters: a fieldless enum lowers to a C integer, and the
   // old object-cast fallback then compiled (as a pointer-to-int cast) instead of
   // failing loudly. The struct-shaped variants are what the C compiler rejects.
@@ -222,7 +222,7 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
 // supply one (an annotated binding, a declared return type) keep working.
 test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   comptime_expect_error(downcast(dyn(Cat(`shadow`)), String), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
@@ -234,9 +234,9 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
 });
 test("Test downcast with multiple concrete types", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : (self -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (cat_animal : Animal) = dyn(Cat(`kitty`));
   (dog_animal : Animal) = dyn(Dog(`buddy`));
@@ -610,7 +610,7 @@ test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
 // (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
 _os_show :: (fn(v : &Dyn(ToString)) -> String)(v.to_string());
 test("Dyn: a trait from a generic impl builds its vtable", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   assert(_os_show(dyn(xs)) == String.from("[1, 2]"), "ArrayList(T)'s blanket ToString");

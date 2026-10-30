@@ -14,6 +14,7 @@
 //   it conflicts with that write (rule B).
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ Deque } :: import("std/collections/deque");
 { String } :: import("std/string");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { RawMutex } :: import("std/sync/mutex");
@@ -36,6 +37,7 @@ _gl_read_i64 :: (fn(v : &i64) -> i64)(v);
 _gl_by_value :: (fn(v : i64) -> i64)(v);
 _gl_len :: (fn(s : &String) -> usize)(s.len());
 _gl_list_len :: (fn(xs : &ArrayList(i64)) -> usize)(xs.len());
+_gl_deque_len :: (fn(d : &Deque(i64)) -> usize)(d.len());
 // The four declaration forms of a mutable global.
 mut(_gl_count) := i64(0);
 (mut(_gl_mg) : Gauge) = Gauge(n : i64(1));
@@ -48,7 +50,9 @@ _gl_fixed := Gauge(n : i64(7));
 (_gl_typed_fixed : Gauge) = Gauge(n : i64(8));
 (thread_local(_gl_tl_fixed) : i64) = i64(3);
 _gl_label := String.from("label");
-_gl_names := ArrayList(i64).new();
+// A list is a value since B8; a `Deque` is still a handle.
+_gl_names := Deque(i64).new();
+_gl_plain_list := ArrayList(i64).new();
 _gl_hits := AtomicI32.new(i32(0));
 _gl_lock := RawMutex.new();
 _GL_CONST :: Gauge(n : i64(9));
@@ -77,15 +81,18 @@ test("an immutable global is lent to any call", {
   assert(_gl_read_i64(&v) == _gl_count, "a local copy of a mut global");
 });
 test("a handle global is mutated through its methods without mut", {
-  _gl_names.push(i64(4));
-  _gl_names.push(i64(5));
+  _gl_names.push_back(i64(4));
+  _gl_names.push_back(i64(5));
   assert(_gl_names.len() == usize(2), "`&self` on the handle");
-  assert(_gl_list_len(&_gl_names) == usize(2), "the handle itself is lent");
+  assert(_gl_deque_len(&_gl_names) == usize(2), "the handle itself is lent");
   (mut(t) : i64) = i64(0);
   for(&_gl_names, x => {
     t = (t + x);
   });
   assert(t == i64(9), "a borrowed `for` over the handle");
+  // A value list global is written only when declared `mut(...)`.
+  comptime_expect_error(_gl_plain_list.push(i64(1)), "declared without `mut`");
+  assert(_gl_list_len(&_gl_plain_list) == usize(0), "an immutable value list global is lent");
 });
 test("an atomic and a RawMutex global lend their `&self` methods", {
   _gl_hits.fetch_add(i32(1), MemoryOrder.SeqCst);
@@ -172,14 +179,14 @@ test("the issue's repros are E0916", {
 });
 // Rule A: a projection into the storage behind a handle global conflicts
 // with a `&mut self` call on that handle anywhere, whichever the evaluator
-// reaches first.
-_gl_elems := ArrayList(String).new();
+// reaches first. A list is a value since B8, so the handle is a `Deque`.
+_gl_elems := Deque(String).new();
 _gl_grow_elems :: (fn() -> unit)({
-  _gl_elems.push(String.from("e"));
+  _gl_elems.push_back(String.from("e"));
 });
-_gl_make_filled :: (fn() -> ArrayList(String))({
-  xs := ArrayList(String).new();
-  xs.push(String.from("filled"));
+_gl_make_filled :: (fn() -> Deque(String))({
+  xs := Deque(String).new();
+  xs.push_back(String.from("filled"));
   xs
 });
 _gl_filled := _gl_make_filled();

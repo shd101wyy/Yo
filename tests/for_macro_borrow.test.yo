@@ -489,11 +489,11 @@ test("indices(): a walk that grows its list reads the re-derived buffer", {
 // (issues/fixed/borrow-assert-typed-local-declaration-false-positive.md) —
 // `clone` pushing into its result, an iterator's own cursor). The panic side is
 // pinned by tests/cli-cases/inout-for-alias-push-panics.
-test("borrowed for: read-only and fresh-storage methods through an alias do not trip the flag", {
+test("borrowed for: read-only and fresh-storage methods on a copy do not trip the flag", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
-  ys := xs.clone(); // a second handle of the same list
+  ys := xs.clone(); // a copy: a list is a value since B8
   mut(total) := i32(0);
   mut(hits) := i32(0);
   for(&mut xs, x => {
@@ -522,8 +522,9 @@ test("borrowed for: read-only and fresh-storage methods through an alias do not 
     x = (x + i32(1));
   });
   // Step 1: 1*2, then get(0) = 1, then 3 + 3 from the clone and the collect
-  // (9); the write makes xs(0) = 2. Step 2: 2*2, get(0) = 2, 3 + 3 (12).
-  assert(total == i32(21), "read-only and fresh-storage methods through the alias");
+  // (9); the write makes xs(0) = 2 and leaves the copy alone. Step 2: 2*2,
+  // get(0) = 1, 3 + 3 (11).
+  assert(total == i32(20), "read-only and fresh-storage methods through the copy");
   assert(hits == i32(2), "index_of inside the borrowed body");
   assert((xs(usize(0)) == i32(2)) && (xs(usize(1)) == i32(3)), "the elements were written through");
   mut(names) := ArrayList(String).new();
