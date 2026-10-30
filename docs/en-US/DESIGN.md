@@ -635,19 +635,19 @@ _ := unsafe(unistd.close(fd));
 ### Type inference
 
 ```yo
-// String's bytes live on the heap, behind a reference-counted buffer
+// A String is a value that owns its bytes on the heap
 (my_string : String) = String.from("Hello, world"); // Heap-allocated bytes
-my_string_2 := my_string; // Today a copy shares the buffer; my_string.clone() is an independent copy
+my_string_2 := my_string.clone(); // An independent copy; `my_string_2 := my_string` would move it
 // Primitive types are copied
 my_int := 1; // Stack-allocated
 my_int_2 := my_int; // my_int_2 is a copy
 // Fixed-size arrays are value types
 (my_int_array : Array(i32, 3)) = [1, 2, 3]; // Stack-allocated
 my_int_array := [1, 2, 3]; // Array(i32, 3)
-// ArrayList is an reference-semantics type
-(my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
+// ArrayList is a value too: it owns its heap buffer
+(my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated buffer, one owner
 // Enum/ADT can be value or reference-semantics type depending on definition
-Person :: struct(name : String, age : i32); // Value type (but holds a reference-semantics field)
+Person :: struct(name : String, age : i32); // Value type (its String field is a value too)
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -1313,7 +1313,7 @@ The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Wa
 
 - **A copy is E0901.** `g := f` moves the file, and a use of `f` afterwards is E0901 (use of moved value). Storing one handle twice, or capturing it in two closures, is E0901 as well. Before this change a `File` was a reference handle, and a copy shared its descriptor and position.
 - **Lend it.** Every method takes `self : &Self`, so `f.read_to_string(io)` borrows `f`. A function that only uses a resource takes `&File`.
-- **Share it through a reference type.** On one thread, `Rc.new(f)` gives an `Rc(File)` whose handles all reach the one file (`h.*.read_to_string(io)`). Across threads, use `Arc(Mutex(TcpStream))`; that needs a `Send` resource, which today are the sockets other than `UnixListener`, `Child` and its pipes, and `Thread`. `File`, the temporaries and `UnixListener` hold a `String` path and become `Send` with the collections (V2b); `Watcher`, `TlsStream` and `HttpClient` stay on their thread. A `ref` struct that holds a resource holds it as an `Rc` field for the same reason, as `HttpServer` holds its listener.
+- **Share it through a reference type.** On one thread, `rc(f)` gives an `Rc(File)` whose handles all reach the one file (`h.*.read_to_string(io)`). Across threads, use `Arc(Mutex(TcpStream))`; that needs a `Send` resource: the sockets, `File`, the temporaries, `Child` and its pipes, and `Thread` (`File`, the temporaries and `UnixListener` hold a `String` path, a value since B8). `Watcher`, `TlsStream` and `HttpClient` stay on their thread. A `ref` struct that holds a resource holds it as an `Rc` field for the same reason, as `HttpServer` holds its listener.
 - **Moving it out.** `Option(T).unwrap` reads through a borrow and cannot move a move-only payload out. Use a consuming match instead: `f := match(opt, .Some(x) => x, .None => …)`.
 - **Hand it over.** `BufReader(File).new(f)` and `TcpListener.incoming()` take ownership (`sink`); `get_ref()` and `Incoming.listener()` lend it back, and `BufReader.into_inner()` / `BufWriter.into_parts()` give it back by value. To serve a socket from a spawned task, move it into the task.
 - **Dropping it releases it.** A `Child` dropped without `wait()` closes the pipe ends it still holds (it does not wait for the process).
@@ -1656,7 +1656,7 @@ the underlying buffer is freed are excluded by construction:
 ### Range with `..`
 
 ```yo
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 list.push(i32(3));
@@ -1917,11 +1917,11 @@ for(iter_expr, variable => {
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. `into_iter` takes the collection by value, so the value form **consumes** `coll`: the iterator owns it. A collection that is read again after the loop is walked in place with `for(&coll, x => body)` (below), or iterated as a copy, `for(coll.clone(), x => body)`. The same holds for the other iterators that hold their source: `chars()`, `bytes()`, `char_indices()` and `lines()` on a `String`, `keys()` and `values()` on a map, `chunks(n)` and `windows(n)` on a list. While `String` and the collections are still shared handles, passing one by value shares it, so a later use keeps compiling until that type becomes a value type (`plans/VALUES_BY_DEFAULT.md` V2b). A collection's `iter()` yields raw pointers into its storage and holds the storage, not the collection: it is for `pragma(Pragma.AllowUnsafe)` code, and the collection must outlive the walk. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(&mut coll, x => body)` below, or an index loop with index writes:
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. `into_iter` takes the collection by value, so the value form **consumes** `coll`: the iterator owns it. A collection that is read again after the loop is walked in place with `for(&coll, x => body)` (below), or iterated as a copy, `for(coll.clone(), x => body)`. The same holds for the other iterators that hold their source: `chars()`, `bytes()`, `char_indices()` and `lines()` on a `String`, `keys()` and `values()` on a map, `chunks(n)` and `windows(n)` on a list. `String` and `ArrayList` are values (`plans/VALUES_BY_DEFAULT.md` B8), so a later use of one the loop consumed is E0901; the other collections are still shared handles until their own steps (B9–B11), and passing one by value shares it. A collection's `iter()` yields raw pointers into its storage and holds the storage, not the collection: it is for `pragma(Pragma.AllowUnsafe)` code, and the collection must outlive the walk. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(&mut coll, x => body)` below, or an index loop with index writes:
 
 ```yo
 // Value form — each `x` is yielded by value.
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 for(list, value => {
@@ -1930,14 +1930,14 @@ for(list, value => {
 
 // Reference-semantics elements are handles — mutation lands in the collection.
 Counter :: ref(struct(n : i32));
-counters := ArrayList(Counter).new();
+mut(counters) := ArrayList(Counter).new();
 counters.push(Counter(n : i32(1)));
 for(counters, c => {
   c.n = (c.n + i32(1));
 });
 
 // Struct/scalar elements: index writes mutate in place.
-arr := Array(i32, 3)(1, 2, 3);
+mut(arr) := Array(i32, 3)(1, 2, 3);
 i := usize(0);
 while(i < usize(3), {
   arr(i) = (arr(i) * i32(10));
@@ -1951,7 +1951,7 @@ Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, et
 The borrow form `for(&mut coll, x => body)` hands the body each element in place: assigning to `x` writes the element. The sigil goes on the source and the element mode follows it. For a map, `for(&mut m, (k, v) => body)` lends each value (the key read-only). The loop holds a local borrow of the collection for its whole extent and walks a cursor over it (`BorrowedWalk` and `BorrowedWalkMut`, decision 39 of `plans/VALUES_BY_DEFAULT.md`), so the body reaches the collection only through `x`: naming it in the body is E0911. The read walk `for(&coll, x => body)` (`for(&m, (k, v) => body)` for a map) holds a read borrow instead and binds each element read-only through the `walk_ref` projection: nothing is copied, a write through `x` is E0908, and the body may read the collection but not write it (E0911). Every std collection has the read walk; `HashSet` and `PriorityQueue` have no in-place walk, and `String` has neither (walk `s.chars()`). To read or grow a list while walking it, walk its positions, `for(xs.indices(), i => …)` with `xs(i)`. Another handle of the same collection is guarded by its runtime borrow flag, so growing or shrinking it that way panics (see [FLOWABILITY.md](./FLOWABILITY.md)).
 
 ```yo
-xs := ArrayList(i32).new();
+mut(xs) := ArrayList(i32).new();
 xs.push(i32(1));
 for(&mut xs, x => {
   x = (x + i32(10));
@@ -2833,12 +2833,12 @@ main :: (fn() -> unit)({
   f.push_str("x"); // empty or not, a clone is independent
   println(`"${e}" "${f}"`); // "" "x"
 
-  c := String.new();
+  mut(c) := String.new();
   append_mut(&mut c);
   d := with_bang(&a);
   println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
 
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.new());
   names.push(String.from("n"));
   for(&mut names, s => {
@@ -2974,7 +2974,7 @@ Dynamic array with automatic resizing.
 { ArrayList } :: import("std/collections/array_list");
 
 // Create a new ArrayList
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 
 // Push elements
 list.push(i32(42));
@@ -3367,7 +3367,7 @@ two closures' lists are two types, so a closure cannot go into another closure's
 ```yo
 (k1 : Impl(Fn() -> unit)) = (() => println(&a));
 (k2 : Impl(Fn() -> unit)) = (() => println(&s));
-l1 := ArrayList(type_of(k1)).new();
+mut(l1) := ArrayList(type_of(k1)).new();
 l1.push(k1); // OK
 l1.push(k2); // error: k2 is a different closure type
 ```
@@ -3438,6 +3438,9 @@ assert(sum(&t) == 3);
   does, so a `Box` of a move-only value is move-only.
 - **One drop.** Dropping a `Box` drops its payload and frees the cell.
   `ref_count(b)` is a compile error: there is no count.
+- **Moving the payload out.** `b.into_inner()` consumes the `Box`, frees the
+  cell and returns the payload, so a move-only payload leaves the cell without
+  a copy (`RefCell.into_inner` and `BufWriter.into_parts` use it).
 - **`Eq`, `Hash` and `Default`** compare, hash and build the payload.
   `Box(T)` is `Send`/`Sync` exactly when `T` is.
 - **Layout.** The `Box` value is one pointer, and `Option(Box(T))` is one
@@ -3887,7 +3890,7 @@ Which one to reach for:
 Shape :: trait(area : (fn(self : Self) -> f64));
 
 // A heterogeneous list: each element's concrete type is gone, only `Shape` remains.
-shapes := ArrayList(Dyn(Shape)).new();
+mut(shapes) := ArrayList(Dyn(Shape)).new();
 shapes.push(dyn(Circle(r : f64(1.0))));
 shapes.push(dyn(Square(side : f64(2.0))));
 for(shapes, s => println(s.area()));

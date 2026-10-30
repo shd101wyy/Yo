@@ -197,9 +197,9 @@ Node :: enum(Leaf, Branch(children : ArrayList(Self)));
 derive(Node, Eq(Node), ToString);
 
 main :: (fn() -> unit)({
-  xs := ArrayList(Node).new();
+  mut(xs) := ArrayList(Node).new();
   xs.push(Node.Leaf);
-  ys := ArrayList(Node).new();
+  mut(ys) := ArrayList(Node).new();
   ys.push(Node.Leaf);
   a := Node.Branch(xs);
   println(a == Node.Branch(ys)); // true

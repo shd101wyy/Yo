@@ -52,10 +52,10 @@ main :: (fn() -> unit)({
     // 一个单元，由它的 `alloc` 参数放在 `a` 中。
     p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     // 一个列表，它的缓冲区及其每一次增长都在 `a` 中。
-    xs := ArrayList(i32).new(alloc : .Some(a));
+    mut(xs) := ArrayList(i32).new(alloc : .Some(a));
     xs.push(p.x);
     // 没有参数：全局分配器。
-    ys := ArrayList(i32).new();
+    mut(ys) := ArrayList(i32).new();
     ys.push(p.y);
     println(`${xs.len() + ys.len()}`); // 2
   };
@@ -128,7 +128,7 @@ make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
 
 main :: (fn() -> unit)({
   a := Allocator.global(); // 任意 `Allocator` 值
-  xs := ArrayList(i32).with_capacity(usize(8), alloc : .Some(a));
+  mut(xs) := ArrayList(i32).with_capacity(usize(8), alloc : .Some(a));
   xs.push(i32(1));
   ys := xs.clone_in(Allocator.global()); // 显式放置的副本
   ys.push(i32(2));
