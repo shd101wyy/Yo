@@ -1888,7 +1888,7 @@ _record_index_unchecked_twin :: (
         &c.ty,
         Rc(.Func({ result : twin_slot })) => {
           twin_ret := t_slot_pointee(&twin_slot);
-          twin_out := if(t_slot_is_borrow(&twin_slot), Rc.clone(twin_ret), match(twin_ret, Rc(.Pointer(tp)) => Rc.clone(tp), _ => t_unit()));
+          twin_out := if(t_slot_is_borrow(&twin_slot), Rc.clone(twin_ret), match(&twin_ret, Rc(.Pointer(tp)) => Rc.clone(tp), _ => t_unit()));
           (t_slot_is_borrow(&twin_slot) || is_pointer_type(&twin_ret))
           && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
         },
