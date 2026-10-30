@@ -88,7 +88,9 @@ test("type_key: a reference slot keys as its spelling, without its origin", {
   assert(type_key(t_func_simple(ps.clone(), ts.clone(), t_bool())) == `fn(a : &i32) -> bool`, "fn(a : &i32) -> bool");
 });
 // `fn(v : <slot>) -> i32`, the slot as given.
-_fn_one_slot :: (fn(slot : &TypeValue) -> TypeValue)({
+_fn_one_slot :: (fn(slot : &TypeValue) -> TypeValue)(_fn_slot_result(slot, t_i32()));
+/// `fn(v : <slot>) -> <result>`: one parameter slot and a result slot.
+_fn_slot_result :: (fn(slot : &TypeValue, result : &TypeValue) -> TypeValue)({
   labels := ArrayList(String).new();
   labels.push(`v`);
   slots := ArrayList(TypeValue).new();
@@ -99,14 +101,13 @@ _fn_one_slot :: (fn(slot : &TypeValue) -> TypeValue)({
       shared_list(slots),
       no_types(),
       no_types(),
-      t_i32(),
+      result.clone(),
       rc(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : shared_list(labels),
           implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
           extern_name : Option(String).None,
@@ -148,6 +149,26 @@ test("type_key: a slot's origin is erased from the specialization identity", {
   mut(seen_p) := HashSet(String).new();
   mut(seen_e) := HashSet(String).new();
   assert(!(type_intern_key(&f_p, usize(0), &mut seen_p) == type_intern_key(&f_elided, usize(0), &mut seen_e)), "the intern key keeps the origin");
+});
+// Decision 43 step 2 (N1b): a projection's result is a `Reference` slot, as
+// a parameter's is, and its origin is erased from the identity the same
+// way: `-> &(i32, v)` prints, keys and compares as `-> &i32`; the mode is
+// part of it.
+test("type_key: a result slot's origin is erased from the specialization identity", {
+  arg := t_reference(t_i32(), false);
+  r_elided := _fn_slot_result(&arg, t_reference(t_i32(), false));
+  r_v := _fn_slot_result(&arg, t_reference_with_origin(t_i32(), false, _named_origin("v")));
+  assert(type_key(&r_v) == `fn(v : &i32) -> &i32`, "a spelled result origin prints as the elided form");
+  assert(type_key(&r_v) == type_key(&r_elided), "named vs elided result origin: one type_key");
+  assert(are_types_compatible_exact(&r_v, &r_elided) && are_types_compatible_exact(&r_elided, &r_v), "named vs elided result origin: exact-compatible both ways");
+  r_value := _fn_slot_result(&arg, t_i32());
+  r_mut := _fn_slot_result(&arg, t_reference(t_i32(), true));
+  assert(!(type_key(&r_value) == type_key(&r_elided)), "-> i32 vs -> &i32: distinct keys");
+  assert(!(type_key(&r_mut) == type_key(&r_elided)), "-> &mut i32 vs -> &i32: distinct keys");
+  assert(!are_types_compatible_exact(&r_value, &r_elided) && !are_types_compatible_exact(&r_mut, &r_elided), "the result's mode is part of the identity");
+  mut(seen_v) := HashSet(String).new();
+  mut(seen_e) := HashSet(String).new();
+  assert(!(type_intern_key(&r_v, usize(0), &mut seen_v) == type_intern_key(&r_elided, usize(0), &mut seen_e)), "the intern key keeps the result's origin");
 });
 test("type_key: SomeT distinct from concrete", {
   st := t_some_t(`T`, usize(0));

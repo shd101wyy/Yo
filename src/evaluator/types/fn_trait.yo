@@ -19,7 +19,9 @@ import("std/fmt");
   ast_expr_is_fn_call_of,
   make_err_expr,
   BK_FN_TRAIT,
-  BK_FN_ONCE_TRAIT
+  BK_FN_ONCE_TRAIT,
+  BK_MUT,
+  BK_IMM
 }
 :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
@@ -34,7 +36,7 @@ import("std/fmt");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ evaluate_function_parameters, FuncParam, FuncParamsResult } :: import("./function.yo");
+{ evaluate_function_parameters, FuncParam, FuncParamsResult, is_origin_qualified_reference_expr } :: import("./function.yo");
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
@@ -97,6 +99,19 @@ evaluate_fn_trait_type :: (
   ctx.is_evaluating_function_type = true;
   (env_mut : Environment) = env;
   params_result := evaluate_function_parameters(&param_exprs, &env_mut, ctx, exn);
+  // A borrowed result, `Fn(...) -> &T`: a function TYPE's result slot holds
+  // one (decision 43 step 2, N1b), a closure's has no lowering yet.
+  if(ast_expr_is_fn_call_of(&return_type_expr, BK_MUT, Option(usize).None) || ast_expr_is_fn_call_of(&return_type_expr, BK_IMM, Option(usize).None) || is_origin_qualified_reference_expr(&return_type_expr), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(&return_type_expr),
+          `A closure trait's result is a value: \`${ast_expr_to_string(expr)}\` returns a reference, which arrives with per-call closure origins (decision 43 step 2, plans/backlog/REFERENCES_AND_ORIGINS.md O2). A named function can return one: \`fn(xs : &T) -> &T\`.`
+        )
+      )
+    );
+  });
+
   // Evaluate the return type via the raw evaluator path so any
   // throw propagates cleanly to the caller's `exn` (the non-raw
   // wrapper's panic would otherwise swallow surfacing errors).

@@ -174,7 +174,7 @@ json :: import("std/encoding/json");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size, type_lacks_clone } :: import("./types/utils.yo");
-{ TypeValue, TypeValueNode, SharedList, no_types, no_labels, slot_pointee_at } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, SharedList, no_types, no_labels, slot_pointee_at, t_slot_pointee } :: import("./types/definitions.yo");
 { is_function_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
@@ -11707,7 +11707,7 @@ run_effects :: (
           // FutureTraitT; a bare FutureTraitT result is read directly.
           fut_labels := ArrayList(String).new();
           fut_types := ArrayList(TypeValue).new();
-          _collect_future_effects(&result, &mut fut_labels, &mut fut_types);
+          _collect_future_effects(&t_slot_pointee(&result), &mut fut_labels, &mut fut_types);
           (ei : usize) = usize(0);
           while((ei < fut_labels.len()) && (ei < fut_types.len()), {
             elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());

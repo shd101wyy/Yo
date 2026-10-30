@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
 { ExprInfo } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode, slot_pointee_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 {
   is_function_type,
   is_module_type,
@@ -498,7 +498,7 @@ detect_effect_expr_ :: (
       result_type_opt = match(
         effect_param_fn_type.clone(),
         .None => Option(TypeValue).None,
-        .Some(Rc(.Func({ result }))) => Option(TypeValue).Some(Rc.clone(result)),
+        .Some(Rc(.Func({ result }))) => Option(TypeValue).Some(t_slot_pointee(&result)),
         _ => Option(TypeValue).None
       );
     });
@@ -592,7 +592,7 @@ detect_effect_expr_ :: (
           transitive_result_type_opt := cond(
             via_closure => match(
               ctl_type,
-              Rc(.Func({ result })) => Option(TypeValue).Some(Rc.clone(result)),
+              Rc(.Func({ result })) => Option(TypeValue).Some(t_slot_pointee(&result)),
               _ => Option(TypeValue).None
             ),
             true => match(

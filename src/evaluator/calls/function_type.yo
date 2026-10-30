@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text, record_copy_loop } :: import("../utils.yo");
@@ -1200,11 +1200,14 @@ try_to_implement_function_by_function_type :: (
 )(
   match(
     function_type,
-    Rc(.Func({ param_types, result : result_box, meta : __fm2 })) => {
+    Rc(.Func({ param_types, result : result_slot, meta : __fm2 })) => {
       forall_labels := Rc.clone(__fm2.*.forall_labels);
       param_labels := Rc.clone(__fm2.*.param_labels);
       implicit_labels := Rc.clone(__fm2.*.implicit_labels);
-      result_is_ref := __fm2.*.result_is_ref;
+      // The result's VALUE type; a projection's `&`/`&mut` is its slot.
+      result_box := t_slot_pointee(&result_slot);
+      result_is_ref := t_slot_is_borrow(&result_slot);
+      result_is_mut_ref := t_slot_is_mut_ref(&result_slot);
       result_is_comptime_only := __fm2.*.result_is_comptime_only;
       tok := ast_expr_token(expr);
       // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
@@ -1265,7 +1268,7 @@ Result type: ${type_to_string(&result_box)}`
       // where it evaluates the marker.
       body_expr_raw := if(result_is_ref, {
         proj_mismatches := ArrayList(Token).new();
-        rewritten := rewrite_projection_tails(&body_expr_unprojected, __fm2.*.result_is_mut_ref, &mut proj_mismatches);
+        rewritten := rewrite_projection_tails(&body_expr_unprojected, result_is_mut_ref, &mut proj_mismatches);
         match(
           proj_mismatches.get(usize(0)),
           .Some(mt) => {
@@ -1274,7 +1277,7 @@ Result type: ${type_to_string(&result_box)}`
                 format_error_message(
                   &mt,
                   if(
-                    __fm2.*.result_is_mut_ref,
+                    result_is_mut_ref,
                     String.from("This function returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
                     String.from("This function returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
                   )
@@ -2123,14 +2126,14 @@ Result type: ${type_to_string(&result_box)}`
                   // internal pointer type).
                   proj_fwd := if(
                     projection_call_mode_of(&ub_body, ctx).is_some(),
-                    ` The body forwards another projection: a \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\` result lends it at the call site — write \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${_bare_projection_tail_text(&ub_body)}\`.`,
+                    ` The body forwards another projection: a \`${if(result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\` result lends it at the call site — write \`${if(result_is_mut_ref, "&mut ", "&")}${_bare_projection_tail_text(&ub_body)}\`.`,
                     String.new()
                   );
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(&fb),
-                        `This function returns \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(&result_box)}\` written \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}place\`, and this body has type \`${type_to_string(&ub_ty)}\`.${proj_fwd}`
+                        `This function returns \`${if(result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(&result_box)}\` written \`${if(result_is_mut_ref, "&mut ", "&")}place\`, and this body has type \`${type_to_string(&ub_ty)}\`.${proj_fwd}`
                       )
                     )
                   );
@@ -2228,7 +2231,7 @@ Result type: ${type_to_string(&result_box)}`
           // type is re-registered with a result SomeT CARRYING it (a SomeT's
           // resolution is an immutable value, types/definitions.yo).
           match(
-            result_box,
+            &result_box,
             Rc(.SomeT({ id : _ })) => if(
               some_resolution(&result_box).is_none(),
               match(

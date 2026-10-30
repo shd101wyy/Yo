@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -264,8 +264,6 @@ t_func_simple :: (
           param_labels : shared_list(param_labels),
           implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          // simple (runtime) function type
-          result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
           // synthesized types are never FFI
@@ -491,12 +489,13 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
     _ => Rc.clone(t)
   )
 );
-/// The function type `ft` with its result replaced by `result`. Non-`Func`
-/// input returns unchanged.
+/// The function type `ft` with its result's VALUE type replaced by `result`;
+/// a projection's result slot keeps its mode and origin (decision 43 step 2).
+/// Non-`Func` input returns unchanged.
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt)) => rc(TypeValueNode.Func(Rc.clone(fr_ft), Rc.clone(fr_pt), Rc.clone(fr_it), Rc.clone(fr_wt), Rc.clone(result), Rc.clone(fr_meta), Rc.clone(fr_vt))),
+    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, fr_old, fr_meta, fr_vt)) => rc(TypeValueNode.Func(Rc.clone(fr_ft), Rc.clone(fr_pt), Rc.clone(fr_it), Rc.clone(fr_wt), t_slot_with_pointee(&fr_old, result), Rc.clone(fr_meta), Rc.clone(fr_vt))),
     _ => Rc.clone(ft)
   )
 );

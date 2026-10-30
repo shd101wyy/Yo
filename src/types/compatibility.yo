@@ -11,7 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
@@ -820,7 +820,9 @@ _compat_impl :: (
         // stand where a by-value one was expected, and let the CTFE memo hand
         // `Wrap(fn(x : &mut i32) -> unit)` the by-value instance (a SIGSEGV,
         // issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
-        if((ameta.*.result_is_ref != emeta.*.result_is_ref) || (ameta.*.result_is_mut_ref != emeta.*.result_is_mut_ref), {
+        // The result's `&`/`&mut` is its slot's type, compared here as the
+        // parameter modes are; the pointees unify below.
+        if((t_slot_is_borrow(&aret) != t_slot_is_borrow(&eret)) || (t_slot_is_mut_ref(&aret) != t_slot_is_mut_ref(&eret)), {
           return(false);
         });
         (mi : usize) = usize(0);
@@ -866,8 +868,8 @@ _compat_impl :: (
           match(epts.get(si), .Some(v) => e_sig.push(t_slot_pointee(&v)), .None => ());
           si = (si + usize(1));
         });
-        a_sig.push(Rc.clone(aret));
-        e_sig.push(Rc.clone(eret));
+        a_sig.push(t_slot_pointee(&aret));
+        e_sig.push(t_slot_pointee(&eret));
         n_alpha := _push_alpha_pairs(&ameta.*.forall_labels.items, &a_sig, &emeta.*.forall_labels.items, &e_sig);
         (func_ok : bool) = true;
         i = usize(0);
@@ -880,7 +882,7 @@ _compat_impl :: (
           i = (i + usize(1));
         });
         if(func_ok, {
-          func_ok = recur(&aret, &eret, mode, visited);
+          func_ok = recur(&t_slot_pointee(&aret), &t_slot_pointee(&eret), mode, visited);
         });
         _pop_alpha_pairs(n_alpha);
         func_ok

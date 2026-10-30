@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { type_key } :: import("../../types/type_key.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { in_def_time_trial } :: import("../context.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList, slot_pointee_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
 { type_value_tag, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
@@ -570,7 +570,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
         i = (i + usize(1));
       });
       if(!res, {
-        if(recur(some_type_id, some_type_name, &result, visited, exn), {
+        if(recur(some_type_id, some_type_name, &t_slot_pointee(&result), visited, exn), {
           res = true;
         });
       });
@@ -820,13 +820,13 @@ _synthesize_fn_traits :: (
   exp_result := match(
     expected_ty,
     Rc(.FnTraitT(_, _, _, r, _, _)) => Rc.clone(r),
-    Rc(.Func({ result : r })) => Rc.clone(r),
+    Rc(.Func({ result : r })) => t_slot_pointee(&r),
     _ => rc(TypeValueNode.Unit)
   );
   giv_result := match(
     given_ty,
     Rc(.FnTraitT(_, _, _, r, _, _)) => Rc.clone(r),
-    Rc(.Func({ result : r })) => Rc.clone(r),
+    Rc(.Func({ result : r })) => t_slot_pointee(&r),
     _ => rc(TypeValueNode.Unit)
   );
   (ee : Environment) = expected_env;
@@ -1669,8 +1669,8 @@ _synthesize_types_impl :: (
     giv_pt := match(given_ty, Rc(.Func({ param_types : pts })) => Rc.clone(pts), _ => no_types());
     exp_it := match(expected_ty, Rc(.Func({ implicit_types : its })) => Rc.clone(its), _ => no_types());
     giv_it := match(given_ty, Rc(.Func({ implicit_types : its })) => Rc.clone(its), _ => no_types());
-    exp_ret := match(expected_ty, Rc(.Func({ result : r })) => Rc.clone(r), _ => rc(TypeValueNode.Unit));
-    giv_ret := match(given_ty, Rc(.Func({ result : r })) => Rc.clone(r), _ => rc(TypeValueNode.Unit));
+    exp_ret := match(expected_ty, Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => rc(TypeValueNode.Unit));
+    giv_ret := match(given_ty, Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => rc(TypeValueNode.Unit));
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
       // Synthesize generic type params
       n_fa := exp_fa.len();

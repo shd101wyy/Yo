@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -1329,7 +1329,7 @@ _infer_unapplied_ctor_receiver :: (
       uc_ri.value,
       .Some(.FuncVal(uc_fvd, _)) => match(
         get_func_type(&uc_fvd.*.func_id),
-        Rc(.Func({ result : uc_res })) => if(is_type_hierarchy_type(&uc_res), uc_fvd.*.func_id.clone(), String.new()),
+        Rc(.Func({ result : uc_res })) => if(is_type_hierarchy_type(&t_slot_pointee(&uc_res)), uc_fvd.*.func_id.clone(), String.new()),
         _ => String.new()
       ),
       _ => String.new()
@@ -4979,7 +4979,8 @@ _freshen_generic_closure_callee :: (
   });
   match(
     ft,
-    Rc(.Func({ param_types : gc_pts, result : gc_res, forall_types : gc_fts })) => {
+    Rc(.Func({ param_types : gc_pts, result : gc_res_slot, forall_types : gc_fts })) => {
+      gc_res := t_slot_pointee(&gc_res_slot);
       if(gc_fts.len() == usize(0), {
         return(Rc.clone(ft));
       });
@@ -5153,8 +5154,8 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
             meta : cb_meta
           })
         ) => if(
-          is_some_type(&cb_res) || (get_all_some_types(&cb_res).len() > usize(0)),
-          rc(TypeValueNode.Func(Rc.clone(cb_ft), Rc.clone(cb_pt), Rc.clone(cb_it), Rc.clone(cb_wt), Rc.clone(body), Rc.clone(cb_meta), no_types())),
+          is_some_type(&t_slot_pointee(&cb_res)) || (get_all_some_types(&t_slot_pointee(&cb_res)).len() > usize(0)),
+          rc(TypeValueNode.Func(Rc.clone(cb_ft), Rc.clone(cb_pt), Rc.clone(cb_it), Rc.clone(cb_wt), t_slot_with_pointee(&cb_res, &body), Rc.clone(cb_meta), no_types())),
           Rc.clone(info.ty)
         ),
         Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)) => {
@@ -7215,7 +7216,8 @@ _evaluate_funcval_runtime_call :: (
     // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
     ou_mint_closure_ret := match(
       get_func_type(spec_fid.clone()),
-      Rc(.Func({ result : mcr })) => {
+      Rc(.Func({ result : mcr_slot })) => {
+        mcr := t_slot_pointee(&mcr_slot);
         mcr_somes := get_all_some_types(&mcr);
         // `get_all_some_types` skips a nominal instance's type arguments by
         // design; the instance's identity is keyed by them.
@@ -7254,7 +7256,8 @@ _evaluate_funcval_runtime_call :: (
       // instantiation, not an unresolved type variable.
       match(
         get_func_type(spec_fid.clone()),
-        Rc(.Func({ result : mint_ret_ct })) => {
+        Rc(.Func({ result : mint_ret_slot })) => {
+          mint_ret_ct := t_slot_pointee(&mint_ret_slot);
           if((ou_mint_closure_ret || (get_all_some_types(&mint_ret_ct).len() == usize(0))) && !is_unit_type(&mint_ret_ct), {
             resolved_ret = mint_ret_ct.clone();
             out_rt.ty = Rc.clone(resolved_ret);
@@ -7280,6 +7283,7 @@ _evaluate_funcval_runtime_call :: (
           param_types : fx_pt,
           implicit_types : fx_it,
           where_types : fx_wt,
+          result : fx_res,
           meta : fx_meta
         })
       ) => rc(
@@ -7288,7 +7292,7 @@ _evaluate_funcval_runtime_call :: (
           Rc.clone(fx_pt),
           Rc.clone(fx_it),
           Rc.clone(fx_wt),
-          resolved_ret.clone(),
+          t_slot_with_pointee(&fx_res, &resolved_ret),
           Rc.clone(fx_meta),
           no_types()
         )
@@ -7306,7 +7310,7 @@ _evaluate_funcval_runtime_call :: (
     // least as resolved as the registered one.
     base_ret_somes := match(
       &base_spec_ty,
-      Rc(.Func({ result : fx_r0 })) => get_all_some_types(&fx_r0).len(),
+      Rc(.Func({ result : fx_r0 })) => get_all_some_types(&t_slot_pointee(&fx_r0)).len(),
       _ => usize(0)
     );
     cand_ret_somes := get_all_some_types(&resolved_ret).len();
@@ -8652,7 +8656,7 @@ _evaluate_function_call_unanchored :: (
       // Classify by the method's return shape: an associated-type return
       // (contains a SomeT, e.g. `comptime(Self.Output)`) marks arithmetic;
       // a SomeT-free return (e.g. `bool`) marks comparison.
-      m_ret_op := match(&first_m.ty, Rc(.Func({ result : _rb })) => Rc.clone(_rb), _ => t_unit());
+      m_ret_op := match(&first_m.ty, Rc(.Func({ result : _rb })) => t_slot_pointee(&_rb), _ => t_unit());
       op_ret_has_some := (get_all_some_types(&m_ret_op).len() > usize(0));
       // Associated-type return pre-hint: `try_to_call_function_with_arguments`
       // validates the return type and throws "Failed to infer the function
@@ -8993,7 +8997,7 @@ _evaluate_function_call_unanchored :: (
     callee_info_opt,
     .Some(pj_ci) => match(
       &pj_ci.ty,
-      Rc(.Func({ meta : pj_m })) => if(pj_m.*.result_is_ref && !callee_is_marked_dot && match(pj_ci.value, .Some(pj_v) => !is_func_val(&pj_v), .None => true), {
+      Rc(.Func({ result : pj_r })) => if(t_slot_is_borrow(&pj_r) && !callee_is_marked_dot && match(pj_ci.value, .Some(pj_v) => !is_func_val(&pj_v), .None => true), {
         exn.throw(
           dyn(
             format_error_message(
@@ -9972,7 +9976,7 @@ Fix: wrap the call:
           pa_ret_ct := match(&pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
           if(pa_has_hole && pa_ret_ct, {
             pa_pt := match(&pa_fty, Rc(.Func({ param_types : ppt })) => Rc.clone(ppt), _ => no_types());
-            pa_res := match(&pa_fty, Rc(.Func({ result : pr })) => Rc.clone(pr), _ => t_unit());
+            pa_res := match(&pa_fty, Rc(.Func({ result : pr })) => t_slot_pointee(&pr), _ => t_unit());
             if(n_a != pa_pt.len(), {
               exn.throw(
                 dyn(
@@ -10045,7 +10049,6 @@ Fix: wrap the call:
                     param_labels : pa_new_labels_s.clone(),
                     implicit_labels : no_labels(),
                     result_is_comptime_only : true,
-                    result_is_ref : false,
                     has_variadic : false,
                     is_extern : Option(String).None,
                     extern_name : Option(String).None,
@@ -10904,7 +10907,7 @@ Fix: wrap the call:
                   _param_accepts_second_class(
                     expr,
                     match(slot_pointee_at(&fv_param_types, ai), .Some(t) => t, .None => t_unit()),
-                    match(&fv_callee_ty, Rc(.Func({ result : fv_res_sc })) => Rc.clone(fv_res_sc), _ => t_unit()),
+                    match(&fv_callee_ty, Rc(.Func({ result : fv_res_sc })) => t_slot_pointee(&fv_res_sc), _ => t_unit()),
                     match(&fv_callee_ty, Rc(.Func({ forall_types : fv_ft_sc })) => (fv_ft_sc.len() > usize(0)), _ => false),
                     ctx
                   )
@@ -11267,14 +11270,14 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             &ci.ty,
-            Rc(.Func({ result : fv_fr })) => is_future_value_type(&fv_fr),
+            Rc(.Func({ result : fv_fr })) => is_future_value_type(&t_slot_pointee(&fv_fr)),
             _ => false
           ),
           .None => false
         );
         require_valid_ref_argument_places(&fv_param_is_ref.items, fv_future_callee, ast_expr_id(expr), &fv_param_labels.items, &fv_args, env, ctx, exn);
         require_capture_borrow_exclusivity(&fv_param_is_ref.items, &fv_param_is_owning.items, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
-        fv_returns_place := match(callee_info_opt, .Some(rpi) => match(&rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
+        fv_returns_place := match(callee_info_opt, .Some(rpi) => match(&rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&t_slot_pointee(&fv_res)), _ => false), .None => false);
         require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels.items, &fv_param_is_ref.items, &fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
@@ -11616,7 +11619,7 @@ Fix: wrap the call:
         // We need the declared return type from the callee's type (if available).
         ret_type := match(
           &fv_callee_ty,
-          Rc(.Func({ result : result_b })) => Rc.clone(result_b),
+          Rc(.Func({ result : result_b })) => t_slot_pointee(&result_b),
           _ => t_unit()
         );
         callee_func_type_opt := match(
@@ -11703,7 +11706,7 @@ Fix: wrap the call:
         // #247).
         declared_ret_is_type := match(
           get_func_type(func_id_fv.clone()),
-          Rc(.Func({ result : d_result, meta : __fmd })) => (is_type_hierarchy_type(&d_result) || __fmd.*.result_is_comptime_only),
+          Rc(.Func({ result : d_result, meta : __fmd })) => (is_type_hierarchy_type(&t_slot_pointee(&d_result)) || __fmd.*.result_is_comptime_only),
           _ => false
         );
         if(is_type_hierarchy_type(&ret_type) || callee_result_is_comptime || (all_args_are_types && declared_ret_is_type) || fv_is_macro, {
@@ -12260,8 +12263,8 @@ Fix: wrap the call:
                     cfv,
                     .FuncVal(__fvd2, _) => match(
                       get_func_type(&__fvd2.*.func_id),
-                      Rc(.Func({ result : rr })) => if(!is_some_type(&rr), {
-                        ret_type_rt = _with_future_output_resolution(&ret_type_rt, rr.clone());
+                      Rc(.Func({ result : rr })) => if(!is_some_type(&t_slot_pointee(&rr)), {
+                        ret_type_rt = _with_future_output_resolution(&ret_type_rt, t_slot_pointee(&rr));
                       }),
                       _ => ()
                     ),
@@ -12606,7 +12609,7 @@ Fix: wrap the call:
           // keep the cheap path. `evaluate_comptime_fn_call` itself returns
           // an UnknownVal (without executing) when any arg is unknown, so a
           // runtime receiver is handled safely.
-          m_ret_ty := match(m_callee_ty, Rc(.Func({ result : _mrb })) => Rc.clone(_mrb), _ => t_unit());
+          m_ret_ty := match(m_callee_ty, Rc(.Func({ result : _mrb })) => t_slot_pointee(&_mrb), _ => t_unit());
           m_is_comptime := match(&method_info.method_ty, Rc(.Func({ meta : __fm9 })) => __fm9.*.result_is_comptime_only, _ => false);
           (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(&m_ret_ty) || m_is_comptime, {
             m_self_ty_saved := ctx.self_type.clone();
@@ -12990,8 +12993,9 @@ Fix: wrap the call:
                       cfv_n,
                       .FuncVal(__fvdn, _) => match(
                         get_func_type(&__fvdn.*.func_id),
-                        Rc(.Func({ result : rr_n })) => if(!is_some_type(&rr_n), {
-                          ret_type_none = _with_future_output_resolution(&ret_type_none, rr_n.clone());
+                        Rc(.Func({ result : rr_n })) => if(!is_some_type(&t_slot_pointee(&rr_n)), {
+                          ret_type_none = _with_future_output_resolution(&ret_type_none, t_slot_pointee(&rr_n));
+
                         }),
                         _ => ()
                       ),

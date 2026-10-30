@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -1821,11 +1821,11 @@ ${ast_expr_to_string(&actual_arg)}`
             result : cb_res,
             meta : cb_meta
           })
-        ) => if(is_some_type(&cb_res), {
+        ) => if(is_some_type(&t_slot_pointee(&cb_res)), {
           match(
             get_closure_body_type(cb_fvd.*.func_id.clone()),
             .Some(cb_body_ty) => {
-              arg_type_for_synth = rc(TypeValueNode.Func(Rc.clone(cb_ft), Rc.clone(cb_pt), Rc.clone(cb_it), Rc.clone(cb_wt), cb_body_ty, Rc.clone(cb_meta), no_types()));
+              arg_type_for_synth = rc(TypeValueNode.Func(Rc.clone(cb_ft), Rc.clone(cb_pt), Rc.clone(cb_it), Rc.clone(cb_wt), t_slot_with_pointee(&cb_res, &cb_body_ty), Rc.clone(cb_meta), no_types()));
             },
             .None => ()
           );
@@ -3218,7 +3218,7 @@ create_specialized_function_inline :: (
       // the probe stays the same SomeT for every caller (no split).
       (ret_sig_ty : Option(TypeValue)) = Option(TypeValue).None;
       {
-        declared_ret := match(func_type, Rc(.Func({ result : dr })) => Rc.clone(dr), _ => t_unit());
+        declared_ret := match(func_type, Rc(.Func({ result : dr })) => t_slot_pointee(&dr), _ => t_unit());
         // A SomeT can sit only in an instance's TYPE ARGUMENTS: `Bag(K)` with
         // `K` phantom (no field mentions it), which `get_all_some_types` does
         // not walk into. Left unresolved there, the probe kept the binder in
@@ -3485,7 +3485,7 @@ create_specialized_function_inline :: (
             });
           };
           (spec_ret_ty : TypeValue) = evaluate_function_return_type_again(
-            match(func_type, Rc(.Func({ result : r })) => Rc.clone(r), _ => t_unit()),
+            match(func_type, Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => t_unit()),
             callee_env,
             ctx
           );
@@ -3497,7 +3497,7 @@ create_specialized_function_inline :: (
           // to a forall name and substitute the inferred forall_args value at
           // the occurrence's own recorded level.
           if((get_all_some_types(&spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(&spec_ret_ty), {
-            zdecl_ret := match(func_type, Rc(.Func({ result : zr })) => Rc.clone(zr), _ => t_unit());
+            zdecl_ret := match(func_type, Rc(.Func({ result : zr })) => t_slot_pointee(&zr), _ => t_unit());
             zret_somes := get_all_some_types(&zdecl_ret);
             // An `Impl(Future(..T..))` / `Impl(Fn(.. -> ..T..))` return is
             // ONE SomeT to `get_all_some_types`, which does not look inside
@@ -3674,7 +3674,7 @@ create_specialized_function_inline :: (
           // identity; adoption stays concrete-only.
           rte_decl_tyarg_somes := ArrayList(TypeValue).new();
           _collect_type_arg_somes(
-            match(func_type, Rc(.Func({ result : zr0 })) => Rc.clone(zr0), _ => t_unit()),
+            match(func_type, Rc(.Func({ result : zr0 })) => t_slot_pointee(&zr0), _ => t_unit()),
             &mut rte_decl_tyarg_somes,
             ArrayList(String).new()
           );
@@ -3812,6 +3812,7 @@ create_specialized_function_inline :: (
                 param_types : ft_pt,
                 implicit_types : ft_it,
                 where_types : ft_wt,
+                result : ft_res,
                 meta : ft_meta
               })
             ) => rc(
@@ -3820,7 +3821,7 @@ create_specialized_function_inline :: (
                 Rc.clone(ft_pt),
                 Rc.clone(ft_it),
                 Rc.clone(ft_wt),
-                spec_ret_ty.clone(),
+                t_slot_with_pointee(&ft_res, &spec_ret_ty),
                 Rc.clone(ft_meta),
                 no_types()
               )
@@ -3880,7 +3881,7 @@ create_specialized_function_inline :: (
           // against `*(T)`, not the `T` the result names.
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
             ExpectedTypeCtx(
-              ty : match(func_type, Rc(.Func({ meta : se_m })) => if(se_m.*.result_is_ref, t_ptr(&spec_ret_ty), spec_ret_ty.clone()), _ => spec_ret_ty.clone()),
+              ty : if(fn_result_is_ref(&func_type), t_ptr(&spec_ret_ty), spec_ret_ty.clone()),
               env : callee_env
             )
           );
@@ -4313,7 +4314,8 @@ create_specialized_function_inline :: (
                               cl_v3,
                               .FuncVal(cl_fvd3, _) => match(
                                 get_func_type(cl_fvd3.*.func_id.clone()),
-                                Rc(.Func({ result : cl_res3 })) => if(!is_some_type(&cl_res3), {
+                                Rc(.Func({ result : cl_res3_slot })) => if(!is_some_type(&t_slot_pointee(&cl_res3_slot)), {
+                                  cl_res3 := t_slot_pointee(&cl_res3_slot);
                                   match(
                                     fn_res,
                                     // A type binding: the variable's type is
@@ -4591,7 +4593,7 @@ create_specialized_function_inline :: (
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&specialized_body)),
             .Some(sb_info) => {
               sb_ty := Rc.clone(sb_info.ty);
-              sb_ret_is_ref := match(func_type, Rc(.Func({ meta : sb_m })) => sb_m.*.result_is_ref, _ => false);
+              sb_ret_is_ref := fn_result_is_ref(&func_type);
               // A specialized body ending in a `never` expression adopts the
               // declared result (Phase 3.6; the concrete twin is in
               // calls/function_type.yo).
@@ -4858,10 +4860,13 @@ create_specialized_function_inline :: (
                 param_types : sp_pt,
                 implicit_types : sp_it,
                 where_types : sp_wt,
-                result : sp_res_b,
+                result : sp_res_slot,
                 meta : __fm5
               })
             ) => {
+              // The result's `&`/`&mut` is its slot (decision 43 step 2): the
+              // pointee is re-evaluated, the slot rebuilt around it below.
+              sp_res_b := t_slot_pointee(&sp_res_slot);
               (sp_pl : SharedList(String)) = Rc.clone(__fm5.*.param_labels);
               // The spec's C params must be named after the FuncVal's OWN
               // (source) labels — the body references those. `func_type` here
@@ -4878,8 +4883,6 @@ create_specialized_function_inline :: (
               sp_pir := fn_param_mut_ref_flags(&func_type);
               sp_pio := fn_param_by_value_flags(&func_type);
               sp_pis := match(&__fm5.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags());
-              sp_rir := __fm5.*.result_is_ref;
-              sp_rimr := __fm5.*.result_is_mut_ref;
               sp_hv := __fm5.*.has_variadic;
               sp_ie := __fm5.*.is_extern.clone();
               sp_en := __fm5.*.extern_name.clone();
@@ -4954,7 +4957,7 @@ create_specialized_function_inline :: (
                         match(
                           &cw_cur,
                           Rc(.Func({ param_types : cw_cur_pt, result : cw_cur_ret })) => {
-                            if(get_all_some_types(&cw_cur_ret).len() > usize(0), {
+                            if(get_all_some_types(&t_slot_pointee(&cw_cur_ret)).len() > usize(0), {
                               cw_cur_generic = true;
                             });
                             (cw_gi : usize) = usize(0);
@@ -5055,12 +5058,13 @@ create_specialized_function_inline :: (
                                         forall_types : cw_fts,
                                         implicit_types : cw_its,
                                         where_types : cw_wts,
+                                        result : cw_old_ret,
                                         meta : cw_fm
                                       })
                                     ) => {
                                       register_func_type(
                                         cw_fid.clone(),
-                                        rc(TypeValueNode.Func(Rc.clone(cw_fts), cw_new_pts.clone(), Rc.clone(cw_its), Rc.clone(cw_wts), cw_ret_res, Rc.clone(cw_fm), no_types()))
+                                        rc(TypeValueNode.Func(Rc.clone(cw_fts), cw_new_pts.clone(), Rc.clone(cw_its), Rc.clone(cw_wts), t_slot_with_pointee(&cw_old_ret, &cw_ret_res), Rc.clone(cw_fm), no_types()))
                                       );
                                     },
                                     _ => ()
@@ -5480,15 +5484,13 @@ create_specialized_function_inline :: (
                   shared_list(spec_slots),
                   Rc.clone(sp_it),
                   Rc.clone(sp_wt),
-                  spec_result,
+                  t_slot_with_pointee(&sp_res_slot, &spec_result),
                   rc(
                     FuncMeta(
                       forall_labels : no_labels(),
                       param_labels : shared_list(sp_pl_f),
                       implicit_labels : sp_il,
                       result_is_comptime_only : sp_rico,
-                      result_is_ref : sp_rir,
-                      result_is_mut_ref : sp_rimr,
                       has_variadic : sp_hv,
                       is_extern : sp_ie,
                       extern_name : sp_en,
@@ -5731,14 +5733,14 @@ evaluate_ctl_function_body_inline :: (
         &fb_ctx.func_type,
         .Some(enclosing_ty) => match(
           enclosing_ty,
-          Rc(.Func({ result : rb })) => Rc.clone(rb),
-          _ => match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => rc(TypeValueNode.Unit))
+          Rc(.Func({ result : rb })) => t_slot_pointee(&rb),
+          _ => match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => rc(TypeValueNode.Unit))
         ),
-        .None => match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => rc(TypeValueNode.Unit))
+        .None => match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => rc(TypeValueNode.Unit))
       ),
-      _ => match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => rc(TypeValueNode.Unit))
+      _ => match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => rc(TypeValueNode.Unit))
     ),
-    .None => match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => rc(TypeValueNode.Unit))
+    .None => match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => rc(TypeValueNode.Unit))
   );
   // -------------------------------------------------------------------------
   // Determine enclosing return type from definition-site registry
@@ -6314,7 +6316,7 @@ resolve_param_types_from_expected :: (
 )({
   default_pts := match(func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
   forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => Rc.clone(__fm7.*.forall_labels), _ => no_labels());
-  ret_b := match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => t_unit());
+  ret_b := match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => t_unit());
   if(forall_lbls.len() == usize(0), {
     return(());
   });
@@ -7007,10 +7009,10 @@ _impl_fn_callee_result :: (fn(callee_ty : &TypeValue, declared : &TypeValue) -> 
   icr_term := resolve_cell_chain(callee_ty);
   icr_concrete := match(
     icr_term,
-    Rc(.Func({ result : icr_r })) => Option(TypeValue).Some(Rc.clone(icr_r)),
+    Rc(.Func({ result : icr_r })) => Option(TypeValue).Some(t_slot_pointee(&icr_r)),
     Rc(.Struct({ id : icr_sid })) => match(
       find_closure_fid_by_capture_struct_id(&icr_sid),
-      .Some(icr_fid) => match(get_func_type(&icr_fid), Rc(.Func({ result : icr_r2 })) => Option(TypeValue).Some(Rc.clone(icr_r2)), _ => Option(TypeValue).None),
+      .Some(icr_fid) => match(get_func_type(&icr_fid), Rc(.Func({ result : icr_r2 })) => Option(TypeValue).Some(t_slot_pointee(&icr_r2)), _ => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     _ => Option(TypeValue).None
@@ -7066,7 +7068,6 @@ try_to_call_function_with_arguments :: (
                 param_labels : Rc.clone(cpl),
                 implicit_labels : no_labels(),
                 result_is_comptime_only : false,
-                result_is_ref : false,
                 has_variadic : false,
                 is_extern : Option(String).None,
                 extern_name : Option(String).None,
@@ -7133,7 +7134,9 @@ try_to_call_function_with_arguments :: (
   });
   match(
     &norm_func_type2,
-    Rc(.Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b, meta : __fm8 })) => {
+    Rc(.Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b_slot, meta : __fm8 })) => {
+      // The declared result's VALUE type; a projection's `&` is its slot.
+      ret_b := t_slot_pointee(&ret_b_slot);
       fl := Rc.clone(__fm8.*.forall_labels);
       pl := Rc.clone(__fm8.*.param_labels);
       pio := fn_param_by_value_flags(&norm_func_type2);
@@ -8618,7 +8621,7 @@ try_to_call_function_with_arguments :: (
       // future's captures name).
       vrf_future_callee := match(
         func_type,
-        Rc(.Func({ result : vrf_fr })) => is_future_value_type(&vrf_fr),
+        Rc(.Func({ result : vrf_fr })) => is_future_value_type(&t_slot_pointee(&vrf_fr)),
         _ => false
       );
       require_ref_own_argument_exclusivity(
@@ -9007,7 +9010,7 @@ try_to_call_function_with_arguments :: (
               ) || (
                 is_pointer_type(&et.ty)
                 && (get_all_some_types(&return_type).len() == usize(0))
-                && match(func_type, Rc(.Func({ meta : st10_pm })) => st10_pm.*.result_is_ref, _ => false)
+                && fn_result_is_ref(&func_type)
               )
             );
             // The CALL's token anchors a return-type-vs-expected unification
@@ -9132,7 +9135,7 @@ try_to_call_function_with_arguments :: (
               cfb.kind,
               .FunctionBody => match(
                 &cfb.func_type,
-                .Some(cfty) => match(cfty, Rc(.Func({ result : crb })) => Rc.clone(crb), _ => rc(TypeValueNode.Unit)),
+                .Some(cfty) => match(cfty, Rc(.Func({ result : crb })) => t_slot_pointee(&crb), _ => rc(TypeValueNode.Unit)),
                 .None => rc(TypeValueNode.Unit)
               ),
               _ => rc(TypeValueNode.Unit)
@@ -9325,7 +9328,7 @@ try_to_call_function_with_arguments :: (
       if(!callee_is_extern && !(__fm8.*.is_control) && !ctx.is_evaluating_function_type, {
         s12_own_ids := ArrayList(String).new();
         s12_somes := collect_somes_with_fn_sigs(&ret_b);
-        match(ret_b, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => s12_somes.push(Rc.clone(ret_b)), _ => ());
+        match(&ret_b, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => s12_somes.push(Rc.clone(ret_b)), _ => ());
         (s12_i : usize) = usize(0);
         while(s12_i < s12_somes.len(), {
           match(
@@ -9531,14 +9534,14 @@ try_to_call_function_with_arguments :: (
                     &fb_ctx2.func_type,
                     .Some(enclosing_ty2) => match(
                       enclosing_ty2,
-                      Rc(.Func({ result : rb2 })) => Rc.clone(rb2),
-                      _ => match(func_type, Rc(.Func({ result : rb2b })) => Rc.clone(rb2b), _ => rc(TypeValueNode.Unit))
+                      Rc(.Func({ result : rb2 })) => t_slot_pointee(&rb2),
+                      _ => match(func_type, Rc(.Func({ result : rb2b })) => t_slot_pointee(&rb2b), _ => rc(TypeValueNode.Unit))
                     ),
-                    .None => match(func_type, Rc(.Func({ result : rb2c })) => Rc.clone(rb2c), _ => rc(TypeValueNode.Unit))
+                    .None => match(func_type, Rc(.Func({ result : rb2c })) => t_slot_pointee(&rb2c), _ => rc(TypeValueNode.Unit))
                   ),
-                  _ => match(func_type, Rc(.Func({ result : rb2d })) => Rc.clone(rb2d), _ => rc(TypeValueNode.Unit))
+                  _ => match(func_type, Rc(.Func({ result : rb2d })) => t_slot_pointee(&rb2d), _ => rc(TypeValueNode.Unit))
                 ),
-                .None => match(func_type, Rc(.Func({ result : rb2e })) => Rc.clone(rb2e), _ => rc(TypeValueNode.Unit))
+                .None => match(func_type, Rc(.Func({ result : rb2e })) => t_slot_pointee(&rb2e), _ => rc(TypeValueNode.Unit))
               );
               if(!is_some_type(&ctl_res_conc) && !is_unit_type(&ctl_res_conc), {
                 match(
