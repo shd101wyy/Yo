@@ -122,11 +122,28 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
 /// function being evaluated does not declare, or a local bound in a frame
 /// below the one its own parameters are bound in (both frame indices are
 /// read in the current environment, so they compare within one generation).
+/// The enclosing body's parameter names as written: a closure's own
+/// (`FuncValData.params`), which may differ from its expected `Fn` slot's
+/// labels; otherwise the function type's labels.
+_enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      fb.kind,
+      .FunctionBody => match(
+        &fb.func_value,
+        .Some(.FuncVal(epn_d, _)) => Option(ArrayList(String)).Some(epn_d.*.params.clone()),
+        _ => match(&fb.func_type, .Some(Rc(.Func({ meta : epn_m }))) => Option(ArrayList(String)).Some(epn_m.*.param_labels.items.clone()), _ => Option(ArrayList(String)).None)
+      ),
+      _ => Option(ArrayList(String)).None
+    ),
+    .None => Option(ArrayList(String)).None
+  )
+);
 _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
   !v.is_module_level && match(
-    _enclosing_fn_type(ctx),
-    .Some(Rc(.Func({ meta : pc_m }))) => {
-      labels := Rc.clone(pc_m.*.param_labels);
+    _enclosing_param_names(ctx),
+    .Some(labels) => {
       (own : bool) = false;
       (i : usize) = usize(0);
       while(i < labels.len(), {
@@ -157,7 +174,7 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
         )
       )
     },
-    _ => false
+    .None => false
   )
 );
 _join_names :: (fn(names : &SharedList(String)) -> String)({
