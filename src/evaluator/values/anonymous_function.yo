@@ -320,7 +320,9 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
         (fbtok.value == ":") => match(
           args.get(usize(0)),
           .Some(.Atom(_, ntok)) => ntok.value.clone(),
-          .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
+          // `x : &T` / `x : &mut T` is `__yo_imm(x) : T` / `__yo_mut(x) : T`
+          // by now (`desugar_if_calls`): the written name is the head's argument.
+          .Some(pm) => if(ast_expr_is_capture_mode_entry(&pm), ast_expr_token(&_only_arg(&pm)).value.clone(), fallback.clone()),
           .None => fallback.clone()
         ),
         true => fallback.clone()
@@ -2686,6 +2688,18 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 ),
                 _ => ()
               );
+              // A projection closure's body is its place's address (the
+              // marked `addr_of(place)`, a `*(T)`): its result is the place's
+              // type `T`, returned by address (decision 24).
+              if(fn_result_is_ref(&function_type), {
+                match(
+                  Rc.clone(body_ty),
+                  Rc(.Pointer(rr_pp)) => {
+                    body_ty = Rc.clone(rr_pp);
+                  },
+                  _ => ()
+                );
+              });
               has_some := get_all_some_types(body_ty.clone()).len();
               if(has_some == usize(0), {
                 // SOURCE labels (actual_param_labels), NOT the expected type's
