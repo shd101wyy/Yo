@@ -1185,7 +1185,10 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
       )
     );
   });
-  // An origin parameter in scope, or a binding's place: both are named.
+  // An origin parameter in scope, or a binding's place: both are named. A
+  // place named in an origin is a use of its binding (the warnings
+  // channel's read marker, D15).
+  o_var.was_read = true;
   if(!_names_contain(out, &o_name), {
     out.push(o_name);
   });

@@ -37,7 +37,7 @@
   is_array_type,
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_carries_origin } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { stable_type_identity } :: import("../../types/type_key.yo");
 {
@@ -207,6 +207,11 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // a C type: a slot read without `t_slot_pointee` is an internal error.
   if(match(&type, Rc(.Reference(_, _, _)) => true, _ => false), {
     __yo_panic("collect_type: a reference type reached codegen (a parameter slot read without t_slot_pointee)");
+  });
+  // A type holding a reference (a `&T` field or type argument, decision 43
+  // step 3, N2a) has no value until N2b, so it needs no C type.
+  if(type_carries_origin(&type), {
+    return(());
   });
   if(context.get_type_entry(type_key(&type)).is_some(), {
     return(()); // Already collected this type
@@ -642,7 +647,10 @@ collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info 
     .Atom(_, _) => match(
       ei_opt,
       .Some(ei) => if(is_type_value(&ei.value), {
-        match(ei.value, .Some(v) => match(v, .TypeVal(t) => collect_type(&t, context), _ => ()), .None => ());
+        // A reference type named as a value (`RefAlias :: &i32`, decision 43
+        // step 3, N2a) is no C type; one nested in a type is skipped by
+        // `collect_type` itself.
+        match(ei.value, .Some(v) => match(v, .TypeVal(t) => if(!type_carries_origin(&t), collect_type(&t, context)), _ => ()), .None => ());
       }),
       .None => ()
     )

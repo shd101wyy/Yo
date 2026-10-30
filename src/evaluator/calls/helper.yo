@@ -79,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -7716,6 +7716,32 @@ try_to_call_function_with_arguments :: (
           synthetic_token(&flabel, &callee_env.module_path.*)
         );
         fpi = (fpi + usize(1));
+      });
+      // `generic(p : Origin)` binders (decision 43 step 2) are not foralls:
+      // each binds as the origin naming itself, as `_build_def_time_body_env`
+      // binds it, so a body specialized here may name `p` in a type
+      // (`Option(&(T, p))`, step 3, N2a).
+      o_labels := match(&__fm8.*.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels());
+      (o_i : usize) = usize(0);
+      while(o_i < o_labels.len(), {
+        o_name := match(o_labels.get(o_i), .Some(n) => n, .None => String.from(""));
+        if(o_name.len() > usize(0), {
+          o_names := ArrayList(String).new();
+          o_names.push(o_name.clone());
+          o_ty := t_origin_kind();
+          add_variable_to_env(
+            &callee_env,
+            &o_name,
+            &o_ty,
+            Option(EvalValue).Some(create_type_value(t_origin_named(&shared_list(o_names)))),
+            true,
+            false,
+            false,
+            false,
+            synthetic_token(&o_name, &callee_env.module_path.*)
+          );
+        });
+        o_i = (o_i + usize(1));
       });
       // ----------------------------------------------------------------
       // Step 6b: io.async — pre-bind the effect-bundle generic `E` from the

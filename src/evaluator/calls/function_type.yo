@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { stable_func_id, display_module_path, debug_knob } :: import("../../utils.yo");
 { register_func_type, get_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
-{ get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound, fn_param_is_ptr_borrow, is_bare_callable_into_dyn_fn } :: import("../../types/utils.yo");
+{ get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound, fn_param_is_ptr_borrow, is_bare_callable_into_dyn_fn, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 { format_error_message, yo_error_from_diagnostics, YoError, with_code_carried } :: import("../../error.yo");
 { Diagnostic, E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
@@ -1269,6 +1269,10 @@ Result type: ${type_to_string(&result_box)}`
           )
         );
       });
+      // Decision 43 step 3, N2a: a run-time function whose parameter or
+      // result holds a reference outside a `&T` slot would hold a value no
+      // build makes yet. The `->`/`=>` literal path has the same check.
+      reject_origin_carrying_signature(function_type, &tok, exn);
       // Extract the function body from args[0] of the outer call expression.
       // D6: the argument list is read where it is bound (inside each arm) —
       // the ArrayList handle never escapes the match as a copy.
