@@ -539,7 +539,7 @@ evaluate_property_access :: (
           );
           return(expr);
         });
-        variant_name_1 := ast_expr_text(&prop_expr_1);
+        variant_name_1 := ast_expr_text(&prop_expr_1).*;
         match(
           // Resolve an in-definition Self shell (enum.yo) so the variant
           // lookup sees the finalized enum (`.Table(...)` shorthand where
@@ -953,7 +953,7 @@ Raw pointer operations may dereference invalid memory.`
               !is_some_type(&type_val_inner), {
       prim_type_id := type_id_or_empty(&type_val_inner);
       if(prim_type_id != "", {
-        prim_prop_name := ast_expr_text(&property_expr);
+        prim_prop_name := ast_expr_text(&property_expr).*;
         _reject_private_static_member(prim_type_id.clone(), prim_prop_name.clone(), &type_val_inner, &property_expr, exn);
         prim_methods := get_type_trait_methods_by_name(&prim_type_id, &prim_prop_name);
         if(prim_methods.len() > usize(0), {
@@ -991,7 +991,7 @@ Raw pointer operations may dereference invalid memory.`
       // `findMethodsFromGenericImpls` lookup as the struct branch
       //; single candidate only — multiple
       // candidates defer to function.yo's arg-type disambiguation.
-      pr_prop_name := ast_expr_text(&property_expr);
+      pr_prop_name := ast_expr_text(&property_expr).*;
       // Safe mode (D7): the generic-impl fallback below RESOLVES and RETURNS
       // for `Option(i32).unwrap`-shaped extractions (Option/Result methods
       // live in the generic-impl registry), never reaching the EnumT arm's
@@ -1039,7 +1039,7 @@ Raw pointer operations may dereference invalid memory.`
     // unrelated TypeVal property accesses are untouched.
     if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom(&object_expr) &&
       (ast_expr_token(&object_expr).value == "Self"), {
-      wt_prop := ast_expr_text(&property_expr);
+      wt_prop := ast_expr_text(&property_expr).*;
       n_wt := ctx.current_impl_trait_field_labels.len();
       (wt_i : usize) = usize(0);
       while(wt_i < n_wt, {
@@ -1095,7 +1095,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      variant_name_tv := ast_expr_text(&property_expr);
+      variant_name_tv := ast_expr_text(&property_expr).*;
       match(
         // Same Self-shell resolution as the shorthand path above.
         resolve_enum_shell(&type_val_inner),
@@ -1216,7 +1216,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_su := ast_expr_text(&property_expr);
+      prop_name_su := ast_expr_text(&property_expr).*;
       su_labels := match(
         &type_val_inner,
         Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
@@ -1380,7 +1380,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_mt := ast_expr_text(&property_expr);
+      prop_name_mt := ast_expr_text(&property_expr).*;
       mt_labels := match(
         &type_val_inner,
         Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),
@@ -1423,7 +1423,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_tt := ast_expr_text(&property_expr);
+      prop_name_tt := ast_expr_text(&property_expr).*;
       // `<:` WITNESS member access:
       // a TraitT whose `is_concrete` carries the receiver type — e.g.
       // `(Rc(i32) <: SomeTrait).method` — resolves the method against
@@ -1549,7 +1549,7 @@ Raw pointer operations may dereference invalid memory.`
     // slot.
     if(is_some_type(&type_val_inner), {
       if(is_valid_variable_name(&property_expr), {
-        st_prop_name := ast_expr_text(&property_expr);
+        st_prop_name := ast_expr_text(&property_expr).*;
         st_rtt := match(
           type_val_inner,
           Rc(.SomeT(_, _, _, _, rtt, _, _, _, _, _)) => rtt,
@@ -1753,7 +1753,7 @@ Raw pointer operations may dereference invalid memory.`
     if(ast_expr_is_atom(&property_expr), {
       // --- Union member READ gate (safe mode) ------------------------------
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.
-      pa_union_member := ast_expr_text(&property_expr);
+      pa_union_member := ast_expr_text(&property_expr).*;
       if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.items.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone()), ctx.unsafe_context)), {
         exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty)))));
         return(expr);
@@ -1771,7 +1771,7 @@ Raw pointer operations may dereference invalid memory.`
           );
           return(expr);
         });
-        idx_str := ast_expr_text(&property_expr);
+        idx_str := ast_expr_text(&property_expr).*;
         match(
           idx_str.parse_i64(),
           .None => {
@@ -1852,7 +1852,7 @@ Raw pointer operations may dereference invalid memory.`
       });
       // --- Label name access ----------------------------------------------
       if(is_valid_variable_name(&property_expr), {
-        label_str := ast_expr_text(&property_expr);
+        label_str := ast_expr_text(&property_expr).*;
         field_idx_lbl := find_first_field_index(&fields_labels.items, label_str.clone());
         match(
           field_idx_lbl,
@@ -2140,7 +2140,7 @@ Raw pointer operations may dereference invalid memory.`
         return(expr);
       });
       if(is_valid_variable_name(&property_expr), {
-        mod_label := ast_expr_text(&property_expr);
+        mod_label := ast_expr_text(&property_expr).*;
         // Phase 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6):
         // attribute this module-member read — the enclosing def (forcing
         // top) gains a def-level edge; an ordered statement (empty stack)
@@ -2279,7 +2279,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_ev := ast_expr_text(&property_expr);
+      prop_name_ev := ast_expr_text(&property_expr).*;
       match(
         base_ty,
         Rc(.EnumT(_, _, ev_vnames, ev_vfields, ev_sel, ev_vflabels, _, _, _, _)) => {

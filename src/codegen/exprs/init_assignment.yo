@@ -255,7 +255,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     .Some(e) => e,
     .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).value}`))
   );
-  var_name := ast_expr_text(&name_expr);
+  var_name := ast_expr_text(&name_expr).*;
   place_type := resolve_some_type_to_concrete(&name_ei.ty);
   // In an `io.async` state machine the reference and its pin live in their
   // task slots when they are live across a suspension (`_sm_local_slot`);
@@ -461,7 +461,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).value}`)
       )
     );
-    var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_text(&lhs));
+    var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_text(&lhs).*);
     // Resolve a SomeT binding type through its concrete resolution BEFORE the
     // unit guards below — a binding typed as an unresolved SomeT that resolves
     // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
