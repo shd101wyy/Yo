@@ -1102,7 +1102,17 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         true => _sm_arg_temp_read(expr, &code, context)
       )
     },
-    .Atom(_, _) => generate_atom(expr, context, indent)
+    // A bare `return` outside a state machine is the unit return
+    // `return()` is: it releases the live locals, the owned parameters and
+    // an FnOnce closure's unmoved captures before it leaves. generate_atom
+    // emitted the bare C `return` with no drops
+    // (issues/fixed/2026-10-30-an-io-async-closure-that-returns-early-leaks-its-captures.md).
+    // In a state machine the atom keeps its own completion path (atom.yo).
+    .Atom(_, atok) => if(
+      (atok.value == BK_RETURN) && context.in_async_state_machine.is_none(),
+      generate_return(expr, indent.clone(), context),
+      generate_atom(expr, context, indent)
+    )
   )
 );
 /// A call whose value waits in its temp while a later argument of the
