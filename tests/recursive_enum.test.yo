@@ -30,7 +30,7 @@ eval :: (fn(e : *MyExpr) -> i32)({
         mut(i) := usize(0);
         while(i < items.len(), i = (i + usize(1)), {
           match(
-            items.get(i),
+            items.get_cloned(i),
             .Some(it) => {
               sum = (sum + recur(addr_of(it)));
             },
@@ -118,7 +118,7 @@ _holder_sum_ids :: (fn(hs : &ArrayList(Holder)) -> i32)({
   (mut(i) : usize) = usize(0);
   while(i < hs.len(), i = (i + usize(1)), {
     match(
-      hs.get(i),
+      hs.get_cloned(i),
       .Some(h) => match(
         h,
         .HOne(p) => {
@@ -174,7 +174,7 @@ _list_tree_weight :: (fn(t : &ListTree) -> i32)(
     .LtList(xs) => match(xs.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
     .LtGrid(rows) => match(
       rows.get(usize(0)),
-      .Some(row) => match(row.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+      .Some(row) => match(row.get_cloned(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
       .None => i32(0)
     )
   )
