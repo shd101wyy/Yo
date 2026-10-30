@@ -183,7 +183,7 @@ new_value := counter.with_lock(v => (v + i32(1)));
 LIMIT :: i32(5); // 常量：任何线程都可读
 hits := AtomicI32(i32(0)); // 原子对象：共享状态，可以
 (thread_local(mut(scratch)) : i32) = i32(0); // 每线程可变状态：可以
-g := ArrayList(i32).new(); // 只在主线程上可用
+mut(g) := ArrayList(i32).new(); // 只在主线程上可用
 fill :: (fn() -> unit)({
   g.push(i32(1));
 });
@@ -210,7 +210,7 @@ Thread(i32).spawn(io => counter); // 错误：……但另一个线程读取了 
 编译器看不到值的裸 `fn(...)` 类型**不是 `Send`**：结构体字段、集合元素、`Channel(fn() -> unit)` 的载荷，以及被另一个线程的闭包捕获的普通局部变量 `f := count`，都属于这种情况。承载这一承诺的函数类型是 `Impl(Fn(...), Send)`，应写成 `(f : Impl(Fn(Io) -> unit, Send)) = count`。一个值只在被转换成它的地方检查一次（参数、返回值、带类型声明的绑定）。
 
 ```yo
-g := ArrayList(i32).new(); // 只在主线程上可用
+mut(g) := ArrayList(i32).new(); // 只在主线程上可用
 hits := AtomicI32(i32(0));
 fill :: (fn(io : Io) -> unit)({
   g.push(i32(1));

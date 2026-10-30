@@ -61,10 +61,10 @@ main :: (fn() -> unit)({
     // One cell, placed in `a` by its `alloc` argument.
     p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     // A list whose buffer, and every growth of it, lives in `a`.
-    xs := ArrayList(i32).new(alloc : .Some(a));
+    mut(xs) := ArrayList(i32).new(alloc : .Some(a));
     xs.push(p.x);
     // No argument: the global allocator.
-    ys := ArrayList(i32).new();
+    mut(ys) := ArrayList(i32).new();
     ys.push(p.y);
     println(`${xs.len() + ys.len()}`); // 2
   };
@@ -141,7 +141,7 @@ global, and so are the types built on them (`String`, an interpolation):
 
 main :: (fn() -> unit)({
   a := Allocator.global(); // any `Allocator` value
-  xs := ArrayList(i32).with_capacity(usize(8), alloc : .Some(a));
+  mut(xs) := ArrayList(i32).with_capacity(usize(8), alloc : .Some(a));
   xs.push(i32(1));
   ys := xs.clone_in(Allocator.global()); // a copy placed explicitly
   ys.push(i32(2));

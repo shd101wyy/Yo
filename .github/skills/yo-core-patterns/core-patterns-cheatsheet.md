@@ -117,7 +117,7 @@ empty `{}` = bind nothing (`.Circle({}) => …`). Bare `{_}` is rejected (E0406:
 { HashSet } :: import("std/collections/hash_set");
 { String } :: import("std/string");
 
-numbers := ArrayList(i32).new();
+mut(numbers) := ArrayList(i32).new();
 numbers.push(i32(1));
 numbers.push(i32(2));
 
@@ -413,9 +413,9 @@ Node :: enum(Leaf, Branch(children : ArrayList(Self)));
 derive(Node, Eq(Node), Clone);
 
 main :: (fn() -> unit)({
-  xs := ArrayList(Node).new();
+  mut(xs) := ArrayList(Node).new();
   xs.push(Node.Leaf);
-  ys := ArrayList(Node).new();
+  mut(ys) := ArrayList(Node).new();
   ys.push(Node.Leaf);
   assert(Node.Branch(xs) == Node.Branch(ys), "same shape");
   assert(Node.Branch(xs) != Node.Branch(ArrayList(Node).new()), "different shape");
@@ -521,7 +521,7 @@ transform :: (fn(values : &mut ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 

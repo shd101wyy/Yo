@@ -130,12 +130,13 @@ borrows from it"`）而非内存破坏。同缓存行加载 + 预测分支 —�
 容器只交出**值**，从不交出指向其缓冲区内部的指针：
 
 ```yo
-e := xs.get(i); // object 元素：指向元素对象的句柄
-e.push_str("!"); //   就地变异元素；句柄在 xs.push / realloc 之后
-//   依然有效 —— 它指向 String 对象本身，
-//   而不是 xs 的缓冲区内部
+e := xs.get_cloned(i); // String 元素：一份副本（自 B8 起 String 是值），
+//   在 xs.push / realloc 之后依然有效
+xs.with(i, s => s.push_str("!")); // 就地写入元素
+h := xs.get(i); // `ref(struct(...))` 元素：指向对象的句柄，
+//   通过它就地变异对象
 xs(i) = v; // 索引写：就地替换元素
-t := xs.get(i).unwrap(); // struct 元素：拷出 ……
+t := xs.get(i).unwrap(); // Copy 的 struct 元素：拷出 ……
 xs(i) = t2; //   …… 再写回
 for(xs, x => { ... }); // 迭代是值形式（into_iter）
 ```
@@ -148,7 +149,7 @@ for(&mut enemies, e => {
 }); // struct 元素就地修改
 for(&mut names, s => {
   s.push_str("!");
-}); // RC 元素：每个元素不再 dup
+}); // String 元素：就地写入
 for(&mut counts, c => {
   bump(c);
 }); // 把元素交给 &mut 参数

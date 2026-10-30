@@ -565,7 +565,7 @@ d := String.from("hi ").concat(name);
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
@@ -980,7 +980,7 @@ This also applies inside source strings in proto-evaluator tests.
 ### ArrayList indexing uses call syntax
 
 ```yo
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(42));
 
 val := list(usize(0)); // → i32  (value copy via Index trait)
@@ -1088,8 +1088,8 @@ split :: (fn(text : String, hdr_out : &mut String, body_out : &mut String) -> un
   hdr_out.push_str("...");
   body_out.push_str("...");
 });
-hdr := String.new();
-body := String.new();
+mut(hdr) := String.new();
+mut(body) := String.new();
 split(src, &mut hdr, &mut body); // hdr and body are filled
 
 // ALSO CORRECT — return the strings:
