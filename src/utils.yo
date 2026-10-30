@@ -453,7 +453,7 @@ stable_type_id :: (
 });
 _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
   match(
-    g_stable_type_id_owner_memo.with(m => m.get(module_path)),
+    g_stable_type_id_owner_memo.with(m => m.get_cloned(module_path)),
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(module_path));
