@@ -156,7 +156,7 @@ _ms_extern_may_mutate :: (
   if(_ms_head_is_pure_builtin(extern_name.clone()), {
     return(false);
   });
-  if(_msp_extern_is_scope_slot(extern_name.clone()), {
+  if(_msp_extern_is_scope_slot(extern_name.clone()) || _msp_extern_is_owner_read(extern_name.clone()), {
     return(false);
   });
   if(extern_name.starts_with("__yo_"), {
@@ -1024,6 +1024,16 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
 /// (issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md).
 _msp_extern_is_scope_slot :: (fn(h : &String) -> bool)(
   (h == "__yo_scope_ctx") || (h == "__yo_scope_vtable") || (h == "__yo_scope_set")
+);
+/// The owner reads `__yo_rc_owner_ctx(cell)` and `__yo_rc_owner_vtable(cell)`:
+/// the allocator recorded in an RC cell's owner prefix, which `make_mut`
+/// places its fresh cell with (plans/backlog/SEED_VERSION_AUTOMATION.md,
+/// "make_mut reuses the owner"). They read the cell's count word and prefix
+/// and write and free nothing; their results are allocator-private pointers,
+/// as the scope slots' are. Without this the `__yo_` prefix made reading a
+/// lent handle's owner count as mutating the handle.
+_msp_extern_is_owner_read :: (fn(h : &String) -> bool)(
+  (h == "__yo_rc_owner_ctx") || (h == "__yo_rc_owner_vtable")
 );
 /// Reallocation externs hand back the (possibly moved) block of their FIRST
 /// argument: the result is rooted where that pointer was.

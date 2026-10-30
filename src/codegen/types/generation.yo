@@ -1209,6 +1209,26 @@ static inline __yo_alloc_scope_t __yo_scope_of_object(void* p) {
   __yo_alloc_scope_t none = { 0, 0 };
   return none;
 }
+// std/prelude.yo's hooks (extern "Yo") for the allocator an RC cell was
+// placed with: its owner prefix's ctx and vtable, the place
+// __yo_scope_of_object reads, or NULL for a global cell (NULL vtable: the
+// global allocator, as __yo_scope_vtable answers). make_mut places its fresh
+// cell there. Unlike __yo_scope_of_object, which only release paths reach,
+// these run on an Arc cell while other threads hold handles and update the
+// count through _Atomic casts, so the tag bit is read with a relaxed atomic
+// load; the bit and the prefix never change after construction.
+static inline void* __yo_rc_owner_ctx(void* p) {
+  if (atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)p)->ref_count, memory_order_relaxed) & __YO_RC_TAG) {
+    return ((const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE))->ctx;
+  }
+  return NULL;
+}
+static inline void* __yo_rc_owner_vtable(void* p) {
+  if (atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)p)->ref_count, memory_order_relaxed) & __YO_RC_TAG) {
+    return (void*)((const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE))->vtable;
+  }
+  return NULL;
+}
 ${alloc_scoped_fn}// std/prelude.yo's hooks (extern "Yo"): rc/arc's "alloc : .Some(a)" arm saves
 // and restores the scope through them, and a cell constructor's .None arm
 // still asks __yo_scope_vtable whether one is current (NULL: the global
