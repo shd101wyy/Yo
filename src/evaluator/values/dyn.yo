@@ -774,7 +774,7 @@ _monomorphize_default_fv :: (
       // `Variable "out" not found`
       // (issues/fixed/2026-10-27-a-dyn-of-a-type-variable-fails-on-a-trait-default-with-a-parameter.md).
       sub_ft := _substitute_self_in_method_ty(&default_ft, value_type);
-      sub_pts := match(sub_ft, Rc(.Func({ param_types : sp })) => sp, _ => no_types());
+      sub_pts := match(&sub_ft, Rc(.Func({ param_types : sp })) => Rc.clone(sp), _ => no_types());
       sub_is_ref := match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&sub_ft), _ => no_flags());
       param_labels := match(fv, .FuncVal(__plfv, _) => __plfv.*.params.clone(), _ => ArrayList(String).new());
       spec_args := ArrayList(ArgEntry).new();
@@ -883,7 +883,7 @@ _generic_impl_method_for_dyn :: (
         // receiver alone, `Argument count mismatch: expected 2 arguments, got 1`
         // (issues/fixed/2026-10-27-a-dyn-of-a-type-variable-fails-on-a-trait-default-with-a-parameter.md).
         m_ty := _substitute_self_in_method_ty(&pc.method_type, receiver_type);
-        m_pts := match(m_ty, Rc(.Func({ param_types : mp })) => mp, _ => no_types());
+        m_pts := match(&m_ty, Rc(.Func({ param_types : mp })) => Rc.clone(mp), _ => no_types());
         m_is_ref := match(&m_ty, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&m_ty), _ => no_flags());
         (mpi : usize) = usize(1);
         while(mpi < m_pts.len(), {
