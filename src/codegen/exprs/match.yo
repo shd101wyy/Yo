@@ -854,33 +854,21 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &FunctionGenerationConte
   match(
     context.state_machine_variables,
     .Some(smv) => {
-      it := smv.keys();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .None => {
-            go = false;
-          },
-          .Some(k) => match(
-            smv.get(k.clone()),
-            // A consuming arm's hidden bindings share the arm's token, so the
-            // name tells them apart (decision 26).
-            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
-              note_state_machine_binding_id(context, k.clone());
-              return(
-                Option(String).Some(
-                  match(
-                    context.state_machine_field_aliases,
-                    .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
-                    .None => sm_local_field_name(k.clone())
-                  )
-                )
-              );
-            }),
-            .None => ()
-          )
-        );
+      for(&smv, (k, cv) => {
+        // A consuming arm's hidden bindings share the arm's token, so the
+        // name tells them apart (decision 26).
+        if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
+          note_state_machine_binding_id(context, k.clone());
+          return(
+            Option(String).Some(
+              match(
+                context.state_machine_field_aliases,
+                .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
+                .None => sm_local_field_name(k.clone())
+              )
+            )
+          );
+        });
       });
     },
     .None => ()
@@ -1128,27 +1116,13 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
               match(
                 context.state_machine_variables,
                 .Some(smv2) => {
-                  smb_it := smv2.keys();
-                  (smb_more : bool) = true;
-                  while(smb_more, {
-                    match(
-                      smb_it.next(),
-                      .None => {
-                        smb_more = false;
-                      },
-                      .Some(smb_k) => match(
-                        smv2.get(smb_k.clone()),
-                        .Some(smb_cv) => {
-                          smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
-                          if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.*.to_string()), {
-                            smb_id = smb_k.clone();
-                            smb_has = true;
-                            smb_more = false;
-                          });
-                        },
-                        .None => ()
-                      )
-                    );
+                  for(&smv2, (smb_k, smb_cv) => {
+                    smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
+                    if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.*.to_string()), {
+                      smb_id = smb_k.clone();
+                      smb_has = true;
+                      break;
+                    });
                   });
                 },
                 .None => ()

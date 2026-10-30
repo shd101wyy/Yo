@@ -280,19 +280,11 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               if(found_cv.is_none(), {
                 // First-match-by-name reading ENTRY fields — never derive
                 // emitted names from map keys (the PR #92 capture lesson).
-                cvals := smv.values();
-                (cv_go : bool) = true;
-                while(cv_go, {
-                  match(
-                    cvals.next(),
-                    .Some(cv) => if(cv.base.name == temp_var_name, {
-                      found_cv = Option(CapturedVariable).Some(cv);
-                      cv_go = false;
-                    }),
-                    .None => {
-                      cv_go = false;
-                    }
-                  );
+                for(&smv, (_k, cv) => {
+                  if(cv.base.name == temp_var_name, {
+                    found_cv = Option(CapturedVariable).Some(cv);
+                    break;
+                  });
                 });
               });
               match(
