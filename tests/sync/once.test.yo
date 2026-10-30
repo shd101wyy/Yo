@@ -273,7 +273,7 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
   );
   // `racer` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
-  shared_racer := arc(racer);
+  shared_racer := Arc.new(racer);
   t1 := Thread(unit).spawn({ shared_racer : Arc.clone(shared_racer) }(io) => shared_racer.*());
   t2 := Thread(unit).spawn({ shared_racer : Arc.clone(shared_racer) }(io) => shared_racer.*());
   t3 := Thread(unit).spawn({ shared_racer : Arc.clone(shared_racer) }(io) => shared_racer.*());

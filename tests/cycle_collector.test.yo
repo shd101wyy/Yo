@@ -440,7 +440,7 @@ test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
 // The common cons-list shape had the same defect: `Rc` is itself a
 // ref(struct), so `Cons`'s `Rc(Self)` tail is the only edge back to the enum,
 // and the walk re-roots at the `Rc` before it meets the enum again.
-// `a.tail = rc(a)` closes a cycle that used to stay tracked (100 of 100 with
+// `a.tail = Rc.new(a)` closes a cycle that used to stay tracked (100 of 100 with
 // the v0.2.67 seed)
 // (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
 (mut(g_rcons_disposed) : i32) = i32(0);

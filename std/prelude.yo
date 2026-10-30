@@ -9731,7 +9731,7 @@ export(Result);
 /// `w.method()` reach it through auto-dereference (`Deref`).
 ///
 /// `Rc(V)` is the canonical shared cell (V1 step 1, Generation B): the cell
-/// the compiler synthesizes (`dyn(v)` auto-boxes into `rc(v)`), and the one
+/// the compiler synthesizes (`dyn(v)` auto-boxes into `Rc(T).new(v)`), and the one
 /// every std, src and test site spells. Its old name, `Box`, is free again:
 /// V1 step 2 reintroduces `Box` as the unique, uncounted cell.
 ///
@@ -9743,7 +9743,7 @@ export(Result);
 /// only one.
 ///
 /// ```yo
-/// a := rc(i32(42));
+/// a := Rc.new(i32(42));
 /// b := Rc.clone(a); // a second handle to the same value
 /// assert(b.* == a.*, "a and b name the same value");
 /// ```
@@ -9881,7 +9881,7 @@ impl(
 /// 17). A copy of a handle is a new owner, so it is spelled where it is made,
 /// `Rc.clone(h)` (through the constructor, so a payload's own `clone` never
 /// shadows it, decision 32); an implicit copy whose source is used again is
-/// E0901. A deep copy is `rc(h.*.clone())`.
+/// E0901. A deep copy is `Rc.new(h.*.clone())`.
 impl(
   generic(T : Type),
   Rc(T),
@@ -9923,7 +9923,7 @@ impl(
   /// handle back, unchanged. Rust's `Rc::try_unwrap`.
   ///
   /// ```yo
-  /// a := rc(i32(5));
+  /// a := Rc.new(i32(5));
   /// n := match(Rc.try_unwrap(a), .Ok(v) => v, .Err(_) => i32(0)); // the only handle: 5
   /// ```
   try_unwrap : (fn(sink(self) : Self) -> Result(T, Self))(
@@ -9952,7 +9952,7 @@ impl(
   /// `Rc`'s cell upgrades to `.None` afterwards, since `self` left the cell.
   ///
   /// ```yo
-  /// a := rc(i32(1));
+  /// a := Rc.new(i32(1));
   /// b := Rc.clone(a);
   /// Rc.make_mut(&mut b) = i32(2); // b now has a cell of its own
   /// assert(a.* == i32(1), "a is unchanged");
@@ -10014,7 +10014,7 @@ extern(
 /// thread-safe form.
 ///
 /// ```yo
-/// a := rc(i32(7));
+/// a := Rc.new(i32(7));
 /// w := Rc.downgrade(&a);
 /// assert(w.upgrade().unwrap().* == i32(7), "alive while a is");
 /// consume(a);
@@ -10139,7 +10139,7 @@ export(Weak);
 /// "Related: `Box`'s layout").
 ///
 /// ```yo
-/// a := box(i32(41));
+/// a := Box.new(i32(41));
 /// b := a.clone(); // an independent cell
 /// b.* = i32(42);
 /// assert(a.* == i32(41), "the clone is a new cell");
@@ -10406,7 +10406,7 @@ export(
 /// === Arc ===
 /// Arc — an atomically reference-counted, thread-safe container for a single value.
 ///
-/// Use `arc(value)` to allocate. Access the inner value with `a.*`.
+/// Use `Arc.new(value)` to allocate. Access the inner value with `a.*`.
 ///
 /// The payload must be `Send` and `Sync`, as Rust's `Arc<T>` requires; it
 /// need not be `Acyclic` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2). An
@@ -10417,7 +10417,7 @@ export(
 ///
 /// ## Example
 /// ```yo
-/// a := arc(i32(42));
+/// a := Arc.new(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
@@ -10622,7 +10622,7 @@ extern(
 /// `Arc` handles closed through an `ArcWeak` is not a leak.
 ///
 /// ```yo
-/// a := arc(i32(7));
+/// a := Arc.new(i32(7));
 /// w := Arc.downgrade(&a);
 /// assert(w.upgrade().unwrap().* == i32(7), "alive while a is");
 /// consume(a);
@@ -10740,7 +10740,7 @@ export(ArcWeak);
 ///
 /// ```yo
 /// P :: struct(n : i32);
-/// b := rc(P(n : i32(1)));
+/// b := Rc.new(P(n : i32(1)));
 /// b.n = i32(2); // writes b.*.n
 /// assert(b.n == i32(2), "read through the cell");
 /// ```

@@ -74,8 +74,8 @@ test("type_key: a reference slot keys as its spelling, without its origin", {
   // such origin; this pins the rule before step 2 does.
   places := ArrayList(String).new();
   places.push(`p`);
-  named := rc(TypeValueNode.OriginSet(places : shared_list(places), is_elided : false));
-  r_named := rc(TypeValueNode.Reference(pointee : t_i32(), mutable : true, origin : named));
+  named := Rc.new(TypeValueNode.OriginSet(places : shared_list(places), is_elided : false));
+  r_named := Rc.new(TypeValueNode.Reference(pointee : t_i32(), mutable : true, origin : named));
   assert(type_key(&r_named) == type_key(t_reference(t_i32(), true)), "the origin is not in the key");
   // A fn type prints each parameter's mode from its slot, the pointee after it.
   ps := ArrayList(String).new();
@@ -94,7 +94,7 @@ _capture_struct :: (fn(sid : &String, label : &String, field : &TypeValue) -> Ty
   labels.push(label.clone());
   fields := ArrayList(TypeValue).new();
   fields.push(Rc.clone(field));
-  rc(TypeValueNode.Struct(sid.clone(), String.from(""), shared_list(labels), shared_list(fields), false, false, false, String.from(""), no_types(), false))
+  Rc.new(TypeValueNode.Struct(sid.clone(), String.from(""), shared_list(labels), shared_list(fields), false, false, false, String.from(""), no_types(), false))
 });
 // A closure inside a generic function captures the function's `Impl(Fn...)`
 // parameter: one SomeT lineage that each call site resolves to its own

@@ -377,7 +377,7 @@ test("a wrapper pattern must name the cell at its position", {
         _ => i32(0)
       )
     );
-    bad2(arc(Signal.Off))
+    bad2(Arc.new(Signal.Off))
   }, "a pattern does not look through a cell implicitly");
   comptime_expect_error({
     bad3 :: (fn(t : &Tree) -> i32)(
@@ -411,7 +411,7 @@ test("a structural pattern at an Rc position must spell Rc(p)", {
         _ => i32(0)
       )
     );
-    bad5(rc(Tree.Leaf(1)))
+    bad5(Rc.new(Tree.Leaf(1)))
   }, "a pattern does not look through a cell implicitly");
   comptime_expect_error({
     Cell3 :: enum(Value(v : Rc(i32)), Empty);
@@ -443,7 +443,7 @@ test("a missing case is printed through the Rc wrapper", {
         Rc(.Node(_, _)) => i32(1)
       )
     );
-    bad8(rc(Tree.Leaf(1)))
+    bad8(Rc.new(Tree.Leaf(1)))
   }, "Missing case: Rc(.Leaf(_))");
 });
 // A match in statement position whose every arm returns, inside a non-void

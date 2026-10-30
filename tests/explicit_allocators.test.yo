@@ -150,7 +150,7 @@ test("An alloc argument takes any Allocator value", {
   assert(counts.live == usize(0), `the placed point went back: ${counts.live}`);
 });
 // ===== The containers' default constructors are global (ALLOCATOR_PLACEMENT.md B1) =====
-test("ArrayList.new, HashMap.new, Deque.new and box(v) are on the global allocator", {
+test("ArrayList.new, HashMap.new, Deque.new and Box.new(v) are on the global allocator", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   assert(list.allocator().is_none(), "ArrayList.new()");
@@ -163,7 +163,7 @@ test("ArrayList.new, HashMap.new, Deque.new and box(v) are on the global allocat
   q.push_back(i32(1));
   assert(q.allocator().is_none(), "Deque.new()");
   b := Box.new(i32(2));
-  assert(Box.allocator(b).is_none(), "box(v)");
+  assert(Box.allocator(b).is_none(), "Box.new(v)");
 });
 test("An ArrayList placed by its alloc argument keeps growing in its allocator", {
   counts := _counts();
