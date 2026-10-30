@@ -24,6 +24,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { _looks_like_minted_temp, arm_value_with_dups } :: import("./drop_dup.yo");
 { declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, scope_stack_contains } :: import("../utils/index.yo");
+{ replace } :: import("std/mem");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -184,9 +185,9 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       hdr := indent.clone();
       hdr.push_str("{ // begin block");
       em.emit_string_line(&hdr);
-      prev_pending := context.pending_deferred_drops;
+      prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&ei.deferred_drop_expressions, &prev_pending));
-      prev_consumed := context.consumed_var_pending_drops;
+      prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(&ei), &prev_consumed));
       n := args.len();
       (idx : usize) = usize(0);
@@ -268,9 +269,9 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       hdr := indent.clone();
       hdr.push_str("{ // begin block");
       em.emit_string_line(&hdr);
-      prev_pending := context.pending_deferred_drops;
+      prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&ei.deferred_drop_expressions, &prev_pending));
-      prev_consumed := context.consumed_var_pending_drops;
+      prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(&ei), &prev_consumed));
       n := args.len();
       (idx : usize) = usize(0);
