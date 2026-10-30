@@ -1,0 +1,21 @@
+// `yo fix <path> --migrate cloned-accessors` also rewrites a copying accessor
+// whose result holds a counted handle (decision 17): the std reader copies
+// the handle out of `&Self`, which is E0901 at the call, and `get_cloned` is
+// the retain the copy made before.
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ HashMap } :: import("std/collections/hash_map");
+main :: (fn() -> unit)({
+  xs := ArrayList(Rc(i32)).new();
+  xs.push(rc(i32(2)));
+  m := HashMap(i32, Rc(i32)).new();
+  m.insert(i32(1), rc(i32(3)));
+  a := xs.get(usize(0));
+  b := m.get(&i32(1));
+  match(
+    (a, b),
+    (.Some(x), .Some(y)) => assert((x.* + y.*) == i32(5), "two second handles"),
+    _ => assert(false, "both present")
+  );
+});
+export(main);
