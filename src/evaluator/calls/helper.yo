@@ -158,7 +158,7 @@ pragma(Pragma.AllowUnsafe);
   note_borrowing_argument,
   type_head_name_for_impl_forcing,
   call_function_value_marker,
-  sync_counted_handle_std_generic
+  sync_mut_decl_census_untrusted
 } :: import("../context.yo");
 {
   PathCollection,
@@ -3797,13 +3797,10 @@ create_specialized_function_inline :: (
               original_func_value : original_func_val,
               impl_bindings_sig : push_bindings_sig,
               is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys),
-              // `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` judges std generic bodies too
-              // (measures what dropping decision 17's std-generic exemption costs).
-              in_std : (is_std_module_path(&ast_expr_token(&body).module_path.*, ctx.std_path.clone()) && debug_knob(`YO_DEBUG_V2C_JUDGE_STD_GENERIC`).is_none()),
               is_generic_body : spec_generic_body
             )
           );
-          sync_counted_handle_std_generic(ctx);
+          sync_mut_decl_census_untrusted(ctx);
           // Build a function-body evaluation context so explicit `return(...)`
           // statements inside the specialized body are legal — begin.yo gates
           // `return` on `is_evaluating_function_body_or_async_block` and throws
@@ -4665,7 +4662,7 @@ create_specialized_function_inline :: (
           swap(&mut ctx.captured_variables, &mut prev_caps);
           ctx.is_evaluating_function_body_or_async_block = prev_fb;
           ctx.currently_specializing_function = prev_spec;
-          sync_counted_handle_std_generic(ctx);
+          sync_mut_decl_census_untrusted(ctx);
           // Pop this specialization off the full stack (pushed at the set site above).
           spec_stack_r := match(
             ctx.currently_specializing_function_stack,
@@ -5685,7 +5682,7 @@ create_specialization_at_call :: (
     trapped,
     .Some(err) => {
       ctx.currently_specializing_function = prev_spec;
-      sync_counted_handle_std_generic(ctx);
+      sync_mut_decl_census_untrusted(ctx);
       // Taken out and stored back: a `match` binding is a copy of the stack
       // once collections are values.
       match(

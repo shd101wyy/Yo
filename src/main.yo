@@ -3689,6 +3689,14 @@ _run_migrate_explicit_copy :: (
 /// that already says where it copies. The sibling name comes from the
 /// registry — the compiler keeps no accessor name list.
 ///
+/// A call whose result holds a counted handle (decision 17; `HashMap.get` at
+/// an `Rc` value, `ArrayList(TypeValue).get`) is a site too: the std reader
+/// copies the handle out of `&Self`, which is E0901 at the call. Its
+/// `m_cloned` is `Rc.clone`, the retain the copy makes today, so only the
+/// generic-body guards below apply to it. The migration suspends decision
+/// 17's rule while it records, as `--migrate rc-clone` does, so one run sees
+/// every such call.
+///
 /// The guards are `--migrate explicit-copy`'s, over the same tables (the
 /// recorders run for either migration, `copy_migration_recording_on`): a
 /// site recorded at two types is a generic body (one `_cloned` there would
@@ -3882,7 +3890,7 @@ _run_migrate_cloned_accessors :: (
       // A receiver not rooted in a variable (a call's own result): the
       // container is a temporary that usually dies right after, so the
       // copy is usually a move.
-      if(st.src_decl.is_empty(), {
+      if(!st.handle && st.src_decl.is_empty(), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` reads a receiver that is a call result (no variable roots it), which usually dies right after; left as written`);
         continue;
@@ -3917,18 +3925,18 @@ _run_migrate_cloned_accessors :: (
       );
       src_side := ArrayList(String).new();
       src_side.push(st.src_decl.clone());
-      if(_copy_written_after(&writes_by_decl, &st.src_decl, &when) || _decl_written_after(&writes_by_decl, &flows_by_src, &flows_by_dst, &src_side, &when, true), {
+      if(!st.handle && (_copy_written_after(&writes_by_decl, &st.src_decl, &when) || _decl_written_after(&writes_by_decl, &flows_by_src, &flows_by_dst, &src_side, &when, true)), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` copies out of a container written afterwards, so the two may share a buffer on purpose; read it in place (\`${st.recv_text}(i)\`), spell the copy (\`.${st.cloned}\`) or borrow (\`with\`) by hand`);
         continue;
       });
-      if(pointer_decls.contains(st.src_decl.clone()), {
+      if(!st.handle && pointer_decls.contains(st.src_decl.clone()), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` copies out of a container a raw pointer reaches; move it with the pointer taken first, or spell the copy (\`.${st.cloned}\`) by hand`);
         continue;
       });
       match(
-        hot,
+        if(st.handle, Option(String).None, hot.clone()),
         .Some(hp) => {
           n_skipped = (n_skipped + usize(1));
           println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` is under the hot path \`${hp}\`; left as written for a hand edit (before the flip \`${st.cloned}\` deep-copies what \`${st.method}\` shares today, and that compounds there)`);
