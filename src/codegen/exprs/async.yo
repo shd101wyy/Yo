@@ -1989,10 +1989,13 @@ _collect_fused_sites :: (
               fused_await_site(&e, false, context),
               .Some(s) => if(!seen.contains(s.prefix.clone()), {
                 seen.insert(s.prefix.clone());
+                // The site joins `out` before the sites nested in its block
+                // (emission order); its prefix and analysis are read first.
+                s_prefix := s.prefix.clone();
+                s_analysis := s.block.analysis;
                 out.push(s);
-                saved_prefix := context.fusion_field_prefix;
-                context.fusion_field_prefix = s.prefix.clone();
-                _collect_fused_sites(&s.block.analysis, seen, out, context);
+                saved_prefix := replace(&mut context.fusion_field_prefix, s_prefix);
+                _collect_fused_sites(&s_analysis, seen, out, context);
                 context.fusion_field_prefix = saved_prefix;
               }),
               .None => ()
@@ -2078,8 +2081,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
             .None => ()
           );
         });
-        saved_prefix := context.fusion_field_prefix;
-        context.fusion_field_prefix = site.prefix.clone();
+        saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
         rfs := inline_await_result_fields(&site.block.analysis, context);
         context.fusion_field_prefix = saved_prefix;
         (ri : usize) = usize(0);
