@@ -29,7 +29,7 @@ _echo :: (fn(req : &HttpRequest) -> HttpResponse)({
 // Read one full response off a raw stream (until the server closes).
 _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async({ &stream }(e : IoExn) => {
-    out := ArrayList(u8).new();
+    mut(out) := ArrayList(u8).new();
     buf := (*u8)(malloc(usize(4096)).unwrap());
     mut(done) := false;
     while(!done, {
@@ -54,16 +54,17 @@ _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
 // Send one raw request on a fresh connection and read the whole response.
 // The write count is asserted so a short `send` shows up as a failure here
 // rather than as the server waiting forever for the rest of the body.
-_raw_exchange :: (fn(port : u16, request : &String, io : Io) -> Impl(Future(String, IoExn)))(
+_raw_exchange :: (fn(port : u16, request : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  __probe_request := request.clone();
   io.async(e => {
     s := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
-    w := e.io.await(s.write_string(request, e.io), e);
-    assert(w == request.len(), `short write: ${w} of ${request.len()} bytes`);
+    w := e.io.await(s.write_string(&__probe_request, e.io), e);
+    assert(w == __probe_request.len(), `short write: ${w} of ${__probe_request.len()} bytes`);
     raw := e.io.await(_read_all(&s, e.io), e);
     e.io.await(s.close(e.io), e);
     raw
   })
-);
+});
 // 12 000 bytes — more than the 8 KiB `read_http_message` reads at a time, so
 // the body only arrives in full when `Content-Length` really framed it.
 _big_body :: (fn() -> String)({
@@ -195,7 +196,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
-  called := ArrayList(i32).new();
+  mut(called) := ArrayList(i32).new();
   task := io.spawn(
     server.serve_once(req => {
       called.push(i32(1));

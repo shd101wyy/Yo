@@ -3951,7 +3951,7 @@ test("an upgrade from the payload's own Drop is .None, and the payload's Weak fr
 // live borrow).
 _weak_read :: (fn(x : &i32) -> i32)(x);
 _weak_list :: (fn() -> Rc(ArrayList(i32)))({
-  l := ArrayList(i32).new();
+  mut(l) := ArrayList(i32).new();
   l.push(i32(1));
   l.push(i32(2));
   Rc.new(l)
@@ -4161,7 +4161,7 @@ test("a closure takes a second handle in its capture list", {
   comptime_expect_error(a.*, "use of moved value");
 });
 test("a generic body copies a handle that is its T implicitly", {
-  xs := ArrayList(Rc(i32)).new();
+  mut(xs) := ArrayList(Rc(i32)).new();
   xs.push(Rc.new(i32(7)));
   h := _v2c_first(&xs);
   assert(h.* == i32(7), "ArrayList(Rc(T)).get copies through T");

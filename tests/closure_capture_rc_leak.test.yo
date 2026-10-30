@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 // each element is yielded by value, so the closure parameter binds
 // directly without a `.*` deref.
 test("for_each with ArrayList capture does not leak", {
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   src := ArrayList(i32).from([i32(1), i32(2), i32(3), i32(4)]);
   src.into_iter().for_each(x => {
     out.push(x);
@@ -22,7 +22,7 @@ test("for_each with ArrayList capture does not leak", {
   assert(out.len() == usize(4), "out len=4");
 });
 test("for_each with String capture does not leak", {
-  buf := ArrayList(String).new();
+  mut(buf) := ArrayList(String).new();
   src := ArrayList(i32).from([i32(10), i32(20), i32(30)]);
   src.into_iter().for_each(x => {
     consume(x);
@@ -34,7 +34,7 @@ test("fold with RC accumulator does not leak", {
   src := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
   result := src.into_iter().fold(ArrayList(i32).from([i32(0),]), (acc, x) => {
     // A local: the closure's `acc` parameter is borrowed.
-    grown := acc;
+    mut(grown) := acc.clone();
     grown.push(x);
     grown
   });
@@ -54,7 +54,7 @@ test("all with RC capture does not leak", {
   assert(ok, "all < 100");
 });
 test("for_each early break via short list", {
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   empty := ArrayList(i32).new();
   empty.into_iter().for_each(x => {
     out.push(x);
@@ -62,7 +62,7 @@ test("for_each early break via short list", {
   assert(out.len() == usize(0), "empty for_each leaves out empty");
 });
 test("any short-circuit drops capture", {
-  side := ArrayList(i32).new();
+  mut(side) := ArrayList(i32).new();
   src := ArrayList(i32).from([i32(1), i32(2), i32(3), i32(4), i32(5)]);
   found := src.into_iter().any(x => {
     side.push(x);

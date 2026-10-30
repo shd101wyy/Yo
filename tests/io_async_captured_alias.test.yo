@@ -31,7 +31,7 @@ alias_of_string :: (fn(data : str, io : Io) -> Impl(Future(usize, IoExn)))({
   })
 });
 alias_of_array_list :: (fn(io : Io) -> Impl(Future(usize, IoExn)))({
-  s := ArrayList(u8).new();
+  mut(s) := ArrayList(u8).new();
   s.push(u8(1));
   s.push(u8(2));
   s.push(u8(3));
@@ -103,7 +103,7 @@ test("a captured ref-struct alias is retained by the task and released once", {
 
 // Controls: shapes that always worked must keep working.
 alias_of_param :: (fn(data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-  sb := data;
+  sb := data.clone();
   io.async(e => {
     n := e.io.await(give(sb.ptr().unwrap(), sb.len(), e.io), e);
     return(n);
@@ -139,7 +139,7 @@ test("controls: a parameter alias, a direct capture and a clone", {
 // The body captures BOTH the owner and its alias: both are captures.
 owner_and_alias :: (fn(data : str, io : Io) -> Impl(Future(usize, IoExn)))({
   s := String.from(data);
-  sb := s;
+  sb := s.clone();
   io.async(e => {
     k := e.io.await(give_n(sb.len(), e.io), e);
     return(k + s.len());

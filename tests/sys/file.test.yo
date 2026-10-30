@@ -98,7 +98,7 @@ test("1500 file reads started in one tick all complete", {
   (path : *u8) = "tests/fixtures/test_file.txt";
   fd := io.await(openat(AT_FDCWD, path, O_RDONLY, i32(0)), io);
   assert(fd >= i32(0), "open the fixture");
-  hs := ArrayList(JoinHandle(i32)).new();
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(1500), i = (i + usize(1)), {
     hs.push(io.spawn(_read_one(fd, io), io));

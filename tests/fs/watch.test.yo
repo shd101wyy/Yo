@@ -209,7 +209,7 @@ test("a Watcher is a Stream: map + take collects one event name", {
   target := path_join(&d, `yo_watch_stream.txt`);
   _unlink(&target, io);
   w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
-  names := w.map(e => e.name).take(usize(1));
+  names := w.map(e => e.name.clone()).take(usize(1));
   h := io.spawn(names.collect(io), io);
   _touch(&target, String.from("x"), io);
   got := match(
@@ -312,15 +312,16 @@ _cpu_ms :: (fn() -> i64)({
 });
 // Awaits directly inside the task (a plain helper like _touch would be a
 // nested blocking await there).
-_touch_later :: (fn(path : &String, io : Io) -> Impl(Future(i32, Io)))(
+_touch_later :: (fn(path : &String, io : Io) -> Impl(Future(i32, Io)))({
+  __probe_path := path.clone();
   io.async((io : Io) => {
     _s := io.await(sleep(u64(300)), io);
-    c := path.to_cstr();
+    c := __probe_path.to_cstr();
     fd := io.await(file.openat(AT_FDCWD, c.ptr().unwrap(), O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
     _c := io.await(file.close(fd), io);
     fd
   })
-);
+});
 test("a task waiting in next(io) does not spin the CPU", {
   if(platform != Platform.Windows, {
     t_exn := Exception(
