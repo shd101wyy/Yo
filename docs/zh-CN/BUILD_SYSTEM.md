@@ -356,7 +356,7 @@ install success
 
 ```toml
 [package]
-name = "raylib-yo"
+name = "raylib_yo"
 
 [modules]
 default = "src/lib.yo"
@@ -377,7 +377,7 @@ raylib :: build.system_library({
 mod :: build.module({ name : "default" });
 mod.link(raylib);
 
-exe :: build.executable({ name : "raylib-yo", root : "./src/main.yo" });
+exe :: build.executable({ name : "raylib_yo", root : "./src/main.yo" });
 exe.link(raylib);
 
 install :: build.step("install", "Build all artifacts");
@@ -403,8 +403,8 @@ install.depend_on(exe);
 `build.yo` 中无需任何接线：在 `yo.toml` 中声明的依赖可按其名称导入，其命名模块按 `name/module` 导入：
 
 ```yo
-raylib :: import("raylib-yo"); // 依赖的 [modules] default
-{ Circle } :: import("raylib-yo/shapes"); // 它的 [modules] shapes
+raylib_yo :: import("raylib_yo"); // 依赖的 [modules] default
+{ Circle } :: import("raylib_yo/shapes"); // 它的 [modules] shapes
 ```
 
 这在每个命令中都成立——`yo build`、`yo compile`、`yo check`、`yo test`、`yo doc` 和语言服务器——因为编译器会在被编译文件之上找到最近的 `yo.toml`，并解析清单的依赖闭包（见[导入依赖](#导入依赖)）。
@@ -948,17 +948,17 @@ yo build --dry-run   # [dry-run]   verify proofs
 
 ```toml
 [package]
-name = "tetris-yo"
+name = "tetris_yo"
 version = "0.3.0"
 description = "Tetris in Yo"
 license = "MIT"
 
-[modules]                     # 导入方可写 `import("tetris-yo")` / `import("tetris-yo/board")`
+[modules]                     # 导入方可写 `import("tetris_yo")` / `import("tetris_yo/board")`
 default = "src/lib.yo"
 board   = "src/board.yo"
 
 [dependencies]
-raylib-yo = { git = "https://github.com/shd101wyy/raylib-yo", version = "^0.0.6" }
+raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
 json-yo   = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }
 utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
 mylib     = { path = "../mylib" }
@@ -1027,7 +1027,7 @@ git 条目最多锁定 `version` / `tag` / `branch` / `rev` 之一；只有 `git
 ### 添加依赖：`yo add`
 
 ```bash
-yo add shd101wyy/raylib-yo        # 最新发布标签，写成 version = "^X.Y.Z"
+yo add shd101wyy/raylib_yo        # 最新发布标签，写成 version = "^X.Y.Z"
 yo add user/json-yo@^1.2          # 一个范围
 yo add user/json-yo@v1.2.0        # 一个精确标签
 yo add github.com/user/repo       # 显式主机；https://… 与 git@host:path 也可以
@@ -1049,7 +1049,7 @@ yo install            # 解析依赖图，抓取 yo.toml 声明的依赖，写�
 yo install --locked   # CI：若 yo.lock 会改动则失败
 yo install --frozen   # --locked 加 --offline：不能改动，也不能下载
 yo update             # 在范围内 / 到分支最新提交重新解析全部依赖
-yo update raylib-yo   # 只更新一个
+yo update raylib_yo   # 只更新一个
 yo update --latest    # 并把 yo.toml 中的每个版本范围提升到最新发布版
 ```
 

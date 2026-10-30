@@ -365,7 +365,7 @@ A module is a root file that other code imports by name. Modules are declared in
 
 ```toml
 [package]
-name = "raylib-yo"
+name = "raylib_yo"
 
 [modules]
 default = "src/lib.yo"
@@ -386,7 +386,7 @@ raylib :: build.system_library({
 mod :: build.module({ name : "default" });
 mod.link(raylib);
 
-exe :: build.executable({ name : "raylib-yo", root : "./src/main.yo" });
+exe :: build.executable({ name : "raylib_yo", root : "./src/main.yo" });
 exe.link(raylib);
 
 install :: build.step("install", "Build all artifacts");
@@ -412,8 +412,8 @@ Returned by `build.module()` and `dep.module()`. Has one method:
 Nothing to wire in `build.yo`: a dependency declared in `yo.toml` is importable by its name, and its named modules as `name/module`:
 
 ```yo
-raylib :: import("raylib-yo"); // the dependency's [modules] default
-{ Circle } :: import("raylib-yo/shapes"); // its [modules] shapes
+raylib_yo :: import("raylib_yo"); // the dependency's [modules] default
+{ Circle } :: import("raylib_yo/shapes"); // its [modules] shapes
 ```
 
 This works in every command — `yo build`, `yo compile`, `yo check`, `yo test`, `yo doc` and the language server — because the compiler finds the nearest `yo.toml` above the file it is compiling and resolves the manifest's dependency closure (see [Importing a dependency](#importing-a-dependency)).
@@ -987,17 +987,17 @@ Dependencies are declared in the package manifest, `yo.toml` — data, not code:
 
 ```toml
 [package]
-name = "tetris-yo"
+name = "tetris_yo"
 version = "0.3.0"
 description = "Tetris in Yo"
 license = "MIT"
 
-[modules]                     # what importers may `import("tetris-yo")` / `import("tetris-yo/board")`
+[modules]                     # what importers may `import("tetris_yo")` / `import("tetris_yo/board")`
 default = "src/lib.yo"
 board   = "src/board.yo"
 
 [dependencies]
-raylib-yo = { git = "https://github.com/shd101wyy/raylib-yo", version = "^0.0.6" }
+raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
 json-yo   = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }
 utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
 mylib     = { path = "../mylib" }
@@ -1067,7 +1067,7 @@ Pre-release tags (`v1.0.0-rc.1`) are versions, but a range only accepts a pre-re
 ### Adding a dependency: `yo add`
 
 ```bash
-yo add shd101wyy/raylib-yo        # latest release tag, written as version = "^X.Y.Z"
+yo add shd101wyy/raylib_yo        # latest release tag, written as version = "^X.Y.Z"
 yo add user/json-yo@^1.2          # a range
 yo add user/json-yo@v1.2.0        # an exact tag
 yo add github.com/user/repo       # explicit host; https://… and git@host:path work too
@@ -1089,7 +1089,7 @@ yo install            # resolve the graph, fetch what yo.toml declares, write yo
 yo install --locked   # CI: fail instead of changing yo.lock
 yo install --frozen   # --locked and --offline: nothing may change, nothing may be downloaded
 yo update             # re-resolve every dependency within its range / to its branch tip
-yo update raylib-yo   # just one
+yo update raylib_yo   # just one
 yo update --latest    # also raise each version range in yo.toml to the newest release
 ```
 
