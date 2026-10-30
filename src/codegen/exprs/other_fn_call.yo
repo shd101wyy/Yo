@@ -799,7 +799,7 @@ _operand_code_is_settled :: (fn(arg : &AstExpr, code : &String, ei : &ExprInfo) 
       .StringLit => return(true),
       .CharLit => return(true),
       .Identifier => {
-        vars := scope_variables(ast_expr_id(arg), &ei.env, &tok.value);
+        vars := scope_variables(ast_expr_id(arg), &ei.env, &tok.value.*);
         m := vars.len();
         if(
           m > usize(0),
@@ -887,7 +887,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
             while(vi < nv, {
               match(
                 vnames.get(vi),
-                .Some(vn) => if(vn == ftok.value, {
+                .Some(vn) => if(vn == ftok.value.*, {
                   return(match(vfields.get(vi), .Some(fs) => (fs.len() == usize(0)), .None => true));
                 }),
                 .None => ()
@@ -946,14 +946,14 @@ _value_place_root :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
       match(
         context.base.get_expr_info(e),
         .Some(ei) => {
-          vars := scope_variables(ast_expr_id(e), &ei.env, &tok.value);
+          vars := scope_variables(ast_expr_id(e), &ei.env, &tok.value.*);
           m := vars.len();
           if(
             m == usize(0),
             Option(String).None,
             match(
               vars.get(m - usize(1)),
-              .Some(v) => if(v.is_module_level || v.is_ref || v.is_imm_borrow, Option(String).None, Option(String).Some(tok.value.clone())),
+              .Some(v) => if(v.is_module_level || v.is_ref || v.is_imm_borrow, Option(String).None, Option(String).Some(tok.value.*.clone())),
               .None => Option(String).None
             )
           )
@@ -974,7 +974,7 @@ _value_place_root :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
 _operand_mentions :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value == name),
+    .Atom(_, tok) => (tok.value.* == name),
     .FnCall(_, f, args, _, _) => {
       match(
         lookup_macro_expansion(ast_expr_id(e)),
@@ -1032,7 +1032,7 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
         ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => recur(&a0, context),
         ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(1))) => false,
         true => {
-          op := match(f, .Atom(_, ft) => ft.value.clone(), .FnCall(_, _, _, _, _) => String.new());
+          op := match(f, .Atom(_, ft) => ft.value.*.clone(), .FnCall(_, _, _, _, _) => String.new());
           is_label := ((op == ":") && (n == usize(2)) && ast_expr_is_atom(&a0));
           is_ctor := match(context.base.get_expr_info(&f), .Some(fei) => match(fei.value, .Some(.TypeVal(_)) => true, _ => false), .None => false);
           is_prim_op := (
@@ -1798,7 +1798,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         dmethod_args.get(usize(0)),
         .Some(dr) => match(
           context.base.get_expr_info(&dr),
-          .Some(dri) => dyn_type_has_vtable_slot(&dri.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value),
+          .Some(dri) => dyn_type_has_vtable_slot(&dri.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
           .None => false
         ),
         .None => false
@@ -1810,7 +1810,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // result is a new `Dyn` of the receiver's type over the independent payload
     // that slot returns, with the receiver's vtable.
     dm_is_dyn_clone := (
-      dot_recv_is_dyn && method_atom_ok && (ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value == "clone") && match(
+      dot_recv_is_dyn && method_atom_ok && (ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.* == "clone") && match(
         dmethod_args.get(usize(0)),
         .Some(dr) => match(context.base.get_expr_info(&dr), .Some(dri) => dyn_type_lists_clone(&dri.ty), .None => false),
         .None => false
@@ -1843,7 +1843,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       // The receiver is generated before the arguments (`dm_runtime[0]` is
       // its slot), so it is sequenced against them.
       recv_code := sequence_operand(&recv_expr, _call_generate_expr(&recv_expr, indent.clone(), context), &dm_runtime, usize(0), false, indent, context);
-      method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value, false);
+      method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*, false);
       dm_call := String.from("(");
       dm_call.push_string(recv_code.clone());
       dm_call.push_str(").vtable->");
@@ -1858,7 +1858,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       // (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
       dm_slot_pir := match(
         context.base.get_expr_info(&recv_expr),
-        .Some(rvi) => dyn_vtable_slot_param_is_ref(&rvi.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value),
+        .Some(rvi) => dyn_vtable_slot_param_is_ref(&rvi.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
         .None => ArrayList(bool).new()
       );
       dm_args := ArrayList(String).new();

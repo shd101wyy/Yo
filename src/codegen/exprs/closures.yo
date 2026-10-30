@@ -173,7 +173,7 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &F
     },
     _ => ()
   );
-  idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
+  idx := match(ast_expr_token(&idx_e).value.*.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   label := match(
     &cap,
     Rc(.Struct({ field_labels : cf_labels })) => match(cf_labels.get(idx), .Some(l) => l, .None => return(codegen_fatal_expr(String.from("__yo_capture_field: index out of range")))),

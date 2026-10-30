@@ -55,7 +55,7 @@ _binding_token_of :: (
       return(Option(Token).None);
     }
   );
-  vars := get_variables_from_env(&info.env, tok.value.clone());
+  vars := get_variables_from_env(&info.env, tok.value.*.clone());
   if(vars.len() == usize(0), {
     return(Option(Token).None);
   });
@@ -100,7 +100,7 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
               .Some(lhs) => match(
                 lhs,
                 .Atom(_, t) => {
-                  if(t.value == name, {
+                  if(t.value.* == name, {
                     return(Option(Token).Some(t));
                   });
                 },
@@ -125,7 +125,7 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
                       .Some(name_expr) => {
                         if(ast_expr_is_atom(&name_expr), {
                           name_tok := ast_expr_token(&name_expr);
-                          if(name_tok.value == name, {
+                          if(name_tok.value.* == name, {
                             return(Option(Token).Some(name_tok));
                           });
                         });
@@ -161,7 +161,7 @@ _ScopedAtom :: struct(atom : AstExpr, scope : Option(Token));
 _decl_atom :: (fn(e : &AstExpr, name : &String) -> Option(Token))(
   match(
     e,
-    .Atom(_, t) => if((t.value == name) && (t.kind == TokenKind.Identifier), Option(Token).Some(t), Option(Token).None),
+    .Atom(_, t) => if((t.value.* == name) && (t.kind == TokenKind.Identifier), Option(Token).Some(t), Option(Token).None),
     .FnCall(_, _, args, _, _) => cond(
       ast_expr_is_fn_call_of(e, "where", Option(usize).None) => Option(Token).None,
       (ast_expr_is_fn_call_of(e, ":", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "?=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "&&", Option(usize).Some(usize(2)))) => recur(&args(usize(0)), name),
@@ -242,7 +242,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
   match(
     e,
     .Atom(_, tok) => {
-      if(tok.value == name, {
+      if(tok.value.* == name, {
         out.push(_ScopedAtom(atom : e.clone(), scope : scope.clone()));
       });
     },
@@ -332,7 +332,7 @@ scoped_atoms_of :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> ArrayList
 /// position (`_scoped_atoms`), or none: what the LSP answers for an atom the
 /// evaluator never reached, in a deferred body.
 syntactic_decl_at :: (fn(exprs : &ArrayList(AstExpr), target : &Token) -> Option(Token))({
-  scoped := scoped_atoms_of(exprs, &target.value);
+  scoped := scoped_atoms_of(exprs, &target.value.*);
   (k : usize) = usize(0);
   while(k < scoped.len(), k = (k + usize(1)), {
     sa := scoped(k);
@@ -381,7 +381,7 @@ collect_symbol_occurrences_with_decl :: (
     ci = (ci + usize(1));
   });
   roles := classify_atom_roles(exprs);
-  scoped := scoped_atoms_of(exprs, &target.value);
+  scoped := scoped_atoms_of(exprs, &target.value.*);
   (def : Option(Token)) = Option(Token).None;
   match(
     _best_candidate(&cands, info_table),
@@ -404,7 +404,7 @@ collect_symbol_occurrences_with_decl :: (
   match(
     def,
     .None => {
-      def = _top_level_decl_token(exprs, target.value.clone());
+      def = _top_level_decl_token(exprs, target.value.*.clone());
     },
     .Some(_) => ()
   );
@@ -493,7 +493,7 @@ handle_references :: (
         if(include_declaration || !is_decl, {
           // RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
           out.push(
-            jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.clone().chars().count())).obj()
+            jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.*.clone().chars().count())).obj()
           );
         });
       },
@@ -551,7 +551,7 @@ handle_document_highlight :: (
         // DocumentHighlightKind: 1 Text, 3 Write.
         kind := cond(is_decl => usize(3), true => usize(1));
         out.push(
-          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.clone().chars().count())).put("kind", jnum(kind)).obj()
+          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.*.clone().chars().count())).put("kind", jnum(kind)).obj()
         );
       },
       .None => ()

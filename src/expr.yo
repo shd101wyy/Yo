@@ -610,7 +610,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
       );
       func_is_tuple_kw := match(
         func_box,
-        .Atom(_, ftok) => (ftok.value == BK_TUPLE),
+        .Atom(_, ftok) => (ftok.value.* == BK_TUPLE),
         .FnCall(_, _, _, _, _) => false
       );
       cond(
@@ -731,7 +731,7 @@ export(make_err_expr, ast_expr_token, ast_expr_text, ast_expr_id, ast_expr_is_at
 ast_expr_is_atom_of :: (fn(e : &AstExpr, value : str) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value == value),
+    .Atom(_, tok) => (tok.value.* == value),
     .FnCall(_, _, _, _, _) => false
   )
 );
@@ -744,7 +744,7 @@ ast_expr_is_atom_of_any :: (fn(e : &AstExpr, values : &ArrayList(str)) -> bool)(
       i := usize(0);
       while(i < n, {
         v := match(values.get(i), .Some(s) => s, .None => "~unreachable~");
-        if(tok.value == v, {
+        if(tok.value.* == v, {
           return(true);
         });
         i = (i + usize(1));
@@ -763,7 +763,7 @@ ast_expr_is_fn_call_of :: (fn(e : &AstExpr, func_name : str, arg_count : Option(
     .FnCall(_, func_box, args, _, _) => {
       func_name_matches := match(
         func_box,
-        .Atom(_, tok) => (tok.value == func_name),
+        .Atom(_, tok) => (tok.value.* == func_name),
         .FnCall(_, _, _, _, _) => false
       );
       if(!func_name_matches, {
@@ -942,7 +942,7 @@ ast_place_text :: (fn(e : &AstExpr) -> String)(
         base := recur(match(pargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()));
         field := match(
           pargs.get(usize(1)),
-          .Some(.Atom(_, ft)) => ft.value.clone(),
+          .Some(.Atom(_, ft)) => ft.value.*.clone(),
           .Some(f) => recur(&f),
           .None => String.new()
         );
@@ -986,7 +986,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : &AstExpr, func_names : &ArrayList(str), ar
           found := false;
           while(i < n, {
             v := match(func_names.get(i), .Some(s) => s, .None => "~unreachable~");
-            if(tok.value == v, {
+            if(tok.value.* == v, {
               found = true;
               return(found);
             });
@@ -1018,7 +1018,7 @@ exprs_are_equal :: (fn(e1 : &AstExpr, e2 : &AstExpr) -> bool)(
     e1,
     .Atom(_, tok1) => match(
       e2,
-      .Atom(_, tok2) => (tok1.value == tok2.value),
+      .Atom(_, tok2) => (tok1.value.* == tok2.value.*),
       .FnCall(_, _, _, _, _) => false
     ),
     .FnCall(_, func1, args1, _, _) => match(
@@ -1061,11 +1061,11 @@ is_function_boundary_arrow :: (fn(e : &AstExpr) -> bool)(
     e,
     .Atom(_, _) => false,
     .FnCall(_, .Atom(_, tok), _, _, _) => {
-      v := tok.value.clone();
+      v := tok.value.*.clone();
       (v == "->") || (v == "=>")
     },
     .FnCall(_, .FnCall(_, .Atom(_, inner_tok), _, _, _), _, _, _) => {
-      iv := inner_tok.value.clone();
+      iv := inner_tok.value.*.clone();
       (iv == BK_FN) || (iv == BK_UNSAFE_FN) || (iv == BK_CTL) || (iv == BK_FN_TRAIT) || (iv == BK_FN_ONCE_TRAIT)
     },
     .FnCall(_, _, _, _, _) => false
@@ -1283,7 +1283,7 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
   );
   label_matches := match(
     pair_args.get(usize(0)),
-    .Some(.Atom(_, ltok)) => (ltok.value == label),
+    .Some(.Atom(_, ltok)) => (ltok.value.* == label),
     _ => false
   );
   cond(
@@ -1365,8 +1365,8 @@ _borrow_sigil_of :: (fn(e : &AstExpr) -> Option(_BorrowSigil))(
       true => match(
         sf,
         .Atom(_, sft) => cond(
-          ((sft.value == BK_BORROW_MUT) || (sft.value == BF_ADDRESS_OF)) => Option(_BorrowSigil).Some(
-            _BorrowSigil(is_mut : (sft.value == BK_BORROW_MUT), inner : match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), tok : sft)
+          ((sft.value.* == BK_BORROW_MUT) || (sft.value.* == BF_ADDRESS_OF)) => Option(_BorrowSigil).Some(
+            _BorrowSigil(is_mut : (sft.value.* == BK_BORROW_MUT), inner : match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), tok : sft)
           ),
           true => Option(_BorrowSigil).None
         ),
@@ -2203,7 +2203,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         mismatches.push(bs.tok);
       });
       mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = rc(mark.value.clone());
+      mark.module_path = rc(mark.value.*.clone());
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);

@@ -24,12 +24,12 @@ evaluate_boolean_literal :: (
       dyn(
         format_error_message(
           &tok,
-          `Expected bool literal, got ${tok.value}`
+          `Expected bool literal, got ${tok.value.*}`
         )
       )
     );
   });
-  b := (tok.value == "true");
+  b := (tok.value.* == "true");
   val := EvalValue.BoolVal(b);
   info := new_expr_info(env, t_bool());
   info.value = .Some(val);

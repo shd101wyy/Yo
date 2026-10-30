@@ -104,10 +104,10 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
                 usize(name_tok.row),
                 usize(name_tok.column),
                 usize(name_tok.row),
-                usize(name_tok.column) + name_tok.value.clone().chars().count()
+                usize(name_tok.column) + name_tok.value.*.clone().chars().count()
               );
               Option(SymbolEntry).Some(
-                SymbolEntry(name : name_tok.value.clone(), kind : usize(13), range : rng)
+                SymbolEntry(name : name_tok.value.*.clone(), kind : usize(13), range : rng)
               )
             },
             .None => Option(SymbolEntry).None
@@ -162,10 +162,10 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                   usize(t.column),
                   usize(t.row),
                   // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-                  usize(t.column) + t.value.clone().chars().count()
+                  usize(t.column) + t.value.*.clone().chars().count()
                 );
                 return(
-                  Option(SymbolEntry).Some(SymbolEntry(name : t.value.clone(), kind : usize(13), range : rng))
+                  Option(SymbolEntry).Some(SymbolEntry(name : t.value.*.clone(), kind : usize(13), range : rng))
                 );
               },
               .None => ()
@@ -199,11 +199,11 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                             usize(t.row),
                             usize(t.column),
                             usize(t.row),
-                            usize(t.column) + t.value.clone().chars().count()
+                            usize(t.column) + t.value.*.clone().chars().count()
                           );
                           return(
                             Option(SymbolEntry).Some(
-                              SymbolEntry(name : t.value.clone(), kind : usize(13), range : rng)
+                              SymbolEntry(name : t.value.*.clone(), kind : usize(13), range : rng)
                             )
                           );
                         },
@@ -253,10 +253,10 @@ collect_document_symbols :: (
               usize(name_tok.column),
               usize(name_tok.row),
               // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-              usize(name_tok.column) + name_tok.value.clone().chars().count()
+              usize(name_tok.column) + name_tok.value.*.clone().chars().count()
             );
             out.push(
-              SymbolEntry(name : name_tok.value.clone(), kind : _symbol_kind_of(&value_expr), range : rng)
+              SymbolEntry(name : name_tok.value.*.clone(), kind : _symbol_kind_of(&value_expr), range : rng)
             );
           });
         },
@@ -375,10 +375,10 @@ handle_workspace_symbols :: (fn(query : &String, docs : &ArrayList(WorkspaceDoc)
 _impl_arg_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, t) => (t.value == name),
+    .Atom(_, t) => (t.value.* == name),
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
-      .Atom(_, ht) => (ht.value == name),
+      .Atom(_, ht) => (ht.value.* == name),
       .FnCall(_, _, _, _, _) => false
     )
   )
@@ -445,12 +445,12 @@ handle_implementations :: (
               });
               self_matches := match(
                 args.get(a),
-                .Some(self_expr) => _impl_arg_is(&self_expr, target.value.clone()),
+                .Some(self_expr) => _impl_arg_is(&self_expr, target.value.*.clone()),
                 .None => false
               );
               trait_matches := match(
                 args.get(a + usize(1)),
-                .Some(trait_expr) => _impl_arg_is(&trait_expr, target.value.clone()),
+                .Some(trait_expr) => _impl_arg_is(&trait_expr, target.value.*.clone()),
                 .None => false
               );
               if(self_matches || trait_matches, {
@@ -462,7 +462,7 @@ handle_implementations :: (
                       usize(itok.row),
                       usize(itok.column),
                       usize(itok.row),
-                      usize(itok.column) + itok.value.clone().chars().count()
+                      usize(itok.column) + itok.value.*.clone().chars().count()
                     )
                   ).obj()
                 );

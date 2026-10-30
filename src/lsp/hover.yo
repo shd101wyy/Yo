@@ -157,7 +157,7 @@ _find_token_at :: (
     if(!skip && (usize(t.row) == line), {
       // `character` and `t.column` are RUNE columns, so the token width has
       // to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-      width := t.value.clone().chars().count();
+      width := t.value.*.clone().chars().count();
       inside := ((character >= usize(t.column)) && (character < (usize(t.column) + width)));
       at_end := ((t.kind == TokenKind.Identifier) && (character == (usize(t.column) + width)));
       if(inside || at_end, {
@@ -176,7 +176,7 @@ _collect_candidates :: (
   match(
     e,
     .Atom(_, tok) => {
-      if((tok.value == target.value) && (tok.row == target.row) && (tok.column == target.column), {
+      if((tok.value.* == target.value.*) && (tok.row == target.row) && (tok.column == target.column), {
         out.push(e);
       });
     },
@@ -362,7 +362,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &AtomRoles) -> unit)({
                   match(
                     a,
                     .FnCall(_, pair_fn, pair_args, pair_infix, _) => {
-                      is_pair := (pair_infix && match(pair_fn, .Atom(_, pt) => (pt.value == ":"), .FnCall(_, _, _, _, _) => false));
+                      is_pair := (pair_infix && match(pair_fn, .Atom(_, pt) => (pt.value.* == ":"), .FnCall(_, _, _, _, _) => false));
                       if(is_pair && (pair_args.len() == usize(2)), {
                         handled = true;
                         match(
@@ -429,7 +429,7 @@ _find_member_access :: (
     e,
     .Atom(_, _) => (),
     .FnCall(_, func_box, args, is_infix, _) => {
-      is_dot := match(func_box, .Atom(_, t) => (t.value == "."), .FnCall(_, _, _, _, _) => false);
+      is_dot := match(func_box, .Atom(_, t) => (t.value.* == "."), .FnCall(_, _, _, _, _) => false);
       if(is_dot, {
         (i : usize) = cond(is_infix => usize(1), true => usize(0));
         while(i < args.len(), {
@@ -441,7 +441,7 @@ _find_member_access :: (
                 .Atom(_, at) => at,
                 .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => ft, .FnCall(_, _, _, _, _) => ct)
               );
-              if((mt.row == target.row) && (mt.column == target.column) && (mt.value == target.value), {
+              if((mt.row == target.row) && (mt.column == target.column) && (mt.value.* == target.value.*), {
                 out.push(e);
               });
             },
@@ -546,7 +546,7 @@ handle_hover :: (
       mi = (mi + usize(1));
     });
   });
-  (name : String) = target.value.clone();
+  (name : String) = target.value.*.clone();
   if(is_reserved_operator_name(name.clone()) || (target.kind == TokenKind.Operator), {
     name = `(${name})`;
   });
@@ -575,7 +575,7 @@ handle_hover :: (
       // declared at/nearest the cursor. NOT for a
       // member — `p.x` is the field, never the local `x` in scope.
       if(!is_member, {
-        vars := get_variables_from_env(&info.env, target.value.clone());
+        vars := get_variables_from_env(&info.env, target.value.*.clone());
         if(vars.len() > usize(0), {
           match(
             _select_best_variable(&vars, &target),
@@ -657,7 +657,7 @@ handle_hover :: (
       ).obj()
     ).put(
       "range",
-      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.clone().chars().count())
+      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.*.clone().chars().count())
     ).obj()
   )
 });

@@ -468,7 +468,7 @@ _receiver_at :: (
   // the nearest declaration wins, and a type-valued binding unwraps to the
   // type it names.
   if(!unwrapped && (target.kind == TokenKind.Identifier), {
-    vars := get_variables_from_env(&info.env, target.value.clone());
+    vars := get_variables_from_env(&info.env, target.value.*.clone());
     if(vars.len() > usize(0), {
       match(
         _select_best_variable(&vars, target),
@@ -559,7 +559,7 @@ _expected_enum_at :: (
     e,
     .Atom(_, _) => (),
     .FnCall(_, func_box, args, _, _) => {
-      head := match(func_box, .Atom(_, ht) => ht.value.clone(), _ => String.new());
+      head := match(func_box, .Atom(_, ht) => ht.value.*.clone(), _ => String.new());
       if((head == "=") && (args.len() >= usize(2)), {
         // NB: not named `near` — that is a legacy Windows macro (windef.h
         // defines it to nothing), and user locals keep their names in the
@@ -574,7 +574,7 @@ _expected_enum_at :: (
             .Some(lhs) => match(
               lhs,
               .FnCall(_, lhs_func, lhs_args, _, _) => {
-                lhs_head := match(lhs_func, .Atom(_, lt) => lt.value.clone(), _ => String.new());
+                lhs_head := match(lhs_func, .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
                 if((lhs_head == ":") && (lhs_args.len() >= usize(2)), {
                   match(
                     lhs_args.get(usize(1)),
@@ -696,7 +696,7 @@ _scan_idents :: (
       );
       before := ((usize(tok.row) < line) || ((usize(tok.row) == line) && (usize(tok.column) < character)));
       if((tok.kind == TokenKind.Identifier) && before, {
-        name := tok.value.clone();
+        name := tok.value.*.clone();
         match(
           name_index.get(name.clone()),
           .Some(idx) => {
@@ -936,7 +936,7 @@ _import_list_path :: (
         walking = false;
       },
       (t.kind == TokenKind.Identifier) => {
-        listed.push(t.value.clone());
+        listed.push(t.value.*.clone());
       },
       ((t.kind == TokenKind.Comma) || _is_trivia_token(&t)) => (),
       true => {
@@ -965,11 +965,11 @@ _import_list_path :: (
     return(String.new());
   });
   shape_ok := (
-    (tail(usize(0)).value == "::") && (tail(usize(1)).value == "import") &&
+    (tail(usize(0)).value.* == "::") && (tail(usize(1)).value.* == "import") &&
       (tail(usize(2)).kind == TokenKind.LParen) && (tail(usize(3)).kind == TokenKind.StringLit)
   );
   cond(
-    shape_ok => str_lit_unquote_bytes(&tail(usize(3)).value),
+    shape_ok => str_lit_unquote_bytes(&tail(usize(3)).value.*),
     true => String.new()
   )
 });
@@ -1153,11 +1153,11 @@ handle_completion :: (
       if(!trivia, {
         // `t.column` and `dot_col` are RUNE columns, so the token width added
         // to one has to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-        ends_at_dot := ((usize(t.row) == line) && ((usize(t.column) + t.value.clone().chars().count()) == dot_col));
+        ends_at_dot := ((usize(t.row) == line) && ((usize(t.column) + t.value.*.clone().chars().count()) == dot_col));
         if(ends_at_dot && (t.kind == TokenKind.Identifier), {
           receiver = Option(Token).Some(t);
         });
-        before_dot := ((usize(t.row) < line) || ((usize(t.row) == line) && ((usize(t.column) + t.value.clone().chars().count()) <= dot_col)));
+        before_dot := ((usize(t.row) < line) || ((usize(t.row) == line) && ((usize(t.column) + t.value.*.clone().chars().count()) <= dot_col)));
         if(before_dot, {
           later := (
             prev_tok.is_none() ||
@@ -1192,9 +1192,9 @@ handle_completion :: (
         trigger := match(
           prev_tok,
           .Some(pt) => (
-            (pt.value == "=") || (pt.value == "(") || (pt.value == ",") ||
-              (pt.value == "{") || (pt.value == ";") ||
-                (pt.value == "=>") || (pt.value == ":=") || (pt.value == "return")
+            (pt.value.* == "=") || (pt.value.* == "(") || (pt.value.* == ",") ||
+              (pt.value.* == "{") || (pt.value.* == ";") ||
+                (pt.value.* == "=>") || (pt.value.* == ":=") || (pt.value.* == "return")
           ),
           .None => true
         );
