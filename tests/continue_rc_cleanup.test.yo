@@ -31,7 +31,7 @@ test("continue in while drops Rc locals exactly once", {
   mut(iter) := i32(0);
   while(iter < i32(30000), {
     payload := String.from("iteration-payload-with-heap-data");
-    parts := ArrayList(u8).with_capacity(usize(32));
+    mut(parts) := ArrayList(u8).with_capacity(usize(32));
     parts.push(u8(7));
     if((iter % i32(3)) == i32(0), {
       quoted := payload.clone();
@@ -50,7 +50,7 @@ test("continue in while drops Rc locals exactly once", {
 });
 
 test("continue inside match arm with extracted Option payload", {
-  items := ArrayList(String).new();
+  mut(items) := ArrayList(String).new();
   mut(k) := i32(0);
   while(k < i32(8), {
     items.push(String.from("seed-payload-with-heap-data"));
@@ -161,7 +161,7 @@ test("a temporary in a three-argument while step is released once per iteration"
   assert(g_loop_tok_drops == (before + i32(4)), "the step ran four times, once after a continue");
   (mut(s) : String) = String.from("x");
   (mut(n) : i32) = i32(0);
-  while(n < i32(3), s = _loop_tok(n).s, {
+  while(n < i32(3), s = _loop_tok(n).s.clone(), {
     n = (n + i32(1));
   });
   assert((s == "abc") && (n == i32(3)));

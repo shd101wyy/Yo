@@ -198,7 +198,7 @@ _OnceHolder :: (fn(comptime(F) : Type) -> comptime(Type))(struct(f : F));
 test("FnOnce: a one-expression body reads its RC capture before dropping it", {
   before := g_once_disposed;
   {
-    a := ArrayList(i64).new();
+    mut(a) := ArrayList(i64).new();
     a.push(i64(42));
     r := _OnceRes(a : a);
     (f : Impl(FnOnce() -> i64)) = ({ r }() => r.a.get(usize(0)).unwrap_or(i64(-1)));
@@ -207,7 +207,7 @@ test("FnOnce: a one-expression body reads its RC capture before dropping it", {
   assert(g_once_disposed == (before + i32(1)), "disposed once");
 });
 test("FnOnce: an RC capture of a binding that stays live is a counted copy", {
-  a := ArrayList(i64).new();
+  mut(a) := ArrayList(i64).new();
   a.push(i64(11));
   a.push(i64(22));
   (f : Impl(FnOnce() -> usize)) = ({ a }() => {
@@ -215,7 +215,7 @@ test("FnOnce: an RC capture of a binding that stays live is a counted copy", {
     n
   });
   assert(f() == usize(2), "the body reads its copy and releases it");
-  b := ArrayList(i64).new();
+  mut(b) := ArrayList(i64).new();
   b.push(i64(99));
   assert(a.len() == usize(2), "the source list is intact after the call released the capture");
   assert(a.get(usize(0)).unwrap_or(i64(-1)) == i64(11), "its buffer was not reused");
@@ -433,7 +433,7 @@ test("FnOnce: a closure call's result as a borrowed receiver lends nothing of th
 });
 test("FnOnce: an element read as an operand still lends its container", {
   comptime_expect_error({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     xs(usize(0)) == _once_first(xs)
   }, "an earlier argument of the same call lends to it");

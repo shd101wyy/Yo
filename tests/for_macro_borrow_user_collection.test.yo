@@ -468,7 +468,7 @@ test("borrowed for: read-only methods iterating a value field by value, through 
 // (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
 keep_boxed :: (fn(b : VBag) -> Box(VBag))(Box.new(b));
 test("borrowed for: boxing the object through an alias does not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   c := Counter(n : usize(3));
@@ -501,7 +501,7 @@ test("borrowed for: boxing the object through an alias does not trip the flag", 
 keep_rc :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 keep_rc_new :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 test("borrowed for: moving the object into an Rc cell through an alias does not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   c := Counter(n : usize(3));

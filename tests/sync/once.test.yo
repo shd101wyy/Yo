@@ -16,7 +16,7 @@ test("Once new is not done", {
 });
 test("Once call executes function", {
   o := Once.new();
-  log := ArrayList(i32).new();
+  mut(log) := ArrayList(i32).new();
   o.call(() => {
     log.push(i32(1));
   });
@@ -25,7 +25,7 @@ test("Once call executes function", {
 });
 test("Once call executes only once", {
   o := Once.new();
-  log := ArrayList(i32).new();
+  mut(log) := ArrayList(i32).new();
   o.call(() => {
     log.push(i32(1));
   });
@@ -45,7 +45,7 @@ test("Once is_done after call", {
 });
 test("Once second call is no-op even with different function", {
   o := Once.new();
-  log := ArrayList(i32).new();
+  mut(log) := ArrayList(i32).new();
   o.call(() => {
     log.push(i32(42));
   });
@@ -58,7 +58,7 @@ test("Once second call is no-op even with different function", {
 });
 test("Once many calls still executes once", {
   o := Once.new();
-  log := ArrayList(i32).new();
+  mut(log) := ArrayList(i32).new();
   mut(i) := i32(0);
   while(i < i32(100), {
     o.call(() => {
@@ -71,7 +71,7 @@ test("Once many calls still executes once", {
 });
 test("Once call with side effects", {
   o := Once.new();
-  values := ArrayList(i32).new();
+  mut(values) := ArrayList(i32).new();
   o.call(() => {
     values.push(i32(42));
   });

@@ -98,6 +98,7 @@ Ty :: ref(
     Fut(shared : u64, excl : u64)
   )
 );
+impl(Ty, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// The origins a type carries: `mode` 0 all, 1 the shared loans, 2 the
 /// exclusive ones.
 orig :: (fn(t : Ty, mode : usize) -> u64)(
@@ -157,10 +158,10 @@ Subst :: ref(
   )
 );
 new_subst :: (fn(vars : u64) -> Subst)({
-  eq := ArrayList(u64).new();
-  lower := ArrayList(u64).new();
-  val := ArrayList(u64).new();
-  types := ArrayList(Ty).new();
+  mut(eq) := ArrayList(u64).new();
+  mut(lower) := ArrayList(u64).new();
+  mut(val) := ArrayList(u64).new();
+  mut(types) := ArrayList(Ty).new();
   mut(i) := usize(0);
   while(i < usize(64), {
     eq.push(u64(0));
@@ -191,7 +192,7 @@ map_o :: (fn(ck : Ck, t : Ty, op : usize, arg : u64, sb : Subst) -> Ty)(
     .TParam(id) => cond(((op == OP_SUBST) && ((sb.tbound & bit(id)) != u64(0))) => sb.types(id), true => t),
     .Ref(m, p, o) => Ty.Ref(m, recur(ck, p, op, arg, sb), map_one(ck, o, op, arg, sb)),
     .Tup(items) => {
-      out := ArrayList(Ty).new();
+      mut(out) := ArrayList(Ty).new();
       mut(i) := usize(0);
       while(i < items.len(), {
         out.push(recur(ck, items(i), op, arg, sb));
@@ -246,7 +247,7 @@ join :: (fn(a : Ty, b : Ty) -> Ty)(
     .Tup(items) => match(
       b,
       .Tup(others) => {
-        out := ArrayList(Ty).new();
+        mut(out) := ArrayList(Ty).new();
         mut(i) := usize(0);
         while(i < items.len(), {
           out.push(cond((i < others.len()) => recur(items(i), others(i)), true => items(i)));
@@ -273,7 +274,7 @@ flex :: (fn(flow : Ty, decl : Ty) -> Ty)(
     .Tup(items) => match(
       flow,
       .Tup(others) => {
-        out := ArrayList(Ty).new();
+        mut(out) := ArrayList(Ty).new();
         mut(i) := usize(0);
         while(i < items.len(), {
           out.push(cond((i < others.len()) => recur(others(i), items(i)), true => items(i)));
@@ -444,8 +445,8 @@ Env :: ref(
   )
 );
 new_env :: (fn(result : Ty) -> Env)({
-  flow := ArrayList(Ty).new();
-  decl := ArrayList(Ty).new();
+  mut(flow) := ArrayList(Ty).new();
+  mut(decl) := ArrayList(Ty).new();
   mut(i) := usize(0);
   while(i < usize(64), {
     flow.push(Ty.Int);
@@ -508,8 +509,8 @@ env_eq :: (fn(a : Env, b : Env) -> bool)({
 /// Appends a scope's implicit drops (reverse declaration order) to every
 /// statement list, recursively.
 desugar :: (fn(stmts : &ArrayList(Node)) -> ArrayList(Node))({
-  out := ArrayList(Node).new();
-  declared := ArrayList(usize).new();
+  mut(out) := ArrayList(Node).new();
+  mut(declared) := ArrayList(usize).new();
   mut(i) := usize(0);
   while(i < stmts.len(), {
     s := stmts(i);
@@ -949,7 +950,7 @@ eval :: (fn(ck : Ck, env : Env, e : Node, live : u64) -> Ty)(
     },
     .NewList(elem) => Ty.List(map_o(ck, elem, OP_CLEAR, u64(0), new_subst(u64(0)))),
     .MakeTup(items) => {
-      out := ArrayList(Ty).new();
+      mut(out) := ArrayList(Ty).new();
       mut(i) := usize(0);
       while(i < items.len(), {
         out.push(recur(ck, env, items(i), live));
@@ -1032,7 +1033,7 @@ eval_closure :: (fn(ck : Ck, env : Env, param : usize, pty : Ty, caps : &ArrayLi
 eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : u64) -> Ty)({
   def := ck.case.fns(f);
   sig := ck.sigs(f);
-  types := ArrayList(Ty).new();
+  mut(types) := ArrayList(Ty).new();
   mut(i) := usize(0);
   while(i < args.len(), {
     types.push(eval(ck, env, args(i), live));
@@ -1085,7 +1086,7 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
   });
   if((def.type_params > usize(0)) && ok(ck), {
     match(
-      def.body,
+      &def.body,
       .Some(_) => {
         ck.spec_depth = (ck.spec_depth + usize(1));
         check_fn_body(ck, f, sb);
@@ -1212,7 +1213,7 @@ resolve :: (fn(ck : Ck, sb : Subst) -> unit)({
 /// Elision (O2) and the signature rules: undeclared origins, the return
 /// rule over a by-value parameter's place, `extern`'s no-origin position.
 normalize :: (fn(ck : Ck, def : FnDef) -> NSig)({
-  params := ArrayList(Ty).new();
+  mut(params) := ArrayList(Ty).new();
   mut(vars) := def.origin_params;
   mut(byval) := u64(0);
   mut(all) := u64(0);
@@ -1264,7 +1265,7 @@ check_fn_body :: (fn(ck : Ck, f : usize, sb : Subst) -> unit)({
   def := ck.case.fns(f);
   sig := ck.sigs(f);
   tsb := new_subst(u64(0));
-  tsb.types = sb.types;
+  tsb.types = sb.types.clone();
   tsb.tbound = sb.tbound;
   env := new_env(map_o(ck, sig.result, OP_SUBST, u64(0), tsb));
   mut(i) := usize(0);
@@ -1276,7 +1277,7 @@ check_fn_body :: (fn(ck : Ck, f : usize, sb : Subst) -> unit)({
   });
   env.byval = sig.byval;
   match(
-    def.body,
+    &def.body,
     .Some(b) => {
       stmts := desugar(&b);
       env.drop_uses = cond(ablated(ck, ABLATE_USER_DROP) => u64(0), true => scan_guards(&stmts));

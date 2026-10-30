@@ -32,7 +32,7 @@ sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
 // 1. join_all — results in spawn order, concurrent wall time
 // ---------------------------------------------------------------------------
 test("Test join_all returns results in order", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(10), u64(15), io), io));
   handles.push(io.spawn(sleepy(i32(20), u64(5), io), io));
   handles.push(io.spawn(sleepy(i32(30), u64(10), io), io));
@@ -46,10 +46,10 @@ test("Test join_all drains the list it takes", {
   // An `ArrayList` is still a shared handle (it becomes explicit-copy at
   // V2b), so the caller's binding sees the list `join_all` drained: every
   // handle moved out and was consumed by its join.
-  handles := ArrayList(JoinHandle(Rc(i32))).new();
+  mut(handles) := ArrayList(JoinHandle(Rc(i32))).new();
   handles.push(io.spawn(io.async((io : Io) => Rc(i32)(4)), io));
   handles.push(io.spawn(io.async((io : Io) => Rc(i32)(5)), io));
-  outs := io.await(join_all(handles, io), io);
+  outs := io.await(join_all(handles.clone(), io), io);
   assert(handles.len() == usize(0), "join_all drained the list");
   // Each result moves out of its joined task.
   assert(match(outs(usize(0)).clone(), .Some(r) => (r.* == i32(4)), .None => false), "slot 0 moved out");
@@ -59,7 +59,7 @@ test("Test join_all drains the list it takes", {
 // 2. join_all — an aborted task's slot is .None, siblings unaffected
 // ---------------------------------------------------------------------------
 test("Test join_all with aborted member", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
   handles(usize(0)).abort();
@@ -72,7 +72,7 @@ test("Test join_all with aborted member", {
 //    keep running and stay joinable
 // ---------------------------------------------------------------------------
 test("Test race picks the fastest", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   // The loser sleeps long enough that a stalled CI runner cannot let one
   // poll step reap BOTH timers — `race` then reports the lower index and
   // the 40ms/5ms version of this test failed on macos-latest (PR #341).
@@ -88,7 +88,7 @@ test("Test race picks the fastest", {
   assert(match(outs(usize(0)), .Some(v) => (v == i32(1)), .None => false), "loser should still complete normally");
 });
 test("Test race hands the list back: the losers can still be aborted", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
   handles.push(io.spawn(sleepy(i32(3), u64(500), io), io));
@@ -107,7 +107,7 @@ test("Test race hands the list back: the losers can still be aborted", {
 // 4. any — skips aborted handles, returns the first COMPLETION
 // ---------------------------------------------------------------------------
 test("Test any skips aborted handles", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(10), io), io));
   handles(usize(0)).abort();
@@ -122,7 +122,7 @@ test("Test any skips aborted handles", {
 // 5. any — all aborted gives .None
 // ---------------------------------------------------------------------------
 test("Test any with all aborted", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(30), io), io));
   handles(usize(0)).abort();
@@ -233,7 +233,7 @@ sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(RefCell(bool)), io : Io) -> I
 test("Test race_first returns the fastest task's value", {
   ran0 := Rc.new(RefCell(bool).new(false));
   ran2 := Rc.new(RefCell(bool).new(false));
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy_flag(i32(10), u64(60), Rc.clone(ran0), io), io));
   handles.push(io.spawn(sleepy(i32(20), u64(1), io), io));
   handles.push(io.spawn(sleepy_flag(i32(30), u64(60), Rc.clone(ran2), io), io));
@@ -245,14 +245,14 @@ test("Test race_first returns the fastest task's value", {
   assert(!ran2.with(r => r), "loser 2 was aborted, not left running");
 });
 test("Test race_first with a single handle", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(7), u64(1), io), io));
   r := io.await(race_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(7)), .None => false), "one handle wins by default");
 });
 test("Test any_first returns the first COMPLETED value and aborts the rest", {
   ran0 := Rc.new(RefCell(bool).new(false));
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy_flag(i32(1), u64(60), Rc.clone(ran0), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
   r := io.await(any_first(handles, io), io);
@@ -261,7 +261,7 @@ test("Test any_first returns the first COMPLETED value and aborts the rest", {
   assert(!ran0.with(r => r), "the loser was aborted");
 });
 test("Test any_first is None when every handle was aborted", {
-  handles := ArrayList(JoinHandle(i32)).new();
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(60), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(60), io), io));
   handles(usize(0)).abort();
@@ -279,7 +279,7 @@ test("Test any_first is None when every handle was aborted", {
 join_in_task :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
   count := Rc(i32)(n);
   io.async((io : Io) => {
-    handles := ArrayList(JoinHandle(i32)).new();
+    mut(handles) := ArrayList(JoinHandle(i32)).new();
     (mut(k) : i32) = i32(0);
     while(k < count.*, k = (k + i32(1)), {
       handles.push(io.spawn(sleepy(k, u64(5), io), io));
@@ -324,7 +324,7 @@ test("Test JoinHandle.join of an aborted task is None", {
 /// Runs join_all over two workers from inside a task.
 join_all_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    handles := ArrayList(JoinHandle(i32)).new();
+    mut(handles) := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(sleepy(i32(1), u64(10), io), io));
     handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
     outs := io.await(join_all(handles, io), io);
@@ -349,7 +349,7 @@ test("Test join_all inside a task", {
 /// Races two workers from inside a task and aborts the loser.
 race_first_in_task :: (fn(io : Io) -> Impl(Future(Option(i32), Io)))(
   io.async((io : Io) => {
-    handles := ArrayList(JoinHandle(i32)).new();
+    mut(handles) := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(sleepy(i32(1), u64(60), io), io));
     handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
     io.await(race_first(handles, io), io)

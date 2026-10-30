@@ -11,7 +11,7 @@ test("Url parse simple HTTP URL", {
   url := Url.parse(String.from("http://example.com")).unwrap();
   assert(url.scheme() == String.from("http"), "scheme should be http");
   assert(url.host().is_some(), "host should be present");
-  assert(url.host().unwrap() == String.from("example.com"), "host should be example.com");
+  assert(url.host.clone()().unwrap() == String.from("example.com"), "host should be example.com");
   assert(url.port().is_none(), "port should be None");
   assert(url.query().is_none(), "query should be None");
   assert(url.fragment().is_none(), "fragment should be None");
@@ -254,7 +254,7 @@ test("Url parse still accepts every legal URI byte", {
   // The over-rejection canary. Tightening a parser is the dangerous
   // direction: this asserts the whole legal byte set still gets through, and
   // it passed BEFORE the validation was added as well as after.
-  legal := ArrayList(String).new();
+  mut(legal) := ArrayList(String).new();
   legal.push(String.from("http://x/p?a=1&b=2;c=3!"));
   legal.push(String.from("http://u:p@x:8080/"));
   legal.push(String.from("http://x/a~b-c.d_e"));

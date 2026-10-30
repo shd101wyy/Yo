@@ -18,7 +18,7 @@ import("std/fmt");
 // (plans/VALUES_BY_DEFAULT.md) the borrow is exclusive until its last use, so
 // the growth goes through the binding and `xs` is read after `r`'s last use.
 test("inout binding to the container variable survives container growth", {
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("element-zero"));
   r := &mut xs;
   mut(i) := usize(0);
@@ -35,7 +35,7 @@ test("inout binding to the container variable survives container growth", {
 // exclusivity error (E0911), not a run-time hazard.
 comptime_expect_error(
   grow_by_name_under_a_live_binding :: (fn() -> unit)({
-    xs := ArrayList(String).new();
+    mut(xs) := ArrayList(String).new();
     r := &mut xs;
     xs.push(String.from("filler"));
     _n := r.len();
@@ -48,7 +48,7 @@ comptime_expect_error(
 // (realloc) cannot invalidate it. 64 pushes is the realloc trigger from
 // the historical UAF repro that motivated the (now deleted) gates.
 test("get handle survives container growth", {
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("element-zero"));
   e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
   mut(i) := usize(0);
@@ -76,7 +76,7 @@ test("container freely reassignable while holding an element handle", {
 // Object elements mutate in place through the get handle — no borrow
 // needed.
 test("object element mutates in place through a get handle", {
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("hello"));
   mut(e) := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
   e.push_str(" world");

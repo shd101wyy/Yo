@@ -123,7 +123,7 @@ test("a reference-semantics struct pattern reads through the pointer", {
 // copyable, which does not exercise the rule).
 _MvElem :: struct(a : i32, b : i64);
 test("a match through a borrowed element of a move-only struct", {
-  xs := ArrayList(_MvElem).new();
+  mut(xs) := ArrayList(_MvElem).new();
   xs.push(_MvElem(a : i32(3), b : i64(30)));
   xs.push(_MvElem(a : i32(4), b : i64(40)));
   match(
@@ -139,7 +139,7 @@ test("a match through a borrowed element of a move-only struct", {
 });
 _MvTree :: enum(Leaf(v : i32), At(sub : Box(Self)));
 test("a match through a borrowed element of a Box-children enum", {
-  xs := ArrayList(_MvTree).new();
+  mut(xs) := ArrayList(_MvTree).new();
   xs.push(_MvTree.Leaf(v : i32(7)));
   xs.push(_MvTree.At(sub : Box.new(_MvTree.Leaf(v : i32(9)))));
   match(
@@ -256,8 +256,8 @@ test("a scrutinee over a field of a call result releases the result once per eva
   (mut(hits) : i32) = i32(0);
   while(i < i32(4), i = (i + i32(1)), {
     a := match(_scr_tok(i).n, i32(2) => i32(1), _ => i32(0));
-    b := match(_scr_tok(i).s, "payload" => i32(1), _ => i32(0));
-    c := match(&_scr_tok(i).s, x => x.len());
+    b := match(_scr_tok(i).s.clone(), "payload" => i32(1), _ => i32(0));
+    c := match(&_scr_tok(i).s.clone(), x => x.len());
     d := match(_scr_tok(i).n + i32(1), i32(3) => i32(1), _ => i32(0));
     hits = (hits + a + b + i32(c) + d);
   });

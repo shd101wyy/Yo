@@ -43,13 +43,14 @@ sm_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   })
 );
 // A reference-typed capture: the nested closure owns its copy.
-sm_captures_string :: (fn(io : Io, name : &String) -> Impl(Future(usize)))(
+sm_captures_string :: (fn(io : Io, name : &String) -> Impl(Future(usize)))({
+  __probe_name := name.clone();
   io.async((e : Io) => {
     r := e.await(leaf(e, i32(1)), e);
-    (f : Impl(Fn(k : usize) -> usize)) = (k => (k + name.len()));
+    (f : Impl(Fn(k : usize) -> usize)) = (k => (k + __probe_name.len()));
     f(usize(r))
   })
-);
+});
 // Outside io.async: a closure built inside a closure's body captures a name
 // the enclosing closure captured.
 apply :: (fn(x : i32, cb : &Impl(Fn(v : i32) -> i32)) -> i32)(cb(x));

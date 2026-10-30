@@ -42,10 +42,10 @@ derive(_CbHolder, Clone);
 // ArrayList(T).clone
 // ---------------------------------------------------------------------------
 test("ArrayList.clone: a move-only Box(String) element clones in place", {
-  l := ArrayList(Box(String)).new();
+  mut(l) := ArrayList(Box(String)).new();
   l.push(Box.new(String.from("lb")));
   l.push(Box.new(String.from("lc")));
-  m := l.clone();
+  mut(m) := l.clone();
   assert(m.len() == usize(2), "the clone has both elements");
   assert(m(usize(0)).* == `lb`, "element 0 cloned");
   assert(m(usize(1)).* == `lc`, "element 1 cloned");
@@ -53,7 +53,7 @@ test("ArrayList.clone: a move-only Box(String) element clones in place", {
   assert(l.len() == usize(2), "the source is independent of the clone");
 });
 test("ArrayList.clone: a Clone-but-not-Copy element", {
-  l := ArrayList(_CbQ).new();
+  mut(l) := ArrayList(_CbQ).new();
   l.push(_CbQ(r : usize(1), b : true));
   l.push(_CbQ(r : usize(2), b : false));
   m := l.clone();
@@ -65,7 +65,7 @@ test("ArrayList.clone: a Drop element is cloned once and dropped once per owner"
   cloned_before := g_cb_cloned;
   dropped_before := g_cb_dropped;
   {
-    l := ArrayList(_CbFd).new();
+    mut(l) := ArrayList(_CbFd).new();
     l.push(_CbFd(n : i32(1)));
     l.push(_CbFd(n : i32(2)));
     m := l.clone();
@@ -75,7 +75,7 @@ test("ArrayList.clone: a Drop element is cloned once and dropped once per owner"
   assert((g_cb_dropped - dropped_before) == i32(4), "two sources and two clones each drop once");
 });
 test("ArrayList.clone: a derive(Clone) struct with an ArrayList(Box(String)) field", {
-  items := ArrayList(Box(String)).new();
+  mut(items) := ArrayList(Box(String)).new();
   items.push(Box.new(String.from("h")));
   h := _CbHolder(items : items, tag : i32(7));
   c := h.clone();

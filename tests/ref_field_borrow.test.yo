@@ -27,7 +27,7 @@ test("field of a local object passed to a ref param", {
 
 test("String field write-through via a ref param", {
   replace_s :: (fn(v : &mut String, nv : &String) -> unit)({
-    v = nv;
+    v = nv.clone();
   });
   h := Holder(s : String.from("hello"), n : i32(1));
   replace_s(&mut h.s, String.from("rewritten"));
@@ -228,7 +228,7 @@ test("indexed element to a ref param without the container", {
   bump3 :: (fn(v : &mut i32) -> unit)({
     v = (v + i32(1));
   });
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(41));
   bump3(&mut xs(usize(0)));
   assert(xs(usize(0)) == i32(42), "in-place element bump through the ref");
@@ -249,7 +249,7 @@ test("interior-ref call releases the container's borrow flag on return", {
   bump4 :: (fn(v : &mut i32) -> unit)({
     v = (v + i32(1));
   });
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(41));
   bump4(&mut xs(usize(0)));
   xs.push(i32(5)); // realloc-capable growth right after the borrowed call
@@ -272,7 +272,7 @@ test("interior-ref call releases the container's borrow flag on unwind", {
     bump_then_raise(&mut target(usize(0)), raise);
     assert(false, "unreachable: the handler unwound run_borrowed");
   });
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(41));
   run_borrowed(&mut xs);
   xs.push(i32(5)); // must not panic: the unwind path released the flag
@@ -306,7 +306,7 @@ comptime_expect_error(
       grow();
       v = i32(99);
     });
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(41));
     run(&mut xs(usize(0)), () => {
       xs.push(i32(0));
@@ -392,7 +392,7 @@ comptime_expect_error(
     own_and_ref :: (fn(x : &mut i32, sink(victim) : ArrayList(i32)) -> unit)({
       x = i32(99);
     });
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(41));
     own_and_ref(&mut xs(usize(0)), xs);
   })

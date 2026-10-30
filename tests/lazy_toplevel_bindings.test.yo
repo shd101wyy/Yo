@@ -163,13 +163,13 @@ impl(
   )
 );
 test("list elements of a recursive enum compare through its later Eq impl", {
-  xs := ArrayList(Tree).new();
+  mut(xs) := ArrayList(Tree).new();
   xs.push(Tree.Leaf(v : i32(1)));
-  ys := ArrayList(Tree).new();
+  mut(ys) := ArrayList(Tree).new();
   ys.push(Tree.Leaf(v : i32(1)));
-  zs := ArrayList(Tree).new();
+  mut(zs) := ArrayList(Tree).new();
   zs.push(Tree.Leaf(v : i32(2)));
-  assert(Tree.Node(kids : xs) == Tree.Node(kids : ys), "equal children");
+  assert(Tree.Node(kids : xs.clone()) == Tree.Node(kids : ys), "equal children");
   assert(Tree.Node(kids : xs) != Tree.Node(kids : zs), "different children");
 });
 Branch :: ref(struct(v : i32, kids : ArrayList(Self)));
@@ -182,9 +182,9 @@ impl(
   )
 );
 test("list elements of a recursive struct compare through its later Eq impl", {
-  xs := ArrayList(Branch).new();
+  mut(xs) := ArrayList(Branch).new();
   xs.push(Branch(v : i32(1), kids : ArrayList(Branch).new()));
-  ys := ArrayList(Branch).new();
+  mut(ys) := ArrayList(Branch).new();
   ys.push(Branch(v : i32(2), kids : ArrayList(Branch).new()));
   assert(_first_differs(&xs, &ys), "1 != 2");
   assert(!_first_differs(&xs, &xs), "1 == 1");
@@ -233,7 +233,7 @@ _bag_clone_len :: (fn(b : &Bag) -> usize)({
 });
 derive(Bag, Clone);
 test("a method call above the derive that provides it", {
-  b := Bag(items : ArrayList(i32).new(), label : i32(1));
+  mut(b) := Bag(items : ArrayList(i32).new(), label : i32(1));
   b.items.push(i32(7));
   b.items.push(i32(8));
   assert(_bag_clone_len(&b) == usize(2), "the clone keeps both items");
@@ -245,7 +245,7 @@ _pair_first_user :: (fn() -> usize)(_pair_probe());
 DPair :: struct(first : String, second : String);
 derive(DPair, Clone);
 _pair_probe :: (fn() -> usize)({
-  xs := ArrayList(DPair).new();
+  mut(xs) := ArrayList(DPair).new();
   xs.push(DPair(first : `ab`, second : `c`));
   match(
     xs.get_cloned(usize(0)),

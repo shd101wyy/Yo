@@ -108,7 +108,7 @@ test("returning an inout param from inside a nested block", {
 own_len :: (fn(sink(v) : String) -> usize)(v.len());
 test("inout parameter passed to an own parameter copies, the referenced slot survives", {
   via_param :: (fn(p : &mut String) -> usize)({
-    n := own_len(p);
+    n := own_len(p.clone());
     p.push_str("!");
     n
   });
@@ -129,12 +129,13 @@ impl(
   InoutBag,
   touched : (fn(self : &mut Self, x : i32) -> Self)({
     self.n = x;
-    self
+    self.clone()
   })
 );
+derive(InoutBag, Clone);
 touch_bag :: (fn(x : &mut InoutBag, k : i32) -> InoutBag)({
   x.n = k;
-  x
+  x.clone()
 });
 InoutEntry :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_items : ArrayList(V), n : i32));
 impl(
