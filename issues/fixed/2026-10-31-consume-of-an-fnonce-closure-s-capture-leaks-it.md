@@ -29,7 +29,7 @@ Direct leak of 16 byte(s) in 1 object(s) allocated from:   (the Arc cell, from A
 SUMMARY: AddressSanitizer: 16 byte(s) leaked in 1 allocation(s).
 ```
 
-A local `Impl(FnOnce() -> i32)` closure `({ t }() => { consume(t); i32(8) })` over a `Drop` type shows it with no sanitizer: the `Drop` never runs.
+A local `Impl(FnOnce() -> i32)` closure `({ t }() => { consume(t); i32(8) })` over a `Drop` type shows it without a sanitizer: the `Drop` never runs. So does `io.async({ d }(io : Io) => { consume(d); i32(1) })`, with or without an await before the consume.
 
 ## Root cause
 
@@ -37,10 +37,16 @@ A local `Impl(FnOnce() -> i32)` closure `({ t }() => { consume(t); i32(8) })` ov
 
 ## Fix
 
-`_consume_releases_variable` now excludes a captured name only when it is not the current closure's own `FnOnce` capture-list binding. The test is `is_own_fnonce_capture` (`src/evaluator/utils.yo`), which shares one frame walk with `_is_implicit_closure_capture` (`_closure_binding_site`): the binding sits in this closure's `FnOnce` capture frame, not an enclosing closure's. `io.async` bodies keep the old answer, because their state machine owns and disposes its captures.
+- `_consume_releases_variable` (`src/evaluator/builtins/consume.yo`) now excludes a captured name only when it is not the current closure's own `FnOnce` capture-list binding. The test is `is_own_fnonce_capture` (`src/evaluator/utils.yo`). It shares one frame walk with `_is_implicit_closure_capture` (`_closure_binding_site`): the binding sits in this closure's `FnOnce` capture frame, not an enclosing closure's.
+- An `io.async` body is an `FnOnce` too and showed the same leak (its `Drop` never ran). Once the consume released, a state machine dropped the capture twice: the release dropped `sm->__capture.d`, and the dispose dropped it again, because only a moving read set the capture's move flag. `generate_drop_of_operand` (`src/codegen/exprs/rc_fns.yo`) now sets that flag (`sm_move_flag_of`) after it releases a capture field of a state machine that owns its captures.
 
-Tests: `tests/fn_once.test.yo` "FnOnce: consume of a capture releases it" counts `Drop` runs, so it fails before the fix with the leak verdict off too. The `tests/arc.test.yo` row that found it is the leak witness (30/31 before, 31/31 after, verdict on).
+Tests:
+
+- `tests/fn_once.test.yo` "FnOnce: consume of a capture releases it" counts `Drop` runs.
+- `tests/async_await.test.yo` "Test consume of an io.async capture disposes it once" covers a synchronous body and a state machine, and counts `Drop` runs.
+- Both fail before the fix with the leak verdict off too.
+- The `tests/arc.test.yo` row that found the bug is the leak witness: 30/31 before, 31/31 after, verdict on. It joins `leak-verdict.yml`'s allowlist.
 
 ## Why CI did not see it
 
-Every `test.yml` job sets `YO_TEST_LEAK_VERDICT: "0"` (the staging ratchet in `issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`). Only the weekly `leak-verdict.yml` leg runs with the verdict on, over an allowlist that did not include `tests/arc.test.yo`. #1688's local gate also ran its language tests with `YO_TEST_LEAK_VERDICT=0`, so its "arc 31/31" was the same blind spot, not a pre-rebase pass. Its value assertions held because the leak changes no value the test reads.
+Every `test.yml` job sets `YO_TEST_LEAK_VERDICT: "0"` (the staging ratchet in `issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`). Only the weekly `leak-verdict.yml` leg runs with the verdict on, over an allowlist that did not include `tests/arc.test.yo` (it does now). #1688's local gate also ran its language tests with `YO_TEST_LEAK_VERDICT=0`, so its "arc 31/31" was the same blind spot, not a pre-rebase pass. Its value assertions held because the leak changes no value the test reads.
