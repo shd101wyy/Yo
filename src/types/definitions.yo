@@ -792,7 +792,7 @@ fn_param_slots :: (fn(ft : &TypeValue) -> SharedList(TypeValue))(
 /// result (`-> &T` / `-> &mut T`, decision 24) is `Reference(T, mutable,
 /// origin)`, every other result the bare `T` — the encoding parameter slots
 /// have had since step 1. Unit for a non-`Func`.
-fn_result_slot :: (fn(ft : &TypeValue) -> TypeValue)(match(ft, Rc(.Func({ result : frs_r })) => frs_r, _ => rc(TypeValueNode.Unit)));
+fn_result_slot :: (fn(ft : &TypeValue) -> TypeValue)(match(ft, Rc(.Func({ result : frs_r })) => Rc.clone(frs_r), _ => rc(TypeValueNode.Unit)));
 /// The value type a `Func` returns or projects: `T` for `-> T`, `-> &T` and
 /// `-> &mut T`. Unit for a non-`Func`.
 fn_result_pointee :: (fn(ft : &TypeValue) -> TypeValue)(t_slot_pointee(&fn_result_slot(ft)));
