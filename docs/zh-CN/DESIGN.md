@@ -3324,9 +3324,11 @@ Yo 提供了 `Rc`（用 `Rc.new` 构造）用于将值类型堆分配并自动�
 > 负载自己的 `clone`（决定 32）。`Rc(T)` 和 `Arc(T)` 对任何 `T` 都实现 `Clone`，
 > 克隆总是第二个句柄；深拷贝写作 `Rc.new(h.*.clone())`。泛型函数体按每个实例化检查，所以当 `T` 是
 > 句柄时，在那里拷贝 `T` 同样要写 `.clone()`（`where(T <: Clone)`）。std 的泛型
-> 函数体暂时是例外：它们的读取方法通过 `T` 拷贝元素（`ArrayList(Rc(T)).get(i)`、
-> `HashMap.get`），所以在代码改用 B6 的访问器（`get_cloned`、原地读取 `xs(i)`、
-> `with`）读取句柄元素之前，std 内部的拷贝仍然隐式共享句柄。
+> 读取方法也同样检查：`ArrayList(Rc(T)).get(i)`、`HashMap.get` 通过 `T` 拷贝元素，
+> 所以元素是句柄时，这个调用就是 E0901，报在你的调用处，std 内的位置作为附注。
+> 请用不拷贝的访问器读取句柄元素：原地读取 `xs(i)`、用 `xs.get_cloned(i)` 取得
+> 第二个句柄，或 `xs.with(i, ...)`。`yo fix <path> --migrate cloned-accessors`
+> 会写出这些 `_cloned` 调用。
 >
 > 引用计数是 Yo **通用**的对象模型，并非某个容器的可选策略：每个
 > `ref(struct(...))` 都是引用计数的，`Rc` 只是其中单字段的特例。
