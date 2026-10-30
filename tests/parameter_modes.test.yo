@@ -72,15 +72,16 @@ test("a plain parameter is by value: an explicit-copy argument moves into it", {
   comptime_expect_error(r.n, "use of moved value");
 });
 
-test("a still implicitly copyable kind is shared into a by-value parameter, as `t := s` binds it", {
-  // Until V2b makes `String` explicit-copy, passing it by value is a share
-  // (+1), exactly like `t := s`, and the caller keeps its string.
+test("a String moves into a by-value parameter, as `t := s` binds it", {
+  // `String` is a value since B8: passing it by value moves it, and a copy
+  // the caller keeps is spelled `.clone()`.
   s := String.from("hello");
-  assert(_pm_take(s) == usize(5), "the callee got its own share");
+  assert(_pm_take(s.clone()) == usize(5), "the callee got its own copy");
   assert(s.len() == usize(5), "s stays usable");
   mut(xs) := ArrayList(String).new();
   xs.push(s);
-  assert((xs.len() == usize(1)) && (s == "hello"), "pushed by value and still usable");
+  assert(xs.len() == usize(1), "pushed by value");
+  comptime_expect_error(s.len(), "use of moved value");
 });
 
 _PmHandle :: ref(struct(n : i32));
@@ -161,16 +162,18 @@ test("arithmetic and unary operator impls take their operands by value", {
   comptime_expect_error(impl(_PmMoney, Eq(_PmMoney)((==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.c == rhs.c))), "as written");
 });
 
-test("a by-value operator copies a counted operand", {
+test("a by-value operator moves a move-only operand", {
+  // A `String` is a value since B8, so a struct holding one is move-only:
+  // the operator takes both operands, and a kept operand is a `.clone()`.
   x := _PmTag(s : String.from("ab"));
   y := _PmTag(s : String.from("cd"));
   z := (x + y);
   assert(z.s == "abcd", "the impl owned both operands");
-  assert((x.s == "ab") && (y.s == "cd"), "the operands' strings were shared, not freed");
+  comptime_expect_error(x.s, "use of moved value");
   s := String.from("he");
-  t := (s + String.from("llo"));
+  t := (s.clone() + String.from("llo"));
   assert(t == "hello", "String's by-value (+)");
-  assert(s == "he", "s survives as the left operand");
+  assert(s == "he", "the clone left s alone");
 });
 
 test("imm parameters borrow", {
@@ -330,7 +333,9 @@ test("Dyn(LogicalNot) over a by-value operator impl", {
 // consumed the payload instead of copying it would now free each box twice
 // (the call, then the Dyn's drop), which only an AddressSanitizer run of
 // the language suite (as CI runs it) reports.
-_PmNamed :: struct(name : String);
+// The name sits behind an `Rc`: a `String` is a value since B8, and a
+// move-only payload cannot be called by value through a Dyn at all (E0614).
+_PmNamed :: struct(name : Rc(String));
 derive(_PmNamed, Clone);
 impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usize(0))));
 _PmHeld :: struct(n : i32);
@@ -344,7 +349,7 @@ impl(
 );
 impl(_PmHeld, LogicalNot((!) : (fn(self : Self) -> bool)(self.n == i32(0))));
 test("a by-value self called through a Dyn gets a copy of the payload", {
-  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : String.from("abc")));
+  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : rc(String.from("abc"))));
   assert(!!e.clone(), "first call, on a clone: the name is non-empty");
   assert(!!e.clone(), "second call reads the payload the first call did not free");
   assert(!!e, "third call, on the original");
