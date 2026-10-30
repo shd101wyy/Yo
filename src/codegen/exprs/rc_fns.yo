@@ -16,7 +16,8 @@
 { is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, fresh_local_name, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
@@ -169,6 +170,29 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
   // is a slot locals with disjoint live ranges share (phase 6).
   in_sm_field := (value_code.starts_with("sm->var_") || value_code.starts_with("sm->slot_"));
   clear_stmt := `memset(&(${value_code}), 0, sizeof(${value_code}))`;
+  // A capture-list field of a state machine that owns its captures
+  // (`consume(d)` of an `FnOnce` capture in an `io.async` body) is released
+  // here, so its move flag tells the dispose that the field is gone, as a
+  // moving read's does; the dispose drops every unflagged capture
+  // (issues/fixed/2026-10-31-consume-of-an-fnonce-closure-s-capture-leaks-it.md).
+  capture_flag := if(value_code.starts_with("sm->__capture."), sm_move_flag_of(&value_code, sm_owns_fnonce_captures(context)), Option(String).None);
+  match(
+    capture_flag,
+    .Some(flag) => {
+      flag_stmt := `${flag} = 1`;
+      return(
+        cond(
+          (drop_code.len() > usize(0)) => `${drop_code}; ${flag_stmt}`,
+          drop_written => {
+            em.emit_string_line(`${indent.clone()}${flag_stmt};`);
+            drop_code
+          },
+          true => drop_code
+        )
+      );
+    },
+    .None => ()
+  );
   cond(
     !in_sm_field => drop_code,
     (drop_code.len() > usize(0)) => `${drop_code}; ${clear_stmt}`,
