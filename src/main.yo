@@ -114,7 +114,7 @@ pragma(Pragma.AllowUnsafe);
 { Z3_VERSION } :: import("./verifier/z3.yo");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
-{ Environment, set_mut_decl_census, take_mut_decl_facets, MUT_FACET_LEND, MUT_FACET_FIELD, MUT_FACET_INDEX, MUT_FACET_DEREF, MUT_FACET_BORROW } :: import("./env.yo");
+{ Environment, set_mut_decl_census, take_mut_decl_facets, take_mut_decl_heads, MUT_FACET_LEND, MUT_FACET_FIELD, MUT_FACET_INDEX, MUT_FACET_DEREF, MUT_FACET_BORROW } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
 // ExprInfoTable and std-path resolution all live in `module_manager.yo` so that
 // every subcommand that needs to evaluate a `.yo` file (build, fetch, install,
@@ -4787,8 +4787,8 @@ _handle_ctor_name_continues :: (fn(before : &String) -> bool)({
 /// reaches is resolved through the block, closure, `match` arm and parameter
 /// scopes around it, and a write no evaluation judged (`take_mut_judged`) is
 /// judged here. A reassignment always writes its binding; a field or element
-/// store, a `&mut` lend and a `&mut self` call (a method some `impl` or
-/// `trait` in std or the migrated files declares `self : &mut ...`) write it
+/// store, a `&mut` lend and a `&mut self` call (`_mbl_method_lends_mut`,
+/// from the `impl` and `trait` blocks of std and the migrated files) write it
 /// when the place is the binding's own storage, which the facets evaluation
 /// recorded for the declaration say (`take_mut_decl_facets`, env.yo). A
 /// declaration no evaluation reached has unknown facets and is marked: a
@@ -4811,6 +4811,9 @@ _MBL_TYPED_PARAM :: u8(5);
 _MBL_BORROW :: u8(6);
 /// Already declared `mut(x)`.
 _MBL_MARKED :: u8(7);
+/// A local holding a raw pointer, `p := (*T)(e)` or `p := addr_of(e)`: a
+/// store or lend through it lands in the pointee.
+_MBL_POINTER :: u8(8);
 /// The writes: a reassignment, a store into a place, a `&mut` lend, the
 /// receiver of a `&mut self` method.
 _MBL_W_ASSIGN :: u8(1);
@@ -4830,8 +4833,23 @@ derive(_MblDecl, Clone);
 /// declaration is outside of (a second initialization is a write).
 _MblInits :: struct(decl : _MblDecl, total : usize, unjudged : usize, looped : bool);
 derive(_MblInits, Clone);
-/// What evaluation learned, read-only during the walk.
-_MblCtx :: struct(facets : HashMap(String, u8), judged : HashSet(String), mut_methods : HashSet(String));
+/// What the `impl` and `trait` blocks of std and the migrated files declare
+/// about each method's receiver: by name (`any_mut`: some declaration takes
+/// `self : &mut ...`; `any_other`: some takes `self` another way), by
+/// `${head}.${name}` for an `impl` of the type headed `head` (`*` for a
+/// blanket `impl` over a type parameter), and by name for a `trait`'s own
+/// members.
+_MblMethods :: struct(
+  any_mut : HashSet(String),
+  any_other : HashSet(String),
+  head_mut : HashSet(String),
+  head_other : HashSet(String),
+  trait_mut : HashSet(String),
+  trait_other : HashSet(String)
+);
+/// What evaluation learned, read-only during the walk: each declaration's
+/// type facets and type head, and the writes it judged.
+_MblCtx :: struct(facets : HashMap(String, u8), heads : HashMap(String, String), judged : HashSet(String), methods : _MblMethods);
 /// The walk of one file. `decls` is the scope stack flattened; each scope
 /// starts at an index in `scope_starts`. A name resolves to the innermost
 /// declaration; past a `fn` literal's boundary (`fn_depth`) only a
@@ -4982,7 +5000,7 @@ _mbl_write_place :: (fn(w : &mut _MblWalk, c : &_MblCtx, place : &AstExpr, at : 
 /// Judge the write `how` at `at` of the binding `name` through `step`.
 _mbl_write :: (fn(w : &mut _MblWalk, c : &_MblCtx, name : &String, at : &Token, how : u8, step : u8) -> unit)({
   d := match(_mbl_lookup(w, name), .Some(x) => x, .None => return(()));
-  if((d.kind == _MBL_MARKED) || (d.kind == _MBL_BORROW), {
+  if((d.kind == _MBL_MARKED) || (d.kind == _MBL_BORROW) || ((d.kind == _MBL_POINTER) && (how != _MBL_W_ASSIGN)), {
     return(());
   });
   judged := c.judged.contains(&_mbl_key(w, at));
@@ -5039,6 +5057,53 @@ _mbl_fn_head_params :: (fn(head : &AstExpr) -> Option(ArrayList(AstExpr)))(
       if((ast_expr_is_fn_call_of(&lhs, "fn", Option(usize).None) || ast_expr_is_fn_call_of(&lhs, "ctl", Option(usize).None)) && !_bsm_is_infix_of(&lhs, "->"), Option(ArrayList(AstExpr)).Some(_bsm_args(&lhs)), Option(ArrayList(AstExpr)).None)
     },
     true => Option(ArrayList(AstExpr)).None
+  )
+);
+/// Whether calling the method `name` on a receiver whose type is headed
+/// `head` (empty: unknown) lends the receiver exclusively. A name no
+/// declaration takes `self : &mut` with does not; one every declaration
+/// does, does. A name declared both ways resolves by the receiver's type
+/// head when evaluation recorded one, else by the trait that declares it
+/// (generic code calls a trait's method), else counts as a write.
+_mbl_method_lends_mut :: (fn(ms : &_MblMethods, name : &String, head : &String) -> bool)({
+  if(!ms.any_mut.contains(name), {
+    return(false);
+  });
+  if(!ms.any_other.contains(name), {
+    return(true);
+  });
+  if(head.len() > usize(0), {
+    at_head := `${head}.${name}`;
+    if(ms.head_mut.contains(&at_head), {
+      return(true);
+    });
+    if(ms.head_other.contains(&at_head), {
+      return(false);
+    });
+    blanket := `*.${name}`;
+    if(ms.head_mut.contains(&blanket) && !ms.head_other.contains(&blanket), {
+      return(true);
+    });
+  });
+  cond(
+    ms.trait_mut.contains(name) => true,
+    ms.trait_other.contains(name) => false,
+    true => true
+  )
+});
+/// The call `recv.m(...)`: a write of `recv`'s binding when `m` lends its
+/// receiver exclusively. The type head is known only for the binding itself
+/// (`x.m()`), not for a place under it (`x.f.m()`).
+_mbl_method_call :: (fn(w : &mut _MblWalk, c : &_MblCtx, recv : &AstExpr, m : &String) -> unit)(
+  match(
+    _mbl_place_root(recv),
+    .Some((rt, step)) => {
+      head := if(step == _MBL_S_NONE, match(_mbl_lookup(w, &rt.value), .Some(d) => match(c.heads.get(&d.key), .Some(h) => h, .None => String.new()), .None => String.new()), String.new());
+      if(_mbl_method_lends_mut(&c.methods, m, &head), {
+        _mbl_write(w, c, &rt.value, &ast_expr_token(recv), _MBL_W_RECV, step);
+      });
+    },
+    .None => ()
   )
 );
 /// The walk of one expression. `stmt`: a direct statement of a block, where
@@ -5164,10 +5229,8 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
           // lends its receiver exclusively.
           if(!infix && _bsm_is_infix_of(&callee, "."), {
             m := _bsm_arg(&callee, usize(1));
-            m_name := ast_expr_token(&m).value.clone();
-            if(ast_expr_is_atom(&m) && c.mut_methods.contains(&m_name), {
-              recv := _bsm_arg(&callee, usize(0));
-              _mbl_write_place(w, c, &recv, &ast_expr_token(&recv), _MBL_W_RECV);
+            if(ast_expr_is_atom(&m), {
+              _mbl_method_call(w, c, &_bsm_arg(&callee, usize(0)), &ast_expr_token(&m).value);
             });
           });
           recur(w, c, &callee, false);
@@ -5194,6 +5257,10 @@ _mbl_walk_init :: (fn(w : &mut _MblWalk, c : &_MblCtx, rhs : &AstExpr) -> u8)(
     ast_expr_is_fn_call_of(rhs, BF_ADDRESS_OF, Option(usize).Some(usize(1))) => {
       _mbl_walk(w, c, rhs, false);
       _MBL_BORROW
+    },
+    (ast_expr_is_fn_call_of(rhs, "addr_of", Option(usize).Some(usize(1))) || (!_bsm_is_infix_of(rhs, "*") && ast_expr_is_fn_call_of(&_bsm_callee(rhs), "*", Option(usize).Some(usize(1))))) => {
+      _mbl_walk(w, c, rhs, false);
+      _MBL_POINTER
     },
     true => {
       _mbl_walk(w, c, rhs, false);
@@ -5306,45 +5373,129 @@ _mbl_walk_match :: (fn(w : &mut _MblWalk, c : &_MblCtx, args : &ArrayList(AstExp
     });
   });
 });
-/// The labels of every `impl`/`trait` member whose `fn` head takes
-/// `self : &mut ...`: calling one lends the receiver exclusively.
-_mbl_collect_mut_methods :: (fn(e : &AstExpr, out : &mut HashSet(String)) -> unit)(
+/// The receiver mode of each `impl`/`trait` member under `e`: `head` is
+/// the type head of the `impl` being walked, `trait` inside a `trait(...)`.
+_mbl_collect_methods :: (fn(e : &AstExpr, head : &String, out : &mut _MblMethods) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, f, a, infix, _) => {
-      if(infix && ast_expr_is_atom_of(&f, ":") && (a.len() == usize(2)) && ast_expr_is_atom(&a(usize(0))), {
-        rhs := a(usize(1)).clone();
-        head := match(_mbl_fn_head_params(&rhs), .Some(_) => rhs.clone(), .None => _bsm_callee(&rhs));
-        match(
-          _mbl_fn_head_params(&head),
-          .Some(ps) => if(ps.len() > usize(0), {
-            p0 := ps(usize(0)).clone();
-            if(_bsm_is_infix_of(&p0, ":") && ast_expr_is_atom_of(&_bsm_arg(&p0, usize(0)), "self") && ast_expr_is_fn_call_of(&_bsm_arg(&p0, usize(1)), BK_BORROW_MUT, Option(usize).Some(usize(1))), {
-              out.insert(ast_expr_token(&a(usize(0))).value.clone());
-            });
-          }),
-          .None => ()
-        );
-      });
-      recur(&f, out);
-      (i : usize) = usize(0);
-      while(i < a.len(), i = (i + usize(1)), {
-        recur(&a(i), out);
-      });
-    }
+    .FnCall(_, f, a, infix, _) => cond(
+      (!infix && ast_expr_is_atom_of(&f, "impl")) => {
+        h := _mbl_impl_head(&a);
+        (ii : usize) = usize(0);
+        while(ii < a.len(), ii = (ii + usize(1)), {
+          recur(&a(ii), &h, out);
+        });
+      },
+      (!infix && ast_expr_is_atom_of(&f, "trait")) => {
+        th := String.from("trait");
+        (ti : usize) = usize(0);
+        while(ti < a.len(), ti = (ti + usize(1)), {
+          recur(&a(ti), &th, out);
+        });
+      },
+      true => {
+        if(infix && ast_expr_is_atom_of(&f, ":") && (a.len() == usize(2)) && ast_expr_is_atom(&a(usize(0))), {
+          _mbl_note_member(&ast_expr_token(&a(usize(0))).value, &a(usize(1)), head, out);
+        });
+        recur(&f, head, out);
+        (i : usize) = usize(0);
+        while(i < a.len(), i = (i + usize(1)), {
+          recur(&a(i), head, out);
+        });
+      }
+    )
   )
 );
+/// The type head an `impl(...)`'s arguments name: the first argument that is
+/// not `generic(...)` or `where(...)`, by its name or its constructor's
+/// (`ArrayList(T)` is `ArrayList`); `*` when that is one of the `generic`
+/// parameters (a blanket `impl`).
+_mbl_impl_head :: (fn(a : &ArrayList(AstExpr)) -> String)({
+  params := HashSet(String).new();
+  (i : usize) = usize(0);
+  while(i < a.len(), i = (i + usize(1)), {
+    x := a(i).clone();
+    cond(
+      ast_expr_is_fn_call_of(&x, "generic", Option(usize).None) => {
+        gs := _bsm_args(&x);
+        (gi : usize) = usize(0);
+        while(gi < gs.len(), gi = (gi + usize(1)), {
+          g := gs(gi).clone();
+          gname := if(_bsm_is_infix_of(&g, ":"), _bsm_arg(&g, usize(0)), g);
+          if(ast_expr_is_atom(&gname), {
+            params.insert(ast_expr_token(&gname).value.clone());
+          });
+        });
+      },
+      ast_expr_is_fn_call_of(&x, "where", Option(usize).None) => (),
+      true => {
+        name_e := if(ast_expr_is_atom(&x), x.clone(), _bsm_callee(&x));
+        if(!ast_expr_is_atom(&name_e), {
+          return(String.new());
+        });
+        name := ast_expr_token(&name_e).value.clone();
+        return(if(params.contains(&name), String.from("*"), name));
+      }
+    );
+  });
+  String.new()
+});
+/// Record the member `label : value` when `value` is a `fn` head, or a `fn`
+/// literal, whose first parameter is `self`.
+_mbl_note_member :: (fn(label : &String, value : &AstExpr, head : &String, out : &mut _MblMethods) -> unit)({
+  fn_head := match(_mbl_fn_head_params(value), .Some(_) => value.clone(), .None => _bsm_callee(value));
+  ps := match(_mbl_fn_head_params(&fn_head), .Some(xs) => xs, .None => return(()));
+  if(ps.len() == usize(0), {
+    return(());
+  });
+  p0 := ps(usize(0)).clone();
+  (self_e : AstExpr) = if(_bsm_is_infix_of(&p0, ":"), _bsm_arg(&p0, usize(0)), p0.clone());
+  if(ast_expr_is_fn_call_of(&self_e, "sink", Option(usize).Some(usize(1))), {
+    self_e = _bsm_arg(&self_e, usize(0));
+  });
+  if(!ast_expr_is_atom_of(&self_e, "self"), {
+    return(());
+  });
+  is_mut := (_bsm_is_infix_of(&p0, ":") && ast_expr_is_fn_call_of(&_bsm_arg(&p0, usize(1)), BK_BORROW_MUT, Option(usize).Some(usize(1))));
+  if(is_mut, {
+    out.any_mut.insert(label.clone());
+  }, {
+    out.any_other.insert(label.clone());
+  });
+  trait_head := String.from("trait");
+  cond(
+    (trait_head == head) => if(is_mut, {
+      out.trait_mut.insert(label.clone());
+    }, {
+      out.trait_other.insert(label.clone());
+    }),
+    (head.len() > usize(0)) => if(is_mut, {
+      out.head_mut.insert(`${head}.${label}`);
+    }, {
+      out.head_other.insert(`${head}.${label}`);
+    }),
+    true => ()
+  );
+});
 /// The lexical half over `files`: the bindings to mark and the parameter
 /// writes to list that evaluation did not judge. `facets` and `judged` are
 /// what evaluation recorded; the `&mut self` methods are read from `files`
 /// and the std tree at `std_path`.
 _MblResult :: struct(marks : ArrayList(MutableGlobalSite), params : ArrayList(MutableGlobalSite), unparsed : usize);
 _mbl_run :: (
-  fn(files : &ArrayList(String), std_path : &String, facets : HashMap(String, u8), judged : HashSet(String), io : Io, exn : Exception) -> _MblResult
+  fn(files : &ArrayList(String), std_path : &String, facets : HashMap(String, u8), heads : HashMap(String, String), judged : HashSet(String), io : Io, exn : Exception) -> _MblResult
 )({
   asts := ArrayList(Option(ArrayList(AstExpr))).new();
-  mut_methods := HashSet(String).new();
+  methods := _MblMethods(
+    any_mut : HashSet(String).new(),
+    any_other : HashSet(String).new(),
+    head_mut : HashSet(String).new(),
+    head_other : HashSet(String).new(),
+    trait_mut : HashSet(String).new(),
+    trait_other : HashSet(String).new()
+  );
+  no_head := String.new();
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
     src := String.from_bytes(io.await(read(Path.new(files(fi).clone()), io), IoExn(io : io, exn : exn)));
@@ -5354,7 +5505,7 @@ _mbl_run :: (
       .Some(xs) => {
         (xi : usize) = usize(0);
         while(xi < xs.len(), xi = (xi + usize(1)), {
-          _mbl_collect_mut_methods(&xs(xi), &mut mut_methods);
+          _mbl_collect_methods(&xs(xi), &no_head, &mut methods);
         });
       },
       .None => ()
@@ -5370,13 +5521,13 @@ _mbl_run :: (
       .Some(ys) => {
         (yi : usize) = usize(0);
         while(yi < ys.len(), yi = (yi + usize(1)), {
-          _mbl_collect_mut_methods(&ys(yi), &mut mut_methods);
+          _mbl_collect_methods(&ys(yi), &no_head, &mut methods);
         });
       },
       .None => ()
     );
   });
-  c := _MblCtx(facets : facets, judged : judged, mut_methods : mut_methods);
+  c := _MblCtx(facets : facets, heads : heads, judged : judged, methods : methods);
   out := _MblResult(marks : ArrayList(MutableGlobalSite).new(), params : ArrayList(MutableGlobalSite).new(), unparsed : usize(0));
   (ri : usize) = usize(0);
   while(ri < files.len(), ri = (ri + usize(1)), {
@@ -5476,7 +5627,7 @@ _run_migrate_mut_markers :: (
   // The writes no evaluation judged, judged as parsed.
   (n_lexical : usize) = usize(0);
   if(bindings, {
-    lex := _mbl_run(files, std_path, take_mut_decl_facets(), take_mut_judged(), io, exn);
+    lex := _mbl_run(files, std_path, take_mut_decl_facets(), take_mut_decl_heads(), take_mut_judged(), io, exn);
     site_keys := HashSet(String).new();
     (ski : usize) = usize(0);
     while(ski < sites.len(), ski = (ski + usize(1)), {
@@ -5589,7 +5740,7 @@ _run_migrate_mut_markers :: (
   verb := if(dry_run, String.from("would mark"), String.from("marked"));
   noun := if(bindings, String.from("binding(s)"), String.from("module-level binding(s)"));
   params_note := if(bindings, `; ${param_sites.len().to_string()} parameter write(s) to rebind by hand (listed above)`, String.new());
-  lexical_note := if(bindings, ` (${n_lexical.to_string()} written only in code no evaluation judged)`, String.new());
+  lexical_note := if(n_lexical > usize(0), ` (${n_lexical.to_string()} written only in code no evaluation judged)`, String.new());
   println(`fix: ${verb} ${n_marked.to_string()} ${noun} mut(...)${lexical_note}; ${n_skipped.to_string()} left as written (listed above)${params_note}; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated writes were ${if(bindings, "judged without types", "not migrated")}`));
