@@ -313,7 +313,7 @@ vc_and :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
     return(Rc.new(VcTermNode.BoolLit(true)));
   });
   if(ts.len() == usize(1), {
-    return(match(ts.get(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(true))));
+    return(match(ts.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(true))));
   });
   Rc.new(VcTermNode.App(VcOp.AndOp, ts.clone()))
 });
