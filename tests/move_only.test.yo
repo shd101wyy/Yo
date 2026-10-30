@@ -3345,3 +3345,43 @@ test("move-only: a copy error names a generic struct instance as written", {
   }, "whose type `_MoGen(i32)` is move-only");
   assert(h.g.v == i32(1), "the holder keeps its field");
 });
+// A consuming `match` on a task slot moves the payload into the arm's binding:
+// when the arm then suspends and the task is aborted, the payload is dropped
+// once, by the binding's slot. The slot's move flag was set on the test
+// chain's fall-through path only, so the arm the jump reached left the slot
+// owning it too, and the abort dropped it twice
+// (issues/fixed/2026-10-31-an-aborted-task-drops-a-consuming-match-scrutinee-its-arm-moved-out.md).
+_mo_opt_fd :: (fn(io : Io) -> Impl(Future(Option(_MoFd), Io)))(
+  io.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    Option(_MoFd).Some(_MoFd(n : i32(4)))
+  })
+);
+_mo_take_then_throw :: (fn(io : Io, exn : Exception) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    first := e.io.await(_mo_opt_fd(e.io), e.io);
+    match(
+      first,
+      .None => i32(0),
+      .Some(fd) => {
+        e.io.await(yield(e.io), e.io);
+        e.exn.throw(dyn(String.from("abort after the move")))
+      }
+    )
+  })
+);
+_mo_run_take_then_throw :: (fn(io : Io) -> unit)({
+  throw_exn := Exception(
+    throw : (
+      _err -> {
+        unwind(());
+      }
+    )
+  );
+  _ := io.await(_mo_take_then_throw(io, throw_exn), IoExn(io : io, exn : throw_exn));
+});
+test("move-only: an aborted task drops a consuming match's moved-out payload once", {
+  before := g_mo_disposed;
+  _mo_run_take_then_throw(io);
+  assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, by its binding, dropped ${(g_mo_disposed - before).to_string()}`);
+});
