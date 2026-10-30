@@ -226,7 +226,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19974)), io), IoExn(io : io, exn : exn));
   assert(server.local_addr().port == u16(19974), `local_addr port ${server.local_addr().port}`);
-  hits := ArrayList(i32).new();
+  mut(hits) := ArrayList(i32).new();
   task := io.spawn(
     server.serve(req => {
       hits.push(i32(1));
@@ -269,7 +269,7 @@ test("the server round-trips a binary request body byte-for-byte", {
     }, io),
     IoExn(io : io, exn : exn)
   );
-  payload := ArrayList(u8).new();
+  mut(payload) := ArrayList(u8).new();
   payload.push(u8(0x80));
   payload.push(u8(0));
   payload.push(u8(0xFF));
@@ -404,7 +404,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
-  hits := ArrayList(i32).new();
+  mut(hits) := ArrayList(i32).new();
   task := io.spawn(
     server.serve(req => {
       hits.push(i32(1));

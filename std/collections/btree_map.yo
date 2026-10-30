@@ -214,25 +214,26 @@ impl(
 /// KEY ORDER. This is what `into_iter()`, and therefore `for(map, ...)`,
 /// returns; `iter()` yields pointers.
 ///
-/// It holds the backing entry list by handle, so the walk sees the array as
-/// it was when the iterator was made plus any in-place value updates;
-/// inserting or removing during the walk shifts entries under it.
+/// It holds the map by handle and yields a clone of each entry
+/// (`K`, `V` <: Clone): the entry list is a value since B8, so the map keeps
+/// its own. Inserting or removing during the walk shifts entries under it.
 BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _entries : ArrayList(MapEntry(K, V)),
+    _map : BTreeMap(K, V),
     _index : usize
   )
 );
 impl(
   generic(K : Type, V : Type),
+  where(K <: Clone, V <: Clone),
   BTreeMapIter(K, V),
   Iterator(
     Item : MapEntry(K, V),
     next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))(
       cond(
-        (self._index >= self._entries.len()) => .None,
+        (self._index >= self._map._entries.len()) => .None,
         true => {
-          entry := self._entries(self._index);
+          entry := self._map._entries(self._index).clone();
           self._index = (self._index + usize(1));
           .Some(entry)
         }
@@ -247,7 +248,7 @@ impl(
     Item : MapEntry(K, V),
     IntoIter : BTreeMapIter(K, V),
     into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
-      BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
+      BTreeMapIter(K, V)(_map : self, _index : usize(0))
     )
   )
 );
@@ -330,22 +331,28 @@ impl(
   )
 );
 /// Iterator over a BTreeMap's keys in ascending order — what `keys()`
-/// returns. Keys are yielded by value.
+/// returns. Each key is yielded as a clone (`K <: Clone`), as
+/// `BTreeMapIter` yields its entries.
 BTreeMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _inner : BTreeMapIter(K, V)
+    _map : BTreeMap(K, V),
+    _index : usize
   )
 );
 impl(
   generic(K : Type, V : Type),
+  where(K <: Clone),
   BTreeMapKeys(K, V),
   Iterator(
     Item : K,
     next : (fn(self : &mut Self) -> Option(K))(
-      match(
-        self._inner.next(),
-        .None => .None,
-        .Some(entry) => .Some(entry.key)
+      cond(
+        (self._index >= self._map._entries.len()) => .None,
+        true => {
+          k := self._map._entries(self._index).key.clone();
+          self._index = (self._index + usize(1));
+          .Some(k)
+        }
       )
     )
   )
@@ -356,26 +363,31 @@ impl(
   /// Walk the keys in ascending order — Rust's `keys`. Consumes the map
   /// (lookahead D20).
   keys : (fn(self : Self) -> BTreeMapKeys(K, V))(
-    BTreeMapKeys(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
+    BTreeMapKeys(K, V)(_map : self, _index : usize(0))
   )
 );
 /// Iterator over a BTreeMap's values, ordered by their KEYS — what
-/// `values()` returns. Values are yielded by value.
+/// `values()` returns. Each value is yielded as a clone (`V <: Clone`).
 BTreeMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _inner : BTreeMapIter(K, V)
+    _map : BTreeMap(K, V),
+    _index : usize
   )
 );
 impl(
   generic(K : Type, V : Type),
+  where(V <: Clone),
   BTreeMapValues(K, V),
   Iterator(
     Item : V,
     next : (fn(self : &mut Self) -> Option(V))(
-      match(
-        self._inner.next(),
-        .None => .None,
-        .Some(entry) => .Some(entry.value)
+      cond(
+        (self._index >= self._map._entries.len()) => .None,
+        true => {
+          v := self._map._entries(self._index).value.clone();
+          self._index = (self._index + usize(1));
+          .Some(v)
+        }
       )
     )
   )
@@ -386,32 +398,33 @@ impl(
   /// Walk the values in key order — Rust's `values`. Consumes the map
   /// (lookahead D20).
   values : (fn(self : Self) -> BTreeMapValues(K, V))(
-    BTreeMapValues(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
+    BTreeMapValues(K, V)(_map : self, _index : usize(0))
   )
 );
 /// Iterator over the entries of one key window, in key order — what
 /// `range(k1 .. k2)` returns.
 ///
 /// The window is resolved to array INDICES once, when the iterator is made,
-/// so an insertion during the walk moves entries in or out of it. Yields
-/// entries by value.
+/// so an insertion during the walk moves entries in or out of it. Yields a
+/// clone of each entry (`K`, `V` <: Clone).
 BTreeMapRange :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _entries : ArrayList(MapEntry(K, V)),
+    _map : BTreeMap(K, V),
     _index : usize,
     _end : usize
   )
 );
 impl(
   generic(K : Type, V : Type),
+  where(K <: Clone, V <: Clone),
   BTreeMapRange(K, V),
   Iterator(
     Item : MapEntry(K, V),
     next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))(
       cond(
-        (self._index >= self._end) => .None,
+        ((self._index >= self._end) || (self._index >= self._map._entries.len())) => .None,
         true => {
-          entry := self._entries(self._index);
+          entry := self._map._entries(self._index).clone();
           self._index = (self._index + usize(1));
           .Some(entry)
         }
@@ -442,7 +455,7 @@ impl(
     lo := self._find(&r.start).idx;
     hi := self._find(&r.end).idx;
     BTreeMapRange(K, V)(
-      _entries : self._entries,
+      _map : self,
       _index : lo,
       _end : cond(
         (hi < lo) => lo,
@@ -453,9 +466,10 @@ impl(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: Ord(K)),
+  where(K <: (Ord(K), Clone), V <: Clone),
   BTreeMap(K, V),
   /// Build a map from a sequence of entries — `xs.collect(BTreeMap(K, V))`.
+  /// Each entry is lent, so its key and value are cloned in.
   ///
   /// Later duplicates overwrite earlier ones, as `insert` does.
   FromIterator(
@@ -464,7 +478,7 @@ impl(
       BTreeMap(K, V).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &MapEntry(K, V)) -> Self)({
-      acc.insert(item.key, item.value);
+      acc.insert(item.key.clone(), item.value.clone());
       acc
     })
   )
