@@ -90,13 +90,13 @@ test("an atomic cell is counted atomically and shared across a thread", {
 // A counting allocator: forwards to the global allocator and counts the
 // blocks it holds (`live`) and the alloc/realloc requests it served.
 _Counts :: struct(live : usize, requests : usize);
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.live = (c.*.live + usize(1)));
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   GlobalAllocator.malloc(size)
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   cond(
@@ -107,7 +107,7 @@ _count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
   );
   GlobalAllocator.realloc(ptr, new_size)
 });
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   cond(
     ptr.is_some() => {
       c := (*_Counts)(ctx.unwrap());
@@ -141,15 +141,15 @@ test("alloc : .Some(a) places the cell in a, and .None is global", {
 // the cell calls `a`'s vtable directly, as `box` does, so the callback's own
 // `ArrayList` goes to the global heap instead of recursing into `a`.
 _ReentCounts :: struct(allocs : usize, frees : usize);
-_reent_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_reent_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_ReentCounts)(ctx.unwrap());
   unsafe(c.*.allocs = (c.*.allocs + usize(1)));
   scratch := ArrayList(usize).new();
   scratch.push(size);
   GlobalAllocator.malloc(size)
 });
-_reent_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(GlobalAllocator.realloc(ptr, new_size));
-_reent_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_reent_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(GlobalAllocator.realloc(ptr, new_size));
+_reent_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   c := (*_ReentCounts)(ctx.unwrap());
   unsafe(c.*.frees = (c.*.frees + usize(1)));
   GlobalAllocator.free(ptr);

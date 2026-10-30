@@ -2,8 +2,9 @@
 
 > **Status: Backlog — decided 2026-10-24 (maintainer adopted the advisor's verdict); steps A1/B1/B2 are VBD
 > campaign items, step C follows v0.2.75.** A1 is #1572 (merged; it ships in v0.2.70). A2 and B1 are implemented
-> for v0.2.71 (branches `vbd/alloc-placement-a2` and `vbd/alloc-placement-b1`, stacked; 2026-10-25). B2 and C are
-> not started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
+> for v0.2.71 (branches `vbd/alloc-placement-a2` and `vbd/alloc-placement-b1`, stacked; 2026-10-25). B2a is
+> implemented with allocator v2 Generation B (branch `vbd/alloc-v2-gen-b-r2`, 2026-10-28; "As built" under §6 B2).
+> B2b and C are not started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
 > at `82671f612`. The maintainer's criterion: "Yo should be as explicit as possible because it is written by LLMs;
 > no backward compatibility; do things right." His answer to the verdict: "Adopt as recommended". This plan
 > replaces a same-day first draft (the "hybrid", §8 item 1). It amends `plans/reference/EXPLICIT_ALLOCATORS.md`
@@ -297,6 +298,20 @@ B2 ships as two PRs:
   the hooks, and src never did.
 
 If V5 Generation A slips to v0.2.73, B2b slips with it. B2a stays at v0.2.72.
+
+**As built, B2a (2026-10-28, branch `vbd/alloc-v2-gen-b-r2`, with allocator v2 Generation B; the v0.2.73
+window).**
+
+- `new`/`with_capacity` take the parameter on `ArrayList`, `HashMap`, `HashSet`, `StringBuilder`, and `new` on
+  `Deque` (it has no `with_capacity`). `ArrayList.new`'s `ensures` contract follows the defaulted parameter. A placed
+  constructor allocates its anchor block at once, as `new_in` did; `.None` allocates nothing, as before.
+- `clone_in(a : Allocator)` lands on `ArrayList`, `HashMap`, `String` and `StringBuilder`. `clone()` and `clone_in`
+  share one private `_clone_placed(alloc)` per type, so the two cannot drift.
+- **No `yo fix` repair.** The plan asks for none, and no published release has a user outside the tree: the
+  migration table (`docs/*/EXPLICIT_ALLOCATORS.md` "Containers") is the path. The 21 call sites in tests were
+  rewritten by a script, std's own by hand.
+- `HashMap._alloc_with_capacity_in(alloc, n)` became `_alloc_with_capacity(n, alloc)`, the one private constructor
+  (the sibling tests call it).
 
 ### Related: `Box`'s layout (the verdict's §7, maintainer decision 2026-10-24)
 

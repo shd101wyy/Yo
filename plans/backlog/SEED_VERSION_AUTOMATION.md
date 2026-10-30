@@ -469,6 +469,28 @@ row of `tests/arc.test.yo` for the TSan job, and move the issue to
 `tests/send_sync.test.yo`, `tests/thread.test.yo`, the TSan corpus and the
 stress repro under `--sanitize thread`.
 
+## Seed-gated follow-up (2026-10-28): `box` asks for its payload's alignment
+
+**Generation A (allocator v2 Generation B, `vbd/alloc-v2-gen-b-r2`):**
+codegen gains `generate_alignof`, so `align_of(T)` of a type holding an
+`extern` type lowers to `_Alignof(T)`
+(`issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md`).
+Under a seed without it the call stays untranspiled: `Box(T).new` asking for
+`max(16, align_of(T))` poisoned the `Box(_ThreadState(unit))` specialization
+`std/thread.yo` makes, and every program spawning a thread failed its C
+compile (measured 2026-10-28 with v0.2.71). Until the seed carries the fix,
+a std generic that the compiler's own `src/` instantiates over such a type
+must not call `align_of` on it. `Box(_ThreadState(unit))` is one, so `box`
+asks its allocator for alignment 16. The containers' `align_of(T)` is safe:
+`src/` holds no container of such a type, which the seed build proves.
+
+**Generation B (once `SEED_VERSION` carries the fix, v0.2.73 or later):**
+`Box`'s placed request and its release use `max(16, align_of(T))`, as
+`Allocator.alloc` does, and the "`box` still asks for 16" limit leaves
+`docs/*/EXPLICIT_ALLOCATORS.md` "Limits". `Box`'s layout PR
+(`plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout") needs the
+same alignment; landing before that seed, it computes it without `align_of`.
+
 ## Seed-gated follow-up (2026-10-24): a cli-case for the borrow-spelling migration over a lexer error
 
 `_raw_parse_or_none` (`src/main.yo`) calls `Parser.new(src, file, local_exn)`,
