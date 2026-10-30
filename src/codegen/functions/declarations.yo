@@ -15,6 +15,7 @@
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { is_target_windows } :: import("../../target.yo");
 { CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key, erased_future_result_type_string } :: import("../utils/index.yo");
+{ replace } :: import("std/mem");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing.
 EvidenceParameter :: ref(
@@ -133,7 +134,7 @@ generate_function_prototype :: (
       // Diagnostic context for _lookup_named_c_type panics during PROTOTYPE
       // emission (current_function_name is otherwise only set during body
       // generation) — a decl-phase missing-type panic then names its owner.
-      prev_cfn := context.current_function_name;
+      prev_cfn := replace(&mut context.current_function_name, String.new());
       context.current_function_name = `<proto:${c_function_name}>`;
       return_type_str := match(
         override_return_type,

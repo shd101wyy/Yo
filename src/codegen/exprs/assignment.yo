@@ -343,7 +343,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   // and its own scope drop covers it; dropping both double-freed the old value
   // (the round-4 `rhs = evaluate(rhs)` escape UAF; the escape list drops only
   // the local, never the not-yet-defined temp). Save/restore for nesting.
-  prev_save_temp := context.current_assignment_save_temp;
+  prev_save_temp := context.current_assignment_save_temp.clone();
   match(
     ei.variable_name,
     .Some(stn) => {
