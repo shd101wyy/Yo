@@ -75,14 +75,14 @@ recognize_pragma_arg :: (fn(arg : &AstExpr) -> Option(Pragma))(
       if(args.len() != usize(2), return(Option(Pragma).None));
       lhs_is_pragma := match(
         args.get(usize(0)),
-        .Some(.Atom(_, tok)) => (tok.value == "Pragma"),
+        .Some(.Atom(_, tok)) => (tok.value.* == "Pragma"),
         .Some(.FnCall(_, _, _, _, _)) => false,
         .None => false
       );
       if(!lhs_is_pragma, return(Option(Pragma).None));
       match(
         args.get(usize(1)),
-        .Some(.Atom(_, tok)) => pragma_kind_from_variant_name(tok.value.clone()),
+        .Some(.Atom(_, tok)) => pragma_kind_from_variant_name(tok.value.*.clone()),
         .Some(.FnCall(_, _, _, _, _)) => Option(Pragma).None,
         .None => Option(Pragma).None
       )

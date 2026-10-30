@@ -400,7 +400,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
         fa_member := match(fa_fn, .FnCall(_, _, Rc(fa_fargs2), _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
         fa_name := match(
           fa_member,
-          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_text(&fa_m), String.new()),
+          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_text(&fa_m).*, String.new()),
           .None => String.new()
         );
         if((fa_name == "add") || (fa_name == "sub"), {
@@ -706,7 +706,7 @@ require_ref_own_argument_exclusivity :: (
             root_atom_opt,
             .Some(root_atom) => {
               root_env := match(_info(ctx, &root_atom), .Some(ri) => expr_info_adopt_env(&ri), .None => env);
-              vars := get_variables_from_env(&root_env, ast_expr_text(&root_atom));
+              vars := get_variables_from_env(&root_env, ast_expr_text(&root_atom).*);
               if(vars.len() > usize(0), {
                 match(
                   vars.last(),
@@ -1074,12 +1074,12 @@ _reject_if_container_reachable :: (
   if(!ast_expr_is_atom(container_atom), {
     return(());
   });
-  cvars := get_variables_from_env(env, ast_expr_text(container_atom));
+  cvars := get_variables_from_env(env, ast_expr_text(container_atom).*);
   if(cvars.len() == usize(0), {
     return(());
   });
   cvar := match(cvars.last(), .Some(v) => v, .None => return(()));
-  cname := ast_expr_text(container_atom);
+  cname := ast_expr_text(container_atom).*;
   fix := cond(
     (kind == "index") => String.from("Read the element into a local first (\"xs.get(i)\" copies it, std/mem's \"take(&mut xs(i))\" moves it out), or split the calls."),
     true => String.from("Bind the intermediate object to a local first (\"b := ...;\") and pass a field of \"b\" instead, or split the calls.")
@@ -1330,7 +1330,7 @@ require_valid_ref_argument_places :: (
               // whose ref'd element type contains Rc (e.g. a tuple field
               // holding an ArrayList — overwriting the handle frees it).
               if(!has_object_hop && ast_expr_is_atom(&cur), {
-                root_vars := get_variables_from_env(env, ast_expr_text(&cur));
+                root_vars := get_variables_from_env(env, ast_expr_text(&cur).*);
                 if(root_vars.len() > usize(0), {
                   match(
                     root_vars.last(),
@@ -1346,7 +1346,7 @@ require_valid_ref_argument_places :: (
                           dyn(
                             format_error_message(
                               &arg_tok,
-                              `A 'ref' argument cannot borrow a field of the module-level object "${ast_expr_text(&cur)}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${ast_expr_text(&cur)};\nand pass the field of "h" instead.`
+                              `A 'ref' argument cannot borrow a field of the module-level object "${ast_expr_text(&cur).*}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${ast_expr_text(&cur).*};\nand pass the field of "h" instead.`
                             )
                           )
                         );

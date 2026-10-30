@@ -36,7 +36,7 @@ import("std/fmt");
 mk_token :: (fn(kind : TokenKind, value : str) -> Token)(
   Token(
     kind : kind,
-    value : String.from(value),
+    value : rc(String.from(value)),
     row : u32(0),
     column : u32(0),
     character : u32(0),
@@ -87,9 +87,9 @@ stub_evaluate_type :: (
   (ty : TypeValue) = match(
     expr,
     .Atom(_, tok) => cond(
-      (tok.value == "bool") => t_bool(),
-      (tok.value == "i32") => t_i32(),
-      (tok.value == "void") => t_void(),
+      (tok.value.* == "bool") => t_bool(),
+      (tok.value.* == "i32") => t_i32(),
+      (tok.value.* == "void") => t_void(),
       true => t_unit()
     ),
     .FnCall(_, _, _, _, _) => t_unit()

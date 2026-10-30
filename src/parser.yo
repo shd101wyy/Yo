@@ -90,7 +90,7 @@ make_parse_error_raw :: (fn(module_path : &String, message : &String) -> YoError
 /// `**i32` = `*(*(i32))`. `+` and the rest stay infix-only. The prefix
 /// dot (`.Variant`) has its own branch in parse_primary_end.
 _is_prefix_op_token :: (fn(t : &Token) -> bool)(
-  (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "&mut"))
+  (t.kind == TokenKind.Operator) && ((t.value.* == "-") || (t.value.* == "!") || (t.value.* == "~") || (t.value.* == "&") || (t.value.* == "*") || (t.value.* == "?") || (t.value.* == "&mut"))
 );
 /// The BINDING operators for E0003's canonical-grouping hint (`= := :: ?=`),
 /// the lowest tier of the structural lattice `_e0003_tier` encodes.
@@ -124,7 +124,7 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
       true => match(
         hf,
         .Atom(_, ht) => cond(
-          ((ht.value == BK_FN) || (ht.value == BK_UNSAFE_FN) || (ht.value == BK_CTL) || (ht.value == BK_FN_TRAIT) || (ht.value == BK_FN_ONCE_TRAIT)) => ht.value,
+          ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT)) => ht.value.*,
           true => String.new()
         ),
         .FnCall(_, _, _, _, _) => String.new()
@@ -141,7 +141,7 @@ _is_capture_sigil_pun :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
     .FnCall(_, pf, Rc(pargs), p_infix, _) => (
-      !p_infix && (pargs.len() == usize(1)) && match(pf, .Atom(_, pt) => ((pt.value == "&") || (pt.value == "&mut")), .FnCall(_, _, _, _, _) => false) && match(
+      !p_infix && (pargs.len() == usize(1)) && match(pf, .Atom(_, pt) => ((pt.value.* == "&") || (pt.value.* == "&mut")), .FnCall(_, _, _, _, _) => false) && match(
         pargs.get(usize(0)),
         .Some(a) => match(a, .Atom(_, at) => (at.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false),
         .None => false
@@ -386,7 +386,7 @@ impl(
           break;
         },
         .Some(tok) => {
-          if((tok.kind == TokenKind.Whitespace) && tok.value.contains(&nl_str), {
+          if((tok.kind == TokenKind.Whitespace) && tok.value.*.contains(&nl_str), {
             result = true;
             break;
           });
@@ -416,7 +416,7 @@ impl(
             scan_done = true;
           },
           .Some(tok) => cond(
-            ((tok.kind == TokenKind.Whitespace) && tok.value.contains(&nl_str)) => {
+            ((tok.kind == TokenKind.Whitespace) && tok.value.*.contains(&nl_str)) => {
               // Found newline — check tokens[j+1..op_idx) are all whitespace
               all_ws := true;
               k := (j + usize(1));
@@ -483,7 +483,7 @@ impl(
   }),
   parse_template_string : (fn(self : &mut Self, tok : &Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
-    template_value := tok.value.clone();
+    template_value := tok.value.*.clone();
     // Byte-wise: every delimiter here is ASCII, and a UTF-8 multi-byte
     // sequence never contains an ASCII byte, so literal runes pass through
     // byte by byte unchanged.
@@ -737,7 +737,7 @@ impl(
               self.has_template_spec = true;
               spec_tok := Token(
                 kind : TokenKind.StringLit,
-                value : (String.from("\"") + sp.spec.clone() + String.from("\"")),
+                value : rc(String.from("\"") + sp.spec.clone() + String.from("\"")),
                 row : tok.row,
                 column : tok.column,
                 character : tok.character,
@@ -767,7 +767,7 @@ impl(
           content_str := content.clone();
           str_tok := Token(
             kind : TokenKind.StringLit,
-            value : (String.from("\"") + content + String.from("\"")),
+            value : rc(String.from("\"") + content + String.from("\"")),
             row : tok.row,
             column : tok.column,
             character : tok.character,
@@ -1108,7 +1108,7 @@ impl(
       .FnCall(_, func_box, _, is_infix, _) => cond(
         is_infix => match(
           func_box,
-          .Atom(_, func_tok) => (func_tok.value == ":"),
+          .Atom(_, func_tok) => (func_tok.value.* == ":"),
           .FnCall(_, _, _, _, _) => false
         ),
         // `imm(y)` / `mut(z)` / `inout(z)`: the deleted mode-word spelling of
@@ -1120,7 +1120,7 @@ impl(
         _is_capture_sigil_pun(expr) => true,
         true => match(
           func_box,
-          .Atom(_, func_tok2) => (func_tok2.value == "..."),
+          .Atom(_, func_tok2) => (func_tok2.value.* == "..."),
           .FnCall(_, _, _, _, _) => false
         )
       )
@@ -1468,7 +1468,7 @@ impl(
               match(
                 cfb,
                 .Atom(_, ft) => {
-                  if((ft.kind != TokenKind.Dot) && (ft.value == op_tok.value), {
+                  if((ft.kind != TokenKind.Dot) && (ft.value.* == op_tok.value.*), {
                     cand_tok = Option(Token).Some(ft);
                   });
                 },
@@ -1553,7 +1553,7 @@ impl(
       (tok.kind == TokenKind.LCurlyBracket) => self.parse_curly_bracket_expr(idx, exn),
       (tok.kind == TokenKind.Dot) => ParseResult(expr : .Atom(self.alloc_id(), tok), index : (idx + usize(1))),
       (tok.kind == TokenKind.TemplateString) => self.parse_template_string(&tok, idx, exn),
-      true => exn.throw(dyn(make_parse_error(&tok, `unexpected token: ${tok.value}`)))
+      true => exn.throw(dyn(make_parse_error(&tok, `unexpected token: ${tok.value.*}`)))
     )
   }),
   parse_primary_end : (
@@ -1623,7 +1623,7 @@ impl(
           .Some(t) => t,
           .None => Token(
             kind : TokenKind.Dot,
-            value : String.from("."),
+            value : rc(String.from(".")),
             row : u32(0),
             column : u32(0),
             character : u32(0),
@@ -1705,17 +1705,17 @@ impl(
             rhs,
             .FnCall(_, rfb2, _, _, _) => match(
               rfb2,
-              .Atom(_, ft2) => ft2.value.clone(),
+              .Atom(_, ft2) => ft2.value.*.clone(),
               .FnCall(_, _, _, _, _) => String.from("")
             ),
             .Atom(_, _) => String.from("")
           );
           cond(
-            (tok.value == rhs_op_value) =>
+            (tok.value.* == rhs_op_value) =>
               self.parse_left_assoc_op(primary_expr, &tok, &rhs, rhs_start, rhs_end, exn),
             true => {
               hint := self.e0003_grouping_hint(&tok, &primary_expr, &rhs_op_value, &rhs, rhs_start, rhs_end);
-              (msg : String) = `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`;
+              (msg : String) = `Adjacent different operators need parentheses to clarify grouping (near ${tok.value.*}).`;
               if(hint.len() > usize(0), {
                 msg = `${msg} ${hint}`;
               });
@@ -1803,7 +1803,7 @@ impl(
             (b1 : usize) = match(
               self.tokens.get(i + usize(1)),
               .Some(nx) => usize(nx.byte_offset),
-              .None => cond(is_literal => b0, true => (b0 + t.value.len()))
+              .None => cond(is_literal => b0, true => (b0 + t.value.*.len()))
             );
             if((b1 <= b0) || (b1 > self.input_string.len()), {
               ok = false;
@@ -1866,7 +1866,7 @@ impl(
   e0003_grouping_hint : (
     fn(self : &Self, tok : &Token, lhs : &AstExpr, rhs_op : &String, rhs : &AstExpr, rhs_start : usize, rhs_end : usize) -> String
   )({
-    outer := tok.value.clone();
+    outer := tok.value.*.clone();
     outer_tier := _e0003_tier(&outer);
     rhs_tier := _e0003_tier(rhs_op);
     rhs_is_assign := ((rhs_op == "=") || (rhs_op == "?="));
@@ -1933,7 +1933,7 @@ impl(
   reject_double_borrow_sigil : (fn(self : &mut Self, idx : usize, next : usize, exn : Exception) -> unit)(
     match(
       self.tokens.get(idx),
-      .Some(t) => if((t.kind == TokenKind.Operator) && (t.value == "&&"), {
+      .Some(t) => if((t.kind == TokenKind.Operator) && (t.value.* == "&&"), {
         nt_kind := match(self.tokens.get(next), .Some(n) => n.kind, .None => TokenKind.Whitespace);
         if((nt_kind != TokenKind.Whitespace) && (nt_kind != TokenKind.LParen) && self.token_starts_prefix_operand(next), {
           exn.throw(dyn(make_parse_error(&t, `\`&&\` is logical and, and a borrow of a borrow does not exist: a borrow is a mode a slot spells (\`x : &T\`, \`y := &place\`), not a type another \`&\` could wrap (plans/VALUES_BY_DEFAULT.md decision 42; references become types with decision 43).`)));
@@ -2131,7 +2131,7 @@ impl(
       );
       str_tok := Token(
         kind : TokenKind.StringLit,
-        value : if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\"")),
+        value : rc(if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\""))),
         row : u32(0),
         column : u32(0),
         character : u32(0),

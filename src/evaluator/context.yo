@@ -1043,7 +1043,7 @@ lhs_binds_name :: (fn(lhs : &AstExpr, name : &String) -> bool)({
     );
   });
   cond(
-    ast_expr_is_atom(&cur) => (ast_expr_token(&cur).value == name),
+    ast_expr_is_atom(&cur) => (ast_expr_token(&cur).value.* == name),
     true => (ast_expr_to_string(&cur) == name)
   )
 });
@@ -1945,13 +1945,13 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
 /// property access (`Mod.Ty` → `Ty`). Empty when none applies.
 impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
   cond(
-    ast_expr_is_atom(recv) => ast_expr_token(recv).value.clone(),
+    ast_expr_is_atom(recv) => ast_expr_token(recv).value.*.clone(),
     ast_expr_is_fn_call_of(recv, BF_DOT, .Some(usize(2))) =>
       match(
         recv,
         .FnCall(_, _, Rc(dargs), _, _) => match(
           dargs.get(usize(1)),
-          .Some(member) => cond(ast_expr_is_atom(&member) => ast_expr_token(&member).value.clone(), true => String.new()),
+          .Some(member) => cond(ast_expr_is_atom(&member) => ast_expr_token(&member).value.*.clone(), true => String.new()),
           .None => String.new()
         ),
         .Atom(_, _) => String.new()
@@ -1960,7 +1960,7 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
       match(
         recv,
         .FnCall(_, callee, _, _, _) => cond(
-          (ast_expr_is_atom(&callee) && !(ast_expr_is_atom_and_operator(&callee))) => ast_expr_token(&callee).value.clone(),
+          (ast_expr_is_atom(&callee) && !(ast_expr_is_atom_and_operator(&callee))) => ast_expr_token(&callee).value.*.clone(),
           true => String.new()
         ),
         .Atom(_, _) => String.new()
@@ -2012,7 +2012,7 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
           iargs.get(i),
           .Some(arg) => match(
             arg,
-            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(&callee) && is_drop_trait_name(&ast_expr_token(&callee).value), {
+            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(&callee) && is_drop_trait_name(&ast_expr_token(&callee).value.*), {
               return(true);
             }),
             .Atom(_, _) => ()
@@ -2114,7 +2114,7 @@ _extern_member_names :: (fn(e : &AstExpr) -> ArrayList(String))({
               .FnCall(_, _, Rc(pair), _, _) => match(
                 pair.get(usize(0)),
                 .Some(label) => if(ast_expr_is_atom(&label), {
-                  names.push(ast_expr_token(&label).value.clone());
+                  names.push(ast_expr_token(&label).value.*.clone());
                 }),
                 .None => ()
               ),
@@ -2167,7 +2167,7 @@ _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
     match(
       fields.get(i),
       .Some(f) => cond(
-        (ast_expr_is_atom(&f) && (ast_expr_token(&f).value == "...")) => {
+        (ast_expr_is_atom(&f) && (ast_expr_token(&f).value.* == "...")) => {
           all := _extern_member_names(&rhs);
           (j : usize) = usize(0);
           while(j < all.len(), {
@@ -2175,14 +2175,14 @@ _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
             j = (j + usize(1));
           });
         },
-        ast_expr_is_atom(&f) => names.push(ast_expr_token(&f).value.clone()),
+        ast_expr_is_atom(&f) => names.push(ast_expr_token(&f).value.*.clone()),
         ast_expr_is_fn_call_of(&f, BK_COLON, .Some(usize(2))) => match(
           f,
           .FnCall(_, _, Rc(pair), _, _) => {
             a0 := match(pair.get(usize(0)), .Some(x) => x, .None => f);
             a1 := match(pair.get(usize(1)), .Some(x) => x, .None => f);
             cond(
-              (ast_expr_is_atom(&a0) && (ast_expr_token(&a0).value == "...")) => {
+              (ast_expr_is_atom(&a0) && (ast_expr_token(&a0).value.* == "...")) => {
                 all := _extern_member_names(&rhs);
                 (j : usize) = usize(0);
                 while(j < all.len(), {
@@ -2190,7 +2190,7 @@ _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
                   j = (j + usize(1));
                 });
               },
-              ast_expr_is_atom(&a1) => names.push(ast_expr_token(&a1).value.clone()),
+              ast_expr_is_atom(&a1) => names.push(ast_expr_token(&a1).value.*.clone()),
               true => ()
             );
           },
@@ -2270,7 +2270,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
       .FnCall(_, _, Rc(cargs), _, _) => {
         lhs := match(cargs.get(usize(0)), .Some(l) => l, .None => e);
         rhs := match(cargs.get(usize(1)), .Some(r) => r, .None => e);
-        lhs_name := ast_expr_token(&lhs).value.clone();
+        lhs_name := ast_expr_token(&lhs).value.*.clone();
         cond(
           !(ast_expr_is_atom(&lhs)) => Option(PendingDef).None,
           (lhs_name == "_") => Option(PendingDef).None,
@@ -3064,7 +3064,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
             a,
             .FnCall(_, _, Rc(inner), _, _) => cond(
               ast_expr_is_fn_call_of(&a, BK_COLON, Option(usize).Some(usize(2))) => {
-                found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(&l).value == label), .None => false);
+                found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(&l).value.* == label), .None => false);
               },
               true => {
                 (j : usize) = usize(0);
@@ -3074,7 +3074,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
                     .Some(m) => match(
                       m,
                       .FnCall(_, _, Rc(pair), _, _) => if(ast_expr_is_fn_call_of(&m, BK_COLON, Option(usize).Some(usize(2))), {
-                        found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(&l).value == label), .None => false);
+                        found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(&l).value.* == label), .None => false);
                       }),
                       .Atom(_, _) => ()
                     ),

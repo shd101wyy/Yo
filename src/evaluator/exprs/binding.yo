@@ -244,7 +244,7 @@ evaluate_binding :: (
   // `force_compile_time_bindings` is consulted, which turns every binding of a
   // body evaluated at compile time into a compile-time one.
   if(!is_compile_time_only && in_compile_time_fn_body(ctx), {
-    b_name := ast_expr_text(&lhs);
+    b_name := ast_expr_text(&lhs).*;
     b_ty := ast_expr_to_string(&rhs);
     exn.throw(
       dyn(
@@ -269,7 +269,7 @@ evaluate_binding :: (
   });
   // Validate lhs is a valid variable name (identifier or operator).
   if(!is_valid_variable_name(&lhs), {
-    lhs_tok_val := ast_expr_text(&lhs);
+    lhs_tok_val := ast_expr_text(&lhs).*;
     exn.throw(
       dyn(
         format_error_message(
@@ -282,12 +282,12 @@ evaluate_binding :: (
   // Reserved operators cannot be bound or overloaded
   // (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md Part 1).
   res_tok := ast_expr_token(&lhs);
-  if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.clone()), {
+  if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.*.clone()), {
     exn.throw(
       dyn(
         format_error_message(
           &res_tok,
-          `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
+          `Operator "${res_tok.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
         )
       )
     );
@@ -297,11 +297,11 @@ evaluate_binding :: (
   // spelled with the name dispatches to the builtin, silently. Reject the
   // binding instead (the `consume` arm leaked the argument's reference before
   // this gate: issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md).
-  if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
+  if(is_reserved_builtin_binding_name(res_tok.value.*.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
     raise_flow_violation(
       format_error_message(
         &res_tok,
-        reserved_builtin_binding_message(res_tok.value.clone())
+        reserved_builtin_binding_message(res_tok.value.*.clone())
       ),
       ctx,
       exn
@@ -344,7 +344,7 @@ evaluate_binding :: (
       )
     );
   });
-  variable_name := ast_expr_text(&lhs);
+  variable_name := ast_expr_text(&lhs).*;
   // Reject runtime vars with generic function types — DEFERRABLE: exprs/
   // assignment.yo sets the flag around its typed-binding eval and re-runs
   // the check itself after the RHS is evaluated, relaxing it for ctl

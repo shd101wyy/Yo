@@ -135,21 +135,21 @@ evaluate_integer_literal :: (
       dyn(
         format_error_message(
           &tok,
-          `Expected integer literal, got ${tok.value}`
+          `Expected integer literal, got ${tok.value.*}`
         )
       )
     );
   });
   // Parse to i64, normalize to decimal string
   parsed := match(
-    parse_raw_int(&tok.value),
+    parse_raw_int(&tok.value.*),
     .Some(n) => n,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
             &tok,
-            `Failed to parse integer literal: ${tok.value}`
+            `Failed to parse integer literal: ${tok.value.*}`
           )
         )
       );
@@ -181,7 +181,7 @@ evaluate_integer_literal :: (
   // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
   // The magnitude comes from the TOKEN, not `parsed`: a literal above
   // `i64::MAX` is carried as its i64 bit pattern.
-  check_literal_fits(tok.value.clone(), &ty, &tok, exn);
+  check_literal_fits(tok.value.*.clone(), &ty, &tok, exn);
   val := EvalValue.IntLit(raw.clone());
   info := new_expr_info(env, &ty);
   info.value = .Some(val);

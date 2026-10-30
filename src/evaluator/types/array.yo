@@ -61,8 +61,8 @@ _length_projection_text :: (fn(e : &AstExpr) -> Option(String))({
   if(!ast_expr_is_atom(&recv) || !ast_expr_is_atom(&memb), {
     return(Option(String).None);
   });
-  rname := ast_expr_token(&recv).value.clone();
-  mname := ast_expr_token(&memb).value.clone();
+  rname := ast_expr_token(&recv).value.*.clone();
+  mname := ast_expr_token(&memb).value.*.clone();
   if((rname.len() == usize(0)) || (mname.len() == usize(0)), {
     return(Option(String).None);
   });
@@ -293,7 +293,7 @@ evaluate_array_type :: (
   len_proj := _length_projection_text(&length_expr);
   array_type := cond(
     (len_is_var && ast_expr_is_atom(&length_expr)) =>
-      t_array_var(&child_type, ast_expr_token(&length_expr).value.clone()),
+      t_array_var(&child_type, ast_expr_token(&length_expr).value.*.clone()),
     // `Array(u8, T.BYTES)` — carry the projection; substitution resolves it
     // once `T` is bound. See `_length_projection_text` above.
     (len_is_var && len_proj.is_some()) =>

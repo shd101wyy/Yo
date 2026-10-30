@@ -172,12 +172,12 @@ evaluate_string_literal :: (
       dyn(
         format_error_message(
           &tok,
-          `Expected string literal, got ${tok.value}`
+          `Expected string literal, got ${tok.value.*}`
         )
       )
     );
   });
-  val := EvalValue.StrLit(decode_str_lit_escapes(&tok.value));
+  val := EvalValue.StrLit(decode_str_lit_escapes(&tok.value.*));
   info := new_expr_info(env, t_comptime_string());
   info.value = .Some(val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

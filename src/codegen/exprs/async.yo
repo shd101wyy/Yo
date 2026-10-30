@@ -1526,7 +1526,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
       match(
         args.get(usize(0)),
         .Some(a0) => if(ast_expr_is_atom(&a0), {
-          return(Option(String).Some(ast_expr_text(&a0)));
+          return(Option(String).Some(ast_expr_text(&a0).*));
         }),
         .None => ()
       );
@@ -1539,7 +1539,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
             match(
               fargs.get(usize(0)),
               .Some(f0) => if(ast_expr_is_atom(&f0), {
-                return(Option(String).Some(ast_expr_text(&f0)));
+                return(Option(String).Some(ast_expr_text(&f0).*));
               }),
               .None => ()
             );
@@ -2656,11 +2656,11 @@ _first_atom_site :: (fn(e : &AstExpr, name : &String) -> String)(
   match(
     e.clone(),
     .Atom(_, tok) => cond(
-      (tok.value == name) => `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`,
+      (tok.value.* == name) => `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`,
       true => String.from("")
     ),
     .FnCall(_, _, Rc(args), _, _) => {
-      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).value == name)), .None => false));
+      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).value.* == name)), .None => false));
       if(typed_here, {
         ctok := ast_expr_token(e.clone());
         a0tok := match(args.get(usize(0)), .Some(a0) => ast_expr_token(&a0), .None => ctok.clone());

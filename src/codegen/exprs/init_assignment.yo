@@ -115,7 +115,7 @@ _binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
     cur := match(stack.pop(), .Some(x) => x, .None => pattern);
     match(
       cur,
-      .Atom(_, _) => if(ast_expr_token(&cur).value == name, {
+      .Atom(_, _) => if(ast_expr_token(&cur).value.* == name, {
         return(ast_expr_id(&cur));
       }),
       .FnCall(_, _, Rc(args), _, _) => {
@@ -253,9 +253,9 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   name_ei := match(
     context.base.get_expr_info(&name_expr),
     .Some(e) => e,
-    .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).value}`))
+    .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).value.*}`))
   );
-  var_name := ast_expr_text(&name_expr);
+  var_name := ast_expr_text(&name_expr).*;
   place_type := resolve_some_type_to_concrete(&name_ei.ty);
   // In an `io.async` state machine the reference and its pin live in their
   // task slots when they are live across a suspension (`_sm_local_slot`);
@@ -403,7 +403,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
   // The pointer: `cur`'s reads are `(*cur)`, so its C lvalue is inside.
   name_code := _call_generate_expr(&name_expr, indent.clone(), context);
   if(!(name_code.starts_with("(*") && name_code.ends_with(")")), {
-    return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value}": the borrow lowered to ${name_code}, not a pointer read`));
+    return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value.*}": the borrow lowered to ${name_code}, not a pointer read`));
   });
   ptr := name_code.substring(usize(2), name_code.len() - usize(1));
   place_code := _call_generate_expr(&rhs, indent.clone(), context);
@@ -412,7 +412,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
     if(!_is_c_lvalue_chain(&place_code), {
-      return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value}": place lowered to a non-lvalue C expression: ${place_code}`));
+      return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value.*}": place lowered to a non-lvalue C expression: ${place_code}`));
     });
     addr = `(&(${place_code}))`;
   });
@@ -458,10 +458,10 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         // iteration and a discarded pass has no type info). Kept a comment,
         // not an error; the harmful case is the `__yo_user_main` gate in
         // codegen/functions/generation.yo.
-        Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).value}`)
+        Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).value.*}`)
       )
     );
-    var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_text(&lhs));
+    var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_text(&lhs).*);
     // Resolve a SomeT binding type through its concrete resolution BEFORE the
     // unit guards below — a binding typed as an unresolved SomeT that resolves
     // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
@@ -603,7 +603,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
           .Some(tvn) => {
             temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env));
             // Same name as the binding, or a bare atom already named — no temp.
-            rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value, Option(Environment).Some(rei.env))));
+            rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value.*, Option(Environment).Some(rei.env))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
               effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => Rc.clone(rei.ty));

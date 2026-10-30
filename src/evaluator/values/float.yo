@@ -30,21 +30,21 @@ evaluate_float_literal :: (
       dyn(
         format_error_message(
           &tok,
-          `Expected float literal, got ${tok.value}`
+          `Expected float literal, got ${tok.value.*}`
         )
       )
     );
   });
   // Parse to f64, normalize to decimal string
   parsed := match(
-    parse_raw_float(&tok.value),
+    parse_raw_float(&tok.value.*),
     .Some(f) => f,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
             &tok,
-            `Failed to parse float literal: ${tok.value}`
+            `Failed to parse float literal: ${tok.value.*}`
           )
         )
       );

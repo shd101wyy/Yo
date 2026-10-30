@@ -209,7 +209,7 @@ find_next_declaration_name_ :: (fn(tokens : &ArrayList(Token), start_index : usi
       if(token.kind == TokenKind.Identifier, {
         return(
           DeclarationNameResult_(
-            name : token.value.clone(),
+            name : token.value.*.clone(),
             position : Option(DocPosition).Some(DocPosition(row : usize(token.row), column : usize(token.column)))
           )
         );
@@ -258,7 +258,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
         .Some(_) => ()
       );
       if(token.kind == TokenKind.InnerDocLineComment, {
-        inner_doc_parts.push(strip_doc_line_comment_(&token.value));
+        inner_doc_parts.push(strip_doc_line_comment_(&token.value.*));
         i = (i + usize(1));
         // Skip whitespace between consecutive //! lines
         cont_ws := true;
@@ -272,7 +272,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
             }
           );
           if(ws_tok.kind == TokenKind.Whitespace, {
-            if(ws_tok.value.contains(`\n`), {
+            if(ws_tok.value.*.contains(`\n`), {
               // Check if next non-whitespace token is also //!
               next := (i + usize(1));
               cont_next := true;
@@ -310,7 +310,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
         });
       }, {
         // InnerDocBlockComment
-        inner_doc_parts.push(strip_doc_block_comment_(&token.value));
+        inner_doc_parts.push(strip_doc_block_comment_(&token.value.*));
         i = (i + usize(1));
       });
     }, {
@@ -319,7 +319,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
         start_row := usize(token.row);
         start_col := usize(token.column);
         start_mod_path := token.module_path.*.clone();
-        doc_parts.push(strip_doc_line_comment_(&token.value));
+        doc_parts.push(strip_doc_line_comment_(&token.value.*));
         i = (i + usize(1));
         // Merge consecutive /// lines
         cont_merge := true;
@@ -345,7 +345,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
             tokens.get(j),
             .Some(next_doc) => {
               if(next_doc.kind == TokenKind.DocLineComment, {
-                doc_parts.push(strip_doc_line_comment_(&next_doc.value));
+                doc_parts.push(strip_doc_line_comment_(&next_doc.value.*));
                 i = (j + usize(1));
               }, {
                 cont_merge = false;
@@ -374,7 +374,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
       }, {
         if(token.kind == TokenKind.DocBlockComment, {
           doc_comment := DocComment(
-            content : strip_doc_block_comment_(&token.value),
+            content : strip_doc_block_comment_(&token.value.*),
             inner : false,
             row : usize(token.row),
             column : usize(token.column),
@@ -430,7 +430,7 @@ find_next_identifier_ :: (fn(tokens : &ArrayList(Token), start_index : usize, en
       i = (i + usize(1));
     }, {
       if(token.kind == TokenKind.Identifier, {
-        return(token.value.clone());
+        return(token.value.*.clone());
       }, {
         if(token.kind == TokenKind.LParen, {
           i = (i + usize(1));
@@ -467,7 +467,7 @@ extract_inline_docs :: (fn(tokens : &ArrayList(Token), start_index : usize, end_
     );
     if(token.kind == TokenKind.DocLineComment, {
       doc_parts := ArrayList(String).new();
-      doc_parts.push(strip_doc_line_comment_(&token.value));
+      doc_parts.push(strip_doc_line_comment_(&token.value.*));
       i = (i + usize(1));
       // Merge consecutive /// lines
       cont_merge := true;
@@ -492,7 +492,7 @@ extract_inline_docs :: (fn(tokens : &ArrayList(Token), start_index : usize, end_
           tokens.get(j),
           .Some(next_doc) => {
             if(next_doc.kind == TokenKind.DocLineComment, {
-              doc_parts.push(strip_doc_line_comment_(&next_doc.value));
+              doc_parts.push(strip_doc_line_comment_(&next_doc.value.*));
               i = (j + usize(1));
             }, {
               cont_merge = false;
@@ -509,7 +509,7 @@ extract_inline_docs :: (fn(tokens : &ArrayList(Token), start_index : usize, end_
       });
     }, {
       if(token.kind == TokenKind.DocBlockComment, {
-        content := strip_doc_block_comment_(&token.value);
+        content := strip_doc_block_comment_(&token.value.*);
         i = (i + usize(1));
         name := find_next_identifier_(tokens, i, end);
         if(!(name == ``), {

@@ -194,7 +194,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
       (fn_imp_args.len() != usize(1)) => Option(String).None,
       !match(
         func_box,
-        .Atom(_, tok) => (tok.value == BK_IMPORT),
+        .Atom(_, tok) => (tok.value.* == BK_IMPORT),
         .FnCall(_, _, _, _, _) => false
       )
       => Option(String).None,
@@ -205,7 +205,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
           path_arg,
           .FnCall(_, _, _, _, _) => Option(String).None,
           .Atom(_, ptok) => {
-            raw := ptok.value.clone();
+            raw := ptok.value.*.clone();
             n := raw.len();
             cond(
               (n < usize(2)) => Option(String).None,
@@ -228,7 +228,7 @@ extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
     .FnCall(_, func_box, Rc(fn_imp_args), is_infix, _) => {
       fval := match(
         func_box,
-        .Atom(_, tok) => tok.value.clone(),
+        .Atom(_, tok) => tok.value.*.clone(),
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(
@@ -347,7 +347,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
       (fn_args.len() < usize(2)) => Option(String).None,
       !match(
         func_box,
-        .Atom(_, ftok) => (ftok.value == "test"),
+        .Atom(_, ftok) => (ftok.value.* == "test"),
         .FnCall(_, _, _, _, _) => false
       )
       => Option(String).None,
@@ -363,7 +363,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
               // with the evaluator's own table (a `\"` in a test name printed
               // as a backslash + quote, and `--json` then escaped both), then
               // strip the surrounding double-quotes the decoder keeps.
-              decoded := decode_str_lit_escapes(&ntok.value);
+              decoded := decode_str_lit_escapes(&ntok.value.*);
               n := decoded.len();
               cond(
                 (n >= usize(2)) => .Some(decoded.substring(usize(1), n - usize(1))),
@@ -1211,14 +1211,14 @@ _modes_walk :: (fn(e : &AstExpr, out : &mut ArrayList(_PendingFix)) -> unit)(
     e,
     .Atom(_, _) => (),
     .FnCall(_, callee, Rc(args), _, _) => {
-      callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      callee_word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       // `own(x) : T` — the old spelling of `sink(x)`, as a parameter label.
       if((callee_word == ":") && (args.len() == usize(2)), {
         match(
           args.get(usize(0)),
           .Some(.FnCall(_, oc, Rc(oargs), _, _)) => match(
             oc,
-            .Atom(_, otok) => if((otok.value == "own") && (oargs.len() == usize(1)), {
+            .Atom(_, otok) => if((otok.value.* == "own") && (oargs.len() == usize(1)), {
               out.push(_PendingFix(row : usize(otok.row), col : usize(otok.column), len : usize(3), replacement : String.from("sink"), description : String.from("own")));
             }),
             _ => ()
@@ -1348,13 +1348,13 @@ _dtm_ascii :: (fn(line : &String) -> bool)({
 _dtm_ident_arg :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, t) => cond((t.kind == TokenKind.Identifier) => t.value.clone(), true => String.new()),
+    .Atom(_, t) => cond((t.kind == TokenKind.Identifier) => t.value.*.clone(), true => String.new()),
     .FnCall(_, c, Rc(cargs), _, _) => match(
       c,
       .Atom(_, ct) => cond(
-        ((ct.value == "&") && (cargs.len() == usize(1))) => match(
+        ((ct.value.* == "&") && (cargs.len() == usize(1))) => match(
           cargs.get(usize(0)),
-          .Some(.Atom(_, it)) => cond((it.kind == TokenKind.Identifier) => it.value.clone(), true => String.new()),
+          .Some(.Atom(_, it)) => cond((it.kind == TokenKind.Identifier) => it.value.*.clone(), true => String.new()),
           _ => String.new()
         ),
         true => String.new()
@@ -1442,12 +1442,12 @@ _dtm_walk :: (
 )(
   match(
     e,
-    .Atom(_, tok) => if((tok.kind == TokenKind.Identifier) && (tok.value == "Dispose"), {
+    .Atom(_, tok) => if((tok.kind == TokenKind.Identifier) && (tok.value.* == "Dispose"), {
       o.fixes.push(_PendingFix(row : usize(tok.row), col : usize(tok.column), len : usize(7), replacement : String.from("Drop"), description : String.from("Dispose")));
       o.counts.names = (o.counts.names + usize(1));
     }),
     .FnCall(_, callee, Rc(args), _, _) => {
-      callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      callee_word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       // An inherent `dispose` method, `impl(T, dispose : (fn(self ...)(...)))`:
       // Generation A ran a method of that name as a reference type's
       // destructor whatever declared it, and Generation B runs only `Drop`'s,
@@ -1459,10 +1459,10 @@ _dtm_walk :: (
         while(ii < args.len(), ii = (ii + usize(1)), {
           match(
             args.get(ii),
-            .Some(.FnCall(_, ic, Rc(iargs), _, _)) => if(match(ic, .Atom(_, it) => (it.value == ":"), _ => false) && (iargs.len() == usize(2)), {
+            .Some(.FnCall(_, ic, Rc(iargs), _, _)) => if(match(ic, .Atom(_, it) => (it.value.* == ":"), _ => false) && (iargs.len() == usize(2)), {
               match(
                 iargs.get(usize(0)),
-                .Some(.Atom(_, il)) => if(il.value == "dispose", {
+                .Some(.Atom(_, il)) => if(il.value.* == "dispose", {
                   o.left.push(`${_dtm_pos(&il)} an inherent \`dispose\` method, which Generation A ran as the destructor: move it into a \`Drop(drop : (fn(self : &mut Self) -> unit)(...))\` entry`);
                 }),
                 _ => ()
@@ -1478,7 +1478,7 @@ _dtm_walk :: (
       if(in_impl_entry && (callee_word == ":") && (args.len() == usize(2)), {
         match(
           args.get(usize(0)),
-          .Some(.Atom(_, lt)) => if(lt.value == "dispose", {
+          .Some(.Atom(_, lt)) => if(lt.value.* == "dispose", {
             lline := match(lines.get_cloned(usize(lt.row)), .Some(l) => l, .None => String.new());
             sig := String.from("dispose : (fn(self : &Self)");
             if(_rune_slice(&lline, usize(lt.column), sig.len()) == sig, {
@@ -1496,10 +1496,10 @@ _dtm_walk :: (
       // itself. Its entries are walked as an impl entry's, and its `id`
       // string is renamed with it.
       if((callee_word == "::") && (args.len() == usize(2)), {
-        is_def := match(args.get(usize(0)), .Some(.Atom(_, dn)) => (dn.value == "Dispose"), _ => false);
+        is_def := match(args.get(usize(0)), .Some(.Atom(_, dn)) => (dn.value.* == "Dispose"), _ => false);
         match(
           args.get(usize(1)),
-          .Some(.FnCall(_, tc, Rc(targs), _, _)) => if(is_def && match(tc, .Atom(_, tt) => (tt.value == "trait"), _ => false), {
+          .Some(.FnCall(_, tc, Rc(targs), _, _)) => if(is_def && match(tc, .Atom(_, tt) => (tt.value.* == "trait"), _ => false), {
             recur(&args(usize(0)), false, lines, o);
             (ti : usize) = usize(0);
             while(ti < targs.len(), ti = (ti + usize(1)), {
@@ -1508,7 +1508,7 @@ _dtm_walk :: (
                 .Some(ta) => {
                   match(
                     ta,
-                    .FnCall(_, ic, Rc(iargs), _, _) => if(match(ic, .Atom(_, it) => (it.value == ":="), _ => false) && (iargs.len() == usize(2)), {
+                    .FnCall(_, ic, Rc(iargs), _, _) => if(match(ic, .Atom(_, it) => (it.value.* == ":="), _ => false) && (iargs.len() == usize(2)), {
                       match(
                         iargs.get(usize(1)),
                         .Some(.Atom(_, st)) => {
@@ -1537,10 +1537,10 @@ _dtm_walk :: (
       (dot_obj : Option(AstExpr)) = Option(AstExpr).None;
       match(
         callee,
-        .FnCall(_, dc, Rc(dargs), _, _) => if(match(dc, .Atom(_, dt) => (dt.value == "."), _ => false) && (dargs.len() == usize(2)), {
+        .FnCall(_, dc, Rc(dargs), _, _) => if(match(dc, .Atom(_, dt) => (dt.value.* == "."), _ => false) && (dargs.len() == usize(2)), {
           match(
             dargs.get(usize(1)),
-            .Some(.Atom(_, mt)) => if(mt.value == "dispose", {
+            .Some(.Atom(_, mt)) => if(mt.value.* == "dispose", {
               member = Option(Token).Some(mt);
               dot_obj = dargs.get(usize(0));
             }),
@@ -1554,10 +1554,10 @@ _dtm_walk :: (
         .Some(mt) => {
           line := match(lines.get_cloned(usize(mt.row)), .Some(l) => l, .None => String.new());
           obj := match(dot_obj, .Some(o) => o, .None => make_err_expr());
-          obj_word := match(obj, .Atom(_, ot) => cond((ot.kind == TokenKind.Identifier) => ot.value.clone(), true => String.new()), _ => String.new());
+          obj_word := match(obj, .Atom(_, ot) => cond((ot.kind == TokenKind.Identifier) => ot.value.*.clone(), true => String.new()), _ => String.new());
           is_witness := match(
             obj,
-            .FnCall(_, wc, Rc(wargs), _, _) => (match(wc, .Atom(_, wt) => (wt.value == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value == "Dispose"), _ => false)),
+            .FnCall(_, wc, Rc(wargs), _, _) => (match(wc, .Atom(_, wt) => (wt.value.* == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value.* == "Dispose"), _ => false)),
             _ => false
           );
           // A member evaluation did not resolve to the destructor (an
@@ -1617,7 +1617,7 @@ _dtm_walk :: (
       if((callee_word == ".") && (args.len() == usize(2)), {
         match(
           args.get(usize(1)),
-          .Some(.Atom(_, mt2)) => if(mt2.value == "dispose", {
+          .Some(.Atom(_, mt2)) => if(mt2.value.* == "dispose", {
             if(o.dkeys.contains(`${mt2.row.to_string()}:${mt2.column.to_string()}`), {
               o.fixes.push(_PendingFix(row : usize(mt2.row), col : usize(mt2.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
               o.counts.methods = (o.counts.methods + usize(1));
@@ -1911,12 +1911,12 @@ _bsm_unwrap :: (
   fn(m : &AstExpr, head_repl : &String, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), claimed : &mut HashSet(String)) -> bool
 )({
   ct := ast_expr_token(_bsm_callee(m));
-  w := _bsm_rune_len(&ct.value);
+  w := _bsm_rune_len(&ct.value.*);
   close := _bsm_scan_to(lines, usize(ct.row), usize(ct.column) + w + usize(1), i64(0), u32(0x29));
   match(
     close,
     .Some(cp) => {
-      out.push(_bsm_edit(usize(ct.row), usize(ct.column), `${ct.value}(`, head_repl));
+      out.push(_bsm_edit(usize(ct.row), usize(ct.column), `${ct.value.*}(`, head_repl));
       out.push(_bsm_edit(cp.row, cp.col, String.from(")"), String.new()));
       claimed.insert(_bsm_key(&ct));
       true
@@ -1951,7 +1951,7 @@ _bsm_param :: (
     return(Option(String).None);
   });
   out.push(_bsm_edit(usize(colon.row), usize(colon.column), String.from(": "), `: ${sig}`));
-  Option(String).Some(ast_expr_token(_bsm_arg(&m, usize(0))).value.clone())
+  Option(String).Some(ast_expr_token(_bsm_arg(&m, usize(0))).value.*.clone())
 });
 /// The parameters of a declaration head (`fn`, `ctl`, `Fn`, `FnOnce`) or a
 /// closure parameter list; `fn_slot` counts them as `Fn(...)` slots.
@@ -2000,7 +2000,7 @@ _bsm_walk :: (
     e,
     .Atom(_, _) => (),
     .FnCall(_, callee, Rc(args), is_infix, _) => {
-      word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       child_asm := (in_asm || (word == "asm"));
       if(!in_asm, {
         cond(
@@ -2009,7 +2009,7 @@ _bsm_walk :: (
           (!is_infix && ((word == "Fn") || (word == "FnOnce"))) => _bsm_param_list(&args, usize(1), lines, out, claimed, counts),
           // The result slot.
           _bsm_is_infix_of(e, "->") => {
-            lhs_w := match(_bsm_callee(_bsm_arg(e, usize(0))), .Atom(_, lt) => lt.value.clone(), _ => String.new());
+            lhs_w := match(_bsm_callee(_bsm_arg(e, usize(0))), .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
             if((lhs_w == "fn") || (lhs_w == "ctl") || (lhs_w == "Fn") || (lhs_w == "FnOnce"), {
               rt := _bsm_arg(e, usize(1));
               match(
@@ -2069,7 +2069,7 @@ _bsm_walk :: (
               _bsm_mode_sig(&lb),
               .Some(lsig) => {
                 op := ast_expr_token(e);
-                op_text := `${op.value} `;
+                op_text := `${op.value.*} `;
                 line := match(lines.get_cloned(usize(op.row)), .Some(l) => l, .None => String.new());
                 if((_rune_slice(&line, usize(op.column), _bsm_rune_len(&op_text)) == op_text) && _bsm_unwrap(&lb, String.new(), lines, out, claimed), {
                   out.push(_bsm_edit(usize(op.row), usize(op.column), op_text.clone(), `${op_text}${lsig}`));
@@ -2150,7 +2150,7 @@ _bsm_unclaimed :: (fn(e : &AstExpr, in_asm : bool, claimed : &HashSet(String), o
     e,
     .Atom(_, _) => (),
     .FnCall(_, callee, Rc(args), _, _) => {
-      word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       child_asm := (in_asm || (word == "asm"));
       if(!in_asm && _bsm_mode_sig(e).is_some(), {
         ct := ast_expr_token(&callee);
@@ -5347,10 +5347,10 @@ _check_files_may_verify :: (fn(files : &ArrayList(String), exn : Exception) -> b
     (ci : usize) = usize(0);
     while((ci + usize(2)) < code.len(), {
       if((code(ci).kind == TokenKind.Identifier) &&
-        (code(ci).value == String.from("Pragma")) &&
+        (code(ci).value.* == String.from("Pragma")) &&
           (code(ci + usize(1)).kind == TokenKind.Dot) &&
             (code(ci + usize(2)).kind == TokenKind.Identifier) &&
-              code(ci + usize(2)).value.starts_with(String.from("Verify")), {
+              code(ci + usize(2)).value.*.starts_with(String.from("Verify")), {
         return(true);
       });
       ci = (ci + usize(1));
@@ -9549,7 +9549,7 @@ _is_main_definition :: (fn(e : &AstExpr) -> bool)(
       e,
       .FnCall(_, _, Rc(args), _, _) => match(
         args.get(usize(0)),
-        .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value == "main")),
+        .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value.* == "main")),
         .None => false
       ),
       _ => false
@@ -9569,7 +9569,7 @@ _export_without_main :: (fn(e : &AstExpr) -> Option(String))({
       while(ai < args.len(), {
         match(
           args.get(ai),
-          .Some(a) => if(!(ast_expr_is_atom(&a) && (ast_expr_token(&a).value == "main")), {
+          .Some(a) => if(!(ast_expr_is_atom(&a) && (ast_expr_token(&a).value.* == "main")), {
             kept.push(ast_expr_to_string(&a));
           }),
           .None => ()

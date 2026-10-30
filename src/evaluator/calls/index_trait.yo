@@ -1044,7 +1044,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
     match(
       toks.get(i),
       .Some(t) => match(
-        find_variable_in_env(env, &t.value),
+        find_variable_in_env(env, &t.value.*),
         .Some(v) => match(
           v.consumed_at_token,
           .Some(c) => {
@@ -1924,7 +1924,7 @@ _index_receiver_root :: (fn(recv : &AstExpr, env : &Environment, ctx : &EvalCont
     match(
       cur,
       .Atom(_, rr_tok) => {
-        return(get_variables_from_env(env, rr_tok.value.clone()).last());
+        return(get_variables_from_env(env, rr_tok.value.*.clone()).last());
       },
       .FnCall(_, rr_callee, Rc(rr_args), rr_infix, _) => {
         cur = cond(
@@ -2139,7 +2139,7 @@ _is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> 
         return(false);
       });
       match(
-        get_variables_from_env(env, ast_expr_token(&isp_callee).value.clone()).last(),
+        get_variables_from_env(env, ast_expr_token(&isp_callee).value.*.clone()).last(),
         .Some(isp_v) => cond(
           isp_v.is_compile_time_only => false,
           true => has_index_impl(&isp_v.ty, &isp_args, env, ctx)

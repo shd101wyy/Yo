@@ -132,15 +132,15 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
   match(
     callee,
     .Atom(_, ctor_tok) => match(
-      shared_cell_type_name_of_constructor(&ctor_tok.value),
+      shared_cell_type_name_of_constructor(&ctor_tok.value.*),
       .Some(tn) => .Some(DynCellConstructor(type_name : tn, unapplied_receiver : .None)),
       .None => .None
     ),
     .FnCall(_, _, Rc(dot_args), _, _) => cond(
-      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value == "new"), _ => false)) => match(
+      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false)) => match(
         dot_args.get(usize(0)),
         .Some(.Atom(r_id, r_tok)) => cond(
-          is_shared_cell_type_name(&r_tok.value) => .Some(DynCellConstructor(type_name : r_tok.value.clone(), unapplied_receiver : .Some(r_id))),
+          is_shared_cell_type_name(&r_tok.value.*) => .Some(DynCellConstructor(type_name : r_tok.value.*.clone(), unapplied_receiver : .Some(r_id))),
           true => .None
         ),
         _ => .None

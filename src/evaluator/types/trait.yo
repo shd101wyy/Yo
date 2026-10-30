@@ -112,7 +112,7 @@ _get_or_create_some_ty_for_trait :: (
 )({
   // "Self" case
   if(ast_expr_is_atom(lhs_expr), {
-    var_name := ast_expr_text(lhs_expr);
+    var_name := ast_expr_text(lhs_expr).*;
     if(var_name == "Self", {
       return(_SomeTyResolvedResult(Rc.clone(self_type), true));
     });
@@ -638,7 +638,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_text(&lhs_label_expr);
+    label_str = ast_expr_text(&lhs_label_expr).*;
     label_expr_opt = .Some(lhs_label_expr);
     type_expr_opt = .Some(rhs_type_expr);
   }, {
@@ -675,7 +675,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_text(&expr_inner);
+    label_str = ast_expr_text(&expr_inner).*;
     label_expr_opt = .Some(expr_inner);
   });
   // Determine expected field type from context

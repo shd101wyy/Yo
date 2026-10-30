@@ -1005,7 +1005,7 @@ pattern_literal_param_code :: (fn(e : &AstExpr) -> String)({
     ),
     .Atom(_, _) => e
   );
-  txt := ast_expr_token(&neg).value.clone();
+  txt := ast_expr_token(&neg).value.*.clone();
   negated := match(
     e,
     .FnCall(_, _, _, _, _) => true,
@@ -1218,7 +1218,7 @@ _fn_call_callee_name :: (fn(e : &AstExpr) -> Option(String))(
     .Atom(_, _) => .None,
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
-      .Atom(_, tok) => .Some(tok.value.clone()),
+      .Atom(_, tok) => .Some(tok.value.*.clone()),
       .FnCall(_, _, _, _, _) => .None
     )
   )
@@ -1306,7 +1306,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     arg := _inline_unwrap_transparent(match(args.get(i), .Some(a) => a, .None => return(false)));
     name := match(
       arg,
-      .Atom(_, tok) => tok.value.clone(),
+      .Atom(_, tok) => tok.value.*.clone(),
       .FnCall(_, _, _, _, _) => return(false)
     );
     // Is this identifier one of the parameters at all?
@@ -1380,7 +1380,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, .FnCall(_, func, Rc(args), _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v)), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, Rc(fargs), _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v)), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, Rc(args), _, _) => match(func, .Atom(_, tok) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, Rc(fargs), _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value.* == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1471,7 +1471,7 @@ nullable_arm_payload_binder :: (fn(case_value : &AstExpr) -> Option(AstExpr))({
     dparams.get(usize(0)),
     .Some(p) => {
       var := if(ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), match(p, .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(1)), .Some(v) => v, .None => p), .Atom(_, _) => p), p);
-      if(ast_expr_is_atom(&var) && !(ast_expr_token(&var).value == "_") && !pattern_param_is_literal(&var), Option(AstExpr).Some(var), Option(AstExpr).None)
+      if(ast_expr_is_atom(&var) && !(ast_expr_token(&var).value.* == "_") && !pattern_param_is_literal(&var), Option(AstExpr).Some(var), Option(AstExpr).None)
     },
     .None => Option(AstExpr).None
   )
@@ -2100,7 +2100,7 @@ _element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
     e,
     .FnCall(_, _, Rc(args), _, _) => if(
       ast_expr_is_fn_call_of(e, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None),
-      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0)), Option(String).None), .None => Option(String).None),
+      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0).*), Option(String).None), .None => Option(String).None),
       Option(String).None
     ),
     .Atom(_, _) => Option(String).None
@@ -2168,7 +2168,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -2183,11 +2183,11 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
               first_ok := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               second_is_dup := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DUP), .FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a, .Atom(_, tok) => (tok.value.* == BF_DUP), .FnCall(_, _, _, _, _) => false),
                 .None => false
               );
               if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2211,7 +2211,7 @@ get_deferred_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
         match(
           func_box,
           .FnCall(_, _, Rc(dot_args), _, _) => if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
-            second_is_drop := match(dot_args.get(usize(1)), .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DROP), .FnCall(_, _, _, _, _) => false), .None => false);
+            second_is_drop := match(dot_args.get(usize(1)), .Some(a) => match(a, .Atom(_, tok) => (tok.value.* == BF_DROP), .FnCall(_, _, _, _, _) => false), .None => false);
             if(second_is_drop, {
               match(
                 dot_args.get(usize(0)),
@@ -2245,7 +2245,7 @@ deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, base : &CodeGenContex
     get_deferred_drop_target_atom(drop_expr),
     .Some(atom) => match(
       base.get_expr_info(&atom),
-      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value).last(),
+      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value.*).last(),
       .None => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2264,12 +2264,12 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
             if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DROP), .FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a, .Atom(_, tok) => (tok.value.* == BF_DROP), .FnCall(_, _, _, _, _) => false),
                 .None => false
               );
               first_is_atom := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               if(second_is_drop && first_is_atom, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2282,7 +2282,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -2470,7 +2470,7 @@ _checked_fixed_array_subscript :: (fn(index_code : &String, array_type : &TypeVa
 /// materializing it as `T name = <rendering>;` would redefine the variable in
 /// its own scope.
 is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
-  ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value)
+  ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value.*)
 );
 /// The `fn(...)` type a `dyn(...)` payload's concrete type is, through its
 /// `SomeT` resolutions (an `Impl(Fn(...))` parameter bound to a named `fn`),

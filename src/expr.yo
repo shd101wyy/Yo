@@ -524,7 +524,7 @@ make_err_expr :: (fn() -> AstExpr)(
     usize(0),
     Token(
       kind : TokenKind.Identifier,
-      value : String.from("?"),
+      value : rc(String.from("?")),
       row : u32(0),
       column : u32(0),
       character : u32(0),
@@ -541,19 +541,19 @@ ast_expr_token :: (fn(e : &AstExpr) -> Token)(
     .FnCall(_, _, _, _, tok) => tok
   )
 );
-/// The representative token's text: `ast_expr_token(e).value` centralised
-/// (VBD B4 D16). A `-> &String` projection through a `ref`-enum payload is not
-/// expressible today — decision 24's single-root rule rejects a place rooted
-/// at a match binding — so this returns the token's `value` handle (one RC
-/// bump, the same cost the inline `ast_expr_token(e).value` spelling paid
-/// minus its extra Token bump). Read-only callers compare or lend it
-/// (`f(ast_expr_text(e))` into a `&String` parameter); a caller that stores
-/// the text spells `.clone()`.
-ast_expr_text :: (fn(e : &AstExpr) -> String)(
+/// The representative token's text cell: `ast_expr_token(e).value`
+/// centralised (VBD B4 D16). A `-> &String` projection through a `ref`-enum
+/// payload is not expressible today — decision 24's single-root rule rejects
+/// a place rooted at a match binding, and decision 43 defines no origin for a
+/// borrow returned through the `Token` yet — so this returns the token's
+/// `value` handle (`Token.value`, one count bump). Callers read the text
+/// through it: `ast_expr_text(e).* == "x"`, `f(&ast_expr_text(e).*)`, and an
+/// owned copy is `ast_expr_text(e).*.clone()`.
+ast_expr_text :: (fn(e : &AstExpr) -> Rc(String))(
   match(
     e,
-    .Atom(_, tok) => tok.value,
-    .FnCall(_, _, _, _, tok) => tok.value
+    .Atom(_, tok) => Rc.clone(tok.value),
+    .FnCall(_, _, _, _, tok) => Rc.clone(tok.value)
   )
 );
 /// Return the stable ExprId of an expression node.
@@ -608,7 +608,7 @@ ast_expr_is_infix_op_fn_call :: (fn(e : &AstExpr) -> bool)(
 ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, _) => ast_expr_text(e),
+    .Atom(_, _) => ast_expr_text(e).*,
     .FnCall(_, func_box, Rc(args), is_infix, _) => {
       n := args.len();
       func_is_op_or_dot := match(
@@ -618,12 +618,12 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
       );
       func_is_tuple_kw := match(
         func_box,
-        .Atom(_, ftok) => (ftok.value == BK_TUPLE),
+        .Atom(_, ftok) => (ftok.value.* == BK_TUPLE),
         .FnCall(_, _, _, _, _) => false
       );
       cond(
         func_is_op_or_dot => {
-          func_tok_val := ast_expr_text(&func_box);
+          func_tok_val := ast_expr_text(&func_box).*;
           cond(
             (n == usize(1)) => {
               arg0_str := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
@@ -739,7 +739,7 @@ export(make_err_expr, ast_expr_token, ast_expr_text, ast_expr_id, ast_expr_is_at
 ast_expr_is_atom_of :: (fn(e : &AstExpr, value : str) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value == value),
+    .Atom(_, tok) => (tok.value.* == value),
     .FnCall(_, _, _, _, _) => false
   )
 );
@@ -752,7 +752,7 @@ ast_expr_is_atom_of_any :: (fn(e : &AstExpr, values : &ArrayList(str)) -> bool)(
       i := usize(0);
       while(i < n, {
         v := match(values.get(i), .Some(s) => s, .None => "~unreachable~");
-        if(tok.value == v, {
+        if(tok.value.* == v, {
           return(true);
         });
         i = (i + usize(1));
@@ -771,7 +771,7 @@ ast_expr_is_fn_call_of :: (fn(e : &AstExpr, func_name : str, arg_count : Option(
     .FnCall(_, func_box, Rc(args), _, _) => {
       func_name_matches := match(
         func_box,
-        .Atom(_, tok) => (tok.value == func_name),
+        .Atom(_, tok) => (tok.value.* == func_name),
         .FnCall(_, _, _, _, _) => false
       );
       if(!func_name_matches, {
@@ -944,13 +944,13 @@ ast_call_args_unmarked :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 ast_place_text :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, _) => ast_expr_text(e),
+    .Atom(_, _) => ast_expr_text(e).*,
     .FnCall(_, pf, Rc(pargs), _, _) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => {
         base := recur(match(pargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()));
         field := match(
           pargs.get(usize(1)),
-          .Some(.Atom(_, ft)) => ft.value.clone(),
+          .Some(.Atom(_, ft)) => ft.value.*.clone(),
           .Some(f) => recur(&f),
           .None => String.new()
         );
@@ -994,7 +994,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : &AstExpr, func_names : &ArrayList(str), ar
           found := false;
           while(i < n, {
             v := match(func_names.get(i), .Some(s) => s, .None => "~unreachable~");
-            if(tok.value == v, {
+            if(tok.value.* == v, {
               found = true;
               return(found);
             });
@@ -1026,7 +1026,7 @@ exprs_are_equal :: (fn(e1 : &AstExpr, e2 : &AstExpr) -> bool)(
     e1,
     .Atom(_, tok1) => match(
       e2,
-      .Atom(_, tok2) => (tok1.value == tok2.value),
+      .Atom(_, tok2) => (tok1.value.* == tok2.value.*),
       .FnCall(_, _, _, _, _) => false
     ),
     .FnCall(_, func1, Rc(args1), _, _) => match(
@@ -1069,11 +1069,11 @@ is_function_boundary_arrow :: (fn(e : &AstExpr) -> bool)(
     e,
     .Atom(_, _) => false,
     .FnCall(_, .Atom(_, tok), _, _, _) => {
-      v := tok.value.clone();
+      v := tok.value.*.clone();
       (v == "->") || (v == "=>")
     },
     .FnCall(_, .FnCall(_, .Atom(_, inner_tok), _, _, _), _, _, _) => {
-      iv := inner_tok.value.clone();
+      iv := inner_tok.value.*.clone();
       (iv == BK_FN) || (iv == BK_UNSAFE_FN) || (iv == BK_CTL) || (iv == BK_FN_TRAIT) || (iv == BK_FN_ONCE_TRAIT)
     },
     .FnCall(_, _, _, _, _) => false
@@ -1250,11 +1250,12 @@ _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : &Token) -> To
   // `=>`, `true` and `tuple` buffers (plans/EVALUATOR_MEMORY_REDUCTION.md §0.23).
   _synth_desugar_tok_s(kind, intern_token_str(String.from(value)), ref_tok)
 );
-/// `_synth_desugar_tok` for a name built at desugar time.
-_synth_desugar_tok_s :: (fn(kind : TokenKind, value : &String, ref_tok : &Token) -> Token)(
+/// `_synth_desugar_tok` for a name built at desugar time: the token stores
+/// the `value` cell (`Token.value`).
+_synth_desugar_tok_s :: (fn(kind : TokenKind, value : Rc(String), ref_tok : &Token) -> Token)(
   Token(
     kind : kind,
-    value : value.clone(),
+    value : value,
     row : ref_tok.row,
     column : ref_tok.column,
     character : ref_tok.character,
@@ -1290,7 +1291,7 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
   );
   label_matches := match(
     pair_args.get(usize(0)),
-    .Some(.Atom(_, ltok)) => (ltok.value == label),
+    .Some(.Atom(_, ltok)) => (ltok.value.* == label),
     _ => false
   );
   cond(
@@ -1372,8 +1373,8 @@ _borrow_sigil_of :: (fn(e : &AstExpr) -> Option(_BorrowSigil))(
       true => match(
         sf,
         .Atom(_, sft) => cond(
-          ((sft.value == BK_BORROW_MUT) || (sft.value == BF_ADDRESS_OF)) => Option(_BorrowSigil).Some(
-            _BorrowSigil(is_mut : (sft.value == BK_BORROW_MUT), inner : match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), tok : sft)
+          ((sft.value.* == BK_BORROW_MUT) || (sft.value.* == BF_ADDRESS_OF)) => Option(_BorrowSigil).Some(
+            _BorrowSigil(is_mut : (sft.value.* == BK_BORROW_MUT), inner : match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), tok : sft)
           ),
           true => Option(_BorrowSigil).None
         ),
@@ -1993,8 +1994,9 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
         awaited := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
         tmp_name := String.from("__yo_return_await_");
         tmp_name.push_string(alloc_global_expr_id().to_string());
+        tmp_cell := rc(tmp_name);
         bind_args := ArrayList(AstExpr).new();
-        bind_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, tmp_name.clone(), &tok)));
+        bind_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, Rc.clone(tmp_cell), &tok)));
         bind_args.push(awaited);
         bind := AstExpr.FnCall(
           alloc_global_expr_id(),
@@ -2004,7 +2006,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
           tok
         );
         ret_args := ArrayList(AstExpr).new();
-        ret_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, &tmp_name, &tok)));
+        ret_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, tmp_cell, &tok)));
         ret := AstExpr.FnCall(id, func_box, rc(ret_args), is_infix, tok);
         block_args := ArrayList(AstExpr).new();
         block_args.push(bind);
@@ -2209,7 +2211,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         mismatches.push(bs.tok);
       });
       mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = rc(mark.value.clone());
+      mark.module_path = rc(mark.value.*.clone());
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);

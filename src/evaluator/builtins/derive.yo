@@ -618,13 +618,13 @@ _evaluate_derive_executing :: (
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
         fp,
-        .Atom(_, ftok) => ftok.value.clone(),
+        .Atom(_, ftok) => ftok.value.*.clone(),
         .FnCall(_, func_b, Rc(fa2), _, _) => match(
           func_b,
           .Atom(_, op_tok) => cond(
-            (op_tok.value == ":") => match(
+            (op_tok.value.* == ":") => match(
               fa2.get(usize(0)),
-              .Some(na) => match(na, .Atom(_, ntok) => ntok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")),
+              .Some(na) => match(na, .Atom(_, ntok) => ntok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from("")),
               .None => String.from("")
             ),
             true => String.from("")

@@ -1328,7 +1328,7 @@ evaluate_comptime_fn_call :: (
   // boxes its payload with `arc`, and `is_boxed_type` must recognise that box
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
   // equally unambiguous: `atomic(ref(struct((*) : V)))`.
-  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce).value.clone(), .None => String.from(""));
+  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce).value.*.clone(), .None => String.from(""));
   // The unique `Box` (V1 step 2) is stamped too: `unique_box_payload_type`
   // (types/guards.yo) identifies it by this name plus its newtype shape, and
   // a prelude name cannot be shadowed, so a `Box` callee is always it.
@@ -1361,11 +1361,11 @@ evaluate_comptime_fn_call :: (
     function_callee_expr,
     .Some(ce) => match(
       ce,
-      .Atom(_, ca_tok) => ca_tok.value.clone(),
+      .Atom(_, ca_tok) => ca_tok.value.*.clone(),
       .FnCall(_, ce_fn, Rc(ce_args), ce_infix, _) => cond(
         (ce_infix && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn, ".")) => match(
           ce_args.get(usize(1)),
-          .Some(member) => match(member, .Atom(_, m_tok) => m_tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")),
+          .Some(member) => match(member, .Atom(_, m_tok) => m_tok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from("")),
           .None => String.from("")
         ),
         true => String.from("")

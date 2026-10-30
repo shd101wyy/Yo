@@ -721,7 +721,7 @@ strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : Excepti
       )
     );
   });
-  cl_label := ast_expr_token(&cl_label_expr).value.clone();
+  cl_label := ast_expr_token(&cl_label_expr).value.*.clone();
   if(param_label.len() == usize(0), {
     exn.throw(
       dyn(
@@ -775,7 +775,7 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
     .Atom(_, tok) => cond(
       (tok.kind != TokenKind.Identifier) => _MarkerPlace.NotAPlace,
       true => match(
-        get_variables_from_env(env, &tok.value).last(),
+        get_variables_from_env(env, &tok.value.*).last(),
         .Some(v) => cond(
           v.is_compile_time_only => _MarkerPlace.NotAPlace,
           (v.is_ref || v.is_imm_borrow) => _MarkerPlace.Borrow,
@@ -1082,7 +1082,7 @@ argument_root_name :: (fn(arg : &AstExpr) -> Option(String))({
     );
   });
   cond(
-    ast_expr_is_atom(&cur) => Option(String).Some(ast_expr_token(&cur).value.clone()),
+    ast_expr_is_atom(&cur) => Option(String).Some(ast_expr_token(&cur).value.*.clone()),
     true => Option(String).None
   )
 });
@@ -1112,7 +1112,7 @@ argument_is_aliased_by_inout :: (fn(arg : &AstExpr, param_is_ref : bool, inout_r
   if(!ast_expr_is_atom(&bare), {
     return(false);
   });
-  name := ast_expr_token(&bare).value.clone();
+  name := ast_expr_token(&bare).value.*.clone();
   (ri : usize) = usize(0);
   while(ri < inout_roots.len(), {
     if(match(inout_roots.get(ri), .Some(r) => (r == name), .None => false), {
@@ -6235,7 +6235,7 @@ reapply_where_clause_exprs_for_call :: (
               wge_args.get(usize(0)),
               .Some(wge_lhs) => {
                 if(ast_expr_is_atom(&wge_lhs), {
-                  wge_vars := get_variables_from_env(callee_env, ast_expr_token(&wge_lhs).value);
+                  wge_vars := get_variables_from_env(callee_env, ast_expr_token(&wge_lhs).value.*);
                   if(wge_vars.len() > usize(0), {
                     match(
                       wge_vars.last(),
@@ -6412,7 +6412,7 @@ _collect_atom_names_into :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> u
   match(
     e,
     .Atom(_, a_tok) => {
-      out.push(a_tok.value.clone());
+      out.push(a_tok.value.*.clone());
     },
     .FnCall(_, a_fn, Rc(a_args), _, _) => {
       recur(&a_fn, out);
@@ -6536,7 +6536,7 @@ _evaluated_expr_type :: (
     .None => match(
       e,
       .Atom(_, e_tok) => {
-        e_vars := get_variables_from_env(caller_env, e_tok.value.to_string());
+        e_vars := get_variables_from_env(caller_env, e_tok.value.*.to_string());
         cond(
           (e_vars.len() == usize(0)) => Option(TypeValue).None,
           true => match(
@@ -7956,7 +7956,7 @@ try_to_call_function_with_arguments :: (
                         ew_args.get(usize(0)),
                         .Some(ew_lhs) => {
                           if(ast_expr_is_atom(&ew_lhs), {
-                            ew_vars := get_variables_from_env(&callee_env, ast_expr_token(&ew_lhs).value);
+                            ew_vars := get_variables_from_env(&callee_env, ast_expr_token(&ew_lhs).value.*);
                             if(ew_vars.len() > usize(0), {
                               match(
                                 ew_vars.last(),
@@ -8091,7 +8091,7 @@ try_to_call_function_with_arguments :: (
                       // Resolve the LHS variable to a concrete TypeVal target.
                       (ewa_target : Option(TypeValue)) = Option(TypeValue).None;
                       {
-                        ewa_lvars := get_variables_from_env(&callee_env, ast_expr_token(&ewa_lhs).value);
+                        ewa_lvars := get_variables_from_env(&callee_env, ast_expr_token(&ewa_lhs).value.*);
                         if(ewa_lvars.len() > usize(0), {
                           match(
                             ewa_lvars.last(),
@@ -8119,7 +8119,7 @@ try_to_call_function_with_arguments :: (
                               ewa_al := match(ewa_pair.get(usize(0)), .Some(a) => a, .None => make_err_expr());
                               ewa_av := match(ewa_pair.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                               if(ast_expr_is_atom(&ewa_al) && ast_expr_is_atom(&ewa_av), {
-                                ewa_xn := ast_expr_token(&ewa_av).value.clone();
+                                ewa_xn := ast_expr_token(&ewa_av).value.*.clone();
                                 // Only forall labels of THIS call, still unbound.
                                 (ewa_is_fl : bool) = false;
                                 (ewa_fi : usize) = usize(0);
@@ -8149,7 +8149,7 @@ try_to_call_function_with_arguments :: (
                                 };
                                 if(ewa_is_fl && ewa_unbound, {
                                   match(
-                                    resolve_assoc_type_for_target(&ewa_tt, ast_expr_token(&ewa_al).value, &callee_env),
+                                    resolve_assoc_type_for_target(&ewa_tt, ast_expr_token(&ewa_al).value.*, &callee_env),
                                     .Some(ewa_res) => if(!is_some_type(&ewa_res), {
                                       add_variable_to_env(
                                         &callee_env,

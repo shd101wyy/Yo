@@ -453,7 +453,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_name := ast_expr_text(&variant_name_expr);
+        variant_name := ast_expr_text(&variant_name_expr).*;
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
@@ -494,7 +494,7 @@ evaluate_enum_type :: (
       // Plain atom variant (auto-assigned discriminant).
       // ---------------------------------------------------------------
       ast_expr_is_atom(&enum_arg) => {
-        variant_name := ast_expr_text(&enum_arg);
+        variant_name := ast_expr_text(&enum_arg).*;
         if(!is_valid_variable_name(&enum_arg), {
           exn.throw(
             dyn(
@@ -555,7 +555,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_name := ast_expr_text(_fn_call_func(&variant_expr));
+        variant_name := ast_expr_text(_fn_call_func(&variant_expr)).*;
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(

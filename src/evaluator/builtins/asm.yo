@@ -88,7 +88,7 @@ _is_valid_asm_operand_type :: (fn(t : &TypeValue) -> bool)(
   is_integer_type(t) || is_float_type(t) || is_pointer_type(t) || is_bool_type(t)
 );
 _atom_value :: (fn(e : &AstExpr) -> String)(
-  match(e, .Atom(_, tok) => tok.value.clone(), _ => String.from(""))
+  match(e, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""))
 );
 _is_register_class_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && _str_in(_register_classes(), _atom_value(e))

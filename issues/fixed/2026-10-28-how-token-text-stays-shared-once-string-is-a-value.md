@@ -1,6 +1,9 @@
 # How token text stays shared once `String` is a value
 
-**Kind:** design question
+**Kind:** design question. **Decided 2026-10-30: option 2, `Token.value : Rc(String)`** (Fable
+consultation #1, verdict "TokenText", high confidence), and implemented on branch
+`vbd/token-value-rc` (v0.2.74 window, after V2c and before B8). See "Verdict" and "Resolution"
+below.
 
 *Filed 2026-10-28 by the B8-prerequisites piece (VBD v0.2.73 window, PLAN §5a).*
 
@@ -60,3 +63,38 @@ the way #1561 was gated:
 
 Option 1 is not acceptable for B8, because it would turn the flip into a memory regression of about
 10% that nothing reports. Option 3 should wait until after VBD, if the RSS ratchet asks for it.
+
+## Verdict
+
+Option 2, as its own tree-only `src/` PR patterned on #1561 (which made `Token.input` and
+`Token.module_path` `Rc(String)` cells):
+
+- `Token.value` is an `Rc(String)`. The intern table is `RefCell(HashMap(String, Rc(String)))` and
+  `intern_token_str` returns the canonical cell; a miss inserts one cell per DISTINCT text.
+- The eight `g_tv_*` globals are `Rc(String)` cells and stay separate from the table: they exist to
+  skip the per-punctuation-token hash (§0.23), so folding them into the table would re-pay it.
+- `placeholder_token`/`raii_token` reuse their `g_placeholder_token_text`/`g_raii_token_text` cells
+  for `value` too.
+- `ast_expr_text` returns `Rc(String)` (one count bump). A borrow returned through the `Token` waits
+  for decision 43 steps 2 and 3 to define origins for returned references.
+- Readers spell `tok.value.*` and `&tok.value.*`, the rule the `Token` doc comment already states for
+  `input`/`module_path`, rather than relying on auto-deref. `Eq(Rc(T))` takes an `Rc` right-hand
+  side, so a compare against text is `tok.value.* == "x"`.
+- A handle copy is `Rc.clone(tok.value)`; an owned copy is `tok.value.*.clone()`. `tok.value.clone()`
+  is E0616 (decision 32: `clone` is a method of both `Rc(String)` and its payload), and a bare
+  `tok.value` copy is E0901 since V2c, so each former `tok.value.clone()` site says which one it means.
+- `Variable.name` and the other id `String` fields are NOT widened here (follow-up F7, with its own
+  measurement).
+
+Rejected: option 1 (the measured ~92 MB regression, and interning silently lost with the `String ==`
+pointer fast path); a span/borrowed representation (string, char and template tokens hold DECODED
+text, synthesized tokens have no source, a `value` borrowing the token's own `input` is
+self-referential, and Yo has no borrowed string-slice type); a `Symbol` id now (the largest change;
+it needs an LSP/`--watch` purge story first, and is the post-VBD end state built on this table).
+
+## Resolution
+
+Implemented on `vbd/token-value-rc`. `tests/internal/parser.test.yo` "same-text tokens share one
+interned value cell" makes a silent loss of interning loud: same-text identifier, operator and
+number tokens from one `tokenize` and from two separate `tokenize` calls hold the same `value` cell
+(`__yo_ptr_eq`), and so do two `(` tokens. The measurements are in the PR body.

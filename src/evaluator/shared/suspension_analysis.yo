@@ -140,7 +140,7 @@ extract_target_variable_id :: (
   if(tok.kind != TokenKind.Identifier, {
     return(Option(String).None);
   });
-  var_name := tok.value.clone();
+  var_name := tok.value.*.clone();
   // Resolve through the `:=` node's OWN recorded env FIRST: it is stamped
   // post-binding, so it always contains the freshly-bound target (and under
   // shadowing resolves to the NEW binding). The LHS atom's env PREDATES the
@@ -376,14 +376,14 @@ _capture_pattern_bindings :: (
       match(
         get_info(pat),
         .Some(info) => {
-          vars := scope_variables(ast_expr_id(pat), &info.env, tok.value.clone());
+          vars := scope_variables(ast_expr_id(pat), &info.env, tok.value.*.clone());
           at_decl := match(
             vars.last(),
             .Some(v) => ((v.token.module_path == tok.module_path) && (v.token.row == tok.row) && (v.token.column == tok.column)),
             .None => false
           );
           if(at_decl, {
-            _capture_env_variable(ast_expr_id(pat), tok.value.clone(), &info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(pat), tok.value.*.clone(), &info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           });
         },
         .None => ()
@@ -480,7 +480,7 @@ walk_expr_ :: (
     // -----------------------------------------------------------------------
     .Atom(_, tok) => {
       if(tok.kind == TokenKind.Identifier, {
-        var_name := tok.value.clone();
+        var_name := tok.value.*.clone();
         match(
           get_info(expr_cloned.clone()),
           .None => (),
@@ -510,7 +510,7 @@ walk_expr_ :: (
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {
-                  _capture_env_variable(ast_expr_id(&lhs_e), lhs_tok.value.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+                  _capture_env_variable(ast_expr_id(&lhs_e), lhs_tok.value.*.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
                 },
                 .None => ()
               );
@@ -527,7 +527,7 @@ walk_expr_ :: (
                     inout_args.get(usize(0)),
                     .Some(ref_name) => match(
                       ref_name,
-                      .Atom(_, ref_tok) => _capture_env_variable(ast_expr_id(&ref_name), ref_tok.value.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      .Atom(_, ref_tok) => _capture_env_variable(ast_expr_id(&ref_name), ref_tok.value.*.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       .FnCall(_, _, _, _, _) => ()
                     ),
                     .None => ()

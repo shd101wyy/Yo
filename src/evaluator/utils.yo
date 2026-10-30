@@ -432,7 +432,7 @@ throw_expr_is_implicit_variable_error :: (
   // Fall back to the atom token if no path_collection entry was found.
   if(var_name_opt.is_none(), {
     if(ast_expr_is_atom(rhs), {
-      var_name_opt = Option(String).Some(ast_expr_token(rhs).value.clone());
+      var_name_opt = Option(String).Some(ast_expr_token(rhs).value.*.clone());
     });
   });
   match(
@@ -728,7 +728,7 @@ migrate_borrowed_match_at :: (fn(moved_tok : &Token) -> bool)(
   cond(
     // An error a `comptime_expect_error` expects is the program's point.
     (migrate_match_scrutinee_on() && !propagate_def_time_errors() && consuming_match_scrutinee_at(moved_tok)) => {
-      record_migrate_edit(moved_tok, moved_tok.value.len(), `&${moved_tok.value}`, moved_tok.value.clone());
+      record_migrate_edit(moved_tok, moved_tok.value.*.len(), `&${moved_tok.value.*}`, moved_tok.value.*.clone());
       true
     },
     true => false
@@ -980,7 +980,7 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
 _is_deref_place :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(
     e,
-    .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(1)), .Some(lbl) => (ast_expr_is_atom(&lbl) && (ast_expr_token(&lbl).value == "*")), .None => false),
+    .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(1)), .Some(lbl) => (ast_expr_is_atom(&lbl) && (ast_expr_token(&lbl).value.* == "*")), .None => false),
     .Atom(_, _) => false
   )
 );
@@ -1277,7 +1277,7 @@ _bare_callable_into_dyn_fn :: (
   bc_help := Option(String).Some(`write \`dyn(${bc_text})\`; \`yo fix <path> --migrate dyn-spelling\` wraps every such site`);
   bc_err := match(
     value,
-    .Atom(_, bc_atom_tok) => format_error_message_with_repair(&bc_atom_tok, &bc_msg, &bc_help, `dyn(${bc_atom_tok.value})`, String.from("wrap the callable in `dyn(...)`")),
+    .Atom(_, bc_atom_tok) => format_error_message_with_repair(&bc_atom_tok, &bc_msg, &bc_help, `dyn(${bc_atom_tok.value.*})`, String.from("wrap the callable in `dyn(...)`")),
     _ => format_error_message_with_help(&bc_tok, &bc_msg, &bc_help)
   );
   raise_flow_violation(with_code(&bc_err, E_BARE_CALLABLE_INTO_DYN), ctx, exn);
@@ -1844,7 +1844,7 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
         .FnCall(_, _, Rc(d_args), _, _) => {
           fld := match(d_args.get(usize(1)), .Some(f) => f, .None => make_err_expr());
           if(ast_expr_is_atom(&fld), {
-            fields_rev.push(ast_expr_token(&fld).value.clone());
+            fields_rev.push(ast_expr_token(&fld).value.*.clone());
           }, {
             is_place = false;
           });
@@ -1860,7 +1860,7 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
   });
   if(named && is_place && ast_expr_is_atom(&cur), {
     match(
-      get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last(),
+      get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last(),
       .Some(rv) => if(!rv.is_compile_time_only, {
         path := ArrayList(String).new();
         (ri : usize) = fields_rev.len();
@@ -2204,7 +2204,7 @@ global_place_path :: (fn(place : &AstExpr, ctx : &EvalContext) -> GlobalPlacePat
           through = true;
           rev.clear();
         }, {
-          rev.push(ast_expr_token(&fld).value.clone());
+          rev.push(ast_expr_token(&fld).value.*.clone());
         });
         if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => _lb_is_cell_type(&bi.ty), .None => false), {
           through = true;
@@ -2440,7 +2440,7 @@ strip_mut_marker :: (fn(holder : &AstExpr, idx : usize, exn : Exception) -> Opti
       list := sm_args;
       list(idx) = name;
       name_tok := ast_expr_token(&name);
-      register_mut_binding(&name_tok, &name_tok.value);
+      register_mut_binding(&name_tok, &name_tok.value.*);
       Option(AstExpr).Some(name)
     },
     .Atom(_, _) => Option(AstExpr).None
@@ -2601,7 +2601,7 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
     });
     cur = next;
   });
-  get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last()
+  get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last()
 });
 /// Decision 47 step 2: the place `place` (`x`, `x.f`, `x(i)`) is written at
 /// `tok`, by a field or element store, an exclusive lend or a `&mut self`
@@ -2926,7 +2926,7 @@ _ic_place_root_var :: (fn(place : &AstExpr, env : &Environment, (stop_ctx : Opti
   if(tok.kind != TokenKind.Identifier, {
     return(Option(Variable).None);
   });
-  find_variable_in_env(env, tok.value.clone())
+  find_variable_in_env(env, tok.value.*.clone())
 });
 /// The declaration key of the variable `place` is rooted in, or empty.
 _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
@@ -4032,7 +4032,7 @@ audit_record_copy_trait :: (
   (pending_id : Option(usize)) = Option(usize).None;
   if(is_variable, {
     match(
-      find_variable_in_env(env, ast_expr_token(source).value.clone()),
+      find_variable_in_env(env, ast_expr_token(source).value.*.clone()),
       .Some(v) => {
         captured := (in_closure_body_check && match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
         root := g_implicit_copy_match_roots.with(m => m.get(&v.id));
@@ -4429,7 +4429,7 @@ set_expr_as_needs_to_call_dup :: (
       });
       // Owning temp already holding the value: ownership transfers ⇒ consume, no dup.
       if(is_temp_variable_name(&ei.env.module_path.*, &variable_name), {
-        is_atom_with_other_name := (ast_expr_is_atom(rhs) && (ast_expr_token(rhs).value != variable_name));
+        is_atom_with_other_name := (ast_expr_is_atom(rhs) && (ast_expr_token(rhs).value.* != variable_name));
         if(!is_atom_with_other_name, {
           match(
             find_variable_in_env(&ei.env, &variable_name),
@@ -4721,7 +4721,7 @@ _place_root_is_runtime_variable :: (fn(e : &AstExpr, env : &Environment) -> bool
       )
     );
   });
-  vars := get_variables_from_env(env, ast_expr_token(&root).value);
+  vars := get_variables_from_env(env, ast_expr_token(&root).value.*);
   if(vars.len() == usize(0), {
     return(false);
   });
@@ -4938,7 +4938,7 @@ _pattern_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
 _atom_named_in :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value == name),
+    .Atom(_, tok) => (tok.value.* == name),
     .FnCall(_, callee, Rc(args), _, _) => {
       if(recur(&callee, name.clone()), {
         return(true);
@@ -5202,7 +5202,7 @@ _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExp
   last := _last_token_of(loop_expr, site);
   end := Token(
     kind : last.kind,
-    value : last.value.clone(),
+    value : Rc.clone(last.value),
     row : last.row,
     column : (last.column + u32(1)),
     character : (last.character + u32(1)),
@@ -6788,7 +6788,7 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
         ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))) => {
           recv := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
           fld := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-          steps.push(cond(ast_expr_is_atom(&fld) => ast_expr_token(&fld).value.clone(), true => String.from("?")));
+          steps.push(cond(ast_expr_is_atom(&fld) => ast_expr_token(&fld).value.*.clone(), true => String.from("?")));
           recvs.push(recv);
           e = recv;
         },
@@ -6812,7 +6812,7 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
   if(tok.kind != TokenKind.Identifier, {
     return(Option(LocalBorrowPlace).None);
   });
-  root := match(get_variables_from_env(env, tok.value.clone()).last(), .Some(v) => v, .None => return(Option(LocalBorrowPlace).None));
+  root := match(get_variables_from_env(env, tok.value.*.clone()).last(), .Some(v) => v, .None => return(Option(LocalBorrowPlace).None));
   if(root.is_compile_time_only, {
     return(Option(LocalBorrowPlace).None);
   });
@@ -7421,20 +7421,20 @@ local_borrow_is_macro_await :: (fn(id : usize) -> bool)({
 _lb_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value == name)),
+    .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value.* == name)),
     .FnCall(_, callee, Rc(args), _, _) => match(
       callee,
       .Atom(_, ct) => cond(
         // `(a, b) => …` / a tuple pattern: any element binds.
-        (ct.value == BK_TUPLE) => _lb_any_binds_name(&args, name.clone()),
+        (ct.value.* == BK_TUPLE) => _lb_any_binds_name(&args, name.clone()),
         // `(x : T) => …`: a typed parameter or pattern; the name is the left side.
-        (ct.value == ":") => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
+        (ct.value.* == ":") => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
         // `mut(x)` (and the deleted mode words): the wrapped name binds.
-        ((ct.value == BK_MUT) || (ct.value == BK_IMM)) => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
+        ((ct.value.* == BK_MUT) || (ct.value.* == BK_IMM)) => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
         // `(p && (g))`: a guard; its pattern is the left side, its condition uses.
-        (ct.value == "&&") => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
+        (ct.value.* == "&&") => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
         // `(x := p)`: a bind pattern.
-        (ct.value == BK_INIT_ASSIGN) => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
+        (ct.value.* == BK_INIT_ASSIGN) => match(args.get(usize(0)), .Some(l) => _lb_binds_name(&l, name.clone()), .None => false),
         true => false
       ),
       // `.Variant(payloads)`: an enum pattern is a call whose CALLEE is the
@@ -7489,8 +7489,8 @@ _lb_fn_literal_binds :: (fn(callee : &AstExpr, name : &String) -> bool)(
     .FnCall(_, fc, Rc(fargs), _, _) => match(
       fc,
       .Atom(_, fct) => cond(
-        ((fct.value == "->") && (fargs.len() == usize(2))) => match(fargs.get(usize(0)), .Some(head) => _lb_fn_literal_binds(&head, name.clone()), .None => false),
-        true => (((fct.value == BK_FN) || (fct.value == BK_CTL) || ((fct.value == BK_UNSAFE_FN) || (fct.value == BK_FN_TRAIT)) || (fct.value == BK_FN_ONCE_TRAIT)) && _lb_any_binds_name(&fargs, name.clone()))
+        ((fct.value.* == "->") && (fargs.len() == usize(2))) => match(fargs.get(usize(0)), .Some(head) => _lb_fn_literal_binds(&head, name.clone()), .None => false),
+        true => (((fct.value.* == BK_FN) || (fct.value.* == BK_CTL) || ((fct.value.* == BK_UNSAFE_FN) || (fct.value.* == BK_FN_TRAIT)) || (fct.value.* == BK_FN_ONCE_TRAIT)) && _lb_any_binds_name(&fargs, name.clone()))
       ),
       .FnCall(_, _, _, _, _) => false
     ),
@@ -7508,7 +7508,7 @@ _lb_fn_literal_binds :: (fn(callee : &AstExpr, name : &String) -> bool)(
 _lb_mentions :: (fn(e : &AstExpr, name : &String, (in_cond_arm : bool) ?= false) -> bool)(
   match(
     e,
-    .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value == name)),
+    .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value.* == name)),
     .FnCall(_, callee, Rc(args), _, _) => {
       // An arrow literal (a closure, or a `match` arm) whose left side binds.
       if(_lb_arrow_shadows(e, name.clone(), in_cond_arm), {
@@ -7545,7 +7545,7 @@ _lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token), (in
   match(
     e,
     .Atom(_, t) => cond(
-      ((t.kind == TokenKind.Identifier) && (t.value == name)) => match(
+      ((t.kind == TokenKind.Identifier) && (t.value.* == name)) => match(
         best,
         .Some(b) => cond(_lb_tok_after(&t, &b) => Option(Token).Some(t), true => best),
         .None => Option(Token).Some(t)
@@ -7632,7 +7632,7 @@ _lb_has_repoint :: (fn(e : &AstExpr, name : &String, (in_cond_arm : bool) ?= fal
               l,
               .FnCall(_, _, Rc(largs), _, _) => match(
                 largs.get(usize(0)),
-                .Some(n) => if(match(n, .Atom(_, nt) => (nt.value == name), .FnCall(_, _, _, _, _) => false), {
+                .Some(n) => if(match(n, .Atom(_, nt) => (nt.value.* == name), .FnCall(_, _, _, _, _) => false), {
                   return(true);
                 }),
                 .None => ()

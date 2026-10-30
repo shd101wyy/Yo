@@ -34,7 +34,17 @@ derive(TokenKind, Eq(TokenKind), Hash, Clone, Copy, ToString);
 Token :: ref(
   struct(
     kind : TokenKind,
-    value : String,
+    /// The token's text, a SHARED cell like `input`/`module_path` below:
+    /// identifier, keyword, operator, dot and number tokens take the
+    /// canonical cell of `intern_token_str` (one per distinct text), the
+    /// eight punctuation tokens the lexer's `g_tv_*` cells, and a synthetic
+    /// token its origin's cell. A copy is a count bump, never a byte copy,
+    /// so the field stays one pointer once `String` is a value (B8), and two
+    /// same-text tokens still share one buffer for `String ==`'s pointer
+    /// fast path (issues/fixed/2026-10-28-how-token-text-stays-shared-once-string-is-a-value.md).
+    /// Readers spell `tok.value.*` / `&tok.value.*`; a handle copy is
+    /// `Rc.clone(tok.value)`, an owned copy `tok.value.*.clone()`.
+    value : Rc(String),
     /// The four positions are `u32` (a source file is far below 4 GiB): with
     /// the 4-byte `kind` a `Token` is 64 B instead of 80, 16 B off each of
     /// the ~1.9 M tokens a `check src/main.yo` keeps
@@ -296,30 +306,35 @@ is_valid_identifier :: (fn(s : &String) -> bool)({
     }
   )
 });
-// Token-text INTERN table: one canonical String instance per
-// distinct token text, so every same-named token shares one buffer and
+// Token-text INTERN table: one canonical `Rc(String)` cell per distinct
+// token text, so every same-named token shares one cell (and one buffer) and
 // downstream `String ==` hits the interned ptr+len fast path
 // (std/string/string.yo). Identifier-name compares (env frame scans,
 // dispatch conds) are ~38% of a stage2 emit purely from call volume
-// (issues/yo-self-compile-performance-rc-string-eq.md). Safe to share:
-// token value Strings are never mutated in place (audited 2026-07-27);
-// clones fall back to memcmp. The hash+lookup is paid once per TOKEN,
-// the savings on every later compare.
-g_token_intern := RefCell(HashMap(String, String)).new(HashMap(String, String).new());
-intern_token_str :: (fn(s : &String) -> String)(
+// (issues/yo-self-compile-performance-rc-string-eq.md). The value is a
+// cell, not a `String`, so a hit is a count bump and never a copy of the
+// text, before and after `String` becomes a value
+// (issues/fixed/2026-10-28-how-token-text-stays-shared-once-string-is-a-value.md).
+// Safe to share: token texts are never mutated in place (audited
+// 2026-07-27; `Rc` payloads are read-only, decision 46). The hash+lookup is
+// paid once per TOKEN, the savings on every later compare.
+g_token_intern := RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
+intern_token_str :: (fn(s : &String) -> Rc(String))(
   match(
     g_token_intern.with(m => m.get(s)),
     .Some(canonical) => canonical,
     .None => {
-      g_token_intern.with_mut(m => m.insert(s.clone(), s.clone()));
-      s.clone()
+      c := rc(s.clone());
+      g_token_intern.with_mut({ c : Rc.clone(c), s }(m) => m.insert(s.clone(), Rc.clone(c)));
+      c
     }
   )
 );
-/// Shared `module_path`/`input` cells for synthetic tokens with no source
-/// (`Token.input`): `empty_token_text()` for a token minted with an empty
-/// path or text, and the `placeholder_token`/`raii_token` texts. A token
-/// copies one of these handles instead of allocating a cell per call.
+/// Shared `module_path`/`input`/`value` cells for synthetic tokens with no
+/// source (`Token.input`): `empty_token_text()` for a token minted with an
+/// empty path or text, and the `placeholder_token`/`raii_token` texts (each
+/// token's `value` too). A token copies one of these handles instead of
+/// allocating a cell per call.
 (g_empty_token_text : Rc(String)) = rc(String.from(""));
 (g_placeholder_token_text : Rc(String)) = rc(String.from("_"));
 (g_raii_token_text : Rc(String)) = rc(String.from("drop"));
@@ -330,7 +345,7 @@ empty_token_text :: (fn() -> Rc(String))(Rc.clone(g_empty_token_text));
 placeholder_token :: (fn() -> Token)(
   Token(
     kind : TokenKind.Identifier,
-    value : String.from("_"),
+    value : Rc.clone(g_placeholder_token_text),
     row : u32(0),
     column : u32(0),
     character : u32(0),
@@ -343,7 +358,7 @@ placeholder_token :: (fn() -> Token)(
 raii_token :: (fn() -> Token)(
   Token(
     kind : TokenKind.Identifier,
-    value : String.from("drop"),
+    value : Rc.clone(g_raii_token_text),
     row : u32(0),
     column : u32(0),
     character : u32(0),
