@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
+{ trait_impl_epoch, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -185,6 +185,18 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
 { RefCell } :: import("std/sync/refcell");
 // Calls whose `FnOnce` callee is released after the call (`_consume_fnonce_callee`).
 (g_fnonce_release_after_call : RefCell(HashMap(usize, AstExpr))) = RefCell(HashMap(usize, AstExpr)).new(HashMap(usize, AstExpr).new());
+/// Static-argument inference's per-call-site memo
+/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §4: over budget, the candidate
+/// index is memoized per call site). A static `G.m(...)` node is evaluated
+/// several times (a definition-time trial, the checking pass, the body
+/// itself); when the arguments the bound call consulted have the same types
+/// again, the receiver it bound is bound again without collecting,
+/// trying and instantiating the candidates. Keyed by the receiver node,
+/// stale once the trait-impl epoch moves. Only a bound receiver is
+/// recorded: a failure is recomputed, so its diagnostic is raised (or kept
+/// quiet in a dry run) exactly as before.
+_SaiMemo :: struct(epoch : u64, arg_keys : ArrayList(Option(String)), receiver : TypeValue);
+(g_sai_memo : RefCell(HashMap(usize, _SaiMemo))) = RefCell(HashMap(usize, _SaiMemo)).new(HashMap(usize, _SaiMemo).new());
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -1390,6 +1402,27 @@ _infer_unapplied_ctor_receiver :: (
     .Atom(_, uc_tok) => uc_tok.value.clone(),
     .FnCall(_, _, uc_ra, _, _) => match(uc_ra.get(usize(1)), .Some(uc_m) => ast_expr_to_string(&uc_m), .None => String.new())
   );
+  uc_memo_id := ast_expr_id(&uc_recv);
+  match(
+    g_sai_memo.with(m => m.get(&uc_memo_id)),
+    .Some(me) => if(me.epoch == trait_impl_epoch(), {
+      (me_same : bool) = true;
+      (me_i : usize) = usize(0);
+      while((me_i < me.arg_keys.len()) && me_same, me_i = (me_i + usize(1)), {
+        match(
+          me.arg_keys.get(me_i),
+          .Some(.Some(me_k)) => {
+            me_same = match(_sai_arg_type(args, me_i, &mut uc_nodes, &mut uc_tys, env, ctx, exn), .Some(me_t) => (type_key(&me_t) == me_k), .None => false);
+          },
+          _ => ()
+        );
+      });
+      if(me_same, {
+        return(_sai_bind_receiver(&uc_recv, &me.receiver, &uc_nodes, &uc_tys, env, ctx));
+      });
+    }),
+    .None => ()
+  );
   uc_static := _sai_static_candidates(&uc_ctor_fid, &uc_method, &uc_head);
   if(uc_static.len() == usize(0), {
     match(
@@ -1456,7 +1489,27 @@ _infer_unapplied_ctor_receiver :: (
       .None => ()
     );
   });
-  _sai_decide(&uc_outcomes, &uc_static, &uc_recv, &uc_ctor, &uc_method, &uc_nodes, &uc_tys, uc_may_throw, env, ctx, exn)
+  uc_res := _sai_decide(&uc_outcomes, &uc_static, &uc_recv, &uc_ctor, &uc_method, &uc_nodes, &uc_tys, uc_may_throw, env, ctx, exn);
+  if(uc_res.bound, {
+    match(
+      expr_info_table_get(&ctx.expr_info_table, uc_memo_id),
+      .Some(uc_bi) => match(
+        uc_bi.value,
+        .Some(.TypeVal(uc_bt)) => {
+          uc_keys := ArrayList(Option(String)).new();
+          (uc_ki : usize) = usize(0);
+          while(uc_ki < uc_tys.len(), uc_ki = (uc_ki + usize(1)), {
+            uc_keys.push(match(uc_tys.get(uc_ki), .Some(.Some(uc_kt)) => Option(String).Some(type_key(&uc_kt)), _ => Option(String).None));
+          });
+          uc_entry := _SaiMemo(epoch : trait_impl_epoch(), arg_keys : uc_keys, receiver : Rc.clone(uc_bt));
+          g_sai_memo.with_mut({ uc_memo_id, uc_entry }(m) => m.insert(uc_memo_id, uc_entry));
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
+  uc_res
 });
 /// The place an argument evaluates as for inference: the value under a
 /// label (`self : x`), the place under a call-site borrow marker
