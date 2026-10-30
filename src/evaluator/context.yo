@@ -17,7 +17,7 @@
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name, set_counted_handle_std_generic } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, set_mut_decl_census_untrusted } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -217,10 +217,14 @@ SpecializingFunctionInfo :: ref(
 );
 /// Point decision 17's std-generic exemption at the specialization `ctx` is
 /// in: called wherever `ctx.currently_specializing_function` is entered or
-/// restored, so an unwound specialization cannot leave it set.
-sync_counted_handle_std_generic :: (fn(ctx : &EvalContext) -> unit)(
-  set_counted_handle_std_generic(match(ctx.currently_specializing_function, .Some(s) => s.in_std, .None => false))
-);
+/// restored, so an unwound specialization cannot leave it set. The
+/// `--migrate mut-bindings` declaration census follows the same points: it
+/// records nothing inside a generic body's specialization
+/// (`set_mut_decl_census_untrusted`, env.yo).
+sync_counted_handle_std_generic :: (fn(ctx : &EvalContext) -> unit)({
+  set_counted_handle_std_generic(match(ctx.currently_specializing_function, .Some(s) => s.in_std, .None => false));
+  set_mut_decl_census_untrusted(match(ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false));
+});
 // ---------------------------------------------------------------------------
 // Impl concrete-type return tracking
 // ---------------------------------------------------------------------------

@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -4334,6 +4334,28 @@ _is_scalar_operator_call :: (fn(call : &AstExpr, ctx : &EvalContext) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// `yo fix --migrate mut-bindings`: this evaluated call judged what it does
+/// to each place it lends and, when the method resolved, to its receiver (a
+/// by-value `self` lends nothing, so the receiver is noted on its own; an
+/// unresolved method says nothing about its receiver). The lexical half of
+/// the migration leaves these writes to evaluation's verdict
+/// (`record_mut_judged`).
+_note_call_writes_judged :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend)) -> unit)({
+  (li : usize) = usize(0);
+  while(li < lends.len(), li = (li + usize(1)), {
+    match(lends.get(li), .Some(l) => record_mut_judged(&ast_expr_token(&l.lent_arg)), .None => ());
+  });
+  if(!match(lookup_method_callee_value(ast_expr_id(call)), .Some(.FuncVal(_, _)) => true, _ => false), {
+    return(());
+  });
+  match(
+    call,
+    .FnCall(_, nc_callee, _, _, _) => if(ast_expr_is_fn_call_of(&nc_callee, BF_DOT, Option(usize).Some(usize(2))), {
+      match(nc_callee, .FnCall(_, _, nc_args, _, _) => match(nc_args.get(usize(0)), .Some(recv) => record_mut_judged(&ast_expr_token(&recv)), .None => ()), .Atom(_, _) => ());
+    }),
+    .Atom(_, _) => ()
+  );
+});
 /// Decision 18 rule 3 at a call's own argument borrows, with decision 47's
 /// `mut(name)` (maintainer decisions 2026-10-15,
 /// issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md):
@@ -4346,6 +4368,9 @@ _is_scalar_operator_call :: (fn(call : &AstExpr, ctx : &EvalContext) -> bool)(
 /// constant has no runtime storage. A call evaluated at compile time, and an
 /// operator on scalars, run no callee.
 _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), r : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(migrate_mut_bindings_on(), {
+    _note_call_writes_judged(call, lends);
+  });
   if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)), .Some(ri) => match(ri.value, .Some(v) => !is_unknown_val(&v), .None => false), .None => true), {
     return(());
   });

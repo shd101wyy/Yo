@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count, ast_expr_token } :: import("./expr.yo");
-{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats, Frame, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames } :: import("./env.yo");
+{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats, Frame, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames, mut_census_trusted, mut_census_key } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -3439,4 +3439,21 @@ take_mut_param_sites :: (fn() -> ArrayList(MutableGlobalSite))({
   g_mut_param_site_keys.with_mut(s => s.clear());
   out
 });
-export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites);
+/// The writes evaluation JUDGED, by the census key of the write's token
+/// (`mut_census_key`): a reassignment's target name, a stored place, a lent
+/// argument as written, a method call's receiver. `yo fix --migrate
+/// mut-bindings` leaves a write found here to evaluation's verdict, recorded
+/// or not, and judges the rest lexically (`_mbl_*`, main.yo). A judgment
+/// inside a generic body's specialization is not recorded
+/// (`mut_census_trusted`): the instantiation evaluated may hold a handle
+/// where another holds a value.
+(g_mut_judged : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+record_mut_judged :: (fn(tok : &Token) -> unit)({
+  if(!mut_census_trusted(), {
+    return(());
+  });
+  key := mut_census_key(tok);
+  g_mut_judged.with_mut(s => s.insert(key));
+});
+take_mut_judged :: (fn() -> HashSet(String))(g_mut_judged.replace(HashSet(String).new()));
+export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites, record_mut_judged, take_mut_judged);

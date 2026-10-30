@@ -9530,7 +9530,7 @@ once `SEED_VERSION` parses it.
          1,050 bindings and listed one parameter write
          (`String`'s `from_iter_add`, rebound by hand).
        - That count is a floor: the migration marks only bodies its run
-         evaluates (`issues/2026-10-25-migrate-mut-bindings-marks-only-the-bodies-its-run-evaluates.md`).
+         evaluates (`issues/fixed/2026-10-25-migrate-mut-bindings-marks-only-the-bodies-its-run-evaluates.md`; fixed for v0.2.74: the migration now judges the writes no evaluation reached as parsed).
          A hunt marked 71 more: re-runs with the test trees in the file
          list (8 + 34 + 25), with `--target wasm32-wasip1` (2), and by hand
          (2), plus the 2 captured-`self` rebinds in `std/async/stream.yo`.

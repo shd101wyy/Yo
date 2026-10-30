@@ -1,0 +1,16 @@
+{ power, Stepper } :: import("./lib.yo");
+Countdown :: struct(left : i32);
+impl(
+  Countdown,
+  Stepper(
+    step : (fn(self : &mut Self) -> bool)({
+      self.left = (self.left - i32(1));
+      self.left >= i32(0)
+    })
+  )
+);
+main :: (fn() -> unit)({
+  _p := power(i64(3), u32(4));
+  _n := Countdown(left : i32(3)).drain_count();
+});
+export(main);
