@@ -743,7 +743,7 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     // same fields up to their origins.
     Rc(.Struct({ id : sid, field_types : fields, type_arguments : targs })) => cond(
       _any_carries_origin(&targs, seen, depth) => true,
-      ((sid.len() > usize(0)) && seen.contains(sid)) => false,
+      ((sid.len() > usize(0)) && seen.contains(&sid)) => false,
       true => {
         if(sid.len() > usize(0), {
           seen.push(sid.clone());
@@ -753,7 +753,7 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     ),
     Rc(.EnumT({ id : eid, variant_fields : vfields, type_arguments : etargs })) => cond(
       _any_carries_origin(&etargs, seen, depth) => true,
-      ((eid.len() > usize(0)) && seen.contains(eid)) => false,
+      ((eid.len() > usize(0)) && seen.contains(&eid)) => false,
       true => {
         if(eid.len() > usize(0), {
           seen.push(eid.clone());
