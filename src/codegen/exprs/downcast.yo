@@ -120,7 +120,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         // A cell handle's data is its cell (`cell_handle_view`): the
         // handle is a C-transparent newtype over the cell pointer.
         box_opt = Option(TypeValue).Some(match(cell_handle_view(&de.data_type), .Some(v) => Rc.clone(v.cell), .None => Rc.clone(de.data_type)));
-        de_traits := match(de.dyn_type, Rc(.DynT({ required_trait_types })) => Rc.clone(required_trait_types), _ => no_types());
+        de_traits := match(&de.dyn_type, Rc(.DynT({ required_trait_types })) => Rc.clone(required_trait_types), _ => no_types());
         clone_fid = dyn_impl_clone_fid(&de_traits.items, &de.trait_values);
         break;
       });
