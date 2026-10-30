@@ -168,7 +168,8 @@ _mark_preset_receiver :: (fn(recv : &Option(usize), on : bool) -> unit)(
 /// `.TypeVal(cell_ty)` before the call is evaluated, the written
 /// `Rc(T).new(value)`. A payload whose type mentions a type variable
 /// (`_is_open_payload`: `dyn(f)` for `f : Impl(Fn(...))`, a closure literal)
-/// is boxed by the prelude's generic constructor (`rc`, `arc`) as before.
+/// is boxed by the prelude's generic cell constructor (`__yo_rc_cell`,
+/// `__yo_arc_cell`; `_prelude_cell_constructor`).
 /// Over a resolved variable (each call's specialization of a body with an
 /// `Impl(Fn(...))` parameter, a closure literal) `Rc(T).new` keeps the
 /// variable in the cell's type. Over an unresolved one only an open
@@ -219,7 +220,7 @@ _synthesized_cell_call :: (
 });
 /// Does `payload_ty` mention a type variable: an `Impl(...)` parameter, or
 /// the `Dyn`-carrying variable a closure literal is evaluated under? Such a
-/// payload is boxed by the prelude's generic constructor. An unresolved
+/// payload is boxed by the prelude's generic cell constructor. An unresolved
 /// variable other than an `Impl(Fn(...))` parameter's has no `new` to
 /// dispatch outside a definition-time trial (`_synthesized_cell_call`); for a
 /// resolved one the generic
@@ -229,9 +230,9 @@ _synthesized_cell_call :: (
 _is_open_payload :: (fn(payload_ty : &TypeValue) -> bool)(
   is_some_type(payload_ty) || (get_all_some_types(payload_ty).len() > usize(0))
 );
-/// A fresh callee node bound to the prelude's generic constructor of
+/// A fresh callee node bound to the prelude's generic cell constructor of
 /// `cell_name` by value (its ExprInfo carries the function value, so the
-/// caller marks it pre-evaluated and no name is looked up).
+/// caller marks it pre-evaluated and the call site looks no name up).
 _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &EvalContext) -> Option(AstExpr))(
   match(
     _prelude_cell_constructor(cell_name, env),
@@ -245,12 +246,19 @@ _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &Eval
     .None => .None
   )
 );
-/// The prelude's generic constructor of the cell `cell_name` (`Rc` → `rc`,
-/// `Arc` → `arc`): the OUTERMOST function value of that name, the prelude's,
-/// which a module-level definition cannot shadow (a parameter or a pattern
-/// binding is inner).
+/// The prelude's generic cell constructor `dyn(...)` boxes a type-variable
+/// payload with (`Rc` → `__yo_rc_cell`, `Arc` → `__yo_arc_cell`): the
+/// OUTERMOST function value of that name, the prelude's, which a module-level
+/// definition cannot shadow (a parameter or a pattern binding is inner).
+///
+/// Not `rc`/`arc`: static-argument inference B3 deletes those, and a seed
+/// that finds no `rc` falls back to `Rc(T).new`. Over the variable a closure
+/// literal is evaluated under (`t_dyn_payload_wrapper`), `Rc(T).new` binds
+/// `T` to that variable: a second C type for the cell, and for a recognized
+/// `dyn(Rc.new(<closure>))` a payload that lowers to `void*` (Fable
+/// consultation #5 H1, fallback (a); plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5).
 _prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Option(Variable))({
-  ctor_name := cond((cell_name == "Arc") => String.from("arc"), true => String.from(shared_cell_canonical_names().constructor));
+  ctor_name := cond((cell_name == "Arc") => String.from("__yo_arc_cell"), true => String.from("__yo_rc_cell"));
   vars := get_variables_from_env(env, &ctor_name);
   (vi : usize) = usize(0);
   while(vi < vars.len(), vi = (vi + usize(1)), {
@@ -1215,8 +1223,8 @@ evaluate_dyn_value :: (
         // is evaluated (§5 A3). The wrapper `W` is an open type variable,
         // though, and `Rc(W)` has no `new` to dispatch outside a
         // definition-time trial (the issue `_synthesized_cell_call` cites):
-        // such a call is the prelude's `rc`/`arc`, its function value bound
-        // to the callee, exactly the `dyn(rc(<closure>))` path. (`Rc(T)(...)`
+        // such a call is the prelude's `__yo_rc_cell`/`__yo_arc_cell`, its
+        // function value bound to the callee, as `dyn(<closure>)` boxes. (`Rc(T)(...)`
         // and `Rc(T).new(...)` are not recognized; the constructor call
         // covers the dyn-closure pattern.)
         dyn_cell_closure := match(

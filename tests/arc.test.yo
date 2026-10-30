@@ -149,8 +149,9 @@ test("arc alloc : .Some(a) shared across a thread is released into a", {
   assert(counts.live == usize(0), "the last handle released the cell into the allocator");
 });
 // A `Dyn(..., Send)` closure that captures a parameter of a generic
-// (`Impl(Fn)`) function is boxed by a synthesized `arc(closure)` whose `V` is
-// the closure's capture struct: the C result once had a second type, the
+// (`Impl(Fn)`) function is boxed by a synthesized `__yo_arc_cell(closure)`
+// (`arc(closure)` until H1) whose `V` is the closure's capture struct: the C
+// result once had a second type, the
 // unbound `Arc(V)` (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
 _ArcDynDetector :: struct(detect : Dyn(Fn(x : i32) -> i32, Send));
 _arc_dyn_run :: (fn(get : Impl(Fn(x : i32) -> i32, Send, Sync)) -> i32)({

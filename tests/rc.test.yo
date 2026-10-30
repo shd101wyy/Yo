@@ -2881,7 +2881,9 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
 });
 // `rc`'s twin of tests/arc.test.yo's Send case: a `dyn(...)` closure that
 // captures a parameter of a generic (`Impl(Fn)`) function is boxed by a
-// synthesized `rc(closure)` whose `V` is the closure's capture struct
+// synthesized `__yo_rc_cell(closure)` (`rc(closure)` until H1,
+// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5) whose `V` is the closure's
+// capture struct
 // (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
 _RcDynDetector :: struct(detect : Dyn(Fn(x : i32) -> i32));
 _rc_dyn_run :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
