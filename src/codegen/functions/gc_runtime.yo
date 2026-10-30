@@ -468,6 +468,51 @@ static inline size_t __yo_arc_weak_weak_count(void* ptr) {
   uint16_t w = atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire);
   if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
   return (size_t)(w & __YO_WEAK_COUNT);
+}
+// The uniqueness lock behind Arc.make_mut and Arc.try_unwrap: Rust's CAS of
+// the strong count from 1 to 0
+// (issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md).
+// Two plain loads (strong == 1, then weak == 0) leave a window in which an
+// ArcWeak.upgrade on another thread takes a strong count; one CAS closes it.
+// While the count is 0 the caller's handle is the cell's only strong handle
+// and no other can appear: an upgrade refuses a zero count, and every other
+// way to a strong handle copies one. Acquire on success, so the holder sees
+// every write the other handles made before they went. The tag bit survives
+// both transitions.
+static inline bool __yo_arc_lock_unique(void* ptr) {
+  _Atomic uint32_t* rc = (_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count;
+  uint32_t cur = atomic_load_explicit(rc, memory_order_relaxed);
+  do {
+    if ((cur & __YO_RC_COUNT) != 1u) return false;
+  } while (!atomic_compare_exchange_weak_explicit(rc, &cur, cur & __YO_RC_TAG, memory_order_acquire, memory_order_relaxed));
+  return true;
+}
+// Gives the strong count of 1 back. Release, so an upgrade that follows sees
+// what the holder wrote under the lock.
+static inline void __yo_arc_unlock_unique(void* ptr) {
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count, 1u, memory_order_release);
+}
+// The ArcWeak count of a cell the caller has locked. __yo_arc_weak_weak_count
+// answers 0 for the zero strong count the lock leaves; this reads the word
+// itself (SIZE_MAX when it saturated). An ArcWeak may still go on another
+// thread but none can come: making one takes a strong handle or an ArcWeak.
+static inline size_t __yo_arc_weak_count_raw(void* ptr) {
+  uint16_t w = atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire);
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
+  return (size_t)(w & __YO_WEAK_COUNT);
+}
+// The strong side's end of a locked cell whose payload the holder moved out.
+// slot is the address of the holder's handle (an Arc variable), not the cell:
+// the count stays 0, so no upgrade succeeds, and one RMW hands the allocation
+// to the ArcWeak handles as dead (as __yo_arc_release_weak_held does after a
+// drop), freeing it here when no ArcWeak is left. The handle owns no count
+// afterwards; an Arc is a copyable handle with no way to forget it, so the
+// slot is cleared, and the handle's own release of NULL is a no-op.
+static inline void __yo_arc_release_locked(void* slot) {
+  void* ptr = *(void**)slot;
+  *(void**)slot = NULL;
+  uint16_t old = atomic_fetch_or_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, (uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel);
+  if ((old & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
 }`
 );
 // ---------------------------------------------------------------------------

@@ -214,7 +214,14 @@ only while it is non-zero (an `Arc` cell is never collected, so 0 is the
 payload gone), the last strong release reads the weak word with acquire and
 takes the weak-held path only when it is non-zero (no `ArcWeak` can appear
 then: making one needs a strong or a weak handle), and the dead flag is set
-with one `fetch_or` whose result decides the free. "No borrow
+with one `fetch_or` whose result decides the free. `Arc.make_mut` and
+`Arc.try_unwrap` decide uniqueness with Rust's CAS of the strong count from
+1 to 0 (`__yo_arc_lock_unique`), which an `upgrade` refuses; the weak word is
+then read raw, and a payload moved out under the lock hands the cell to the
+`ArcWeak` handles as dead (`__yo_arc_release_locked`). The primitives landed
+2026-10-29; the prelude calls them once a seed emits them
+(`SEED_VERSION_AUTOMATION.md`;
+`issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`). "No borrow
 marks on an `Rc`" was proved and then made structural ("guard first",
 lookahead §5 PR 4): four codegen sites could still mark or check a counted
 cell's `borrow_count` (a borrowed `for` guard, an interior `&` argument, the
