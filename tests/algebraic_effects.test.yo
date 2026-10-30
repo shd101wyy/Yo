@@ -154,7 +154,7 @@ impl(
   )
 );
 mk_ue :: (fn(n : i32) -> UeArg)(UeArg(tag : n));
-(mut(g_ue_keep) : ArrayList(UeArg)) = ArrayList(UeArg).new();
+g_ue_keep := RefCell(ArrayList(UeArg)).new(ArrayList(UeArg).new());
 test("may-unwind call in a bare cond arm releases its argument temp exactly once", {
   RaiseUe :: (ctl(arg : &UeArg) -> i32);
   step :: (fn(n : i32, raise : RaiseUe) -> i32)(
@@ -166,7 +166,7 @@ test("may-unwind call in a bare cond arm releases its argument temp exactly once
   run :: (fn(n : i32) -> i32)({
     (raise : RaiseUe) = (
       arg -> {
-        g_ue_keep.push(arg);
+        g_ue_keep.with_mut({ a : arg }(l) => l.push(a));
         unwind(arg.tag * i32(10))
       }
     );
@@ -181,9 +181,9 @@ test("may-unwind call in a bare cond arm releases its argument temp exactly once
   });
   // odd n → n (1+3+5+7+9 = 25); even n → 10n (0+20+40+60+80 = 200).
   assert(acc == i32(225), "unwound and returned results both intact");
-  assert(g_ue_keep.len() == usize(5), "every raised argument reached the handler");
+  assert(g_ue_keep.with(l => l.len()) == usize(5), "every raised argument reached the handler");
   assert(g_ue_disposed == before, "the kept arguments are still alive after the unwinds");
-  g_ue_keep.clear();
+  g_ue_keep.with_mut(l => l.clear());
   assert(g_ue_disposed == (before + i32(5)), "each argument is disposed exactly once, by the keeper");
 });
 // The develop compiler had the same double release with an enum/Option-typed
@@ -207,7 +207,7 @@ test("may-unwind call in an if condition releases an Option-typed argument temp 
         even := match(
           arg,
           .Some(a) => {
-            g_ue_keep.push(a);
+            g_ue_keep.with_mut({ k : a }(l) => l.push(k));
             (a.tag % i32(2)) == i32(0)
           },
           .None => false
@@ -218,7 +218,7 @@ test("may-unwind call in an if condition releases an Option-typed argument temp 
     step(n, raise)
   });
   before := g_ue_disposed;
-  kept_before := g_ue_keep.len();
+  kept_before := g_ue_keep.with(l => l.len());
   (mut(acc) : i32) = i32(0);
   (mut(i) : i32) = i32(0);
   while(i < i32(10), {
@@ -227,9 +227,9 @@ test("may-unwind call in an if condition releases an Option-typed argument temp 
   });
   // odd n → resumed with false → n (25); even n → unwound → 100 (500).
   assert(acc == i32(525), "resumed and unwound results both intact");
-  assert(g_ue_keep.len() == (kept_before + usize(10)), "every argument reached the handler");
+  assert(g_ue_keep.with(l => l.len()) == (kept_before + usize(10)), "every argument reached the handler");
   assert(g_ue_disposed == before, "the kept arguments are still alive after the unwinds");
-  g_ue_keep.clear();
+  g_ue_keep.with_mut(l => l.clear());
   assert(g_ue_disposed == (before + i32(10)), "each argument is disposed exactly once, by the keeper");
 });
 test("Test nested fn unwind inside resume handler", {

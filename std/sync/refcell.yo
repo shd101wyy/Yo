@@ -181,12 +181,11 @@ impl(
   /// `Rc(RefCell(T))` reaches this only through `Rc.try_unwrap`, which needs
   /// the only handle.
   ///
-  /// The value is bound out of the cell's `Box`: a copy, which the box's
-  /// drop then releases. A move-only `T` is therefore rejected (E0901), since
-  /// nothing moves a payload out of a `Box` bitwise yet
-  /// (issues/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md).
+  /// The value moves out of the cell's `Box` (`Box.into_inner`), so a
+  /// move-only `T` works
+  /// (issues/fixed/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md).
   into_inner : (fn(self : Self) -> T)(
-    match(self, { _slot : { _borrow : _, _value : value } } => value)
+    match(self, { _slot : slot } => match(slot.into_inner(), { _borrow : _, _value : value } => value))
   ),
   /// Move the slot's value out and `value` in, leaving `mark` as the slot's
   /// mark; the caller has checked the old mark.

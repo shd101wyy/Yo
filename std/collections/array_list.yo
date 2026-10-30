@@ -393,7 +393,7 @@ impl(
       // loop of pushes built.
       ensures(
         self.len() == (old(self.len()) + usize(1)),
-        forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))
+        forall(k : usize, (k < self.len()) ==> cond((k == old(self.len())) => (self(k) == value), true => (self(k) == old(self)(k))))
       ),
       assumed()
     ) -> unit
