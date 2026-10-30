@@ -347,7 +347,7 @@ _emit_drops_for_conditional_branch :: (
 );
 /// `&&` operator with short-circuit evaluation.
 generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
     return(String.from("true"));
   });
@@ -508,7 +508,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
 });
 /// `||` operator with short-circuit evaluation.
 generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
     return(String.from("false"));
   });

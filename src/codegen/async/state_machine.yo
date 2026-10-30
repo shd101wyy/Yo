@@ -219,7 +219,7 @@ _lv_mark_scope :: (fn(e : &AstExpr, w : &_LiveWalk, context : &FunctionGeneratio
 _lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
   entries := match(
     lhs,
-    .FnCall(_, cl_callee, _, _, _) => match(cl_callee, .FnCall(_, _, ents, _, _) => ents, .Atom(_, _) => return(())),
+    .FnCall(_, cl_callee, _, _, _) => match(cl_callee, .FnCall(_, _, ents, _, _) => ents.clone(), .Atom(_, _) => return(())),
     .Atom(_, _) => return(())
   );
   (ei : usize) = usize(0);
@@ -297,7 +297,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
 _lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
   runtime_args := match(
     context.base.get_expr_info(call),
-    .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => return(())),
+    .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(())),
     .None => return(())
   );
   if(runtime_args.len() == usize(0), return(()));
@@ -1920,7 +1920,7 @@ generate_async_block_resume_function_inline :: (
   pdd := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
-  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new()), {
     single := ArrayList(AstExpr).new();
     single.push(body_expr);
     single
