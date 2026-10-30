@@ -1765,7 +1765,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
   close.push_str("}");
   em.emit_string_line(&close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 // ---------------------------------------------------------------------------
 // General lowering — an ordered test chain (plans/reference/MATCH_PATTERN_MATCHING.md
@@ -2435,7 +2435,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   em.emit_string_line(&el);
   context.base.inside_match = saved;
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 /// Generate a match expression.
 ///
