@@ -1189,7 +1189,7 @@ _build_assert_call :: (
       AstExpr.FnCall(
         alloc_global_expr_id(),
         _synth_atom(String.from(BF_COMPTIME_ASSERT), TokenKind.Identifier, pred_tok.clone()),
-        rc(args),
+        Rc.new(args),
         false,
         pred_tok
       )
@@ -1202,7 +1202,7 @@ _build_assert_call :: (
   unit_expr := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, pred_tok.clone()),
-    rc(ArrayList(AstExpr).new()),
+    Rc.new(ArrayList(AstExpr).new()),
     false,
     pred_tok.clone()
   );
@@ -1211,7 +1211,7 @@ _build_assert_call :: (
   runtime_pred := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BF_RUNTIME), TokenKind.Identifier, pred_tok.clone()),
-    rc(rt_args),
+    Rc.new(rt_args),
     false,
     pred_tok.clone()
   );
@@ -1221,21 +1221,21 @@ _build_assert_call :: (
   runtime_cond := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, pred_tok.clone()),
-    rc(single1(&runtime_pred)),
+    Rc.new(single1(&runtime_pred)),
     false,
     pred_tok.clone()
   );
   arm1 := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from("=>"), TokenKind.Identifier, pred_tok.clone()),
-    rc(single2(&runtime_cond, &unit_expr)),
+    Rc.new(single2(&runtime_cond, &unit_expr)),
     false,
     pred_tok.clone()
   );
   panic_call := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BF_PANIC), TokenKind.Identifier, pred_tok.clone()),
-    rc(single1(&msg_expr)),
+    Rc.new(single1(&msg_expr)),
     false,
     pred_tok.clone()
   );
@@ -1245,21 +1245,21 @@ _build_assert_call :: (
   arm2_body := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, pred_tok.clone()),
-    rc(single2(&panic_call, &unit_expr)),
+    Rc.new(single2(&panic_call, &unit_expr)),
     false,
     pred_tok.clone()
   );
   arm2 := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from("=>"), TokenKind.Identifier, pred_tok.clone()),
-    rc(single2(_synth_atom(String.from("true"), TokenKind.Bool, pred_tok.clone()), &arm2_body)),
+    Rc.new(single2(_synth_atom(String.from("true"), TokenKind.Bool, pred_tok.clone()), &arm2_body)),
     false,
     pred_tok.clone()
   );
   AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BK_COND), TokenKind.Identifier, pred_tok.clone()),
-    rc(single2(&arm1, &arm2)),
+    Rc.new(single2(&arm1, &arm2)),
     false,
     pred_tok
   )
@@ -1284,7 +1284,7 @@ _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &
   AstExpr.FnCall(
     alloc_global_expr_id(),
     AstExpr.Atom(alloc_global_expr_id(), bind_tok.clone()),
-    rc(args),
+    Rc.new(args),
     true,
     bind_tok
   )
@@ -1352,7 +1352,7 @@ _hoist_old_in :: (
         AstExpr.FnCall(
           alloc_global_expr_id(),
           recur(&f_box, snapshots, bind_op.clone()),
-          rc(new_args),
+          Rc.new(new_args),
           f_infix,
           f_tok.clone()
         )
@@ -2179,7 +2179,7 @@ _conj_exprs :: (fn(preds : &ArrayList(AstExpr), tok : &Token) -> AstExpr)({
         args := ArrayList(AstExpr).new();
         args.push(out);
         args.push(clone_expr_fresh_ids(p.clone()));
-        out = AstExpr.FnCall(alloc_global_expr_id(), _synth_atom(String.from("&&"), TokenKind.Operator, tok.clone()), rc(args), true, tok.clone());
+        out = AstExpr.FnCall(alloc_global_expr_id(), _synth_atom(String.from("&&"), TokenKind.Operator, tok.clone()), Rc.new(args), true, tok.clone());
       },
       .None => ()
     );
@@ -2306,7 +2306,7 @@ register_impl_variance_task :: (
   __asrt_imp := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from("import"), TokenKind.Identifier, name_tok.clone()),
-    rc(__asrt_imp_args),
+    Rc.new(__asrt_imp_args),
     false,
     name_tok.clone()
   );
@@ -2316,7 +2316,7 @@ register_impl_variance_task :: (
   __asrt_expr := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from("."), TokenKind.Identifier, name_tok.clone()),
-    rc(__asrt_dot_args),
+    Rc.new(__asrt_dot_args),
     false,
     name_tok.clone()
   );
@@ -2443,7 +2443,7 @@ register_impl_variance_task :: (
     AstExpr.FnCall(
       alloc_global_expr_id(),
       _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, name_tok.clone()),
-      rc(ArrayList(AstExpr).new()),
+      Rc.new(ArrayList(AstExpr).new()),
       false,
       name_tok.clone()
     )
@@ -2451,7 +2451,7 @@ register_impl_variance_task :: (
   body := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, name_tok.clone()),
-    rc(stmts),
+    Rc.new(stmts),
     false,
     name_tok.clone()
   );
@@ -2489,7 +2489,7 @@ _implies_assert :: (fn(a : &AstExpr, b : &AstExpr, tok : &Token) -> AstExpr)({
   imp := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from("==>"), TokenKind.Operator, tok.clone()),
-    rc(imp_args),
+    Rc.new(imp_args),
     true,
     tok.clone()
   );
@@ -2498,7 +2498,7 @@ _implies_assert :: (fn(a : &AstExpr, b : &AstExpr, tok : &Token) -> AstExpr)({
   AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from("assert"), TokenKind.Identifier, tok.clone()),
-    rc(as_args),
+    Rc.new(as_args),
     false,
     tok.clone()
   )
@@ -2561,6 +2561,10 @@ strip_proved_ensures_asserts :: (
             // with the tree every holder of this function reads, and the
             // `FuncValData` is behind an `Rc`, whose payload is read-only
             // through the handle (plans/VALUES_BY_DEFAULT.md decision 46).
+            // The list itself is the payload of the call's `Rc` (V4): the
+            // write reaches it through the `ArrayList` handle the `Rc(args)`
+            // binder copies, which works only while `ArrayList` is a `ref`
+            // type. B8 (`ArrayList` a value) needs an explicit door here.
             stmts := args;
             stmts.clear();
             stmts.extend(kept);
@@ -2966,7 +2970,7 @@ wrap_function_body_with_contracts :: (
       new_args.push(body);
     });
     return(
-      AstExpr.FnCall(alloc_global_expr_id(), begin_atom, rc(new_args), false, body_tok.clone())
+      AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(new_args), false, body_tok.clone())
     );
   });
   // Ensures present: hoist `old(...)` snapshots, then build the wrapped body.
@@ -3053,7 +3057,7 @@ wrap_function_body_with_contracts :: (
       _synth_atom(ret_name.clone(), TokenKind.Identifier, body_tok.clone())
     );
   });
-  AstExpr.FnCall(alloc_global_expr_id(), begin_atom, rc(out_args), false, body_tok.clone())
+  AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(out_args), false, body_tok.clone())
 });
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_refine, evaluate_ghost, refine_pred_chain_of);
 /// Reject a signature clause a law cannot honour. `assumed()` would make the
@@ -3279,7 +3283,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   body := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, law_tok.clone()),
-    rc(ArrayList(AstExpr).new()),
+    Rc.new(ArrayList(AstExpr).new()),
     false,
     law_tok.clone()
   );

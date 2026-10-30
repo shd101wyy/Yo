@@ -878,7 +878,7 @@ _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
 _cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
   ty_args := ArrayList(AstExpr).new();
   ty_args.push(_synth_name_atom("Allocator", at));
-  opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), rc(ty_args), false, at);
+  opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), Rc.new(ty_args), false, at);
   opt_eval := evaluate_expression_raw(&opt_expr, env, ctx, exn);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&opt_eval)),
@@ -1189,7 +1189,7 @@ _try_find_receiver_method :: (
               dc_args.push(method_name_expr);
               deref_callee := match(
                 callee,
-                .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb, rc(dc_args), dc_infix, dc_tok),
+                .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb, Rc.new(dc_args), dc_infix, dc_tok),
                 _ => callee
               );
               match(
@@ -1821,7 +1821,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   });
   recv_id := ast_expr_id(recv);
   mark_node_preevaluated(recv_id);
-  call := AstExpr.FnCall(alloc_global_expr_id(), recv.clone(), rc(call_args), false, ast_expr_token(recv));
+  call := AstExpr.FnCall(alloc_global_expr_id(), recv.clone(), Rc.new(call_args), false, ast_expr_token(recv));
   saved_et := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   built := evaluate_expression_raw(&call, env, ctx, exn);
@@ -2302,7 +2302,7 @@ _build_receiver_call_args :: (
       );
       amp_args := ArrayList(AstExpr).new();
       amp_args.push(receiver_expr.clone());
-      all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, rc(amp_args), false, recv_tok));
+      all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, Rc.new(amp_args), false, recv_tok));
     }, {
       all_args.push(receiver_expr.clone());
     });
@@ -2923,12 +2923,12 @@ _try_rewrite_range_index_to_slice_copy :: (
   ma_args := ArrayList(AstExpr).new();
   ma_args.push(func_expr);
   ma_args.push(method_atom);
-  method_access := AstExpr.FnCall(alloc_global_expr_id(), dot_atom, rc(ma_args), true, tok);
+  method_access := AstExpr.FnCall(alloc_global_expr_id(), dot_atom, Rc.new(ma_args), true, tok);
   new_args := ArrayList(AstExpr).new();
   new_args.push(arg0);
   // Keep the ORIGINAL call id so the result's ExprInfo lands on the same
   // node — same node identity.
-  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), method_access, rc(new_args), false, tok))
+  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), method_access, Rc.new(new_args), false, tok))
 });
 /// The SomeType id of a Future type's OUTPUT, unwrapping an `Impl(Future(T,E))`
 /// constraint. `io.async`'s return type is `Impl(Future(T, E))`, represented as a
@@ -10027,7 +10027,7 @@ Fix: wrap the call:
             pa_body := AstExpr.FnCall(
               alloc_global_expr_id(),
               AstExpr.Atom(alloc_global_expr_id(), synthetic_token(pa_orig_name.clone(), &env.module_path.*)),
-              rc(pa_body_args),
+              Rc.new(pa_body_args),
               false,
               tok.clone()
             );
@@ -12416,7 +12416,7 @@ Fix: wrap the call:
               );
               amp_args := ArrayList(AstExpr).new();
               amp_args.push(method_info.receiver_expr);
-              all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, rc(amp_args), false, recv_tok));
+              all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, Rc.new(amp_args), false, recv_tok));
             }, {
               all_args.push(method_info.receiver_expr);
             });
