@@ -359,7 +359,7 @@ waker will do: that is the millisecond floor this exists to remove.
 
 DivError :: enum(DivByZero);
 derive(DivError, Error(.DivByZero => `division by zero`));
-derive(DivError, Clone); // AnyError lists Clone
+derive(DivError, Clone); // AnyError lists Clone (a v0.2.73 interim)
 
 safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
