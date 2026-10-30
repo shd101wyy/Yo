@@ -892,7 +892,10 @@ _generic_impl_method_for_dyn :: (
             .Some(mpt) => {
               arg_name := `__yo_dyn_arg_${fname}_${mpi.to_string()}`;
               arg_tok := synthetic_token(arg_name.clone(), &caller_env.module_path.*);
-              _arg_var := add_variable_to_env(caller_env, arg_name.clone(), mpt.clone(), Option(EvalValue).Some(create_unknown_val(mpt.clone())), false, true, false, false, arg_tok.clone());
+              // An owned local of the parameter type (`is_owning_the_rc_value`): a
+              // non-owning binding reads as a `match`/`for` binding, which may not be
+              // lent `&mut` (E0908).
+              _arg_var := add_variable_to_env(caller_env, arg_name.clone(), mpt.clone(), Option(EvalValue).Some(create_unknown_val(mpt.clone())), false, true, true, false, arg_tok.clone());
               arg_atom := AstExpr.Atom(alloc_global_expr_id(), arg_tok.clone());
               mp_is_ref := match(m_is_ref.get(mpi), .Some(b) => b, .None => false);
               mp_is_owning := match(match(&m_ty, Rc(.Func({ result : _ })) => fn_param_by_value_at(&m_ty, mpi), _ => Option(bool).None), .Some(b) => b, .None => false);
