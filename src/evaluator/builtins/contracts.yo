@@ -78,7 +78,7 @@
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
-{ expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value } :: import("../../expr_info.yo");
+{ expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value, note_stripped_statement, is_stripped_statement } :: import("../../expr_info.yo");
 { RefCell } :: import("std/sync/refcell");
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
@@ -2503,10 +2503,11 @@ _implies_assert :: (fn(a : &AstExpr, b : &AstExpr, tok : &Token) -> AstExpr)({
     tok.clone()
   )
 });
-/// The `verify+` strip pass (plan task 6): rewrite a wrapped function
-/// body IN PLACE, dropping the spliced `ensures failed` asserts whose
+/// The `verify+` strip pass (plan task 6): leave out of the emitted code
+/// the spliced `ensures failed` asserts of a wrapped function body whose
 /// corresponding obligation PROVED (the runtime check is dead weight —
-/// the proof replaces it). `proved[i]` is the verdict of `ensures#i`
+/// the proof replaces it). The asserts are recorded
+/// (`note_stripped_statement`), not removed from the AST. `proved[i]` is the verdict of `ensures#i`
 /// (index-aligned with the task's ensures order = the wrapper's splice
 /// order). The `requires failed` entry guards are KEPT: their proof
 /// obligation lives at CALL SITES (one per caller), and stripping a
@@ -2522,52 +2523,34 @@ strip_proved_ensures_asserts :: (
       match(
         body,
         .FnCall(_, _, Rc(args), _, _) => {
-          kept := ArrayList(AstExpr).new();
           (ens_idx : usize) = usize(0);
           (stripped : usize) = usize(0);
           (i : usize) = usize(0);
           while(i < args.len(), {
-            strip_it := match(
+            match(
               args.get(i),
               .Some(arg) => {
-                is_ens_assert := _is_contract_assert_call(&arg, String.from("ensures failed:"));
-                if(is_ens_assert, {
+                if(_is_contract_assert_call(&arg, String.from("ensures failed:")), {
                   proved_here := match(
                     proved.get(ens_idx),
                     .Some(p) => p,
                     .None => false
                   );
                   ens_idx = (ens_idx + usize(1));
-                  proved_here
-                }, false)
+                  // The body is not rewritten: its statement list is the
+                  // payload of the call's `Rc` (V4), shared with every holder
+                  // of this function and read-only through the handle
+                  // (plans/VALUES_BY_DEFAULT.md decision 46). The emitters
+                  // leave a recorded statement out (`emitted_block_statements`).
+                  if(proved_here && !is_stripped_statement(ast_expr_id(&arg)), {
+                    note_stripped_statement(ast_expr_id(&arg));
+                    stripped = (stripped + usize(1));
+                  });
+                });
               },
-              .None => false
+              .None => ()
             );
-            if(!strip_it, {
-              match(
-                args.get(i),
-                .Some(arg) => {
-                  kept.push(arg);
-                },
-                .None => ()
-              );
-            }, {
-              stripped = (stripped + usize(1));
-            });
             i = (i + usize(1));
-          });
-          if(stripped > usize(0), {
-            // Rewrite the body's statement list in place: the list is shared
-            // with the tree every holder of this function reads, and the
-            // `FuncValData` is behind an `Rc`, whose payload is read-only
-            // through the handle (plans/VALUES_BY_DEFAULT.md decision 46).
-            // The list itself is the payload of the call's `Rc` (V4): the
-            // write reaches it through the `ArrayList` handle the `Rc(args)`
-            // binder copies, which works only while `ArrayList` is a `ref`
-            // type. B8 (`ArrayList` a value) needs an explicit door here.
-            stmts := args;
-            stmts.clear();
-            stmts.extend(kept);
           });
           stripped
         },

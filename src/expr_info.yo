@@ -1015,6 +1015,45 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 (g_extern_c_globals : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
 /// Method-call expr id → resolved method FuncVal (see `record_method_callee_value`).
 (g_method_callee_values : RefCell(HashMap(ExprId, EvalValue))) = RefCell(HashMap(ExprId, EvalValue)).new(HashMap(ExprId, EvalValue).new());
+/// Statements a `verify+` build leaves out of the emitted code: the spliced
+/// `ensures failed` asserts whose obligations proved
+/// (`strip_proved_ensures_asserts`, evaluator/builtins/contracts.yo). The
+/// strip does not rewrite the function body, because an `AstExpr` is not
+/// written after it is built (V4: a call's `args` is the payload of an `Rc`,
+/// read-only through the handle, decision 46). The emitters read a block's
+/// statements through `emitted_block_statements` instead.
+(g_stripped_statement_ids : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+/// Leave the statement `id` out of the emitted code (`g_stripped_statement_ids`).
+note_stripped_statement :: (fn(id : ExprId) -> unit)({
+  g_stripped_statement_ids.with_mut(s => s.insert(id));
+  ()
+});
+/// Whether a `verify+` strip left the statement `id` out of the emitted code.
+is_stripped_statement :: (fn(id : ExprId) -> bool)(
+  g_stripped_statement_ids.with(s => s.contains(&id))
+);
+/// The statements of a block that codegen emits: `stmts` without the ones a
+/// `verify+` strip recorded (`note_stripped_statement`). With no stripped
+/// statement it returns `stmts` itself.
+emitted_block_statements :: (fn(stmts : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  if(g_stripped_statement_ids.with(s => s.is_empty()), {
+    return(stmts);
+  });
+  kept := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while(i < stmts.len(), i = (i + usize(1)), {
+    match(
+      stmts.get(i),
+      .Some(st) => {
+        if(!is_stripped_statement(ast_expr_id(&st)), {
+          kept.push(st);
+        });
+      },
+      .None => ()
+    );
+  });
+  kept
+});
 /// Local borrow binding's `imm(y)`/`mut(y)` node id → the hidden owning local
 /// that holds the reference cell its re-points step into (plans/VALUES_BY_DEFAULT.md
 /// decision 25; see `record_local_borrow_step_pin`).
@@ -2664,6 +2703,7 @@ scope_variables :: (fn(key : ExprId, env : &Environment, name : &String) -> Arra
   )
 );
 export(scope_variables);
+export(note_stripped_statement, is_stripped_statement, emitted_block_statements);
 export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
