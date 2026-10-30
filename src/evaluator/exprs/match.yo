@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl } :: import("../utils.yo");
+{ migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl, owning_param_binding_beside, move_through_sink_shadow } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
@@ -633,6 +633,15 @@ _leftmost_token :: (fn(e : &AstExpr) -> Token)(
 ///   is consumed (a later use is E0901 naming `match(&x, …)`), an owned
 ///   temporary is consumed, and a module-level binding, a closure capture or
 ///   a projection (no partial moves) is E0901.
+/// Whether a by-value match of `rv` moves the owning parameter beside it: a
+/// specialized generic body re-binds a parameter whose argument folded to a
+/// constant as a non-owning shadow (calls/helper.yo), and the owning binding
+/// the caller's move bound sits in the same frame. A move-only scrutinee is
+/// then matched by value, moving that binding, as a run-time argument's is
+/// (issues/fixed/2026-10-30-a-generic-functions-match-binding-cannot-move-out-of-a-compile-time-known-argument.md).
+_scrutinee_moves_through_param_shadow :: (fn(rv : &Variable, ty : &TypeValue, env : &Environment) -> bool)(
+  type_requires_explicit_copy(ty) && (rv.is_parameter && (!rv.is_owning_the_rc_value && (!rv.is_ref && owning_param_binding_beside(env, rv).is_some())))
+);
 _decide_match_mode :: (
   fn(
     scr_raw : &AstExpr,
@@ -693,7 +702,7 @@ _decide_match_mode :: (
         if(_variable_is_mut_borrow(&rv), {
           return(MATCH_MODE_MUT);
         });
-        if(_variable_is_imm_borrow(&rv), {
+        if(_variable_is_imm_borrow(&rv) && !_scrutinee_moves_through_param_shadow(&rv, &ty, env), {
           return(MATCH_MODE_BORROW);
         });
       },
@@ -803,6 +812,10 @@ _decide_match_mode :: (
           return(MATCH_MODE_BORROW);
         },
         rv.is_compile_time_only => (),
+        _scrutinee_moves_through_param_shadow(&rv, &ty, env) => {
+          _moved := move_through_sink_shadow(&rv, &scr, env);
+          note_consuming_match_scrutinee(&stok);
+        },
         true => {
           set_expr_as_consumed(evaluated, env, false, ctx, exn);
           note_consuming_match_scrutinee(&stok);
