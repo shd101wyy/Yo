@@ -100,7 +100,7 @@ _count_contract_asserts :: (fn(func_val : &EvalValue, label : &String) -> usize)
 _count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String) -> usize)(
   match(
     body,
-    .FnCall(_, _, args, _, _) => _count_labeled_asserts(&args, label.clone()),
+    .FnCall(_, _, Rc(args), _, _) => _count_labeled_asserts(&args, label.clone()),
     .Atom(_, _) => usize(0)
   )
 );

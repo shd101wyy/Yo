@@ -134,7 +134,7 @@ evaluate_struct_type :: (
   // Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived AFTER field
   // evaluation by `auto_derive_traits_for_struct_type` (below).
   // Evaluate fields
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   runtime_field_types := ArrayList(TypeValue).new();
@@ -159,7 +159,7 @@ evaluate_struct_type :: (
       dup_idx = (dup_idx + usize(1));
     });
     if(has_dup, {
-      arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+      arg_args := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
@@ -191,7 +191,7 @@ evaluate_struct_type :: (
     // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
     // cannot collide and must stay legal.
     if(is_reference_semantics && !field.is_comptime && (field.label == "header"), {
-      res_args := match(arg, .FnCall(_, _, a3, _, _) => a3.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+      res_args := match(arg, .FnCall(_, _, Rc(a3), _, _) => a3.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       res_tok := if(
         ast_expr_is_fn_call(&arg),
         match(res_args.get(usize(0)), .Some(fe2) => ast_expr_token(&fe2), .None => ast_expr_token(&arg)),
@@ -472,7 +472,7 @@ evaluate_cell_type :: (
     );
     return(make_err_expr());
   });
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
     exn.throw(
       dyn(

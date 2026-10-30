@@ -972,7 +972,7 @@ FuncParamsResult :: struct(
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -1144,7 +1144,7 @@ _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
     .Atom(_, at_tok) => (at_tok.value.* == name),
-    .FnCall(_, f_box, f_args, _, _) => cond(
+    .FnCall(_, f_box, Rc(f_args), _, _) => cond(
       recur(&f_box, name.clone()) => true,
       true => {
         (found : bool) = false;

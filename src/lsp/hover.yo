@@ -180,7 +180,7 @@ _collect_candidates :: (
         out.push(e);
       });
     },
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       recur(&func_box, target, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -296,7 +296,7 @@ _mark_member :: (fn(a : &AstExpr, roles : &AtomRoles) -> unit)({
     .Atom(id, _) => {
       roles.members.insert(id);
     },
-    .FnCall(_, func_box, cargs, _, _) => {
+    .FnCall(_, func_box, Rc(cargs), _, _) => {
       match(
         func_box,
         .Atom(fid, _) => {
@@ -320,7 +320,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &AtomRoles) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, is_infix, _) => {
+    .FnCall(_, func_box, Rc(args), is_infix, _) => {
       callee := match(
         func_box,
         .Atom(_, _) => ast_expr_text(&func_box).*,
@@ -361,7 +361,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &AtomRoles) -> unit)({
                 if(!declaring, {
                   match(
                     a,
-                    .FnCall(_, pair_fn, pair_args, pair_infix, _) => {
+                    .FnCall(_, pair_fn, Rc(pair_args), pair_infix, _) => {
                       is_pair := (pair_infix && match(pair_fn, .Atom(_, pt) => (pt.value.* == ":"), .FnCall(_, _, _, _, _) => false));
                       if(is_pair && (pair_args.len() == usize(2)), {
                         handled = true;
@@ -428,7 +428,7 @@ _find_member_access :: (
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, is_infix, _) => {
+    .FnCall(_, func_box, Rc(args), is_infix, _) => {
       is_dot := match(func_box, .Atom(_, t) => (t.value.* == "."), .FnCall(_, _, _, _, _) => false);
       if(is_dot, {
         (i : usize) = cond(is_infix => usize(1), true => usize(0));

@@ -189,7 +189,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
     .Atom(_, _) => Option(String).None,
-    .FnCall(_, func_box, fn_imp_args, is_infix, _) => cond(
+    .FnCall(_, func_box, Rc(fn_imp_args), is_infix, _) => cond(
       is_infix => Option(String).None,
       (fn_imp_args.len() != usize(1)) => Option(String).None,
       !match(
@@ -225,7 +225,7 @@ extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
     .Atom(_, _) => Option(String).None,
-    .FnCall(_, func_box, fn_imp_args, is_infix, _) => {
+    .FnCall(_, func_box, Rc(fn_imp_args), is_infix, _) => {
       fval := match(
         func_box,
         .Atom(_, tok) => tok.value.*.clone(),
@@ -271,7 +271,7 @@ collect_import_paths_recursive :: (
   match(
     expr,
     .Atom(_, _) => (),
-    .FnCall(_, fb, walk_args, _, _) => {
+    .FnCall(_, fb, Rc(walk_args), _, _) => {
       recur(&fb, out);
       (i : usize) = usize(0);
       while(i < walk_args.len(), {
@@ -342,7 +342,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
     .Atom(_, _) => Option(String).None,
-    .FnCall(_, func_box, fn_args, is_infix, _) => cond(
+    .FnCall(_, func_box, Rc(fn_args), is_infix, _) => cond(
       is_infix => Option(String).None,
       (fn_args.len() < usize(2)) => Option(String).None,
       !match(
@@ -383,7 +383,7 @@ extract_test_body :: (fn(expr : &AstExpr) -> Option(AstExpr))(
   match(
     expr,
     .Atom(_, _) => Option(AstExpr).None,
-    .FnCall(_, _, fn_args, _, _) => cond(
+    .FnCall(_, _, Rc(fn_args), _, _) => cond(
       (fn_args.len() < usize(2)) => Option(AstExpr).None,
       true => fn_args.get(usize(1))
     )
@@ -1210,13 +1210,13 @@ _modes_walk :: (fn(e : &AstExpr, out : &mut ArrayList(_PendingFix)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, callee, args, _, _) => {
+    .FnCall(_, callee, Rc(args), _, _) => {
       callee_word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       // `own(x) : T` — the old spelling of `sink(x)`, as a parameter label.
       if((callee_word == ":") && (args.len() == usize(2)), {
         match(
           args.get(usize(0)),
-          .Some(.FnCall(_, oc, oargs, _, _)) => match(
+          .Some(.FnCall(_, oc, Rc(oargs), _, _)) => match(
             oc,
             .Atom(_, otok) => if((otok.value.* == "own") && (oargs.len() == usize(1)), {
               out.push(_PendingFix(row : usize(otok.row), col : usize(otok.column), len : usize(3), replacement : String.from("sink"), description : String.from("own")));
@@ -1349,7 +1349,7 @@ _dtm_ident_arg :: (fn(e : &AstExpr) -> String)(
   match(
     e,
     .Atom(_, t) => cond((t.kind == TokenKind.Identifier) => t.value.*.clone(), true => String.new()),
-    .FnCall(_, c, cargs, _, _) => match(
+    .FnCall(_, c, Rc(cargs), _, _) => match(
       c,
       .Atom(_, ct) => cond(
         ((ct.value.* == "&") && (cargs.len() == usize(1))) => match(
@@ -1446,7 +1446,7 @@ _dtm_walk :: (
       o.fixes.push(_PendingFix(row : usize(tok.row), col : usize(tok.column), len : usize(7), replacement : String.from("Drop"), description : String.from("Dispose")));
       o.counts.names = (o.counts.names + usize(1));
     }),
-    .FnCall(_, callee, args, _, _) => {
+    .FnCall(_, callee, Rc(args), _, _) => {
       callee_word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       // An inherent `dispose` method, `impl(T, dispose : (fn(self ...)(...)))`:
       // Generation A ran a method of that name as a reference type's
@@ -1459,7 +1459,7 @@ _dtm_walk :: (
         while(ii < args.len(), ii = (ii + usize(1)), {
           match(
             args.get(ii),
-            .Some(.FnCall(_, ic, iargs, _, _)) => if(match(ic, .Atom(_, it) => (it.value.* == ":"), _ => false) && (iargs.len() == usize(2)), {
+            .Some(.FnCall(_, ic, Rc(iargs), _, _)) => if(match(ic, .Atom(_, it) => (it.value.* == ":"), _ => false) && (iargs.len() == usize(2)), {
               match(
                 iargs.get(usize(0)),
                 .Some(.Atom(_, il)) => if(il.value.* == "dispose", {
@@ -1499,7 +1499,7 @@ _dtm_walk :: (
         is_def := match(args.get(usize(0)), .Some(.Atom(_, dn)) => (dn.value.* == "Dispose"), _ => false);
         match(
           args.get(usize(1)),
-          .Some(.FnCall(_, tc, targs, _, _)) => if(is_def && match(tc, .Atom(_, tt) => (tt.value.* == "trait"), _ => false), {
+          .Some(.FnCall(_, tc, Rc(targs), _, _)) => if(is_def && match(tc, .Atom(_, tt) => (tt.value.* == "trait"), _ => false), {
             recur(&args(usize(0)), false, lines, o);
             (ti : usize) = usize(0);
             while(ti < targs.len(), ti = (ti + usize(1)), {
@@ -1508,7 +1508,7 @@ _dtm_walk :: (
                 .Some(ta) => {
                   match(
                     ta,
-                    .FnCall(_, ic, iargs, _, _) => if(match(ic, .Atom(_, it) => (it.value.* == ":="), _ => false) && (iargs.len() == usize(2)), {
+                    .FnCall(_, ic, Rc(iargs), _, _) => if(match(ic, .Atom(_, it) => (it.value.* == ":="), _ => false) && (iargs.len() == usize(2)), {
                       match(
                         iargs.get(usize(1)),
                         .Some(.Atom(_, st)) => {
@@ -1537,7 +1537,7 @@ _dtm_walk :: (
       (dot_obj : Option(AstExpr)) = Option(AstExpr).None;
       match(
         callee,
-        .FnCall(_, dc, dargs, _, _) => if(match(dc, .Atom(_, dt) => (dt.value.* == "."), _ => false) && (dargs.len() == usize(2)), {
+        .FnCall(_, dc, Rc(dargs), _, _) => if(match(dc, .Atom(_, dt) => (dt.value.* == "."), _ => false) && (dargs.len() == usize(2)), {
           match(
             dargs.get(usize(1)),
             .Some(.Atom(_, mt)) => if(mt.value.* == "dispose", {
@@ -1557,7 +1557,7 @@ _dtm_walk :: (
           obj_word := match(obj, .Atom(_, ot) => cond((ot.kind == TokenKind.Identifier) => ot.value.*.clone(), true => String.new()), _ => String.new());
           is_witness := match(
             obj,
-            .FnCall(_, wc, wargs, _, _) => (match(wc, .Atom(_, wt) => (wt.value.* == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value.* == "Dispose"), _ => false)),
+            .FnCall(_, wc, Rc(wargs), _, _) => (match(wc, .Atom(_, wt) => (wt.value.* == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value.* == "Dispose"), _ => false)),
             _ => false
           );
           // A member evaluation did not resolve to the destructor (an
@@ -1788,16 +1788,16 @@ _bsm_mode_sig :: (fn(e : &AstExpr) -> Option(String))(
   )
 );
 _bsm_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
-  match(e, .FnCall(_, _, a, _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
+  match(e, .FnCall(_, _, Rc(a), _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
 );
 _bsm_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 _bsm_callee :: (fn(e : &AstExpr) -> AstExpr)(
   match(e, .FnCall(_, f, _, _, _) => f, .Atom(_, _) => e)
 );
 _bsm_is_infix_of :: (fn(e : &AstExpr, op : str) -> bool)(
-  match(e, .FnCall(_, f, a, infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(&f, op)), .Atom(_, _) => false)
+  match(e, .FnCall(_, f, Rc(a), infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(&f, op)), .Atom(_, _) => false)
 );
 _bsm_key :: (fn(t : &Token) -> String)(`${t.row.to_string()}:${t.column.to_string()}`);
 _bsm_rune_len :: (fn(s : &String) -> usize)(s.clone().chars().count());
@@ -1987,7 +1987,7 @@ _bsm_is_postfix_chain :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, t) => (t.kind == TokenKind.Identifier),
-    .FnCall(_, f, a, infix, _) => cond(
+    .FnCall(_, f, Rc(a), infix, _) => cond(
       infix => (ast_expr_is_atom_of(&f, ".") && (a.len() == usize(2)) && recur(match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()))),
       true => recur(&f)
     )
@@ -1999,7 +1999,7 @@ _bsm_walk :: (
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, callee, args, is_infix, _) => {
+    .FnCall(_, callee, Rc(args), is_infix, _) => {
       word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       child_asm := (in_asm || (word == "asm"));
       if(!in_asm, {
@@ -2149,7 +2149,7 @@ _bsm_unclaimed :: (fn(e : &AstExpr, in_asm : bool, claimed : &HashSet(String), o
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, callee, args, _, _) => {
+    .FnCall(_, callee, Rc(args), _, _) => {
       word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       child_asm := (in_asm || (word == "asm"));
       if(!in_asm && _bsm_mode_sig(e).is_some(), {
@@ -2674,7 +2674,7 @@ _run_migrate_markers :: (
             .Some(asts) => (
               (asts.len() == usize(1)) && match(
                 asts(usize(0)),
-                .FnCall(_, _, m_args, _, _) => (ast_expr_is_fn_call_of(&asts(usize(0)), if(st.marker == "&", BF_ADDRESS_OF, BK_BORROW_MUT), .Some(usize(1))) && match(m_args.get(usize(0)), .Some(m_place) => (ast_expr_to_string(&m_place) == st.expect), .None => false)),
+                .FnCall(_, _, Rc(m_args), _, _) => (ast_expr_is_fn_call_of(&asts(usize(0)), if(st.marker == "&", BF_ADDRESS_OF, BK_BORROW_MUT), .Some(usize(1))) && match(m_args.get(usize(0)), .Some(m_place) => (ast_expr_to_string(&m_place) == st.expect), .None => false)),
                 .Atom(_, _) => false
               )
             ),
@@ -9547,7 +9547,7 @@ _is_main_definition :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_CONST, Option(usize).Some(usize(2))) &&
     match(
       e,
-      .FnCall(_, _, args, _, _) => match(
+      .FnCall(_, _, Rc(args), _, _) => match(
         args.get(usize(0)),
         .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value.* == "main")),
         .None => false
@@ -9564,7 +9564,7 @@ _export_without_main :: (fn(e : &AstExpr) -> Option(String))({
   kept := ArrayList(String).new();
   match(
     e,
-    .FnCall(_, _, args, _, _) => {
+    .FnCall(_, _, Rc(args), _, _) => {
       (ai : usize) = usize(0);
       while(ai < args.len(), {
         match(
@@ -10846,7 +10846,7 @@ run_test :: (
       e := match(prog.get(pi), .Some(x) => x, .None => make_err_expr());
       pi = (pi + usize(1));
       if(ast_expr_is_fn_call_of(&e, BK_TEST, .None), {
-        targs := match(e, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new());
+        targs := match(e, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), _ => ArrayList(AstExpr).new());
         if(targs.len() >= usize(2), {
           // Go through extract_test_name, which strips the surrounding quotes a
           // StringLit token value carries ("name" -> name): it reads the

@@ -132,7 +132,7 @@ _binding_value :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Option(Ast
         if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
           match(
             e,
-            .FnCall(_, _, args, _, _) => {
+            .FnCall(_, _, Rc(args), _, _) => {
               lhs_is_head := match(args.get(usize(0)), .Some(l) => _atom_is(&l, head.clone()), .None => false);
               if(lhs_is_head, {
                 return(args.get(usize(1)));
@@ -158,7 +158,7 @@ _binding_name_token :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Optio
         if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
           match(
             e,
-            .FnCall(_, _, args, _, _) => match(
+            .FnCall(_, _, Rc(args), _, _) => match(
               args.get(usize(0)),
               .Some(l) => if(_atom_is(&l, head.clone()), {
                 return(Option(Token).Some(ast_expr_token(&l)));
@@ -183,7 +183,7 @@ _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(To
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       is_decl := (
         ast_expr_is_fn_call_of(e, "struct", .None) ||
           ast_expr_is_fn_call_of(e, "union", .None) || ast_expr_is_fn_call_of(e, "newtype", .None)
@@ -197,7 +197,7 @@ _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(To
               if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
                 match(
                   a,
-                  .FnCall(_, _, pair, _, _) => match(
+                  .FnCall(_, _, Rc(pair), _, _) => match(
                     pair.get(usize(0)),
                     .Some(lhs) => if(_atom_is(&lhs, member.clone()), {
                       out.push(ast_expr_token(&lhs));
@@ -232,7 +232,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       if(ast_expr_is_fn_call_of(e, "enum", .None), {
         (i : usize) = usize(0);
         while(i < args.len(), {
@@ -271,7 +271,7 @@ _subtree_has_position :: (fn(e : &AstExpr, at : &Token) -> bool)({
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       if(recur(&func_box, at), {
         return(true);
       });
@@ -299,7 +299,7 @@ _find_method_label :: (
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       if(ast_expr_is_fn_call_of(e, ":", .Some(usize(2))), {
         lhs_ok := match(args.get(usize(0)), .Some(l) => _atom_is(&l, member.clone()), .None => false);
         rhs_ok := match(args.get(usize(1)), .Some(r) => _subtree_has_position(&r, body_at), .None => false);
@@ -499,7 +499,7 @@ _import_path_of_binding :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> O
   });
   match(
     value,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(a) => match(
         a,
@@ -559,7 +559,7 @@ _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstE
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -568,7 +568,7 @@ _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstE
             if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
               match(
                 a,
-                .FnCall(_, _, pair, _, _) => match(
+                .FnCall(_, _, Rc(pair), _, _) => match(
                   pair.get(usize(0)),
                   .Some(lhs) => {
                     lt := ast_expr_token(&lhs);
@@ -617,7 +617,7 @@ _member_definition :: (
     accesses.get(usize(0)),
     .Some(acc) => match(
       acc,
-      .FnCall(_, _, acc_args, acc_infix, _) => {
+      .FnCall(_, _, Rc(acc_args), acc_infix, _) => {
         (owner : TypeValue) = Rc.new(TypeValueNode.Unit);
         (deref : TypeValue) = Rc.new(TypeValueNode.Unit);
         (env_opt : Option(Environment)) = Option(Environment).None;

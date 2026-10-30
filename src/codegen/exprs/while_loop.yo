@@ -22,7 +22,7 @@ _emit_line :: (fn(em : &Emitter, indent : &String, text : &String) -> unit)({
 });
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip a `comptime(x)` wrapper (evaluator-only) down to `x`.
 _strip_comptime :: (fn(e : &AstExpr) -> AstExpr)(

@@ -39,7 +39,7 @@ evaluate_as :: (
   tok := ast_expr_token(expr);
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     _ => {
       exn.throw(dyn(format_error_message(&tok, String.from("as: expected FnCall"))));
       return(expr);

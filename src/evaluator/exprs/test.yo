@@ -189,7 +189,7 @@ evaluate_test :: (
   // test expects exactly 2 arguments: test "name", { body }
   (arg_count : usize) = match(
     expr,
-    .FnCall(_, _, args, _, _) => args.len(),
+    .FnCall(_, _, Rc(args), _, _) => args.len(),
     .Atom(_, _) => usize(0)
   );
   if(arg_count != usize(2), {
@@ -204,12 +204,12 @@ evaluate_test :: (
   });
   test_name_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   test_body_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   // Evaluate test name to ensure it's a comptime_str.

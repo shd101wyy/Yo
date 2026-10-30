@@ -62,7 +62,7 @@ _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGeneratio
   });
   match(
     expr,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -86,7 +86,7 @@ _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGeneratio
 _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashSet(String), context : &FunctionGenerationContext) -> unit)(
   match(
     expr,
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       match(
         context.base.get_expr_info(expr),
         .Some(ei) => {
@@ -347,7 +347,7 @@ _emit_drops_for_conditional_branch :: (
 );
 /// `&&` operator with short-circuit evaluation.
 generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
     return(String.from("true"));
   });
@@ -508,7 +508,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
 });
 /// `||` operator with short-circuit evaluation.
 generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
     return(String.from("false"));
   });
