@@ -1022,13 +1022,16 @@ generate_deferred_drop_expressions :: (
               // short-circuit set) untouched.
               if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
                 param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(&drop_expr, context), false);
-                // The flush-first of a single-expression body (`skip_param_drops`)
-                // also leaves an `FnOnce` callee's post-call release to the
-                // call's own post-call flush: on the shared-id body node it
-                // would otherwise run before the call reads the captures
+                // An `FnOnce` callee's post-call release splits like a
+                // parameter drop: the flush-first of a single-expression body
+                // (`skip_param_drops`) leaves it out, since on the shared-id
+                // body node it would run before the call reads the captures,
+                // and the function-level pass after the tail
+                // (`only_param_drops`) emits it, after the call and before the
+                // return
                 // (issues/fixed/2026-10-31-a-single-expression-body-releases-an-fnonce-parameters-captures-before-calling-it.md).
-                post_call_first := (skip_param_drops && is_fnonce_post_call_release(ast_expr_id(&drop_expr)));
-                param_filtered := ((skip_param_drops && param_target) || post_call_first || (only_param_drops && !param_target));
+                post_call := is_fnonce_post_call_release(ast_expr_id(&drop_expr));
+                param_filtered := ((skip_param_drops && (param_target || post_call)) || (only_param_drops && !(param_target || post_call)));
                 skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)));
                 // Skip a drop whose target TEMP was never emitted as a C declaration
                 // (declaration elided while its deferred-drop survived) — emitting
