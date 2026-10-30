@@ -463,6 +463,9 @@ test("borrowed for: read-only methods iterating a value field by value, through 
 // read it as unknown storage, so the store into the fresh block counted as a
 // mutation of every argument and `keep_boxed` asserted `b` unborrowed
 // (issues/fixed/2026-10-28-a-match-arm-returning-its-pattern-binding-classifies-as-unknown-storage.md).
+// The same assert came back when `Box.new` took an over-aligned payload's
+// block from `__yo_aligned_alloc`, which the analysis did not count as fresh
+// (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
 keep_boxed :: (fn(b : VBag) -> Box(VBag))(box(b));
 test("borrowed for: boxing the object through an alias does not trip the flag", {
   xs := ArrayList(i32).new();
