@@ -240,7 +240,7 @@ test("retain over twenty thousand elements is one pass and leaves refcounts bala
   while(i < i32(20000), i = (i + i32(1)), {
     cond(
       ((i % i32(4)) == i32(0)) => {
-        list.push(shared);
+        list.push(Rc.clone(shared));
       },
       true => {
         list.push(rc(`drop-${i}`.to_string()));

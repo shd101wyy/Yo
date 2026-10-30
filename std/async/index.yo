@@ -275,10 +275,9 @@ _settle :: (
 /// would have completed.
 race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
   assert(handles.len() > usize(0), "race_first: empty handle list");
-  io.async({ handles }(io : Io) => {
-    (w, hs) := io.await(race(handles, io), io);
-    io.await(_settle(hs, Option(usize).Some(w), io), io)
-  })
+  // A tuple destructuring binds borrows, so the list moves out through a
+  // `match` (issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md).
+  io.async({ handles }(io : Io) => match(io.await(race(handles, io), io), (w, hs) => io.await(_settle(hs, Option(usize).Some(w), io), io)))
 });
 /// Resolve to the first handle to COMPLETE and abort the rest — `any` with
 /// the cleanup done for you. `.None` when every handle ended without
@@ -286,10 +285,7 @@ race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io
 /// for why this exists.
 any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
   assert(handles.len() > usize(0), "any_first: empty handle list");
-  io.async({ handles }(io : Io) => {
-    (decided, hs) := io.await(any(handles, io), io);
-    io.await(_settle(hs, decided, io), io)
-  })
+  io.async({ handles }(io : Io) => match(io.await(any(handles, io), io), (decided, hs) => io.await(_settle(hs, decided, io), io)))
 });
 /// A combinator's operand, running as a SCOPED child task (plans/VALUES_BY_DEFAULT.md
 /// §3.13 A4). `timeout` and `select` take futures, and a future may borrow

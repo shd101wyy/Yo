@@ -691,7 +691,8 @@ test("a consumer loop over incoming serves each connection in turn", {
   ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   bound := listener.local_addr();
-  mut(fds) := ArrayList(i32).new();
+  fds := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  task_fds := Rc.clone(fds);
   mut(conns) := listener.incoming().take(usize(2));
   // The accepted streams are dropped by the loop body; `TcpStream`'s Drop
   // closes the descriptor, so nothing leaks while the fd is recorded. The
@@ -708,10 +709,11 @@ test("a consumer loop over incoming serves each connection in turn", {
           match(
             c,
             .Ok(st) => {
-              fds.push(st.fd());
+              fd := st.fd();
+              task_fds.with_mut(l => l.push(fd));
             },
             .Err(_) => {
-              fds.push(i32(-1));
+              task_fds.with_mut(l => l.push(i32(-1)));
             }
           );
         },
@@ -727,9 +729,9 @@ test("a consumer loop over incoming serves each connection in turn", {
   client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   r := io.await(timeout(h.join(io), Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the loop finished when take(2) ended the stream");
-  assert(fds.len() == usize(2), "the body ran once per connection");
-  assert(fds(usize(0)) >= i32(0), "first connection was accepted, not an error item");
-  assert(fds(usize(1)) >= i32(0), "second too");
+  assert(fds.with(l => l.len()) == usize(2), "the body ran once per connection");
+  assert(fds.with(l => l(usize(0))) >= i32(0), "first connection was accepted, not an error item");
+  assert(fds.with(l => l(usize(1))) >= i32(0), "second too");
   io.await(client1.close(io), ioe);
   io.await(client2.close(io), ioe);
   // `incoming()` took the listener; it closes when the stream drops.
