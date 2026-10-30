@@ -117,14 +117,10 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
   });
   Option(_ProjRootError).None
 });
-/// Whether `name` (bound to `v`) is a binding of an ENCLOSING function,
-/// which a closure or handler body reaches as a capture: a parameter the
-/// function being evaluated does not declare, or a local bound in a frame
-/// below the one its own parameters are bound in (both frame indices are
-/// read in the current environment, so they compare within one generation).
-/// The enclosing body's parameter names as written: a closure's own
-/// (`FuncValData.params`), which may differ from its expected `Fn` slot's
-/// labels; otherwise the function type's labels.
+/// The enclosing body's parameter names as written: a closure's own (its
+/// body context's `FuncValData.params`), which may differ from its expected
+/// `Fn` slot's labels; otherwise (a named function's body context carries
+/// none) the function type's labels.
 _enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
   match(
     ctx.is_evaluating_function_body_or_async_block,
@@ -132,14 +128,22 @@ _enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
       fb.kind,
       .FunctionBody => match(
         &fb.func_value,
-        .Some(.FuncVal(epn_d, _)) => Option(ArrayList(String)).Some(epn_d.*.params.clone()),
-        _ => match(&fb.func_type, .Some(Rc(.Func({ meta : epn_m }))) => Option(ArrayList(String)).Some(epn_m.*.param_labels.items.clone()), _ => Option(ArrayList(String)).None)
+        .Some(.FuncVal(epn_d, _)) => if(!epn_d.*.params.is_empty(), Option(ArrayList(String)).Some(epn_d.*.params.clone()), _enclosing_type_labels(&fb.func_type)),
+        _ => _enclosing_type_labels(&fb.func_type)
       ),
       _ => Option(ArrayList(String)).None
     ),
     .None => Option(ArrayList(String)).None
   )
 );
+_enclosing_type_labels :: (fn(ft : &Option(TypeValue)) -> Option(ArrayList(String)))(
+  match(ft, .Some(Rc(.Func({ meta : etl_m }))) => Option(ArrayList(String)).Some(etl_m.*.param_labels.items.clone()), _ => Option(ArrayList(String)).None)
+);
+/// Whether `name` (bound to `v`) is a binding of an ENCLOSING function,
+/// which a closure or handler body reaches as a capture: a parameter the
+/// function being evaluated does not declare, or a local bound in a frame
+/// below the one its own parameters are bound in (both frame indices are
+/// read in the current environment, so they compare within one generation).
 _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
   !v.is_module_level && match(
     _enclosing_param_names(ctx),

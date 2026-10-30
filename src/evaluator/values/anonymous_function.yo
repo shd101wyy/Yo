@@ -2277,7 +2277,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
       rc(
         FuncValData(
           forall_names : ArrayList(String).new(),
-          params : ArrayList(String).new(),
+          // The parameter names as written: the body's own (the closure-capture
+          // rule, `_enclosing_param_names`), not the expected slot's labels.
+          params : actual_param_labels.clone(),
           param_type_names : ArrayList(String).new(),
           evidence_params : ArrayList(String).new(),
           body : body_for_def_eval.clone(),
@@ -2841,7 +2843,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         rc(
           FuncValData(
             forall_names : ArrayList(String).new(),
-            params : ArrayList(String).new(),
+            params : actual_param_labels.clone(),
             param_type_names : ArrayList(String).new(),
             evidence_params : ArrayList(String).new(),
             body : body_for_def_eval.clone(),
