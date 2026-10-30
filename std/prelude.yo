@@ -10127,16 +10127,13 @@ export(Weak);
 /// auto-dereference (`Deref`). Sharing is `Rc`; a `Box` is never counted, so
 /// `ref_count` rejects it.
 ///
-/// The cell is one allocation: an 8-byte flags word, then the payload, as an
-/// `Rc` cell is its count header, then the payload. The word sits in the
-/// `max(8, align_of(V))` bytes in front of the payload, so a global cell
-/// carries 8 bytes of header for a payload aligned to 8 or less. A cell placed
-/// by an `alloc` argument has the flags word's placed bit set and carries the
-/// owner prefix in front of its header: the one `std/allocator.yo`'s
-/// `Allocator.alloc` writes, recording the allocator, so the drop frees the
-/// cell through it (§3.11), telling it the cell's size and alignment. Only a
-/// placed cell pays for the prefix (plans/backlog/ALLOCATOR_PLACEMENT.md,
-/// "Related: `Box`'s layout").
+/// The cell is one allocation: a 16-byte owner prefix, then the payload. The
+/// prefix records the allocator that placed the cell (the `alloc` argument),
+/// or the global allocator, and the drop frees the cell through it (§3.11),
+/// telling a placed cell's allocator the size and alignment the cell was
+/// allocated with. A placed cell's prefix is the one `std/allocator.yo`'s
+/// `Allocator.alloc` writes for an alignment of 16, so `Allocator.owner_of`
+/// reads it.
 ///
 /// ```yo
 /// a := box(i32(41));
@@ -10155,12 +10152,6 @@ extern(
     (fn(size : usize) -> ?*void),
   __yo_free :
     (fn(ptr : ?*void) -> unit),
-  // The aligned family, for a payload aligned above what `__yo_malloc`
-  // guarantees (16). `aligned_free` releases only `aligned_alloc` blocks.
-  __yo_aligned_alloc :
-    (fn(alignment : usize, size : usize) -> ?*void),
-  __yo_aligned_free :
-    (fn(ptr : ?*void) -> unit),
   __yo_scope_ctx :
     (fn() -> ?*void),
   __yo_scope_vtable :
@@ -10171,35 +10162,20 @@ extern(
   __yo_scope_set :
     (fn(ctx : ?*void, vtable : ?*void) -> unit)
 );
-// A placed `Box` cell's owner record: `{ctx, vtable}`, the layout of
-// `std/allocator.yo`'s `_AllocPrefix` and codegen's `__yo_alloc_prefix_t`, in
-// the 16 bytes in front of the cell's header.
+// A `Box` cell's owner prefix: `{ctx, vtable}`, the layout of
+// `std/allocator.yo`'s `_AllocPrefix` and codegen's `__yo_alloc_prefix_t`,
+// with a `.None` vtable for the global allocator (codegen's scope
+// convention).
 _BoxOwner :: struct(
   ctx : ?*void,
-  vtable : *AllocatorVTable
+  vtable : ?*AllocatorVTable
 );
 derive(_BoxOwner, Copy, Clone);
-// The owner record's size, and the least prefix and alignment
-// `Allocator.alloc` gives a block (`ALLOC_PREFIX_SIZE`).
-_BOX_OWNER_SIZE :: usize(16);
-// The flags word's size, the least header in front of a payload.
-_BOX_FLAGS_SIZE :: usize(8);
-// The flags word's bit for a cell an `alloc` argument placed.
-_BOX_PLACED :: u64(1);
-// The alignment `__yo_malloc` guarantees: a payload aligned above it takes
-// the aligned family.
-_BOX_MALLOC_ALIGN :: usize(16);
-// A payload's alignment, read without `align_of`: a seed before the
-// `generate_alignof` fix leaves `align_of(V)` untranspiled when `V` holds an
-// extern type, as `std/thread.yo`'s boxed state does
-// (plans/backlog/SEED_VERSION_AUTOMATION.md, "`box` asks for its payload's
-// alignment"). C puts `_v` at the first offset aligned for `V`, so this
-// struct is `align_of(V)` bytes larger than `V`.
-_BoxAlignProbe :: (fn(comptime(V) : Type) -> comptime(Type))(
-  struct(
-    _pad : u8,
-    _v : V
-  )
+_BOX_PREFIX_SIZE :: usize(16);
+// The owner prefix in front of a `Box` cell's payload.
+_box_owner_of :: (fn(cell : *void) -> *_BoxOwner)(
+  // SAFETY: every `Box` cell is a `box` block plus `_BOX_PREFIX_SIZE`.
+  (*_BoxOwner)(unsafe((*u8)(cell).sub(_BOX_PREFIX_SIZE)))
 );
 /// Move `value` into a new uniquely owned cell. `alloc : .Some(a)` places the
 /// cell in `a`; the default, `.None`, places it on the global allocator. The
@@ -10231,68 +10207,23 @@ impl(
   /// assert(e.* == i32(1), "the payload");
   /// ```
   new : (fn(value : T, (alloc : Option(Allocator)) ?= .None) -> Self)({
-    al := Self._align();
-    h := Self._header();
-    cell := match(
+    owner := match(
       alloc,
-      .Some(a) => {
-        // `Allocator.alloc`'s layout: the owner record ends a
-        // `max(16, al)`-byte prefix, and the header follows it.
-        span := Self._owner_span();
-        raw := match(
-          a.vtable.*.alloc(a.ctx, span + h + size_of(T), span),
-          .Some(b) => b,
-          .None => __yo_panic("Box.new: out of memory")
-        );
-        hdr := unsafe((*u8)(raw).add(span));
-        // SAFETY: `raw` is a fresh block of `span + h + size_of(T)` bytes
-        // aligned to `span`, so the record, the header and the payload lie
-        // inside it, each aligned.
-        unsafe(consume((*_BoxOwner)(hdr.sub(_BOX_OWNER_SIZE)).* = _BoxOwner(ctx : a.ctx, vtable : a.vtable)));
-        unsafe(consume((*u64)(hdr.add(h - _BOX_FLAGS_SIZE)).* = _BOX_PLACED));
-        (*T)(hdr.add(h))
-      },
-      .None => {
-        raw := match(
-          cond(
-            (al > _BOX_MALLOC_ALIGN) => __yo_aligned_alloc(al, (((h + size_of(T) + al) - usize(1)) / al) * al),
-            true => __yo_malloc(h + size_of(T))
-          ),
-          .Some(b) => b,
-          .None => __yo_panic("Box.new: out of memory")
-        );
-        // SAFETY: `raw` is a fresh block of at least `h + size_of(T)` bytes
-        // aligned to `max(16, al)` (the aligned family's size is rounded up
-        // to a multiple of `al`, as C11's `aligned_alloc` requires).
-        unsafe(consume((*u64)(unsafe((*u8)(raw).add(h - _BOX_FLAGS_SIZE))).* = u64(0)));
-        (*T)(unsafe((*u8)(raw).add(h)))
-      }
+      .Some(a) => _BoxOwner(ctx : a.ctx, vtable : .Some(a.vtable)),
+      .None => _BoxOwner(ctx : .None, vtable : .None)
     );
+    size := (size_of(T) + _BOX_PREFIX_SIZE);
+    block := match(
+      match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size, _BOX_PREFIX_SIZE), .None => __yo_malloc(size)),
+      .Some(b) => b,
+      .None => __yo_panic("Box.new: out of memory")
+    );
+    // SAFETY: `block` is a fresh, 16-aligned allocation of `size` bytes.
+    unsafe(consume((*_BoxOwner)(block).* = owner));
+    cell := (*T)(unsafe((*u8)(block).add(_BOX_PREFIX_SIZE)));
     unsafe(consume(cell.* = value));
     Box(T)(cell)
-  }),
-  // The payload's alignment.
-  _align : (fn() -> usize)(size_of(_BoxAlignProbe(T)) - size_of(T)),
-  // The header in front of the payload: the flags word, padded to the
-  // payload's alignment, `max(8, align_of(T))` bytes.
-  _header : (fn() -> usize)(
-    cond((Self._align() > _BOX_FLAGS_SIZE) => Self._align(), true => _BOX_FLAGS_SIZE)
-  ),
-  // A placed cell's prefix in front of the header, and the alignment its
-  // block is asked for: `max(16, align_of(T))`, `Allocator.alloc`'s span.
-  _owner_span : (fn() -> usize)(
-    cond((Self._align() > _BOX_OWNER_SIZE) => Self._align(), true => _BOX_OWNER_SIZE)
-  ),
-  // The flags word of a live cell.
-  _flags : (fn(cell : *T) -> u64)(
-    // SAFETY: every `Box` cell's flags word ends 8 bytes before its payload.
-    unsafe((*u64)(unsafe((*u8)(cell).sub(_BOX_FLAGS_SIZE))).*)
-  ),
-  // The owner record of a placed cell.
-  _owner_of : (fn(cell : *T) -> _BoxOwner)(
-    // SAFETY: a placed cell's record is the 16 bytes before its header.
-    unsafe((*_BoxOwner)(unsafe((*u8)(cell).sub(Self._header() + _BOX_OWNER_SIZE))).*)
-  )
+  })
 );
 impl(
   generic(T : Type),
@@ -10300,29 +10231,24 @@ impl(
   /// The allocator the cell belongs to: the one `box` placed it in, or
   /// `.None` for the global allocator. Spelled `Box.allocator(b)`: a payload
   /// with its own `allocator` makes `b.allocator()` ambiguous (E0616).
-  allocator : (fn(self : &Self) -> Option(Allocator))(
-    cond(
-      ((Self._flags(self._cell) & _BOX_PLACED) != u64(0)) => {
-        owner := Self._owner_of(self._cell);
-        .Some(Allocator(ctx : owner.ctx, vtable : owner.vtable))
-      },
-      true => .None
-    )
-  )
+  allocator : (fn(self : &Self) -> Option(Allocator))({
+    // SAFETY: `_cell` is a live `Box` cell.
+    owner := unsafe(_box_owner_of((*void)(self._cell)).*);
+    match(owner.vtable, .Some(vt) => .Some(Allocator(ctx : owner.ctx, vtable : vt)), .None => .None)
+  })
 );
 impl(
   generic(T : Type),
   Box(T),
   Drop(
-    /// Drops the payload, then frees the cell: a placed one through the
-    /// allocator its owner prefix records, a global one to the global heap.
+    /// Drops the payload, then frees the cell through its owner prefix.
     ///
     /// A zeroed box owns nothing, and dropping it is a no-op: codegen empties
     /// a task's moved-from slots and leaves a slot its body never reached
     /// zeroed, and drops both when the task is aborted, as every reference
     /// handle's null-checked release allows. Without the check the abort of
-    /// a task that threw before a `Box`-holding local was stored freed an
-    /// address below null
+    /// a task that threw before a `Box`-holding local was stored freed address
+    /// 16 below null
     /// (issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md).
     drop : (fn(self : &mut Self) -> unit)(
       match(
@@ -10333,16 +10259,12 @@ impl(
         .Some(cell) => {
           // SAFETY: the box is the cell's only owner, and this runs once.
           unsafe(drop_in_place(cell));
-          h := Self._header();
-          hdr := unsafe((*u8)(cell).sub(h));
-          cond(
-            ((Self._flags(cell) & _BOX_PLACED) != u64(0)) => {
-              owner := Self._owner_of(cell);
-              span := Self._owner_span();
-              owner.vtable.*.free(owner.ctx, .Some((*void)(unsafe(hdr.sub(span)))), span + h + size_of(T), span);
-            },
-            (Self._align() > _BOX_MALLOC_ALIGN) => __yo_aligned_free(.Some((*void)(hdr))),
-            true => __yo_free(.Some((*void)(hdr)))
+          block := _box_owner_of((*void)(cell));
+          owner := unsafe(block.*);
+          match(
+            owner.vtable,
+            .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block)), size_of(T) + _BOX_PREFIX_SIZE, _BOX_PREFIX_SIZE),
+            .None => __yo_free(.Some((*void)(block)))
           );
         }
       )
