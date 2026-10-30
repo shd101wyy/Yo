@@ -8052,11 +8052,12 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
     _ => return(())
   );
   ty_text := type_to_string(&ty_arg);
-  // A type variable, a closure's capture struct or an `Impl(...)` wrapper
-  // has no spelling the call site could write back.
+  // A type variable, a closure's capture struct, an `Impl(...)` wrapper or a
+  // `Dyn` (printed `dyn(Fn(i32) -> i32)`, without its labels) has no spelling
+  // the call site could write back.
   // So has the type of one specialization of a generic body: the body's
   // source names its parameter, not this instance.
-  printable := (ctx.currently_specializing_function.is_none() && !is_some_type(&ty_arg) && !type_contains_some_type_deep(&ty_arg) && !ty_text.contains("struct(") && !ty_text.contains("Impl("));
+  printable := (ctx.currently_specializing_function.is_none() && !is_some_type(&ty_arg) && !type_contains_some_type_deep(&ty_arg) && !ty_text.contains("struct(") && !ty_text.contains("Impl(") && !ty_text.contains("dyn("));
   // The value argument: the first one not labeled `alloc`.
   (value_arg : Option(AstExpr)) = Option(AstExpr).None;
   (ai : usize) = usize(0);
