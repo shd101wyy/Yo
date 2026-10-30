@@ -388,11 +388,13 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
 handle with plain loads of the counts, so an `ArcWeak.upgrade` on another
 thread can take a strong count between the check and the write or the
 move-out
-(`issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`,
+(`issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`,
 S1). The fix is Rust's: a CAS of the strong count from 1 to 0, which a
-concurrent `upgrade` refuses. That CAS is a runtime primitive, and `src/`
-instantiates `Arc.make_mut`, so the prelude may call it only once the seed
-emits it (the same gate as W3's `__yo_rc_weak_weak_count` above).
+concurrent `upgrade` refuses. That CAS is a runtime primitive. `src/` does
+not instantiate `Arc.make_mut` or `Arc.try_unwrap` (only `Rc.make_mut`, in
+`src/env.yo` and `comptime_expect_error.yo`), but the prelude's `extern`
+block names symbols that a pre-v0.2.73 seed does not emit, so the prelude
+may declare and call them only once the seed emits them.
 
 **Generation A DONE 2026-10-29 (`fix/arc-unique-lock-gen-a`):** four
 primitives in `_weak_count_primitives` (`src/codegen/functions/gc_runtime.yo`),
@@ -441,11 +443,17 @@ bodies:
         // The weak count is read while no upgrade can succeed. Zero stays
         // zero after the unlock: a new `ArcWeak` takes a strong handle
         // (only `self`) or another `ArcWeak`.
-        weak := __yo_arc_weak_count_raw(cell);
-        __yo_arc_unlock_unique(cell);
-        if(weak != usize(0), {
-          self = arc(self.*.clone());
-        });
+        cond(
+          (__yo_arc_weak_count_raw(cell) == usize(0)) => __yo_arc_unlock_unique(cell),
+          true => {
+            // The payload moves out under the lock, the cell goes to the
+            // `ArcWeak` handles as dead, and the cleared slot takes the
+            // fresh cell.
+            payload := __yo_ptr_read(addr_of(self.*));
+            __yo_arc_release_locked((*void)(addr_of(self)));
+            self = arc(payload);
+          }
+        );
       },
       true => {
         self = arc(self.*.clone());
@@ -457,10 +465,12 @@ bodies:
   })
 ```
 
-`make_mut` keeps cloning when an `ArcWeak` shares the cell (Yo's §3.3
-choice, as `Rc.make_mut` does) rather than moving the payload out as Rust's
-does; the clone after the unlock is sound because an `upgrade` that lands
-then reads the old cell, which nothing writes. Drop the race sentence from
+`make_mut` moves the payload out, as Rust's does, when only `ArcWeak`
+handles share the cell, and clones it when the lock fails (Fable
+consultation #2, verdict A3). `Rc.make_mut` moves too in the weak-only
+case: `__yo_ptr_read`, `__yo_rc_forget_payload(self)`, `self = rc(payload)`.
+The assignment's release takes the weak-held path with the payload's drop
+cleared. Amend WEAK_AND_UNCOLLECTED_RC §3.3 to match, and drop the race sentence from
 `make_mut`'s doc comment, add the issue's stress loop
 (`issues/repros/2026-10-28-arc-make-mut-races-an-arcweak-upgrade.yo`) as a
 row of `tests/arc.test.yo` for the TSan job, and move the issue to
@@ -468,6 +478,11 @@ row of `tests/arc.test.yo` for the TSan job, and move the issue to
 ./src`/`./std`, `tests/arc.test.yo`, `tests/rc.test.yo`,
 `tests/send_sync.test.yo`, `tests/thread.test.yo`, the TSan corpus and the
 stress repro under `--sanitize thread`.
+
+**Generation B DONE (`fix/arc-unique-lock-gen-b`, on the v0.2.73 seed):**
+the two bodies above, `Rc.make_mut`'s move, the `extern` block, the stress
+row, a no-clone move row per handle kind, and the issue moved to
+`issues/fixed/`.
 
 ## Seed-gated follow-up (2026-10-28): `box` asks for its payload's alignment
 

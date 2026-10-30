@@ -4,11 +4,10 @@
 
 **Found:** 2026-10-28, landing `make_mut`'s disassociation of `Weak` (W3 Generation B, branch `vbd/make-mut-weak-gen-b`).
 
-**Status:** Generation A landed 2026-10-29 (`fix/arc-unique-lock-gen-a`):
-the runtime emits the lock primitives below, and `tests/arc.test.yo` drives
-them directly. The prelude still races until Generation B, which calls them
-from `make_mut` and `try_unwrap` once a seed emits them; its text is parked
-in `plans/backlog/SEED_VERSION_AUTOMATION.md`.
+**Status:** fixed. Generation A (`fix/arc-unique-lock-gen-a`, 2026-10-29)
+added the lock primitives to the runtime; Generation B
+(`fix/arc-unique-lock-gen-b`, on the v0.2.73 seed, which emits them) makes
+`make_mut` and `try_unwrap` take the lock. See "Fix" below.
 
 ## Symptom
 
@@ -55,9 +54,10 @@ and `try_unwrap` CAS the strong count from 1 to 0, so a concurrent
 `upgrade` (which refuses a zero count) fails, and only then inspect the weak
 count; `make_mut` restores the count to 1 when no `Weak` exists. Yo's prelude
 has no primitive that performs that CAS on an `Arc` cell's header, and a new
-runtime primitive called from the prelude is seed-gated: `src/` instantiates
-`Arc` methods, so the seed must emit the primitive before the prelude can
-call it (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+runtime primitive called from the prelude is seed-gated. `src/` does not
+instantiate `Arc.make_mut` or `Arc.try_unwrap` (only `Rc.make_mut`), but the
+prelude's `extern` block names symbols that a pre-v0.2.73 seed does not
+emit (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ## Proposed fix
 
@@ -77,3 +77,39 @@ call it (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
   (`__yo_arc_lock_unique`), `ArcWeak.upgrade` answers `.None` and the weak
   count still reads; after the unlock it answers `.Some`. Beside it, the
   repro's loop as a stress row in `tests/arc.test.yo` for the TSan CI job.
+
+## Fix
+
+- **Generation A** (`src/codegen/functions/gc_runtime.yo`,
+  `_weak_count_primitives`, both runtimes): `__yo_arc_lock_unique(cell)`
+  CASes the strong count from 1 to 0 (acquire) and keeps the tag bit;
+  `__yo_arc_unlock_unique(cell)` adds the 1 back (release);
+  `__yo_arc_weak_count_raw(cell)` reads the weak word without the
+  zero-strong-count shortcut; `__yo_arc_release_locked(slot)` ends a locked
+  cell whose payload was moved out: one `fetch_or` sets the dead bit, the
+  cell is freed when no `ArcWeak` is left, and the holder's handle at `slot`
+  is cleared to NULL. Clearing the handle is the one departure from Rust,
+  which calls `mem::forget`: an `Arc` is a copyable handle, so passing it to
+  `__yo_ptr_write` dups it instead of forgetting it, and its release of
+  NULL is already a no-op.
+- **Generation B** (`std/prelude.yo`): `try_unwrap` locks, moves the
+  payload out and calls `__yo_arc_release_locked`, so an `ArcWeak` never
+  upgrades to a moved-out payload. `make_mut` locks and reads the raw weak
+  count. When it is zero, it unlocks and writes in place. Otherwise it moves
+  the payload out under the lock, ends the old cell with
+  `__yo_arc_release_locked`, and stores `Arc.new(payload)` in the cleared slot.
+  That is Rust's move, with no clone (Fable consultation #2, verdict A3).
+  When the lock fails, it clones as before. `Rc.make_mut` moves in the
+  weak-only case too (`__yo_rc_forget_payload`, then `self = Rc.new(payload)`),
+  and WEAK_AND_UNCOLLECTED_RC §3.3 says so.
+- **Tests:** `tests/arc.test.yo` drives the primitives through an
+  `extern("Yo", ...)` block (a locked cell refuses `upgrade` on another
+  thread and its raw weak count still reads; the unlock lets the next
+  upgrade see a write made under the lock; a moved-out locked cell goes to
+  its `ArcWeak` as dead or is freed), and runs the stress loop above 300
+  times as a row of the TSan thread corpus. A row per handle kind pins the
+  move: with a live `ArcWeak` on another thread, or a `Weak`, the write
+  lands in a fresh cell, no `Clone` and no payload drop runs, the old cell
+  stays allocated until the weak handle frees it, and the weak handle
+  upgrades to `.None`.
+  `tests/internal/gc_runtime_atomics.test.yo` pins the orderings.
