@@ -368,15 +368,22 @@ once `rc` and `arc` place through the cell primitive
 (`plans/backlog/ALLOCATOR_PLACEMENT.md`, B2). Containers keep their size,
 because the allocator lives in the buffer's prefix rather than in a new field.
 
+Only a placed block pays for its owner. A global `Box` cell carries an 8-byte
+flags word in front of its payload, as an `Rc` cell carries its count; a
+placed one carries the 16-byte owner prefix in front of that word as well. A
+placed `Rc`/`Arc` cell's prefix is 32 bytes (the owner and the cell's extent),
+and a placed container buffer's is 16.
+
 ## Limits
 
 - **No arena in std.** See
   [When to use an explicit allocator](#when-to-use-an-explicit-allocator).
-- **Over-aligned types.** `Allocator.alloc` and the containers ask for the
-  element type's alignment, so an allocator can serve any power of two. `box`
-  still asks for 16, so a `Box` of a type aligned more strictly than that is
-  not supported yet. No Yo type is aligned above 16 today; an `extern` C type
-  can be.
+- **Over-aligned types.** `Allocator.alloc`, the containers and `box` ask for
+  the payload's alignment, so an allocator can serve any power of two, and a
+  global `Box` of a type aligned above 16 comes from the aligned family. A
+  global `rc`/`arc` cell is only 16-aligned, so an `Rc` or `Arc` of such a type
+  must be placed. No Yo type is aligned above 16 today; an `extern` C type can
+  be.
 - **No placed `ref` objects.** A `ref` constructor takes no `alloc`
   argument. Make the type a value struct and place it with
   `rc(v, alloc : .Some(a))`.
