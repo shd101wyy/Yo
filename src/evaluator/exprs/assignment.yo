@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 { judge_function_argument_markers, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation, raise_flow_violation }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent, type_carries_origin, no_origin_position_error } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, format_error_messages, format_error_messages_with_help, TokenAndError, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW, E_COMPTIME_BINDING_RUNTIME_WRITE } :: import("../../diagnostics.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -2077,7 +2077,19 @@ evaluate_assignment :: (
     mcb_vars := get_variables_from_env(&env, variable_name.clone());
     match(
       mcb_vars.last(),
-      .Some(mcb_v) => if(mcb_v.is_module_level && type_is_control_bound(&mcb_v.ty), {
+      .Some(mcb_v) => if(mcb_v.is_module_level && type_carries_origin(&mcb_v.ty), {
+        exn.throw(
+          dyn(
+            no_origin_position_error(
+              &mcb_v.ty,
+              &String.from("A module-level binding"),
+              &String.from("no frame owns the places it would borrow, so it may hold no reference (§7, module-level origins)."),
+              &String.from("hold the value itself, or bind the reference in the function that owns the place"),
+              ast_expr_token(&lhs_resolved)
+            )
+          )
+        );
+      }, if(mcb_v.is_module_level && type_is_control_bound(&mcb_v.ty), {
         exn.throw(
           dyn(
             format_error_message(
@@ -2088,7 +2100,7 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
             )
           )
         );
-      }),
+      })),
       .None => ()
     );
   });

@@ -41,19 +41,23 @@ impl(
   )
 );
 
-// `&mut T` cannot be a field's type either (only a slot's mode,
-// `name : &mut T`).
+// A `&mut T` field makes a reference-holding type (decision 43 step 3, N2a):
+// the type may be named, but no value of it is built until N2b.
+RefTypedField :: struct(p : &mut i32);
 comptime_expect_error(
-  RefTypedField :: struct(p : &mut i32)
+  ref_typed_field_value :: (fn(x : &mut i32) -> unit)({
+    _v := RefTypedField(p : &mut x);
+  }),
+  "a type holding a reference"
 );
 
-// `&mut T` cannot appear inside a generic type — borrows must not flow
-// through type constructors. (The diagnostic surfaces as a resolution
-// error: a borrow is a mode, not a type.)
+// `&mut T` inside a generic type is a reference-holding type: a function
+// returning one waits for N2b, which checks what the value borrows.
 comptime_expect_error(
   ref_inside_option :: (fn(p : &mut Point) -> Option(&mut i32))(
     Option(&mut i32).None
-  )
+  ),
+  "a type holding a reference"
 );
 
 // Positive: the callback pattern — a parameter that RECEIVES a ref —

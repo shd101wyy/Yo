@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
@@ -69,6 +69,14 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
+/// N2a's value wall at a fieldless variant of an enum whose type holds a
+/// reference (`Option(&i32).None`, decision 43 step 3): no value of such a
+/// type is built until N2b (`origin_value_phase_message`).
+_reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, exn : Exception) -> unit)(
+  if(type_carries_origin(en_ty), {
+    exn.throw(dyn(format_error_message(ast_expr_token(at), origin_value_phase_message(en_ty))));
+  })
+);
 /// A payload-free variant of a reference-semantics enum (`ref(enum(UnitVal, …))`)
 /// still heap-allocates: `generate_comptime_value` emits
 /// `__yo_new_<Enum>_<Variant>()`, which mallocs with `ref_count = 1`. The
@@ -590,6 +598,7 @@ evaluate_property_access :: (
                 );
                 if(!has_fields_1, {
                   // Fieldless variant: Color.Red
+                  _reject_origin_carrying_unit_variant(&new_en_ty_1, expr, exn);
                   dot_vname_1 := `.${ variant_name_1 }`;
                   ev_1 := EvalValue.EnumVal(dot_vname_1, ArrayList(EvalValue).new());
                   out_1 := new_expr_info(&env, &new_en_ty_1);
@@ -1178,6 +1187,7 @@ Raw pointer operations may dereference invalid memory.`
                 .None => false
               );
               if(!has_fields_tv, {
+                _reject_origin_carrying_unit_variant(&new_en_tv, expr, exn);
                 dot_tv_vname := `.${ variant_name_tv }`;
                 ev_tv_en := EvalValue.EnumVal(dot_tv_vname, ArrayList(EvalValue).new());
                 out_tv_en := new_expr_info(&env, &new_en_tv);

@@ -27,9 +27,9 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Frame, new_frame, add_variable_to_env, frame_truncate_variables, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, t_extern_opaque } :: import("../../types/creators.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_type, type_carries_origin, no_origin_position_error } :: import("../../types/utils.yo");
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -37,6 +37,48 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression_raw } :: import("./expr.yo");
 { EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
 { ArrayList } :: import("std/collections/array_list");
+/// The no-origin rule at an `extern` member (plans/backlog/REFERENCES_AND_ORIGINS.md
+/// O4, O10): a parameter's or the result's type, or a non-function member's
+/// type, that carries an origin is E0909. A `&T` / `&mut T` parameter slot
+/// carries none of its own (its origin is bound per call); its pointee is
+/// what is checked.
+_reject_extern_origin :: (fn(ty : &TypeValue, at : &AstExpr, exn : Exception) -> unit)({
+  offending := match(
+    ty,
+    Rc(.Func({ param_types : ps, result : r })) => {
+      (found : Option(TypeValue)) = Option(TypeValue).None;
+      (i : usize) = usize(0);
+      while((i < ps.len()) && found.is_none(), {
+        match(ps.get(i), .Some(p) => if(type_carries_origin(&t_slot_pointee(&p)), {
+          found = Option(TypeValue).Some(t_slot_pointee(&p));
+        }), .None => ());
+        i = (i + usize(1));
+      });
+      if(found.is_none() && type_carries_origin(&t_slot_pointee(&r)), {
+        found = Option(TypeValue).Some(t_slot_pointee(&r));
+      });
+      found
+    },
+    _ => if(type_carries_origin(ty), Option(TypeValue).Some(Rc.clone(ty)), Option(TypeValue).None)
+  );
+  match(
+    offending,
+    .Some(o) => {
+      exn.throw(
+        dyn(
+          no_origin_position_error(
+            &o,
+            &String.from("An `extern` signature"),
+            &String.from("a foreign function cannot honour a borrow, so FFI takes raw pointers."),
+            &String.from("pass a raw pointer (`*(T)`, filled with `addr_of(place)`) or the value itself"),
+            ast_expr_token(at)
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+});
 evaluate_extern :: (
   fn(
     expr : &AstExpr,
@@ -235,6 +277,9 @@ User code should normally call stdlib wrappers (e.g. functions in
       ),
       _ => Rc.clone(result.field_type)
     );
+    // E0909 restated (decision 43 step 3, N2a): an `extern` signature takes
+    // no origins. FFI takes raw pointers; a C callee cannot honour a borrow.
+    _reject_extern_origin(&field_ty_with_extern, &arg, exn);
     field_labels.push(result.label.clone());
     field_types.push(Rc.clone(field_ty_with_extern));
     env_adopt(&env, &result.env);

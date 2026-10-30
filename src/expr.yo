@@ -843,15 +843,6 @@ reject_old_mode_spelling :: (fn(e : &AstExpr, exn : Exception) -> unit)(
     .None => ()
   )
 );
-/// The error for a borrow sigil applied to a TYPE outside the slots that
-/// hold one (`T :: &i32`, `ArrayList(&T)`, a field `f : &T`, `&&T`): in
-/// Generation A of decision 42 a borrow is a mode a slot spells, not a type
-/// (decision 43 makes it one). `ty` is the type as written, `is_mut` picks
-/// `&mut`.
-borrow_mode_not_a_type_message :: (fn(ty : &String, is_mut : bool) -> String)({
-  sig := if(is_mut, String.from("&mut "), String.from("&"));
-  `\`${sig}${ty}\` is a borrow mode, not a type: it is written on a parameter (\`x : ${sig}${ty}\`), a closure or \`Fn(...)\` parameter, a receiver (\`self : ${sig}Self\`) or a local borrow (\`(y : ${sig}${ty}) = ${sig}place\`), and cannot name a type, be a type argument or a field's type (plans/VALUES_BY_DEFAULT.md decision 42; references become types with decision 43).`
-});
 /// A capture-list borrow entry's left side, the internal `__yo_imm(y)` or
 /// `__yo_mut(z)`: a prefix call of the mode head with one identifier
 /// (plans/VALUES_BY_DEFAULT.md decision 35), which the puns `&y` / `&mut z`
@@ -1350,7 +1341,8 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
 //   `for(&mut xs, x => …)`               → `for(xs, M(x) => …)` (and the
 //                                          map form's `(k, v)` → `(k, M(v))`)
 // A `&T` anywhere else (`T :: &i32`, `ArrayList(&T)`, a field's type) is not
-// rewritten and is rejected by the evaluator as a borrow mode, not a type.
+// rewritten: the evaluator reads it as a reference type (decision 43 step 3,
+// N2a).
 // The formatter never sees this: it renders the token stream, so a file keeps
 // the spelling it was written in. The synthesized mode tokens sit at the
 // sigil, so a diagnostic about the mode points at the `&`.
@@ -2081,7 +2073,7 @@ desugar_program_if_calls :: (fn(program : &ArrayList(AstExpr)) -> ArrayList(AstE
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
 export(ast_call_args_unmarked, ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, deleted_mode_spelling_error, reject_old_mode_spelling, ast_place_text, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
-export(desugar_if_calls, desugar_program_if_calls, borrow_mode_not_a_type_message);
+export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);

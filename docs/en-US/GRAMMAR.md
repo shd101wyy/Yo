@@ -325,11 +325,11 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 
 Placement rules for `&` and `&mut`:
 
-- They are a **mode**, not a type: they prefix a parameter's type and a local
-  borrow's place. `T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field
-  `f : &T` and `&&T` are errors ("a borrow mode, not a type"). Decision 43
-  (confirmed 2026-10-10) makes `&T`/`&mut T` second-class types, which lifts
-  these errors; until its phase lands, they are a mode.
+- In a slot they are a **mode**: they prefix a parameter's type and a local
+  borrow's place. Where a type stands on its own (`T :: &i32`, `ArrayList(&T)`,
+  `Option(&T)`, a struct field `f : &T`) they make a **reference type**
+  (decision 43 step 3); `&&T` is not accepted yet. A reference-holding type
+  can be named but no value of it is built in this release.
 - The two-argument form `&(T, p)` / `&mut(T, p)` is an **origin-qualified
   reference** (decision 43 step 2): as a parameter's type, `x : &(T, p)` is
   `x : &T` whose origin is `p`, an origin parameter declared with

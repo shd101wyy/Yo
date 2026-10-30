@@ -22,12 +22,12 @@ pragma(Pragma.AllowUnsafe);
 { register_type_display_name } :: import("../../types/string.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type, get_all_some_types, is_bound_closure_identity } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin } :: import("../../types/utils.yo");
 {
   EvalValue,
   eval_value_eq,
@@ -658,6 +658,56 @@ _recursive_placeholder :: (
 /// together with updated caller/callee environments.
 ///
 ///
+/// The type-valued arguments of one instantiation, in parameter order, with
+/// `Unit` for a non-type argument: the `type_arguments` an instance records.
+_instance_type_args :: (fn(arg_vals : &ArrayList(EvalValue)) -> SharedList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < arg_vals.len(), {
+    match(
+      arg_vals.get(i),
+      .Some(.TypeVal(t)) => out.push(Rc.clone(t)),
+      .Some(_) => out.push(rc(TypeValueNode.Unit)),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  shared_list(out)
+});
+/// A memoized instantiation served to a call whose arguments carry origins
+/// (decision 43 step 3, N2a): origins are erased from the constructor memo
+/// (`_ctfe_args_equal` compares types with origins ignored), so `_View(x)`
+/// and `_View(y)`, or `Option(&(i32, x))` and `Option(&(i32, y))`, share one
+/// struct. The instance records ITS origins in `type_arguments`, which the
+/// memo's copy holds for the first call. Every other call returns the memo's
+/// value unchanged.
+_restamp_instance_origins :: (fn(v : EvalValue, arg_vals : &ArrayList(EvalValue)) -> EvalValue)({
+  (carries : bool) = false;
+  (i : usize) = usize(0);
+  while((i < arg_vals.len()) && !carries, {
+    if(match(arg_vals.get(i), .Some(.TypeVal(t)) => type_carries_origin(&t), _ => false), {
+      carries = true;
+    });
+    i = (i + usize(1));
+  });
+  if(!carries, {
+    return(v);
+  });
+  match(
+    &v,
+    .TypeVal(Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid, type_arguments : stas, is_source_namespace : sns }))) => if(
+      stas.len() == arg_vals.len(),
+      EvalValue.TypeVal(rc(TypeValueNode.Struct(sid.clone(), sname.clone(), Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, scfid.clone(), _instance_type_args(arg_vals), sns))),
+      v
+    ),
+    .TypeVal(Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas))) => if(
+      etas.len() == arg_vals.len(),
+      EvalValue.TypeVal(rc(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs, eiar, _instance_type_args(arg_vals)))),
+      v
+    ),
+    _ => v
+  )
+});
 evaluate_comptime_fn_call :: (
   fn(
     function_callee_expr : &Option(AstExpr),
@@ -1120,7 +1170,7 @@ evaluate_comptime_fn_call :: (
       });
       return(
         ComptimeFnCallResult(
-          value : cached_val,
+          value : _restamp_instance_origins(cached_val, &all_arg_vals),
           caller_env : caller_env,
           callee_env : callee_env,
           comptime_ref : Option(ComptimeRef).None
