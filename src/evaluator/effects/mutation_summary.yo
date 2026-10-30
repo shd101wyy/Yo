@@ -928,9 +928,20 @@ _msp_type_may_root :: (fn(ty : &TypeValue) -> bool)(
 _msp_labels :: (fn(fid : &String) -> SharedList(String))(
   match(get_func_type(fid), Rc(.Func({ meta : m })) => Rc.clone(m.*.param_labels), _ => no_labels())
 );
-/// Allocation externs hand back storage nothing else references.
+/// Allocation externs hand back storage nothing else references. The aligned
+/// family is one of them: `Box(T).new` takes a payload aligned above 16 from
+/// `__yo_aligned_alloc`, and without it here the block was unknown storage,
+/// so the cell's header and payload stores counted as mutating every
+/// argument, and a function moving a `ref` parameter into `box(b)` got the
+/// borrowed-`for` entry assert
+/// (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
 _msp_extern_returns_fresh :: (fn(h : &String) -> bool)(
-  (h == "__yo_malloc") || (h == "__yo_calloc") || (h == "malloc") || (h == "calloc")
+  (h == "__yo_malloc")
+  || (h == "__yo_calloc")
+  || (h == "__yo_aligned_alloc")
+  || (h == "malloc")
+  || (h == "calloc")
+  || (h == "aligned_alloc")
 );
 /// The allocator-family contract for EXPLICIT allocators
 /// (plans/archive/EXPLICIT_ALLOCATORS.md): a call through a slot of std's
