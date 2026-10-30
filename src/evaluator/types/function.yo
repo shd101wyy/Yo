@@ -2340,7 +2340,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `This parameter is a reference to a reference (\`&${type_to_string(&final_param_type)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A reference to a value is \`&T\`.`
+          `This parameter is a reference to a reference (its pointee is \`${type_to_string(&final_param_type)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A reference to a value is \`&T\`.`
         )
       )
     );
@@ -4796,7 +4796,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(&return_type_expr),
-          `This result is a reference to a reference (\`&${type_to_string(&ret_type_val)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A projection returns \`&T\`.`
+          `This result is a reference to a reference (its pointee is \`${type_to_string(&ret_type_val)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A projection returns \`&T\`.`
         )
       )
     );

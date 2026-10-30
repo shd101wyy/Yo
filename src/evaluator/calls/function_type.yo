@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text, record_copy_loop } :: import("../utils.yo");
@@ -1023,6 +1023,37 @@ _build_def_time_body_env :: (
         );
       });
       fa_i = (fa_i + usize(1));
+    });
+    // `generic(p : Origin)` binders (decision 43 step 2) live in
+    // `FuncMeta.origin_labels`, apart from the forall binders, and the body
+    // may name them in a type: `Option(&(T, p))` (step 3, N2a). Each binds
+    // as the origin naming itself, as the signature's env binds it.
+    o_labels := match(
+      fn_type_for_foralls,
+      Rc(.Func({ meta : __o_m })) => match(__o_m.*.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels()),
+      _ => no_labels()
+    );
+    (o_i : usize) = usize(0);
+    while(o_i < o_labels.len(), {
+      o_name := match(o_labels.get(o_i), .Some(n) => n, .None => String.from(""));
+      if(o_name.len() > usize(0), {
+        o_names := ArrayList(String).new();
+        o_names.push(o_name.clone());
+        o_ty := t_origin_kind();
+        (o_val : Option(EvalValue)) = Option(EvalValue).Some(create_type_value(t_origin_named(&shared_list(o_names))));
+        add_variable_to_env(
+          &fresh_env,
+          o_name.clone(),
+          &o_ty,
+          &o_val,
+          true,
+          false,
+          false,
+          false,
+          synthetic_token(&o_name, &caller_env.module_path.*)
+        );
+      });
+      o_i = (o_i + usize(1));
     });
   };
   (pi : usize) = usize(0);

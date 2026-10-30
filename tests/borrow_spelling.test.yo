@@ -318,8 +318,17 @@ comptime_expect_error(
   bs_origin_ctor_not_a_type_ctor :: (fn(comptime(p) : Origin) -> i32)(i32(0)),
   "must return `comptime(Type)`"
 );
+// `&mut &i32` in a parameter is the two mode sigils (one borrow, rejected by
+// the parser's mode rule); through an alias the pointee is a reference type.
+BsRefAlias :: &i32;
 comptime_expect_error(
-  bs_ref_to_ref_param :: (fn(v : &mut &i32) -> unit)(()),
+  bs_ref_to_ref_param :: (fn(v : &mut BsRefAlias) -> unit)(()),
+  "a reference to a reference"
+);
+comptime_expect_error(
+  bs_ref_to_ref_field :: (fn() -> unit)({
+    S :: struct(f : &mut &i32);
+  }),
   "a reference to a reference"
 );
 // `&mut(T, p)` is decision 43's origin-qualified reference. Its
