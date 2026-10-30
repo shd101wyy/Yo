@@ -2326,8 +2326,11 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   context.base.inside_match = true;
   body_indent := indent.clone();
   body_indent.push_str("  ");
-  prefix := String.from("__yo_m");
-  prefix.push_string(ast_expr_id(expr).to_string());
+  // C labels are function-scoped, and one match node can be emitted twice in
+  // one C function (a fused wrapper inlined at two awaits of one state
+  // machine), so the prefix is fresh per emission, not the node id alone
+  // (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
+  prefix := fresh_local_name(`__yo_m${ast_expr_id(expr).to_string()}_`, &context.base.current_function_name);
   labels := _MatchLabels(prefix : prefix.clone(), next : usize(0));
   end_label := prefix.clone();
   end_label.push_str("_end");
