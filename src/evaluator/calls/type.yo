@@ -111,7 +111,7 @@ try_to_call_type_with_arguments :: (
       .Some(o_f) => if(type_carries_origin(&o_f.ty), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
-          .Some(ci) => match(ci.value, .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
+          .Some(ci) => match(&ci.value, .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
         exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_value_phase_message(&o_shown))));

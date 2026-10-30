@@ -139,6 +139,19 @@ arguments for the memo (T3). (3) `type_key`'s `OriginSet` arm and the compatibil
 binding whose type carries an origin. (6) The value wall in `evaluate_function_call`, both
 branches (the std and the user path), naming N2b.
 
+**As landed (deltas from the plan above).** The origin argument is read by name in both
+argument paths: `check_if_function_parameter_matches_argument` and the `FuncVal` arm of
+`evaluate_function_call` (`fv_takes_origin`), which is the one a type constructor applied in an
+expression (`_View(x)`) takes. A function's `generic(p : Origin)` binders are bound in the
+definition-time body env (`_build_def_time_body_env`), so a body may name `p` in a type
+(`Option(&(i32, p))`). The wall has a fourth site, the struct constructor
+(`try_to_call_type_with_arguments`), which stops before an argument such as `&mut x` meets a
+by-value field's rule. A comptime `Origin` parameter on a function that does not return
+`comptime(Type)` is rejected: only a type constructor takes one. A parameter or result whose
+pointee is itself a reference (`v : &mut RefAlias` with `RefAlias :: &i32`) is N1e's phase
+message; `v : &mut &i32` in a parameter stays the mode rule's error (the parser reads it as two
+mode sigils).
+
 **Not in N2a.** Values (N2b), `Dyn(Trait, p)` (N2d), `Rc`/`Arc` payloads (N1d's predicate),
 reference-to-reference (N1e), local annotations naming the binding itself (`wf-self-binding`,
 with N1e's annotated bindings), impl-level origin binders (N2b).
