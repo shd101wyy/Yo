@@ -518,9 +518,11 @@ test("Test dyn inside a generic body whose concrete is still a type variable", {
 // (issues/fixed/2026-10-27-a-dyn-of-a-type-variable-fails-on-a-trait-default-with-a-parameter.md).
 _DynDefShow :: trait(
   show : (fn(self : &Self) -> i32),
-  (show_into : (fn(self : &Self, out : &mut i32) -> unit)) ?= ((self, out) -> {
-    out = (out + self.show());
-  })
+  (show_into : (fn(self : &Self, out : &mut i32) -> unit)) ?= (
+    (self, out) -> {
+      out = (out + self.show());
+    }
+  )
 );
 _DynDefP :: struct(x : i32);
 derive(_DynDefP, Copy, Clone);
