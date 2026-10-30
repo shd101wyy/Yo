@@ -42,7 +42,8 @@ pragma(Pragma.AllowUnsafe);
   is_ptr_val,
   is_comptime_list_val,
   is_unknown_val,
-  create_unknown_val
+  create_unknown_val,
+  value_cell_new
 } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_ptr, t_comptime_list, t_comptime_string } :: import("../../types/creators.yo");
@@ -286,7 +287,7 @@ ci_eval_list_index :: (
     .Some(list_ev) => {
       list_elems := match(
         list_ev,
-        .ComptimeListVal(elems) => elems,
+        .ComptimeListVal(elems) => Rc.clone(elems),
         _ => {
           return(expr);
         }
@@ -456,7 +457,7 @@ ci_eval_list_range_index :: (
     .Some(list_ev) => {
       list_elems := match(
         list_ev,
-        .ComptimeListVal(elems) => elems,
+        .ComptimeListVal(elems) => Rc.clone(elems),
         _ => {
           return(expr);
         }
@@ -506,7 +507,7 @@ ci_eval_list_range_index :: (
         );
         i = (i + usize(1));
       });
-      new_list_val := EvalValue.ComptimeListVal(sliced);
+      new_list_val := EvalValue.ComptimeListVal(value_cell_new(sliced));
       out_info := new_expr_info(&cur_env, &result_ty);
       out_info.value = Option(EvalValue).Some(new_list_val);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -632,7 +633,7 @@ ci_eval_array_index :: (
                   }
                 );
                 out_info.value = Option(EvalValue).Some(elem_val);
-                expr_info_set_comptime_ref(&out_info, Option(ComptimeRef).Some(ComptimeRef.ArrayRef(elements, idx_usize)));
+                expr_info_set_comptime_ref(&out_info, Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(elements), idx_usize)));
               }, {
                 out_info.value = Option(EvalValue).Some(create_unknown_val(&elem_ty));
               });
@@ -658,7 +659,7 @@ ci_eval_array_index :: (
 _ci_str_pointer :: (fn(quoted : &String) -> EvalValue)({
   cell := ArrayList(EvalValue).new();
   cell.push(EvalValue.StrLit(quoted.clone()));
-  EvalValue.PtrVal(cell, usize(0), .None)
+  EvalValue.PtrVal(value_cell_new(cell), usize(0), .None)
 });
 // ---------------------------------------------------------------------------
 // Handler: __yo_comptime_string_index / _range / _range_inclusive

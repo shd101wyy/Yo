@@ -29,7 +29,9 @@ pragma(Pragma.AllowUnsafe);
   is_func_val,
   is_unknown_val,
   create_unknown_val,
-  create_runtime_unknown_val
+  create_runtime_unknown_val,
+  value_cell_new,
+  no_values
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -648,7 +650,7 @@ _try_comptime_element_access :: (
                     // `elements` is the SHARED handle destructured from the
                     // ArrayVal, so mutation through the ref lands in the
                     // binding (same as builtins/comptime_index_fns.yo:643).
-                    comptime_ref : Option(ComptimeRef).Some(ComptimeRef.ArrayRef(elements, idx_usize))
+                    comptime_ref : Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(elements), idx_usize))
                   )
                 )
               );
@@ -1389,7 +1391,7 @@ _try_comptime_custom_type_index :: (
   // Fresh 1-elem cell around self.
   self_ptr_cell := ArrayList(EvalValue).new();
   self_ptr_cell.push(self_value);
-  self_ptr_value := EvalValue.PtrVal(self_ptr_cell, usize(0), .None);
+  self_ptr_value := EvalValue.PtrVal(value_cell_new(self_ptr_cell), usize(0), .None);
   ct_p0_ty := match(
     &ct_fn_type,
     Rc(.Func({ param_types : ct_pts0 })) => match(slot_pointee_at(&ct_pts0, usize(0)), .Some(t) => t, .None => t_unit()),
@@ -1413,7 +1415,7 @@ _try_comptime_custom_type_index :: (
   // Rebuild the method's definition-time scope from its capture snapshot, then
   // push a frame with `self` / `idx` bound.
   ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
-  ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => ArrayList(EvalValue).new());
+  ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => no_values());
   ct_module_path := Rc.clone(ct_caller_env.module_path);
   ct_callee_env := Environment.new(Rc.clone(ct_module_path));
   (ct_ci : usize) = usize(0);
@@ -1522,15 +1524,15 @@ _try_comptime_custom_type_index :: (
         ct_target,
         .ArrayVal(ct_elements) => {
           ct_deref = match(ct_elements.get(ct_index), .Some(e) => e, .None => ct_target);
-          ct_cref = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(ct_elements, ct_index));
+          ct_cref = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(ct_elements), ct_index));
         },
         .StructVal(_, _, ct_fields_s) => {
           ct_deref = match(ct_fields_s.get(ct_index), .Some(e) => e, .None => ct_target);
-          ct_cref = Option(ComptimeRef).Some(ComptimeRef.StructRef(ct_fields_s, ct_index));
+          ct_cref = Option(ComptimeRef).Some(ComptimeRef.StructRef(Rc.clone(ct_fields_s), ct_index));
         },
         .TupleVal(ct_fields_t) => {
           ct_deref = match(ct_fields_t.get(ct_index), .Some(e) => e, .None => ct_target);
-          ct_cref = Option(ComptimeRef).Some(ComptimeRef.TupleRef(ct_fields_t, ct_index));
+          ct_cref = Option(ComptimeRef).Some(ComptimeRef.TupleRef(Rc.clone(ct_fields_t), ct_index));
         },
         _ => ()
       );
@@ -1564,7 +1566,7 @@ _try_comptime_custom_type_index :: (
       index_method_value : ct_rt_method_value,
       caller_env : ct_caller_env,
       index : Option(usize).None,
-      comptime_ref : ct_result.comptime_ref
+      comptime_ref : ct_result.comptime_ref.clone()
     )
   )
 });

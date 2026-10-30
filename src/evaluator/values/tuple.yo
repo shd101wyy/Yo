@@ -35,7 +35,7 @@ import("std/fmt");
 } :: import("../../expr_info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_type_value, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_type_value, is_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 {
   is_tuple_type,
@@ -318,7 +318,7 @@ evaluate_tuple_value :: (
       );
       m = (m + usize(1));
     });
-    tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(val_list));
+    tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(value_cell_new(val_list)));
   });
   info := new_expr_info(&result.env, &tuple_ty);
   info.value = tuple_value_opt;

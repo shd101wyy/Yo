@@ -30,7 +30,9 @@ pragma(Pragma.AllowUnsafe);
   EvalValue,
   is_unknown_val,
   create_unknown_val,
-  is_type_value
+  is_type_value,
+  ValueCell,
+  value_cell_new
 } :: import("../../value.yo");
 { TypeValue, fn_param_is_mut_ref, fn_param_is_by_value } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
@@ -41,10 +43,10 @@ pragma(Pragma.AllowUnsafe);
 { call_promote_index_places_for_write } :: import("../context.yo");
 { Exception } :: import("std/error");
 /// A fresh single-element PtrVal cell.
-_cell1 :: (fn(v : &EvalValue) -> ArrayList(EvalValue))({
+_cell1 :: (fn(v : &EvalValue) -> ValueCell)({
   c := ArrayList(EvalValue).new();
   c.push(v);
-  c
+  value_cell_new(c)
 });
 { panic, assert } :: import("std/assert");
 // The type of the aggregate an element/field place points into: the object
@@ -383,19 +385,19 @@ evaluate_address_call :: (
   // elements list, and `target_index` selects the element within it.
   agg_ty := _aggregate_type_of(&eval_arg, ctx);
   ptr_val_from_comptime_ref := match(
-    comptime_ref_opt,
+    &comptime_ref_opt,
     .Some(cref) => Option(EvalValue).Some(
       match(
         cref,
         .ArrayRef(elements, index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(elements)), index, agg_ty),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(elements))), index, agg_ty),
         .ComptimeListRef(elements, index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(elements)), index, agg_ty),
+          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(Rc.clone(elements))), index, agg_ty),
         .StructRef(field_values, field_index) =>
           // Treat field_values as an array to enable indexed access.
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(field_values)), field_index, agg_ty),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(field_values))), field_index, agg_ty),
         .TupleRef(fields, field_index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(fields)), field_index, agg_ty)
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(fields))), field_index, agg_ty)
       )
     ),
     .None => Option(EvalValue).None
@@ -423,7 +425,7 @@ evaluate_address_call :: (
       // Only an executing (CTFE) evaluation addresses the cell.
       .Some(src_var) => if(
         (src_var.value.len() > usize(0)) && (!(src_var.is_parameter && !src_var.is_compile_time_only) || ctx.is_executing),
-        Option(EvalValue).Some(EvalValue.PtrVal(src_var.value, usize(0), .None)),
+        Option(EvalValue).Some(EvalValue.PtrVal(Rc.clone(src_var.value), usize(0), .None)),
         Option(EvalValue).None
       ),
       .None => Option(EvalValue).None

@@ -9,7 +9,7 @@
 //! across helpers).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, ValueCell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_types, no_labels } :: import("../../types/definitions.yo");
 { is_unit_type, is_str_type, is_primitive_type, is_some_type, is_reference_enum_type, is_array_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -628,7 +628,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
             true => _static_address(&target, &pointee, String.new(), context)
           ),
           .Some(agg_ty) => {
-            parts := match(target, .ArrayVal(elems) => Option(ArrayList(EvalValue)).Some(elems), .ComptimeListVal(elems) => .Some(elems), _ => .None);
+            parts := match(target, .ArrayVal(elems) => Option(ValueCell).Some(Rc.clone(elems)), .ComptimeListVal(elems) => .Some(Rc.clone(elems)), _ => .None);
             match(
               parts,
               .None => String.from("/* skip generating value */"),
@@ -636,7 +636,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
                 &agg_ty,
                 Rc(.Struct({ field_labels : labels })) => match(
                   labels.get(index),
-                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), labels.items, elems), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
+                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), Rc.clone(labels), elems), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
                 Rc(.Tuple(_, _)) => _static_address(EvalValue.TupleVal(elems), &agg_ty, `._${index}`, context),

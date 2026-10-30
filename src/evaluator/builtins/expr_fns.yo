@@ -30,7 +30,8 @@ import("std/string");
   EvalValue,
   is_unknown_val,
   create_unknown_val,
-  is_expr_val
+  is_expr_val,
+  value_cell_new
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool, t_expr_t, t_comptime_string, t_comptime_list } :: import("../../types/creators.yo");
@@ -354,7 +355,7 @@ evaluate_yo_expr_get_args :: (
               elems.push(EvalValue.ExprVal(fn_arg));
               i = (i + usize(1));
             });
-            out_info.value = Option(EvalValue).Some(EvalValue.ComptimeListVal(elems));
+            out_info.value = Option(EvalValue).Some(EvalValue.ComptimeListVal(value_cell_new(elems)));
             ()
           },
           _ => ()

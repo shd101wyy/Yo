@@ -6,7 +6,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("../../src/expr.yo");
 { TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
-{ EvalValue } :: import("../../src/value.yo");
+{ EvalValue, value_cell_new } :: import("../../src/value.yo");
 { Environment } :: import("../../src/env.yo");
 { assert, panic } :: import("std/assert");
 {
@@ -176,7 +176,7 @@ test("control_flow_to_string — multiple flags", {
 // ---------------------------------------------------------------------------
 test("ComptimeRef ArrayRef construction", {
   elems := ArrayList(EvalValue).new();
-  ref := ComptimeRef.ArrayRef(elements : elems, index : usize(0));
+  ref := ComptimeRef.ArrayRef(elements : value_cell_new(elems), index : usize(0));
   match(
     ref,
     .ArrayRef(_, idx) => assert(idx == usize(0), "ArrayRef index"),
@@ -187,7 +187,7 @@ test("ComptimeRef ArrayRef construction", {
 });
 test("ComptimeRef StructRef construction", {
   fields := ArrayList(EvalValue).new();
-  ref := ComptimeRef.StructRef(field_values : fields, field_index : usize(2));
+  ref := ComptimeRef.StructRef(field_values : value_cell_new(fields), field_index : usize(2));
   match(
     ref,
     .StructRef(_, fi) => assert(fi == usize(2), "StructRef field_index"),

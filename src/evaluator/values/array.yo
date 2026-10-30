@@ -21,7 +21,7 @@ import("std/fmt");
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_array, t_usize } :: import("../../types/creators.yo");
 { is_array_type } :: import("../../types/guards.yo");
@@ -210,7 +210,7 @@ evaluate_array_value :: (
         );
         build_i = (build_i + usize(1));
       });
-      Option(EvalValue).Some(EvalValue.ArrayVal(elems))
+      Option(EvalValue).Some(EvalValue.ArrayVal(value_cell_new(elems)))
     },
     true => Option(EvalValue).None
   );

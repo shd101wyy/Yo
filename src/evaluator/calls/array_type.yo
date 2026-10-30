@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_unknown_val, value_cell_new } :: import("../../value.yo");
 {
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr
@@ -183,7 +183,7 @@ try_to_implement_array_by_array_type :: (
   // (values/array.yo) already guarded exactly this way, which is why
   // `[a, b,]` worked while `Array(T, N)(a, b)` did not.
   if(all_elements_are_comptime, {
-    out_info.value = .Some(EvalValue.ArrayVal(elements));
+    out_info.value = .Some(EvalValue.ArrayVal(value_cell_new(elements)));
   });
   out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

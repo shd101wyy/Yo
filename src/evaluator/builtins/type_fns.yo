@@ -34,7 +34,8 @@ pragma(Pragma.AllowUnsafe);
   is_expr_val,
   create_unknown_val,
   create_type_value,
-  type_of_eval_value
+  type_of_eval_value,
+  value_cell_new
 } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, no_label_lists, SharedList, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_type, t_comptime_string, t_comptime_int, t_comptime_float, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
@@ -762,7 +763,7 @@ _ti_bind_comptime_list :: (
     )
   };
   list_type := t_comptime_list(&elem_type);
-  list_val := EvalValue.ComptimeListVal(values);
+  list_val := EvalValue.ComptimeListVal(value_cell_new(values));
   name_str := stable_module_id(`__ti_${var_prefix}_`, &env_ptr.module_path.*);
   _add := add_variable_to_env(
     env_ptr,
@@ -2118,7 +2119,7 @@ evaluate_type_map_variants :: (
   });
   // Return a ComptimeList(Expr).
   list_type := t_comptime_list(t_expr_t());
-  list_val := EvalValue.ComptimeListVal(result_vals);
+  list_val := EvalValue.ComptimeListVal(value_cell_new(result_vals));
   out := new_expr_info(&local_env, &list_type);
   out.value = Option(EvalValue).Some(list_val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);

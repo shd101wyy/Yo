@@ -40,7 +40,7 @@
   is_function_type_and_is_type_function
 } :: import("../types/guards.yo");
 { type_to_string } :: import("../types/string.yo");
-{ EvalValue, value_to_string } :: import("../value.yo");
+{ EvalValue, value_to_string, empty_value_cell } :: import("../value.yo");
 { Environment } :: import("../env.yo");
 { MethodEntry, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
 { GenericImplDocEntry, get_generic_impl_doc_entries } :: import("../evaluator/values/impl.yo");
@@ -3438,14 +3438,7 @@ build_doc_module :: (
     },
     _ => ()
   );
-  (value_list : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
-  match(
-    module_value,
-    .StructVal(_, _, field_values) => {
-      value_list = field_values;
-    },
-    _ => ()
-  );
+  value_list := match(module_value, .StructVal(_, _, field_values) => Rc.clone(field_values), _ => empty_value_cell());
   (i : usize) = usize(0);
   while(i < ns_field_labels.len(), {
     field_name := match(ns_field_labels.get(i), .Some(l) => l, .None => String.new());

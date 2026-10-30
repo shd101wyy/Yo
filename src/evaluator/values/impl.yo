@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
-{ EvalValue, FuncValData, create_type_value, create_unknown_val, lookup_enum_cfid } :: import("../../value.yo");
+{ EvalValue, FuncValData, create_type_value, create_unknown_val, lookup_enum_cfid, no_values, shared_values } :: import("../../value.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -193,7 +193,7 @@ _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) 
       .FuncVal(__fvm8, cv) => if(
         __fvm8.*.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.*.params.clone(), param_type_names : __fvm8.*.param_type_names.clone(), evidence_params : __fvm8.*.evidence_params.clone(), body : __fvm8.*.body, cap_names : __fvm8.*.cap_names.clone(), cap_tys : __fvm8.*.cap_tys.clone(), func_id : __fvm8.*.func_id.clone(), env_key : __fvm8.*.env_key)), cv)
+        EvalValue.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.*.params.clone(), param_type_names : __fvm8.*.param_type_names.clone(), evidence_params : __fvm8.*.evidence_params.clone(), body : __fvm8.*.body, cap_names : __fvm8.*.cap_names.clone(), cap_tys : __fvm8.*.cap_tys.clone(), func_id : __fvm8.*.func_id.clone(), env_key : __fvm8.*.env_key)), Rc.clone(cv))
       ),
       _ => v
     )
@@ -2652,7 +2652,7 @@ _inject_forall_captures :: (
               register_funcval_cap_slices(ifc_env_key, cap_slices_with_list(&ifc_prefix, &new_cvars));
             });
             // Flat names/types only when not aligned (see above).
-            injected := EvalValue.FuncVal(Rc.new(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
+            injected := EvalValue.FuncVal(Rc.new(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), shared_values(new_cvs));
             owned_keys_record(&g_ifc_memo_owned, memo_key.clone());
             g_ifc_memo.with_mut(m => m.insert(memo_key, injected));
             Option(EvalValue).Some(injected)
@@ -3837,7 +3837,7 @@ _materialize_default_body :: (
         func_id : fn_id.clone()
       )
     ),
-    ArrayList(EvalValue).new()
+    no_values()
   );
   body_ctx := create_function_body_evaluation_context(fn_ty, &body_ctx_fv, env, ctx);
   // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
@@ -6019,7 +6019,7 @@ evaluate_module_value :: (
                                 env_key : d_fvd.*.env_key
                               )
                             ),
-                            d_cvs
+                            Rc.clone(d_cvs)
                           );
                           register_func_type(d_fresh_id.clone(), d_sub_ty.clone());
                           d_saved_self := ctx.self_type.clone();
@@ -6163,7 +6163,7 @@ evaluate_module_value :: (
                                   env_key : d_fvd.*.env_key
                                 )
                               ),
-                              d_cvs
+                              Rc.clone(d_cvs)
                             )
                           )
                         },
