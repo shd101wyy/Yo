@@ -3,6 +3,7 @@
 { Mutex } :: import("std/sync/mutex");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
+{ Deque } :: import("std/collections/deque");
 { RefCell } :: import("std/sync/refcell");
 { platform, Platform } :: import("std/process");
 { __yo_async_blocking_begin } :: import("std/sys/externs.yo");
@@ -297,12 +298,14 @@ test("D3 canary: std mutators on owned values, through &mut, and under a lock", 
 // ============================================================================
 // D4 — a closure is Send iff its captures are
 // ============================================================================
-// Already enforced at the spawn boundary: a closure over an ArrayList is not Send.
+// Already enforced at the spawn boundary: a closure over a Deque (a non-atomic
+// handle) is not Send. An ArrayList is a value since B8, Send when its
+// elements are.
 comptime_expect_error({
   _d4_spawn_over_array_list :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := Deque(i32).new();
     t := Thread(unit).spawn(io => {
-      items.push(i32(1));
+      items.push_back(i32(1));
       ()
     });
     t.join();
@@ -313,10 +316,10 @@ comptime_expect_error({
 // `V <: Send`, and a closure type holds `Send` only when its captures do.
 comptime_expect_error({
   _d4_arc_of_non_send_closure :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := Deque(i32).new();
     (f : Impl(Fn() -> unit)) = (
       () => {
-        items.push(i32(1));
+        items.push_back(i32(1));
       }
     );
     _a := arc(f);
@@ -329,10 +332,10 @@ _needs_send :: (fn(generic(T : Type), x : &T, where(T <: Send)) -> unit)({
 });
 comptime_expect_error({
   _d4_generic_send_bound :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := Deque(i32).new();
     (f : Impl(Fn() -> unit)) = (
       () => {
-        items.push(i32(1));
+        items.push_back(i32(1));
       }
     );
     _needs_send(&f);

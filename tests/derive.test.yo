@@ -486,7 +486,7 @@ derive(generic(A : Type), where(A <: Clone), ClonePeek(A), Clone);
 CloneSlot :: (fn(comptime(A) : Type) -> comptime(Type))(enum(Empty, Full(v : Option(A))));
 derive(generic(A : Type), where(A <: Clone, A <: Eq(A)), CloneSlot(A), Clone, Eq(CloneSlot(A)));
 test("derive Clone for a generic struct over containers of its parameter", {
-  items := ArrayList(String).new();
+  mut(items) := ArrayList(String).new();
   items.push(`x`);
   p := ClonePeek(String)(n : i32(1), peeked : .Some(`p`), items : items, cell : box(`c`));
   q := p.clone();
@@ -921,7 +921,7 @@ derive(_ListItem, Clone, Copy);
 _Holder :: struct(x : usize, rel : ArrayList(_ListItem));
 derive(_Holder, Clone);
 test("a derived Clone over an ArrayList field deep-clones and stays independent of the original", {
-  src := ArrayList(_ListItem).new();
+  mut(src) := ArrayList(_ListItem).new();
   src.push(_ListItem(a : usize(10)));
   h := _Holder(x : usize(1), rel : src);
   c := h.clone();
