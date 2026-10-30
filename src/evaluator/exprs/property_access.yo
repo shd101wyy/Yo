@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { deref_target_type } :: import("../trait_checking.yo");
@@ -72,8 +72,10 @@ pragma(Pragma.AllowUnsafe);
 /// N2a's value wall at a fieldless variant of an enum whose type holds a
 /// reference (`Option(&i32).None`, decision 43 step 3): no value of such a
 /// type is built until N2b (`origin_value_phase_message`).
-_reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, exn : Exception) -> unit)(
-  if(type_carries_origin(en_ty), {
+_reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
+  // In a std body (specialized for a type holding a reference) the user's
+  // call that reached it is walled instead, naming the user's type.
+  if(type_carries_origin(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
     exn.throw(dyn(format_error_message(ast_expr_token(at), origin_value_phase_message(en_ty))));
   })
 );
@@ -598,7 +600,7 @@ evaluate_property_access :: (
                 );
                 if(!has_fields_1, {
                   // Fieldless variant: Color.Red
-                  _reject_origin_carrying_unit_variant(&new_en_ty_1, expr, exn);
+                  _reject_origin_carrying_unit_variant(&new_en_ty_1, expr, ctx, exn);
                   dot_vname_1 := `.${ variant_name_1 }`;
                   ev_1 := EvalValue.EnumVal(dot_vname_1, ArrayList(EvalValue).new());
                   out_1 := new_expr_info(&env, &new_en_ty_1);
@@ -1187,7 +1189,7 @@ Raw pointer operations may dereference invalid memory.`
                 .None => false
               );
               if(!has_fields_tv, {
-                _reject_origin_carrying_unit_variant(&new_en_tv, expr, exn);
+                _reject_origin_carrying_unit_variant(&new_en_tv, expr, ctx, exn);
                 dot_tv_vname := `.${ variant_name_tv }`;
                 ev_tv_en := EvalValue.EnumVal(dot_tv_vname, ArrayList(EvalValue).new());
                 out_tv_en := new_expr_info(&env, &new_en_tv);

@@ -7973,7 +7973,12 @@ evaluate_function_call :: (
   moved_before := _lent_roots_moved_before(expr, env);
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(&call_mp, ctx.std_path.clone()), {
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
-    _reject_origin_carrying_value(&std_r, &call_tok, ctx, exn);
+    // The wall stands at the user's code: a std body specialized for a type
+    // holding a reference is reached only through a user call, whose result
+    // the wall names (`ArrayList(&i32)`, not the body's `?*(&i32)`).
+    if(!is_std_module_path(&call_mp, ctx.std_path.clone()), {
+      _reject_origin_carrying_value(&std_r, &call_tok, ctx, exn);
+    });
     _stamp_projection_call(&std_r, ctx);
     _attach_fnonce_callee_release(expr, &std_r, ctx);
     _note_future_producing_call(expr, &std_r, ctx, exn);
