@@ -459,12 +459,10 @@ test("an element borrow beside a variable holding a closure is rejected", {
   // Since B8 the closure reaches the list through a `&mut` capture, which
   // freezes `xs` for the closure's scope (decision 38 B).
   {
-    (cb : Impl(Fn(v : &mut String) -> unit)) = (
-      { &mut xs }(v) => {
-        xs.clear();
-        v = String.from("w");
-      }
-    );
+    (cb : Impl(Fn(v : &mut String) -> unit)) = ({ &mut xs }(v) => {
+      xs.clear();
+      v = String.from("w");
+    });
     comptime_expect_error(_write_through(&mut xs(usize(0)), cb), "the closure `cb` borrows `xs`");
   };
   assert(xs.len() == usize(1), "nothing ran");
@@ -481,12 +479,10 @@ test("an element borrow beside a closure in a struct field is rejected", {
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
   {
-    (cb : Impl(Fn(v : &mut String) -> unit)) = (
-      { &mut xs }(v) => {
-        xs.clear();
-        v = String.from("w");
-      }
-    );
+    (cb : Impl(Fn(v : &mut String) -> unit)) = ({ &mut xs }(v) => {
+      xs.clear();
+      v = String.from("w");
+    });
     comptime_expect_error(field_beside(&mut xs(usize(0)), _CbFieldBox(cb : dyn(cb))), "the closure `cb` borrows `xs`");
   };
   assert(xs.len() == usize(1), "nothing ran");

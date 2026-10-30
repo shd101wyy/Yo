@@ -725,7 +725,7 @@ test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
 // to hand `ArrayList(Dyn(T))._ptr`, so reading an element back did not compile.
 { ToString : _AlToString } :: import("std/fmt/to_string");
 test("Test an ArrayList of trait objects reads its elements back", {
-  (xs : ArrayList(Dyn(_AlToString))) = ArrayList(Dyn(_AlToString)).new();
+  (mut(xs) : ArrayList(Dyn(_AlToString))) = ArrayList(Dyn(_AlToString)).new();
   xs.push(dyn(i32(7), _AlToString));
   xs.push(dyn(i32(9), _AlToString));
   got := xs(usize(1)).to_string();
@@ -792,7 +792,7 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
       xs.push(i32(7));
     })
   );
-  (ys : ArrayList(i32)) = ArrayList(i32).new();
+  (mut(ys) : ArrayList(i32)) = ArrayList(i32).new();
   p.push(&mut ys);
   _dio_push_through(&mut ys, &p);
   assert(ys.len() == usize(2), "a local ArrayList is pushed through the callback, directly and forwarded");
@@ -876,7 +876,7 @@ test("dyn of a named function calls the function", {
   assert(x == i32(42), "a &mut parameter writes through to the caller's place");
   (o : Dyn(FnOnce() -> i32)) = dyn(_dnf_nine);
   assert(o() == i32(9), "a Dyn(FnOnce) of a named fn");
-  (fs : ArrayList(Dyn(Fn() -> i32))) = ArrayList(Dyn(Fn() -> i32)).new();
+  (mut(fs) : ArrayList(Dyn(Fn() -> i32))) = ArrayList(Dyn(Fn() -> i32)).new();
   fs.push(dyn(_dnf_nine));
   fs.push(dyn(() => i32(1)));
   assert((fs(usize(0))() + fs(usize(1))()) == i32(10), "a named fn and a closure share one Dyn type");
