@@ -105,6 +105,7 @@ test("a Weak back edge keeps a type Acyclic", {
 });
 ```
 
+`Tree` 只演示推导，并不是可用的树：它的 `parent` 只能指向一个由 `Rc` 持有的根，因为 `Box` 拥有的子节点没有可降级的单元。
 子节点是 `Rc` 句柄的树（如上面的父指针示例）不是 `Acyclic`：它的类型并不阻止子节点的边指回祖先。
 目前经由 `ArrayList` 递归的类型也不是：列表是共享对象，因此列表可以持有一个持有该列表的值。
 推导拒绝的类型可以声明该标记 `impl(T, Acyclic())`，无需 `pragma(Pragma.AllowUnsafe)`：错误的声明只会泄漏，
