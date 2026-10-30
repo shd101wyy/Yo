@@ -2599,6 +2599,21 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   if(subject_is_own_temp, {
     generate_deferred_drop_expressions(&subject, indent.clone(), context);
   });
+  // A consuming match on a state-machine slot moves the slot's value out
+  // (`_sm_consuming_read` marks the read `/*yo_mv:…*/`), and the slot gives it
+  // up right after the line that carries the marker. The test chain's first
+  // line is a conditional jump (`if (!(… .tag == T)) goto a1;`), so the
+  // move flag landed only on its fall-through path: the arm the jump reached
+  // kept the slot owning the payload its bindings had also taken, and an
+  // abort dispose released it twice. Read the slot once, on its own line,
+  // into a C local the tests and bindings use
+  // (issues/fixed/2026-10-31-an-aborted-task-drops-a-consuming-match-scrutinee-its-arm-moved-out.md).
+  if(matched_value_code.contains("/*yo_mv:"), {
+    scr_local := fresh_local_name(String.from("__yo_scr_"), &context.base.current_function_name);
+    _emit_pattern_binding_decl(context, indent.clone(), scr_local.clone(), &match_value_type, matched_value_code.clone());
+    declare_c_var_name(&context.base, scr_local.clone());
+    matched_value_code = scr_local;
+  });
   // Primitive (int/bool) match.
   if(match(expr_info_is_primitive_match(&ei), .Some(b) => b, .None => false), {
     return(generate_primitive_match_expression(expr, indent.clone(), context, &matched_value_code, &match_value_type, &temp_var_opt, is_unit));
