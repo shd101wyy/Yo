@@ -614,7 +614,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
           .None => false
         );
         if(executed, {
-          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).value == "_"));
+          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).value.* == "_"));
           if(is_wildcard, {
             // The catch-all: a plain else. Arms after it are unreachable —
             // the evaluator rejects them (A2) — so this is the chain's tail.
@@ -727,7 +727,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
         case_body := match(cargs.get(usize(1)), .Some(cb) => cb, .None => case_expr);
         executed := match(context.base.get_expr_info(&case_value), .Some(cei) => match(expr_info_case_executed(&cei), .Some(b) => b, .None => false), .None => false);
         if(executed, {
-          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).value == "_"));
+          is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).value.* == "_"));
           if(is_wildcard, {
             d := indent.clone();
             d.push_str("default: {");
@@ -832,7 +832,7 @@ _case_executed :: (fn(case_value : &AstExpr, context : &FunctionGenerationContex
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : &AstExpr) -> String)(
-  match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v), .None => String.from("")), .Atom(_, _) => String.from(""))
+  match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v).*, .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Add a name to the function's local-shadowed-variables set (creating it if
@@ -865,7 +865,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &FunctionGenerationConte
             smv.get(k.clone()),
             // A consuming arm's hidden bindings share the arm's token, so the
             // name tells them apart (decision 26).
-            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value)), {
+            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
               note_state_machine_binding_id(context, k.clone());
               return(
                 Option(String).Some(
@@ -992,7 +992,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
               // earlier one turned `.Some(fs) => fs, _ => fallback` into
               // "always the fallback".
               cond(
-                (ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value == "_")) => {
+                (ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value.* == "_")) => {
                   if(null_body.is_none(), {
                     null_body = Option(AstExpr).Some(cb);
                   });
@@ -1039,7 +1039,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
       match(
         nullable_arm_payload_binder(&pat),
         .Some(dvar) => {
-          dvn := sanitize_for_c_identifier(ast_expr_token(&dvar).value, false);
+          dvn := sanitize_for_c_identifier(ast_expr_token(&dvar).value.*, false);
           _emit_pattern_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, matched_value_code.clone());
           // Shadow-register the binding like _emit_destructure_binds does
           // for tagged-union arms: the arm body must resolve `q` to THIS
@@ -1089,7 +1089,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
             match(
               context.base.get_expr_info(&dvar),
               .Some(smb_bei) => {
-                smb_vars := scope_variables(ast_expr_id(&dvar), &smb_bei.env, ast_expr_token(&dvar).value.to_string());
+                smb_vars := scope_variables(ast_expr_id(&dvar), &smb_bei.env, ast_expr_token(&dvar).value.*.to_string());
                 if(smb_vars.len() > usize(0), {
                   match(
                     smb_vars.last(),
@@ -1139,7 +1139,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                         smv2.get(smb_k.clone()),
                         .Some(smb_cv) => {
                           smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
-                          if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.to_string()), {
+                          if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.*.to_string()), {
                             smb_id = smb_k.clone();
                             smb_has = true;
                             smb_more = false;
@@ -1223,7 +1223,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
     ptr_pattern,
     .Some(pat2) => match(
       nullable_arm_payload_binder(&pat2),
-      .Some(dvar2) => _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&dvar2).value, false)),
+      .Some(dvar2) => _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&dvar2).value.*, false)),
       .None => ()
     ),
     .None => ()
@@ -1300,7 +1300,7 @@ _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &Func
           .Some(cv) => match(
             cargs.get(usize(1)),
             .Some(cb) => if(_case_executed(&cv, context), {
-              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value == "_"), {
+              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value.* == "_"), {
                 d := indent.clone();
                 d.push_str("default: {");
                 em.emit_string_line(&d);
@@ -1352,8 +1352,8 @@ _remove_arm_shadows :: (fn(params : &ArrayList(AstExpr), context : &FunctionGene
       dparams.get(pi),
       .Some(p) => {
         var_atom := if(ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), match(_args(&p).get(usize(1)), .Some(v) => v, .None => p), p);
-        if(ast_expr_is_atom(&var_atom) && !(ast_expr_token(&var_atom).value == "_"), {
-          _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&var_atom).value, false));
+        if(ast_expr_is_atom(&var_atom) && !(ast_expr_token(&var_atom).value.* == "_"), {
+          _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(&var_atom).value.*, false));
         });
       },
       .None => ()
@@ -1424,10 +1424,10 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
               dparams.get(pi),
               .Some(param) => if(ast_expr_is_fn_call_of(&param, ":", Option(usize).Some(usize(2))), {
                 pargs := _args(&param);
-                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_text(&le), String.from("")), .None => String.from(""));
+                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_text(&le).*, String.from("")), .None => String.from(""));
                 match(
                   pargs.get(usize(1)),
-                  .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value == "_") && (label.len() > usize(0)), {
+                  .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value.* == "_") && (label.len() > usize(0)), {
                     // Find the field index for this label.
                     (fi : usize) = labels.len();
                     nl := labels.len();
@@ -1454,11 +1454,11 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                         _emit_pattern_binding_decl(
                           context,
                           body_indent.clone(),
-                          sanitize_for_c_identifier(ast_expr_token(&var_expr).value, false),
+                          sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
                           &ftype,
                           &init
                         );
-                        _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value, false), ast_expr_token(&var_expr), init.clone());
+                        _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
                       });
                     });
                   }),
@@ -1476,7 +1476,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
           while(fi < limit, {
             match(
               dparams.get(fi),
-              .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value == "_") && !pattern_param_is_literal(&var_expr), {
+              .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value.* == "_") && !pattern_param_is_literal(&var_expr), {
                 field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if(!is_unit_type(&ftype), {
@@ -1489,11 +1489,11 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                   _emit_pattern_binding_decl(
                     context,
                     body_indent.clone(),
-                    sanitize_for_c_identifier(ast_expr_token(&var_expr).value, false),
+                    sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
                     &ftype,
                     &init
                   );
-                  _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value, false), ast_expr_token(&var_expr), init.clone());
+                  _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
                 });
               }),
               .None => ()
@@ -1666,7 +1666,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
           .Some(cv) => match(
             cargs.get(usize(1)),
             .Some(cb0) => if(_case_executed(&cv, context), {
-              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value == "_"), {
+              if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value.* == "_"), {
                 d := indent.clone();
                 d.push_str("default: {");
                 em.emit_string_line(&d);

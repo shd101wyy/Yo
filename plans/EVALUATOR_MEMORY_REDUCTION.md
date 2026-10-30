@@ -2261,6 +2261,25 @@ Stage-1 `check src/main.yo` max RSS: **1,143,324 → 1,098,652 kB (−44.7 MB,
 Remaining copies: the label family (`self`, `Self`, `T`, `value`, `K`,
 `V`), about 1.2 MB; `g_struct_finals` keys, 3.7 MB; the rest spread thin.
 
+**Token text as shared cells (2026-10-30, v0.2.74 window, branch
+`vbd/token-value-rc`).** Once `String` is a value (B8), neither sharing
+above survives a plain copy: a `g_tv_*` store becomes a byte copy and the
+intern table's `HashMap.get` copies its key, silently dropping interning
+and `String ==`'s pointer fast path
+(issues/fixed/2026-10-28-how-token-text-stays-shared-once-string-is-a-value.md).
+So `Token.value` became an `Rc(String)` cell, like `input`/`module_path`
+(#1561): the intern table maps `String -> Rc(String)` and hands out the
+canonical cell, the eight `g_tv_*` globals are cells (kept outside the
+table, so a punctuation token still skips the hash), and `ast_expr_text`
+returns the cell. Readers spell `tok.value.*`; a handle copy is
+`Rc.clone(tok.value)`, an owned copy `tok.value.*.clone()`. Measured
+against its parent, it is neutral before B8: `check src/main.yo` allocation
+calls 2,796,040,633 -> 2,799,386,191 (+0.12 %), stage-2 max RSS
+1,355,112 -> 1,351,548 kB (-0.3 %), stage-1 instructions +0.05 % (an
+ABBA; std/rand.yo +0.09 % and RSS -1.4 %). Its value is
+what B8 no longer copies. A `Symbol` id (Phase 5b) is the post-VBD step
+built on this table, and needs an LSP/`--watch` purge story first.
+
 ### 0.24 One `TokenSource` per lexing: built, measured, rejected (2026-09-29)
 
 Branch `mem/token-source-record` (`418d9bb23`, not merged). `Token`'s

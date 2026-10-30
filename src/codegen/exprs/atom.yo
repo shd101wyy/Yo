@@ -287,7 +287,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
   //    `expr` itself binds, so this holds only when `expr` IS the atom: a
   //    capture read on behalf of an `io.async(...)` call would get the call's
   //    own temp.
-  is_the_atom := match(expr, .Atom(_, atok) => (atok.value == var_name), _ => false);
+  is_the_atom := match(expr, .Atom(_, atok) => (atok.value.* == var_name), _ => false);
   if(!is_the_atom, {
     return(Option(String).None);
   });
@@ -548,7 +548,7 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
 /// keyword).
 generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, indent : &String) -> String)({
   tok := ast_expr_token(expr);
-  tv := tok.value.clone();
+  tv := tok.value.*.clone();
   // --- control flow keywords ---
   if(tv == "continue", {
     match(
@@ -649,7 +649,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
                   // guard goes first
                   // (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
                   match(
-                    match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value, context), .None => Option(String).None),
+                    match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value.*, context), .None => Option(String).None),
                     .Some(slot) => match(
                       sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
                       .Some(flag) => em.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),

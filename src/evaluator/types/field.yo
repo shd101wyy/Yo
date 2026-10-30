@@ -180,7 +180,7 @@ evaluate_type_field :: (
         );
       });
       label_expr = Option(AstExpr).Some(lhs_expr);
-      label = Option(String).Some(ast_expr_text(&lhs_expr));
+      label = Option(String).Some(ast_expr_text(&lhs_expr).*);
     });
     args2 := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
@@ -230,7 +230,7 @@ evaluate_type_field :: (
       );
     });
     label_expr = Option(AstExpr).Some(lhs_);
-    label = Option(String).Some(ast_expr_text(&lhs_));
+    label = Option(String).Some(ast_expr_text(&lhs_).*);
   }, if(ast_expr_is_fn_call_of(&expr_, BK_COMPTIME, Option(usize).Some(usize(1))), {
     if(is_comptime, {
       exn.throw(
@@ -256,7 +256,7 @@ evaluate_type_field :: (
       );
     });
     label_expr = Option(AstExpr).Some(lhs_);
-    label = Option(String).Some(ast_expr_text(&lhs_));
+    label = Option(String).Some(ast_expr_text(&lhs_).*);
   }, if(!default_value_expr.is_some() && !assigned_value_expr.is_some(), {
     // Bare type expression (positional tuple field, or `Self :: i32` shorthand)
     type_expr = Option(AstExpr).Some(expr_);

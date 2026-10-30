@@ -67,7 +67,7 @@ evaluate_anonymous_struct_value :: (
   is_underscore := (
     ast_expr_is_atom(&func_expr) && match(
       func_expr,
-      .Atom(_, ftok) => (ftok.value == BK_ANON_STRUCT),
+      .Atom(_, ftok) => (ftok.value.* == BK_ANON_STRUCT),
       .FnCall(_, _, _, _, _) => false
     )
   );
@@ -153,7 +153,7 @@ evaluate_anonymous_struct_value :: (
           )
         );
       });
-      lstr := match(lae, .Atom(_, ltok) => ltok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""));
+      lstr := match(lae, .Atom(_, ltok) => ltok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from(""));
       label_opt = Option(String).Some(lstr);
     });
     // Evaluate the value expression with SelfType = prelim_ty

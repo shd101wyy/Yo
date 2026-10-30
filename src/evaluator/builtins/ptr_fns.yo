@@ -84,17 +84,17 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
   match(
     place,
     .Atom(_, pr_tok) => match(
-      get_variables_from_env(env, pr_tok.value.clone()).last(),
+      get_variables_from_env(env, pr_tok.value.*.clone()).last(),
       .Some(v) => cond(
         (!v.is_parameter || v.is_compile_time_only || !(v.is_ref || v.is_imm_borrow)) => Option(String).Some(
-          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value}\` is ${cond(v.is_parameter => "a by-value parameter", v.is_module_level => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`
+          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value.*}\` is ${cond(v.is_parameter => "a by-value parameter", v.is_module_level => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`
         ),
         (is_mut && (!v.is_ref || v.is_imm_borrow)) => Option(String).Some(
-          `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${pr_tok.value}\` is a shared borrow (\`&T\`).`
+          `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${pr_tok.value.*}\` is a shared borrow (\`&T\`).`
         ),
         true => Option(String).None
       ),
-      .None => Option(String).Some(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${pr_tok.value}\` is not one.`)
+      .None => Option(String).Some(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${pr_tok.value.*}\` is not one.`)
     ),
     .FnCall(_, pr_callee, pr_args, _, _) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
@@ -199,7 +199,7 @@ _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &
   match(
     place,
     .Atom(_, br_tok) => match(
-      get_variables_from_env(env, br_tok.value.clone()).last(),
+      get_variables_from_env(env, br_tok.value.*.clone()).last(),
       .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),
       .None => Option(Variable).None
     ),

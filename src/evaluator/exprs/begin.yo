@@ -204,7 +204,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
               .None => return(Option(String).None)
             );
             if(ast_expr_is_atom(&a0) && ast_expr_is_atom(&a1) && ast_expr_is_atom_of(&a1, BF_DUP), {
-              return(Option(String).Some(ast_expr_text(&a0)));
+              return(Option(String).Some(ast_expr_text(&a0).*));
             });
           },
           .Atom(_, _) => ()
@@ -214,7 +214,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
         match(
           eargs.get(usize(0)),
           .Some(arg0) => if(ast_expr_is_atom(&arg0), {
-            return(Option(String).Some(ast_expr_text(&arg0)));
+            return(Option(String).Some(ast_expr_text(&arg0).*));
           }),
           .None => ()
         );
@@ -811,7 +811,7 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
       args.get(j),
       .Some(a) => if(ast_expr_is_atom(&a), {
         at := ast_expr_token(&a);
-        if((at.value == variable.name) && _m3_tokens_comparable(&at, &ct) && (at.character == ct.character), {
+        if((at.value.* == variable.name) && _m3_tokens_comparable(&at, &ct) && (at.character == ct.character), {
           return(Option(Token).None);
         });
       }),
@@ -1258,7 +1258,7 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
       if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))), {
         match(
           fargs.get(usize(0)),
-          .Some(lhs) => if(ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value == name), {
+          .Some(lhs) => if(ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value.* == name), {
             return(true);
           }),
           .None => ()
@@ -1267,7 +1267,7 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
       if(ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
         match(
           fargs.get(usize(0)),
-          .Some(lent) => if(ast_expr_is_atom(&lent) && (ast_expr_token(&lent).value == name), {
+          .Some(lent) => if(ast_expr_is_atom(&lent) && (ast_expr_token(&lent).value.* == name), {
             return(true);
           }),
           .None => ()
@@ -1339,7 +1339,7 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
     .None => false
   );
   self_arg := if(recv_is_type, match(fargs.get(usize(0)), .Some(a0) => ast_expr_strip_borrow_marker(&a0), .None => return(false)), recv);
-  ast_expr_is_atom(&self_arg) && (ast_expr_token(&self_arg).value == name)
+  ast_expr_is_atom(&self_arg) && (ast_expr_token(&self_arg).value.* == name)
 });
 /// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
 /// tree. Expansions are fresh-id clones (they do not share the spliced arg
@@ -1420,7 +1420,7 @@ _optimize_dup_drop_pairs :: (
 )({
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
-    Option(String).Some(ast_expr_text(last_expr)),
+    Option(String).Some(ast_expr_text(last_expr).*),
     Option(String).None
   );
   // 1. Collect dup calls per begin child; record each dup's child index and
@@ -2014,7 +2014,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
   );
   match(
     e,
-    .Atom(_, atok) => if(atok.value == v.name, {
+    .Atom(_, atok) => if(atok.value.* == v.name, {
       match(
         ei_opt,
         .Some(aei) => match(
@@ -2041,7 +2041,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         recur(&second, v, site, acc, ctx);
         return(());
       });
-      if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(&first) && (ast_expr_token(&first).value == v.name), {
+      if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(&first) && (ast_expr_token(&first).value.* == v.name), {
         recur(&second, v, site, acc, ctx);
         if(acc.stop_at_write && (acc.site_seen || _ic_after_site(&tok, site, acc)), {
           acc.done = true;
@@ -2103,7 +2103,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         // needs `Rc.clone(cur)` in the arm.
         if(taken && migrate_rc_clone_on() && ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
           scr_m := ast_expr_strip_borrow_marker(&first);
-          if(ast_expr_is_atom(&scr_m) && (ast_expr_token(&scr_m).value == v.name), {
+          if(ast_expr_is_atom(&scr_m) && (ast_expr_token(&scr_m).value.* == v.name), {
             acc.later = true;
           });
         });
@@ -2419,7 +2419,7 @@ _schedule_scope_end_drops :: (
   // A bare-atom block result is a named local moved out (returned) — never drop it.
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
-    Option(String).Some(ast_expr_text(last_expr)),
+    Option(String).Some(ast_expr_text(last_expr).*),
     Option(String).None
   );
   // Collect drop-eligible owning named locals from the frame.
@@ -2494,7 +2494,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
       e,
       .FnCall(_, _, rargs, _, _) => match(
         rargs.get(usize(0)),
-        .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_token(&a).value == name)),
+        .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_token(&a).value.* == name)),
         .None => false
       ),
       .Atom(_, _) => false
@@ -2576,7 +2576,7 @@ _variant_local_hint :: (
   if(!ast_expr_is_atom(&lhs) || !(_is_bare_variant_literal(&rhs) || rhs_is_async), {
     return(Option(ExpectedTypeCtx).None);
   });
-  name := ast_expr_token(&lhs).value.clone();
+  name := ast_expr_token(&lhs).value.*.clone();
   result_ty := match(_enclosing_fn_result_type(ctx), .Some(t) => t, .None => return(Option(ExpectedTypeCtx).None));
   if(rhs_is_async, {
     async_out_concrete := match(
@@ -2600,7 +2600,7 @@ _variant_local_hint :: (
         });
         // The function body's tail expression IS the local.
         if((k == (n - usize(1))) && is_fn_body, {
-          if(ast_expr_is_atom(&later) && (ast_expr_token(&later).value == name), {
+          if(ast_expr_is_atom(&later) && (ast_expr_token(&later).value.* == name), {
             found = true;
           });
         });
@@ -2625,7 +2625,7 @@ _variant_local_hint :: (
 _stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, tok) => ((tok.value == BK_BREAK) || (tok.value == "continue")),
+    .Atom(_, tok) => ((tok.value.* == BK_BREAK) || (tok.value.* == "continue")),
     .FnCall(_, _, args, _, _) => cond(
       (ast_expr_is_fn_call_of(e, BK_RETURN, .None) || ast_expr_is_fn_call_of(e, BF_UNWIND, .None)) => true,
       (ast_expr_is_fn_call_of(e, BK_BREAK, .None) || ast_expr_is_fn_call_of(e, "continue", .None)) => true,
@@ -2633,7 +2633,7 @@ _stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
         // `{ a; return(x); }` parses with a trailing `tuple()` after the last
         // `;`: the block's last STATEMENT is what decides.
         (k : usize) = args.len();
-        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value.* == "()"), .FnCall(_, _, _, _, _) => false)), {
           k = (k - usize(1));
         });
         (k > usize(0)) && _stmt_always_exits(&args(k - usize(1)))
@@ -4058,7 +4058,7 @@ _evaluate_begin_expression_impl :: (
                   path : wv.token.module_path.*,
                   row : usize(wv.token.row),
                   col : usize(wv.token.column),
-                  len : wv.token.value.chars().count()
+                  len : wv.token.value.*.chars().count()
                 );
                 wlines := wv.token.input.*.split(String.from("\n"));
                 wsource_line := match(

@@ -76,7 +76,7 @@ _location_of :: (
 )({
   // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
   // converted to the wire encoding against the TARGET file's lines.
-  end_col := (usize(def_tok.column) + def_tok.value.clone().chars().count());
+  end_col := (usize(def_tok.column) + def_tok.value.*.clone().chars().count());
   range := match(
     _target_lines(def_tok, doc_abs.clone(), lines),
     .Some(target_lines) => j_range_in(&target_lines, usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col),
@@ -119,7 +119,7 @@ _parse_quietly :: (fn(src : &String, module_path : &String) -> ArrayList(AstExpr
 /// True iff `e` is an Atom spelled `name` (a `String`-argument twin of
 /// `ast_expr_is_atom_of`, whose parameter is a `str` literal).
 _atom_is :: (fn(e : &AstExpr, name : &String) -> bool)(
-  match(e, .Atom(_, t) => (t.value == name), .FnCall(_, _, _, _, _) => false)
+  match(e, .Atom(_, t) => (t.value.* == name), .FnCall(_, _, _, _, _) => false)
 );
 /// The `name :: value` top-level binding named `head` in `exprs`: its VALUE
 /// expression, or `.None`.
@@ -238,7 +238,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
         while(i < args.len(), {
           match(
             args.get(i),
-            .Some(.Atom(_, at)) => if(at.value == variant, {
+            .Some(.Atom(_, at)) => if(at.value.* == variant, {
               out.push(at);
             }),
             .Some(.FnCall(_, vf, _, _, _)) => if(_atom_is(&vf, variant.clone()), {
@@ -504,7 +504,7 @@ _import_path_of_binding :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> O
       .Some(a) => match(
         a,
         .Atom(_, t) => cond(
-          (t.kind == TokenKind.StringLit) => Option(String).Some(str_lit_unquote_bytes(&t.value)),
+          (t.kind == TokenKind.StringLit) => Option(String).Some(str_lit_unquote_bytes(&t.value.*)),
           true => Option(String).None
         ),
         .FnCall(_, _, _, _, _) => Option(String).None
@@ -572,7 +572,7 @@ _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstE
                   pair.get(usize(0)),
                   .Some(lhs) => {
                     lt := ast_expr_token(&lhs);
-                    if((lt.row == target.row) && (lt.column == target.column) && (lt.value == target.value), {
+                    if((lt.row == target.row) && (lt.column == target.column) && (lt.value.* == target.value.*), {
                       out.push(e);
                     });
                   },
@@ -628,7 +628,7 @@ _member_definition :: (
             .Some(receiver) => match(
               receiver,
               .Atom(_, rt) => {
-                receiver_name = rt.value.clone();
+                receiver_name = rt.value.*.clone();
                 out_recv := ArrayList(TypeValue).new();
                 out_deref := ArrayList(TypeValue).new();
                 out_env := ArrayList(Environment).new();
@@ -691,7 +691,7 @@ _member_definition :: (
             return(Option(Token).None);
           }
         );
-        member := target.value.clone();
+        member := target.value.*.clone();
         match(
           &deref,
           Rc(.Struct({ field_labels, is_source_namespace })) => {
@@ -752,7 +752,7 @@ _member_definition :: (
     calls.get(usize(0)),
     .Some(call) => match(
       expr_info_table_get(info_table, ast_expr_id(&call)),
-      .Some(cinfo) => _owner_member_decl(&cinfo.ty, target.value.clone(), &cinfo.env, doc_abs, exprs),
+      .Some(cinfo) => _owner_member_decl(&cinfo.ty, target.value.*.clone(), &cinfo.env, doc_abs, exprs),
       .None => Option(Token).None
     ),
     .None => Option(Token).None
@@ -822,7 +822,7 @@ handle_definition :: (
       return(match(syntactic_decl_at(exprs, &target), .Some(sd) => Option(JsonValue).Some(_location_of(&sd, doc_abs, lines)), .None => Option(JsonValue).None));
     }
   );
-  vars := get_variables_from_env(&info.env, target.value.clone());
+  vars := get_variables_from_env(&info.env, target.value.*.clone());
   if(vars.len() == usize(0), {
     return(Option(JsonValue).None);
   });
@@ -948,7 +948,7 @@ handle_type_definition :: (
   def_tok := match(
     named_type,
     .Some(_) => match(
-      _select_best_variable(get_variables_from_env(&info.env, target.value.clone()), &target),
+      _select_best_variable(get_variables_from_env(&info.env, target.value.*.clone()), &target),
       .Some(sv) => sv.initialized_at_token,
       .None => Option(Token).None
     ),
@@ -1004,15 +1004,15 @@ handle_document_links :: (
       next := _tok_after(&tokens, i);
       if((prev.tok.kind == TokenKind.LParen) && (prev2.tok.kind == TokenKind.Identifier)
       &&
-        (prev2.tok.value == String.from("import")) && (next.tok.kind == TokenKind.RParen)
-        && (t.value.len() > usize(0)), {
+        (prev2.tok.value.* == String.from("import")) && (next.tok.kind == TokenKind.RParen)
+        && (t.value.*.len() > usize(0)), {
         // The resolver answers a `file://` URI spelling (like every module
         // path in the loader); file_exists_sync and fs_path_to_uri both
         // want the plain path.
         // The StringLit VALUE carries its quotes (the raw quoted source);
         // the resolver wants the unquoted path, and the token's rune width
         // IS the quoted source width.
-        path := str_lit_unquote_bytes(t.value.clone());
+        path := str_lit_unquote_bytes(t.value.*.clone());
         target := uri_to_fs_path(mm_resolve_import_abs(&path, base_dir.clone(), std_path.clone()));
         if(file_exists_sync(target.clone()), {
           out.push(
@@ -1026,7 +1026,7 @@ handle_document_links :: (
                 // The token's column is the OPENING quote; the span runs
                 // over the quoted source (paths carry no escapes, so the
                 // decoded value's width is the source width).
-                usize(t.column) + t.value.clone().chars().count()
+                usize(t.column) + t.value.*.clone().chars().count()
               )
             ).put("target", jstr(fs_path_to_uri(target.clone()))).obj()
           );
@@ -1074,7 +1074,7 @@ _tok_before :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
       .None => ()
     );
   });
-  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()), idx : usize(0))
+  _TokAt(tok : Token(kind : TokenKind.Operator, value : empty_token_text(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()), idx : usize(0))
 });
 /// The nearest non-whitespace token at/after index `i` (past the end is
 /// the same synthetic End marker).
@@ -1092,5 +1092,5 @@ _tok_after :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
     );
     j = (j + usize(1));
   });
-  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()), idx : usize(0))
+  _TokAt(tok : Token(kind : TokenKind.Operator, value : empty_token_text(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()), idx : usize(0))
 });

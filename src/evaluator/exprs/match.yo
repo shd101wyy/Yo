@@ -195,7 +195,7 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   // as `Kind.Func` (an enum variant) or a module member is not a place:
   // evaluating it directly yields no variable_name for the match to bind, and
   // it carries no RC traffic to save in the first place.
-  root_vars := get_variables_from_env(env, ast_expr_token(&root).value);
+  root_vars := get_variables_from_env(env, ast_expr_token(&root).value.*);
   if(root_vars.len() == usize(0), {
     return(false);
   });
@@ -420,7 +420,7 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
     );
   });
   cond(
-    (ast_expr_is_atom(&cur) && (ast_expr_token(&cur).kind == TokenKind.Identifier)) => get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last(),
+    (ast_expr_is_atom(&cur) && (ast_expr_token(&cur).kind == TokenKind.Identifier)) => get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last(),
     true => Option(Variable).None
   )
 });
@@ -446,7 +446,7 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
             loop_scr := ast_expr_strip_borrow_marker(&loop_scr_raw);
             if(ast_expr_is_atom(&loop_scr) && (ast_expr_token(&loop_scr).kind == TokenKind.Identifier), {
               match(
-                get_variables_from_env(env, ast_expr_token(&loop_scr).value.clone()).last(),
+                get_variables_from_env(env, ast_expr_token(&loop_scr).value.*.clone()).last(),
                 // A `&`/`&mut` borrow (a `x : &T` parameter) is never
                 // consumed by a match: it already borrows.
                 .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level && !rv.is_compile_time_only
@@ -516,7 +516,7 @@ _record_nested_scrutinee_borrows :: (fn(body : &AstExpr, name : &String, var_id 
           args.get(usize(0)),
           .Some(nested_scr) => {
             nested := ast_expr_strip_borrow_marker(&nested_scr);
-            if(ast_expr_is_atom(&nested) && (ast_expr_token(&nested).kind == TokenKind.Identifier) && (ast_expr_token(&nested).value == name), {
+            if(ast_expr_is_atom(&nested) && (ast_expr_token(&nested).kind == TokenKind.Identifier) && (ast_expr_token(&nested).value.* == name), {
               record_pending_scrutinee_borrow(var_id, &nested, ty);
             });
           },
@@ -567,7 +567,7 @@ _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
       // `xs(i)`: a call whose callee is a runtime variable, not a function.
       .FnCall(_, callee, _, _, _) => (
         ast_expr_is_atom(&callee) && match(
-          get_variables_from_env(env, ast_expr_token(&callee).value.clone()).last(),
+          get_variables_from_env(env, ast_expr_token(&callee).value.*.clone()).last(),
           .Some(cv) => !cv.is_compile_time_only,
           .None => false
         )
@@ -586,7 +586,7 @@ _throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String
   // `yo fix --migrate match-scrutinee` writes the borrow instead.
   if(migrate_match_scrutinee_on() && !propagate_def_time_errors(), {
     lt := _leftmost_token(scr);
-    record_migrate_edit(&lt, lt.value.len(), `&${lt.value}`, lt.value.clone());
+    record_migrate_edit(&lt, lt.value.*.len(), `&${lt.value.*}`, lt.value.*.clone());
     return(());
   });
   text := ast_expr_to_string(scr);
@@ -867,7 +867,7 @@ _ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Envi
   tok := own.tok;
   name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*));
   own.counter = (own.counter + usize(1));
-  atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
+  atok := Token(kind : TokenKind.Identifier, value : rc(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
   BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
 });
 _ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({

@@ -53,7 +53,7 @@ evaluate_identifier_and_operator :: (
   // own: the chain reports the whole place (local borrows, decision 18).
   lb_is_receiver := local_borrow_take_receiver(expr);
   // `str` view used for all literal comparisons; token.value (String) used for APIs.
-  identifier := token.value.clone();
+  identifier := token.value.*.clone();
   // ------------------------------------------------------------------
   // Built-in type keywords
   // Match identifier to a TypeValue. If matched, build the ExprInfo
@@ -226,7 +226,7 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // Variable lookup
   // ------------------------------------------------------------------
-  identifier_string := token.value;
+  identifier_string := token.value.*;
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
     eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);

@@ -298,7 +298,7 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, e
             );
             nm := match(
               ba.get(usize(0)),
-              .Some(n0) => ast_expr_text(&n0),
+              .Some(n0) => ast_expr_text(&n0).*,
               .None => String.new()
             );
             rhs := match(
@@ -701,7 +701,7 @@ _evaluate_spec_collection :: (
   // append / singles / add / str_bytes) take the FIRST argument's type
   // (Seq(T)/Set(T)/Multiset(T) are erased aliases); counts are i64;
   // contains is bool; nth is u8 (str-content iteration).
-  head := ast_expr_text(expr);
+  head := ast_expr_text(expr).*;
   arg1_ty := t_bool();
   match(
     args.get(usize(0)),
@@ -915,7 +915,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     );
     bn := match(
       ba.get(usize(0)),
-      .Some(n0) => ast_expr_text(&n0),
+      .Some(n0) => ast_expr_text(&n0).*,
       .None => String.from("_")
     );
     binder_names.push(bn.clone());
@@ -1094,7 +1094,7 @@ _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstEx
     alloc_global_expr_id(),
     Token(
       kind : kind,
-      value : value.clone(),
+      value : rc(value.clone()),
       row : src_tok.row,
       column : src_tok.column,
       character : src_tok.character,
@@ -1270,7 +1270,7 @@ _build_assert_call :: (
 _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &String) -> AstExpr)({
   bind_tok := Token(
     kind : TokenKind.Identifier,
-    value : op.clone(),
+    value : rc(op.clone()),
     row : src_tok.row,
     column : src_tok.column,
     character : src_tok.character,
@@ -1953,7 +1953,7 @@ _callsite_method_receiver :: (
   recv := match(
     f,
     .FnCall(_, cf, fa, _, _) => cond(
-      ((ast_expr_token(&cf).value == ".") && (fa.len() == usize(2))) => match(fa.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
+      ((ast_expr_token(&cf).value.* == ".") && (fa.len() == usize(2))) => match(fa.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
       true => {
         return(Option(AstExpr).None);
       }
@@ -2591,7 +2591,7 @@ _assert_head_is :: (fn(e : &AstExpr, name : &String) -> bool)(
 _callee_named :: (fn(f : &AstExpr, name : &String) -> bool)(
   match(
     f,
-    .Atom(_, ht) => (ht.value == name),
+    .Atom(_, ht) => (ht.value.* == name),
     .FnCall(_, dot_h, dot_args, _, _) => _callee_member_cond(&dot_h, &dot_args, name.clone())
   )
 );
@@ -2601,7 +2601,7 @@ _callee_member_cond :: (
   fn(dot_h : &AstExpr, dot_args : &ArrayList(AstExpr), name : &String) -> bool
 )(
   cond(
-    (ast_expr_token(dot_h).value == ".") => _dot_arg1_is(dot_args, name.clone()),
+    (ast_expr_token(dot_h).value.* == ".") => _dot_arg1_is(dot_args, name.clone()),
     true => false
   )
 );
@@ -2609,7 +2609,7 @@ _callee_member_cond :: (
 _dot_arg1_is :: (fn(dot_args : &ArrayList(AstExpr), name : &String) -> bool)(
   match(
     dot_args.get(usize(1)),
-    .Some(.Atom(_, st)) => (st.value == name),
+    .Some(.Atom(_, st)) => (st.value.* == name),
     .Some(.FnCall(_, _, _, _, _)) => false,
     .None => false
   )
@@ -2629,7 +2629,7 @@ _arg1_string_atom :: (fn(a : &ArrayList(AstExpr)) -> String)(
   match(
     a.get(usize(1)),
     .Some(m_arg) => cond(
-      ast_expr_is_atom(&m_arg) => ast_expr_text(&m_arg),
+      ast_expr_is_atom(&m_arg) => ast_expr_text(&m_arg).*,
       true => String.new()
     ),
     .None => String.new()
@@ -2657,7 +2657,7 @@ _contract_guard_is :: (fn(e : &AstExpr, prefix : &String) -> bool)(
     e,
     .FnCall(_, head, args, _, _) => cond(
       (
-        match(head, .Atom(_, ht) => (ht.value == BK_COND), .FnCall(_, _, _, _, _) => false) &&
+        match(head, .Atom(_, ht) => (ht.value.* == BK_COND), .FnCall(_, _, _, _, _) => false) &&
           (args.len() == usize(2))
       ) =>
         match(
@@ -2677,14 +2677,14 @@ _guard_arm2_is :: (fn(arm2 : &AstExpr, prefix : &String) -> bool)(
     arm2,
     .FnCall(_, ah, aargs, _, _) => cond(
       (
-        match(ah, .Atom(_, ht) => (ht.value == "=>"), .FnCall(_, _, _, _, _) => false) &&
+        match(ah, .Atom(_, ht) => (ht.value.* == "=>"), .FnCall(_, _, _, _, _) => false) &&
           (aargs.len() == usize(2))
       ) =>
         cond(
           match(
             aargs.get(usize(0)),
             .None => false,
-            .Some(t) => match(t, .Atom(_, at) => (at.value == "true"), .FnCall(_, _, _, _, _) => false)
+            .Some(t) => match(t, .Atom(_, at) => (at.value.* == "true"), .FnCall(_, _, _, _, _) => false)
           ) =>
             match(
               aargs.get(usize(1)),
@@ -2705,13 +2705,13 @@ _guard_panic_is :: (fn(pc : &AstExpr, prefix : &String) -> bool)(
     pc,
     .FnCall(_, ph, pargs, _, _) => cond(
       (
-        match(ph, .Atom(_, pt) => (pt.value == BF_PANIC), .FnCall(_, _, _, _, _) => false) &&
+        match(ph, .Atom(_, pt) => (pt.value.* == BF_PANIC), .FnCall(_, _, _, _, _) => false) &&
           (pargs.len() == usize(1))
       ) =>
         match(
           pargs.get(usize(0)),
           .None => false,
-          .Some(m) => match(m, .Atom(_, mt) => mt.value.starts_with(`"${prefix}`), .FnCall(_, _, _, _, _) => false)
+          .Some(m) => match(m, .Atom(_, mt) => mt.value.*.starts_with(`"${prefix}`), .FnCall(_, _, _, _, _) => false)
         ),
       true => false
     ),
@@ -2726,7 +2726,7 @@ _guard_body_is :: (fn(body : &AstExpr, prefix : &String) -> bool)(
     body,
     .FnCall(_, bh, bargs, _, _) => cond(
       (
-        match(bh, .Atom(_, bt) => (bt.value == BK_BEGIN), .FnCall(_, _, _, _, _) => false) &&
+        match(bh, .Atom(_, bt) => (bt.value.* == BK_BEGIN), .FnCall(_, _, _, _, _) => false) &&
           (bargs.len() >= usize(1))
       ) =>
         match(
@@ -2769,7 +2769,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
     ),
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(&head), {
-        hn := ast_expr_text(&head);
+        hn := ast_expr_text(&head).*;
         if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
           return(false);
         });

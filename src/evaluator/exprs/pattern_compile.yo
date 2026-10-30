@@ -106,12 +106,12 @@ _args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _func_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(e, .FnCall(_, f, _, _, _) => Option(AstExpr).Some(f), .Atom(_, _) => Option(AstExpr).None)
 );
-_atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.clone());
+_atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.*.clone());
 /// A token for a synthesized node, positioned at `base`.
 _synth_token :: (fn(base : &Token, kind : TokenKind, value : &String) -> Token)(
   Token(
     kind : kind,
-    value : value.clone(),
+    value : rc(value.clone()),
     row : base.row,
     column : base.column,
     character : base.character,

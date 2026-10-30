@@ -34,7 +34,7 @@ _drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
       match(
         func,
         .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))), {
-          a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value == BF_DROP, false), .None => false);
+          a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
           if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
         .Atom(_, _) => Option(AstExpr).None
@@ -58,7 +58,7 @@ _drop_targets_escaped_result :: (fn(drop_expr : &AstExpr, escaped_result : &Opti
         .Some(aei) => (
           get_variable_name_for_codegen_at(
             ast_expr_id(&atom),
-            ast_expr_token(&atom).value,
+            ast_expr_token(&atom).value.*,
             Option(Environment).Some(aei.env)
           ) == name
         ),
@@ -76,7 +76,7 @@ _get_deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, context : &Funct
     .Some(atom) => match(
       context.base.get_expr_info(&atom),
       .Some(aei) => {
-        vars := scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value);
+        vars := scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value.*);
         if(vars.len() == usize(0), Option(Variable).None, vars.last())
       },
       .None => Option(Variable).None
@@ -1030,7 +1030,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         match(
           context.base.get_expr_info(&arg),
           .Some(ra_ei) => {
-            ra_vars := scope_variables(ast_expr_id(&arg), &ra_ei.env, ast_expr_token(&arg).value);
+            ra_vars := scope_variables(ast_expr_id(&arg), &ra_ei.env, ast_expr_token(&arg).value.*);
             if(ra_vars.len() > usize(0), {
               match(
                 ra_vars.last(),
@@ -1225,7 +1225,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         match(
           context.base.get_expr_info(&arg),
           .Some(aei) => {
-            name := ast_expr_text(&arg);
+            name := ast_expr_text(&arg).*;
             vars := scope_variables(ast_expr_id(&arg), &aei.env, name.clone());
             if(
               vars.len() == usize(0),

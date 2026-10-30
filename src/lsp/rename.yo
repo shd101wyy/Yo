@@ -60,7 +60,7 @@ _parses_as_binding :: (fn(new_name : &String) -> bool)({
             // Identifier KIND, not just shape: `123 :: i32;` also parses as
             // an infix `::` call whose left side is a literal atom, and
             // `true`/`"s"` lex as Bool/StringLit — none of those are names.
-            .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value == new_name)),
+            .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value.* == new_name)),
             .FnCall(_, _, _, _, _) => false
           ),
           .None => false
@@ -157,8 +157,8 @@ handle_prepare_rename :: (
   Option(JsonValue).Some(
     jb().put(
       "range",
-      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.clone().chars().count())
-    ).put("placeholder", jstr(target.value.clone())).obj()
+      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.*.clone().chars().count())
+    ).put("placeholder", jstr(target.value.*.clone())).obj()
   )
 });
 
@@ -208,7 +208,7 @@ handle_rename :: (
           // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
           // converted to the wire encoding — a byte or rune width on the
           // wire would make the replaced range overrun the identifier.
-          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.clone().chars().count())).put("newText", jstr(new_name.clone())).obj()
+          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.*.clone().chars().count())).put("newText", jstr(new_name.clone())).obj()
         );
       },
       .None => ()

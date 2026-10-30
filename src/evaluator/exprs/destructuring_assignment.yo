@@ -268,7 +268,7 @@ handle_member_destructuring :: (
   ) -> DestructuringResult
 )({
   require_underscore := !is_tuple_type(rhs_type);
-  lhs_func_name := ast_expr_text(lhs_func);
+  lhs_func_name := ast_expr_text(lhs_func).*;
   if(require_underscore && !(lhs_func_name == "_"), {
     exn.throw(
       dyn(
@@ -346,14 +346,14 @@ handle_member_destructuring :: (
           match(
             lhs_field,
             .FnCall(_, _, args, _, _) => (
-              match(args.get(usize(0)), .Some(a) => (ast_expr_token(&a).value == "..."), .None => false) &&
-                match(args.get(usize(1)), .Some(b) => (ast_expr_token(&b).value == "..."), .None => false)
+              match(args.get(usize(0)), .Some(a) => (ast_expr_token(&a).value.* == "..."), .None => false) &&
+                match(args.get(usize(1)), .Some(b) => (ast_expr_token(&b).value.* == "..."), .None => false)
             ),
             _ => false
           )
       ) => true,
       // bare `...` atom
-      (ast_expr_is_atom(&lhs_field) && (ast_expr_token(&lhs_field).value == "...")) => true,
+      (ast_expr_is_atom(&lhs_field) && (ast_expr_token(&lhs_field).value.* == "...")) => true,
       true => false
     );
     if(is_spread, {
@@ -460,13 +460,13 @@ handle_member_destructuring :: (
             dyn(
               format_error_message(
                 ast_expr_token(&left_side),
-                `Expected identifier for label in destructuring pattern, got ${ast_expr_token(&left_side).value}`
+                `Expected identifier for label in destructuring pattern, got ${ast_expr_token(&left_side).value.*}`
               )
             )
           );
         });
         label_expr_opt = Option(AstExpr).Some(left_side);
-        label := ast_expr_text(&left_side);
+        label := ast_expr_text(&left_side).*;
         fi_opt := _find_field_index(rhs_field_labels, label.clone());
         match(
           fi_opt,
@@ -489,14 +489,14 @@ handle_member_destructuring :: (
         _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(&lhs_field), exn);
         if(ast_expr_is_atom(&right_side) && is_valid_variable_name(&right_side), {
           rename_expr_opt = Option(AstExpr).Some(right_side);
-          variable_name_opt = Option(String).Some(ast_expr_token(&right_side).value.clone());
+          variable_name_opt = Option(String).Some(ast_expr_token(&right_side).value.*.clone());
           variable_token_opt = Option(AstExpr).Some(right_side);
         }, {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(&right_side),
-                `Nested destructuring is not supported: ${ast_expr_token(&right_side).value}`
+                `Nested destructuring is not supported: ${ast_expr_token(&right_side).value.*}`
               )
             )
           );
@@ -532,7 +532,7 @@ handle_member_destructuring :: (
           dyn(
             format_error_message(
               ast_expr_token(&lhs_field),
-              `Nested destructuring is not supported: ${ast_expr_token(&lhs_field).value}`
+              `Nested destructuring is not supported: ${ast_expr_token(&lhs_field).value.*}`
             )
           )
         );
@@ -566,7 +566,7 @@ handle_member_destructuring :: (
         {
           seen_labels.push(rhs_field_label.clone());
         };
-        pos_var_name := ast_expr_token(&lhs_field).value.clone();
+        pos_var_name := ast_expr_token(&lhs_field).value.*.clone();
         {
           runtime_destructurings.push(
             RuntimeDestructuring(
@@ -594,7 +594,7 @@ handle_member_destructuring :: (
           dyn(
             format_error_message(
               ast_expr_token(&lhs_field),
-              `Unsupported destructuring pattern for: ${ast_expr_token(&lhs_field).value}`
+              `Unsupported destructuring pattern for: ${ast_expr_token(&lhs_field).value.*}`
             )
           )
         );
@@ -717,7 +717,7 @@ evaluate_destructuring_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(rhs),
-          `(1) Expected type for right-hand side, got ${ast_expr_token(rhs).value}`
+          `(1) Expected type for right-hand side, got ${ast_expr_token(rhs).value.*}`
         )
       )
     );
@@ -891,7 +891,7 @@ evaluate_destructuring_assignment :: (
     dyn(
       format_error_message(
         ast_expr_token(lhs),
-        `Destructuring assignment not supported for the left-hand pattern: ${ast_expr_token(lhs).value}`
+        `Destructuring assignment not supported for the left-hand pattern: ${ast_expr_token(lhs).value.*}`
       )
     )
   );

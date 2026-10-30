@@ -262,7 +262,7 @@ _is_punned_single_field :: (fn(expr : &AstExpr) -> bool)(
               pargs.get(usize(0)),
               .Some(l) => match(
                 pargs.get(usize(1)),
-                .Some(r) => (ast_expr_is_atom(&l) && ast_expr_is_atom(&r) && (ast_expr_token(&l).value == ast_expr_token(&r).value)),
+                .Some(r) => (ast_expr_is_atom(&l) && ast_expr_is_atom(&r) && (ast_expr_token(&l).value.* == ast_expr_token(&r).value.*)),
                 .None => false
               ),
               .None => false
@@ -295,7 +295,7 @@ _punned_field_name :: (fn(expr : &AstExpr) -> String)(
         pair,
         .FnCall(_, _, pargs, _, _) => match(
           pargs.get(usize(0)),
-          .Some(l) => ast_expr_token(&l).value.clone(),
+          .Some(l) => ast_expr_token(&l).value.*.clone(),
           .None => String.new()
         ),
         _ => String.new()
@@ -489,7 +489,7 @@ is_comptime_numeric_fn_call :: (fn(e : &AstExpr) -> bool)(
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
       .Atom(_, ftok) => {
-        v := ftok.value.clone();
+        v := ftok.value.*.clone();
         v.starts_with(`__yo_comptime_u8_`) ||
           v.starts_with(`__yo_comptime_i8_`) ||
             v.starts_with(`__yo_comptime_u16_`) ||
@@ -685,7 +685,7 @@ _evaluate_expression :: (
             dyn(
               format_error_message(
                 &tok,
-                `(1) Evaluating the expression (token: ${tok.value}) is not implemented:\n${ast_expr_to_string(expr)}`
+                `(1) Evaluating the expression (token: ${tok.value.*}) is not implemented:\n${ast_expr_to_string(expr)}`
               )
             )
           );
@@ -707,7 +707,7 @@ _evaluate_expression :: (
         .FnCall(_, __dk_callee, _, _, _) => match(
           __dk_callee,
           .Atom(_, __dk_tok) => {
-            __dk_len = __dk_tok.value.len();
+            __dk_len = __dk_tok.value.*.len();
           },
           _ => ()
         ),

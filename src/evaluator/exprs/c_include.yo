@@ -135,7 +135,7 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   });
   cargs := match(rhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get(usize(0)), .Some(a) => a, .None => rhs);
-  raw := ast_expr_token(&spelling_atom).value.clone();
+  raw := ast_expr_token(&spelling_atom).value.*.clone();
   rn := raw.len();
   (spelling : String) = if(
     (cargs.len() == usize(1)) && ast_expr_is_atom(&spelling_atom) && (rn >= usize(2)) && raw.starts_with(String.from("\"")),
@@ -167,7 +167,7 @@ evaluate_c_include :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected c_include, got ${ast_expr_token(expr).value}`
+          `Expected c_include, got ${ast_expr_token(expr).value.*}`
         )
       )
     );
@@ -288,7 +288,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       .Some(_) => EvalModuleFieldResult(
         label : match(
           match(arg, .FnCall(_, _, pa, _, _) => pa.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
-          .Some(l) => ast_expr_token(&l).value.clone(),
+          .Some(l) => ast_expr_token(&l).value.*.clone(),
           .None => String.new()
         ),
         field_type : t_type(),

@@ -879,7 +879,7 @@ _expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
     .Atom(
       _,
       tok
-    ) => names.contains(&tok.value),
+    ) => names.contains(&tok.value.*),
     .FnCall(
       _,
       func,
@@ -945,7 +945,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
                     arg,
                     .FnCall(_, _, pair, _, _) => match(
                       pair.get(usize(1)),
-                      .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value == name), {
+                      .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name), {
                         hit = true;
                       }),
                       .None => ()
@@ -2257,14 +2257,14 @@ _scan_import_literals :: (
     e,
     .Atom(_, _) => (),
     .FnCall(_, func, args, _, _) => {
-      is_import := match(func, .Atom(_, ft) => (ft.value == BK_IMPORT), _ => false);
+      is_import := match(func, .Atom(_, ft) => (ft.value.* == BK_IMPORT), _ => false);
       if(is_import && (args.len() == usize(1)), {
         match(
           args.get(usize(0)),
           .Some(arg) => match(
             arg,
             .Atom(_, at) => {
-              raw := at.value.clone();
+              raw := at.value.*.clone();
               n := raw.len();
               if((n >= usize(2)) && raw.starts_with(String.from("\"")) && raw.ends_with(String.from("\"")), {
                 match(

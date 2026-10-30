@@ -1775,7 +1775,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &Eva
   _ := evaluate_expression_raw(&idx_e, env, ctx, exn);
   recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => Rc.clone(ri.ty), .None => t_unit());
   cap := resolve_cell_chain(match(closure_identity_of(&recv_ty), .Some(cl) => cl, .None => Rc.clone(recv_ty)));
-  idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
+  idx := match(ast_expr_token(&idx_e).value.*.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   field_ty := match(
     cap,
     Rc(.Struct({ field_types : cf_types })) => match(cf_types.get(idx), .Some(t) => t, .None => t_unit()),

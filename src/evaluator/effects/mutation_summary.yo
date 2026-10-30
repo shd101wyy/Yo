@@ -230,7 +230,7 @@ _ms_body_dups_first_param :: (fn(fid : &String, body : &AstExpr) -> bool)(
         args.get(usize(0)),
         .Some(a) => match(
           a,
-          .Atom(_, tok) => match(_msp_labels(fid).items.get(usize(0)), .Some(l0) => (l0 == tok.value), .None => false),
+          .Atom(_, tok) => match(_msp_labels(fid).items.get(usize(0)), .Some(l0) => (l0 == tok.value.*), .None => false),
           _ => false
         ),
         .None => false
@@ -411,7 +411,7 @@ impl(
     match(
       func_expr,
       .Atom(_, ht) => {
-        head = ht.value.clone();
+        head = ht.value.*.clone();
       },
       _ => ()
     );
@@ -479,7 +479,7 @@ impl(
                 arm,
                 .FnCall(_, af, aargs, _, _) => match(
                   af,
-                  .Atom(_, at) => if(((at.value == "=>") || (at.value == "->")) && (aargs.len() == usize(2)), {
+                  .Atom(_, at) => if(((at.value.* == "=>") || (at.value.* == "->")) && (aargs.len() == usize(2)), {
                     arm_body = aargs.get(usize(1));
                   }),
                   _ => ()
@@ -973,7 +973,7 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
         .Some(fa) => match(
           fa,
           .Atom(_, ft) => {
-            field = ft.value.clone();
+            field = ft.value.*.clone();
           },
           .FnCall(_, _, _, _, _) => ()
         ),
@@ -1180,7 +1180,7 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
     }),
     .None => ()
   );
-  name := ast_expr_text(atom);
+  name := ast_expr_text(atom).*;
   // A payload-less variant (`.None`) constructs a value holding nothing.
   if(name.starts_with("."), {
     return(_msp_root(MSP_NONE));
@@ -1217,7 +1217,7 @@ _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))(
   if(!_msp_type_may_root(&info.ty), {
     return(Option(String).None);
   });
-  name := ast_expr_text(atom);
+  name := ast_expr_text(atom).*;
   vars := _msp_atom_vars(atom, &info, &name);
   if(vars.len() == usize(0), {
     return(Option(String).None);
@@ -1233,13 +1233,13 @@ _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))(
 _msp_pattern_names :: (fn(pat : &AstExpr, out : &mut ArrayList(String)) -> unit)({
   match(
     pat,
-    .Atom(_, t) => if(!t.value.starts_with(".") && !(t.value == "_"), {
-      out.push(t.value.clone());
+    .Atom(_, t) => if(!t.value.*.starts_with(".") && !(t.value.* == "_"), {
+      out.push(t.value.*.clone());
     }),
     .FnCall(_, f, args, _, _) => {
-      is_colon := match(f, .Atom(_, ft) => (ft.value == ":"), _ => false);
+      is_colon := match(f, .Atom(_, ft) => (ft.value.* == ":"), _ => false);
       // A variant reference (`.None`, the head of `.Some(x)`) binds nothing.
-      is_variant := match(f, .Atom(_, fv) => (fv.value == "."), _ => false);
+      is_variant := match(f, .Atom(_, fv) => (fv.value.* == "."), _ => false);
       if(is_variant, {
         return(());
       });
@@ -1264,7 +1264,7 @@ _msp_type_of_name_in :: (fn(e : &AstExpr, name : &String, table : &ExprInfoTable
       _,
       t
     ) => if(
-      t.value == name,
+      t.value.* == name,
       match(
         expr_info_table_get(
           table,
@@ -1349,7 +1349,7 @@ _msp_inout_param_of_place :: (fn(place : &AstExpr, ctx : &_MspCtx) -> Option(usi
   match(
     _msp_place_base_atom(place),
     .Some(atom) => match(
-      _msp_param_index(ctx, ast_expr_token(&atom).value.clone()),
+      _msp_param_index(ctx, ast_expr_token(&atom).value.*.clone()),
       .Some(pi) => match(
         get_func_type(ctx.fid.clone()),
         Rc(.Func({ param_types : pm_pts })) => if(match(pm_pts.get(pi), .Some(pm_s) => t_slot_is_mut_ref(&pm_s), .None => false), Option(usize).Some(pi), Option(usize).None),
@@ -1716,7 +1716,7 @@ impl(
         match(
           f,
           .Atom(_, ht) => {
-            head = ht.value.clone();
+            head = ht.value.*.clone();
           },
           _ => ()
         );
@@ -1831,7 +1831,7 @@ impl(
     match(
       func_expr,
       .Atom(_, ht) => {
-        head = ht.value.clone();
+        head = ht.value.*.clone();
       },
       _ => ()
     );
@@ -2066,7 +2066,7 @@ impl(
         match(
           f,
           .Atom(_, ht) => {
-            head = ht.value.clone();
+            head = ht.value.*.clone();
           },
           _ => ()
         );
@@ -2402,7 +2402,7 @@ impl(
     match(
       func_expr,
       .Atom(_, ht) => {
-        head = ht.value.clone();
+        head = ht.value.*.clone();
       },
       _ => ()
     );
@@ -2415,13 +2415,13 @@ impl(
       r := _MsP.classify(rhs, ctx);
       match(
         lhs,
-        .Atom(_, lt) => _MsP.define_from(ctx, lt.value.clone(), r, &rhs),
+        .Atom(_, lt) => _MsP.define_from(ctx, lt.value.*.clone(), r, &rhs),
         .FnCall(_, lf, largs, _, _) => {
-          is_inout := match(lf, .Atom(_, lft) => ((lft.value == BK_MUT) || (lft.value == BK_IMM)), _ => false);
+          is_inout := match(lf, .Atom(_, lft) => ((lft.value.* == BK_MUT) || (lft.value.* == BK_IMM)), _ => false);
           if(is_inout, {
             match(
               largs.get(usize(0)),
-              .Some(la) => match(la, .Atom(_, lat) => _msp_def(ctx, lat.value.clone(), r), _ => ()),
+              .Some(la) => match(la, .Atom(_, lat) => _msp_def(ctx, lat.value.*.clone(), r), _ => ()),
               .None => ()
             );
           }, {
@@ -2446,10 +2446,10 @@ impl(
       // aliases the new place too (the join keeps every target it had).
       match(
         lhs,
-        .FnCall(_, rlf, rlargs, _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value == BK_MUT) || (rlft.value == BK_IMM)), _ => false), {
+        .FnCall(_, rlf, rlargs, _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value.* == BK_MUT) || (rlft.value.* == BK_IMM)), _ => false), {
           match(
             rlargs.get(usize(0)),
-            .Some(rla) => match(rla, .Atom(_, rlat) => _msp_def(ctx, rlat.value.clone(), _MsP.classify(&rhs, ctx)), _ => ()),
+            .Some(rla) => match(rla, .Atom(_, rlat) => _msp_def(ctx, rlat.value.*.clone(), _MsP.classify(&rhs, ctx)), _ => ()),
             .None => ()
           );
           return(());
@@ -2464,7 +2464,7 @@ impl(
           lhs,
           .FnCall(_, _, cargs, _, _) => match(
             cargs.get(usize(0)),
-            .Some(na) => match(na, .Atom(_, nt) => _MsP.define_from(ctx, nt.value.clone(), r, &rhs), _ => ()),
+            .Some(na) => match(na, .Atom(_, nt) => _MsP.define_from(ctx, nt.value.*.clone(), r, &rhs), _ => ()),
             .None => ()
           ),
           .Atom(_, _) => ()
@@ -2479,16 +2479,16 @@ impl(
           match(
             env_opt,
             .Some(env) => {
-              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.clone());
+              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.*.clone());
               match(
                 vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: into the caller's storage.
-                  (v.is_parameter && v.is_ref) => _MsP.taint_flowing_to(&rhs, ctx, match(_msp_param_index(ctx, lt.value.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
+                  (v.is_parameter && v.is_ref) => _MsP.taint_flowing_to(&rhs, ctx, match(_msp_param_index(ctx, lt.value.*.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
                   // A reassigned by-value parameter names unknown storage.
-                  v.is_parameter => _msp_def(ctx, lt.value.clone(), _msp_root(MSP_ROOTED)),
+                  v.is_parameter => _msp_def(ctx, lt.value.*.clone(), _msp_root(MSP_ROOTED)),
                   v.is_module_level => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED),
-                  true => _MsP.define_from(ctx, lt.value.clone(), r, &rhs)
+                  true => _MsP.define_from(ctx, lt.value.*.clone(), r, &rhs)
                 ),
                 .None => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED)
               );
@@ -2538,7 +2538,7 @@ impl(
               match(
                 arm,
                 .FnCall(_, af, aargs, _, _) => {
-                  is_arm := (match(af, .Atom(_, at) => ((at.value == "=>") || (at.value == "->")), _ => false) && (aargs.len() == usize(2)));
+                  is_arm := (match(af, .Atom(_, at) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
                   if(is_arm, {
                     pat := match(aargs.get(usize(0)), .Some(p) => p, .None => arm);
                     body := match(aargs.get(usize(1)), .Some(b) => b, .None => arm);
@@ -2820,7 +2820,7 @@ impl(
     match(
       func_expr,
       .Atom(_, ht) => {
-        head = ht.value.clone();
+        head = ht.value.*.clone();
       },
       _ => ()
     );
@@ -3094,7 +3094,7 @@ impl(
     match(
       func_expr,
       .Atom(_, ht) => {
-        head = ht.value.clone();
+        head = ht.value.*.clone();
       },
       _ => ()
     );
@@ -3157,13 +3157,13 @@ impl(
           match(
             env_opt,
             .Some(env) => {
-              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.clone());
+              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.*.clone());
               match(
                 vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: the caller's storage for it.
                   (v.is_parameter && v.is_ref) => match(
-                    _msp_param_index(ctx, lt.value.clone()),
+                    _msp_param_index(ctx, lt.value.*.clone()),
                     .Some(pi) => _msp_bits_set(&mut m.shallow, pi),
                     .None => {
                       m.all = true;
@@ -3172,7 +3172,7 @@ impl(
                   ),
                   // Through an `inout` local binding: whatever it aliases.
                   v.is_ref => {
-                    br := match(ctx.roots.get(lt.value.clone()), .Some(r0) => r0, .None => _msp_root(MSP_ROOTED));
+                    br := match(ctx.roots.get(lt.value.*.clone()), .Some(r0) => r0, .None => _msp_root(MSP_ROOTED));
                     _msp_mask_add_root(&m, br, br.deep);
                   },
                   // A global whose type can root storage (an RC handle, a
@@ -3254,7 +3254,7 @@ impl(
               match(
                 arm,
                 .FnCall(_, af, aargs, _, _) => {
-                  is_arm := (match(af, .Atom(_, at) => ((at.value == "=>") || (at.value == "->")), _ => false) && (aargs.len() == usize(2)));
+                  is_arm := (match(af, .Atom(_, at) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
                   if(is_arm, {
                     match(aargs.get(usize(1)), .Some(b) => _msp_mask_or(&m, _MsP.walk(&b, ctx)), .None => ());
                   }, {
@@ -3567,7 +3567,7 @@ _msp_arg_base_var :: (fn(arg : &AstExpr, table : &ExprInfoTable) -> Option(Varia
     .Some(ba) => match(
       expr_info_table_get(table, ast_expr_id(&ba)),
       .Some(bi) => {
-        vars := scope_variables(ast_expr_id(&ba), &bi.env, ast_expr_token(&ba).value);
+        vars := scope_variables(ast_expr_id(&ba), &bi.env, ast_expr_token(&ba).value.*);
         vars.last()
       },
       .None => Option(Variable).None
@@ -3703,7 +3703,7 @@ _rcw_type_of :: (fn(e : &AstExpr, table : &ExprInfoTable) -> Option(TypeValue))(
 );
 /// The head name of a call's callee, "" for a callee that is not an atom.
 _rcw_head :: (fn(f : &AstExpr) -> String)(
-  match(f, .Atom(_, ft) => ft.value.clone(), _ => String.new())
+  match(f, .Atom(_, ft) => ft.value.*.clone(), _ => String.new())
 );
 /// The cell step of `place` to report: the `Rc` step nearest the written
 /// storage when the place goes through any `Rc`, else the nearest `ref`
@@ -4193,7 +4193,7 @@ _gr_env_of :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(Environment))(
 /// module-level runtime global.
 _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   tok := ast_expr_token(e);
-  name := tok.value.clone();
+  name := tok.value.*.clone();
   if(name.is_empty(), {
     return(Option(String).None);
   });
@@ -4235,7 +4235,7 @@ _gr_walk_closure_callee :: (fn(f : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   if(!ast_expr_is_atom(f), {
     return(Option(String).None);
   });
-  name := ast_expr_token(f).value.clone();
+  name := ast_expr_token(f).value.*.clone();
   if(name.is_empty(), {
     return(Option(String).None);
   });
@@ -4275,7 +4275,7 @@ _gr_value_function :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     .None => Option(EvalValue).None
   );
   if(fv.is_none() && ast_expr_is_atom(e), {
-    name := ast_expr_token(e).value.clone();
+    name := ast_expr_token(e).value.*.clone();
     if(!name.is_empty(), {
       vars := match(_gr_env_of(e, ctx), .Some(en) => scope_variables(ast_expr_id(e), &en, &name), .None => get_variables_from_env(&ctx.env, &name));
       if(vars.len() > usize(0), {
@@ -4330,7 +4330,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
       match(
         f,
         .Atom(_, ht) => {
-          head = ht.value.clone();
+          head = ht.value.*.clone();
         },
         _ => ()
       );
