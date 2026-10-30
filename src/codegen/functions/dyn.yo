@@ -21,7 +21,8 @@
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, dyn_slot_param_type_string, dyn_concrete_func_type, dyn_concrete_c_name, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
-{ type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, is_clone_trait_type, dyn_type_lists_clone } :: import("../../types/utils.yo");
+{ dyn_impl_clone_fid, clone_fn_takes_self_by_ptr } :: import("../exprs/downcast.yo");
+{ type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : &EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
@@ -361,32 +362,7 @@ _emit_dyn_clone_function :: (
 )({
   em := context.base.emitter;
   // The impl's `clone`: the `clone` field of the `Clone` trait's evidence.
-  (clone_fid : String) = String.new();
-  (ti : usize) = usize(0);
-  while((ti < req_traits.len()) && clone_fid.is_empty(), {
-    if(match(req_traits.get(ti), .Some(rt) => is_clone_trait_type(&rt), .None => false), {
-      match(
-        trait_values.get(ti),
-        .Some(.TraitVal(_, cl_names, cl_vals)) => {
-          (fi : usize) = usize(0);
-          while(fi < cl_names.len(), {
-            if(match(cl_names.get_cloned(fi), .Some(l) => (l == "clone"), .None => false), {
-              match(
-                cl_vals.get(fi),
-                .Some(.Some(fv)) => if(is_func_val(&fv), {
-                  clone_fid = _func_val_id(&fv);
-                }),
-                _ => ()
-              );
-            });
-            fi = (fi + usize(1));
-          });
-        },
-        _ => ()
-      );
-    });
-    ti = (ti + usize(1));
-  });
+  clone_fid := dyn_impl_clone_fid(req_traits, trait_values);
   is_boxed := is_boxed_type(data_type.clone());
   em.emit_declaration_string_line(`static void* ${_dyn_clone_fn_name(impl_key)}(void* self_ptr) {`);
   (clone_entry : Option(CodegenFunctionEntry)) = if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone()));
@@ -398,11 +374,7 @@ _emit_dyn_clone_function :: (
       em.emit_declaration_line("  return NULL;");
     }, {
       // `self : &Self` reaches the impl as `T` or as `T*` (`fn_abi_param_is_ptr`).
-      (self_by_ptr : bool) = match(
-        get_func_type(clone_fid.clone()),
-        Rc(.Func({ param_types : cpts })) => match(cpts.get(usize(0)), .Some(p0) => (is_pointer_type(&t_slot_pointee(&p0)) || t_slot_is_mut_ref(&p0)), .None => false),
-        _ => false
-      );
+      self_by_ptr := clone_fn_takes_self_by_ptr(&clone_fid);
       (receiver : String) = String.new();
       if(is_boxed, {
         boxed_cname := _boxed_c_name(data_type.clone(), context);
