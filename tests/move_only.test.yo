@@ -3345,3 +3345,29 @@ test("move-only: a copy error names a generic struct instance as written", {
   }, "whose type `_MoGen(i32)` is move-only");
   assert(h.g.v == i32(1), "the holder keeps its field");
 });
+// A wrapper whose body holds a consuming `match`, fused at two awaits of one
+// task, gets its own C labels at each site
+// (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
+_mo_res :: (fn(n : i32) -> Result(_MoFd, i32))(
+  if(n > i32(0), Result(_MoFd, i32).Ok(_MoFd(n : n)), Result(_MoFd, i32).Err(n))
+);
+_mo_fused_match :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(String.from("not positive"))));
+    e.io.await(yield(e.io), e.io);
+    fd.n
+  })
+);
+_mo_fused_twice :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    a := e.io.await(_mo_fused_match(i32(1), e.io), e);
+    b := e.io.await(_mo_fused_match(i32(2), e.io), e);
+    a + b
+  })
+);
+test("move-only: a wrapper's consuming match fused at two awaits of one task", {
+  before := g_mo_disposed;
+  r := io.await(_mo_fused_twice(io), IoExn(io : io, exn : Exception(throw : (_err -> unwind(())))));
+  assert(r == i32(3), "both fused sites ran");
+  assert(g_mo_disposed == (before + i32(2)), "each site's payload dropped once");
+});
