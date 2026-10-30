@@ -1,0 +1,13 @@
+// Decision 17 (V2c) judges std's generic readers at each instantiation: at a
+// counted-handle element, `ArrayList(Rc(i32)).get` copies the handle out of
+// its buffer, which is E0901. The error is reported at the user's call, with
+// the std location as a note and the accessors that do not copy in the help.
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  xs := ArrayList(Rc(i32)).new();
+  xs.push(rc(i32(2)));
+  y := xs.get(usize(0));
+  assert(y.is_some(), "an element");
+});
+export(main);
