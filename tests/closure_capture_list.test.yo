@@ -15,6 +15,7 @@
 { String } :: import("std/string");
 { Thread } :: import("std/thread");
 { IoExn, Exception } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 (g_cl_total : i32) = i32(0);
 _cl_call0 :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
 _cl_call1 :: (fn(f : &Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(x));
@@ -654,4 +655,18 @@ test("second-class: a cond or match tail cannot return a borrowing closure", {
     }),
     "cannot be returned"
   );
+});
+// A by-value entry whose C spelling is its own name (a leading `_`, or the
+// `var_` prefix of a state-machine local) and that an FnOnce body moves: the
+// body declared no local for it and passed the bare, undeclared name
+// (issues/fixed/2026-10-29-a-capture-list-entry-named-with-a-leading-underscore-is-emitted-bare-when-moved.md).
+test("an FnOnce body moves a capture-list entry named `_x` or `var_x`", {
+  cell := RefCell(ArrayList(String)).new(ArrayList(String).new());
+  _moved := String.from("a");
+  cell.with_mut({ _moved }(xs) => xs.push(_moved));
+  var_moved := String.from("b");
+  cell.with_mut({ var_moved }(xs) => xs.push(var_moved));
+  assert(cell.with(xs => xs.len()) == usize(2), "both entries moved in");
+  assert(cell.with(xs => match(xs.get(usize(0)), .Some(s) => (s == String.from("a")), .None => false)), "the `_` entry");
+  assert(cell.with(xs => match(xs.get(usize(1)), .Some(s) => (s == String.from("b")), .None => false)), "the `var_` entry");
 });
