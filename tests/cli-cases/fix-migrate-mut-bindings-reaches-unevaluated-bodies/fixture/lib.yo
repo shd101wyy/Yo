@@ -1,0 +1,43 @@
+{ ArrayList } :: import("std/collections/array_list");
+{ platform, Platform } :: import("std/process");
+/// A generic body: its definition-time trial stops at `T(1)`, a type
+/// variable called as a constructor, before any write below it.
+power :: (fn(generic(T : Type), base : T, exp : u32, where(T <: Integer)) -> T)({
+  (acc : T) = T(1);
+  (i : u32) = u32(0);
+  seen := ArrayList(T).new();
+  limit := exp;
+  while(i < limit, {
+    acc = (acc * base);
+    seen.push(acc);
+    i = (i + u32(1));
+  });
+  acc
+});
+Stepper :: trait(step : (fn(self : &mut Self) -> bool));
+/// A blanket default: no evaluation reaches its body until a caller's type
+/// instantiates it.
+impl(
+  generic(I : Type),
+  I,
+  drain_count : (fn(sink(self) : Self, where(Self <: Stepper)) -> usize)({
+    it := self;
+    n := usize(0);
+    while(it.step(), {
+      n = (n + usize(1));
+    });
+    n
+  })
+);
+/// A platform arm for another target is pruned before evaluation.
+spin :: (fn() -> usize)(
+  cond(
+    (platform == Platform.Windows) => {
+      tries := usize(0);
+      tries = (tries + usize(1));
+      tries
+    },
+    true => usize(0)
+  )
+);
+export(power, Stepper, spin);

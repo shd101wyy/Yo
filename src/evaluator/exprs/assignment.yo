@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
   BF_DOT,
   ast_expr_strip_borrow_marker
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -2207,6 +2207,11 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   // (`(x : T);`) is its initialization, not a write, on each branch that
   // makes it (`has_dominating_branch_init`).
   if(!variable.is_module_level && !d1_is_decl_init, {
+    // `yo fix --migrate mut-bindings`: this assignment is judged here, a
+    // write or a branch's initialization.
+    if(migrate_mut_bindings_on(), {
+      record_mut_judged(&d1_lhs_tok);
+    });
     rb_inited_at_decl := match(variable.initialized_at_token, .Some(it) => ((it.row == variable.token.row) && ((it.column == variable.token.column) && (it.module_path == variable.token.module_path))), .None => false);
     rb_is_write := cond(
       rb_inited_at_decl => true,

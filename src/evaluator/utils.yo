@@ -123,7 +123,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -2496,6 +2496,9 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(!g_audit_mut_bindings && !migrate_mut_bindings_on() && !global_mut_rule_applies(tok, ctx), {
     return(());
   });
+  if(migrate_mut_bindings_on(), {
+    record_mut_judged(tok);
+  });
   if(v.is_ref || (v.is_imm_borrow || variable_inout_borrow_root_id(v).is_some()), {
     return(());
   });
@@ -2603,6 +2606,26 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last()
 });
+/// `yo fix --migrate mut-bindings`: whether the binding at the root of
+/// `place` has a type variable's type. A store through it is judged "not its
+/// own storage" in a generic body's trial, but an instantiation (an `Array`)
+/// can make it one, so the write is left to the migration's lexical half.
+_place_root_is_type_variable :: (fn(place : &AstExpr, env : &Environment) -> bool)({
+  (cur : AstExpr) = ast_expr_strip_borrow_marker(place);
+  while(!ast_expr_is_atom(&cur), {
+    (next : AstExpr) = match(
+      cur,
+      .FnCall(_, rt_callee, rt_args, rt_infix, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(rt_args.get(usize(0)), .Some(a) => a, .None => return(false)),
+        rt_infix => return(false),
+        true => rt_callee
+      ),
+      .Atom(_, _) => cur
+    );
+    cur = next;
+  });
+  match(get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last(), .Some(v) => is_some_type(&v.ty), .None => false)
+});
 /// Decision 47 step 2: the place `place` (`x`, `x.f`, `x(i)`) is written at
 /// `tok`, by a field or element store, an exclusive lend or a `&mut self`
 /// call. The binding at its root is written unless the place reaches its
@@ -2615,7 +2638,11 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
   if(!g_audit_mut_bindings && !migrate_mut_bindings_on() && !global_mut_rule_applies(tok, ctx), {
     return(());
   });
-  rv := match(place_root_binding(place, env, ctx), .Some(v) => v, .None => return(()));
+  root := place_root_binding(place, env, ctx);
+  if(migrate_mut_bindings_on() && (root.is_some() || !_place_root_is_type_variable(place, env)), {
+    record_mut_judged(tok);
+  });
+  rv := match(root, .Some(v) => v, .None => return(()));
   if(rv.is_module_level || (handle_ok && rv.is_compile_time_only), {
     return(());
   });
