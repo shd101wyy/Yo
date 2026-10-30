@@ -3418,7 +3418,7 @@ _try_lookup_trait_type :: (
   });
   (atom_result : Option(TypeValue)) = Option(TypeValue).None;
   if(ast_expr_is_atom(&head_expr), {
-    name := ast_expr_text(&head_expr);
+    name := ast_expr_text(&head_expr).*;
     vars := get_variables_from_env(env, &name);
     if(vars.len() > usize(0), {
       match(
@@ -5509,7 +5509,7 @@ evaluate_module_value :: (
               ast_expr_is_fn_call_of(&pre_field_expr, BK_COLON, .Some(usize(2)))
           );
           if(!is_colon_pair, {
-            tname := ast_expr_text(&pre_field_expr);
+            tname := ast_expr_text(&pre_field_expr).*;
             if(tname.len() > usize(0), {
               first_byte := tname.get_byte(usize(0));
               // Trait names start with an uppercase ASCII letter
@@ -5692,7 +5692,7 @@ evaluate_module_value :: (
         if(!is_negative_field && (ast_expr_is_fn_call(&field_expr) && !ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2)))), {
           pos_trait_name := match(
             field_expr,
-            .FnCall(_, pfb, _, _, _) => ast_expr_text(&pfb),
+            .FnCall(_, pfb, _, _, _) => ast_expr_text(&pfb).*,
             .Atom(_, _) => String.new()
           );
           if(((pos_trait_name == "Send") || (pos_trait_name == "Sync")) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
@@ -5951,7 +5951,7 @@ evaluate_module_value :: (
                     .Some(dme) => {
                       dme_name := match(
                         dme,
-                        .FnCall(_, _, dca, _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_text(&dn), .None => String.from("")),
+                        .FnCall(_, _, dca, _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_text(&dn).*, .None => String.from("")),
                         .Atom(_, _) => String.from("")
                       );
                       if(dme_name == d_label, {

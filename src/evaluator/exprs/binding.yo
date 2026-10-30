@@ -244,7 +244,7 @@ evaluate_binding :: (
   // `force_compile_time_bindings` is consulted, which turns every binding of a
   // body evaluated at compile time into a compile-time one.
   if(!is_compile_time_only && in_compile_time_fn_body(ctx), {
-    b_name := ast_expr_text(&lhs);
+    b_name := ast_expr_text(&lhs).*;
     b_ty := ast_expr_to_string(&rhs);
     exn.throw(
       dyn(
@@ -269,7 +269,7 @@ evaluate_binding :: (
   });
   // Validate lhs is a valid variable name (identifier or operator).
   if(!is_valid_variable_name(&lhs), {
-    lhs_tok_val := ast_expr_text(&lhs);
+    lhs_tok_val := ast_expr_text(&lhs).*;
     exn.throw(
       dyn(
         format_error_message(
@@ -344,7 +344,7 @@ evaluate_binding :: (
       )
     );
   });
-  variable_name := ast_expr_text(&lhs);
+  variable_name := ast_expr_text(&lhs).*;
   // Reject runtime vars with generic function types — DEFERRABLE: exprs/
   // assignment.yo sets the flag around its typed-binding eval and re-runs
   // the check itself after the RHS is evaluated, relaxing it for ctl
