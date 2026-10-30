@@ -15,10 +15,11 @@
 // the C local alive and hides the bug).
 string_binding_named_like_capture :: (fn(o : &Option(String), io : Io) -> Impl(Future(usize, IoExn)))({
   x := String.from("seven");
+  __probe_o := o.clone();
   io.async(e => {
     a := x.len();
     r := match(
-      o,
+      &__probe_o,
       .Some(x) => {
         e.io.await(sleep(u64(1)), e.io);
         x.len()

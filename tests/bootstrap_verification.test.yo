@@ -119,7 +119,7 @@ test("large enum ToString", {
 // ===========================================================================
 test("closure captures comptime i32 by value", {
   threshold :: i32(3);
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(5));
@@ -146,11 +146,11 @@ test("closure captures comptime i32 by value", {
 });
 test("closure captures String by RC; outlives capture site", {
   prefix := `pre-`;
-  list := ArrayList(String).new();
+  mut(list) := ArrayList(String).new();
   list.push(`a`);
   list.push(`b`);
   // Capture prefix by reference; iteration produces concatenated strings
-  results := ArrayList(String).new();
+  mut(results) := ArrayList(String).new();
   mut(it) := list.into_iter();
   while(true, {
     match(
@@ -171,8 +171,8 @@ test("closure captures String by RC; outlives capture site", {
   assert(prefix == `pre-`, "prefix still alive after iter");
 });
 test("closure captures ArrayList; mutation visible after iter scope", {
-  collected := ArrayList(i32).new();
-  src := ArrayList(i32).new();
+  mut(collected) := ArrayList(i32).new();
+  mut(src) := ArrayList(i32).new();
   src.push(i32(10));
   src.push(i32(20));
   src.push(i32(30));

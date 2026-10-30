@@ -116,7 +116,7 @@ test("replace_with builds the successor of a collection from the current one", {
     xs.push(String.from("a"));
   });
   was := log.replace_with(xs => {
-    next := xs.clone();
+    mut(next) := xs.clone();
     next.push(String.from("b"));
     next
   });
@@ -186,7 +186,7 @@ impl(
   )
 );
 _rc_tracked_list :: (fn(n : i32) -> ArrayList(Rc(RefCell(_RcTracked))))({
-  xs := ArrayList(Rc(RefCell(_RcTracked))).new();
+  mut(xs) := ArrayList(Rc(RefCell(_RcTracked))).new();
   xs.push(rc(RefCell(_RcTracked).new(_RcTracked(n : n))));
   xs
 });
@@ -242,13 +242,13 @@ test("with, with_mut, replace_with and replace keep a cell reached through an Rc
 });
 test("a body naming the container its cell is lent from is E0910", {
   comptime_expect_error({
-    xs := _rc_tracked_list(i32(1));
+    mut(xs) := _rc_tracked_list(i32(1));
     xs(usize(0)).with_mut(v => {
       xs.clear();
     })
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
-    xs := _rc_tracked_list(i32(1));
+    mut(xs) := _rc_tracked_list(i32(1));
     xs(usize(0)).replace_with(v => {
       xs.clear();
       _RcTracked(n : v.n)

@@ -218,7 +218,7 @@ _push_later :: (fn(items : &mut ArrayList(i32), io : Io) -> Impl(Future(unit, Io
   io.async({ &mut items }(io : Io) => items.push(i32(1)))
 );
 test("S14: a future may hold a & place lent through a cell handle, not a &mut one", {
-  p := _p(i32(0));
+  mut(p) := _p(i32(0));
   p.items.push(i32(1));
   h := trc(p);
   assert(io.await(_count_later(&h.*.items, io), io) == usize(1), "a & lend through the handle crosses the await");
@@ -273,9 +273,9 @@ _hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
 });
 test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
   _hd_drops = i32(0);
-  hs := ArrayList(TRc(_HdCell)).new();
+  mut(hs) := ArrayList(TRc(_HdCell)).new();
   hs.push(trc(_HdCell(n : i32(1))));
-  hs2 := hs;
+  mut(hs2) := hs.clone();
   assert(
     hs(usize(0)).peek(() => {
       hs2.clear();

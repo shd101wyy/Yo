@@ -2491,7 +2491,7 @@ test("Test comptime match branch elimination", {
 test("return in match branch type compatibility", {
   { ArrayList } :: import("std/collections/array_list");
   test_fn :: (fn() -> unit)({
-    (list : ArrayList(u8)) = ArrayList(u8).new();
+    (mut(list) : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(42));
     // .None branch returns from the function — its type should be never/bottom,
     // compatible with *(u8) expected type from .Some branch
@@ -2526,7 +2526,7 @@ test("single-expression function body without braces", {
 test("index function call result", {
   { ArrayList } :: import("std/collections/array_list");
   get_list :: (fn() -> ArrayList(u8))({
-    (list : ArrayList(u8)) = ArrayList(u8).new();
+    (mut(list) : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(10));
     list.push(u8(20));
     list.push(u8(30));
@@ -2650,7 +2650,7 @@ test("enum tag participates in alignment and struct tail padding", {
   // Functional roundtrip across a growth boundary — the ASan legs check the
   // memory behavior, every leg checks the values.
   { ArrayList } :: import("std/collections/array_list");
-  l := ArrayList(TagPadded).new();
+  mut(l) := ArrayList(TagPadded).new();
   mut(k) := u16(0);
   while(k < u16(6), {
     mut(segs) := Array(u16, usize(8)).fill(u16(0));
@@ -2741,7 +2741,7 @@ test("the C type still resolves where it is NOT shadowed", {
 test("a tuple element type inside a generic container declares its C name in time", {
   { ArrayList } :: import("std/collections/array_list");
   { String } :: import("std/string");
-  xs := ArrayList(Tuple(String, String)).new();
+  mut(xs) := ArrayList(Tuple(String, String)).new();
   xs.push((`k`, `v`));
   xs.push((`a`, `b`));
   assert(xs.len() == usize(2), "two pairs");
@@ -2751,8 +2751,8 @@ test("a tuple element type inside a generic container declares its C name in tim
   assert(xs(usize(1)).0 == `a`, "the second pair too");
   // The same shape one level deeper: a tuple whose element is itself a
   // container, in a container.
-  ys := ArrayList(Tuple(i32, ArrayList(i32))).new();
-  inner := ArrayList(i32).new();
+  mut(ys) := ArrayList(Tuple(i32, ArrayList(i32))).new();
+  mut(inner) := ArrayList(i32).new();
   inner.push(i32(7));
   ys.push((i32(1), inner));
   assert(ys(usize(0)).1(usize(0)) == i32(7), "a container inside a tuple inside a container");
@@ -2773,7 +2773,7 @@ test("assignment to the result of a function call is a check error", {
   { ArrayList } :: import("std/collections/array_list");
   f :: (fn(x : i32) -> i32)(x);
   comptime_expect_error(f(1) = 2);
-  arr := ArrayList(i32).new();
+  mut(arr) := ArrayList(i32).new();
   arr.push(i32(1));
   arr(0) = i32(5);
   assert(arr(0) == i32(5), "an Index-trait place must still be assignable");

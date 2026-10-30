@@ -138,7 +138,7 @@ test("cancelling a task blocked on a channel releases it", {
 
 // issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md
 Boom :: struct(msg : String);
-impl(Boom, ToString(to_string : (self -> self.msg)));
+impl(Boom, ToString(to_string : (self -> self.msg.clone())));
 impl(Boom, Error());
 derive(Boom, Clone);
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
@@ -165,7 +165,7 @@ _guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoE
     Result(String, String).Ok(raw)
   })
 );
-_show :: (fn(r : &Result(String, String)) -> String)(match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`));
+_show :: (fn(r : &Result(String, String)) -> String)(match(r, .Ok(s) => s.clone(), .Err(m) => `ERR ${m}`));
 // Returns what the three awaits produced: a frame that "caught" the unwind by
 // returning early (the old lowering) cannot fake this result.
 _three_guarded :: (fn(io : Io) -> String)({
@@ -370,14 +370,15 @@ _sm_hold :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
     t.n
   })
 );
-_sm_pass_indexed :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))(
+_sm_pass_indexed :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))({
+  __probe_keep := keep.clone();
   io.async(e => {
     (mut(i) : usize) = usize(0);
     (mut(sum) : i32) = i32(0);
-    while(i < keep.len(), {
+    while(i < __probe_keep.len(), {
       cond(
-        (i < keep.len()) => {
-          v := e.io.await(_sm_hold(&keep(i), e.io), e);
+        (i < __probe_keep.len()) => {
+          v := e.io.await(_sm_hold(&__probe_keep(i), e.io), e);
           sum = (sum + v);
         },
         true => ()
@@ -386,7 +387,7 @@ _sm_pass_indexed :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, I
     });
     sum
   })
-);
+});
 test("an index result passed to an async call in a task is released", {
   keep := ArrayList(Thing).new();
   // Pushed in their own block: a pushed temporary holds its reference until

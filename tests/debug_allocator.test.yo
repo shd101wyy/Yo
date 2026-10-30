@@ -78,7 +78,7 @@ test("a block freed through every entry point leaves nothing live", {
   a := match(GlobalAllocator.aligned_alloc(usize(256), usize(100)), .Some(b) => b, .None => __yo_panic("aligned_alloc"));
   assert((unsafe.cast(&a, usize) % usize(256)) == usize(0), "aligned_alloc honours the alignment");
   unsafe(GlobalAllocator.aligned_free(.Some(a)));
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(100), {
     xs.push(i.to_string());
@@ -104,7 +104,7 @@ test("a double free aborts and names the block", {
     },
     .None => if(_debug_on(), {
       out := _run_child("double-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("debug allocator: double free: free of block #"), `the abort names the double free, got: ${err}`);
       assert(err.contains("(32 bytes), already freed"), `the abort names the size, got: ${err}`);
@@ -121,7 +121,7 @@ test("a free of a pointer it never handed out aborts", {
     },
     .None => if(_debug_on(), {
       out := _run_child("foreign-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("which this allocator did not hand out"), `the abort names a foreign pointer, got: ${err}`);
     })
@@ -137,7 +137,7 @@ test("a write after free is reported at exit", {
     },
     .None => if(_debug_on(), {
       out := _run_child("write-after-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("(40 bytes) was written after it was freed (first changed byte at offset 3)"), `the report names the write, got: ${err}`);
     })
@@ -151,7 +151,7 @@ test("a block still live when main returns fails the run with status 23", {
     },
     .None => if(_debug_on(), {
       out := _run_child("leak", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.code().unwrap_or(i32(-1)) == i32(23), `the leak check exits with 23, got: ${err}`);
       // `g_kept` below is a module global, reachable and not counted.
       assert(err.contains("debug allocator: leak check failed: 1 blocks / 48 bytes leaked"), `the report counts the block, got: ${err}`);
@@ -167,7 +167,7 @@ test("an exit before main returns lists its live blocks without judging them", {
     },
     .None => if(_debug_on(), {
       out := _run_child("exit-early", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.success(), `exit(0) keeps its status, got: ${err}`);
       assert(err.contains("56 bytes"), `the report lists the block, got: ${err}`);
       assert(err.contains("so its live blocks are not judged"), `the report says why, got: ${err}`);
@@ -176,7 +176,7 @@ test("an exit before main returns lists its live blocks without judging them", {
 });
 // A module global is never dropped: what it still holds at exit is in use,
 // not leaked, so the exit check must not fail on it.
-g_kept := ArrayList(String).new();
+mut(g_kept) := ArrayList(String).new();
 test("blocks a module global still reaches at exit are not leaks", {
   match(
     _child_mode(),

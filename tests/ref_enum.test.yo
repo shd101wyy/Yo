@@ -33,6 +33,9 @@ comptime_expect_error(bad_atomic_prim :: atomic(i32));
 area :: (fn(sh : &Shape) -> i32)(
   match(sh, .Circle(r) => (r * r * i32(3)), .Square(s) => (s * s))
 );
+impl(Nest, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(Tree, Clone(clone : (fn(self : &Self) -> Self)(self)));
+derive(Holder, Clone);
 tree_sum :: (fn(t : &Tree) -> i32)(
   match(t, .Leaf(value) => value, .Node(left, right) => (recur(&left) + recur(&right)))
 );
@@ -67,7 +70,7 @@ nest_rebuild :: (fn(t : &Nest) -> Nest)(
     .Tip(n) => Nest.Tip(n : n),
     .One(inner) => Nest.One(inner : recur(&inner)),
     .Many(items) => {
-      out := ArrayList(Nest).new();
+      mut(out) := ArrayList(Nest).new();
       (mut(i) : usize) = usize(0);
       while(i < items.len(), {
         match(
@@ -125,7 +128,7 @@ test("ref(enum) drops its variant's RC fields on free", {
 test("recursive ref(enum) RECONSTRUCTION (Self + ArrayList(Self) fields)", {
   // Build a Nest reached through both a direct `Self` (`One`) and an
   // `ArrayList(Self)` (`Many`) field.
-  leaves := ArrayList(Nest).new();
+  mut(leaves) := ArrayList(Nest).new();
   leaves.push(Nest.Tip(n : i32(1)));
   leaves.push(Nest.One(inner : Nest.Tip(n : i32(2))));
   leaves.push(Nest.Tip(n : i32(4)));

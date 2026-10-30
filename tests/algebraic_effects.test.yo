@@ -154,7 +154,7 @@ impl(
   )
 );
 mk_ue :: (fn(n : i32) -> UeArg)(UeArg(tag : n));
-(g_ue_keep : ArrayList(UeArg)) = ArrayList(UeArg).new();
+(mut(g_ue_keep) : ArrayList(UeArg)) = ArrayList(UeArg).new();
 test("may-unwind call in a bare cond arm releases its argument temp exactly once", {
   RaiseUe :: (ctl(arg : &UeArg) -> i32);
   step :: (fn(n : i32, raise : RaiseUe) -> i32)(
@@ -2248,7 +2248,7 @@ test("Test escape path does not drop the unwound call's result temp", {
   get_list :: (fn(flag : bool, exn : Exception) -> ArrayList(i32))(
     cond(
       flag => {
-        l := ArrayList(i32).new();
+        mut(l) := ArrayList(i32).new();
         l.push(7);
         l
       },

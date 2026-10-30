@@ -70,7 +70,7 @@ test("inout binding chains: to an inout local and to an inout parameter", {
   assert(x == i32(13), "the callee's own binding of its inout param writes back");
 });
 test("inout binding created per loop iteration", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   xs.push(i32(3));
@@ -264,7 +264,7 @@ comptime_expect_error(
 // --- Rejected shapes ------------------------------------------------------
 comptime_expect_error(
   index_place_rejected :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     e := &mut xs(usize(0));
     e = i32(2);
@@ -310,7 +310,7 @@ comptime_expect_error(
 // from the pointer iterator, which safe code may hold but not dereference.
 comptime_expect_error(
   deref_place_rejected :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     mut(it) := xs.iter();
     match(
@@ -328,7 +328,7 @@ comptime_expect_error(
 // the prelude's borrowed `for`) may bind or pass.
 comptime_expect_error(
   pointer_value_rejected :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     mut(it) := xs.iter();
     first := it.next();

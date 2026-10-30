@@ -75,7 +75,7 @@ test("UdpSocket send_to and recv", {
   client_addr := SocketAddr.loopback(u16(19911));
   client := io.await(UdpSocket.bind(client_addr, io), IoExn(io : io, exn : exn));
   // Client sends to server
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(72)); // H
   data.push(u8(101)); // e
   data.push(u8(108)); // l
@@ -113,7 +113,7 @@ test("UdpSocket recv_from gets source address", {
   client_addr := SocketAddr.loopback(u16(19913));
   client := io.await(UdpSocket.bind(client_addr, io), IoExn(io : io, exn : exn));
   // Client sends
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(65)); // A
   data.push(u8(66)); // B
   io.await(client.send_to(&data, server_addr, io), ioe);
@@ -146,7 +146,7 @@ test("UdpSocket recv_from_bytes needs no raw pointers at all", {
   server := io.await(UdpSocket.bind(server_addr, io), IoExn(io : io, exn : exn));
   client_addr := SocketAddr.loopback(u16(19917));
   client := io.await(UdpSocket.bind(client_addr, io), IoExn(io : io, exn : exn));
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(120)); // x
   data.push(u8(121)); // y
   data.push(u8(122)); // z
@@ -176,7 +176,7 @@ test("UdpSocket recv_bytes over a connected socket", {
   client_addr := SocketAddr.loopback(u16(19919));
   client := io.await(UdpSocket.bind(client_addr, io), IoExn(io : io, exn : exn));
   io.await(client.connect(server_addr, io), ioe);
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(7));
   io.await(client.send(&data, io), ioe);
   got := io.await(server.recv_bytes(usize(64), io), ioe);
@@ -260,7 +260,7 @@ test("UdpSocket.connect makes send and recv usable", {
   client := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   io.await(client.connect(server.local_addr(), io), ioe);
   io.await(server.connect(client.local_addr(), io), ioe);
-  msg := ArrayList(u8).new();
+  mut(msg) := ArrayList(u8).new();
   msg.push(u8(104));
   msg.push(u8(105));
   sent := io.await(client.send(&msg, io), ioe);
@@ -269,7 +269,7 @@ test("UdpSocket.connect makes send and recv usable", {
   got := io.await(server.recv(buf, usize(16), io), ioe);
   assert(got == usize(2), "recv on the connected peer gets it");
   assert(((buf.add(usize(0))).* == u8(104)) && ((buf.add(usize(1))).* == u8(105)), "payload intact");
-  reply := ArrayList(u8).new();
+  mut(reply) := ArrayList(u8).new();
   reply.push(u8(33));
   _r := io.await(server.send(&reply, io), ioe);
   got2 := io.await(client.recv(buf, usize(16), io), ioe);
@@ -336,7 +336,7 @@ test("a quiet recv_from parks the task, not the event loop", {
     `the 200 ms sleep took ${sleep_ms} ms — the loop was parked inside a pending recv_from`
   );
 
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(112)); // p
   data.push(u8(105)); // i
   data.push(u8(110)); // n

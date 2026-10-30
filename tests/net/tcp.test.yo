@@ -171,7 +171,7 @@ test("TCP write_bytes", {
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
   server_stream := io.await(listener.accept(io), ioe);
   // Write bytes
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(1));
   data.push(u8(2));
   data.push(u8(3));
@@ -488,7 +488,7 @@ _d6_ends_headers :: (fn(b : &ArrayList(u8)) -> bool)({
 _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async({ &stream }(e : IoExn) => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
-    bytes := ArrayList(u8).new();
+    mut(bytes) := ArrayList(u8).new();
     mut(eof) := false;
     while(!eof && !_d6_ends_headers(&bytes), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
@@ -554,7 +554,7 @@ test("accept pending in a spawned task before the client connects", {
   io.await(client.close(io), ioe);
   server.await(io);
   assert(seen.with(xs => xs.len()) == usize(1), "one request seen");
-  assert(seen.with(xs => xs(usize(0))).starts_with(`GET /one`), "the request line");
+  assert(seen.with(xs => (xs(usize(0))).clone()).starts_with(`GET /one`), "the request line");
 });
 test("three request/response rounds against a spawned scripted server", {
   exn := Exception(
@@ -691,7 +691,7 @@ test("a consumer loop over incoming serves each connection in turn", {
   ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   bound := listener.local_addr();
-  fds := ArrayList(i32).new();
+  mut(fds) := ArrayList(i32).new();
   mut(conns) := listener.incoming().take(usize(2));
   // The accepted streams are dropped by the loop body; `TcpStream`'s Drop
   // closes the descriptor, so nothing leaks while the fd is recorded. The
