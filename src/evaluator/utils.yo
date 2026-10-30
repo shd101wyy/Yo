@@ -3041,7 +3041,7 @@ derive(PendingScrutineeBorrow, Clone);
 /// The driver spells a `borrow` as `&mut` when an arm wrote through one of
 /// its bindings (`note_migrate_mut_scrutinee`).
 migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
-  if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
+  if(!g_migrate_rc_clone || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
   });
   lt := _ic_leftmost_token(scr);
