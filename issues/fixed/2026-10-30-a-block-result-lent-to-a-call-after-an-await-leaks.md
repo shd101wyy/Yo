@@ -14,7 +14,10 @@ _f :: (fn(io : Io) -> Impl(Future(String)))(
   io.async((io2 : Io) => {
     (mut(log) : String) = String.new();
     io2.await(yield(io2), io2);
-    log.push_string({ t := String.from("x;"); t });
+    log.push_string({
+      t := String.from("x;");
+      t
+    });
     log
   })
 );
