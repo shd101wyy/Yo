@@ -245,7 +245,7 @@ _split_top_level_args_list :: (fn(s : &String) -> ArrayList(String))({
 /// separate change from the `return(<hoisted local>)` fix that needed it —
 /// see issues/fixed/async-await-in-nested-match-arms.md.
 _resolve_var_name_in_context :: (fn(var_name : &String, context : &FunctionGenerationContext) -> String)(
-  var_name
+  var_name.clone()
 );
 /// Declare the result temp the evaluator attached to `expr`
 /// (`attach_temp_variable_to_expr(expr, true, ...)`), assign it `code`, and
@@ -1177,7 +1177,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
 /// upcast. Any other field's code is returned unchanged
 /// (issues/fixed/impl-future-struct-field-emits-incompatible-pointer.md,
 /// option 2).
-_future_field_upcast :: (fn(field_ty : &Option(TypeValue), code : &String, context : &FunctionGenerationContext) -> String)(
+_future_field_upcast :: (fn(field_ty : &Option(TypeValue), code : String, context : &FunctionGenerationContext) -> String)(
   match(
     field_ty,
     .Some(ft) => if(type_implements_future(&ft), {
@@ -1320,9 +1320,9 @@ _callee_param_fn_type :: (fn(func_expr : &AstExpr, context : &FunctionGeneration
     _ => Option(TypeValue).None
   )
 });
-_per_arg_cast :: (fn(args_list : &String, param_types : &ArrayList(TypeValue), param_is_ref : &ArrayList(bool), context : &FunctionGenerationContext) -> String)(
+_per_arg_cast :: (fn(args_list : String, param_types : &ArrayList(TypeValue), param_is_ref : &ArrayList(bool), context : &FunctionGenerationContext) -> String)(
   if(args_list.len() == usize(0), args_list, {
-    parts := _split_top_level_args_list(args_list);
+    parts := _split_top_level_args_list(&args_list);
     np := param_types.len();
     if(!(parts.len() == np), args_list, {
       out := String.from("");

@@ -2431,7 +2431,7 @@ _idx_c_string_literal :: (fn(path : &String) -> String)({
 });
 /// The guarded index sub-expression for a runtime-length receiver (`str`:
 /// the caller spells the length as `(<recv>).len`).
-_checked_index_expr :: (fn(index_code : &String, length_code : &String, expr : &AstExpr) -> String)({
+_checked_index_expr :: (fn(index_code : String, length_code : &String, expr : &AstExpr) -> String)({
   // 5b: the verifier proved this subscript in bounds (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
   if(guard_site_is_proved(expr, "index-in-bounds"), {
     return(index_code);
@@ -2457,7 +2457,7 @@ _fixed_array_len_literal :: (fn(array_type : &TypeValue) -> String)(
 );
 /// Guarded subscript for a FIXED array receiver: the bound is the array's
 /// comptime N. Symbolic-length arrays fail open (raw index).
-_checked_fixed_array_subscript :: (fn(index_code : &String, array_type : &TypeValue, expr : &AstExpr) -> String)({
+_checked_fixed_array_subscript :: (fn(index_code : String, array_type : &TypeValue, expr : &AstExpr) -> String)({
   len_code := _fixed_array_len_literal(array_type);
   if(len_code.len() == usize(0), {
     return(index_code);
