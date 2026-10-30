@@ -329,7 +329,7 @@ _canonical_owner :: (fn(owner : &String) -> Rc(String))(
     _canonical_owner_memo.with(m => m.get(owner)),
     .Some(c) => c,
     .None => {
-      c := rc(canonical_module_path(owner));
+      c := Rc.new(canonical_module_path(owner));
       _canonical_owner_memo.with_mut({ c : Rc.clone(c), owner }(m) => m.insert(owner.clone(), Rc.clone(c)));
       c
     }

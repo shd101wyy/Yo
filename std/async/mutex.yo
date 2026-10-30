@@ -256,13 +256,13 @@ impl(
   /// A new unlocked mutex protecting `value`.
   new : (fn(value : T) -> Self)(
     Self(
-      _core : arc(
+      _core : Arc.new(
         _Core(
           _guard : RawMutex.new(),
-          _st : box(_LockState(_locked : false, _handed : u64(0), _next_ticket : u64(1), _waiters : ArrayList(_Waiter).new()))
+          _st : Box.new(_LockState(_locked : false, _handed : u64(0), _next_ticket : u64(1), _waiters : ArrayList(_Waiter).new()))
         )
       ),
-      _value : box(value)
+      _value : Box.new(value)
     )
   ),
   /// The value cell. Read or write it under the core's guard, or while

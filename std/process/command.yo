@@ -907,7 +907,7 @@ impl(
       .Some(f) => {
         st := self._st();
         unsafe(consume(st.*._stdin_fd = Option(i32).None));
-        Option(ChildStdin).Some(ChildStdin(_cell : box(_PipeEnd(_fd : f, _closed : false))))
+        Option(ChildStdin).Some(ChildStdin(_cell : Box.new(_PipeEnd(_fd : f, _closed : false))))
       },
       .None => Option(ChildStdin).None
     )
@@ -923,7 +923,7 @@ impl(
       .Some(f) => {
         st := self._st();
         unsafe(consume(st.*._stdout_fd = Option(i32).None));
-        Option(ChildStdout).Some(ChildStdout(_cell : box(_PipeEnd(_fd : f, _closed : false))))
+        Option(ChildStdout).Some(ChildStdout(_cell : Box.new(_PipeEnd(_fd : f, _closed : false))))
       },
       .None => Option(ChildStdout).None
     )
@@ -936,7 +936,7 @@ impl(
       .Some(f) => {
         st := self._st();
         unsafe(consume(st.*._stderr_fd = Option(i32).None));
-        Option(ChildStderr).Some(ChildStderr(_cell : box(_PipeEnd(_fd : f, _closed : false))))
+        Option(ChildStderr).Some(ChildStderr(_cell : Box.new(_PipeEnd(_fd : f, _closed : false))))
       },
       .None => Option(ChildStderr).None
     )
@@ -1118,7 +1118,7 @@ impl(
         true => ()
       );
       Child(
-        _cell : box(
+        _cell : Box.new(
           _ChildState(
             _pid : pid,
             _stdin_fd : cond((in_pair(usize(1)) >= i32(0)) => Option(i32).Some(in_pair(usize(1))), true => Option(i32).None),

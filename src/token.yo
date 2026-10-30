@@ -320,9 +320,9 @@ intern_token_str :: (fn(s : &String) -> String)(
 /// (`Token.input`): `empty_token_text()` for a token minted with an empty
 /// path or text, and the `placeholder_token`/`raii_token` texts. A token
 /// copies one of these handles instead of allocating a cell per call.
-(g_empty_token_text : Rc(String)) = rc(String.from(""));
-(g_placeholder_token_text : Rc(String)) = rc(String.from("_"));
-(g_raii_token_text : Rc(String)) = rc(String.from("drop"));
+(g_empty_token_text : Rc(String)) = Rc.new(String.from(""));
+(g_placeholder_token_text : Rc(String)) = Rc.new(String.from("_"));
+(g_raii_token_text : Rc(String)) = Rc.new(String.from("drop"));
 /// The shared empty cell (a module-level runtime binding is not exported).
 empty_token_text :: (fn() -> Rc(String))(Rc.clone(g_empty_token_text));
 /// Synthetic placeholder token used as a sentinel position when constructing

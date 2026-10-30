@@ -16,7 +16,7 @@ first_tag :: (fn() -> String)(make().tags(usize(0)));
 Shelf :: struct(h : Rc(Holder));
 grab :: (fn(s : &Shelf) -> Rc(Holder))(Rc.clone(s.h));
 main :: (fn() -> unit)({
-  s := Shelf(h : rc(make()));
+  s := Shelf(h : Rc.new(make()));
   b := match(grab(&s).*.maybe, .Some(z) => z, .None => String.new());
   println(`${first_tag()} ${b} ${s.h.*.name}`);
 });

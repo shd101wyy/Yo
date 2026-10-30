@@ -65,7 +65,7 @@ SharedListElem :: trait(
 shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T), where(T <: SharedListElem)) -> SharedList(T))(
   cond(
     items.is_empty() => T.no_list(),
-    true => rc(SharedListCell(T)(items : items))
+    true => Rc.new(SharedListCell(T)(items : items))
   )
 );
 // The reads, declared per element type rather than once for every `T`:
@@ -663,15 +663,15 @@ impl(SharedList(TypeValue), Acyclic());
 impl(SharedList(SharedList(TypeValue)), Acyclic());
 // The empty lists, one shared cell each (`shared_list` of an empty list
 // returns these through `SharedListElem`).
-(g_no_types : SharedList(TypeValue)) = rc(SharedListCell(TypeValue)(items : ArrayList(TypeValue).new()));
-(g_no_labels : SharedList(String)) = rc(SharedListCell(String)(items : ArrayList(String).new()));
-(g_no_flags : SharedList(bool)) = rc(SharedListCell(bool)(items : ArrayList(bool).new()));
-(g_no_levels : SharedList(usize)) = rc(SharedListCell(usize)(items : ArrayList(usize).new()));
-(g_no_discriminants : SharedList(i64)) = rc(SharedListCell(i64)(items : ArrayList(i64).new()));
-(g_no_type_lists : SharedList(SharedList(TypeValue))) = rc(
+(g_no_types : SharedList(TypeValue)) = Rc.new(SharedListCell(TypeValue)(items : ArrayList(TypeValue).new()));
+(g_no_labels : SharedList(String)) = Rc.new(SharedListCell(String)(items : ArrayList(String).new()));
+(g_no_flags : SharedList(bool)) = Rc.new(SharedListCell(bool)(items : ArrayList(bool).new()));
+(g_no_levels : SharedList(usize)) = Rc.new(SharedListCell(usize)(items : ArrayList(usize).new()));
+(g_no_discriminants : SharedList(i64)) = Rc.new(SharedListCell(i64)(items : ArrayList(i64).new()));
+(g_no_type_lists : SharedList(SharedList(TypeValue))) = Rc.new(
   SharedListCell(SharedList(TypeValue))(items : ArrayList(SharedList(TypeValue)).new())
 );
-(g_no_label_lists : SharedList(SharedList(String))) = rc(
+(g_no_label_lists : SharedList(SharedList(String))) = Rc.new(
   SharedListCell(SharedList(String))(items : ArrayList(SharedList(String)).new())
 );
 /// The shared empty type list.
@@ -705,13 +705,13 @@ impl(SharedList(String), SharedListElem(no_list : no_label_lists));
 // always has: it is a `&T` slot. Only `Func.param_types` and
 // `FnTraitT.call_param_types` hold slots; `forall_types`, `implicit_types`
 // and `variadic_types` hold plain types.
-(g_origin_elided : TypeValue) = rc(TypeValueNode.OriginSet(places : Rc.clone(g_no_labels), is_elided : true));
+(g_origin_elided : TypeValue) = Rc.new(TypeValueNode.OriginSet(places : Rc.clone(g_no_labels), is_elided : true));
 /// The origin of a reference written without one. Every origin step 1 builds
 /// is this one shared value.
 t_origin_elided :: (fn() -> TypeValue)(Rc.clone(g_origin_elided));
 /// `&T` (`mutable = false`) or `&mut T`, with the elided origin.
 t_reference :: (fn(pointee : &TypeValue, mutable : bool) -> TypeValue)(
-  rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(g_origin_elided)))
+  Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(g_origin_elided)))
 );
 /// The slot of a parameter with the given mode: `&mut T` when `is_mut_ref`,
 /// else `T` when `is_by_value`, else `&T`.
@@ -741,7 +741,7 @@ t_slot_is_by_value :: (fn(t : &TypeValue) -> bool)(!t_slot_is_borrow(t));
 t_slot_with_pointee :: (fn(slot : &TypeValue, pointee : &TypeValue) -> TypeValue)(
   match(
     slot,
-    Rc(.Reference(_, mutable, origin)) => rc(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(origin))),
+    Rc(.Reference(_, mutable, origin)) => Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(origin))),
     _ => pointee.clone()
   )
 );

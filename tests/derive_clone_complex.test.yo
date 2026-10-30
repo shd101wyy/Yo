@@ -61,7 +61,7 @@ test("derive Clone for struct with Option field (None)", {
 Boxed :: struct(inner : Rc(i32), label : String);
 derive(Boxed, Clone);
 test("derive Clone for struct with Rc field", {
-  orig := Boxed(inner : rc(i32(55)), label : `boxed`);
+  orig := Boxed(inner : Rc.new(i32(55)), label : `boxed`);
   c := orig.clone();
   assert(c.inner.* == i32(55), "box content cloned");
   assert(c.label == `boxed`, "label cloned");
@@ -108,7 +108,7 @@ test("derive Clone for enum with String variant", {
   );
 });
 test("derive Clone for enum with Rc variant", {
-  orig := RichVariant.WithBox(rc(i32(42)));
+  orig := RichVariant.WithBox(Rc.new(i32(42)));
   c := orig.clone();
   match(
     c,
@@ -141,7 +141,7 @@ derive(TreeNode, Clone);
 test("derive Clone for recursive enum with Rc(Self)", {
   leaf_a := TreeNode.Leaf(i32(1));
   leaf_b := TreeNode.Leaf(i32(2));
-  branch := TreeNode.Branch(left : rc(leaf_a), right : rc(leaf_b));
+  branch := TreeNode.Branch(left : Rc.new(leaf_a), right : Rc.new(leaf_b));
   c := branch.clone();
   match(
     c,
@@ -170,7 +170,7 @@ LinkNode :: struct(v : i32, next : Option(Rc(Self)));
 derive(LinkNode, Clone);
 test("derive Clone for recursive struct with Option(Rc(Self))", {
   tail_n := LinkNode(v : i32(2), next : Option(Rc(LinkNode)).None);
-  head := LinkNode(v : i32(1), next : Option(Rc(LinkNode)).Some(rc(tail_n)));
+  head := LinkNode(v : i32(1), next : Option(Rc(LinkNode)).Some(Rc.new(tail_n)));
   c := head.clone();
   assert(c.v == i32(1), "head v");
   match(
@@ -297,7 +297,7 @@ BoxChain :: enum(Leaf, Node(b : Box(Self)));
 derive(BoxChain, Clone);
 _box_chain_depth :: (fn(t : &BoxChain) -> i32)(match(t, .Node(b) => (i32(1) + _box_chain_depth(&b.*)), .Leaf => i32(0)));
 test("derive Clone for a recursive enum whose only payload is Box(Self)", {
-  orig := BoxChain.Node(box(BoxChain.Node(box(BoxChain.Leaf))));
+  orig := BoxChain.Node(Box.new(BoxChain.Node(Box.new(BoxChain.Leaf))));
   c := orig.clone();
   assert(_box_chain_depth(&orig) == i32(2), "the original is two deep");
   assert(_box_chain_depth(&c) == i32(2), "the clone is two deep");

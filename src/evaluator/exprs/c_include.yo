@@ -349,14 +349,14 @@ User code should normally call stdlib wrappers (e.g. functions in
           result : ret,
           meta : m
         })
-      ) => rc(
+      ) => Rc.new(
         TypeValueNode.Func(
           Rc.clone(fts),
           Rc.clone(pts),
           Rc.clone(its),
           Rc.clone(wts),
           Rc.clone(ret),
-          rc(
+          Rc.new(
             FuncMeta(
               forall_labels : m.*.forall_labels.clone(),
               param_labels : m.*.param_labels.clone(),
@@ -478,7 +478,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // its C symbol (expr_info.yo, plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
   sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(&env.module_path.*).to_string()}_`, &env.module_path.*);
   register_extern_c_module_id(sns_id.clone());
-  module_type := rc(
+  module_type := Rc.new(
     TypeValueNode.Struct(
       sns_id.clone(),
       String.from(""),

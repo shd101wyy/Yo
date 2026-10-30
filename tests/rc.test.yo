@@ -99,7 +99,7 @@ test("Test explicit return and implicit return", {
   impl(
     Foo,
     new : (fn(val : i32) -> Self)(
-      Self(data : rc(val))
+      Self(data : Rc.new(val))
     ),
     // This should generate a dup call
     get_data_implicit : (fn(self : &Self) -> Rc(i32))(
@@ -131,10 +131,10 @@ test("Test Rc in different data structures", {
   };
   // Nested boxes
   {
-    x := rc(3);
-    y := rc(x);
-    z := rc(y);
-    Rc.make_mut(&mut z) = rc(rc(10));
+    x := Rc.new(3);
+    y := Rc.new(x);
+    z := Rc.new(y);
+    Rc.make_mut(&mut z) = Rc.new(Rc.new(10));
   };
   // Array containing Rc
   {
@@ -156,7 +156,7 @@ test("Test Rc in different data structures", {
     mut(z) := (y.clone(),);
     m := (z.clone(),);
     n := (m.clone(),);
-    z.0 = (rc(10),);
+    z.0 = (Rc.new(10),);
     assert(x.* == 3, "x.* == 3");
     assert(y.0.* == 3, "y.0.* == 3");
     assert(z.0.0.* == 10, "z.0.0.* == 10");
@@ -713,13 +713,13 @@ AliasWrap :: ref(struct(b : Rc(i32)));
 alias_poke_loop :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> unit)({
   (mut(i) : i32) = i32(0);
   while(i < i32(2), {
-    w.b = rc(i32(100) + i);
+    w.b = Rc.new(i32(100) + i);
     i = (i + i32(1));
   });
   assert(borrowed.* == i32(42), "borrowed projection reads the pre-mutation value");
 });
 test("borrowed projection argument survives aliased container mutation", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   b0 := Rc.clone(w.b);
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   {
@@ -753,7 +753,7 @@ stage1_rc_of :: (fn(generic(T : Type), borrowed : &T) -> usize)(
   ref_count(borrowed)
 );
 test("read-only callee elides the Stage-0 borrowed-projection dup", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   b0 := Rc.clone(w.b);
   assert(ref_count(b0) == 2, "w.b + b0 before the calls");
   assert(
@@ -774,7 +774,7 @@ test("read-only callee elides the Stage-0 borrowed-projection dup", {
 // right-hand side, and wrongly reports the caller read-only. That would elide
 // the Stage-0 dup and reopen the aliasing hole this whole arc closes.
 stage1_poke :: (fn(w : &AliasWrap, seed : i32) -> i32)({
-  w.b = rc(i32(100) + seed);
+  w.b = Rc.new(i32(100) + seed);
   w.b.*
 });
 // The mutating call sits on the RHS of a REASSIGNMENT statement.
@@ -795,12 +795,12 @@ stage1_honest :: (fn(w : &AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
 // initializer slot — and every array of RC elements failed to compile. The
 // array-LITERAL form already guarded correctly, so the two must agree.
 test("arrays of RC elements build at runtime, constructor and literal alike", {
-  b1 := rc(i32(42));
-  lit := [Rc.clone(b1), rc(i32(7)),];
+  b1 := Rc.new(i32(42));
+  lit := [Rc.clone(b1), Rc.new(i32(7)),];
   assert(lit(0).* == i32(42), "literal element 0");
   assert(lit(1).* == i32(7), "literal element 1");
-  b2 := rc(i32(42));
-  ctor := Array(Rc(i32), 2)(Rc.clone(b2), rc(i32(7)));
+  b2 := Rc.new(i32(42));
+  ctor := Array(Rc(i32), 2)(Rc.clone(b2), Rc.new(i32(7)));
   assert(ctor(0).* == i32(42), "constructor element 0");
   assert(ctor(1).* == i32(7), "constructor element 1");
   // The two forms must not diverge in ownership either.
@@ -825,13 +825,13 @@ Stage0Arr :: ref(struct(a : Array(Rc(i32), 2)));
 stage0_poke_index :: (fn(h : &Stage0Arr, borrowed : &Rc(i32)) -> i32)({
   (mut(i) : i32) = i32(0);
   while(i < i32(2), {
-    h.a(0) = rc(i32(100) + i);
+    h.a(0) = Rc.new(i32(100) + i);
     i = (i + i32(1));
   });
   borrowed.*
 });
 test("an INDEXED borrowed argument is protected like a field projection", {
-  h := Stage0Arr(a : Array(Rc(i32), 2)(rc(i32(42)), rc(i32(7))));
+  h := Stage0Arr(a : Array(Rc(i32), 2)(Rc.new(i32(42)), Rc.new(i32(7))));
   assert(
     stage0_poke_index(&h, &h.a(0)) == i32(42),
     "an element read is a place into container storage too"
@@ -872,7 +872,7 @@ impl(
     )
   ),
   odd : (fn(w : &AliasWrap, borrowed : &Rc(i32), n : i32) -> i32)({
-    w.b = rc(i32(777));
+    w.b = Rc.new(i32(777));
     Stage1Rec.even(w, borrowed, n - i32(1))
   })
 );
@@ -880,7 +880,7 @@ impl(
 // function DEFINITIONS, so it must still catch the CALL.
 stage1_closure :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> i32)({
   f := (fn(ww : &AliasWrap) -> i32)({
-    ww.b = rc(i32(888));
+    ww.b = Rc.new(i32(888));
     i32(0)
   });
   z := f(w);
@@ -891,7 +891,7 @@ stage1_closure :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> i32)({
 stage1_cond_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), go : bool) -> i32)({
   cond(
     (go == true) => {
-      w.b = rc(i32(555));
+      w.b = Rc.new(i32(555));
       i32(0)
     },
     true => i32(0)
@@ -902,7 +902,7 @@ stage1_match_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), o : Option(i32)) ->
   match(
     o,
     .Some(_) => {
-      w.b = rc(i32(666));
+      w.b = Rc.new(i32(666));
       ()
     },
     .None => ()
@@ -911,7 +911,7 @@ stage1_match_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), o : Option(i32)) ->
 });
 // Transitivity: the mutation is three calls deep.
 stage1_deep3 :: (fn(w : &AliasWrap) -> unit)({
-  w.b = rc(i32(333));
+  w.b = Rc.new(i32(333));
 });
 stage1_deep2 :: (fn(w : &AliasWrap) -> unit)(
   stage1_deep3(w)
@@ -929,28 +929,28 @@ stage1_benign_extern :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> usize)({
   ref_count(borrowed)
 });
 test("mutation inside a runtime cond arm keeps the borrow alive", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   assert(
     stage1_cond_arm(&w, &w.b, true) == i32(42),
     "a live cond arm's mutation must count"
   );
 });
 test("mutation inside a match arm keeps the borrow alive", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   assert(
     stage1_match_arm(&w, &w.b, Option(i32).Some(i32(1))) == i32(42),
     "a live match arm's mutation must count"
   );
 });
 test("mutation three calls deep keeps the borrow alive", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   assert(
     stage1_deep1(&w, &w.b) == i32(42),
     "the summary must be transitive through the call graph"
   );
 });
 test("a benign extern does not defeat the read-only elision", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   b0 := Rc.clone(w.b);
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   assert(
@@ -959,7 +959,7 @@ test("a benign extern does not defeat the read-only elision", {
   );
 });
 test("a callee containing an explicit ___drop keeps the borrow alive", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   // rc during the call: the container's 1, the own-param's dup, and the
   // Stage-0 borrow dup = 3; `___drop(h)` consumes the own-param's, leaving
   // 2. A 1 here would mean the borrow dup was elided — i.e. a callee that
@@ -972,28 +972,28 @@ test("a callee containing an explicit ___drop keeps the borrow alive", {
   assert(w.b.* == i32(42), "the container's own handle is still valid");
 });
 test("mutation on a mutual-recursion back edge keeps the borrow alive", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   assert(
     Stage1Rec.even(&w, &w.b, i32(2)) == i32(42),
     "cycle-guard optimism must not hide the back edge's mutation"
   );
 });
 test("mutation inside an invoked closure keeps the borrow alive", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   assert(
     stage1_closure(&w, &w.b) == i32(42),
     "skipping closure DEFINITIONS must not skip the closure CALL"
   );
 });
 test("statement-hidden mutation keeps the borrowed-projection dup", {
-  w := AliasWrap(b : rc(i32(42)));
+  w := AliasWrap(b : Rc.new(i32(42)));
   // The callee reassigns `w.b`, dropping the 42-box's container reference.
   // Without the caller's Stage-0 +1 the borrow would read recycled memory.
   assert(
     stage1_sneaky(&w, &w.b, i32(0)) == i32(42),
     "borrow survives a mutation hidden behind a reassignment statement"
   );
-  w2 := AliasWrap(b : rc(i32(42)));
+  w2 := AliasWrap(b : Rc.new(i32(42)));
   assert(
     stage1_honest(&w2, &w2.b, i32(0)) == i32(42),
     "borrow survives a mutation behind a declaration"
@@ -1068,7 +1068,7 @@ test("reassigning after aliasing disposes both objects exactly once", {
 // nobody owned, so it could never reach zero.
 test("box takes ownership of its argument without retaining an extra reference", {
   h := Rc(i32)(7);
-  b := rc(h);
+  b := Rc.new(h);
   assert(ref_count(b.*) == 1, "the box holds the only reference to its value");
 });
 // The class is wider than `box`: EVERY `own` parameter of a generic function
@@ -1811,7 +1811,7 @@ _cow_local_copy :: (fn(w : &_CowLike) -> usize)({
   ref_count(q.b)
 });
 test("ref_count: copies of a value holding RC data are counted in every position (COW S2)", {
-  w := _CowLike(b : rc(i32(7)), n : i32(1));
+  w := _CowLike(b : Rc.new(i32(7)), n : i32(1));
   assert(ref_count(w.b) == usize(1), "alone");
   {
     w2 := w.clone();
@@ -1975,7 +1975,7 @@ test("ref_count(x) reads the count of every cell shape", {
   };
   assert(ref_count(b1) == usize(1), "ref_count(b1) == 1");
   // Arc: an atomic count, read atomically.
-  a1 := arc(i32(42));
+  a1 := Arc.new(i32(42));
   {
     a2 := Arc.clone(a1);
     {
@@ -2243,7 +2243,7 @@ impl(
   )
 );
 test("unique Box: box(v) holds the payload, and b.* is its place", {
-  mut(b) := box(UBoxPoint(x : i32(1), y : i32(2)));
+  mut(b) := Box.new(UBoxPoint(x : i32(1), y : i32(2)));
   assert(b.*.x == i32(1), "b.* is the payload");
   assert(b.y == i32(2), "auto-dereference reads a field");
   b.* = UBoxPoint(x : i32(5), y : i32(6));
@@ -2252,7 +2252,7 @@ test("unique Box: box(v) holds the payload, and b.* is its place", {
   assert(b.*.y == i32(9), "a field write goes through the box");
 });
 test("unique Box: Box.clone is an independent, deep copy", {
-  a := box(UBoxPoint(x : i32(1), y : i32(2)));
+  a := Box.new(UBoxPoint(x : i32(1), y : i32(2)));
   mut(c) := Box.clone(a);
   c.x = i32(100);
   assert(a.x == i32(1), "the source is untouched");
@@ -2260,7 +2260,7 @@ test("unique Box: Box.clone is an independent, deep copy", {
   assert(a.* == UBoxPoint(x : i32(1), y : i32(2)), "the source payload");
 });
 test("unique Box: a tree copied with clone and edited on one side", {
-  t := UBoxTree.Node(box(UBoxTree.Leaf(i32(1))), box(UBoxTree.Node(box(UBoxTree.Leaf(i32(2))), box(UBoxTree.Leaf(i32(3))))));
+  t := UBoxTree.Node(Box.new(UBoxTree.Leaf(i32(1))), Box.new(UBoxTree.Node(Box.new(UBoxTree.Leaf(i32(2))), Box.new(UBoxTree.Leaf(i32(3))))));
   assert(ubox_sum(&t) == i32(6), "the tree sums its leaves");
   mut(u) := t.clone();
   match(
@@ -2274,7 +2274,7 @@ test("unique Box: a tree copied with clone and edited on one side", {
   assert(ubox_sum(&t) == i32(6), "the original is not");
 });
 test("unique Box: an implicit copy that is not the last use is E0901", {
-  a := box(i32(1));
+  a := Box.new(i32(1));
   b := a;
   assert(b.* == i32(1), "the last use moved the box");
   comptime_expect_error(a.*, "use of moved value");
@@ -2283,7 +2283,7 @@ test("unique Box: an implicit copy that is not the last use is E0901", {
 test("unique Box: the payload is dropped exactly once, by its one owner", {
   before := g_ubox_disposed;
   {
-    a := box(UBoxProbe(n : i32(1)));
+    a := Box.new(UBoxProbe(n : i32(1)));
     b := a;
     assert(b.n == i32(1), "moved");
     c := Box.clone(b);
@@ -2301,25 +2301,25 @@ test("unique Box: Box(T) is explicit-copy, and move-only when T is", {
 });
 _UBoxToken :: struct(id : i32);
 test("unique Box: Eq, Hash and Default by payload; no count", {
-  a := box(UBoxPoint(x : i32(1), y : i32(2)));
+  a := Box.new(UBoxPoint(x : i32(1), y : i32(2)));
   mut(b) := Box.clone(a);
   assert(a == b, "equal payloads");
   b.x = i32(3);
   assert(!(a == b), "compared by payload");
-  h1 := box(UBoxPoint(x : i32(7), y : i32(8)));
-  h2 := box(UBoxPoint(x : i32(7), y : i32(8)));
+  h1 := Box.new(UBoxPoint(x : i32(7), y : i32(8)));
+  h2 := Box.new(UBoxPoint(x : i32(7), y : i32(8)));
   p := UBoxPoint(x : i32(7), y : i32(8));
   assert(hash_one(&h1) == hash_one(&h2), "equal payloads hash alike");
   assert(hash_one(&h1) == hash_one(&p), "a box hashes as its payload");
   // A box is a map key: the map moves it in and compares it in place
   // (issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md).
   m := HashMap(Box(UBoxPoint), Box(i32)).new();
-  m.insert(h1, box(i32(78)));
-  m.insert(box(UBoxPoint(x : i32(1), y : i32(2))), box(i32(12)));
+  m.insert(h1, Box.new(i32(78)));
+  m.insert(Box.new(UBoxPoint(x : i32(1), y : i32(2))), Box.new(i32(12)));
   assert(m(h2).* == i32(78), "found by an equal payload");
-  assert(m.contains_key(&box(UBoxPoint(x : i32(1), y : i32(2)))), "contains_key borrows the box");
+  assert(m.contains_key(&Box.new(UBoxPoint(x : i32(1), y : i32(2)))), "contains_key borrows the box");
   match(
-    m.remove(&box(UBoxPoint(x : i32(1), y : i32(2)))),
+    m.remove(&Box.new(UBoxPoint(x : i32(1), y : i32(2)))),
     .Some(v) => assert(v.* == i32(12), "the boxed value moves out"),
     .None => assert(false, "the key was present")
   );
@@ -2330,7 +2330,7 @@ test("unique Box: Eq, Hash and Default by payload; no count", {
 });
 test("unique Box: Option(Box(T)) is one pointer", {
   comptime_assert(size_of(Option(Box(UBoxPoint))) == size_of(*u8), "the NULL niche");
-  (o : Option(Box(i32))) = .Some(box(i32(4)));
+  (o : Option(Box(i32))) = .Some(Box.new(i32(4)));
   match(
     o,
     .Some(b) => assert(b.* == i32(4), "the payload through the niche"),
@@ -2343,14 +2343,14 @@ test("unique Box: alloc places the cell, and a clone stays where its source live
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    a := box(i32(7), alloc : .Some(heap));
+    a := Box.new(i32(7), alloc : .Some(heap));
     // The owner prefix sits in front of the cell's flags word, as an `Rc`
     // cell's sits in front of its count, so `Box.allocator` reads it, not
     // `Allocator.owner_of` on the payload.
     match(Box.allocator(a), .Some(o) => assert(o.same(heap), "the cell's owner prefix names the allocator"), .None => assert(false, "placed"));
     c := Box.clone(a);
     match(Box.allocator(c), .Some(o) => assert(o.same(heap), "the clone is in the allocator too"), .None => assert(false, "the clone is placed"));
-    g := box(i32(1));
+    g := Box.new(i32(1));
     assert(Box.allocator(g).is_none(), "a default box is on the global allocator");
   };
   assert(counts.live == usize(0), `every placed box went back to the allocator: ${counts.live}`);
@@ -2362,12 +2362,12 @@ UBoxProbeTree :: enum(
 test("unique Box: a consuming match looks through the box, and drops it once", {
   before := g_ubox_disposed;
   {
-    v := match(box(UBoxProbe(n : i32(3))), UBoxProbe(n : k) => k);
+    v := match(Box.new(UBoxProbe(n : i32(3))), UBoxProbe(n : k) => k);
     assert(v == i32(3), "the struct pattern matched through the box");
   };
   assert(g_ubox_disposed == (before + i32(1)), "the scrutinee box dropped its payload once");
   {
-    t := UBoxProbeTree.Node(box(UBoxProbeTree.Leaf(UBoxProbe(n : i32(1)))), box(UBoxProbeTree.Leaf(UBoxProbe(n : i32(2)))));
+    t := UBoxProbeTree.Node(Box.new(UBoxProbeTree.Leaf(UBoxProbe(n : i32(1)))), Box.new(UBoxProbeTree.Leaf(UBoxProbe(n : i32(2)))));
     w := match(
       t,
       .Node(.Leaf(a), r) => {
@@ -2393,12 +2393,12 @@ test("unique Box: Box(p) names the cell a pattern looks through", {
       .Leaf(v) => v
     )
   );
-  assert(f(UBoxTree.Node(box(UBoxTree.Leaf(1)), box(UBoxTree.Leaf(2)))) == i32(3));
-  assert(f(UBoxTree.Node(box(UBoxTree.Node(box(UBoxTree.Leaf(4)), box(UBoxTree.Leaf(0)))), box(UBoxTree.Leaf(9)))) == i32(40));
+  assert(f(UBoxTree.Node(Box.new(UBoxTree.Leaf(1)), Box.new(UBoxTree.Leaf(2)))) == i32(3));
+  assert(f(UBoxTree.Node(Box.new(UBoxTree.Node(Box.new(UBoxTree.Leaf(4)), Box.new(UBoxTree.Leaf(0)))), Box.new(UBoxTree.Leaf(9)))) == i32(40));
   assert(f(UBoxTree.Leaf(7)) == i32(7));
   before := g_ubox_disposed;
   {
-    v := match(box(UBoxProbe(n : i32(5))), Box(UBoxProbe(n : k)) => k);
+    v := match(Box.new(UBoxProbe(n : i32(5))), Box(UBoxProbe(n : k)) => k);
     assert(v == i32(5), "Box(p) at the scrutinee matched the payload");
   };
   assert(g_ubox_disposed == (before + i32(1)), "the scrutinee box dropped its payload once");
@@ -2418,7 +2418,7 @@ derive(UBoxHolder, Clone, Eq(UBoxHolder), Hash);
 UBoxChoice :: enum(A(b : Box(i32)), B);
 derive(UBoxChoice, Clone);
 test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
-  x := UBoxHolder(b : box(UBoxPoint(x : i32(1), y : i32(2))), k : i32(3));
+  x := UBoxHolder(b : Box.new(UBoxPoint(x : i32(1), y : i32(2))), k : i32(3));
   mut(y) := x.clone();
   assert(x == y, "the derived Eq compares the payloads");
   y.b.x = i32(9);
@@ -2426,7 +2426,7 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
   assert(!(x == y), "and the payloads now differ");
   z := x.clone();
   assert(hash_one(&x) == hash_one(&z), "the derived Hash hashes the payload");
-  e := UBoxChoice.A(b : box(i32(6)));
+  e := UBoxChoice.A(b : Box.new(i32(6)));
   mut(f) := e.clone();
   match(
     &mut f,
@@ -2458,7 +2458,7 @@ impl(
 test("Rc(T) with a Drop payload drops it once, with the last handle", {
   before := g_rc_drop_payload;
   {
-    a := rc(RcDropPayload(n : i32(5)));
+    a := Rc.new(RcDropPayload(n : i32(5)));
     b := Rc.clone(a);
     assert(b.n == i32(5), "both handles see the payload");
     drop(a);
@@ -2503,14 +2503,14 @@ UBoxOptPoint :: struct(o : Option(Box(UBoxPoint)), n : i32);
 UBoxOptInt :: struct(o : Option(Box(i32)), n : i32);
 derive(UBoxOptString, Clone);
 test("unique Box: a struct field of type Option(Box(T)) compiles and reads back", {
-  s := UBoxOptString(o : .Some(box(String.from("hi"))), n : i32(7));
+  s := UBoxOptString(o : .Some(Box.new(String.from("hi"))), n : i32(7));
   t := s.clone();
   match(
     &t.o,
     .Some(b) => assert(b.* == String.from("hi"), "the String payload through the field"),
     .None => assert(false, "unreachable")
   );
-  p := UBoxOptPoint(o : .Some(box(UBoxPoint(x : i32(1), y : i32(2)))), n : i32(3));
+  p := UBoxOptPoint(o : .Some(Box.new(UBoxPoint(x : i32(1), y : i32(2)))), n : i32(3));
   match(
     &p.o,
     .Some(b) => assert(b.y == i32(2), "the struct payload through the field"),
@@ -2539,7 +2539,7 @@ derive(_DoorPoint, Clone);
 test("Rc.try_unwrap on the only handle moves the payload out", {
   before := g_door_dropped;
   {
-    h := rc(_DoorToken(tag : i32(5)));
+    h := Rc.new(_DoorToken(tag : i32(5)));
     match(
       Rc.try_unwrap(h),
       .Ok(t) => assert(t.tag == i32(5), "the payload came out"),
@@ -2547,19 +2547,19 @@ test("Rc.try_unwrap on the only handle moves the payload out", {
     );
   };
   assert(g_door_dropped == (before + i32(5)), `the payload is dropped once, got ${(g_door_dropped - before).to_string()}`);
-  s := match(Rc.try_unwrap(rc(String.from("moved"))), .Ok(v) => v, .Err(_) => String.from("shared"));
+  s := match(Rc.try_unwrap(Rc.new(String.from("moved"))), .Ok(v) => v, .Err(_) => String.from("shared"));
   assert(s == "moved", "a String payload moves out");
 });
 test("Rc.try_unwrap on a shared handle returns the handle", {
   before := g_door_dropped;
   {
-    a := rc(_DoorToken(tag : i32(7)));
+    a := Rc.new(_DoorToken(tag : i32(7)));
     b := Rc.clone(a);
     back := match(
       Rc.try_unwrap(b),
       .Ok(_) => {
         assert(false, "a still shares the cell");
-        rc(_DoorToken(tag : i32(0)))
+        Rc.new(_DoorToken(tag : i32(0)))
       },
       .Err(h) => h
     );
@@ -2570,7 +2570,7 @@ test("Rc.try_unwrap on a shared handle returns the handle", {
   assert(g_door_dropped == (before + i32(7)), `the payload is dropped once with its last handle, got ${(g_door_dropped - before).to_string()}`);
 });
 test("Rc.make_mut on the only handle writes the payload in place", {
-  h := rc(_DoorPoint(x : i32(1), label : String.from("a")));
+  h := Rc.new(_DoorPoint(x : i32(1), label : String.from("a")));
   before := addr_of(h.*);
   Rc.make_mut(&mut h).x = i32(2);
   Rc.make_mut(&mut h).label.push_str("b");
@@ -2580,7 +2580,7 @@ test("Rc.make_mut on the only handle writes the payload in place", {
   assert(ref_count(h) == 1, "still the only handle");
 });
 test("Rc.make_mut on a shared handle clones the payload first", {
-  a := rc(_DoorPoint(x : i32(1), label : String.from("a")));
+  a := Rc.new(_DoorPoint(x : i32(1), label : String.from("a")));
   b := Rc.clone(a);
   Rc.make_mut(&mut b).x = i32(9);
   assert(a.x == i32(1), "the other handle does not see the write");
@@ -2591,7 +2591,7 @@ test("Rc.make_mut on a shared handle clones the payload first", {
   assert((a.x == i32(1)) && (b.x == i32(10)), "b is unique now: written in place");
 });
 test("Rc.make_mut needs a Clone payload, as Rust's does", {
-  h := rc(_DoorToken(tag : i32(0)));
+  h := Rc.new(_DoorToken(tag : i32(0)));
   comptime_expect_error(Rc.make_mut(&mut h));
 });
 // `consume(x)` of an owned value moves it into the builtin, which returns
@@ -2718,7 +2718,7 @@ _ro_bump :: (fn(x : &mut i32) -> unit)({
 _ro_peek :: (fn(x : &mut i32) -> i32)(x);
 _ro_read :: (fn(x : &i32) -> i32)(x);
 _ro_run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
-_ro_make :: (fn() -> Rc(_RoShared))(rc(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : _RoNode(n : i32(2)))));
+_ro_make :: (fn() -> Rc(_RoShared))(Rc.new(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : _RoNode(n : i32(2)))));
 _RoHolder :: struct(h : Rc(_RoShared));
 _ro_set_gen :: (fn(generic(T : Type), dst : &mut T, v : T) -> unit)({
   dst = v;
@@ -2761,7 +2761,7 @@ test("a write through an Rc handle is E0919, naming the doors", {
   }, "read-only through the handle");
   // A `self : &mut Self` receiver, spelled through the payload or auto-dereferenced.
   comptime_expect_error(h.items.push(i32(1)), "read-only through the handle");
-  xs := rc(ArrayList(i32).new());
+  xs := Rc.new(ArrayList(i32).new());
   comptime_expect_error(xs.push(i32(1)), "read-only through the handle");
   // A `ref` object reached from the payload is in the payload.
   comptime_expect_error({
@@ -2777,7 +2777,7 @@ test("a write through an Rc handle is E0919, naming the doors", {
   comptime_expect_error({
     holder.h.n = i32(4);
   }, "read-only through the handle");
-  nested := rc(rc(i32(1)));
+  nested := Rc.new(Rc.new(i32(1)));
   comptime_expect_error({
     nested.*.* = i32(2);
   }, "read-only through the handle");
@@ -2827,9 +2827,9 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   // A generic `&mut T` parameter binds `T` to the handle's own type, so the
   // handle itself is lent and rebound, not its payload
   // (issues/fixed/2026-10-24-an-rc-handle-cannot-be-lent-as-mut-to-a-generic-parameter.md).
-  mut(g) := rc(i32(1));
+  mut(g) := Rc.new(i32(1));
   other_g := Rc.clone(g);
-  _ro_set_gen(&mut g, rc(i32(3)));
+  _ro_set_gen(&mut g, Rc.new(i32(3)));
   assert((g.* == i32(3)) && (other_g.* == i32(1)), "the handle is rebound; the other handle still sees the old cell");
   _ro_set_gen(&mut holder.h, _ro_make());
   assert(holder.h.n == i32(1), "a field holding a handle, through a generic parameter");
@@ -2838,17 +2838,17 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   node.n = i32(7);
   assert(node.n == i32(7), "a ref object is written through its handle");
   // The doors.
-  p := rc(i32(1));
+  p := Rc.new(i32(1));
   Rc.make_mut(&mut p) = i32(8);
   assert(p.* == i32(8), "make_mut on the only handle");
-  cell := rc(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))));
+  cell := Rc.new(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))));
   other := Rc.clone(cell);
   other.with_mut(s => {
     s.n = i32(9);
     s.items.push(i32(1));
   });
   assert(cell.with(s => ((s.n == i32(9)) && (s.items.len() == usize(1)))), "a write through a RefCell door is seen through the other handle");
-  n := match(Rc.try_unwrap(rc(i32(4))), .Ok(v) => v, .Err(_) => i32(0));
+  n := match(Rc.try_unwrap(Rc.new(i32(4))), .Ok(v) => v, .Err(_) => i32(0));
   assert(n == i32(4), "try_unwrap moves the payload out of the only handle");
 });
 // --- The `alloc` parameter (plans/VALUES_BY_DEFAULT.md §3.2; `arc`'s twin in tests/arc.test.yo) ---
@@ -2856,10 +2856,10 @@ test("rc alloc : .Some(a) places the cell in a, and the default does not", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    a := rc(i32(5), alloc : .Some(heap));
+    a := Rc.new(i32(5), alloc : .Some(heap));
     assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
-    g := rc(i32(6));
+    g := Rc.new(i32(6));
     assert(counts.live == usize(1), "a default rc is on the global allocator");
     assert((a.* + g.*) == i32(11), "the payloads");
   };
@@ -2869,7 +2869,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    shared := rc(i32(42), alloc : .Some(heap));
+    shared := Rc.new(i32(42), alloc : .Some(heap));
     holder := ArrayList(Rc(i32)).new();
     holder.push(Rc.clone(shared));
     assert(ref_count(shared) == usize(2), "two handles, one cell");
@@ -2877,7 +2877,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
     assert(holder.get(usize(0)).unwrap().* == i32(42), "the held handle reads the placed cell");
   };
   assert(counts.live == usize(0), "the last handle released the cell into the allocator");
-  n := match(Rc.try_unwrap(rc(i32(4), alloc : .Some(heap))), .Ok(v) => v, .Err(_) => i32(0));
+  n := match(Rc.try_unwrap(Rc.new(i32(4), alloc : .Some(heap))), .Ok(v) => v, .Err(_) => i32(0));
   assert(n == i32(4), "try_unwrap moves the payload out of a placed cell");
   assert(counts.live == usize(0), "and frees the cell into the allocator");
 });
@@ -3155,7 +3155,7 @@ _rcv_peek :: (fn(c : &_RcvCell, act : &Impl(Fn() -> unit)) -> i32)({
 test("a receiver reached through an Rc element outlives a closure that drops the last other handle", {
   _rcv_drops = i32(0);
   hs := ArrayList(Rc(_RcvCell)).new();
-  hs.push(rc(_RcvCell(n : i32(1))));
+  hs.push(Rc.new(_RcvCell(n : i32(1))));
   hs2 := hs;
   assert(
     hs(usize(0)).peek(() => {
@@ -3164,7 +3164,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
-  hs.push(rc(_RcvCell(n : i32(2))));
+  hs.push(Rc.new(_RcvCell(n : i32(2))));
   assert(
     hs(usize(0)).*.peek(() => {
       hs2.clear();
@@ -3172,7 +3172,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
     "written `.*` receiver"
   );
   assert(_rcv_drops == i32(2), "destroyed once");
-  hs.push(rc(_RcvCell(n : i32(3))));
+  hs.push(Rc.new(_RcvCell(n : i32(3))));
   assert(
     _rcv_peek(&hs(usize(0)).*, () => {
       hs2.clear();
@@ -3181,7 +3181,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
   );
   assert(_rcv_drops == i32(3), "destroyed once");
   h := _RcvHolder(xs : hs);
-  hs.push(rc(_RcvCell(n : i32(4))));
+  hs.push(Rc.new(_RcvCell(n : i32(4))));
   assert(
     h.xs(usize(0)).peek(() => {
       hs2.clear();
@@ -3189,7 +3189,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
     "an element of a field"
   );
   assert(_rcv_drops == i32(4), "destroyed once");
-  hs.push(rc(_RcvCell(n : i32(5))));
+  hs.push(Rc.new(_RcvCell(n : i32(5))));
   assert(
     h.first().peek(() => {
       hs2.clear();
@@ -3201,7 +3201,7 @@ test("a receiver reached through an Rc element outlives a closure that drops the
 test("a receiver behind a field, nested handles or an Arc outlives the closure too", {
   _rcv_drops = i32(0);
   fs := ArrayList(_RcvField).new();
-  fs.push(_RcvField(r : rc(_RcvCell(n : i32(1)))));
+  fs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1)))));
   fs2 := fs;
   assert(
     fs(usize(0)).r.peek(() => {
@@ -3211,7 +3211,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
   );
   assert(_rcv_drops == i32(1), "destroyed once");
   nested := ArrayList(Rc(Rc(_RcvCell))).new();
-  nested.push(rc(rc(_RcvCell(n : i32(2)))));
+  nested.push(Rc.new(Rc.new(_RcvCell(n : i32(2)))));
   nested2 := nested;
   assert(
     nested(usize(0)).peek(() => {
@@ -3221,7 +3221,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
   );
   assert(_rcv_drops == i32(2), "destroyed once");
   boxed := ArrayList(Rc(Box(_RcvCell))).new();
-  boxed.push(rc(box(_RcvCell(n : i32(3)))));
+  boxed.push(Rc.new(Box.new(_RcvCell(n : i32(3)))));
   boxed2 := boxed;
   assert(
     boxed(usize(0)).peek(() => {
@@ -3231,7 +3231,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
   );
   assert(_rcv_drops == i32(3), "destroyed once");
   shared := ArrayList(Arc(_RcvCell)).new();
-  shared.push(arc(_RcvCell(n : i32(4))));
+  shared.push(Arc.new(_RcvCell(n : i32(4))));
   shared2 := shared;
   assert(
     shared(usize(0)).peek(() => {
@@ -3246,7 +3246,7 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
 _rcv_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     hs := ArrayList(Rc(_RcvCell)).new();
-    hs.push(rc(_RcvCell(n : i32(1))));
+    hs.push(Rc.new(_RcvCell(n : i32(1))));
     hs2 := hs;
     io.await(yield(io), io);
     seen := hs(usize(0)).peek(() => {
@@ -3273,7 +3273,7 @@ impl(
 _RcvTextField :: struct(t : _RcvText);
 test("a copyable receiver behind a Box or a value field of an element keeps its value", {
   bs := ArrayList(Box(_RcvText)).new();
-  bs.push(box(_RcvText(s : String.from("hello"))));
+  bs.push(Box.new(_RcvText(s : String.from("hello"))));
   bs2 := bs;
   assert(
     bs(usize(0)).peek_len(() => {
@@ -3305,9 +3305,9 @@ test("a closure naming the container a receiver is lent from is E0910", {
     })
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
-    mut(r) := rc(_RcvCell(n : i32(1)));
+    mut(r) := Rc.new(_RcvCell(n : i32(1)));
     r.peek(() => {
-      r = rc(_RcvCell(n : i32(2)));
+      r = Rc.new(_RcvCell(n : i32(2)));
     })
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
@@ -3361,7 +3361,7 @@ _rcv_exit_unwind :: (fn(hs : &ArrayList(Rc(_RcvCell)), k : i32) -> i32)({
 _rcv_exit_task :: (fn(o : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     hs := ArrayList(Rc(_RcvCell)).new();
-    hs.push(rc(_RcvCell(n : i32(1))));
+    hs.push(Rc.new(_RcvCell(n : i32(1))));
     io.await(yield(io), io);
     r := hs(usize(0)).peek_k(match(o, .Some(v) => v, .None => return(i32(5))), () => ());
     io.await(yield(io), io);
@@ -3371,7 +3371,7 @@ _rcv_exit_task :: (fn(o : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
 test("an exit from a later argument releases the share a receiver took through an Rc", {
   _rcv_drops = i32(0);
   hs := ArrayList(Rc(_RcvCell)).new();
-  hs.push(rc(_RcvCell(n : i32(1))));
+  hs.push(Rc.new(_RcvCell(n : i32(1))));
   assert(_rcv_exit_return(&hs, .None) == i32(-1), "return from a later argument");
   assert(_rcv_exit_return(&hs, .Some(i32(2))) == i32(3), "no exit");
   assert(_rcv_exit_loops(&hs) == i32(18), "break and continue from a later argument");
@@ -3380,7 +3380,7 @@ test("an exit from a later argument releases the share a receiver took through a
   hs.clear();
   assert(_rcv_drops == i32(1), "every exit released its share");
   fs := ArrayList(_RcvField).new();
-  fs.push(_RcvField(r : rc(_RcvCell(n : i32(1)))));
+  fs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1)))));
   assert(_rcv_exit_return_field(&fs, .None) == i32(-1), "return, Rc field of an element");
   fs.clear();
   assert(_rcv_drops == i32(2), "the field's share was released");
@@ -3406,7 +3406,7 @@ _rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : &mut ArrayList(Rc(_R
 test("an exit inside a later argument or its closure keeps the receiver's share", {
   _rcv_drops = i32(0);
   hs := ArrayList(Rc(_RcvCell)).new();
-  hs.push(rc(_RcvCell(n : i32(1))));
+  hs.push(Rc.new(_RcvCell(n : i32(1))));
   mut(hs2) := hs;
   assert(_rcv_exit_inner(&hs, &mut hs2) == i32(4), "the cell outlives the call");
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
@@ -3598,14 +3598,14 @@ test("a ref with Drop nested 40 struct and tuple levels deep is dropped once", {
 test("a recursive enum held 12 struct levels deep drops every node once", {
   before := g_deep_drops;
   {
-    deep := _DeepR0(f : _DeepR1(f : _DeepR2(f : _DeepR3(f : _DeepR4(f : _DeepR5(f : _DeepR6(f : _DeepR7(f : _DeepR8(f : _DeepR9(f : _DeepR10(f : _DeepR11(f : _DeepList.Cons(h : _DeepTracked(v : i32(1)), t : box(_DeepList.Cons(h : _DeepTracked(v : i32(2)), t : box(_DeepList.Nil))))))))))))))));
+    deep := _DeepR0(f : _DeepR1(f : _DeepR2(f : _DeepR3(f : _DeepR4(f : _DeepR5(f : _DeepR6(f : _DeepR7(f : _DeepR8(f : _DeepR9(f : _DeepR10(f : _DeepR11(f : _DeepList.Cons(h : _DeepTracked(v : i32(1)), t : Box.new(_DeepList.Cons(h : _DeepTracked(v : i32(2)), t : Box.new(_DeepList.Nil))))))))))))))));
   };
   assert(g_deep_drops == (before + i32(3)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a generic recursive enum held 12 struct levels deep drops every node once", {
   before := g_deep_drops;
   {
-    deep := _DeepG0(f : _DeepG1(f : _DeepG2(f : _DeepG3(f : _DeepG4(f : _DeepG5(f : _DeepG6(f : _DeepG7(f : _DeepG8(f : _DeepG9(f : _DeepG10(f : _DeepG11(f : _DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(4)), t : box(_DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(5)), t : box(_DeepGList(_DeepTracked).Nil))))))))))))))));
+    deep := _DeepG0(f : _DeepG1(f : _DeepG2(f : _DeepG3(f : _DeepG4(f : _DeepG5(f : _DeepG6(f : _DeepG7(f : _DeepG8(f : _DeepG9(f : _DeepG10(f : _DeepG11(f : _DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(4)), t : Box.new(_DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(5)), t : Box.new(_DeepGList(_DeepTracked).Nil))))))))))))))));
   };
   assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
@@ -3735,7 +3735,7 @@ impl(
     })
   )
 );
-_seq_rc :: (fn() -> Rc(_SeqRcH))(rc(_SeqRcH(tag : i32(2), acc : _SeqAcc(base : i32(2)))));
+_seq_rc :: (fn() -> Rc(_SeqRcH))(Rc.new(_SeqRcH(tag : i32(2), acc : _SeqAcc(base : i32(2)))));
 _seq_eat :: (fn(sink(h) : Rc(_SeqRcH)) -> i32)(h.tag);
 _seq_sub :: (fn(a : i32, b : i32) -> i32)(a - b);
 _SeqPair :: struct(a : i32, b : i32);
@@ -3830,7 +3830,7 @@ impl(
   )
 );
 test("Weak.upgrade is .Some while an Rc is alive and .None after the last one", {
-  a := rc(i32(7));
+  a := Rc.new(i32(7));
   w := Rc.downgrade(&a);
   assert(w.strong_count() == usize(1), "one strong handle");
   assert(w.weak_count() == usize(1), "one weak handle");
@@ -3860,14 +3860,14 @@ test("Weak.new names no cell, and two of them are ptr_eq", {
   assert(w.weak_count() == usize(0), "no weak count");
   w2 := (Weak(i32) <: Default).default();
   assert(w.ptr_eq(&w2), "two dangling Weaks compare equal");
-  a := rc(i32(1));
+  a := Rc.new(i32(1));
   wa := Rc.downgrade(&a);
   assert(!w.ptr_eq(&wa), "a dangling Weak is not a live one");
   wb := Weak.clone(&wa);
   assert(wa.ptr_eq(&wb), "a clone names the same cell");
 });
 test("Weak.clone and drop move the weak count", {
-  a := rc(i32(3));
+  a := Rc.new(i32(3));
   w1 := Rc.downgrade(&a);
   {
     w2 := Weak.clone(&w1);
@@ -3883,7 +3883,7 @@ test("the last Rc drops the payload, and the last Weak frees the cell", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   before := g_weak_dropped;
-  a := rc(_WeakProbe(n : i32(1)), alloc : .Some(heap));
+  a := Rc.new(_WeakProbe(n : i32(1)), alloc : .Some(heap));
   w := Rc.downgrade(&a);
   consume(a);
   assert(g_weak_dropped == (before + i32(1)), "the last Rc dropped the payload");
@@ -3899,7 +3899,7 @@ test("the last Rc drops the payload, and the last Weak frees the cell", {
 test("a cell with no Weak left is freed by its last Rc", {
   counts := _counts();
   heap := _counting(addr_of(counts));
-  a := rc(_WeakProbe(n : i32(2)), alloc : .Some(heap));
+  a := Rc.new(_WeakProbe(n : i32(2)), alloc : .Some(heap));
   {
     w := Rc.downgrade(&a);
     assert(w.upgrade().is_some(), "alive");
@@ -3921,7 +3921,7 @@ test("an upgrade from the payload's own Drop is .None, and the payload's Weak fr
   heap := _counting(addr_of(counts));
   g_weak_self_upgrade_none = false;
   {
-    a := rc(RefCell(_WeakSelf).new(_WeakSelf(me : Weak(RefCell(_WeakSelf)).new(), n : i32(1))), alloc : .Some(heap));
+    a := Rc.new(RefCell(_WeakSelf).new(_WeakSelf(me : Weak(RefCell(_WeakSelf)).new(), n : i32(1))), alloc : .Some(heap));
     me := Rc.downgrade(&a);
     a.with_mut({ me }(s) => {
       s.me = Weak.clone(&me);
@@ -3941,7 +3941,7 @@ _weak_list :: (fn() -> Rc(ArrayList(i32)))({
   l := ArrayList(i32).new();
   l.push(i32(1));
   l.push(i32(2));
-  rc(l)
+  Rc.new(l)
 });
 test("no borrow mark reaches an Rc cell's weak count", {
   xs := _weak_list();
@@ -3960,7 +3960,7 @@ test("no borrow mark reaches an Rc cell's weak count", {
   assert(w.upgrade().is_none(), "the last Rc is gone");
 });
 test("a Weak is explicit-copy: a copy moves it, Weak.clone copies it", {
-  a := rc(i32(5));
+  a := Rc.new(i32(5));
   w := Rc.downgrade(&a);
   w2 := w;
   comptime_expect_error(w.upgrade(), "use of moved value");
@@ -3973,7 +3973,7 @@ derive(_WeakPair, Copy, Clone);
 // `Rc.make_mut` disassociates `Weak` handles, as Rust's does: a `Weak` to the
 // only `Rc`'s cell does not see the write, and upgrades to `.None` afterwards.
 test("Rc.make_mut on the only Rc with a Weak alive moves to a fresh cell", {
-  a := rc(_WeakPair(a : i32(1), b : i32(2)));
+  a := Rc.new(_WeakPair(a : i32(1), b : i32(2)));
   w := Rc.downgrade(&a);
   before := addr_of(a.*);
   Rc.make_mut(&mut a).a = i32(10);
@@ -3982,7 +3982,7 @@ test("Rc.make_mut on the only Rc with a Weak alive moves to a fresh cell", {
   assert(w.upgrade().is_none(), "the Weak upgrades to .None afterwards");
   assert(w.strong_count() == usize(0), "the old cell's payload is gone");
   assert(Rc.downgrade(&a).weak_count() == usize(1), "the fresh cell has no other Weak");
-  b := rc(_WeakPair(a : i32(3), b : i32(4)));
+  b := Rc.new(_WeakPair(a : i32(3), b : i32(4)));
   w2 := Rc.downgrade(&b);
   consume(w2);
   before_b := addr_of(b.*);
@@ -3992,7 +3992,7 @@ test("Rc.make_mut on the only Rc with a Weak alive moves to a fresh cell", {
 test("Rc.try_unwrap succeeds with a Weak alive and leaves the Weak dangling", {
   counts := _counts();
   heap := _counting(addr_of(counts));
-  c := rc(_WeakPair(a : i32(3), b : i32(4)), alloc : .Some(heap));
+  c := Rc.new(_WeakPair(a : i32(3), b : i32(4)), alloc : .Some(heap));
   wc := Rc.downgrade(&c);
   n := match(Rc.try_unwrap(c), .Ok(p) => p.a, .Err(_) => i32(0));
   assert(n == i32(3), "the only Rc unwraps with a Weak alive");
@@ -4016,13 +4016,13 @@ impl(
 );
 _RcRecNode :: struct(next : Option(Rc(RefCell(Self))), tag : i32);
 test("a generic method returning Rc of its parameter over a recursive struct", {
-  a := rc(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(7))));
+  a := Rc.new(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(7))));
   h := _RcHolder(RefCell(_RcRecNode))(_h : .Some(a));
   t := match(h.get(), .Some(p) => p.with(v => v.tag), .None => i32(0));
   assert(t == i32(7), "the returned handle reads the payload");
 });
 test("Weak.upgrade over a recursive payload reads the cell", {
-  a := rc(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(9))));
+  a := Rc.new(RefCell(_RcRecNode).new(_RcRecNode(next : .None, tag : i32(9))));
   w := Rc.downgrade(&a);
   t := match(w.upgrade(), .Some(p) => p.with(v => v.tag), .None => i32(0));
   assert(t == i32(9), "the upgraded handle reads the payload");
@@ -4038,14 +4038,14 @@ _V2cBare :: struct(h : Rc(i32));
 _v2c_keep :: (fn(h : &Rc(i32)) -> Rc(i32))(Rc.clone(h));
 _v2c_peek :: (fn(h : &Rc(i32)) -> i32)(h.*);
 _v2c_take :: (fn(h : Rc(i32)) -> i32)(h.*);
-_v2c_first :: (fn(xs : &ArrayList(Rc(i32))) -> Rc(i32))(match(xs.get(usize(0)), .Some(h) => h, .None => rc(i32(0))));
-_v2c_some :: (fn() -> Option(Rc(i32)))(.Some(rc(i32(5))));
+_v2c_first :: (fn(xs : &ArrayList(Rc(i32))) -> Rc(i32))(match(xs.get(usize(0)), .Some(h) => h, .None => Rc.new(i32(0))));
+_v2c_some :: (fn() -> Option(Rc(i32)))(.Some(Rc.new(i32(5))));
 test("Rc.clone is a second handle to the same cell, whatever the payload", {
-  a := rc(i32(1));
+  a := Rc.new(i32(1));
   b := Rc.clone(a);
   assert(ref_count(a) == usize(2), "two handles");
   assert(b.* == a.*, "one value");
-  c := rc(_V2cBare(h : rc(i32(2))));
+  c := Rc.new(_V2cBare(h : Rc.new(i32(2))));
   d := Rc.clone(c);
   assert(ref_count(c) == usize(2), "a payload that is not Clone shares its cell too");
   assert(d.h.* == i32(2), "through the second handle");
@@ -4056,13 +4056,13 @@ test("Rc.clone is a second handle to the same cell, whatever the payload", {
   assert(ref_count(a) == usize(2), "the temporary clone is released with its block");
 });
 test("a handle's last use moves it, and a copy whose source is used again is E0901", {
-  a := rc(i32(1));
+  a := Rc.new(i32(1));
   assert(_v2c_peek(&a) == i32(1), "a `&Rc(T)` parameter borrows the handle");
   assert(_v2c_take(Rc.clone(a)) == i32(1), "a clone into a by-value parameter");
   b := a;
   assert(ref_count(b) == usize(1), "the last use moved the handle: no second count");
   comptime_expect_error(a.*, "use of moved value");
-  c := rc(i32(2));
+  c := Rc.new(i32(2));
   comptime_expect_error({
     d := c;
     c.* + d.*
@@ -4071,12 +4071,12 @@ test("a handle's last use moves it, and a copy whose source is used again is E09
 test("a handle copied out of a borrow, a field or a module-level binding is E0901", {
   comptime_expect_error((fn(h : &Rc(i32)) -> Rc(i32))(h), "is a counted handle, copied only explicitly");
   comptime_expect_error((fn(n : &_V2cNode) -> Rc(i32))(n.label), "Rc.clone(...)");
-  n := _V2cNode(label : rc(i32(3)), weight : i32(1));
+  n := _V2cNode(label : Rc.new(i32(3)), weight : i32(1));
   l := Rc.clone(n.label);
   assert(ref_count(l) == usize(2), "a field's handle, cloned");
 });
 test("a value holding a handle copies with .clone(), which clones each handle", {
-  n := _V2cNode(label : rc(i32(3)), weight : i32(1));
+  n := _V2cNode(label : Rc.new(i32(3)), weight : i32(1));
   m := n.clone();
   assert(ref_count(n.label) == usize(2), "the derived clone took a second handle");
   assert(m.weight == n.weight, "the plain field is copied");
@@ -4084,17 +4084,17 @@ test("a value holding a handle copies with .clone(), which clones each handle", 
     k := n;
     k.weight + n.weight
   }, "n.clone()");
-  o := Option(Rc(i32)).Some(rc(i32(4)));
+  o := Option(Rc(i32)).Some(Rc.new(i32(4)));
   o2 := o.clone();
   assert(o.is_some() && o2.is_some(), "an Option(Rc(T)) clones its handle");
-  bare := _V2cBare(h : rc(i32(5)));
+  bare := _V2cBare(h : Rc.new(i32(5)));
   comptime_expect_error({
     bare2 := bare;
     bare.h.* + bare2.h.*
   }, "derive(_V2cBare, Clone)");
 });
 test("a closure takes a second handle in its capture list", {
-  a := rc(i32(6));
+  a := Rc.new(i32(6));
   (f : Impl(Fn() -> i32)) = ({ a : Rc.clone(a) }() => a.*);
   assert(f() == a.*, "the closure and the caller each hold a handle");
   assert(ref_count(a) == usize(2), "the capture is a second handle");
@@ -4104,10 +4104,10 @@ test("a closure takes a second handle in its capture list", {
 });
 test("a generic body copies a handle that is its T implicitly", {
   xs := ArrayList(Rc(i32)).new();
-  xs.push(rc(i32(7)));
+  xs.push(Rc.new(i32(7)));
   h := _v2c_first(&xs);
   assert(h.* == i32(7), "ArrayList(Rc(T)).get copies through T");
   assert(ref_count(h) == usize(2), "the list and the caller each hold a handle");
-  o := match(_v2c_some(), .Some(v) => v, .None => rc(i32(0)));
+  o := match(_v2c_some(), .Some(v) => v, .None => Rc.new(i32(0)));
   assert(ref_count(o) == usize(1), "a match binding of a temporary moves");
 });

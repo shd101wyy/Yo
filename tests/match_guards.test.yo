@@ -99,9 +99,9 @@ _guard_tok :: (fn(x : i32) -> _GuardTok)(_GuardTok(n : x));
 _GuardHolder :: struct(mk : Dyn(Fn(x : i32) -> _GuardTok), ms : Dyn(Fn(x : i32) -> String));
 test("a guard over an object it builds", {
   k := i32(3);
-  r := match(k, (n && (rc(n).* > i32(1))) => i32(2), _ => i32(3));
+  r := match(k, (n && (Rc.new(n).* > i32(1))) => i32(2), _ => i32(3));
   assert(r == i32(2), "rc object");
-  r2 := match(k, (n && (rc(n).* > i32(5))) => i32(2), _ => i32(3));
+  r2 := match(k, (n && (Rc.new(n).* > i32(5))) => i32(2), _ => i32(3));
   assert(r2 == i32(3), "rc object, guard fails");
 });
 test("a guard's temporary receiver is released once on either path", {

@@ -472,7 +472,7 @@ _type_binder_env_value :: (
       });
       stamped := match(
         fresh_some,
-        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, Rc.clone(fs_parent), fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1.clone(), fs_r2.clone())),
+        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => Rc.new(TypeValueNode.SomeT(fs_id, fs_name, fs_level, Rc.clone(fs_parent), fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1.clone(), fs_r2.clone())),
         other => Rc.clone(other)
       );
       Option(EvalValue).Some(create_type_value(&stamped))
@@ -531,10 +531,10 @@ _record_ctor_phantom_positions :: (
     out.get(usize(0)),
     .Some(b) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)),
-      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => rc(TypeValueNode.Unit)),
-      .None => rc(TypeValueNode.Unit)
+      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => Rc.new(TypeValueNode.Unit)),
+      .None => Rc.new(TypeValueNode.Unit)
     ),
-    .None => rc(TypeValueNode.Unit)
+    .None => Rc.new(TypeValueNode.Unit)
   );
   match(
     &body_ty,
@@ -646,7 +646,7 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
     i = (i + usize(1));
   });
   Environment(
-    frames : rc(new_frames),
+    frames : Rc.new(new_frames),
     module_path : Rc.clone(env.module_path),
     function_declaration_frame_level : env.function_declaration_frame_level,
     frozen : false
@@ -1092,7 +1092,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
         );
         rp_tok := ast_expr_token(&pd.body);
         rp_fv := EvalValue.FuncVal(
-          rc(
+          Rc.new(
             FuncValData(
               forall_names : ArrayList(String).new(),
               params : ArrayList(String).new(),
@@ -1517,7 +1517,7 @@ Result type: ${type_to_string(&result_box)}`
         Option(AstExpr).None
       );
       func_val := EvalValue.FuncVal(
-        rc(
+        Rc.new(
           FuncValData(
             forall_names : forall_labels.items.clone(),
             params : param_labels.items.clone(),
@@ -1847,7 +1847,7 @@ Result type: ${type_to_string(&result_box)}`
             .Atom(_, _) => ()
           );
           flow_fv := EvalValue.FuncVal(
-            rc(
+            Rc.new(
               FuncValData(
                 forall_names : ArrayList(String).new(),
                 params : ArrayList(String).new(),
@@ -2317,7 +2317,7 @@ Result type: ${type_to_string(&result_box)}`
             // above): reusing the real one lets trial registrations shadow
             // the real definition's and codegen emits the trial body clone.
             dg_fv := EvalValue.FuncVal(
-              rc(
+              Rc.new(
                 FuncValData(
                   forall_names : ArrayList(String).new(),
                   params : ArrayList(String).new(),

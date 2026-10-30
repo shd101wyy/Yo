@@ -422,8 +422,8 @@ impl(
       next_dispose_type_id : usize(1),
       sm_pool_ids : HashMap(String, usize).new(),
       dispose_thunks : HashSet(String).new(),
-      declared_c_var_names : rc(RefCell(HashSet(String)).new(HashSet(String).new())),
-      declared_scopes : rc(RefCell(ArrayList(String)).new(ArrayList(String).new())),
+      declared_c_var_names : Rc.new(RefCell(HashSet(String)).new(HashSet(String).new())),
+      declared_scopes : Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new())),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
       type_key_aliases : HashMap(String, String).new(),
       chunk_mode : false,
@@ -837,7 +837,7 @@ get_runtime_struct_fields :: (fn(struct_type : &TypeValue) -> ArrayList(RuntimeS
         );
         if(!is_comptime, {
           label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
-          ty := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          ty := match(field_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           result.push(RuntimeStructField(label : label, ty : ty));
         });
         fi = (fi + usize(1));

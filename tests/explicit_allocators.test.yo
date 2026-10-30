@@ -72,7 +72,7 @@ test("An rc placed by its alloc argument comes from that allocator", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    p := rc(_Point(x : i32(3), y : i32(4)), alloc : .Some(heap));
+    p := Rc.new(_Point(x : i32(3), y : i32(4)), alloc : .Some(heap));
     assert(counts.live == usize(1), `one block: ${counts.live}`);
     assert((p.x + p.y) == i32(7), "fields");
     assert(ref_count(p) == usize(1), "ref_count() never reports the allocator tag");
@@ -87,9 +87,9 @@ test("A creation without an alloc argument stays on the global allocator", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    before := rc(_Point(x : i32(1), y : i32(1)));
-    placed := rc(_Point(x : i32(2), y : i32(2)), alloc : .Some(heap));
-    after := rc(_Point(x : i32(3), y : i32(3)));
+    before := Rc.new(_Point(x : i32(1), y : i32(1)));
+    placed := Rc.new(_Point(x : i32(2), y : i32(2)), alloc : .Some(heap));
+    after := Rc.new(_Point(x : i32(3), y : i32(3)));
     assert(counts.live == usize(1), "only the placed cell");
   };
   assert(counts.live == usize(0), `the placed cell went back: ${counts.live}`);
@@ -98,13 +98,13 @@ test("box, arc and a dyn over a placed rc are placed by their alloc argument", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    b := box(i32(9), alloc : .Some(heap));
+    b := Box.new(i32(9), alloc : .Some(heap));
     assert(b.* == i32(9), "box value");
     assert(counts.live == usize(1), "box");
-    a := arc(i32(11), alloc : .Some(heap));
+    a := Arc.new(i32(11), alloc : .Some(heap));
     assert(a.* == i32(11), "arc value");
     assert(counts.live == usize(2), "arc (atomic RC)");
-    (d : Dyn(_Speak)) = dyn(rc(_Dog(volume : i32(6)), alloc : .Some(heap)));
+    (d : Dyn(_Speak)) = dyn(Rc.new(_Dog(volume : i32(6)), alloc : .Some(heap)));
     assert(d.speak() == i32(6), "dyn dispatch");
     assert(counts.live == usize(3), `the dyn's data object is the placed cell: ${counts.live}`);
   };
@@ -123,12 +123,12 @@ test("A placed Box carries the owner prefix and its flags word; a global one onl
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    placed := box(i64(7), alloc : .Some(heap));
+    placed := Box.new(i64(7), alloc : .Some(heap));
     // The owner prefix (16), the flags word (8), the payload (8).
     assert(counts.bytes == usize(32), `a placed Box(i64) asks for 32 bytes: ${counts.bytes}`);
     assert(_box_flags(&placed) == u64(1), "the placed bit");
     assert(Box.allocator(placed).unwrap().same(heap), "the owner prefix names the allocator");
-    global := box(i64(8));
+    global := Box.new(i64(8));
     assert(_box_flags(&global) == u64(0), "a global cell's flags word is clear");
     assert(Box.allocator(global).is_none(), "and it has no owner");
     assert((placed.* + global.*) == i64(15), "payloads");
@@ -142,9 +142,9 @@ test("An alloc argument takes any Allocator value", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    p := rc(_Point(x : i32(5), y : i32(6)), alloc : .Some(heap));
+    p := Rc.new(_Point(x : i32(5), y : i32(6)), alloc : .Some(heap));
     assert(counts.live == usize(1), "placed");
-    g := rc(_Point(x : i32(7), y : i32(8)), alloc : .Some(Allocator.global()));
+    g := Rc.new(_Point(x : i32(7), y : i32(8)), alloc : .Some(Allocator.global()));
     assert(counts.live == usize(1), "the global Allocator value places globally-routed blocks");
   };
   assert(counts.live == usize(0), `the placed point went back: ${counts.live}`);
@@ -162,7 +162,7 @@ test("ArrayList.new, HashMap.new, Deque.new and box(v) are on the global allocat
   q := Deque(i32).new();
   q.push_back(i32(1));
   assert(q.allocator().is_none(), "Deque.new()");
-  b := box(i32(2));
+  b := Box.new(i32(2));
   assert(Box.allocator(b).is_none(), "box(v)");
 });
 test("An ArrayList placed by its alloc argument keeps growing in its allocator", {
@@ -440,11 +440,11 @@ test("Every release tells the allocator the size and alignment the block was all
   a := Allocator(ctx : .Some((*void)(addr_of(ledger))), vtable : addr_of(_LEDGER_VTABLE));
   placed := Option(Allocator).Some(a);
   {
-    p := rc(_Point(x : i32(3), y : i32(4)), alloc : placed);
-    b := rc(i64(9), alloc : placed);
-    at := arc(i64(5), alloc : placed);
-    bx := box(i32(2), alloc : placed);
-    (d : Dyn(_Speak)) = dyn(rc(_Dog(volume : i32(6)), alloc : placed));
+    p := Rc.new(_Point(x : i32(3), y : i32(4)), alloc : placed);
+    b := Rc.new(i64(9), alloc : placed);
+    at := Arc.new(i64(5), alloc : placed);
+    bx := Box.new(i32(2), alloc : placed);
+    (d : Dyn(_Speak)) = dyn(Rc.new(_Dog(volume : i32(6)), alloc : placed));
     list := ArrayList(i64).new(alloc : placed);
     mut(i) := i64(0);
     while(i < i64(300), {
@@ -586,11 +586,11 @@ test("A header-free pool allocator frees by the size it is given", {
       pts := ArrayList(Rc(_Point)).new();
       mut(i) := i32(0);
       while(i < i32(20), {
-        pts.push(rc(_Point(x : i32(i), y : i32(1)), alloc : placed));
+        pts.push(Rc.new(_Point(x : i32(i), y : i32(1)), alloc : placed));
         i = (i + i32(1));
       });
-      bx := box(i64(3), alloc : placed);
-      (d : Dyn(_Speak)) = dyn(rc(_Dog(volume : i32(6)), alloc : placed));
+      bx := Box.new(i64(3), alloc : placed);
+      (d : Dyn(_Speak)) = dyn(Rc.new(_Dog(volume : i32(6)), alloc : placed));
       list := ArrayList(i32).new(alloc : placed);
       mut(j) := i32(0);
       while(j < i32(60), {

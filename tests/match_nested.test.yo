@@ -119,8 +119,8 @@ test("a nested variant pattern through an Rc payload", {
       .Nil => i32(0)
     )
   );
-  assert(f(List.Cons(1, rc(List.Cons(2, rc(List.Nil))))) == i32(2));
-  assert(f(List.Cons(3, rc(List.Nil))) == i32(3));
+  assert(f(List.Cons(1, Rc.new(List.Cons(2, Rc.new(List.Nil))))) == i32(2));
+  assert(f(List.Cons(3, Rc.new(List.Nil))) == i32(3));
   assert(f(List.Nil) == i32(0));
 });
 test("two levels through Rc payloads", {
@@ -139,8 +139,8 @@ test("two levels through Rc payloads", {
       .Nil => i32(-1)
     )
   );
-  assert(g(List.Cons(1, rc(List.Cons(2, rc(List.Cons(3, rc(List.Nil))))))) == i32(3));
-  assert(g(List.Cons(9, rc(List.Cons(8, rc(List.Nil))))) == i32(8));
+  assert(g(List.Cons(1, Rc.new(List.Cons(2, Rc.new(List.Cons(3, Rc.new(List.Nil))))))) == i32(3));
+  assert(g(List.Cons(9, Rc.new(List.Cons(8, Rc.new(List.Nil))))) == i32(8));
   assert(g(List.Nil) == i32(-1));
 });
 test("a literal sub-pattern through an Rc payload", {
@@ -153,8 +153,8 @@ test("a literal sub-pattern through an Rc payload", {
       .Empty => i32(0)
     )
   );
-  assert(h(Cell.Value(rc(i32(42)))) == i32(1));
-  assert(h(Cell.Value(rc(i32(7)))) == i32(2));
+  assert(h(Cell.Value(Rc.new(i32(42)))) == i32(1));
+  assert(h(Cell.Value(Rc.new(i32(7)))) == i32(2));
   assert(h(Cell.Empty) == i32(0));
 });
 test("an or-pattern through an Rc payload", {
@@ -167,8 +167,8 @@ test("an or-pattern through an Rc payload", {
     )
   );
   assert(k(List.Nil) == i32(0));
-  assert(k(List.Cons(0, rc(List.Nil))) == i32(0));
-  assert(k(List.Cons(5, rc(List.Nil))) == i32(5));
+  assert(k(List.Cons(0, Rc.new(List.Nil))) == i32(0));
+  assert(k(List.Cons(5, Rc.new(List.Nil))) == i32(5));
 });
 test("whole-value binding of the Rc position still binds the Rc", {
   inner_kind :: (fn(b : &Rc(List)) -> i32)(
@@ -185,8 +185,8 @@ test("whole-value binding of the Rc position still binds the Rc", {
       .Nil => i32(0)
     )
   );
-  assert(m(List.Cons(2, rc(List.Nil))) == i32(100));
-  assert(m(List.Cons(1, rc(List.Cons(9, rc(List.Nil))))) == i32(101));
+  assert(m(List.Cons(2, Rc.new(List.Nil))) == i32(100));
+  assert(m(List.Cons(1, Rc.new(List.Cons(9, Rc.new(List.Nil))))) == i32(101));
   assert(m(List.Nil) == i32(0));
 });
 test("an Rc scrutinee takes nested patterns directly", {
@@ -197,8 +197,8 @@ test("an Rc scrutinee takes nested patterns directly", {
       Rc(.Nil) => i32(-1)
     )
   );
-  assert(n(rc(List.Cons(7, rc(List.Nil)))) == i32(7));
-  assert(n(rc(List.Nil)) == i32(-1));
+  assert(n(Rc.new(List.Cons(7, Rc.new(List.Nil)))) == i32(7));
+  assert(n(Rc.new(List.Nil)) == i32(-1));
 });
 // Wrapper patterns (plans/VALUES_BY_DEFAULT.md decision 31): `Rc(p)` and
 // `Arc(p)` name the cell a pattern looks through.
@@ -213,9 +213,9 @@ test("Rc(p) looks through an Rc child at any depth", {
       .Leaf(n) => n
     )
   );
-  assert(f(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2)))) == i32(3));
-  assert(f(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(4)), rc(Tree.Leaf(0)))), rc(Tree.Leaf(9)))) == i32(40));
-  assert(f(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Node(rc(Tree.Leaf(4)), rc(Tree.Leaf(0)))))) == i32(-1));
+  assert(f(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Leaf(2)))) == i32(3));
+  assert(f(Tree.Node(Rc.new(Tree.Node(Rc.new(Tree.Leaf(4)), Rc.new(Tree.Leaf(0)))), Rc.new(Tree.Leaf(9)))) == i32(40));
+  assert(f(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Node(Rc.new(Tree.Leaf(4)), Rc.new(Tree.Leaf(0)))))) == i32(-1));
   assert(f(Tree.Leaf(7)) == i32(7));
 });
 // A borrow match on an `Rc` handle whose arms all look through it to plain
@@ -235,10 +235,10 @@ test("a match on an Rc handle with plain variant arms switches on the payload", 
   only_line :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(n)) => n, _ => i32(0)));
   with_literal :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(0)) => i32(-1), Rc(.Line(n)) => n, _ => i32(0)));
   with_guard :: (fn(s : &Rc(Shape)) -> i32)(match(s, (Rc(.Line(n)) && (n > i32(5))) => i32(5), Rc(.Line(n)) => n, _ => i32(0)));
-  dot := rc(Shape.Dot);
-  line := rc(Shape.Line(len : i32(7)));
-  zero := rc(Shape.Line(len : i32(0)));
-  pair := rc(Shape.Pair(a : Rc.clone(line), b : rc(Shape.Pair(a : Rc.clone(dot), b : Rc.clone(zero)))));
+  dot := Rc.new(Shape.Dot);
+  line := Rc.new(Shape.Line(len : i32(7)));
+  zero := Rc.new(Shape.Line(len : i32(0)));
+  pair := Rc.new(Shape.Pair(a : Rc.clone(line), b : Rc.new(Shape.Pair(a : Rc.clone(dot), b : Rc.clone(zero)))));
   assert(size(&dot) == i32(1));
   assert(size(&line) == i32(7));
   assert(size(&pair) == i32(8));
@@ -265,18 +265,18 @@ test("a match through an Rc into a nullable-pointer or fieldless enum reads the 
   xs := ArrayList(i32).new();
   xs.push(i32(4));
   xs.push(i32(5));
-  full := rc(Nul.Full(xs));
-  empty := rc(Nul.Empty);
+  full := Rc.new(Nul.Full(xs));
+  empty := Rc.new(Nul.Empty);
   assert(count(&full) == usize(2));
   assert(count(&empty) == usize(99));
   assert(both(&full) == usize(2));
   assert(both(&empty) == usize(98));
-  owned := rc(Nul.Full(ArrayList(i32).new()));
+  owned := Rc.new(Nul.Full(ArrayList(i32).new()));
   n := match(owned, Rc(.Full(ys)) => ys.len(), _ => usize(99));
   assert(n == usize(0));
-  r := rc(Hue.Red);
-  g := rc(Hue.Green);
-  b := rc(Hue.Blue);
+  r := Rc.new(Hue.Red);
+  g := Rc.new(Hue.Green);
+  b := Rc.new(Hue.Blue);
   assert(red(&r) == i32(1));
   assert(red(&b) == i32(0));
   assert(hue(&g) == i32(2));
@@ -290,8 +290,8 @@ test("Rc(p) at the scrutinee covers it with no catch-all", {
       Rc(.Node(_, _)) => i32(-1)
     )
   );
-  assert(g(rc(Tree.Leaf(5))) == i32(5));
-  assert(g(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2))))) == i32(-1));
+  assert(g(Rc.new(Tree.Leaf(5))) == i32(5));
+  assert(g(Rc.new(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Leaf(2))))) == i32(-1));
 });
 test("exhaustiveness reaches through Rc(p) into the payload's variants", {
   h :: (fn(t : &Tree) -> i32)(
@@ -302,8 +302,8 @@ test("exhaustiveness reaches through Rc(p) into the payload's variants", {
       .Leaf(_) => i32(0)
     )
   );
-  assert(h(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2)))) == i32(1));
-  assert(h(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2)))), rc(Tree.Leaf(2)))) == i32(2));
+  assert(h(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Leaf(2)))) == i32(1));
+  assert(h(Tree.Node(Rc.new(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Leaf(2)))), Rc.new(Tree.Leaf(2)))) == i32(2));
   assert(h(Tree.Leaf(3)) == i32(0));
 });
 test("Rc(name) binds the payload, a borrow of the shared cell", {
@@ -314,8 +314,8 @@ test("Rc(name) binds the payload, a borrow of the shared cell", {
       .Leaf(_) => i32(0)
     )
   );
-  assert(k(Tree.Node(rc(Tree.Leaf(8)), rc(Tree.Leaf(2)))) == i32(8));
-  assert(k(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(1)))), rc(Tree.Leaf(2)))) == i32(-2));
+  assert(k(Tree.Node(Rc.new(Tree.Leaf(8)), Rc.new(Tree.Leaf(2)))) == i32(8));
+  assert(k(Tree.Node(Rc.new(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Leaf(1)))), Rc.new(Tree.Leaf(2)))) == i32(-2));
 });
 test("(name := Rc(p)) binds the cell, Rc((name := p)) the payload", {
   m :: (fn(t : &Tree) -> i32)(
@@ -326,8 +326,8 @@ test("(name := Rc(p)) binds the cell, Rc((name := p)) the payload", {
       _ => i32(0)
     )
   );
-  assert(m(Tree.Node(rc(Tree.Leaf(10)), rc(Tree.Leaf(0)))) >= i32(11));
-  assert(m(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(1)))), rc(Tree.Leaf(6)))) == i32(12));
+  assert(m(Tree.Node(Rc.new(Tree.Leaf(10)), Rc.new(Tree.Leaf(0)))) >= i32(11));
+  assert(m(Tree.Node(Rc.new(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Leaf(1)))), Rc.new(Tree.Leaf(6)))) == i32(12));
   assert(m(Tree.Leaf(1)) == i32(0));
 });
 test("Rc(p) with a literal and an or-pattern inside", {
@@ -341,9 +341,9 @@ test("Rc(p) with a literal and an or-pattern inside", {
       .Empty => i32(0)
     )
   );
-  assert(q(Cell2.Value(rc(i32(2)))) == i32(1));
-  assert(q(Cell2.Value(rc(i32(42)))) == i32(42));
-  assert(q(Cell2.Value(rc(i32(5)))) == i32(10));
+  assert(q(Cell2.Value(Rc.new(i32(2)))) == i32(1));
+  assert(q(Cell2.Value(Rc.new(i32(42)))) == i32(42));
+  assert(q(Cell2.Value(Rc.new(i32(5)))) == i32(10));
   assert(q(Cell2.Empty) == i32(0));
 });
 Signal :: enum(Level(v : i32), Off);
@@ -355,8 +355,8 @@ test("Arc(p) looks through an Arc", {
       Arc(.Off) => i32(-1)
     )
   );
-  assert(r(arc(Signal.Level(3))) == i32(3));
-  assert(r(arc(Signal.Off)) == i32(-1));
+  assert(r(Arc.new(Signal.Level(3))) == i32(3));
+  assert(r(Arc.new(Signal.Off)) == i32(-1));
 });
 test("a wrapper pattern must name the cell at its position", {
   comptime_expect_error({
