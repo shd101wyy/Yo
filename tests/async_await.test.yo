@@ -288,6 +288,44 @@ test("Test early return from async block", {
   assert(reached_middle.with(cur => cur) == true, "should have reached middle after await");
   assert(reached_end.* == false, "should NOT have reached end");
 });
+// A bare `return` emitted the C `return` with no drops outside a state
+// machine: an `io.async` body with no await (it runs as a plain closure call)
+// kept its moved capture, and a function kept its locals
+// (issues/fixed/2026-10-30-an-io-async-closure-that-returns-early-leaks-its-captures.md).
+(mut(g_bare_return_disposed) : i32) = i32(0);
+_BareReturnProbe :: struct(n : i32);
+impl(
+  _BareReturnProbe,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_bare_return_disposed = (g_bare_return_disposed + i32(1));
+    })
+  )
+);
+_bare_return_local :: (fn(early : bool) -> unit)({
+  p := _BareReturnProbe(n : i32(1));
+  cond(
+    early => {
+      return;
+    },
+    true => ()
+  );
+  assert(p.n == i32(1), "the fall-through path reads the local");
+});
+test("Test a bare return releases an io.async body's captures and a function's locals", {
+  before := g_bare_return_disposed;
+  probe := _BareReturnProbe(n : i32(3));
+  task := io.async({ probe }(io : Io) => {
+    assert(probe.n == i32(3), "the capture is read before the early return");
+    return;
+  });
+  io.await(task, io);
+  assert(g_bare_return_disposed == (before + i32(1)), "the body releases its moved capture when it returns early");
+  _bare_return_local(true);
+  assert(g_bare_return_disposed == (before + i32(2)), "an early bare return releases the function's local");
+  _bare_return_local(false);
+  assert(g_bare_return_disposed == (before + i32(3)), "the fall-through path releases it once");
+});
 // ---------------------------------------------------------------------------
 // 9. Early return from cond branch inside async (regression test)
 //    This ensures local variables are properly dropped on early return
