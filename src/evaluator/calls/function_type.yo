@@ -112,7 +112,7 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &E
     ast_expr_is_fn_call_of(dm, BF_DECREASES, Option(usize).None) => {
       match(
         dm,
-        .FnCall(_, _, comps, _, _) => {
+        .FnCall(_, _, Rc(comps), _, _) => {
           (mci : usize) = usize(0);
           while(mci < comps.len(), {
             _ := evaluated_for_verify(comps.get(mci).unwrap(), env, ctx, exn);
@@ -676,22 +676,22 @@ _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
   });
   decls := match(
     ft,
-    .FnCall(_, _, ft_args, _, _) => match(ft_args.get(usize(0)), .Some(.FnCall(_, _, head_args, _, _)) => head_args, _ => return(out)),
+    .FnCall(_, _, Rc(ft_args), _, _) => match(ft_args.get(usize(0)), .Some(.FnCall(_, _, Rc(head_args), _, _)) => head_args, _ => return(out)),
     .Atom(_, _) => return(out)
   );
   (di : usize) = usize(0);
   while(di < decls.len(), di = (di + usize(1)), {
     (d : AstExpr) = decls(di);
     if(ast_expr_is_fn_call_of(&d, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&d, "?=", Option(usize).Some(usize(2))), {
-      d = match(d, .FnCall(_, _, dv_args, _, _) => dv_args(usize(0)), .Atom(_, _) => d);
+      d = match(d, .FnCall(_, _, Rc(dv_args), _, _) => dv_args(usize(0)), .Atom(_, _) => d);
     });
     if(ast_expr_is_fn_call_of(&d, ":", Option(usize).Some(usize(2))), {
-      d = match(d, .FnCall(_, _, lab_args, _, _) => lab_args(usize(0)), .Atom(_, _) => d);
+      d = match(d, .FnCall(_, _, Rc(lab_args), _, _) => lab_args(usize(0)), .Atom(_, _) => d);
       (peeling : bool) = true;
       while(peeling, {
         match(
           d,
-          .FnCall(_, _, w_args, is_infix, _) => cond(
+          .FnCall(_, _, Rc(w_args), is_infix, _) => cond(
             (!is_infix && (w_args.len() == usize(1))) => {
               d = w_args(usize(0));
             },
@@ -1240,7 +1240,7 @@ Result type: ${type_to_string(&result_box)}`
       // the ArrayList handle never escapes the match as a copy.
       body_arg_len := match(
         expr,
-        .FnCall(_, _, a, _, _) => a.len(),
+        .FnCall(_, _, Rc(a), _, _) => a.len(),
         .Atom(_, _) => usize(0)
       );
       if(body_arg_len != usize(1), {
@@ -1255,7 +1255,7 @@ Result type: ${type_to_string(&result_box)}`
       });
       body_expr_unprojected := match(
         expr,
-        .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+        .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
         .Atom(_, _) => make_err_expr()
       );
       // Decision 24: a projection's body yields a place with the sigil of its
@@ -2584,11 +2584,11 @@ _bare_projection_tail_text :: (fn(e : &AstExpr) -> String)({
   s := ast_expr_strip_borrow_marker(e);
   match(
     s,
-    .FnCall(_, pf, pargs, _, _) => {
+    .FnCall(_, pf, Rc(pargs), _, _) => {
       callee_txt := cond(
         ast_expr_is_fn_call_of(&pf, BF_DOT, Option(usize).Some(usize(2))) => match(
           pf,
-          .FnCall(_, _, dargs, _, _) => match(
+          .FnCall(_, _, Rc(dargs), _, _) => match(
             dargs.get(usize(0)),
             .Some(recv) => `${local_borrow_place_text(&recv)}.${match(dargs.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.new())}`,
             .None => ast_expr_to_string(&pf)

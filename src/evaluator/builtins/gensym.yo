@@ -38,12 +38,12 @@ evaluate_gensym :: (
   // Extract optional prefix argument.
   (args_opt_0 : Option(AstExpr)) = match(
     expr,
-    .FnCall(_, _, args, _, _) => args.get(usize(0)),
+    .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)),
     _ => Option(AstExpr).None
   );
   (n_args : usize) = match(
     expr,
-    .FnCall(_, _, args, _, _) => args.len(),
+    .FnCall(_, _, Rc(args), _, _) => args.len(),
     _ => usize(0)
   );
   (prefix : String) = String.new();

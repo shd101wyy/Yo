@@ -9,7 +9,7 @@
 /// `static const char <var> = 0;` whose ADDRESS is the id (unique per type,
 /// matching vtable typeid naming).
 generate_typeid :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  arg_opt := match(expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), .Atom(_, _) => .None);
+  arg_opt := match(expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), .Atom(_, _) => .None);
   arg := match(arg_opt, .Some(a) => a, .None => return(codegen_fatal_expr(String.from("typeid requires 1 argument"))));
   ty := match(
     context.base.get_expr_info(&arg),

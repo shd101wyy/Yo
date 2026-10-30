@@ -118,7 +118,7 @@ _is_init_assignment :: (fn(arg : &AstExpr) -> bool)(
     ast_expr_is_fn_call_of(arg, BK_ASSIGN, Option(usize).None) => true,
     ast_expr_is_fn_call_of(arg, BF_UNSAFE, Option(usize).Some(usize(1))) => match(
       arg,
-      .FnCall(_, _, uargs, _, _) => match(uargs.get(usize(0)), .Some(inner) => recur(&inner), .None => false),
+      .FnCall(_, _, Rc(uargs), _, _) => match(uargs.get(usize(0)), .Some(inner) => recur(&inner), .None => false),
       .Atom(_, _) => false
     ),
     true => false
@@ -153,7 +153,7 @@ evaluate_consume :: (
 )({
   arg_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(a) => a,
       .None => {

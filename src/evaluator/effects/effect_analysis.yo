@@ -209,7 +209,7 @@ is_effect_call_ :: (
           .Atom(_, _) => {
             go = false;
           },
-          .FnCall(_, curr_func, curr_args, _, _) => {
+          .FnCall(_, curr_func, Rc(curr_args), _, _) => {
             if(curr_args.len() < usize(2), {
               return(false);
             });
@@ -438,7 +438,7 @@ detect_effect_expr_ :: (
     match(
       expr.clone(),
       .Atom(_, _) => (),
-      .FnCall(_, _, args, _, _) => {
+      .FnCall(_, _, Rc(args), _, _) => {
         n := args.len();
         ai := usize(0);
         while(ai < n, {

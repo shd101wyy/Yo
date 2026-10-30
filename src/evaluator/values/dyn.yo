@@ -136,7 +136,7 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
       .Some(tn) => .Some(DynCellConstructor(type_name : tn, unapplied_receiver : .None)),
       .None => .None
     ),
-    .FnCall(_, _, dot_args, _, _) => cond(
+    .FnCall(_, _, Rc(dot_args), _, _) => cond(
       (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false)) => match(
         dot_args.get(usize(0)),
         .Some(.Atom(r_id, r_tok)) => cond(
@@ -192,7 +192,7 @@ _synthesized_cell_call :: (
     ctor_callee,
     .Some(callee) => {
       callee_id := ast_expr_id(&callee);
-      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), callee_id)
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at), callee_id)
     },
     .None => {
       recv_id := alloc_global_expr_id();
@@ -213,8 +213,8 @@ _synthesized_cell_call :: (
       dot_args := ArrayList(AstExpr).new();
       dot_args.push(recv);
       dot_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("new"), &env.module_path.*)));
-      callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), dot_args, true, dot_tok);
-      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), recv_id)
+      callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(dot_args), true, dot_tok);
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at), recv_id)
     }
   )
 });
@@ -824,7 +824,7 @@ _generic_impl_method_for_dyn :: (
         callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), &caller_env.module_path.*));
         call_args := ArrayList(AstExpr).new();
         call_args.push(recv_atom);
-        call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
+        call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok);
         ctx.pending_method_self_type = Option(TypeValue).Some(receiver_type.clone());
         // The synthetic call has no expected result: the surrounding
         // context's (the `Dyn` a `dyn(...)` argument is checked against)
@@ -901,7 +901,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       // `_generic_impl_method_for_dyn` passes its receiver.
       call_args := ArrayList(AstExpr).new();
       call_args.push(recv_atom);
-      call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
+      call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok);
       ctx.expected_type = Option(ExpectedTypeCtx).None;
       res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
       ctx.expected_type = saved_expected;
@@ -1160,7 +1160,7 @@ evaluate_dyn_value :: (
   // Extract the args ArrayList and the single value argument.
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     _ => {
       exn.throw(
         dyn(
@@ -1229,7 +1229,7 @@ evaluate_dyn_value :: (
         // covers the dyn-closure pattern.)
         dyn_cell_closure := match(
           value_arg,
-          .FnCall(_, dbc_fn, dbc_args, _, _) => cond(
+          .FnCall(_, dbc_fn, Rc(dbc_args), _, _) => cond(
             (
               (dbc_args.len() == usize(1)) && match(
                 dbc_args.get(usize(0)),
@@ -1255,7 +1255,7 @@ evaluate_dyn_value :: (
                       dbc_callee_id := ast_expr_id(&dbc_callee);
                       rebuilt := match(
                         value_arg,
-                        .FnCall(dbc_id, _, dbc_call_args, dbc_flag, dbc_tok) => Option(AstExpr).Some(AstExpr.FnCall(dbc_id, dbc_callee, dbc_call_args.clone(), dbc_flag, dbc_tok.clone())),
+                        .FnCall(dbc_id, _, Rc(dbc_call_args), dbc_flag, dbc_tok) => Option(AstExpr).Some(AstExpr.FnCall(dbc_id, dbc_callee, Rc.new(dbc_call_args.clone()), dbc_flag, dbc_tok.clone())),
                         _ => Option(AstExpr).None
                       );
                       match(

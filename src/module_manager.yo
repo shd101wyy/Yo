@@ -811,7 +811,7 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
 _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
   match(
     def.expr,
-    .FnCall(_, _, cargs, _, _) => cargs.get(usize(1)),
+    .FnCall(_, _, Rc(cargs), _, _) => cargs.get(usize(1)),
     .Atom(_, _) => Option(AstExpr).None
   )
 );
@@ -820,7 +820,7 @@ _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
 _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
   match(
     rhs,
-    .FnCall(_, callee, cargs, _, _) => {
+    .FnCall(_, callee, Rc(cargs), _, _) => {
       // The fn-type head renders as `fn(...) -> T` (a leading source paren
       // is not part of the callee). `fn(` specifically — not any `fn…` name.
       head := ast_expr_to_string(&callee);
@@ -883,7 +883,7 @@ _expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
     .FnCall(
       _,
       func,
-      args,
+      Rc(args),
       _,
       _
     ) => {
@@ -935,7 +935,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
       .Some(e) => if(ast_expr_is_fn_call_of(&e, BK_EXPORT, .None), {
         match(
           e,
-          .FnCall(_, _, eargs, _, _) => {
+          .FnCall(_, _, Rc(eargs), _, _) => {
             (ai : usize) = usize(0);
             while((ai < eargs.len()) && !hit, {
               match(
@@ -943,7 +943,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
                 .Some(arg) => if(ast_expr_is_fn_call_of(&arg, BK_COLON, .Some(usize(2))), {
                   match(
                     arg,
-                    .FnCall(_, _, pair, _, _) => match(
+                    .FnCall(_, _, Rc(pair), _, _) => match(
                       pair.get(usize(1)),
                       .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name), {
                         hit = true;
@@ -2256,7 +2256,7 @@ _scan_import_literals :: (
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       is_import := match(func, .Atom(_, ft) => (ft.value.* == BK_IMPORT), _ => false);
       if(is_import && (args.len() == usize(1)), {
         match(

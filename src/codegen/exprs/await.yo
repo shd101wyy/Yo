@@ -646,7 +646,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))));
   func_is_call := match(func_expr, .FnCall(_, _, _, _, _) => true, _ => false);
   handle_arg := if(func_is_call, {
-    fargs := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    fargs := match(func_expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
     match(fargs.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   }, {
     args := ast_call_args_unmarked(expr);

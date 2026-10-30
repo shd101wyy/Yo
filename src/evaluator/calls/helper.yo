@@ -510,7 +510,7 @@ validate_function_return_type :: (
 _h_get_fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -784,7 +784,7 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
         .None => _MarkerPlace.NotAPlace
       )
     ),
-    .FnCall(_, mp_callee, mp_args, mp_infix, _) => cond(
+    .FnCall(_, mp_callee, Rc(mp_args), mp_infix, _) => cond(
       ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => match(
         mp_args.get(usize(1)),
         .Some(.Atom(_, _)) => match(
@@ -810,7 +810,7 @@ _place_leftmost_token :: (fn(e : &AstExpr) -> Token)(
   match(
     e,
     .Atom(_, tok) => tok,
-    .FnCall(_, lt_callee, lt_args, _, _) => cond(
+    .FnCall(_, lt_callee, Rc(lt_args), _, _) => cond(
       ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => recur(match(lt_args.get(usize(0)), .Some(b) => b, .None => make_err_expr())),
       true => recur(&lt_callee)
     )
@@ -1039,11 +1039,11 @@ apply_call_site_borrow_markers :: (
           ast_expr_is_fn_call_of(&arg, ":", .Some(usize(2))),
           match(
             arg,
-            .FnCall(l_id, l_fn, l_args, l_infix, l_tok) => {
+            .FnCall(l_id, l_fn, Rc(l_args), l_infix, l_tok) => {
               l_new := ArrayList(AstExpr).new();
               l_new.push(match(l_args.get(usize(0)), .Some(l) => l, .None => make_err_expr()));
               l_new.push(place);
-              AstExpr.FnCall(l_id, l_fn, l_new, l_infix, l_tok)
+              AstExpr.FnCall(l_id, l_fn, Rc.new(l_new), l_infix, l_tok)
             },
             .Atom(_, _) => place
           ),
@@ -1223,7 +1223,7 @@ _mark_moved_temp_container_dups :: (fn(arg : &AstExpr, depth : usize, ctx : &Eva
   );
   match(
     arg,
-    .FnCall(_, f, fargs, _, _) => {
+    .FnCall(_, f, Rc(fargs), _, _) => {
       recur(&f, depth, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs.len(), ai = (ai + usize(1)), {
@@ -6414,7 +6414,7 @@ _collect_atom_names_into :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> u
     .Atom(_, a_tok) => {
       out.push(a_tok.value.*.clone());
     },
-    .FnCall(_, a_fn, a_args, _, _) => {
+    .FnCall(_, a_fn, Rc(a_args), _, _) => {
       recur(&a_fn, out);
       (a_i : usize) = usize(0);
       while(a_i < a_args.len(), {
@@ -6447,7 +6447,7 @@ _io_async_receiver_bundle_expr :: (fn(expr : &AstExpr) -> Option(AstExpr))(
     .FnCall(_, callee_box, _, _, _) => match(
       callee_box,
       .Atom(_, _) => Option(AstExpr).None,
-      .FnCall(_, dot_box, dot_args, dot_infix, _) => cond(
+      .FnCall(_, dot_box, Rc(dot_args), dot_infix, _) => cond(
         (dot_infix == false) => Option(AstExpr).None,
         (dot_args.len() != usize(2)) => Option(AstExpr).None,
         true => match(
@@ -6461,7 +6461,7 @@ _io_async_receiver_bundle_expr :: (fn(expr : &AstExpr) -> Option(AstExpr))(
               .Some(recv) => match(
                 recv,
                 // `<base>.io.async(...)` — the bundle is the BASE.
-                .FnCall(_, r_dot_box, r_args, r_infix, _) => cond(
+                .FnCall(_, r_dot_box, Rc(r_args), r_infix, _) => cond(
                   (r_infix == false) => Option(AstExpr).None,
                   (r_args.len() != usize(2)) => Option(AstExpr).None,
                   true => match(
@@ -6494,19 +6494,19 @@ _io_async_closure_param_is_annotated :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, _) => false,
-    .FnCall(_, _, ap_args, _, _) => match(
+    .FnCall(_, _, Rc(ap_args), _, _) => match(
       ap_args.get(usize(0)),
       .None => false,
       .Some(ap_closure) => match(
         ap_closure,
         .Atom(_, _) => false,
-        .FnCall(_, _, ap_cl_args, _, _) => match(
+        .FnCall(_, _, Rc(ap_cl_args), _, _) => match(
           ap_cl_args.get(usize(0)),
           .None => false,
           .Some(ap_param) => cond(
             ast_expr_is_capture_list_params(&ap_param) => match(
               ap_param,
-              .FnCall(_, _, cl_params, _, _) => match(
+              .FnCall(_, _, Rc(cl_params), _, _) => match(
                 cl_params.get(usize(0)),
                 .None => false,
                 .Some(cl_p0) => ast_expr_is_fn_call_of(&cl_p0, ":", Option(usize).Some(usize(2)))
@@ -6618,7 +6618,7 @@ reject_runtime_comptime_arguments :: (
 _is_fn_literal_arg :: (fn(arg : &AstExpr) -> bool)({
   (a : AstExpr) = arg;
   if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
-    a = match(a, .FnCall(_, _, cl_as, _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
+    a = match(a, .FnCall(_, _, Rc(cl_as), _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
   });
   ast_expr_is_fn_call_of(&a, "=>", .Some(usize(2))) || ast_expr_is_fn_call_of(&a, "->", .Some(usize(2)))
 });

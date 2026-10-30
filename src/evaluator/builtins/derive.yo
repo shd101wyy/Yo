@@ -229,7 +229,7 @@ call_registered_derive_rule :: (
   trait_params := ArrayList(AstExpr).new();
   match(
     trait_arg_expr,
-    .FnCall(_, _, ta_args, _, _) => {
+    .FnCall(_, _, Rc(ta_args), _, _) => {
       (ti : usize) = usize(0);
       while(ti < ta_args.len(), {
         match(
@@ -578,7 +578,7 @@ _evaluate_derive_executing :: (
   // Extract arguments.
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(args.len() < usize(2), {
@@ -608,7 +608,7 @@ _evaluate_derive_executing :: (
     forall_expr := match(forall_arg_opt, .Some(fa) => fa, .None => make_err_expr());
     forall_params := match(
       forall_expr,
-      .FnCall(_, _, fps, _, _) => fps,
+      .FnCall(_, _, Rc(fps), _, _) => fps,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     _fr := env.push_frame(false);
@@ -619,7 +619,7 @@ _evaluate_derive_executing :: (
       fp_name := match(
         fp,
         .Atom(_, ftok) => ftok.value.*.clone(),
-        .FnCall(_, func_b, fa2, _, _) => match(
+        .FnCall(_, func_b, Rc(fa2), _, _) => match(
           func_b,
           .Atom(_, op_tok) => cond(
             (op_tok.value.* == ":") => match(

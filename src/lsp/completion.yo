@@ -520,7 +520,7 @@ _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
     .FnCall(
       _,
       func_box,
-      args,
+      Rc(args),
       _,
       tok2
     ) => {
@@ -558,7 +558,7 @@ _expected_enum_at :: (
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       head := match(func_box, .Atom(_, ht) => ht.value.*.clone(), _ => String.new());
       if((head == "=") && (args.len() >= usize(2)), {
         // NB: not named `near` — that is a legacy Windows macro (windef.h
@@ -573,7 +573,7 @@ _expected_enum_at :: (
             args.get(usize(0)),
             .Some(lhs) => match(
               lhs,
-              .FnCall(_, lhs_func, lhs_args, _, _) => {
+              .FnCall(_, lhs_func, Rc(lhs_args), _, _) => {
                 lhs_head := match(lhs_func, .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
                 if((lhs_head == ":") && (lhs_args.len() >= usize(2)), {
                   match(
@@ -719,7 +719,7 @@ _scan_idents :: (
         );
       });
     },
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       recur(&func_box, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
       (i : usize) = usize(0);
       while(i < args.len(), {
