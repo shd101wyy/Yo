@@ -416,7 +416,10 @@ owner does not count as mutating the handle.
 `std/prelude.yo`:
 
 - Declare the two hooks in the `extern("Yo", ...)` block beside
-  `__yo_scope_ctx`/`__yo_scope_vtable`.
+  `__yo_scope_ctx`/`__yo_scope_vtable`, and delete the test-local
+  `extern("Yo", ...)` block that declares them in
+  `tests/for_macro_borrow_user_collection.test.yo`: user code cannot
+  redeclare a prelude extern.
 - Add a public `allocator` to `Rc(T)` and to `Arc(T)` that mirrors
   `Box.allocator`, including its doc comment: it is spelled `Rc.allocator(h)`
   because a payload with its own `allocator` makes `h.allocator()`
