@@ -209,7 +209,7 @@ _atom_value_cg :: (fn(e : &AstExpr) -> String)(
   match(e, .Atom(_, tok) => tok.value.clone(), _ => String.from(""))
 );
 _fn_call_args_cg :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, args, _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(args), _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Read an expr's comptime-string VALUE (decoded, delimiters stripped).
 _cg_comptime_str :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(

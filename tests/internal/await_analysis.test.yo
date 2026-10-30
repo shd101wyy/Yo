@@ -54,7 +54,7 @@ make_io_method_call :: (fn(method : str, arg : &AstExpr, call_char : usize) -> A
   dot_fncall := AstExpr.FnCall(
     usize(0),
     AstExpr.Atom(usize(0), make_token(TokenKind.Dot, ".")),
-    dot_args,
+    rc(dot_args),
     true,
     make_token(TokenKind.Dot, ".")
   );
@@ -63,7 +63,7 @@ make_io_method_call :: (fn(method : str, arg : &AstExpr, call_char : usize) -> A
   AstExpr.FnCall(
     usize(0),
     dot_fncall,
-    outer_args,
+    rc(outer_args),
     false,
     make_token_at(TokenKind.Identifier, method, call_char)
   )
@@ -76,7 +76,7 @@ make_handle_await_call :: (fn(handle_name : str, arg : &AstExpr) -> AstExpr)({
   dot_fncall := AstExpr.FnCall(
     usize(0),
     AstExpr.Atom(usize(0), make_token(TokenKind.Dot, ".")),
-    dot_args,
+    rc(dot_args),
     true,
     make_token(TokenKind.Dot, ".")
   );
@@ -85,7 +85,7 @@ make_handle_await_call :: (fn(handle_name : str, arg : &AstExpr) -> AstExpr)({
   AstExpr.FnCall(
     usize(0),
     dot_fncall,
-    outer_args,
+    rc(outer_args),
     false,
     make_token(TokenKind.Identifier, "await")
   )
@@ -280,7 +280,7 @@ test("analyze_await_points: non-await fncall body => no await points", {
   body := AstExpr.FnCall(
     usize(0),
     make_ident("foo"),
-    args,
+    rc(args),
     false,
     make_token(TokenKind.Identifier, "foo")
   );

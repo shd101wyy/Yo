@@ -147,8 +147,8 @@ try_to_call_type_with_arguments :: (
     label_match := ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2)));
     if(label_match, {
       // Extract the label and value sub-exprs.
-      label_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-      value_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+      label_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
+      value_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(
         label_sub_opt,
         .Some(s) => s,

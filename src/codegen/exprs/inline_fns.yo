@@ -302,7 +302,7 @@ _shift_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context :
 _as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))({
   sty := match(
     expr,
-    .FnCall(_, _, ua, _, _) => match(
+    .FnCall(_, _, Rc(ua), _, _) => match(
       ua.get(usize(0)),
       .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => Option(TypeValue).Some(Rc.clone(aei.ty)), .None => Option(TypeValue).None),
       .None => Option(TypeValue).None
@@ -386,7 +386,7 @@ _unop :: (fn(args : &ArrayList(String), op : str) -> String)({
 _unary_operand_c_type :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
   match(
     expr,
-    .FnCall(_, _, ua, _, _) => match(
+    .FnCall(_, _, Rc(ua), _, _) => match(
       ua.get(usize(0)),
       .Some(u0) => match(
         context.base.get_expr_info(&u0),
@@ -494,7 +494,7 @@ _void_effects :: (fn(args : &ArrayList(String)) -> String)({
 });
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
-  match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty) && !can_optimize_as_simple_enum(&aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
+  match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty) && !can_optimize_as_simple_enum(&aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
 );
 /// Does the borrow-flag builtin's operand (`__yo_borrow_acquire(&c)` and its
 /// two siblings) have a flag to set? Only a reference type's cell header
@@ -776,7 +776,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       // Safe mode Phase 1: the fixed-array subscript is bounds-checked; the
       // first argument's ExprInfo names the concrete Array(T, N) whose N is
       // the bound (plans/SAFE_MODE.md §4, closes H1).
-      arr_expr_opt := match(expr, .FnCall(_, _, ua, _, _) => ua.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+      arr_expr_opt := match(expr, .FnCall(_, _, Rc(ua), _, _) => ua.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
       arr_idx := match(
         arr_expr_opt,
         .Some(ae) => match(

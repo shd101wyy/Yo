@@ -252,13 +252,13 @@ import("std/fmt");
 _is_punned_single_field :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    .FnCall(_, _, args, _, _) => (
+    .FnCall(_, _, Rc(args), _, _) => (
       (args.len() == usize(1)) && match(
         args.get(usize(0)),
         .Some(pair) => (
           ast_expr_is_fn_call_of(&pair, BK_COLON, Option(usize).Some(usize(2))) && match(
             pair,
-            .FnCall(_, _, pargs, _, _) => match(
+            .FnCall(_, _, Rc(pargs), _, _) => match(
               pargs.get(usize(0)),
               .Some(l) => match(
                 pargs.get(usize(1)),
@@ -281,7 +281,7 @@ _is_punned_single_field :: (fn(expr : &AstExpr) -> bool)(
 _is_empty_record_literal :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    .FnCall(_, _, args, _, _) => (args.len() == usize(0)),
+    .FnCall(_, _, Rc(args), _, _) => (args.len() == usize(0)),
     _ => false
   )
 );
@@ -289,11 +289,11 @@ _is_empty_record_literal :: (fn(expr : &AstExpr) -> bool)(
 _punned_field_name :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(pair) => match(
         pair,
-        .FnCall(_, _, pargs, _, _) => match(
+        .FnCall(_, _, Rc(pargs), _, _) => match(
           pargs.get(usize(0)),
           .Some(l) => ast_expr_token(&l).value.clone(),
           .None => String.new()
@@ -478,7 +478,7 @@ ast_expr_get_arg0 :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => make_err_expr(),
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
   )
 );
 /// True if `e` is a FnCall whose function name starts with a comptime numeric prefix.
@@ -910,7 +910,7 @@ _evaluate_expression :: (
           n_args := match(
             expr,
             .Atom(_, _) => usize(0),
-            .FnCall(_, _, args, _, _) => args.len()
+            .FnCall(_, _, Rc(args), _, _) => args.len()
           );
           cond(
             (n_args != usize(1)) => {
@@ -928,7 +928,7 @@ _evaluate_expression :: (
               inner_expr := match(
                 expr,
                 .Atom(_, _) => make_err_expr(),
-                .FnCall(_, _, args, _, _) =>
+                .FnCall(_, _, Rc(args), _, _) =>
                   match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
               );
               cond(
@@ -937,7 +937,7 @@ _evaluate_expression :: (
                   ref_inner := match(
                     inner_expr,
                     .Atom(_, _) => make_err_expr(),
-                    .FnCall(_, _, rargs, _, _) =>
+                    .FnCall(_, _, Rc(rargs), _, _) =>
                       match(rargs.get(usize(0)), .Some(a) => a, .None => make_err_expr())
                   );
                   cond(
@@ -979,7 +979,7 @@ _evaluate_expression :: (
           n_ref_args := match(
             expr,
             .Atom(_, _) => usize(0),
-            .FnCall(_, _, args, _, _) => args.len()
+            .FnCall(_, _, Rc(args), _, _) => args.len()
           );
           cond(
             (n_ref_args != usize(1)) => {
@@ -997,7 +997,7 @@ _evaluate_expression :: (
               ref_inner := match(
                 expr,
                 .Atom(_, _) => make_err_expr(),
-                .FnCall(_, _, args, _, _) =>
+                .FnCall(_, _, Rc(args), _, _) =>
                   match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
               );
               cond(
@@ -1414,7 +1414,7 @@ _evaluate_expression :: (
           // `expr.args` (FnCall holds it by reference).
           build_call_args := match(
             expr,
-            .FnCall(_, _, a, _, _) => a,
+            .FnCall(_, _, Rc(a), _, _) => a,
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           (bca_i : usize) = usize(0);
@@ -1605,12 +1605,12 @@ _is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
     projection_tail_mode(e).is_some() => true,
     ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
       e,
-      .FnCall(_, _, pr_args, _, _) => match(pr_args.last(), .Some(t) => _is_projection_result_value(&t, ctx), .None => false),
+      .FnCall(_, _, Rc(pr_args), _, _) => match(pr_args.last(), .Some(t) => _is_projection_result_value(&t, ctx), .None => false),
       .Atom(_, _) => false
     ),
     (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => match(
       e,
-      .FnCall(_, _, pr_args, _, _) => {
+      .FnCall(_, _, Rc(pr_args), _, _) => {
         (all_arms : bool) = true;
         (any_arm : bool) = false;
         (k : usize) = usize(0);
@@ -1618,7 +1618,7 @@ _is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
           a := pr_args(k);
           if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2))), {
             any_arm = true;
-            arm_body := match(a, .FnCall(_, _, ab_args, _, _) => match(ab_args.get(usize(1)), .Some(b) => b, .None => a), .Atom(_, _) => a);
+            arm_body := match(a, .FnCall(_, _, Rc(ab_args), _, _) => match(ab_args.get(usize(1)), .Some(b) => b, .None => a), .Atom(_, _) => a);
             arm_never := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arm_body)), .Some(ai) => is_never_type(&ai.ty), .None => false);
             if(!arm_never && !_is_projection_result_value(&arm_body, ctx), {
               all_arms = false;

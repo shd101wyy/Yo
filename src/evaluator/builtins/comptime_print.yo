@@ -38,7 +38,7 @@ evaluate_comptime_print :: (
   // Validate: at least 1 argument
   match(
     expr,
-    .FnCall(_, _, args, _, _) => {
+    .FnCall(_, _, Rc(args), _, _) => {
       if(args.len() == usize(0), {
         exn.throw(
           dyn(
@@ -65,7 +65,7 @@ evaluate_comptime_print :: (
   parts := ArrayList(String).new();
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);

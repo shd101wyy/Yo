@@ -121,7 +121,7 @@ extract_target_variable_id :: (
     .Atom(_, _) => {
       return(Option(String).None);
     },
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .None => {
         return(Option(String).None);
@@ -389,7 +389,7 @@ _capture_pattern_bindings :: (
         .None => ()
       );
     }),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       recur(&func_box, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -429,7 +429,7 @@ _capture_argument_temp :: (
 )({
   value := match(
     arg.clone(),
-    .FnCall(_, _, la, _, _) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
+    .FnCall(_, _, Rc(la), _, _) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
     .Atom(_, _) => arg.clone()
   );
   match(
@@ -493,7 +493,7 @@ walk_expr_ :: (
     // -----------------------------------------------------------------------
     // FnCall — while, cond/match, or a potential suspension point
     // -----------------------------------------------------------------------
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       // `:=` binding TARGET: capture it through the `:=` node's OWN
       // (post-binding) env. The recursion below visits the LHS atom, but its
       // recorded env PREDATES the binding, so the Atom case misses the fresh
@@ -519,7 +519,7 @@ walk_expr_ :: (
             // owning local that pins the place's object when there is one
             // (the `inout(name)` node's `source_variable`). No atom of the
             // body names the pin, so it is captured here or not at all.
-            .FnCall(_, _, inout_args, _, _) => if(ast_expr_is_local_borrow_mode_call(lhs_e.clone(), Option(usize).Some(usize(1))), {
+            .FnCall(_, _, Rc(inout_args), _, _) => if(ast_expr_is_local_borrow_mode_call(lhs_e.clone(), Option(usize).Some(usize(1))), {
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {
@@ -687,7 +687,7 @@ walk_expr_ :: (
             if(ast_expr_is_fn_call_of(expr_cloned.clone(), "match", Option(usize).None) && ast_expr_is_fn_call_of(arg2.clone(), "=>", Option(usize).Some(usize(2))), {
               match(
                 arg2.clone(),
-                .FnCall(_, _, arm_args, _, _) => match(
+                .FnCall(_, _, Rc(arm_args), _, _) => match(
                   arm_args.get(usize(0)),
                   .Some(arm_pat) => _capture_pattern_bindings(&arm_pat, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                   .None => ()

@@ -101,7 +101,7 @@ new_pattern_ctx :: (fn(arm_id : usize, ct_scrutinee : bool) -> PatternCtx)(
   PatternCtx(arm_id : arm_id, counter : usize(0), ct_scrutinee : ct_scrutinee, binds : ArrayList(BindInfo).new())
 );
 _args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 _func_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(e, .FnCall(_, f, _, _, _) => Option(AstExpr).Some(f), .Atom(_, _) => Option(AstExpr).None)
@@ -133,7 +133,7 @@ _synth_infix :: (fn(base : &Token, op : str, lhs : &AstExpr, rhs : &AstExpr) -> 
   // operator emitters key on it, and with the literal's token here the call
   // took the generic path and rendered `"a"` as an identifier.
   op_tok := _synth_token(base, TokenKind.Operator, String.from(op));
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), op_tok), args, true, op_tok)
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), op_tok), rc(args), true, op_tok)
 });
 /// True for an atom whose token is a literal kind (compared, never bound).
 _is_literal_atom :: (fn(e : &AstExpr) -> bool)(
@@ -1304,7 +1304,7 @@ _pattern_leftmost_token :: (fn(e : &AstExpr) -> Token)(
   match(
     e,
     .Atom(_, t) => t,
-    .FnCall(_, callee, args, is_infix, tok) => cond(
+    .FnCall(_, callee, Rc(args), is_infix, tok) => cond(
       is_infix => match(args.get(usize(0)), .Some(a0) => recur(&a0), .None => tok),
       true => recur(&callee)
     )

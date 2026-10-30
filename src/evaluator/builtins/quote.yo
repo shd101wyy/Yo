@@ -69,7 +69,7 @@ process_unquotes_in_expr :: (
   // --- FnCall processing ---
   match(
     expr,
-    .FnCall(id, func_box, args, is_infix, tok) => {
+    .FnCall(id, func_box, Rc(args), is_infix, tok) => {
       // Case 1: the NODE ITSELF is `unquote(x)` — evaluate the single
       // argument and return the expression it contains. NOTE: the test is
       // on `expr`, NOT on `func_box` — the test must be
@@ -153,7 +153,7 @@ process_unquotes_in_expr :: (
               // The unquote_splicing argument.
               splice_inner := match(
                 arg,
-                .FnCall(_, _, splice_args, _, _) => match(splice_args.get(usize(0)), .Some(a) => a, .None => arg),
+                .FnCall(_, _, Rc(splice_args), _, _) => match(splice_args.get(usize(0)), .Some(a) => a, .None => arg),
                 .Atom(_, _) => arg
               );
               eval_splice := evaluate_expression_raw(&splice_inner, env, ctx, exn);
@@ -225,7 +225,7 @@ process_unquotes_in_expr :: (
           }
         );
       });
-      AstExpr.FnCall(id, new_func, new_args, is_infix, tok)
+      AstExpr.FnCall(id, new_func, rc(new_args), is_infix, tok)
     },
     .Atom(_, _) => expr
   )
@@ -240,7 +240,7 @@ evaluate_quote :: (
 )({
   arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {

@@ -1034,7 +1034,7 @@ lhs_binds_name :: (fn(lhs : &AstExpr, name : &String) -> bool)({
   while(ast_expr_is_fn_call_of(&cur, BK_COMPTIME, .Some(usize(1))) || (ast_expr_is_fn_call_of(&cur, BK_COLON, .Some(usize(2))) || (ast_expr_is_fn_call_of(&cur, "mut", .Some(usize(1))) || ast_expr_is_fn_call_of(&cur, "thread_local", .Some(usize(1))))), {
     cur = match(
       cur,
-      .FnCall(_, _, cargs, _, _) => match(
+      .FnCall(_, _, Rc(cargs), _, _) => match(
         cargs.get(usize(0)),
         .Some(inner) => inner,
         .None => cur
@@ -1055,7 +1055,7 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
     ast_expr_is_fn_call_of(e, BK_IMPL_LOWER, .None) =>
       match(
         e,
-        .FnCall(_, _, iargs, _, _) => match(
+        .FnCall(_, _, Rc(iargs), _, _) => match(
           iargs.get(usize(0)),
           .Some(first) => (ast_expr_to_string(&first) == name),
           .None => false
@@ -1066,7 +1066,7 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
     (ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_COLON, .Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_ASSIGN, .Some(usize(2)))) =>
       match(
         e,
-        .FnCall(_, _, args, _, _) => match(
+        .FnCall(_, _, Rc(args), _, _) => match(
           args.get(usize(0)),
           .Some(lhs) => lhs_binds_name(&lhs, name),
           .None => false
@@ -1077,7 +1077,7 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
     ast_expr_is_fn_call_of(e, BK_COMPTIME, .None) =>
       match(
         e,
-        .FnCall(_, _, cargs, _, _) => match(
+        .FnCall(_, _, Rc(cargs), _, _) => match(
           cargs.get(usize(0)),
           .Some(lhs) => lhs_binds_name(&lhs, name),
           .None => false
@@ -1376,7 +1376,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
             return(
               match(
                 d.expr,
-                .FnCall(_, _, dargs, _, _) => match(
+                .FnCall(_, _, Rc(dargs), _, _) => match(
                   dargs.get(usize(1)),
                   .Some(rhs) => ast_expr_is_fn_call_of(&rhs, BF_GHOST_FN, Option(usize).None),
                   .None => false
@@ -1949,7 +1949,7 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
     ast_expr_is_fn_call_of(recv, BF_DOT, .Some(usize(2))) =>
       match(
         recv,
-        .FnCall(_, _, dargs, _, _) => match(
+        .FnCall(_, _, Rc(dargs), _, _) => match(
           dargs.get(usize(1)),
           .Some(member) => cond(ast_expr_is_atom(&member) => ast_expr_token(&member).value.clone(), true => String.new()),
           .None => String.new()
@@ -2005,7 +2005,7 @@ copy_trait_blockers_via_hook :: (fn(ty : &TypeValue, env : &Environment) -> Arra
 _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .FnCall(_, _, iargs, _, _) => {
+    .FnCall(_, _, Rc(iargs), _, _) => {
       (i : usize) = usize(1);
       while(i < iargs.len(), {
         match(
@@ -2103,7 +2103,7 @@ _extern_member_names :: (fn(e : &AstExpr) -> ArrayList(String))({
   names := ArrayList(String).new();
   match(
     e,
-    .FnCall(_, _, xargs, _, _) => {
+    .FnCall(_, _, Rc(xargs), _, _) => {
       (i : usize) = usize(0);
       while(i < xargs.len(), {
         match(
@@ -2111,7 +2111,7 @@ _extern_member_names :: (fn(e : &AstExpr) -> ArrayList(String))({
           .Some(arg) => if(ast_expr_is_fn_call_of(&arg, BK_COLON, .Some(usize(2))), {
             match(
               arg,
-              .FnCall(_, _, pair, _, _) => match(
+              .FnCall(_, _, Rc(pair), _, _) => match(
                 pair.get(usize(0)),
                 .Some(label) => if(ast_expr_is_atom(&label), {
                   names.push(ast_expr_token(&label).value.clone());
@@ -2138,7 +2138,7 @@ _is_extern_decl_destructure :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) &&
     match(
       e,
-      .FnCall(_, _, dargs, _, _) => match(
+      .FnCall(_, _, Rc(dargs), _, _) => match(
         dargs.get(usize(0)),
         .Some(lhs) => (
           ast_expr_is_fn_call_of(&lhs, BK_ANON_STRUCT, .None) &&
@@ -2158,10 +2158,10 @@ _is_extern_decl_destructure :: (fn(e : &AstExpr) -> bool)(
 /// the new name for `(a : b)`. These are the statement's pending members.
 _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
   names := ArrayList(String).new();
-  dargs := match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  dargs := match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(dargs.get(usize(0)), .Some(l) => l, .None => e);
   rhs := match(dargs.get(usize(1)), .Some(r) => r, .None => e);
-  fields := match(lhs, .FnCall(_, _, fa, _, _) => fa, .Atom(_, _) => ArrayList(AstExpr).new());
+  fields := match(lhs, .FnCall(_, _, Rc(fa), _, _) => fa, .Atom(_, _) => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
@@ -2178,7 +2178,7 @@ _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
         ast_expr_is_atom(&f) => names.push(ast_expr_token(&f).value.clone()),
         ast_expr_is_fn_call_of(&f, BK_COLON, .Some(usize(2))) => match(
           f,
-          .FnCall(_, _, pair, _, _) => {
+          .FnCall(_, _, Rc(pair), _, _) => {
             a0 := match(pair.get(usize(0)), .Some(x) => x, .None => f);
             a1 := match(pair.get(usize(1)), .Some(x) => x, .None => f);
             cond(
@@ -2267,7 +2267,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
     },
     ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) => match(
       e,
-      .FnCall(_, _, cargs, _, _) => {
+      .FnCall(_, _, Rc(cargs), _, _) => {
         lhs := match(cargs.get(usize(0)), .Some(l) => l, .None => e);
         rhs := match(cargs.get(usize(1)), .Some(r) => r, .None => e);
         lhs_name := ast_expr_token(&lhs).value.clone();
@@ -2282,7 +2282,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
     ),
     ast_expr_is_fn_call_of(e, BK_IMPL_LOWER, .None) => match(
       e,
-      .FnCall(_, _, iargs, _, _) => {
+      .FnCall(_, _, Rc(iargs), _, _) => {
         // `impl({ ... })` is a module value, not a registration.
         a0_is_block := match(
           iargs.get(usize(0)),
@@ -2315,7 +2315,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
 _derive_target :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(
     e,
-    .FnCall(_, _, dargs, _, _) => {
+    .FnCall(_, _, Rc(dargs), _, _) => {
       (ti : usize) = usize(0);
       if(match(dargs.get(ti), .Some(a) => ast_expr_is_fn_call_of(&a, BK_GENERIC, .None), .None => false), {
         ti = (ti + usize(1));
@@ -2355,7 +2355,7 @@ _statement_start :: (fn(e : &AstExpr) -> Tuple(usize, usize))({
   (column : usize) = usize(ht.column);
   match(
     e,
-    .FnCall(_, _, sargs, _, _) => match(
+    .FnCall(_, _, Rc(sargs), _, _) => match(
       sargs.get(usize(0)),
       .Some(a0) => {
         at := ast_expr_token(&a0);
@@ -2674,12 +2674,12 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeVal
       // carries `decreases`) can name itself.
       def_rhs_id := match(
         def.expr,
-        .FnCall(_, _, cargs, _, _) => match(
+        .FnCall(_, _, Rc(cargs), _, _) => match(
           cargs.get(usize(1)),
           .Some(r) => cond(
             ast_expr_is_fn_call_of(&r, BF_GHOST_FN, Option(usize).Some(usize(1))) => match(
               r,
-              .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(gl) => ast_expr_id(&gl), .None => usize(0)),
+              .FnCall(_, _, Rc(gargs), _, _) => match(gargs.get(usize(0)), .Some(gl) => ast_expr_id(&gl), .None => usize(0)),
               .Atom(_, _) => usize(0)
             ),
             true => ast_expr_id(&r)
@@ -2723,7 +2723,7 @@ publish_pending_member_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &
 _def_lhs_token_is :: (fn(def : &PendingDef, tok : &Token) -> bool)(
   match(
     def.expr,
-    .FnCall(_, _, cargs, _, _) => match(
+    .FnCall(_, _, Rc(cargs), _, _) => match(
       cargs.get(usize(0)),
       .Some(lhs) => {
         lt := ast_expr_token(&lhs);
@@ -3001,7 +3001,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
               fty := match(&def.phase_a_type, .Some(t) => Rc.clone(t), .None => t_unit());
               lhs_tok := match(
                 def.expr,
-                .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(l) => ast_expr_token(&l), .None => ast_expr_token(&def.expr)),
+                .FnCall(_, _, Rc(cargs), _, _) => match(cargs.get(usize(0)), .Some(l) => ast_expr_token(&l), .None => ast_expr_token(&def.expr)),
                 .Atom(_, _) => ast_expr_token(&def.expr)
               );
               match(
@@ -3054,7 +3054,7 @@ PendingImplOutcome :: enum(NoneForced, Forced, Error(msg : String));
 _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
   match(
     expr,
-    .FnCall(_, _, args, _, _) => {
+    .FnCall(_, _, Rc(args), _, _) => {
       (found : bool) = false;
       (i : usize) = usize(1);
       while((i < args.len()) && !found, {
@@ -3062,7 +3062,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
           args.get(i),
           .Some(a) => match(
             a,
-            .FnCall(_, _, inner, _, _) => cond(
+            .FnCall(_, _, Rc(inner), _, _) => cond(
               ast_expr_is_fn_call_of(&a, BK_COLON, Option(usize).Some(usize(2))) => {
                 found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(&l).value == label), .None => false);
               },
@@ -3073,7 +3073,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
                     inner.get(j),
                     .Some(m) => match(
                       m,
-                      .FnCall(_, _, pair, _, _) => if(ast_expr_is_fn_call_of(&m, BK_COLON, Option(usize).Some(usize(2))), {
+                      .FnCall(_, _, Rc(pair), _, _) => if(ast_expr_is_fn_call_of(&m, BK_COLON, Option(usize).Some(usize(2))), {
                         found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(&l).value == label), .None => false);
                       }),
                       .Atom(_, _) => ()

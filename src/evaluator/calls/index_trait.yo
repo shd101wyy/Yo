@@ -1006,7 +1006,7 @@ _atom_tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
     e,
     .Atom(_, t) => out.push(t),
-    .FnCall(_, callee, args, _, _) => {
+    .FnCall(_, callee, Rc(args), _, _) => {
       recur(&callee, out);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
@@ -1926,7 +1926,7 @@ _index_receiver_root :: (fn(recv : &AstExpr, env : &Environment, ctx : &EvalCont
       .Atom(_, rr_tok) => {
         return(get_variables_from_env(env, rr_tok.value.clone()).last());
       },
-      .FnCall(_, rr_callee, rr_args, rr_infix, _) => {
+      .FnCall(_, rr_callee, Rc(rr_args), rr_infix, _) => {
         cur = cond(
           ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
             base := match(rr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
@@ -1962,7 +1962,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
   info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
   read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
   (recv : AstExpr) = match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee, .Atom(_, _) => return(()));
-  (idx : AstExpr) = match(call, .FnCall(_, _, pc_args, _, _) => match(pc_args.get(usize(0)), .Some(a) => a, .None => return(())), .Atom(_, _) => return(()));
+  (idx : AstExpr) = match(call, .FnCall(_, _, Rc(pc_args), _, _) => match(pc_args.get(usize(0)), .Some(a) => a, .None => return(())), .Atom(_, _) => return(()));
   recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => return(()));
   arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => Rc.clone(ai.ty), .None => return(()));
   read_shape := match(_index_shape_of(&read_ty, &arg_ty), .Some(sh) => sh, .None => return(()));
@@ -2051,7 +2051,7 @@ promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx 
   while(walking, {
     (next : Option(AstExpr)) = match(
       cur,
-      .FnCall(_, pw_callee, pw_args, pw_infix, _) => cond(
+      .FnCall(_, pw_callee, Rc(pw_args), pw_infix, _) => cond(
         ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(
           pw_args.get(usize(1)),
           .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(AstExpr).None, pw_args.get(usize(0))),
@@ -2134,7 +2134,7 @@ _is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> 
   ctx;
   match(
     e,
-    .FnCall(_, isp_callee, isp_args, isp_infix, _) => {
+    .FnCall(_, isp_callee, Rc(isp_args), isp_infix, _) => {
       if(isp_infix || !ast_expr_is_atom(&isp_callee) || (isp_args.len() != usize(1)), {
         return(false);
       });

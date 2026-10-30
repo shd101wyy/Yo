@@ -220,7 +220,7 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
   args := ArrayList(AstExpr).new();
   args.push(obj);
   args.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), args, true, dot_tok)
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), rc(args), true, dot_tok)
 });
 /// The labels a field read can name on `t`: a struct's, tuple's or union's.
 _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
@@ -459,7 +459,7 @@ evaluate_property_access :: (
   // -------------------------------------------------------------------------
   // Short-circuit: Type.<KindName> — kind-constraint syntactic sugar.
   // -------------------------------------------------------------------------
-  dot_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  dot_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
@@ -489,7 +489,7 @@ evaluate_property_access :: (
   if(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(1))), {
     all_args_1 := match(
       expr,
-      .FnCall(_, _, args, _, _) => args,
+      .FnCall(_, _, Rc(args), _, _) => args,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     prop_expr_1 := match(
@@ -642,7 +642,7 @@ evaluate_property_access :: (
   });
   all_args := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (object_expr : AstExpr) = match(

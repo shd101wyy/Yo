@@ -46,7 +46,7 @@ _register :: (fn(fid : str, label0 : str, label1 : str) -> unit)({
 _call1 :: (fn(head : str, arg : str, id : usize) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(AstExpr.Atom(id + usize(2), _tok(arg)));
-  AstExpr.FnCall(id, AstExpr.Atom(id + usize(1), _tok(head)), args, false, _tok(head))
+  AstExpr.FnCall(id, AstExpr.Atom(id + usize(1), _tok(head)), rc(args), false, _tok(head))
 });
 test("a body that dups its first parameter mutates nothing, even with no ExprInfo for it", {
   _register("fn_yo_id_test_msp_dup_first", "self", "other");
