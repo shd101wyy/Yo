@@ -65,7 +65,7 @@ recognize_pragma_arg :: (fn(arg : &AstExpr) -> Option(Pragma))(
   match(
     arg,
     .Atom(_, _) => Option(Pragma).None,
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       is_dot := match(
         func_box,
         .Atom(_, tok) => (tok.kind == TokenKind.Dot),
@@ -105,7 +105,7 @@ pre_scan_for_skip_prelude :: (fn(program : &ArrayList(AstExpr)) -> bool)({
         if(ast_expr_is_fn_call_of(&expr, BF_PRAGMA, Option(usize).Some(usize(1))), {
           match(
             expr,
-            .FnCall(_, _, args, _, _) => match(
+            .FnCall(_, _, Rc(args), _, _) => match(
               args.get(usize(0)),
               .Some(arg) => match(
                 recognize_pragma_arg(&arg),
@@ -149,7 +149,7 @@ evaluate_pragma :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(args.len() != usize(1), {

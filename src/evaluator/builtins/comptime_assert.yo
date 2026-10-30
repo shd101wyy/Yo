@@ -95,12 +95,12 @@ evaluate_comptime_assert :: (
   // Extract arg_expr (condition) and optional message_expr.
   (arg_expr_opt : Option(AstExpr)) = match(
     expr,
-    .FnCall(_, _, args, _, _) => args.get(usize(0)),
+    .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)),
     _ => .None
   );
   (msg_expr_opt : Option(AstExpr)) = match(
     expr,
-    .FnCall(_, _, args, _, _) => args.get(usize(1)),
+    .FnCall(_, _, Rc(args), _, _) => args.get(usize(1)),
     _ => .None
   );
   // When not executing, still type-check the condition so malformed expressions

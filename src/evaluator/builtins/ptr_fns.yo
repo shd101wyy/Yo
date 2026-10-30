@@ -53,7 +53,7 @@ _cell1 :: (fn(v : &EvalValue) -> ArrayList(EvalValue))({
 _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeValue))(
   match(
     place,
-    .FnCall(_, callee, args, _, _) => {
+    .FnCall(_, callee, Rc(args), _, _) => {
       candidates := ArrayList(AstExpr).new();
       if(!ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).None), {
         candidates.push(callee);
@@ -96,7 +96,7 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
       ),
       .None => Option(String).Some(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${pr_tok.value}\` is not one.`)
     ),
-    .FnCall(_, pr_callee, pr_args, _, _) => cond(
+    .FnCall(_, pr_callee, Rc(pr_args), _, _) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
         pr_args.get(usize(1)),
         // A raw-pointer deref: the place is wherever the pointer points.
@@ -203,7 +203,7 @@ _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &
       .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),
       .None => Option(Variable).None
     ),
-    .FnCall(_, br_callee, br_args, _, _) => cond(
+    .FnCall(_, br_callee, Rc(br_args), _, _) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
         br_args.get(usize(1)),
         .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(Variable).None, {
@@ -228,7 +228,7 @@ evaluate_address_call :: (
 )({
   arg_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {

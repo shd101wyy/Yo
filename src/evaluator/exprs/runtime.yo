@@ -76,7 +76,7 @@ evaluate_runtime :: (
   // Pull arg out of the FnCall.
   arg_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
@@ -183,12 +183,12 @@ evaluate_borrow_check :: (
   });
   coll_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   loop_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   evaluated_coll := evaluate_expression_raw(&coll_expr, env, ctx, exn);
