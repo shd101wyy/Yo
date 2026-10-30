@@ -1302,7 +1302,7 @@ evaluate_comptime_fn_call :: (
             inst_type_args_b.push(Rc.clone(tb));
           },
           _ => {
-            inst_type_args_b.push(rc(TypeValueNode.Unit));
+            inst_type_args_b.push(Rc.new(TypeValueNode.Unit));
           }
         );
       },
@@ -1319,7 +1319,7 @@ evaluate_comptime_fn_call :: (
   // (compatibility.yo:430), so broadly naming generic instantiations breaks
   // type unification (HashMap/ArrayList/nested generics — corpus 90→55). But
   // `is_boxed_type` (types/guards.yo) keys off a `Rc(`-prefixed name, and the
-  // boxed-dyn vtable path (`dyn(rc(Sq))`) needs it to recognise the box and
+  // boxed-dyn vtable path (`dyn(Rc.new(Sq))`) needs it to recognise the box and
   // resolve trait methods on the UNDERLYING type. Rc instantiations are
   // structurally unambiguous (single `*` field) and never unify with user
   // types, so naming ONLY them is safe. FuncVal carries no funcName, so
@@ -1420,7 +1420,7 @@ evaluate_comptime_fn_call :: (
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
-          rc(TypeValueNode.Struct(sid, stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
+          Rc.new(TypeValueNode.Struct(sid, stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
         )
       }, {
         if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
@@ -1438,7 +1438,7 @@ evaluate_comptime_fn_call :: (
       // instance that reports the same arguments.
       Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)) => if((etas.len() == usize(0)) && ((inst_type_args.len() > usize(0)) && !eid.starts_with("enum_decl_")), {
         stamp_enum_final_type_arguments(eid.clone(), &inst_type_args, ctor_phantom_flags(func_id_str.clone(), inst_type_args.len()));
-        EvalValue.TypeVal(rc(TypeValueNode.EnumT(eid, enm, Rc.clone(evns), Rc.clone(evfs), esvn, Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone())))
+        EvalValue.TypeVal(Rc.new(TypeValueNode.EnumT(eid, enm, Rc.clone(evns), Rc.clone(evfs), esvn, Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone())))
       }, return_value),
       // Trait returns: record the constructor funcId so the generic-impl
       // registry can key `Eq(Rc(i32))` and `Eq(Rc(T))` into ONE bucket.

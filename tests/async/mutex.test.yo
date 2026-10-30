@@ -39,9 +39,9 @@ test("Test mutex try_lock and unlock", {
 //    is read-only through the handle (decision 46).
 // ---------------------------------------------------------------------------
 test("Test mutex excludes across awaits", {
-  m := arc(Mutex(i64).new(i64(0)));
-  in_section := rc(RefCell(bool).new(false));
-  overlaps := rc(RefCell(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
+  in_section := Rc.new(RefCell(bool).new(false));
+  overlaps := Rc.new(RefCell(i64).new(i64(0)));
   worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(RefCell(bool)), ovl : &Rc(RefCell(i64)), io : Io) -> Impl(Future(unit, Io)))(
     io.async({ ins : Rc.clone(ins), m2 : Arc.clone(m2), ovl : Rc.clone(ovl) }(io : Io) => {
       io.await(m2.*.lock(io), io);
@@ -77,7 +77,7 @@ test("Test mutex excludes across awaits", {
 // 3. lock() waits for a holder to release
 // ---------------------------------------------------------------------------
 test("Test mutex lock waits", {
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main takes the lock first");
   m2 := Arc.clone(m);
   releaser := io.async({ m2 : Arc.clone(m2) }(io : Io) => {
@@ -104,8 +104,8 @@ test("Test mutex lock waits", {
 // to be that all N ran, not that the program exited.
 // ---------------------------------------------------------------------------
 test("Test mutex acquisition is FIFO and no waiter is lost", {
-  m := arc(Mutex(i64).new(i64(0)));
-  order := rc(RefCell(ArrayList(i64)).new(ArrayList(i64).new()));
+  m := Arc.new(Mutex(i64).new(i64(0)));
+  order := Rc.new(RefCell(ArrayList(i64)).new(ArrayList(i64).new()));
   // Main takes the lock first, so every worker below MUST queue.
   assert(m.*.try_lock(), "main holds the lock while the workers queue");
   worker :: (fn(m2 : Arc(Mutex(i64)), ord : &Rc(RefCell(ArrayList(i64))), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
@@ -153,7 +153,7 @@ test("Test an uncontended lock still costs no suspension", {
   // The fast path must not have gained a park: an uncontended acquire has to
   // stay synchronous inside the async body, or every lock in a hot loop pays a
   // loop turn it does not need.
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   m2 := Arc.clone(m);
   body := io.async({ m2 : Arc.clone(m2) }(io : Io) => {
     (mut(n) : i64) = i64(0);
@@ -205,7 +205,7 @@ test("Test a Mutex is move-only", {
   }, "moved");
 });
 test("Test tasks contend through Arc handles, and lock borrows through them across awaits", {
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
   a := Arc.clone(m);
   b := Arc.clone(m);
@@ -249,7 +249,7 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
 // 2026-10-17 the lock was left free and the next waiter stayed parked
 // (issues/fixed/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md).
 test("Test a waiter cancelled after the lock was handed to it passes the lock on", {
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
   ma := Arc.clone(m);
   ha := io.spawn(
@@ -290,7 +290,7 @@ test("Test a waiter cancelled after the lock was handed to it passes the lock on
 // an `Arc` is still E0909.
 // ---------------------------------------------------------------------------
 test("Test tasks contend through Rc handles, and lock borrows through them across awaits (decision 46)", {
-  r := rc(Mutex(i64).new(i64(0)));
+  r := Rc.new(Mutex(i64).new(i64(0)));
   assert(r.*.try_lock(), "main holds the lock");
   a := Rc.clone(r);
   ha := io.spawn(
@@ -313,7 +313,7 @@ test("Test tasks contend through Rc handles, and lock borrows through them acros
   assert(r.*.get() == i64(11), "the task's section ran under the lock");
   io.await(r.*.lock(io), io);
   r.*.unlock();
-  ra := rc(arc(Mutex(i64).new(i64(5))));
+  ra := Rc.new(Arc.new(Mutex(i64).new(i64(5))));
   io.await(ra.*.*.lock(io), io);
   assert(ra.*.*.get() == i64(5), "a lock through an Rc and then an Arc");
   ra.*.*.unlock();
@@ -331,7 +331,7 @@ peek_mut :: (fn(g : &mut Gauge, io : Io) -> Impl(Future(i64, Io)))(
 );
 test("Test a mutable borrow through an Arc is still E0909", {
   comptime_expect_error({
-    a := arc(Gauge(n : i64(1)));
+    a := Arc.new(Gauge(n : i64(1)));
     _v := io.await(peek_mut(&mut a.*, io), io);
   }, "mutably across its suspension");
 });

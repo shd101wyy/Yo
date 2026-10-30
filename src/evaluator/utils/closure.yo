@@ -756,7 +756,7 @@ validate_send_closure_global_reach :: (
   wants_send := !thread_marker.is_empty();
   // The closure is walked HERE, with its defining env, whether or not this
   // slot is `Send`: the verdict is memoized by fid, and a later judgement of
-  // the closure's type (`arc(k)`, `where(T <: Send)`, an `Impl(Fn, Send)`
+  // the closure's type (`Arc.new(k)`, `where(T <: Send)`, an `Impl(Fn, Send)`
   // parameter) reads it through `g_closure_fids_by_some`. Walking it there,
   // with no defining env, would not resolve the local closures it calls.
   _note_fid_for_some_id(_some_id_of(wrapper_type), closure_fid.clone());
@@ -1242,7 +1242,7 @@ create_capture_type_and_value :: (
       // Build the capture struct TypeValue.
       field_labels_s := shared_list(field_labels);
       field_types_s := shared_list(field_types);
-      capture_ty := rc(
+      capture_ty := Rc.new(
         TypeValueNode.Struct(
           struct_id.clone(),
           String.from(""),

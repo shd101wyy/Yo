@@ -307,7 +307,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
     object_code_raw
   );
   obj_ei_opt := context.base.get_expr_info(&object_expr);
-  object_type := match(obj_ei_opt, .Some(oei) => Rc.clone(oei.ty), .None => rc(TypeValueNode.Unit));
+  object_type := match(obj_ei_opt, .Some(oei) => Rc.clone(oei.ty), .None => Rc.new(TypeValueNode.Unit));
   object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);
   // Dyn method access takes PRIORITY over static method resolution: even when
   // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn

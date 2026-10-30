@@ -146,7 +146,7 @@ _canonical :: (fn(p : &String) -> Rc(String))(
     _canonical_memo.with(m => m.get(p)),
     .Some(c) => c,
     .None => {
-      c := rc(canonical_module_path(p));
+      c := Rc.new(canonical_module_path(p));
       _canonical_memo.with_mut({ c : Rc.clone(c), p }(m) => m.insert(p.clone(), Rc.clone(c)));
       c
     }
@@ -215,7 +215,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
       i = (i + usize(1));
     });
   });
-  closure := rc(seen);
+  closure := Rc.new(seen);
   g_import_closure_memo.with_mut({ closure : Rc.clone(closure), start : Rc.clone(start) }(m) => m.insert(start.*.clone(), Rc.clone(closure)));
   closure
 });
@@ -317,13 +317,13 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
       module_type : match(
         g_module_cache_types.with(xs => xs.get(i)),
         .Some(t) => t,
-        .None => rc(TypeValueNode.Unit)
+        .None => Rc.new(TypeValueNode.Unit)
       ),
       module_error : Option(String).None
     ),
     .None => LoadModuleResult(
       module_value : EvalValue.UnitVal,
-      module_type : rc(TypeValueNode.Unit),
+      module_type : Rc.new(TypeValueNode.Unit),
       module_error : Option(String).Some(`module not preloaded: ${path}`)
     )
   )
@@ -338,7 +338,7 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       (found : bool) = false;
       (ti : usize) = usize(0);
       while(ti < ttypes.len(), {
-        ft := match(ttypes.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        ft := match(ttypes.get(ti), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if(match(tlabels.get(ti), .Some(t) => (t == name), .None => false), {
           new_types.push(Rc.clone(ty));
           found = true;
@@ -349,7 +349,7 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       });
       cond(
         found => Option(TypeValue).Some(
-          rc(
+          Rc.new(
             TypeValueNode.Struct(
               id : sid.clone(),
               name : sname.clone(),

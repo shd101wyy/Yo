@@ -86,23 +86,23 @@
 } :: import("../../src/types/guards.yo");
 { box_inner_type, is_pattern_cell_type, _witness_cell_name } :: import("../../src/pattern.yo");
 // Helper constructors for types not exposed by type.yo
-t_cchar :: (fn() -> TypeValue)(rc(TypeValueNode.CChar));
-t_cshort :: (fn() -> TypeValue)(rc(TypeValueNode.CShort));
-t_cushort :: (fn() -> TypeValue)(rc(TypeValueNode.CUShort));
-t_cint :: (fn() -> TypeValue)(rc(TypeValueNode.CInt));
-t_cuint :: (fn() -> TypeValue)(rc(TypeValueNode.CUInt));
-t_clong :: (fn() -> TypeValue)(rc(TypeValueNode.CLong));
-t_culong :: (fn() -> TypeValue)(rc(TypeValueNode.CULong));
-t_clonglong :: (fn() -> TypeValue)(rc(TypeValueNode.CLongLong));
-t_culonglong :: (fn() -> TypeValue)(rc(TypeValueNode.CULongLong));
-t_clongdouble :: (fn() -> TypeValue)(rc(TypeValueNode.CLongDouble));
-t_typeuni0 :: (fn() -> TypeValue)(rc(TypeValueNode.TypeUni(usize(0))));
-t_typeuni1 :: (fn() -> TypeValue)(rc(TypeValueNode.TypeUni(usize(1))));
+t_cchar :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CChar));
+t_cshort :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CShort));
+t_cushort :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CUShort));
+t_cint :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CInt));
+t_cuint :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CUInt));
+t_clong :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CLong));
+t_culong :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CULong));
+t_clonglong :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CLongLong));
+t_culonglong :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CULongLong));
+t_clongdouble :: (fn() -> TypeValue)(Rc.new(TypeValueNode.CLongDouble));
+t_typeuni0 :: (fn() -> TypeValue)(Rc.new(TypeValueNode.TypeUni(usize(0))));
+t_typeuni1 :: (fn() -> TypeValue)(Rc.new(TypeValueNode.TypeUni(usize(1))));
 t_tuple_empty :: (fn() -> TypeValue)(
-  rc(TypeValueNode.Tuple(no_labels(), no_types()))
+  Rc.new(TypeValueNode.Tuple(no_labels(), no_types()))
 );
 t_union_empty :: (fn() -> TypeValue)(
-  rc(TypeValueNode.Union(String.from("U"), no_labels(), no_types()))
+  Rc.new(TypeValueNode.Union(String.from("U"), no_labels(), no_types()))
 );
 // ---------------------------------------------------------------------------
 // Primitive guards
@@ -201,8 +201,8 @@ test("is_union_type", {
   assert(!is_union_type(t_i32()), "i32 not union");
 });
 test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_module_type / is_some_type", {
-  s := rc(TypeValueNode.Struct(id : String.from(""), name : String.from("S"), field_labels : no_labels(), field_types : no_types(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false));
-  e := rc(TypeValueNode.EnumT(String.from(""), String.from("E"), no_labels(), no_type_lists(), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types()));
+  s := Rc.new(TypeValueNode.Struct(id : String.from(""), name : String.from("S"), field_labels : no_labels(), field_types : no_types(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false));
+  e := Rc.new(TypeValueNode.EnumT(String.from(""), String.from("E"), no_labels(), no_type_lists(), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types()));
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   tr := t_trait_simple(String.from("T"));
   m := t_module_simple(String.from("M"));
@@ -338,15 +338,15 @@ test("is_function_type_generic: generic func is generic", {
   fl := ArrayList(String).new();
   ft := ArrayList(TypeValue).new();
   fl.push(String.from("T"));
-  ft.push(rc(TypeValueNode.TypeUni(usize(0))));
-  f := rc(
+  ft.push(Rc.new(TypeValueNode.TypeUni(usize(0))));
+  f := Rc.new(
     TypeValueNode.Func(
       shared_list(ft),
       no_types(),
       no_types(),
       no_types(),
       t_unit(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : shared_list(fl),
           param_labels : no_labels(),
@@ -373,14 +373,14 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
   it_ := ArrayList(TypeValue).new();
   il.push(String.from("io"));
   it_.push(t_module_simple(String.from("Io")));
-  f := rc(
+  f := Rc.new(
     TypeValueNode.Func(
       no_types(),
       no_types(),
       shared_list(it_),
       no_types(),
       t_unit(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : no_labels(),
@@ -414,7 +414,7 @@ test("re-exported guards from type.yo still work", {
   assert(is_signed_int_type(t_i32()), "is_signed_int_type i32");
   assert(!is_signed_int_type(t_u32()), "u32 not signed");
   assert(is_pointer_type(t_ptr(t_i32())), "pointer");
-  assert(is_str_type(rc(TypeValueNode.Str)), "str");
+  assert(is_str_type(Rc.new(TypeValueNode.Str)), "str");
   assert(is_array_type(t_array(t_u8(), usize(4))), "array");
 });
 // ---------------------------------------------------------------------------
@@ -468,7 +468,7 @@ test("is_rc_type: i32 and primitives are not RC", {
 test("is_rc_type: struct (not object) is not RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  struct_ty := rc(
+  struct_ty := Rc.new(
     TypeValueNode.Struct(
       id : String.from("id1"),
       name : String.from("Point"),
@@ -487,7 +487,7 @@ test("is_rc_type: struct (not object) is not RC", {
 test("is_rc_type: object (is_reference_semantics=true) is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  obj_ty := rc(
+  obj_ty := Rc.new(
     TypeValueNode.Struct(
       id : String.from("id2"),
       name : String.from("MyObj"),
@@ -516,12 +516,12 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
   // A SomeT with a Future trait in required_trait_types
   req := ArrayList(TypeValue).new();
   req.push(t_future_trait_simple(String.from("Io"), t_unit()));
-  some_ty := rc(
+  some_ty := Rc.new(
     TypeValueNode.SomeT(
       String.from("id3"),
       String.from("T"),
       usize(0),
-      rc(TypeValueNode.TypeUni(usize(0))),
+      Rc.new(TypeValueNode.TypeUni(usize(0))),
       req,
       ArrayList(usize).new(),
       ArrayList(TypeValue).new(),
@@ -543,7 +543,7 @@ _one_field_struct :: (fn(name : str, label : str, field : TypeValue, is_ref : bo
   labels.push(String.from(label));
   types := ArrayList(TypeValue).new();
   types.push(field);
-  rc(
+  Rc.new(
     TypeValueNode.Struct(
       id : String.from(name),
       name : String.from(name),
@@ -575,7 +575,7 @@ _option_of :: (fn(payload : TypeValue) -> TypeValue)({
   fields := ArrayList(SharedList(TypeValue)).new();
   fields.push(shared_list(none_fields));
   fields.push(shared_list(some_fields));
-  rc(TypeValueNode.EnumT(String.from("opt"), String.from("Option"), shared_list(names), shared_list(fields), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types()))
+  Rc.new(TypeValueNode.EnumT(String.from("opt"), String.from("Option"), shared_list(names), shared_list(fields), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types()))
 });
 test("cell_handle_view: a newtype over a cell primitive, atomic or not, and nothing else", {
   v := _view_of("Rc(i32)", t_i32(), false);

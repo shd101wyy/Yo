@@ -104,7 +104,7 @@ evaluate_struct_type :: (
   // same type for free, so only FIELD-reading sites need resolution. The shell
   // is distinguished from the final purely by its EMPTY field list, which is
   // exactly how `resolve_struct_shell`/`_patch_self_shell` detect it.
-  prelim_ty := rc(
+  prelim_ty := Rc.new(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
@@ -259,7 +259,7 @@ evaluate_struct_type :: (
   // Shared by the pre-final and the final type.
   field_labels_s := shared_list(field_labels);
   field_types_s := shared_list(field_types);
-  pre_final_ty := rc(
+  pre_final_ty := Rc.new(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
@@ -276,7 +276,7 @@ evaluate_struct_type :: (
   patched_types := ArrayList(TypeValue).new();
   (pt_i : usize) = usize(0);
   while(pt_i < field_types_s.len(), {
-    ft := match(field_types_s.get(pt_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    ft := match(field_types_s.get(pt_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     patched_types.push(_patch_self_shell(&ft, struct_id.clone(), &pre_final_ty));
     pt_i = (pt_i + usize(1));
   });
@@ -293,7 +293,7 @@ evaluate_struct_type :: (
   if(!(is_reference_semantics || is_atomic_rc), {
     (vc_i : usize) = usize(0);
     while(vc_i < patched_types.len(), {
-      vc_ft := match(patched_types.get(vc_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+      vc_ft := match(patched_types.get(vc_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       vc_label := match(field_labels_s.get(vc_i), .Some(l) => l, .None => String.from(""));
       if(_type_reaches_root_by_value(&vc_ft, struct_id.clone(), struct_id.clone(), ArrayList(String).new()), {
         exn.throw(
@@ -311,7 +311,7 @@ evaluate_struct_type :: (
   patched_types_s := shared_list(patched_types);
   // Build final struct TypeValue with all fields populated (shell-patched).
   // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
-  struct_ty := rc(
+  struct_ty := Rc.new(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
@@ -466,7 +466,7 @@ evaluate_cell_type :: (
         format_error_message_with_help(
           &tok,
           `\`${builtin}(...)\` is not available in safe code: it is the private heap-cell primitive behind \`Rc\` and \`Arc\` (plans/VALUES_BY_DEFAULT.md §3.5).`,
-          Option(String).Some(String.from("share a value with `rc(v)` (`Rc(T)`) or `arc(v)` (`Arc(T)`); a file that implements a cell wrapper declares `pragma(Pragma.AllowUnsafe);`"))
+          Option(String).Some(String.from("share a value with `Rc.new(v)` (`Rc(T)`) or `Arc.new(v)` (`Arc(T)`); a file that implements a cell wrapper declares `pragma(Pragma.AllowUnsafe);`"))
         )
       )
     );
@@ -546,7 +546,7 @@ evaluate_cell_type :: (
   field_types_s := shared_list(payload_types);
   type_args := ArrayList(TypeValue).new();
   type_args.push(Rc.clone(v));
-  cell_ty := rc(
+  cell_ty := Rc.new(
     TypeValueNode.Struct(
       cell_id.clone(),
       cell_name,

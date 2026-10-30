@@ -200,7 +200,7 @@ try_to_implement_closure_by_fn_module_type :: (
     match(slot_pointee_at(&param_types, ssi), .Some(sp) => synthetic_slots.push(t_slot(&sp, match(param_is_ref_flags.get(ssi), .Some(b) => b, .None => false), false)), .None => ());
     ssi = (ssi + usize(1));
   });
-  synthetic_func_ty := rc(
+  synthetic_func_ty := Rc.new(
     TypeValueNode.Func(
       no_types(),
       // forall_types
@@ -210,7 +210,7 @@ try_to_implement_closure_by_fn_module_type :: (
       no_types(),
       // where_types
       result_type_copy,
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : param_labels.clone(),
@@ -234,7 +234,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // Build a preliminary FuncVal for the evaluation context.
   closure_id := stable_func_id(String.from("closure_"), &tok.module_path.*, usize(tok.row), usize(tok.column));
   func_val_pre := EvalValue.FuncVal(
-    rc(
+    Rc.new(
       FuncValData(
         forall_names : ArrayList(String).new(),
         params : param_labels.items.clone(),

@@ -7,11 +7,11 @@
 { RefCell } :: import("std/sync/refcell");
 Loop :: struct(me : Weak(RefCell(Self)), n : i32);
 test("a Weak outlives its Rc, and a Weak self-loop frees itself", {
-  a := rc(i32(1));
+  a := Rc.new(i32(1));
   w := Rc.downgrade(&a);
   consume(a);
   assert(w.upgrade().is_none(), "upgrade after the last Rc is .None");
-  l := rc(RefCell(Loop).new(Loop(me : Weak(RefCell(Loop)).new(), n : i32(2))));
+  l := Rc.new(RefCell(Loop).new(Loop(me : Weak(RefCell(Loop)).new(), n : i32(2))));
   me := Rc.downgrade(&l);
   l.with_mut({ me }(v) => {
     v.me = Weak.clone(&me);

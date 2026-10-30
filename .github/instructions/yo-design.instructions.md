@@ -105,7 +105,7 @@ rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .No
 The old shared spelling `Box(V)` / `box(v)` was deleted (V1 step 1 Generation B part 2).
 **`Box(V)` is now the unique, uncounted cell** (V1 step 2, Rust's `Box<T>`):
 `Box :: (fn(comptime(V) : Type) -> comptime(Type))(newtype(_cell : *V))` in the prelude,
-`box(v, (alloc : Option(Allocator)) ?= .None)`. It is plain std Yo: a `Drop` (drop
+`Box.new(v, (alloc : Option(Allocator)) ?= .None)`. It is plain std Yo: a `Drop` (drop
 the payload, free the cell: an 8-byte flags word sits in the `max(8, align_of(T))` bytes in
 front of the payload, its placed bit set only by an `alloc` argument, and only a placed cell
 carries the 16-byte owner prefix `{ctx, vtable}` in front of that header; Box's layout PR,
@@ -121,7 +121,7 @@ below it borrow), the cycle collector's walk traces its payload in place
 the NULL niche, and `ref_count(b)` is an error. `src/` cannot use it until
 `SEED_VERSION` carries this (the v0.2.59 seed rejects `b.*` on it, E0406).
 
-`rc(v, (alloc : Option(Allocator)) ?= .None)` and `arc(v, (alloc : Option(Allocator)) ?= .None)`
+`Rc.new(v, (alloc : Option(Allocator)) ?= .None)` and `Arc.new(v, (alloc : Option(Allocator)) ?= .None)`
 take the same parameter. The `.Some(a)` arm sets the thread's allocation scope to `a` around
 the `Rc(V)(v)` / `Arc(V)(v)` constructor (which allocates from the current scope) and restores
 it, through the prelude's `__yo_scope_set` extern: no codegen, and the default path is
@@ -132,14 +132,14 @@ instead of ending in it: a tail `match` is typed by the declared `Rc(V)`/`Arc(V)
 `Impl(Fn)` parameter that `V` is unbound, a second C type for the result
 (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
 the evaluator gap is open as `issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
-Unlike `box`'s
+Unlike `Box.new`'s
 explicit path, it runs `a`'s callbacks with `a` current, so an allocator whose callbacks
-create a reference-counted object without `alloc` (a `ref` constructor, `rc`/`arc`/`dyn` with
+create a reference-counted object without `alloc` (a `ref` constructor, `Rc.new`/`Arc.new`/`dyn` with
 no `alloc`) recurses until the stack overflows
 (`issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
 That swap is the ONLY setter of the thread scope left: `with_allocator`/`current_allocator`
 were deleted (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1), and B2b deletes the thread-local
-once V5 moves `rc`/`arc` onto the cell.
+once V5 moves `Rc.new`/`Arc.new` onto the cell.
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
@@ -150,8 +150,8 @@ when the receiver itself has pointer type.
 
 `ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
 an atomic load for `Arc`/`atomic(ref(...))`); it is the only count builtin
-(`BF_REF_COUNT`). `rc` is an ordinary prelude function, the cell constructor
-(`rc(v)` returns an `Rc(T)`). **`Rc(T)` is the canonical shared cell**
+(`BF_REF_COUNT`). `Rc.new(v)` is the cell constructor (it returns an `Rc(T)`;
+the prelude function `rc(v)` is its old spelling until STATIC_ARGUMENT_INFERENCE B3). **`Rc(T)` is the canonical shared cell**
 (VALUES_BY_DEFAULT §6 V1 step 1, Generation B part 1 renamed every site to it); the
 legacy `Box(T)` keeps the same definition and impls until part 2 deletes it.
 The compiler recognises the shared cell BY NAME in a few places (the instance-name
@@ -222,7 +222,7 @@ A file without `pragma(Pragma.AllowUnsafe)` gets the following guarantees. When 
 
 The guarantee is data-race freedom for every program that compiles without `pragma(Pragma.AllowUnsafe)` and uses std's primitives. The rules a std or compiler author runs into:
 
-- **D10, `Send` vs `Sync` (VALUES_BY_DEFAULT §3.8, decision 38 E).** `Send` = may be MOVED to another thread; `Sync` = copies may be READ from several threads. Today's derivation is `Sync`; `Send` additionally needs every component `Send` and no non-atomic cell. An atomic object is `Send` iff its fields are `Sync`; `Mutex(T)` is `Sync` for `T <: Send` (explicit impl). Raw pointers are neither: a type holding one opts in with `impl(T, Send())`/`impl(T, Sync())` under the pragma (`Channel`, `Waker`), and `enforce_atomic_object_send` (which now asks `Sync`) skips pragma'd files because their impl registers after the type. `Dyn(Trait)` is either only through an explicit bound (`_thread_marker_named_in`, `values/dyn.yo`); a `Dyn(Trait, Send)` payload must also be `Sync` until V2b, since its copies share it. A closure literal that borrows its captures (`closure_literal_is_borrowed`) is never `Send`. Every marker list (`_marker_name_of`, the step-4b re-derivation, `record_closure_capture_verdicts`, `function_value_marker`, the manual-impl pragma gate) names both. **Generation B (sharing needs `Sync`):** the `Arc`/`arc` and `RwLock` bounds are `T <: (Send, Sync)` — `Sync` because each handle or read guard reads the payload from its own thread, `Send` because the last release (and `Drop`) may run on any thread; `Arc(T)`'s own `Send`/`Sync` impls stay explicit under that bound, because the atomic-object derivation asks the payload TYPE and an `Impl(Fn)` payload is `Sync` only by value (dropping them broke `arc(closure)` across `Thread.spawn`). `Mutex`/`Channel`/`Sender`/`Receiver`/`OnceCell`/`Thread(T)` need `T <: Send` (serialized access / a moved payload); since decision 48 W2 none of them requires `Acyclic` (Rust's rule: an `Arc` cycle leaks; `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §2), and none declares `impl(_, Acyclic())` — the marker is derived, and `Thread.spawn`/`ThreadPool`/`spawn` keep `Impl(Fn, Send)` with a `T <: Send` result. A `Send`-but-not-`Sync` type (`impl(T, !(Sync()))`) is the canary (`tests/send_sync.test.yo`). `String`/collections stay non-`Send` until V2b's unique buffers.
+- **D10, `Send` vs `Sync` (VALUES_BY_DEFAULT §3.8, decision 38 E).** `Send` = may be MOVED to another thread; `Sync` = copies may be READ from several threads. Today's derivation is `Sync`; `Send` additionally needs every component `Send` and no non-atomic cell. An atomic object is `Send` iff its fields are `Sync`; `Mutex(T)` is `Sync` for `T <: Send` (explicit impl). Raw pointers are neither: a type holding one opts in with `impl(T, Send())`/`impl(T, Sync())` under the pragma (`Channel`, `Waker`), and `enforce_atomic_object_send` (which now asks `Sync`) skips pragma'd files because their impl registers after the type. `Dyn(Trait)` is either only through an explicit bound (`_thread_marker_named_in`, `values/dyn.yo`); a `Dyn(Trait, Send)` payload must also be `Sync` until V2b, since its copies share it. A closure literal that borrows its captures (`closure_literal_is_borrowed`) is never `Send`. Every marker list (`_marker_name_of`, the step-4b re-derivation, `record_closure_capture_verdicts`, `function_value_marker`, the manual-impl pragma gate) names both. **Generation B (sharing needs `Sync`):** the `Arc`/`arc` and `RwLock` bounds are `T <: (Send, Sync)` — `Sync` because each handle or read guard reads the payload from its own thread, `Send` because the last release (and `Drop`) may run on any thread; `Arc(T)`'s own `Send`/`Sync` impls stay explicit under that bound, because the atomic-object derivation asks the payload TYPE and an `Impl(Fn)` payload is `Sync` only by value (dropping them broke `Arc.new(closure)` across `Thread.spawn`). `Mutex`/`Channel`/`Sender`/`Receiver`/`OnceCell`/`Thread(T)` need `T <: Send` (serialized access / a moved payload); since decision 48 W2 none of them requires `Acyclic` (Rust's rule: an `Arc` cycle leaks; `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §2), and none declares `impl(_, Acyclic())` — the marker is derived, and `Thread.spawn`/`ThreadPool`/`spawn` keep `Impl(Fn, Send)` with a `T <: Send` result. A `Send`-but-not-`Sync` type (`impl(T, !(Sync()))`) is the canary (`tests/send_sync.test.yo`). `String`/collections stay non-`Send` until V2b's unique buffers.
 - **D1, module globals.** A closure bound to a `Send` or `Sync` closure type (a spawn body, a pool task, a `Dyn(Trait, Send)` method) may not reach a non-`Sync` module-level global, directly or through any function, local closure or `Send` trait object it calls. A value global that is written anywhere may not also be reached that way (a mutable static). Check: `function_reaches_non_send_global` (`src/evaluator/effects/mutation_summary.yo`). Use `thread_local(name)` for per-thread state, an atomic object for shared state. A pragma'd std file is the audited base: its globals are under a lock (`std/log.yo`, `std/encoding/html.yo`).
 - **Decision 47, `mut(name)` globals.** A module-level or `thread_local` runtime binding is Rust's `static` unless declared `mut(name)` (`static mut`). Writing an unmarked one is E0917 (`global_require_mut`, `src/evaluator/utils.yo`); lending a `mut(...)` one, or a place under it, to a call is E0916 (`_check_call_global_lends`, `src/evaluator/calls/function.yo`, over `_call_lends`, which E0910 shares). A `ref` handle global needs no marker for writes through it; its lends are checked path-sensitively (rule A: `&G(i)` vs a `&mut self` call on `G`; rule B: `&H.f` vs a write of `H.f`), through two-sided registries so the verdict does not depend on evaluation order. Both rules apply everywhere, `std/` and `src/` included (Generation B dropped Generation A's exemption); a borrowing future is E0909 only for a place rooted in a `mut(G)` or `thread_local(mut(x))` binding (`_reject_global_lend_to_future`; plans/VALUES_BY_DEFAULT.md §6).
 - **V2b B5, written collection globals are `RefCell` globals** (`plans/VALUES_BY_DEFAULT.md` B5, open question 1). In `src/`, a module-level `ArrayList`/`HashMap`/`HashSet` that anything writes after its initializer is declared `(g_x : RefCell(T)) = RefCell(T).new(T.new());` and used only through `g_x.with(m => m.get(k))` and `g_x.with_mut(m => m.insert(k, v))`, so it stays legal when the collections become values (B8–B11). A global nothing writes (the shared empty sentinels `g_empty_value_cell`, `g_empty_path_collection`, the read-only `g_scope_names`, and the built-once sets `BuiltinYoInlineFunctions`, `PrimitiveTypeTags`, `_c_reserved_words`) stays a plain binding; a `mut(G)` collection global written only by reassignment and read by value (`g_lb_lookahead_stmts`) is decision 47's case, not this one. Find the written ones with `YO_AUDIT_GLOBAL_LEND=1 yo check ./src` (a `recv-mut` lend or a `[global-write]` line on a collection global), not with a one-line grep: `yo fmt` wraps a long declaration onto two lines, and B5's first pass missed 26 that way. Runtime globals cannot be exported, so every use is in the declaring file. Keep each closure body to the one collection operation: an argument that can reach the same global (a recursive memo fill, `G.len()` inside `G.drain(...)`) is evaluated before the access, or the nested access panics at run time (`RefCell.with_mut: the value is already borrowed`; nested `with` reads are fine). A `return`/`break` inside the closure leaves the closure, not the function, so control flow stays outside it.
@@ -245,12 +245,12 @@ The guarantee is data-race freedom for every program that compiles without `prag
   (`__YO_RC_TAG`): mask every count TEST with `__YO_RC_COUNT`, never a write.
 - **Global by default, placement by argument** (`plans/backlog/ALLOCATOR_PLACEMENT.md`,
   maintainer decision 2026-10-24). A creation without an allocator argument is
-  global; `box`/`rc`/`arc` and the containers' `new`/`with_capacity` take
+  global; `Box.new`/`Rc.new`/`Arc.new` and the containers' `new`/`with_capacity` take
   `(alloc : Option(Allocator)) ?= .None` (B2a deleted `new_in`/`with_capacity_in`),
   and `clone_in(a)` on `ArrayList`/`HashMap`/`String`/`StringBuilder` places a
   copy. There is no user-visible allocation scope:
   `with_allocator`/`current_allocator` were deleted (B1). The thread-local
-  `__yo_current_allocator` survives only for `rc`/`arc`'s one-construction swap;
+  `__yo_current_allocator` survives only for `Rc.new`/`Arc.new`'s one-construction swap;
   the RC constructor sites still read it (`__yo_rc_alloc_scoped`), the runtime's
   own blocks never do (`__yo_rc_alloc`), and B2b deletes it.
 - The mutable containers' DEFAULT constructors are global

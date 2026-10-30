@@ -43,13 +43,13 @@ derive(_CbHolder, Clone);
 // ---------------------------------------------------------------------------
 test("ArrayList.clone: a move-only Box(String) element clones in place", {
   l := ArrayList(Box(String)).new();
-  l.push(box(String.from("lb")));
-  l.push(box(String.from("lc")));
+  l.push(Box.new(String.from("lb")));
+  l.push(Box.new(String.from("lc")));
   m := l.clone();
   assert(m.len() == usize(2), "the clone has both elements");
   assert(m(usize(0)).* == `lb`, "element 0 cloned");
   assert(m(usize(1)).* == `lc`, "element 1 cloned");
-  m.push(box(String.from("ld")));
+  m.push(Box.new(String.from("ld")));
   assert(l.len() == usize(2), "the source is independent of the clone");
 });
 test("ArrayList.clone: a Clone-but-not-Copy element", {
@@ -76,7 +76,7 @@ test("ArrayList.clone: a Drop element is cloned once and dropped once per owner"
 });
 test("ArrayList.clone: a derive(Clone) struct with an ArrayList(Box(String)) field", {
   items := ArrayList(Box(String)).new();
-  items.push(box(String.from("h")));
+  items.push(Box.new(String.from("h")));
   h := _CbHolder(items : items, tag : i32(7));
   c := h.clone();
   assert(c.tag == i32(7), "tag cloned");
@@ -94,7 +94,7 @@ test("Array.clone: a Clone-but-not-Copy element", {
   assert(!qs2(usize(1)).b, "slot 1 flag cloned");
 });
 test("Array.clone: a move-only Box(String) element clones in place", {
-  bs := Array(Box(String), 2)(box(String.from("a")), box(String.from("b")));
+  bs := Array(Box(String), 2)(Box.new(String.from("a")), Box.new(String.from("b")));
   bs2 := bs.clone();
   assert(bs2(usize(0)).* == `a`, "slot 0 cloned");
   assert(bs2(usize(1)).* == `b`, "slot 1 cloned");

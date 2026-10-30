@@ -556,7 +556,7 @@ ${ast_expr_to_string(expr)}`
   // registration reads it onto the fn's FuncVal id for the verifier. The
   // ERASURE happens at the binding (env.yo unwraps to `inner`) and in the
   // guards/tag/sizes, so runtime cost stays zero.
-  refined := rc(TypeValueNode.RefineT(inner : Rc.clone(inner_ty), predicate_func_id : pred_fid.clone()));
+  refined := Rc.new(TypeValueNode.RefineT(inner : Rc.clone(inner_ty), predicate_func_id : pred_fid.clone()));
   // Composition (FORMAL_VERIFICATION.md §7): refine(refine(T, p), q) acts
   // as the CONJUNCTION p(x) && q(x). The nested shape stays distinct at the
   // type level (no flattening — that would need a synthesized conjunction
@@ -1094,7 +1094,7 @@ _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstEx
     alloc_global_expr_id(),
     Token(
       kind : kind,
-      value : rc(value.clone()),
+      value : Rc.new(value.clone()),
       row : src_tok.row,
       column : src_tok.column,
       character : src_tok.character,
@@ -1270,7 +1270,7 @@ _build_assert_call :: (
 _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &String) -> AstExpr)({
   bind_tok := Token(
     kind : TokenKind.Identifier,
-    value : rc(op.clone()),
+    value : Rc.new(op.clone()),
     row : src_tok.row,
     column : src_tok.column,
     character : src_tok.character,
@@ -1662,7 +1662,7 @@ register_impl_inheritance_task :: (
       // binds it to the walked body value before proving the ensures.
       (p_names : ArrayList(String)) = ArrayList(String).new();
       (p_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-      ret_ty := rc(TypeValueNode.Unit);
+      ret_ty := Rc.new(TypeValueNode.Unit);
       match(
         fn_ty,
         Rc(.Func({ meta : __ihm, param_types : __ihpt, result : __ihres })) => {
@@ -2248,7 +2248,7 @@ register_impl_variance_task :: (
   // compare against.
   (p_names : ArrayList(String)) = ArrayList(String).new();
   (p_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-  ret_ty := rc(TypeValueNode.Unit);
+  ret_ty := Rc.new(TypeValueNode.Unit);
   match(
     fn_ty,
     Rc(.Func({ meta : __vm, param_types : __vpt, result : __vres })) => {

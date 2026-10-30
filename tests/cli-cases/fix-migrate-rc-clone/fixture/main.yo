@@ -26,18 +26,18 @@ label_of :: (fn(n : &Node) -> Rc(i32))(n.label);
 total :: (fn(h : Rc(i32), k : i32) -> i32)(h.* + k);
 Holder :: struct(slot : Option(Rc(i32)));
 peek :: (fn(h : &Holder) -> i32)(match(h.slot, .Some(r) => r.*, .None => i32(0)));
-mut(g_last) := Option(Rc(i32)).Some(rc(i32(10)));
+mut(g_last) := Option(Rc(i32)).Some(Rc.new(i32(10)));
 last_of :: (fn() -> i32)(match(g_last, .Some(h) => total(h, i32(0)), .None => i32(0)));
 walk :: (fn(start : Rc(i32)) -> Rc(i32))({
   mut(cur) := start;
-  mut(out) := rc(i32(0));
+  mut(out) := Rc.new(i32(0));
   mut(done) := false;
   while(!done, {
     if(cur.* > i32(2), {
       out = cur;
       done = true;
     }, {
-      cur = rc(cur.* + i32(1));
+      cur = Rc.new(cur.* + i32(1));
     });
   });
   out
@@ -77,7 +77,7 @@ hits :: (fn(h : &Option(Rc(i32)), n : i32) -> i32)({
   sum
 });
 main :: (fn() -> unit)({
-  a := rc(i32(1));
+  a := Rc.new(i32(1));
   b := a;
   xs := ArrayList(Rc(i32)).new();
   xs.push(a);
@@ -90,22 +90,22 @@ main :: (fn() -> unit)({
   t := total(l, i32(3));
   (f : Impl(Fn() -> i32)) = (() => k.*);
   (g : Impl(Fn() -> i32)) = ({ k }() => k.*);
-  s := arc(i32(4));
+  s := Arc.new(i32(4));
   s2 := s;
-  bare := Bare(h : rc(i32(5)));
+  bare := Bare(h : Rc.new(i32(5)));
   bare2 := bare;
-  last := rc(i32(6));
+  last := Rc.new(i32(6));
   moved := last;
   w := RefCell(i32).new(i32(7));
   u := w.with(c => (c + total(a, i32(0))));
-  p := peek(&Holder(slot : .Some(rc(i32(8)))));
-  cell := rc(i32(9));
+  p := peek(&Holder(slot : .Some(Rc.new(i32(8)))));
+  cell := Rc.new(i32(9));
   pair := Node(label : cell, weight : i32(0));
   v := w.with(c => (c + cell.*));
-  q := ((last_of() + walk(rc(i32(1))).*) + if(refresh(.Some(rc(i32(11)))), i32(1), i32(0)));
-  r := fill(Bag(h : rc(i32(1)), items : ArrayList(i32).new()));
-  hs := hits(&Option(Rc(i32)).Some(rc(i32(2))), i32(3));
-  sh := rc(i32(12));
+  q := ((last_of() + walk(Rc.new(i32(1))).*) + if(refresh(.Some(Rc.new(i32(11)))), i32(1), i32(0)));
+  r := fill(Bag(h : Rc.new(i32(1)), items : ArrayList(i32).new()));
+  hs := hits(&Option(Rc(i32)).Some(Rc.new(i32(2))), i32(3));
+  sh := Rc.new(i32(12));
   rec := { sh };
   println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p} ${pair.weight} ${v} ${q} ${r} ${hs} ${rec.sh.*} ${sh.*}`);
 });

@@ -359,7 +359,7 @@ impl(
   /// and a `DEFAULT_IDLE_TIMEOUT_SECS` age limit.
   new : (fn() -> Self)(
     Self(
-      _cell : box(
+      _cell : Box.new(
         _HttpClientState(
           _idle : ArrayList(_Idle).new(),
           max_idle : DEFAULT_MAX_IDLE_CONNECTIONS,
@@ -696,7 +696,7 @@ _fetch_once :: (
       reused := taken.is_some();
       // One leftover-byte buffer per CONNECTION: a pooled connection brings
       // its own, a fresh one starts empty.
-      mut(carry) := rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
+      mut(carry) := Rc.new(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
       (mut(conn_opt) : Option(_Transport)) = Option(_Transport).None;
       match(
         taken,

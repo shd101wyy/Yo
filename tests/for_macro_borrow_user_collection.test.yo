@@ -422,7 +422,7 @@ impl(
   })
 );
 // Handing the object to a callee that only stores it is not a mutation either.
-// `RefCell.new` boxes its slot with `box(slot)`, omitting `box`'s
+// `RefCell.new` boxes its slot with `Box.new(slot)`, omitting `Box.new`'s
 // `alloc ?= .None`: the analysis matches the given arguments to the leading
 // parameters instead of giving up on the call.
 keep_in_cell :: (fn(b : VBag) -> RefCell(VBag))(RefCell(VBag).new(b));
@@ -466,7 +466,7 @@ test("borrowed for: read-only methods iterating a value field by value, through 
 // The same assert came back when `Box.new` took an over-aligned payload's
 // block from `__yo_aligned_alloc`, which the analysis did not count as fresh
 // (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
-keep_boxed :: (fn(b : VBag) -> Box(VBag))(box(b));
+keep_boxed :: (fn(b : VBag) -> Box(VBag))(Box.new(b));
 test("borrowed for: boxing the object through an alias does not trip the flag", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
@@ -498,7 +498,7 @@ test("borrowed for: boxing the object through an alias does not trip the flag", 
 // unknown storage, so `keep_rc`/`keep_rc_new` asserted `b` unborrowed and
 // panicked through the second handle
 // (issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md).
-keep_rc :: (fn(b : VBag) -> Rc(VBag))(rc(b));
+keep_rc :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 keep_rc_new :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 test("borrowed for: moving the object into an Rc cell through an alias does not trip the flag", {
   xs := ArrayList(i32).new();

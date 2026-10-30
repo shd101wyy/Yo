@@ -202,7 +202,7 @@ test("ComptimeRef StructRef construction", {
 test("RuntimeDestructuring construction", {
   rd := RuntimeDestructuring(
     label : String.from("x"),
-    ty : rc(TypeValueNode.BoolT),
+    ty : Rc.new(TypeValueNode.BoolT),
     variable_name : String.from("_x")
   );
   assert(rd.label == String.from("x"), "label");
@@ -212,8 +212,8 @@ test("RuntimeDestructuring construction", {
 // ExprInfo creation
 // ---------------------------------------------------------------------------
 test("new_expr_info creates ExprInfo with None optionals", {
-  env := Environment.new(rc(String.from("test")));
-  info := new_expr_info(&env, rc(TypeValueNode.BoolT));
+  env := Environment.new(Rc.new(String.from("test")));
+  info := new_expr_info(&env, Rc.new(TypeValueNode.BoolT));
   ty_ok := match(&info.ty, Rc(.BoolT) => true, _ => false);
   assert(ty_ok, "ty set to BoolT");
   assert(info.path_collection.len() == usize(0), "path_collection empty");
@@ -222,8 +222,8 @@ test("new_expr_info creates ExprInfo with None optionals", {
   assert(info.variable_name == Option(String).None, "variable_name is None");
 });
 test("new_expr_info env field is set", {
-  env := Environment.new(rc(String.from("mod/path")));
-  info := new_expr_info(&env, rc(TypeValueNode.Int(u8(32), true)));
+  env := Environment.new(Rc.new(String.from("mod/path")));
+  info := new_expr_info(&env, Rc.new(TypeValueNode.Int(u8(32), true)));
   ty_ok := match(&info.ty, Rc(.Int(bits, signed)) => ((bits == u8(32)) && signed), _ => false);
   assert(ty_ok, "ty is i32");
 });

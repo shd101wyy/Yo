@@ -516,7 +516,7 @@ make_err_expr :: (fn() -> AstExpr)(
     usize(0),
     Token(
       kind : TokenKind.Identifier,
-      value : rc(String.from("?")),
+      value : Rc.new(String.from("?")),
       row : u32(0),
       column : u32(0),
       character : u32(0),
@@ -1986,7 +1986,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
         awaited := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
         tmp_name := String.from("__yo_return_await_");
         tmp_name.push_string(alloc_global_expr_id().to_string());
-        tmp_cell := rc(tmp_name);
+        tmp_cell := Rc.new(tmp_name);
         bind_args := ArrayList(AstExpr).new();
         bind_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, Rc.clone(tmp_cell), &tok)));
         bind_args.push(awaited);
@@ -2203,7 +2203,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         mismatches.push(bs.tok);
       });
       mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = rc(mark.value.*.clone());
+      mark.module_path = Rc.new(mark.value.*.clone());
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);

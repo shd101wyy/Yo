@@ -44,8 +44,8 @@ eval :: (fn(e : *MyExpr) -> i32)({
 });
 test("Recursive enum: construct + match Rc(Self) leaves", {
   e := MyExpr.Add(
-    rc(MyExpr.Lit(i32(2))),
-    rc(MyExpr.Lit(i32(3)))
+    Rc.new(MyExpr.Lit(i32(2))),
+    Rc.new(MyExpr.Lit(i32(3)))
   );
   v := eval(addr_of(e));
   assert(v == i32(5), "2 + 3 == 5");
@@ -54,7 +54,7 @@ test("Recursive enum: ArrayList(Self) variant", {
   items := ArrayList(MyExpr).new();
   items.push(MyExpr.Lit(i32(10)));
   items.push(MyExpr.Lit(i32(20)));
-  items.push(MyExpr.Add(rc(MyExpr.Lit(i32(3))), rc(MyExpr.Lit(i32(4)))));
+  items.push(MyExpr.Add(Rc.new(MyExpr.Lit(i32(3))), Rc.new(MyExpr.Lit(i32(4)))));
   e := MyExpr.List(items);
   v := eval(addr_of(e));
   assert(v == i32(37), "10 + 20 + 7 == 37");
@@ -62,8 +62,8 @@ test("Recursive enum: ArrayList(Self) variant", {
 test("Recursive enum: nested Rc(Self) tree", {
   // ((1 + 2) * (3 + 4)) = 21
   tree := MyExpr.Mul(
-    rc(MyExpr.Add(rc(MyExpr.Lit(i32(1))), rc(MyExpr.Lit(i32(2))))),
-    rc(MyExpr.Add(rc(MyExpr.Lit(i32(3))), rc(MyExpr.Lit(i32(4)))))
+    Rc.new(MyExpr.Add(Rc.new(MyExpr.Lit(i32(1))), Rc.new(MyExpr.Lit(i32(2))))),
+    Rc.new(MyExpr.Add(Rc.new(MyExpr.Lit(i32(3))), Rc.new(MyExpr.Lit(i32(4)))))
   );
   v := eval(addr_of(tree));
   assert(v == i32(21), "(1+2)*(3+4) == 21");
@@ -72,7 +72,7 @@ build_spine :: (fn(n : i32) -> MyExpr)({
   return(
     cond(
       (n <= i32(0)) => MyExpr.Lit(i32(1)),
-      true => MyExpr.Add(rc(MyExpr.Lit(i32(1))), rc(recur(n - i32(1))))
+      true => MyExpr.Add(Rc.new(MyExpr.Lit(i32(1))), Rc.new(recur(n - i32(1))))
     )
   );
 });
@@ -139,7 +139,7 @@ test("Value enum: every payload is released once through the per-type drop and d
   {
     one := Holder.HOne(p : HolderProbe(id : i32(1)));
     pair := Holder.HPair(a : HolderProbe(id : i32(2)), b : HolderProbe(id : i32(3)));
-    nest := Holder.HNest(inner : rc(Holder.HOne(p : HolderProbe(id : i32(4)))));
+    nest := Holder.HNest(inner : Rc.new(Holder.HOne(p : HolderProbe(id : i32(4)))));
     probes := ArrayList(HolderProbe).new();
     probes.push(HolderProbe(id : i32(5)));
     probes.push(HolderProbe(id : i32(6)));

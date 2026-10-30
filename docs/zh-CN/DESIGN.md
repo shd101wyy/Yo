@@ -1018,7 +1018,7 @@ p.set_x(10); // 无需写 `addr_of(p)` — 编译器自动插入
 
 方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Rc(i32).clone(b)`），也可以省略（`Rc.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
 
-静态方法（第一个参数不是 `Self` 的方法）则从它的实参推断：凡是参数的声明类型提到了 impl 的类型参数的实参，都会绑定它们，所以 `Pair.make(i32(1), true)` 就是 `Pair(i32, bool).make(i32(1), true)`，`Rc.new(x)` 就是 `Rc(X).new(x)`。嵌套也可以（参数 `xs : ArrayList(T)` 收到 `ArrayList(String)` 时绑定 `T := String`），字面量绑定它的默认类型（`Rc.new(42)` 是 `Rc(i32)`）。闭包字面量、枚举简写 `.X` 和取默认值的实参不绑定任何东西，调用结果被期望的类型也从不提供它们：`Rc.new(.None)`、没有实参的调用（`ArrayList.new()`）以及没有实参提到的类型参数都会报 E0613，其帮助信息是写出类型实参（`Rc(Option(i32)).new(.None)`）。两个实参把同一个参数绑定到不同类型会报 E0601，实参同时适配两个 impl 会报有歧义的 E0613。对于第一个参数是 `Self` 的方法（`self : &Self`、`lhs : &Self`），第一个实参不是该构造器的实例会报 E0613，错误信息会给出该实参的类型。
+静态方法（第一个参数不是 `Self` 的方法）则从它的实参推断：凡是参数的声明类型提到了 impl 的类型参数的实参，都会绑定它们，所以 `Pair.make(i32(1), true)` 就是 `Pair(i32, bool).make(i32(1), true)`，`Rc.new(x)` 就是 `Rc(X).new(x)`。嵌套也可以（参数 `xs : ArrayList(T)` 收到 `ArrayList(String)` 时绑定 `T := String`），字面量绑定它的默认类型（`Rc.new(42)` 是 `Rc(i32)`）。闭包字面量、枚举简写 `.X`、`dyn(...)` 值和取默认值的实参不绑定任何东西，调用结果被期望的类型也从不提供它们：`Rc.new(.None)`、没有实参的调用（`ArrayList.new()`）以及没有实参提到的类型参数都会报 E0613，其帮助信息是写出类型实参（`Rc(Option(i32)).new(.None)`）。两个实参把同一个参数绑定到不同类型会报 E0601，实参同时适配两个 impl 会报有歧义的 E0613。对于第一个参数是 `Self` 的方法（`self : &Self`、`lhs : &Self`），第一个实参不是该构造器的实例会报 E0613，错误信息会给出该实参的类型。
 
 接收者可以像其他实参一样带标签（`Pair.first(self : p)`），构造器也可以带模块限定（`m.Pair.first(p)`）。匹配依据的是构造器的身份，所以函数体应用了另一个构造器的构造器是一个独立的构造器：对于别名 `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` 或偏应用 `Pair(i32, _)`，以 `IntPair(u8)` 构造的值是 `Pair(i32, u8)`，`Pair.first(q)` 和 `IntPair(u8).first(q)` 都接受它，而 `IntPair.first(q)` 会报 E0613。
 
@@ -1035,7 +1035,7 @@ impl(
 
 p := Pair.make(i32(1), true); // 静态方法：从实参推断 A := i32、B := bool
 a := Pair.first(p); // 从接收者 `p` 推断 A := i32、B := bool
-w := rc(i32(5));
+w := Rc.new(i32(5));
 c := Rc.clone(w); // 即 Rc(i32).clone(w)
 ```
 
@@ -1190,15 +1190,15 @@ s3 := s2; // RC = 3
 
 #### 显式分配器
 
-引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`box`、`rc`、`arc` 以及容器的 `new` / `with_capacity` 都用 `alloc : .Some(a)`：
+引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`Box.new`、`Rc.new`、`Arc.new` 以及容器的 `new` / `with_capacity` 都用 `alloc : .Some(a)`：
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 Point :: struct(x : i32, y : i32);
 
 // `a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
-p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // 放在 `a` 里
-p2 := rc(Point(x : i32(1), y : i32(2))); // 没有参数：全局分配器
+p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // 放在 `a` 里
+p2 := Rc.new(Point(x : i32(1), y : i32(2))); // 没有参数：全局分配器
 xs := ArrayList(i32).new(alloc : .Some(a)); // 缓冲区在 `a` 里
 ```
 
@@ -1267,7 +1267,7 @@ export(main);
 
 - **复制是 E0901。** `g := f` 移动文件，之后再使用 `f` 是 E0901（使用已移动的值）。把一个句柄存两次、或在两个闭包中捕获它，同样是 E0901。在这次改动之前，`File` 是引用句柄，副本共享它的描述符和位置。
 - **借出它。** 每个方法都取 `self : &Self`，所以 `f.read_to_string(io)` 借用 `f`。只使用资源的函数取 `&File`。
-- **通过引用类型共享。** 在单个线程内，`rc(f)` 得到 `Rc(File)`，它的所有句柄都指向同一个文件（`h.*.read_to_string(io)`）。跨线程时用 `Arc(Mutex(TcpStream))`；这要求资源是 `Send` 的，目前包括 `UnixListener` 以外的套接字、`Child` 及其管道和 `Thread`。`File`、临时文件和 `UnixListener` 持有 `String` 路径，会随集合类型（V2b）成为 `Send`；`Watcher`、`TlsStream` 和 `HttpClient` 留在自己的线程上。持有资源的 `ref` 结构体出于同样的原因把它存为 `Rc` 字段，就像 `HttpServer` 持有它的监听器那样。
+- **通过引用类型共享。** 在单个线程内，`Rc.new(f)` 得到 `Rc(File)`，它的所有句柄都指向同一个文件（`h.*.read_to_string(io)`）。跨线程时用 `Arc(Mutex(TcpStream))`；这要求资源是 `Send` 的，目前包括 `UnixListener` 以外的套接字、`Child` 及其管道和 `Thread`。`File`、临时文件和 `UnixListener` 持有 `String` 路径，会随集合类型（V2b）成为 `Send`；`Watcher`、`TlsStream` 和 `HttpClient` 留在自己的线程上。持有资源的 `ref` 结构体出于同样的原因把它存为 `Rc` 字段，就像 `HttpServer` 持有它的监听器那样。
 - **把它移出来。** `Option(T).unwrap` 通过借用读取，不能把只能移动的载荷移出来。改用消耗型 match：`f := match(opt, .Some(x) => x, .None => …)`。
 - **交出所有权。** `BufReader(File).new(f)` 和 `TcpListener.incoming()` 取得所有权（`sink`）；`get_ref()` 和 `Incoming.listener()` 把它借回来，`BufReader.into_inner()` / `BufWriter.into_parts()` 按值把它交还。要在派生的任务中服务一个套接字，把它移入该任务。
 - **丢弃即释放。** 未经 `wait()` 就被丢弃的 `Child` 会关闭它仍持有的管道端（但不等待进程）。
@@ -3067,7 +3067,7 @@ test_capture :: (fn() -> unit)({
   mut(counter) := i32(0);
 
   // 引用语义类型 — 按引用捕获
-  data := rc(RefCell(i32).new(i32(42))); // `std/sync/refcell`
+  data := Rc.new(RefCell(i32).new(i32(42))); // `std/sync/refcell`
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
@@ -3259,11 +3259,11 @@ sum :: (fn(t : &Tree) -> i32)(
     .Node(l, r) => (sum(&l.*) + sum(&r.*))
   )
 );
-t := Tree.Node(box(Tree.Leaf(1)), box(Tree.Leaf(2)));
+t := Tree.Node(Box.new(Tree.Leaf(1)), Box.new(Tree.Leaf(2)));
 assert(sum(&t) == 3);
 ```
 
-- **`box(v)`** 把 `v` 移入一个新单元。`b.*` 是载荷的位置，在安全代码中同样可用：
+- **`Box.new(v)`** 把 `v` 移入一个新单元。`b.*` 是载荷的位置，在安全代码中同样可用：
   `b.* = v` 替换载荷，`b.field` / `b.method()` 通过自动解引用访问载荷。模式用 `Box(p)`
   穿过 `Box` 的载荷进行匹配，与用 `Rc(p)` 穿过 `Rc` 相同；目前不写 `Box(…)` 也会穿透。
 - **显式复制。** `Box` 永远不是 `Copy`。当 `c := b` 是 `b` 的最后一次使用时，它移动
@@ -3276,7 +3276,7 @@ assert(sum(&t) == 3);
   时 `Box(T)` 才是。
 - **布局。** `Box` 值是一个指针，`Option(Box(T))` 也是一个指针（`NULL` 即
   `.None`）。单元在载荷前带有一个 8 字节的标志字（头部共 `max(8, align_of(T))` 字节），就像 `Rc` 单元带有计数一样。由 `alloc` 参数放置的单元设置了标志字的放置位，并在头部之前带有 16 字节的所有者前缀，记录放置它的分配器；全局单元没有前缀。
-- **分配器。** `box(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时单元
+- **分配器。** `Box.new(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时单元
   使用全局分配器。单元通过其所有者释放，
   `Box.clone(b)` 落在 `b` 所在的位置（由显式分配器放置的 box 克隆到同一个分配器中）。
   `Box.allocator(b)` 读回所有者（全局分配器为 `.None`）。
@@ -3285,7 +3285,7 @@ assert(sum(&t) == 3);
 
 ## Rc 和引用计数单元
 
-Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计数。
+Yo 提供了 `Rc`（用 `Rc.new` 构造）用于将值类型堆分配并自动进行引用计数。
 
 ### Rc 类型
 
@@ -3295,7 +3295,7 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 > 完全一致。
 >
 > ```yo
-> a := rc(i32(42));
+> a := Rc.new(i32(42));
 > b := Rc.clone(a);          // 第二个句柄，而不是值的副本
 > assert(ref_count(a) == usize(2), "a 和 b 指向同一个值");
 > ```
@@ -3308,7 +3308,7 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 > `{ a : Rc.clone(a) }() => a.*`。`yo fix <path> --migrate rc-clone` 为已有代码
 > 写出这些克隆。克隆通过类型来写（`Rc.clone(a)`），因为 `a.clone()` 可能指
 > 负载自己的 `clone`（决定 32）。`Rc(T)` 和 `Arc(T)` 对任何 `T` 都实现 `Clone`，
-> 克隆总是第二个句柄；深拷贝写作 `rc(h.*.clone())`。泛型函数体按每个实例化检查，所以当 `T` 是
+> 克隆总是第二个句柄；深拷贝写作 `Rc.new(h.*.clone())`。泛型函数体按每个实例化检查，所以当 `T` 是
 > 句柄时，在那里拷贝 `T` 同样要写 `.clone()`（`where(T <: Clone)`）。std 的泛型
 > 函数体暂时是例外：它们的读取方法通过 `T` 拷贝元素（`ArrayList(Rc(T)).get(i)`、
 > `HashMap.get`），所以在代码改用 B6 的访问器（`get_cloned`、原地读取 `xs(i)`、
@@ -3335,36 +3335,30 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
     )
   )
 );
-
-// rc 分配一个新单元，其 ref_count 为 1
-rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
-  ...
-);
 ```
 
-`rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
-`alloc : .Some(a)` 把单元放到分配器 `a` 中；默认值 `.None` 把它放到全局分配器
-（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
-
-类型自身的构造函数是 `Rc(T).new(value, alloc : …)`，参数相同：`rc(v)` 就是
-`Rc(T).new(v)`，正如 `box(v)` 就是 `Box(T).new(v)`、`arc(v)` 就是 `Arc(T).new(v)`。`dyn(v)` 通过
+构造函数是 `Rc(T).new(value, (alloc : Option(Allocator)) ?= .None)`。它分配一个计数为 1
+的新单元；计数用 `ref_count(x)` 读取。`Rc.new(v)` 从实参推断 `T`，`Box.new(v)` 和
+`Arc.new(v)` 也一样；实参不携带类型时（例如枚举简写 `.None`、闭包字面量）写出类型：
+`Rc(T).new(...)`。`alloc : .Some(a)` 把单元放到分配器 `a` 中；默认值 `.None` 把它放到
+全局分配器（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。`dyn(v)` 通过
 `Rc(T).new`（`Send` 目标则是 `Arc(T).new`）构造它的单元。
 
 ### 使用示例
 
 ```yo
 // 包装一个基本值
-i := rc(42); // i: Rc(i32)
+i := Rc.new(42); // i: Rc(i32)
 assert(i.* == 42); // 使用 .* 解引用
 // 包装一个结构体
 Point :: struct(x : i32, y : i32);
-p := rc(Point(x : 3, y : 4)); // p: Rc(Point)
+p := Rc.new(Point(x : 3, y : 4)); // p: Rc(Point)
 assert(p.*.x == 3);
 
 // 使用显式类型的 Rc
-b := Rc(i32)(100); // 等同于 rc(100)
+b := Rc(i32)(100); // 等同于 Rc.new(100)
 // 载荷经由句柄是只读的（E0919）；通过“门”写入
-m := rc(i32(10));
+m := Rc.new(i32(10));
 Rc.make_mut(&mut m) = i32(20); // 原地写入：m 是唯一的句柄
 assert(m.* == 20);
 ```
@@ -3379,11 +3373,11 @@ assert(m.* == 20);
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
-p := rc(Point(x : 3, y : 4));
+p := Rc.new(Point(x : 3, y : 4));
 assert(p.x == 3); // p.*.x
 p.x = 5; // 是一个位置：写入 p.*.x
 assert(p.norm1() == 9); // p.*.norm1()
-pp := rc(rc(Point(x : 1, y : 2)));
+pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
 assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
 ```
 
@@ -3409,8 +3403,8 @@ assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
 
 ```yo
 test("Rc assignment behavior", {
-  x := rc(1);
-  y := (x = rc(2)); // y 获得旧值
+  x := Rc.new(1);
+  y := (x = Rc.new(2)); // y 获得旧值
   assert(x.* == 2); // x 现在指向新的 Rc
   assert(y.* == 1); // y 持有旧的 Rc
 });
@@ -3422,7 +3416,7 @@ test("Rc assignment behavior", {
 
 ```yo
 test("Rc reference counting", {
-  original := rc(42);
+  original := Rc.new(42);
   copy := original; // 引用计数递增
   another := copy; // 引用计数递增
   // 三者都指向同一个 Rc
@@ -3442,7 +3436,7 @@ test("Rc reference counting", {
 
   ```yo
   { RefCell } :: import("std/sync/refcell");
-  log := rc(RefCell(i32).new(i32(0)));
+  log := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(log); // 指向同一个单元的第二个句柄
   other.replace_with(n => (n + i32(1)));
   assert(log.with(n => n) == i32(1), "seen through the first handle");
@@ -3451,7 +3445,7 @@ test("Rc reference counting", {
 - **`Rc.make_mut(&mut h)`**（`T <: Clone`）是被写入的载荷：若另一个句柄共享该单元，`h` 先移到一个持有载荷克隆的新单元，因此其他句柄永远看不到这次写入。若 `h` 是唯一句柄，则就地写入。即 Rust 的 `Rc::make_mut`；克隆体现在名字里。
 
   ```yo
-  a := rc(Point(x : 1, y : 2));
+  a := Rc.new(Point(x : 1, y : 2));
   b := Rc.clone(a);
   Rc.make_mut(&mut b).x = 10; // b 得到自己的单元
   assert((a.x == 1) && (b.x == 10), "a is unchanged");
@@ -3470,7 +3464,7 @@ test("Rc reference counting", {
 而言也不是边，因此父指针 `Weak(RefCell(Node))` 不会闭合环。见 [WEAK.md](./WEAK.md)。
 
 ```yo
-a := rc(i32(7));
+a := Rc.new(i32(7));
 w := Rc.downgrade(&a);
 assert(w.upgrade().is_some(), "alive while a is");
 consume(a);
@@ -3481,7 +3475,7 @@ assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 
 - **堆分配**：当你需要将值类型放在堆上时
 - **共享所有权**：同一个值的多个句柄；共享修改通过 `Rc(RefCell(T))` 进行
-- **动态分发**：将值类型包装起来以便与 `Dyn` 一起使用（对值类型调用 `dyn(v)` 会自动完成这一步：把 `v` 包装成 `rc(v)`）
+- **动态分发**：将值类型包装起来以便与 `Dyn` 一起使用（对值类型调用 `dyn(v)` 会自动完成这一步：把 `v` 包装成 `Rc.new(v)`）
 - **递归类型**：仅当节点被共享时；唯一所有的节点组成的树使用 `Box`
 
 ```yo
@@ -3492,7 +3486,7 @@ impl(i32, SomeTrait(...));
 use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
 // 将 i32 包装进 Rc 以用于 Dyn
-use_dyn(dyn(rc(i32(42))));
+use_dyn(dyn(Rc.new(i32(42))));
 ```
 
 ## Impl 类型
@@ -3966,8 +3960,8 @@ export(main);
 `atomic(ref(struct(...)))`。
 
 ```yo
-// 使用 arc() 辅助函数创建
-shared := arc(i32(42));
+// 用 Arc.new 创建
+shared := Arc.new(i32(42));
 
 // 使用 .(*) 解引用（借用，只读）
 val := shared.*; // val == 42
@@ -3975,7 +3969,7 @@ val := shared.*; // val == 42
 copy := shared; // 引用计数：1 → 2
 // 跨线程共享
 { Thread } :: import("std/thread");
-shared := arc(i32(42));
+shared := Arc.new(i32(42));
 t := Thread(unit).spawn(io => {
   assert(shared.* == i32(42), "thread sees shared value");
 });

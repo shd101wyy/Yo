@@ -1240,7 +1240,7 @@ _contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 /// handle owns its own count.
 ///
 /// A `&mut name` lend counts as a reassignment: the callee may store a new
-/// handle into the slot (`h = rc(...)`), which releases the shared count under
+/// handle into the slot (`h = Rc.new(...)`), which releases the shared count under
 /// the other binding, and a uniqueness test (`ref_count`, `Rc.make_mut`,
 /// `Rc.try_unwrap`) must see both handles. So does a method call whose
 /// `self : &mut Self` receiver is `name` itself
@@ -2821,7 +2821,7 @@ _evaluate_begin_expression_impl :: (
   );
   // Empty begin → unit result immediately.
   if(n_args == usize(0), {
-    info := new_expr_info(&env, rc(TypeValueNode.Unit));
+    info := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
@@ -2914,7 +2914,7 @@ _evaluate_begin_expression_impl :: (
         return_expr = Option(AstExpr).Some(expr_to_eval);
         if(is_return_unit, {
           // `return` / `return()` with no argument → unit return.
-          out := new_expr_info(&env, rc(TypeValueNode.Unit));
+          out := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
           out.value = Option(EvalValue).Some(EvalValue.UnitVal);
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
@@ -2986,7 +2986,7 @@ _evaluate_begin_expression_impl :: (
               )
             );
           });
-          ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
+          ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
           // Decision 38 A: a second-class value is never returned.
           reject_second_class_return(&ret_info.ty, ast_expr_token(&ret_arg), &env, ctx, exn);
           env_adopt(&env, &ret_info.env);
@@ -3154,7 +3154,7 @@ _evaluate_begin_expression_impl :: (
           },
           .None => ()
         );
-        out := new_expr_info(&env, rc(TypeValueNode.Unit));
+        out := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Break));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
@@ -3184,7 +3184,7 @@ _evaluate_begin_expression_impl :: (
           },
           .None => ()
         );
-        out := new_expr_info(&env, rc(TypeValueNode.Unit));
+        out := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Continue));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
@@ -3226,7 +3226,7 @@ _evaluate_begin_expression_impl :: (
         enclosing_ret := match(
           &ctx.enclosing_function_return_type,
           .Some(t) => Rc.clone(t),
-          .None => rc(TypeValueNode.Unit)
+          .None => Rc.new(TypeValueNode.Unit)
         );
         // Zero-arg `unwind()` — unwind with unit:
         // type-check unit against the enclosing return type, stamp a
@@ -3238,10 +3238,10 @@ _evaluate_begin_expression_impl :: (
         // "Test zero-arg unwind exits unit function", the file's one
         // genuinely failing test).
         if(esc_n_args == usize(0), {
-          if(!is_some_type(&enclosing_ret) && !are_types_compatible(rc(TypeValueNode.Unit), &enclosing_ret), {
-            throw_unwind_type_mismatch(ast_expr_token(&expr_to_eval), &enclosing_ret, rc(TypeValueNode.Unit), ctx, exn);
+          if(!is_some_type(&enclosing_ret) && !are_types_compatible(Rc.new(TypeValueNode.Unit), &enclosing_ret), {
+            throw_unwind_type_mismatch(ast_expr_token(&expr_to_eval), &enclosing_ret, Rc.new(TypeValueNode.Unit), ctx, exn);
           });
-          out_esc0 := new_expr_info(&env, rc(TypeValueNode.Unit));
+          out_esc0 := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
           out_esc0.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out_esc0);
           last_expr = expr_to_eval;
@@ -3270,7 +3270,7 @@ _evaluate_begin_expression_impl :: (
               )
             );
           });
-          esc_info := match(esc_info_opt, .Some(ei) => ei, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
+          esc_info := match(esc_info_opt, .Some(ei) => ei, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
           // Type-check unwind value against the enclosing return type.
           // Skip when the enclosing return type is an unresolved SomeType.
           esc_compat := are_types_compatible(&esc_info.ty, &enclosing_ret);
@@ -3470,7 +3470,7 @@ _evaluate_begin_expression_impl :: (
       )
     );
   });
-  last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
+  last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
   return_type := Rc.clone(last_info.ty);
   // Decision 38 A: the block's result may not carry a borrow of a binding the
   // block declares (this block's own frame is the innermost one).

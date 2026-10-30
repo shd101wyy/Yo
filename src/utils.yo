@@ -324,7 +324,7 @@ derive(TopLevelAnchor, Clone);
 (g_top_level_anchors : RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor))))) = RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor)))).new(HashMap(String, Rc(ArrayList(TopLevelAnchor))).new());
 register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
   owner := _stable_type_id_owner_key(module_path);
-  g_top_level_anchors.with_mut(m => m.insert(owner.*.clone(), rc(anchors.clone())));
+  g_top_level_anchors.with_mut(m => m.insert(owner.*.clone(), Rc.new(anchors.clone())));
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -447,7 +447,7 @@ _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
     g_stable_type_id_owner_memo.with(m => m.get(module_path)),
     .Some(c) => c,
     .None => {
-      c := rc(canonical_module_path(module_path));
+      c := Rc.new(canonical_module_path(module_path));
       g_stable_type_id_owner_memo.with_mut({ c : Rc.clone(c), module_path }(m) => m.insert(module_path.clone(), Rc.clone(c)));
       c
     }

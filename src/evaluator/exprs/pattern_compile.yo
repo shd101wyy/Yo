@@ -111,7 +111,7 @@ _atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.*.clone());
 _synth_token :: (fn(base : &Token, kind : TokenKind, value : &String) -> Token)(
   Token(
     kind : kind,
-    value : rc(value.clone()),
+    value : Rc.new(value.clone()),
     row : base.row,
     column : base.column,
     character : base.character,
@@ -253,7 +253,7 @@ _variant_name_eq :: (fn(stored : &String, arm_name : &String) -> bool)(
 _select_variant :: (fn(enum_ty : &TypeValue, name : &String) -> TypeValue)(
   match(
     enum_ty,
-    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(name.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
+    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => Rc.new(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(name.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
     _ => Rc.clone(enum_ty)
   )
 );
@@ -881,7 +881,7 @@ _compile_variant :: (
       expr_info_table_set(
         &ctx.expr_info_table,
         ast_expr_id(&label_expr),
-        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit)))
+        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)))
       );
     }, {
       if(is_curly, {
@@ -944,7 +944,7 @@ _compile_variant :: (
         });
       });
     });
-    fty := match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    fty := match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
       fid5 := match(fty.clone(), Rc(.Struct({ id : bid6 })) => bid6, _ => String.from("-"));
       fta5 := match(fty.clone(), Rc(.Struct({ type_arguments : bta6 })) => bta6.len(), _ => usize(0));
@@ -1049,7 +1049,7 @@ _compile_tuple :: (
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-    ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    ety := match(elem_tys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     ev := match(
       elem_vals,
       .Some(evs) => evs.get(i),
@@ -1146,7 +1146,7 @@ _compile_struct :: (
       expr_info_table_set(
         &ctx.expr_info_table,
         ast_expr_id(&label_expr),
-        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit)))
+        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)))
       );
     }, {
       // A bare `_` argument contributes nothing (a struct pattern is partial
@@ -1204,7 +1204,7 @@ _compile_struct :: (
         return(Pattern.Wildcard);
       });
     });
-    fty := match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    fty := match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     fval := match(
       field_vals,
       .Some(fvs) => fvs.get(fidx),
@@ -1382,7 +1382,7 @@ compile_pattern :: (
     // continued past a throw here with a NULL sub-pattern
     // (issues/fixed/at-pattern-subpattern-error-crashes-check.md).
     sub := compile_pattern(&sub_expr, position_ty, value_opt, pc, env, ctx, exn);
-    return(Pattern.At(name : nm, token : ast_expr_token(&name_expr), atom : name_expr, sub : box(sub)));
+    return(Pattern.At(name : nm, token : ast_expr_token(&name_expr), atom : name_expr, sub : Box.new(sub)));
   });
   // A bare identifier that does NOT name a constant in scope is a BINDING of
   // this position (checked before the Rc look-through so an Rc position
@@ -1458,7 +1458,7 @@ compile_pattern :: (
       );
       sub_expr := match(_args_of(e).get(usize(0)), .Some(a) => a, .None => make_err_expr());
       sub := compile_pattern(&sub_expr, &inner, &inner_val, pc, env, ctx, exn);
-      return(Pattern.ThroughBox(box_ty : cell_ty, inner_ty : inner, sub : box(sub)));
+      return(Pattern.ThroughBox(box_ty : cell_ty, inner_ty : inner, sub : Box.new(sub)));
     },
     .None => ()
   );
@@ -1491,7 +1491,7 @@ compile_pattern :: (
       .None => Option(EvalValue).None
     );
     sub := compile_pattern(e, &inner, &inner_val, pc, env, ctx, exn);
-    return(Pattern.ThroughBox(box_ty : Rc.clone(position_ty), inner_ty : inner, sub : box(sub)));
+    return(Pattern.ThroughBox(box_ty : Rc.clone(position_ty), inner_ty : inner, sub : Box.new(sub)));
   });
   // An `Rc(T)` or `Arc(T)` cell is never looked through implicitly: the
   // pattern spells the wrapper it crosses (decision 31).

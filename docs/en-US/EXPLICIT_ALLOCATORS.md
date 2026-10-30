@@ -39,7 +39,7 @@ vtable must outlive every block it handed out (see
 
 **Global by default, placement by argument.** A creation with no allocator
 argument always goes to the global allocator. No caller can set an allocation scope:
-what a call such as `ArrayList(i32).new()` or `rc(v)` does never depends on
+what a call such as `ArrayList(i32).new()` or `Rc.new(v)` does never depends on
 its caller. Every placement in another allocator is visible at the creation
 site, as one argument.
 
@@ -59,7 +59,7 @@ main :: (fn() -> unit)({
   a := Allocator.global();
   {
     // One cell, placed in `a` by its `alloc` argument.
-    p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
+    p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     // A list whose buffer, and every growth of it, lives in `a`.
     xs := ArrayList(i32).new(alloc : .Some(a));
     xs.push(p.x);
@@ -75,8 +75,8 @@ export(main);
 
 ## Placement: the `alloc` argument
 
-`box`, `rc` and `arc`, and the type constructors they spell (`Box(T).new`,
-`Rc(T).new`, `Arc(T).new`), take an optional `alloc : Option(Allocator)`. `.Some(a)`
+The handle constructors `Box.new`, `Rc.new` and `Arc.new` (`Box(T).new`,
+`Rc(T).new`, `Arc(T).new` with the type written) take an optional `alloc : Option(Allocator)`. `.Some(a)`
 places the cell in `a`; the default, `.None`, places it on the global
 allocator. The cell is freed through the allocator that placed it, on
 whichever thread drops the last handle. Yo does not wrap a value into an
@@ -84,9 +84,9 @@ whichever thread drops the last handle. Yo does not wrap a value into an
 
 ```yo
 // `a` is any `Allocator` value.
-b := box(i32(1), alloc : .Some(a));
-r := rc(i32(2), alloc : .Some(a));
-c := arc(i32(3), alloc : .Some(a));
+b := Box.new(i32(1), alloc : .Some(a));
+r := Rc.new(i32(2), alloc : .Some(a));
+c := Arc.new(i32(3), alloc : .Some(a));
 ```
 
 A function that lets its caller place what it creates declares the same
@@ -100,15 +100,15 @@ words, as `a.alloc(n, align)` does, still needs the pragma:
 
 Node :: struct(name : i32, kids : ArrayList(i32));
 make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
-  rc(Node(name : name, kids : ArrayList(i32).new(alloc : alloc)), alloc : alloc)
+  Rc.new(Node(name : name, kids : ArrayList(i32).new(alloc : alloc)), alloc : alloc)
 );
 ```
 
 Everything a program creates without such an argument is global:
 
 - `ref` struct and `ref` enum constructors (to place one, make it a value
-  struct and wrap it: `rc(v, alloc : .Some(a))`),
-- the cell `dyn` makes for a value (`dyn(rc(v, alloc : .Some(a)))` places the
+  struct and wrap it: `Rc.new(v, alloc : .Some(a))`),
+- the cell `dyn` makes for a value (`dyn(Rc.new(v, alloc : .Some(a)))` places the
   `Dyn`'s data object: the `Rc` cell is used as it is, with no second cell),
 - interpolated strings (build a placed one with
   `StringBuilder.new(alloc : .Some(a))`),
@@ -116,15 +116,15 @@ Everything a program creates without such an argument is global:
 - the state machines of `io.async` tasks,
 - the runtime's own bookkeeping (event-loop structures, thread pools).
 
-`box` calls `a`'s `alloc` directly. `rc` and `arc` make `a` the thread's
+`Box.new` calls `a`'s `alloc` directly. `Rc.new` and `Arc.new` make `a` the thread's
 allocation scope for the one construction (until the cell primitive takes the
-allocator itself), so an allocator used with `rc` or `arc` must follow the
+allocator itself), so an allocator used with `Rc.new` or `Arc.new` must follow the
 callback rule in [Writing your own allocator](#writing-your-own-allocator).
 
 ## Containers
 
 The mutable containers' constructors take the same defaulted
-`alloc : Option(Allocator)` as `box`, `rc` and `arc`. Without it a container is
+`alloc : Option(Allocator)` as `Box.new`, `Rc.new` and `Arc.new`. Without it a container is
 global, and so are the types built on them (`String`, an interpolation):
 
 | Container       | Constructors taking `alloc`              | Placed copy    |
@@ -214,7 +214,7 @@ Point :: struct(x : i32, y : i32);
 main :: (fn() -> unit)({
   a := Allocator.global(); // any `Allocator`: it is `Send`
   t := Thread(i32).spawn(io => {
-    p := rc(Point(x : i32(1), y : i32(2)), alloc : .Some(a));
+    p := Rc.new(Point(x : i32(1), y : i32(2)), alloc : .Some(a));
     p.x + p.y
   });
   println(`${t.join()}`);
@@ -256,11 +256,11 @@ contract:
 - A block can be freed on another thread (an `Arc` dropped there), so an
   allocator shared across threads makes its `free` thread-safe.
 - The callbacks must not create a reference-counted object without an
-  `alloc` argument: no `ref` constructor, and no `rc`, `arc` or `dyn` without
-  `alloc`. For `rc(v, alloc : .Some(a))` and `arc(v, alloc : .Some(a))` they run
+  `alloc` argument: no `ref` constructor, and no `Rc.new`, `Arc.new` or `dyn` without
+  `alloc`. For `Rc.new(v, alloc : .Some(a))` and `Arc.new(v, alloc : .Some(a))` they run
   with their own allocator as the thread's allocation scope, so such an
   allocation calls back into `alloc` and recurses until the stack overflows.
-  Containers, `String` and `box(...)` are global and safe to use. Get memory
+  Containers, `String` and `Box.new(...)` are global and safe to use. Get memory
   from `GlobalAllocator` or from a buffer you own, as the example below does.
 
 Your functions never see the owner prefix: `std/allocator` asks your `alloc`
@@ -313,7 +313,7 @@ main :: (fn() -> unit)({
   counts := _Counts(allocs : usize(0), frees : usize(0));
   a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(_COUNT_VTABLE));
   {
-    p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
+    p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     println(`${p.x}`);
   };
   println(`allocs=${counts.allocs} frees=${counts.frees}`); // allocs=1 frees=1
@@ -361,10 +361,10 @@ one tells which subsystem a leaked block came from.
 ## Cost
 
 A `ref` constructor, a `dyn` box and an `io.async` task still check the
-thread's allocation scope that `rc` and `arc` set for one construction: one
+thread's allocation scope that `Rc.new` and `Arc.new` set for one construction: one
 relaxed atomic load and a branch, measured within noise on the compiler's own
 self-compile (`plans/archive/EXPLICIT_ALLOCATORS.md`). That check is removed
-once `rc` and `arc` place through the cell primitive
+once `Rc.new` and `Arc.new` place through the cell primitive
 (`plans/backlog/ALLOCATOR_PLACEMENT.md`, B2). Containers keep their size,
 because the allocator lives in the buffer's prefix rather than in a new field.
 
@@ -378,15 +378,15 @@ and a placed container buffer's is 16.
 
 - **No arena in std.** See
   [When to use an explicit allocator](#when-to-use-an-explicit-allocator).
-- **Over-aligned types.** `Allocator.alloc`, the containers and `box` ask for
+- **Over-aligned types.** `Allocator.alloc`, the containers and `Box.new` ask for
   the payload's alignment, so an allocator can serve any power of two, and a
   global `Box` of a type aligned above 16 comes from the aligned family. A
-  global `rc`/`arc` cell is only 16-aligned, so an `Rc` or `Arc` of such a type
+  global `Rc`/`Arc` cell is only 16-aligned, so an `Rc` or `Arc` of such a type
   must be placed. No Yo type is aligned above 16 today; an `extern` C type can
   be.
 - **No placed `ref` objects.** A `ref` constructor takes no `alloc`
   argument. Make the type a value struct and place it with
-  `rc(v, alloc : .Some(a))`.
+  `Rc.new(v, alloc : .Some(a))`.
 
 The design record, with measurements and the phase-by-phase history, is
 `plans/archive/EXPLICIT_ALLOCATORS.md`. The landed decisions are summarized in

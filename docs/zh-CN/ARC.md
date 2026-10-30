@@ -2,7 +2,7 @@
 
 `Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
 在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为一个薄包装的
-`atomic(ref(struct(...)))`，因此 `Arc` 与 `arc(...)` 会通过 prelude 自动可用。
+`atomic(ref(struct(...)))`，因此 `Arc` 与 `Arc.new(...)` 会通过 prelude 自动可用。
 `Arc(T)` 本身要求 `T <: (Send, Sync)`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。每个约束各有原因：
 
 - `Sync`：每个句柄都在自己的线程上读取载荷。
@@ -39,7 +39,7 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 - 当你要定义**自己的共享类型**时，使用 `atomic(ref(struct(...)))`。
 - 要把值**转移**到另一个线程而不是共享它，就移动它：`Send` 值可以移入派生的闭包或经由 `Channel` 发送。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值。在 `String` 和各集合类型通过移动成为 `Send`（`plans/VALUES_BY_DEFAULT.md` V2b）之前，二者都不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。（过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除。）
 - `Arc(T)` 只接受同时实现了 `Send` 和 `Sync` 的子类型；普通 `ref(struct(...))` 两者都不满足。是 `Send` 但不是 `Sync` 的类型（用 `impl(T, !(Sync()))` 退出 `Sync` 的类型）应放进 `Mutex(T)`，由它串行化访问。
-- 对函数值（闭包或具名函数）调用 `arc(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
+- 对函数值（闭包或具名函数）调用 `Arc.new(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
 许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
 原语本身就基于 `atomic(ref(struct(...)))` 实现，可以直接跨线程共享。
@@ -52,21 +52,21 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 ### 创建 Arc
 
 ```yo
-value := arc(i32(42));
+value := Arc.new(i32(42));
 same := Arc(i32)(i32(42));
 ```
 
 ### 放置单元
 
-`arc(value, alloc : .Some(a))` 从分配器 `a` 分配单元。最后一个句柄
+`Arc.new(value, alloc : .Some(a))` 从分配器 `a` 分配单元。最后一个句柄
 被 drop 时，无论在哪个线程上，单元都通过 `a` 释放。不传 `alloc` 时，单元使用全局
-分配器（见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `box` 不同，`arc` 在
+分配器（见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `Box.new` 不同，`Arc.new` 在
 分配单元时把 `a` 设为当前线程的分配作用域，所以 `a` 自己的回调不能创建不带 `alloc`
 参数的引用计数对象（见该文档的“编写自己的分配器”）：
 
 ```yo
 // `alloc_a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
-shared := arc(i32(42), alloc : .Some(alloc_a));
+shared := Arc.new(i32(42), alloc : .Some(alloc_a));
 ```
 
 ### 解引用
@@ -74,7 +74,7 @@ shared := arc(i32(42), alloc : .Some(alloc_a));
 通过 `.*` 访问内部值，它返回借用访问：
 
 ```yo
-value := arc(i32(42));
+value := Arc.new(i32(42));
 copied := value.*;
 assert(copied == i32(42), "inner value is 42");
 ```
@@ -84,10 +84,10 @@ assert(copied == i32(42), "inner value is 42");
 `Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出
 （[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决定 17）：源值之后仍被使用的隐式拷贝是 E0901，句柄的最后一次
 使用会移动它。`yo fix <path> --migrate rc-clone` 为已有代码写出这些克隆。`Arc(T)` 对任何 `T` 都实现
-`Clone`，它的克隆总是第二个句柄；值的深拷贝写作 `arc(a.*.clone())`。
+`Clone`，它的克隆总是第二个句柄；值的深拷贝写作 `Arc.new(a.*.clone())`。
 
 ```yo
-a := arc(i32(42));
+a := Arc.new(i32(42));
 b := Arc.clone(a);
 c := Arc.clone(b);
 
@@ -100,7 +100,7 @@ assert(b.* == c.*, "same shared value");
 ```yo
 { Thread } :: import("std/thread");
 
-shared := arc(i32(42));
+shared := Arc.new(i32(42));
 
 t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
   assert(shared.* == i32(42), "thread sees shared value");
@@ -120,7 +120,7 @@ assert(shared.* == i32(42), "main still sees shared value");
 两者都在一个原子步骤中判定唯一性（Rust 的做法：把强计数从 1 比较并交换为 0），因此另一个线程上的 `ArcWeak.upgrade` 要么发生在它之前（句柄因而算作共享），要么发现单元已被占用并返回 `.None`。
 
 ```yo
-a := arc(i32(1));
+a := Arc.new(i32(1));
 b := Arc.clone(a);
 Arc.make_mut(&mut b) = i32(2); // b 得到自己的单元
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
@@ -152,7 +152,7 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 
 Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 
-a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
+a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
 b := Arc.clone(a);
 a.with_lock(v => {
   v.peer = .Some(b); // a -> mutex -> node -> a：这个单元永远不会被释放

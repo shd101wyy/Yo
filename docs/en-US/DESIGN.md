@@ -1055,7 +1055,7 @@ p.set_x(10); // No `addr_of(p)` required — the compiler inserts it
 
 A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Rc(i32).clone(b)`) or without them (`Rc.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. This works for any generic struct or enum, not only the prelude's wrappers.
 
-A static method (one whose first parameter is not `Self`) infers them from its arguments instead: every argument whose parameter's declared type mentions the impl's type parameters binds them, so `Pair.make(i32(1), true)` is `Pair(i32, bool).make(i32(1), true)` and `Rc.new(x)` is `Rc(X).new(x)`. Nesting works (a parameter `xs : ArrayList(T)` given an `ArrayList(String)` binds `T := String`), and a literal binds its default type (`Rc.new(42)` is an `Rc(i32)`). A closure literal, an enum shorthand `.X` and a defaulted argument bind nothing, and the type the call's result is expected to have never supplies them: `Rc.new(.None)`, a call with no arguments (`ArrayList.new()`) and a type parameter no argument mentions are E0613, whose help is to write the arguments (`Rc(Option(i32)).new(.None)`). Two arguments that bind one parameter to different types are E0601, and two impls the arguments both fit are an ambiguous E0613. For a method whose first parameter is `Self` (`self : &Self`, `lhs : &Self`), a first argument that is not an instance of the constructor is E0613, and the message names the argument's type.
+A static method (one whose first parameter is not `Self`) infers them from its arguments instead: every argument whose parameter's declared type mentions the impl's type parameters binds them, so `Pair.make(i32(1), true)` is `Pair(i32, bool).make(i32(1), true)` and `Rc.new(x)` is `Rc(X).new(x)`. Nesting works (a parameter `xs : ArrayList(T)` given an `ArrayList(String)` binds `T := String`), and a literal binds its default type (`Rc.new(42)` is an `Rc(i32)`). A closure literal, an enum shorthand `.X`, a `dyn(...)` value and a defaulted argument bind nothing, and the type the call's result is expected to have never supplies them: `Rc.new(.None)`, a call with no arguments (`ArrayList.new()`) and a type parameter no argument mentions are E0613, whose help is to write the arguments (`Rc(Option(i32)).new(.None)`). Two arguments that bind one parameter to different types are E0601, and two impls the arguments both fit are an ambiguous E0613. For a method whose first parameter is `Self` (`self : &Self`, `lhs : &Self`), a first argument that is not an instance of the constructor is E0613, and the message names the argument's type.
 
 The receiver may be labeled like any argument (`Pair.first(self : p)`), and the constructor may be module-qualified (`m.Pair.first(p)`). The match is by constructor identity, so a constructor whose body applies another one is a constructor of its own: for an alias `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` or a partial application `Pair(i32, _)`, a value built as `IntPair(u8)` is a `Pair(i32, u8)`, which `Pair.first(q)` and `IntPair(u8).first(q)` accept and `IntPair.first(q)` rejects with E0613.
 
@@ -1072,7 +1072,7 @@ impl(
 
 p := Pair.make(i32(1), true); // static: A := i32, B := bool, from the arguments
 a := Pair.first(p); // A := i32, B := bool, from the receiver `p`
-w := rc(i32(5));
+w := Rc.new(i32(5));
 c := Rc.clone(w); // Rc(i32).clone(w)
 ```
 
@@ -1229,15 +1229,15 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 
 #### Explicit Allocators
 
-RC decides when an object dies; an explicit allocator decides where it lives. A creation with no allocator argument goes to the global allocator; a placement is one argument at the creation site: `alloc : .Some(a)`, for `box`, `rc` and `arc` and for the containers' `new` / `with_capacity`:
+RC decides when an object dies; an explicit allocator decides where it lives. A creation with no allocator argument goes to the global allocator; a placement is one argument at the creation site: `alloc : .Some(a)`, for `Box.new`, `Rc.new` and `Arc.new` and for the containers' `new` / `with_capacity`:
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 Point :: struct(x : i32, y : i32);
 
 // `a` is any `Allocator` value, e.g. `Allocator.global()`.
-p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // placed in `a`
-p2 := rc(Point(x : i32(1), y : i32(2))); // no argument: the global allocator
+p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // placed in `a`
+p2 := Rc.new(Point(x : i32(1), y : i32(2))); // no argument: the global allocator
 xs := ArrayList(i32).new(alloc : .Some(a)); // the buffer lives in `a`
 ```
 
@@ -1306,7 +1306,7 @@ The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Wa
 
 - **A copy is E0901.** `g := f` moves the file, and a use of `f` afterwards is E0901 (use of moved value). Storing one handle twice, or capturing it in two closures, is E0901 as well. Before this change a `File` was a reference handle, and a copy shared its descriptor and position.
 - **Lend it.** Every method takes `self : &Self`, so `f.read_to_string(io)` borrows `f`. A function that only uses a resource takes `&File`.
-- **Share it through a reference type.** On one thread, `rc(f)` gives an `Rc(File)` whose handles all reach the one file (`h.*.read_to_string(io)`). Across threads, use `Arc(Mutex(TcpStream))`; that needs a `Send` resource, which today are the sockets other than `UnixListener`, `Child` and its pipes, and `Thread`. `File`, the temporaries and `UnixListener` hold a `String` path and become `Send` with the collections (V2b); `Watcher`, `TlsStream` and `HttpClient` stay on their thread. A `ref` struct that holds a resource holds it as an `Rc` field for the same reason, as `HttpServer` holds its listener.
+- **Share it through a reference type.** On one thread, `Rc.new(f)` gives an `Rc(File)` whose handles all reach the one file (`h.*.read_to_string(io)`). Across threads, use `Arc(Mutex(TcpStream))`; that needs a `Send` resource, which today are the sockets other than `UnixListener`, `Child` and its pipes, and `Thread`. `File`, the temporaries and `UnixListener` hold a `String` path and become `Send` with the collections (V2b); `Watcher`, `TlsStream` and `HttpClient` stay on their thread. A `ref` struct that holds a resource holds it as an `Rc` field for the same reason, as `HttpServer` holds its listener.
 - **Moving it out.** `Option(T).unwrap` reads through a borrow and cannot move a move-only payload out. Use a consuming match instead: `f := match(opt, .Some(x) => x, .None => …)`.
 - **Hand it over.** `BufReader(File).new(f)` and `TcpListener.incoming()` take ownership (`sink`); `get_ref()` and `Incoming.listener()` lend it back, and `BufReader.into_inner()` / `BufWriter.into_parts()` give it back by value. To serve a socket from a spawned task, move it into the task.
 - **Dropping it releases it.** A `Child` dropped without `wait()` closes the pipe ends it still holds (it does not wait for the process).
@@ -3199,7 +3199,7 @@ test_capture :: (fn() -> unit)({
   mut(counter) := i32(0);
 
   // Reference-semantics type - captured by reference
-  data := rc(RefCell(i32).new(i32(42))); // `std/sync/refcell`
+  data := Rc.new(RefCell(i32).new(i32(42))); // `std/sync/refcell`
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
@@ -3416,11 +3416,11 @@ sum :: (fn(t : &Tree) -> i32)(
     .Node(l, r) => (sum(&l.*) + sum(&r.*))
   )
 );
-t := Tree.Node(box(Tree.Leaf(1)), box(Tree.Leaf(2)));
+t := Tree.Node(Box.new(Tree.Leaf(1)), Box.new(Tree.Leaf(2)));
 assert(sum(&t) == 3);
 ```
 
-- **`box(v)`** moves `v` into a new cell. `b.*` is the payload place, in safe
+- **`Box.new(v)`** moves `v` into a new cell. `b.*` is the payload place, in safe
   code too: `b.* = v` replaces it, and `b.field` / `b.method()` reach it by
   auto-dereference. A pattern looks through a `Box` payload with `Box(p)`,
   as through an `Rc`'s with `Rc(p)`; for now a `Box` is also looked through
@@ -3440,7 +3440,7 @@ assert(sum(&t) == 3);
   cell carries its count. A cell an `alloc` argument placed has the word's
   placed bit set and, in front of the header, a 16-byte owner prefix
   recording the allocator; a global cell carries no prefix.
-- **Allocators.** `box(v, alloc : .Some(a))` places the cell in `a`;
+- **Allocators.** `Box.new(v, alloc : .Some(a))` places the cell in `a`;
   without `alloc`, the cell is on the global allocator. The cell is freed through its owner, and `Box.clone(b)`
   lands where `b` lives (a box placed by an explicit allocator clones into that allocator).
   `Box.allocator(b)` reads the owner back (`.None` for the global allocator).
@@ -3450,7 +3450,7 @@ assert(sum(&t) == 3);
 
 ## Rc and Reference-Counted Cells
 
-Yo provides `Rc` and `rc` for heap-allocating value types with automatic reference counting.
+Yo provides `Rc` (built with `Rc.new`) for heap-allocating value types with automatic reference counting.
 
 ### Rc Type
 
@@ -3460,7 +3460,7 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > reference count**, exactly like Rust's `Rc::clone`.
 >
 > ```yo
-> a := rc(i32(42));
+> a := Rc.new(i32(42));
 > b := Rc.clone(a);          // a second handle, NOT a copy of the value
 > assert(ref_count(a) == usize(2), "a and b name the SAME value");
 > ```
@@ -3476,7 +3476,7 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > spells the clones in existing code. The clone is spelled through the type,
 > `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`
 > (decision 32). `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
-> clone is always a second handle; a deep copy is `rc(h.*.clone())`. A generic body is judged at each instantiation, so a copy
+> clone is always a second handle; a deep copy is `Rc.new(h.*.clone())`. A generic body is judged at each instantiation, so a copy
 > of a `T` that is a handle needs `.clone()` there too (`where(T <: Clone)`).
 > std's generic bodies are the exception for now: their readers copy the
 > element through `T` (`ArrayList(Rc(T)).get(i)`, `HashMap.get`), so a copy
@@ -3507,38 +3507,32 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
     )
   )
 );
-
-// rc allocates a fresh cell whose ref_count is 1
-rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
-  ...
-);
 ```
 
-`rc` is the constructor, not the count: the count is `ref_count(x)`.
-`alloc : .Some(a)` places the cell in the allocator `a`; the default, `.None`,
-places it on the global allocator
-([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
-
-The type's own constructor is `Rc(T).new(value, alloc : …)`, with the same
-parameters: `rc(v)` is `Rc(T).new(v)`, as `box(v)` is `Box(T).new(v)` and
-`arc(v)` is `Arc(T).new(v)`. `dyn(v)` builds its cell through `Rc(T).new` (or
+The constructor is `Rc(T).new(value, (alloc : Option(Allocator)) ?= .None)`. It
+allocates a fresh cell whose count is 1; the count is read with `ref_count(x)`.
+`Rc.new(v)` infers `T` from the argument, as `Box.new(v)` and `Arc.new(v)` do;
+write the type, `Rc(T).new(...)`, when the argument does not carry it (an enum
+shorthand such as `.None`, a closure literal). `alloc : .Some(a)` places the cell
+in the allocator `a`; the default, `.None`, places it on the global allocator
+([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). `dyn(v)` builds its cell through `Rc(T).new` (or
 `Arc(T).new` for a `Send` target).
 
 ### Usage Examples
 
 ```yo
 // Wrap a primitive value
-i := rc(42); // i: Rc(i32)
+i := Rc.new(42); // i: Rc(i32)
 assert(i.* == 42); // Dereference with .*
 // Wrap a struct
 Point :: struct(x : i32, y : i32);
-p := rc(Point(x : 3, y : 4)); // p: Rc(Point)
+p := Rc.new(Point(x : 3, y : 4)); // p: Rc(Point)
 assert(p.*.x == 3);
 
 // Rc with explicit type
-b := Rc(i32)(100); // Same as rc(100)
+b := Rc(i32)(100); // Same as Rc.new(100)
 // The payload is read-only through the handle (E0919); a door writes it
-m := rc(i32(10));
+m := Rc.new(i32(10));
 Rc.make_mut(&mut m) = i32(20); // in place: m is the only handle
 assert(m.* == 20);
 ```
@@ -3553,11 +3547,11 @@ payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
-p := rc(Point(x : 3, y : 4));
+p := Rc.new(Point(x : 3, y : 4));
 assert(p.x == 3); // p.*.x
 p.x = 5; // a place: writes p.*.x
 assert(p.norm1() == 9); // p.*.norm1()
-pp := rc(rc(Point(x : 1, y : 2)));
+pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
 assert(pp.y == 2); // nested wrappers: pp.*.*.y
 ```
 
@@ -3587,8 +3581,8 @@ assert(pp.y == 2); // nested wrappers: pp.*.*.y
 
 ```yo
 test("Rc assignment behavior", {
-  x := rc(1);
-  y := (x = rc(2)); // y gets the old value
+  x := Rc.new(1);
+  y := (x = Rc.new(2)); // y gets the old value
   assert(x.* == 2); // x now points to the new Rc
   assert(y.* == 1); // y has the old Rc
 });
@@ -3600,7 +3594,7 @@ test("Rc assignment behavior", {
 
 ```yo
 test("Rc reference counting", {
-  original := rc(42);
+  original := Rc.new(42);
   copy := original; // RC increment
   another := copy; // RC increment
   // All three point to the same Rc
@@ -3639,7 +3633,7 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
 
   ```yo
   { RefCell } :: import("std/sync/refcell");
-  log := rc(RefCell(i32).new(i32(0)));
+  log := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(log); // a second handle to the same cell
   other.replace_with(n => (n + i32(1)));
   assert(log.with(n => n) == i32(1), "seen through the first handle");
@@ -3652,7 +3646,7 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
   the name.
 
   ```yo
-  a := rc(Point(x : 1, y : 2));
+  a := Rc.new(Point(x : 1, y : 2));
   b := Rc.clone(a);
   Rc.make_mut(&mut b).x = 10; // b gets a cell of its own
   assert((a.x == 1) && (b.x == 10), "a is unchanged");
@@ -3679,7 +3673,7 @@ edge for the cycle collector, so a parent pointer `Weak(RefCell(Node))`
 closes no cycle. See [WEAK.md](./WEAK.md).
 
 ```yo
-a := rc(i32(7));
+a := Rc.new(i32(7));
 w := Rc.downgrade(&a);
 assert(w.upgrade().is_some(), "alive while a is");
 consume(a);
@@ -3690,7 +3684,7 @@ assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 
 - **Heap allocation**: When you need a value type on the heap
 - **Shared ownership**: Several handles to one value; shared mutation goes through `Rc(RefCell(T))`
-- **Dynamic dispatch**: Wrapping value types for use with `Dyn` (`dyn(v)` on a value type does this for you: it wraps `v` in `rc(v)`)
+- **Dynamic dispatch**: Wrapping value types for use with `Dyn` (`dyn(v)` on a value type does this for you: it wraps `v` in `Rc.new(v)`)
 - **Recursive types**: only when the nodes are shared; a tree of uniquely owned nodes uses `Box`
 
 ```yo
@@ -3701,7 +3695,7 @@ impl(i32, SomeTrait(...));
 use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
 // Wrap the i32 in an Rc for use with Dyn
-use_dyn(dyn(rc(i32(42))));
+use_dyn(dyn(Rc.new(i32(42))));
 ```
 
 ## Impl Types
@@ -4203,8 +4197,8 @@ cycle-collected, so a cycle of `Arc` handles leaks unless a back edge is cleared
 Use `atomic(ref(struct(...)))` when defining your own shared types.
 
 ```yo
-// Create with the arc() helper
-shared := arc(i32(42));
+// Create with Arc.new
+shared := Arc.new(i32(42));
 
 // Dereference with .(*)  (borrowed, read-only)
 val := shared.*; // val == 42
@@ -4212,7 +4206,7 @@ val := shared.*; // val == 42
 copy := shared; // refcount: 1 → 2
 // Cross-thread sharing
 { Thread } :: import("std/thread");
-shared := arc(i32(42));
+shared := Arc.new(i32(42));
 t := Thread(unit).spawn(io => {
   assert(shared.* == i32(42), "thread sees shared value");
 });
