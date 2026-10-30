@@ -257,7 +257,7 @@ _evaluate_inout_local_binding :: (
     );
   });
   name_tok := ast_expr_token(&name_expr);
-  var_name := name_tok.value.clone();
+  var_name := name_tok.value.*.clone();
   shadow_existing := get_variables_from_env(env, var_name.clone());
   if(shadow_existing.len() > usize(0), {
     match(
@@ -326,9 +326,9 @@ _evaluate_inout_local_binding :: (
     hi = (hi + usize(1));
   });
   root_tok := ast_expr_token(&root_atom);
-  root_vars := get_variables_from_env(env, root_tok.value.clone());
+  root_vars := get_variables_from_env(env, root_tok.value.*.clone());
   if(root_vars.len() == usize(0), {
-    exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value}" is not defined.`)));
+    exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`)));
   });
   root_var := match(root_vars.last(), .Some(v) => v, .None => make_err_variable(env));
   if(root_var.is_compile_time_only, {
@@ -336,7 +336,7 @@ _evaluate_inout_local_binding :: (
       dyn(
         format_error_message(
           &root_tok,
-          `Cannot borrow "${root_tok.value}" (\`${sig}${root_tok.value}\`): it is a compile-time value with no runtime storage to alias.`
+          `Cannot borrow "${root_tok.value.*}" (\`${sig}${root_tok.value.*}\`): it is a compile-time value with no runtime storage to alias.`
         )
       )
     );
@@ -583,7 +583,7 @@ _bind_projection_result :: (
   sig := if(is_mut, String.from("&mut "), String.from("&"));
   call_text := ast_expr_to_string(rhs);
   name_tok := ast_expr_token(name_expr);
-  var_name := name_tok.value.clone();
+  var_name := name_tok.value.*.clone();
   if(is_compile_time_only || ctx.is_evaluating_function_body_or_async_block.is_none(), {
     exn.throw(
       dyn(
@@ -728,7 +728,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     exn.throw(dyn(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`)));
   });
   name_tok := ast_expr_token(&name_expr);
-  name := name_tok.value.clone();
+  name := name_tok.value.*.clone();
   cur_var := match(
     get_variables_from_env(&env, name.clone()).last(),
     .Some(v) => v,
@@ -829,10 +829,10 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   root_tok := ast_expr_token(&root_atom);
   root_var := match(
-    get_variables_from_env(&env, root_tok.value.clone()).last(),
+    get_variables_from_env(&env, root_tok.value.*.clone()).last(),
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value}" is not defined.`)));
+      exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`)));
       make_err_variable(&env)
     }
   );
@@ -1174,7 +1174,7 @@ evaluate_initialization_assignment :: (
   });
   // Prevent declaring variable type using :: or :=.
   if(ast_expr_is_fn_call(&actual_lhs) && ast_expr_is_fn_call_of(&actual_lhs, BK_COLON, .None), {
-    op_str := ast_expr_token(expr).value.clone();
+    op_str := ast_expr_token(expr).value.*.clone();
     exn.throw(
       dyn(
         format_error_message(
@@ -1311,7 +1311,7 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     );
     // Validate LHS name.
     if(!is_valid_variable_name(&actual_lhs), {
-      lhs_tok_val := ast_expr_token(&actual_lhs).value.clone();
+      lhs_tok_val := ast_expr_token(&actual_lhs).value.*.clone();
       exn.throw(
         dyn(
           format_error_message(
@@ -1325,12 +1325,12 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     // (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md Part 1). Twin gate:
     // `name : Type` bindings are checked in binding.yo.
     res_tok := ast_expr_token(&actual_lhs);
-    if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.clone()), {
+    if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.*.clone()), {
       exn.throw(
         dyn(
           format_error_message(
             &res_tok,
-            `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
+            `Operator "${res_tok.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
           )
         )
       );
@@ -1339,11 +1339,11 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     // gate): `consume`/`runtime`/`recur`/`dyn` are call-dispatch names — a
     // user binding is silently hijacked and can never run. This covers `::`
     // definitions (including bare functions), typed `(x : T) =` and `:=`.
-    if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
+    if(is_reserved_builtin_binding_name(res_tok.value.*.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
       raise_flow_violation(
         format_error_message(
           &res_tok,
-          reserved_builtin_binding_message(res_tok.value.clone())
+          reserved_builtin_binding_message(res_tok.value.*.clone())
         ),
         ctx,
         exn
@@ -1505,7 +1505,7 @@ ${expr_str}`
       .None => true
     );
     if(rhs_has_no_ct_value && effective_is_compile_time_only, {
-      lhs_tok_val := ast_expr_token(&actual_lhs).value.clone();
+      lhs_tok_val := ast_expr_token(&actual_lhs).value.*.clone();
       rhs_str := ast_expr_to_string(&rhs);
       exn.throw(
         dyn(
@@ -1530,7 +1530,7 @@ ${rhs_str}`
       .Some(rv) => match(
         rv,
         .TypeVal(tv_box) => {
-          binding_name := ast_expr_token(&actual_lhs).value.clone();
+          binding_name := ast_expr_token(&actual_lhs).value.*.clone();
           stamped_ty := match(
             tv_box,
             // The binding name is also the id's display name, so a copy that
@@ -1645,10 +1645,10 @@ ${rhs_str}`
     // Rename `_` to a unique temp name so it is tracked in the frame for drop/RC cleanup.
     actual_lhs_tok := ast_expr_token(&actual_lhs);
     (var_name : String) = cond(
-      (actual_lhs_tok.value == "_") =>
+      (actual_lhs_tok.value.* == "_") =>
         generate_new_temp_variable_name(&env.module_path.*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path.*)),
       true =>
-        actual_lhs_tok.value.clone()
+        actual_lhs_tok.value.*.clone()
     );
     // Reject mutable runtime variable inside an impl block.
     is_runtime_not_in_fn := (!effective_is_compile_time_only && !ctx.is_evaluating_function_body_or_async_block.is_some());
@@ -1823,7 +1823,7 @@ Use \`::\` for compile-time definitions inside impl.`
       .None => ()
     );
     // Store the renamed variable name in ExprInfo so codegen uses it instead of "_".
-    if(actual_lhs_tok.value == "_", {
+    if(actual_lhs_tok.value.* == "_", {
       ali_after := match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&actual_lhs)),
         .Some(a) => a,

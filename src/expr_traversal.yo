@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
 evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value == BF_UNWIND),
+    .Atom(_, tok) => (tok.value.* == BF_UNWIND),
     .FnCall(_, func_box, args, _, _) => {
       is_cond := ast_expr_is_fn_call_of(e, BK_COND, .None);
       is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
@@ -124,7 +124,7 @@ expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => {
-      v := tok.value.clone();
+      v := tok.value.*.clone();
       (v == BK_RETURN) || (v == BF_UNWIND)
     },
     .FnCall(_, func_box, args, _, _) => {
@@ -200,7 +200,7 @@ expr_contains_loop_terminator :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, tok) => {
-      s := tok.value.clone();
+      s := tok.value.*.clone();
       (s == BK_BREAK) || (s == BK_RETURN) || (s == BF_UNWIND)
     },
     .FnCall(_, fn_box, args, _, _) => {
@@ -476,7 +476,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
       match(
         apw_func,
         .Atom(_, apw_ftok) => {
-          if((apw_ftok.value == "__yo_panic") || (apw_ftok.value == "abort") || (apw_ftok.value == "unreachable"), {
+          if((apw_ftok.value.* == "__yo_panic") || (apw_ftok.value.* == "abort") || (apw_ftok.value.* == "unreachable"), {
             return(true);
           });
         },
@@ -513,7 +513,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
               apw_has_arm = true;
               match(
                 apw_arm_args.get(usize(0)),
-                .Some(.Atom(_, apw_ctok)) => if((apw_ctok.value == "true") || (apw_ctok.value == "_"), {
+                .Some(.Atom(_, apw_ctok)) => if((apw_ctok.value.* == "true") || (apw_ctok.value.* == "_"), {
                   apw_has_default = true;
                 }),
                 .Some(_) => (),
@@ -597,7 +597,7 @@ _fusion_is_top_level_await :: (fn(stmt : &AstExpr) -> bool)(
 _fusion_closure_mentions :: (fn(e : &AstExpr, name : &String, inside_closure : bool) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (inside_closure && (tok.value == name)),
+    .Atom(_, tok) => (inside_closure && (tok.value.* == name)),
     .FnCall(_, f, args, _, _) => {
       is_cond_or_match := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
       nested := (inside_closure || (!is_cond_or_match && is_function_boundary_arrow(e)));
@@ -638,12 +638,12 @@ _fusion_closure_mentions :: (fn(e : &AstExpr, name : &String, inside_closure : b
 /// `(e : T) => ...`; empty for any other shape.
 _fusion_param_name :: (fn(pa : &AstExpr) -> String)(
   cond(
-    ast_expr_is_atom(pa) => ast_expr_token(pa).value.clone(),
+    ast_expr_is_atom(pa) => ast_expr_token(pa).value.*.clone(),
     ast_expr_is_fn_call_of(pa, ":", .None) => match(
       pa,
       .FnCall(_, _, pargs, _, _) => match(
         pargs.get(usize(0)),
-        .Some(pn) => if(ast_expr_is_atom(&pn), ast_expr_token(&pn).value.clone(), String.from("")),
+        .Some(pn) => if(ast_expr_is_atom(&pn), ast_expr_token(&pn).value.*.clone(), String.from("")),
         .None => String.from("")
       ),
       _ => String.from("")

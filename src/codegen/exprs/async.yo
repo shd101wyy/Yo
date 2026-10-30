@@ -2656,11 +2656,11 @@ _first_atom_site :: (fn(e : &AstExpr, name : &String) -> String)(
   match(
     e.clone(),
     .Atom(_, tok) => cond(
-      (tok.value == name) => `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`,
+      (tok.value.* == name) => `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`,
       true => String.from("")
     ),
     .FnCall(_, _, args, _, _) => {
-      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).value == name)), .None => false));
+      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).value.* == name)), .None => false));
       if(typed_here, {
         ctok := ast_expr_token(e.clone());
         a0tok := match(args.get(usize(0)), .Some(a0) => ast_expr_token(&a0), .None => ctok.clone());

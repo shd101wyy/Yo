@@ -62,7 +62,7 @@ _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGener
     match(
       cur,
       .Atom(_, _) => {
-        return(if(ast_expr_token(&cur).value == name, cur, lhs));
+        return(if(ast_expr_token(&cur).value.* == name, cur, lhs));
       },
       .FnCall(_, callee, args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).None), {
         cur = match(args.get(usize(0)), .Some(a0) => a0, .None => callee);
@@ -141,7 +141,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   );
   // Module-level globals are declared in the main wrapper — skip here.
   if(is_init && ast_expr_is_atom(&lhs), {
-    if(_last_is_module_level(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value), {
+    if(_last_is_module_level(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value.*), {
       return(String.from(""));
     });
   });
@@ -168,7 +168,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   });
   // LHS is a simple comptime variable name.
   if(ast_expr_is_atom(&lhs), {
-    if(_last_is_compile_time_only(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value), {
+    if(_last_is_compile_time_only(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value.*), {
       return(String.from(""));
     });
   });

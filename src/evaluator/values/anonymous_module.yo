@@ -428,7 +428,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           cond(
                             ast_expr_is_atom(&exclude_expr) => {
                               tok_val := ast_expr_token(&exclude_expr);
-                              lbl := tok_val.value.clone();
+                              lbl := tok_val.value.*.clone();
                               // Verify label exists in ext_mod_type
                               match(
                                 &ext_mod_type,
@@ -476,7 +476,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                         )
                                       );
                                     });
-                                    lbl := ast_expr_token(&member_expr).value.clone();
+                                    lbl := ast_expr_token(&member_expr).value.*.clone();
                                     match(
                                       &ext_mod_type,
                                       Rc(.Struct({ field_labels : efls })) => {
@@ -589,7 +589,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               )
                             );
                           });
-                          variable_name = ast_expr_token(&export_expr).value.clone();
+                          variable_name = ast_expr_token(&export_expr).value.*.clone();
                           given_var_name = variable_name.clone();
                         },
                         // export Label : _OriginalName
@@ -620,7 +620,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               )
                             );
                           });
-                          variable_name = ast_expr_token(&label_expr).value.clone();
+                          variable_name = ast_expr_token(&label_expr).value.*.clone();
                           if(!ast_expr_is_atom(&name_expr), {
                             exn.throw(
                               dyn(
@@ -641,7 +641,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               )
                             );
                           });
-                          given_var_name = ast_expr_token(&name_expr).value.clone();
+                          given_var_name = ast_expr_token(&name_expr).value.*.clone();
                         },
                         true => ()
                       );
@@ -824,7 +824,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                   }, {
                     // Bare-atom reassignment of a previously recorded static.
                     if(ast_expr_is_atom(&assign_lhs), {
-                      if(g_module_level_static_names.with(s => s.contains(ast_expr_token(&assign_lhs).value)), {
+                      if(g_module_level_static_names.with(s => s.contains(ast_expr_token(&assign_lhs).value.*)), {
                         record_module_level_init_expr(&evaluated);
                         _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
                       });

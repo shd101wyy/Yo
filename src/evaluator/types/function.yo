@@ -1083,7 +1083,7 @@ _is_dots_atom :: (fn(expr : &AstExpr) -> bool)(
     false,
     begin(
       tok := ast_expr_token(expr),
-      tok.value == "..."
+      tok.value.* == "..."
     )
   )
 );
@@ -1143,7 +1143,7 @@ _is_contract_clause :: (fn(e : &AstExpr) -> bool)(
 _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, at_tok) => (at_tok.value == name),
+    .Atom(_, at_tok) => (at_tok.value.* == name),
     .FnCall(_, f_box, f_args, _, _) => cond(
       recur(&f_box, name.clone()) => true,
       true => {
@@ -1682,7 +1682,7 @@ evaluate_function_parameter :: (
           )
         );
       });
-      if(ast_expr_token(&lhs_mut).value == "mut", {
+      if(ast_expr_token(&lhs_mut).value.* == "mut", {
         exn.throw(dyn(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut")))));
       });
       label = .Some(ast_expr_text(&lhs_mut).*);

@@ -75,7 +75,7 @@ handle_folding_ranges :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
         (t.kind == TokenKind.MultiLineComment) ||
           (t.kind == TokenKind.DocBlockComment) || (t.kind == TokenKind.InnerDocBlockComment)
       ) => {
-        line_count := t.value.split(String.from("\n")).len();
+        line_count := t.value.*.split(String.from("\n")).len();
         if(line_count > usize(1), {
           _push_fold(&mut out, &mut seen, usize(t.row), (usize(t.row) + line_count) - usize(1), "comment");
         });
@@ -290,7 +290,7 @@ handle_semantic_tokens :: (
           match(
             kws.get_cloned(ki),
             .Some(kw) => {
-              if(kw == t.value, {
+              if(kw == t.value.*, {
                 is_kw = true;
               });
             },

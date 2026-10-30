@@ -1146,7 +1146,7 @@ _scope_target_names :: (fn(lst : &Option(ArrayList(AstExpr)), out : &mut ArrayLi
     .Some(l) => {
       (k : usize) = usize(0);
       while(k < l.len(), {
-        match(l.get(k), .Some(d) => match(_drop_target_atom_of(&d), .Some(at) => match(at, .Atom(_, tok) => out.push(tok.value.clone()), _ => ()), .None => ()), .None => ());
+        match(l.get(k), .Some(d) => match(_drop_target_atom_of(&d), .Some(at) => match(at, .Atom(_, tok) => out.push(tok.value.*.clone()), _ => ()), .None => ()), .None => ());
         k = (k + usize(1));
       });
     },
@@ -2883,7 +2883,7 @@ record_node_eval :: (fn(id : usize, tok : &Token) -> unit)({
   });
   n := match(g_node_eval_counts.with(m => m.get(&id)), .Some(v) => v, .None => usize(0));
   if(n == usize(0), {
-    _pl := g_node_eval_labels.with_mut(m => m.insert(id, `${tok.value}@${tok.module_path.*}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`));
+    _pl := g_node_eval_labels.with_mut(m => m.insert(id, `${tok.value.*}@${tok.module_path.*}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`));
   });
   _pc := g_node_eval_counts.with_mut(m => m.insert(id, n + usize(1)));
 });
@@ -3123,7 +3123,7 @@ export(set_migrate_match_scrutinee, migrate_match_scrutinee_on);
 /// spans the label and the ` : ` after it (the formatted spelling; any other
 /// spacing makes the edit stale, and it is skipped and counted).
 record_borrow_param_migration :: (fn(label_tok : &Token) -> unit)({
-  lbl := label_tok.value.clone();
+  lbl := label_tok.value.*.clone();
   record_migrate_edit(label_tok, lbl.len() + usize(3), `${lbl} : &`, `${lbl} : `);
 });
 export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_modes_on, record_migrate_edit, record_borrow_param_migration);
@@ -3146,7 +3146,7 @@ migrate_addr_of_on :: (fn() -> bool)(g_migrate_addr_of);
 /// position and reading; a position recorded both lent and address-of (two
 /// evaluations disagreeing) is a conflict the rewrite reports and skips.
 record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> unit)({
-  if(!g_migrate_addr_of || (amp_tok.value != "&"), {
+  if(!g_migrate_addr_of || (amp_tok.value.* != "&"), {
     return(());
   });
   reading := if(lent, String.from("lent"), String.from("addr"));

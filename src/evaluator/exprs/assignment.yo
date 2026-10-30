@@ -347,7 +347,7 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
   if(!ast_expr_is_atom(&cur), {
     return(Option(Variable).None);
   });
-  get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last()
+  get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last()
 });
 /// The `x : &T` parameter (of a `fn` or a closure) whose borrowed value the
 /// place `place` writes into, walking only the steps that stay inside that
@@ -481,7 +481,7 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
       }
     );
   });
-  root_vars := get_variables_from_env(env, ast_expr_token(&cur).value.clone());
+  root_vars := get_variables_from_env(env, ast_expr_token(&cur).value.*.clone());
   match(
     root_vars.last(),
     .Some(rv) => {
@@ -827,7 +827,7 @@ _module_global_root_var :: (
     return(Option(Variable).None);
   });
   tok := ast_expr_token(root_expr);
-  var_name := tok.value.clone();
+  var_name := tok.value.*.clone();
   if(var_name.is_empty(), {
     return(Option(Variable).None);
   });
@@ -1432,7 +1432,7 @@ evaluate_assignment :: (
     gw_root := get_root_expr_of_place(&evaluated_lhs);
     if(ast_expr_is_atom(&gw_root), {
       match(
-        get_variables_from_env(&env, ast_expr_token(&gw_root).value.clone()).last(),
+        get_variables_from_env(&env, ast_expr_token(&gw_root).value.*.clone()).last(),
         .Some(gw_v) => if(gw_v.is_module_level && !gw_v.is_compile_time_only, {
           gw_path := global_place_path(&evaluated_lhs, ctx);
           gw_tok := ast_expr_token(&lhs);
@@ -1558,7 +1558,7 @@ evaluate_assignment :: (
       prop_root_expr := get_root_expr_of_field_access(&lhs);
       (container_frame_level : i64) = i64(-1);
       if(ast_expr_is_atom(&prop_root_expr), {
-        prop_root_vars := get_variables_from_env(&env, ast_expr_token(&prop_root_expr).value.clone());
+        prop_root_vars := get_variables_from_env(&env, ast_expr_token(&prop_root_expr).value.*.clone());
         if(prop_root_vars.len() > usize(0), {
           match(
             prop_root_vars.last(),
@@ -1983,7 +1983,7 @@ evaluate_assignment :: (
       // Simple identifier: x = rhs
       // For a plain identifier we just read the name from its token.
       // (Full evaluateIdentifierAndOperator is a Phase 3 concern.)
-      variable_name = ast_expr_token(&lhs).value.clone();
+      variable_name = ast_expr_token(&lhs).value.*.clone();
     },
     true => {
       // Typed binding: (x : T) = rhs — defer the generic-fn-type check to

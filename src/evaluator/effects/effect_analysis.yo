@@ -114,7 +114,7 @@ is_effect_call_ :: (
     .None => {
       func_name := match(
         func_expr.clone(),
-        .Atom(_, tok) => tok.value.clone(),
+        .Atom(_, tok) => tok.value.*.clone(),
         .FnCall(_, _, _, _, _) => {
           return(false);
         }
@@ -156,7 +156,7 @@ is_effect_call_ :: (
         // Case 1b: Empty field path → same logic as Case 1
         func_name := match(
           func_expr.clone(),
-          .Atom(_, tok) => tok.value.clone(),
+          .Atom(_, tok) => tok.value.*.clone(),
           .FnCall(_, _, _, _, _) => {
             return(false);
           }
@@ -223,7 +223,7 @@ is_effect_call_ :: (
             match(
               field_arg,
               .Atom(_, tok) => {
-                access_path_rev.push(tok.value.clone());
+                access_path_rev.push(tok.value.*.clone());
                 receiver_arg := match(
                   curr_args.get(usize(0)),
                   .None => {
@@ -243,7 +243,7 @@ is_effect_call_ :: (
       // The root should be an atom matching the effect parameter name
       root_name := match(
         current,
-        .Atom(_, tok) => tok.value.clone(),
+        .Atom(_, tok) => tok.value.*.clone(),
         .FnCall(_, _, _, _, _) => {
           return(false);
         }

@@ -659,7 +659,7 @@ _generate_comptime_binding :: (fn(expr : &AstExpr, indent : &String, context : &
     return(String.new());
   });
   env_opt := match(context.base.get_expr_info(expr), .Some(bei) => Option(Environment).Some(bei.env), .None => Option(Environment).None);
-  name := get_variable_name_for_codegen_at(ast_expr_id(expr), ast_expr_token(&lhs).value, &env_opt);
+  name := get_variable_name_for_codegen_at(ast_expr_id(expr), ast_expr_token(&lhs).value.*, &env_opt);
   code := _call_generate_expr(&rhs, indent.clone(), context);
   if(code.trim().len() == usize(0), {
     return(String.new());

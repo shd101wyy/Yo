@@ -300,7 +300,7 @@ _reject_private_method_call :: (
   name_tok := ast_expr_token(&name_expr);
   owner := match(mi.all_hits.get(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
   owner_opt := cond((owner.len() > usize(0)) => Option(String).Some(owner), true => Option(String).None);
-  if(private_member_blocked(name_tok.value.clone(), &owner_opt, &name_tok.module_path.*), {
+  if(private_member_blocked(name_tok.value.*.clone(), &owner_opt, &name_tok.module_path.*), {
     recv_str := cond(
       mi.is_static => ast_expr_to_string(&mi.receiver_expr),
       true => match(
@@ -313,7 +313,7 @@ _reject_private_method_call :: (
       dyn(
         format_error_message(
           &name_tok,
-          `Method "${name_tok.value}" of ${recv_str} is private to its declaring module`
+          `Method "${name_tok.value.*}" of ${recv_str} is private to its declaring module`
         )
       )
     );
@@ -390,7 +390,7 @@ _reject_dyn_uncallable_method_call :: (
             Rc(.TraitT({ name : tname, field_labels : fls, field_types : fts })) => if(!is_clone_trait_type(&tt), {
               (j : usize) = usize(0);
               while(j < fls.len(), {
-                if(match(fls.get(j), .Some(l) => (l == name_tok.value), .None => false), {
+                if(match(fls.get(j), .Some(l) => (l == name_tok.value.*), .None => false), {
                   ft := match(fts.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                   if(dyn_member_is_method(&ft), {
                     match(
@@ -400,7 +400,7 @@ _reject_dyn_uncallable_method_call :: (
                           dyn(
                             format_error_message(
                               &name_tok,
-                              `Method "${name_tok.value}" of trait ${tname} cannot be called through a Dyn receiver (${type_to_string(&recv_ty)}): ${reason}. Call it on a concrete value, or declare it with Self only as the receiver and no generic(...) parameters.`
+                              `Method "${name_tok.value.*}" of trait ${tname} cannot be called through a Dyn receiver (${type_to_string(&recv_ty)}): ${reason}. Call it on a concrete value, or declare it with Self only as the receiver and no generic(...) parameters.`
                             )
                           )
                         );
@@ -497,11 +497,11 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   name_tok := ast_expr_token(&name_expr);
   // Every evaluated `.` access reaches here (`reject_destructor_member_read`):
   // test the name before anything allocates.
-  is_old_spelling := ((name_tok.value == "dispose") && migrate_drop_trait_on());
-  if(!(is_drop_method_name(&name_tok.value) || is_old_spelling) || name_tok.module_path.*.starts_with(String.from("auto-generated://")), {
+  is_old_spelling := ((name_tok.value.* == "dispose") && migrate_drop_trait_on());
+  if(!(is_drop_method_name(&name_tok.value.*) || is_old_spelling) || name_tok.module_path.*.starts_with(String.from("auto-generated://")), {
     return(());
   });
-  name := name_tok.value.clone();
+  name := name_tok.value.*.clone();
   oi := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&obj)),
     .Some(i) => i,
@@ -681,7 +681,7 @@ _reject_wrapper_payload_clash :: (
       return(());
     }
   );
-  name := name_tok.value.clone();
+  name := name_tok.value.*.clone();
   // The payload's reading: its own method, or one its own wrappers forward.
   (payload_has : bool) = false;
   (cur : TypeValue) = Rc.clone(payload_ty);
@@ -758,21 +758,21 @@ _wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &St
   src := Rc.clone(name_tok.input);
   r_start := usize(recv_tok.byte_offset);
   n_start := usize(name_tok.byte_offset);
-  n_end := (n_start + name_tok.value.len());
+  n_end := (n_start + name_tok.value.*.len());
   if((n_end >= src.*.len()) || (r_start >= n_start), {
     return(Option(Repair).None);
   });
-  written := `${recv_tok.value}.${name_tok.value}(`;
+  written := `${recv_tok.value.*}.${name_tok.value.*}(`;
   if(src.*.substring(r_start, n_end + usize(1)) != written, {
     return(Option(Repair).None);
   });
   sep := cond((arg_count > usize(0)) => `, `, true => ``);
-  replacement := `${ctor}.${name_tok.value}(${recv_tok.value}${sep}`;
+  replacement := `${ctor}.${name_tok.value.*}(${recv_tok.value.*}${sep}`;
   Option(Repair).Some(
     Repair(
       span : Span(path : recv_tok.module_path.*.clone(), row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
       replacement : replacement,
-      description : `call the ${ctor}'s own ${name_tok.value}: ${ctor}.${name_tok.value}(${recv_tok.value}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`
+      description : `call the ${ctor}'s own ${name_tok.value.*}: ${ctor}.${name_tok.value.*}(${recv_tok.value.*}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`
     )
   )
 });
@@ -805,7 +805,7 @@ _reject_class1_panic_method_call :: (
     }
   );
   c1_name_tok := ast_expr_token(&c1_name_expr);
-  if(!is_class1_panic_method_name(c1_name_tok.value.clone()), {
+  if(!is_class1_panic_method_name(c1_name_tok.value.*.clone()), {
     return(());
   });
   c1_recv_banned := cond(
@@ -842,7 +842,7 @@ _reject_class1_panic_method_call :: (
     raise_flow_violation(
       format_error_message_with_help(
         &c1_name_tok,
-        `\`${c1_name_tok.value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+        `\`${c1_name_tok.value.*}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
         Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
       ),
       ctx,
@@ -964,7 +964,7 @@ _try_structural_copy_clone :: (
   );
   name_ok := match(
     callee,
-    .FnCall(_, _, pa, _, _) => match(pa.get(usize(1)), .Some(n) => (ast_expr_token(&n).value == "clone"), .None => false),
+    .FnCall(_, _, pa, _, _) => match(pa.get(usize(1)), .Some(n) => (ast_expr_token(&n).value.* == "clone"), .None => false),
     _ => false
   );
   if(!name_ok, {
@@ -1113,7 +1113,7 @@ _try_find_receiver_method :: (
   receiver_value := receiver_info.value;
   // 3. Method name token.
   method_tok := ast_expr_token(&method_name_expr);
-  method_name := method_tok.value.clone();
+  method_name := method_tok.value.*.clone();
   // 4. Static vs instance dispatch.
   //    When the receiver's VALUE is a TypeValue (e.g. `HashMap(K,V)`,
   //    `EvenNumber`), this is a STATIC method call: look up methods on the
@@ -1386,7 +1386,7 @@ _infer_unapplied_ctor_receiver :: (
   );
   uc_head := match(
     uc_recv,
-    .Atom(_, uc_tok) => uc_tok.value.clone(),
+    .Atom(_, uc_tok) => uc_tok.value.*.clone(),
     .FnCall(_, _, uc_ra, _, _) => match(uc_ra.get(usize(1)), .Some(uc_m) => ast_expr_to_string(&uc_m), .None => String.new())
   );
   uc_static := _sai_static_candidates(&uc_ctor_fid, &uc_method, &uc_head);
@@ -1479,11 +1479,11 @@ _sai_arg_place :: (fn(arg : &AstExpr) -> AstExpr)({
 _sai_arg_is_contextual :: (fn(place : &AstExpr) -> bool)(
   cond(
     ast_expr_is_fn_call_of(place, "=>", Option(usize).None) => true,
-    ast_expr_is_atom(place) => _sai_is_shorthand_name(&ast_expr_token(place).value),
+    ast_expr_is_atom(place) => _sai_is_shorthand_name(&ast_expr_token(place).value.*),
     ast_expr_is_fn_call_of(place, BF_DOT, .Some(usize(1))) => true,
     true => match(
       place,
-      .FnCall(_, sc_f, _, _, _) => ((ast_expr_is_atom(&sc_f) && _sai_is_shorthand_name(&ast_expr_token(&sc_f).value)) || ast_expr_is_fn_call_of(&sc_f, BF_DOT, .Some(usize(1)))),
+      .FnCall(_, sc_f, _, _, _) => ((ast_expr_is_atom(&sc_f) && _sai_is_shorthand_name(&ast_expr_token(&sc_f).value.*)) || ast_expr_is_fn_call_of(&sc_f, BF_DOT, .Some(usize(1)))),
       _ => false
     )
   )
@@ -3873,7 +3873,7 @@ _lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
       .FnCall(_, callee, c_args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
         fld := match(c_args.get(usize(1)), .Some(f) => f, .None => return(Option(_LentPlace).None));
         if(ast_expr_is_atom(&fld) && !ast_expr_is_atom_of(&fld, "*"), {
-          rev.push(ast_expr_token(&fld).value.clone());
+          rev.push(ast_expr_token(&fld).value.*.clone());
         }, {
           rev.clear();
         });
@@ -3903,7 +3903,7 @@ _lent_root_variable :: (fn(root : &AstExpr, ctx : &EvalContext) -> Option(Variab
 /// access's root was not recorded, as for an assignment target), and one
 /// field path a prefix of the other.
 _lent_places_overlap :: (fn(a : &_LentPlace, b : &_LentPlace, ctx : &EvalContext) -> bool)({
-  if(ast_expr_token(&a.root).value != ast_expr_token(&b.root).value, {
+  if(ast_expr_token(&a.root).value.* != ast_expr_token(&b.root).value.*, {
     return(false);
   });
   match(
@@ -4234,7 +4234,7 @@ _global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContex
     match(
       cur,
       .Atom(_, root_tok) => {
-        found := match(_lent_root_variable(&cur, ctx), .Some(sv) => Option(Variable).Some(sv), .None => get_variables_from_env(env, &root_tok.value).last());
+        found := match(_lent_root_variable(&cur, ctx), .Some(sv) => Option(Variable).Some(sv), .None => get_variables_from_env(env, &root_tok.value.*).last());
         return(match(found, .Some(rv) => if(rv.is_module_level && !rv.is_compile_time_only, Option(Variable).Some(rv), Option(Variable).None), .None => Option(Variable).None));
       },
       .FnCall(_, gl_callee, gl_args, gl_infix, _) => {
@@ -4428,7 +4428,7 @@ _callee_display :: (fn(call : &AstExpr) -> String)(
 _operator_operand_is_lent :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(bool))({
   none := ArrayList(bool).new();
   (op_callee : AstExpr) = match(call, .FnCall(_, c, _, inf, _) => if(inf, c, return(none)), .Atom(_, _) => return(none));
-  op_name := match(op_callee, .Atom(_, op_tok) => op_tok.value.clone(), .FnCall(_, _, _, _, _) => return(none));
+  op_name := match(op_callee, .Atom(_, op_tok) => op_tok.value.*.clone(), .FnCall(_, _, _, _, _) => return(none));
   if(!string_is_operator(&op_name), {
     return(none);
   });
@@ -4456,7 +4456,7 @@ _check_call_lent_place :: (
   fn(place : &AstExpr, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
 )({
   lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
-  root_name := ast_expr_token(&lp.root).value.clone();
+  root_name := ast_expr_token(&lp.root).value.*.clone();
   (mi : usize) = usize(0);
   while(mi < moved_before.len(), mi = (mi + usize(1)), {
     if(match(moved_before.get(mi), .Some(n) => (n == root_name), .None => false), {
@@ -4501,7 +4501,7 @@ _lent_root_moved_at :: (fn(lp : &_LentPlace, env : &Environment, ctx : &EvalCont
     _lent_root_variable(&lp.root, ctx),
     .Some(_) => _lent_place_moved_at(lp, ctx),
     .None => match(
-      get_variables_from_env(env, &ast_expr_token(&lp.root).value).last(),
+      get_variables_from_env(env, &ast_expr_token(&lp.root).value.*).last(),
       .Some(ev) => match(ev.consumed_at_token, .Some(moved_at) => Option(AstExpr).Some(AstExpr.Atom(alloc_global_expr_id(), moved_at.clone())), .None => Option(AstExpr).None),
       .None => Option(AstExpr).None
     )
@@ -4533,7 +4533,7 @@ _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayLis
   match(_call_receiver_place(call), .Some(r) => places.push(r), .None => ());
   // An infix operator's operands may be lent (`a == b`); which ones is known
   // only once the operator method resolves, so take every place operand.
-  is_operator_call := match(call, .FnCall(_, .Atom(_, op_tok), _, inf, _) => (inf && string_is_operator(&op_tok.value) && (op_tok.value != BF_DOT) && (op_tok.value != BK_ASSIGN)), _ => false);
+  is_operator_call := match(call, .FnCall(_, .Atom(_, op_tok), _, inf, _) => (inf && string_is_operator(&op_tok.value.*) && (op_tok.value.* != BF_DOT) && (op_tok.value.* != BK_ASSIGN)), _ => false);
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
@@ -4552,7 +4552,7 @@ _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayLis
       .Some(p) => match(
         _lent_place_of(&p),
         .Some(lp) => {
-          name := ast_expr_token(&lp.root).value.clone();
+          name := ast_expr_token(&lp.root).value.*.clone();
           if(match(get_variables_from_env(env, &name).last(), .Some(v) => v.consumed_at_token.is_some(), .None => false), {
             out.push(name);
           });
@@ -5427,7 +5427,7 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
       continue;
     });
     match(
-      _scratch_concrete_binding(se, ast_expr_token(&lhs).value),
+      _scratch_concrete_binding(se, ast_expr_token(&lhs).value.*),
       .Some(target) => {
         traits := cond(
           ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None) => match(rhs, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()),
@@ -5450,9 +5450,9 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
               pair := match(ta, .FnCall(_, _, p, _, _) => p, _ => ArrayList(AstExpr).new());
               al := match(pair.get(usize(0)), .Some(e) => e, .None => make_err_expr());
               av := match(pair.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-              if(ast_expr_is_atom(&al) && ast_expr_is_atom(&av) && (ast_expr_token(&av).value == name), {
+              if(ast_expr_is_atom(&al) && ast_expr_is_atom(&av) && (ast_expr_token(&av).value.* == name), {
                 match(
-                  resolve_assoc_type_for_target(&target, ast_expr_token(&al).value, env),
+                  resolve_assoc_type_for_target(&target, ast_expr_token(&al).value.*, env),
                   .Some(r) => if((get_all_some_types(&r).len() == usize(0)) && !is_some_type(&r), {
                     return(Option(TypeValue).Some(r));
                   }),
@@ -7730,13 +7730,13 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   if(ca_rid == "", {
     return(Option(AccessorCallInfo).None);
   });
-  ca_cloned := `${ca_name_tok.value}_cloned`;
+  ca_cloned := `${ca_name_tok.value.*}_cloned`;
   if(get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() == usize(0), {
     return(Option(AccessorCallInfo).None);
   });
   Option(AccessorCallInfo).Some(
     AccessorCallInfo(
-      method : ca_name_tok.value.clone(),
+      method : ca_name_tok.value.*.clone(),
       cloned : ca_cloned,
       recv_text : ast_expr_to_string(&ca_recv),
       has_index : (get_type_trait_methods_by_name_from_env(env, String.from("index"), &ca_recv_ty).len() > usize(0)),
@@ -8020,7 +8020,7 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
   if(name_tok.module_path.*.starts_with("auto-generated://") || (name_tok.input.*.len() == usize(0)), {
     return(());
   });
-  name := name_tok.value.clone();
+  name := name_tok.value.*.clone();
   cell := cond(
     (name == "rc") => String.from("Rc"),
     (name == "box") => String.from("Box"),
@@ -8059,7 +8059,7 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
   (ai : usize) = usize(0);
   while((ai < args.len()) && value_arg.is_none(), ai = (ai + usize(1)), {
     a := args(ai).clone();
-    is_alloc := (ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))) && match(a, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(.Atom(_, lt)) => (lt.value == "alloc"), _ => false), _ => false));
+    is_alloc := (ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))) && match(a, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(.Atom(_, lt)) => (lt.value.* == "alloc"), _ => false), _ => false));
     if(!is_alloc, {
       value_arg = Option(AstExpr).Some(a);
     });
@@ -8424,7 +8424,7 @@ _evaluate_function_call_unanchored :: (
   // sites evaluate as comptime_int.
   neg_callee_str := match(
     func_expr,
-    .Atom(_, ftok) => ftok.value.clone(),
+    .Atom(_, ftok) => ftok.value.*.clone(),
     _ => String.new()
   );
   is_neg_call :=
@@ -8435,7 +8435,7 @@ _evaluate_function_call_unanchored :: (
       arg0,
       .Atom(_, atok) => {
         if(atok.kind == TokenKind.Integer, {
-          neg_raw := `-${atok.value}`;
+          neg_raw := `-${atok.value.*}`;
           // A negative literal in a fixed-width integer context takes that
           // type once it fits, exactly like a positive literal
           // (values/integer.yo): `(y : i8) = -128` is an `i8`, and
@@ -8478,7 +8478,7 @@ _evaluate_function_call_unanchored :: (
   // downstream binding).
   // ------------------------------------------------------------------
   is_infix_call := match(expr, .FnCall(_, _, _, inf, _) => inf, .Atom(_, _) => false);
-  op_name := match(func_expr, .Atom(_, ftok) => ftok.value.clone(), _ => String.new());
+  op_name := match(func_expr, .Atom(_, ftok) => ftok.value.*.clone(), _ => String.new());
   op_is_operator := string_is_operator(op_name.clone());
   if(is_infix_call && op_is_operator && (args.len() >= usize(1)), {
     first_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -9047,7 +9047,7 @@ _evaluate_function_call_unanchored :: (
         && (iob_dargs.len() == usize(2)), {
           iob_fld := match(
             iob_dargs.get(usize(1)),
-            .Some(iob_fe) => match(iob_fe, .Atom(_, iob_ftok) => iob_ftok.value.clone(), _ => String.new()),
+            .Some(iob_fe) => match(iob_fe, .Atom(_, iob_ftok) => iob_ftok.value.*.clone(), _ => String.new()),
             .None => String.new()
           );
           iob_recv_id := match(
@@ -10432,7 +10432,7 @@ Fix: wrap the call:
                 _ => ArrayList(AstExpr).new()
               );
               q_label_expr := match(q_cl_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              q_label_matches := (ast_expr_is_atom(&q_label_expr) && (ast_expr_token(&q_label_expr).value == match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new())));
+              q_label_matches := (ast_expr_is_atom(&q_label_expr) && (ast_expr_token(&q_label_expr).value.* == match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new())));
               if(q_label_matches, {
                 q_arg_expr = match(q_cl_args.get(usize(1)), .Some(a) => a, .None => arg_expr);
               });
@@ -10526,7 +10526,7 @@ Fix: wrap the call:
             (vs_override : Option(TypeValue)) = Option(TypeValue).None;
             {
               vs_is_shorthand := cond(
-                ast_expr_is_atom(&arg_expr_eff) => ast_expr_token(&arg_expr_eff).value.starts_with("."),
+                ast_expr_is_atom(&arg_expr_eff) => ast_expr_token(&arg_expr_eff).value.*.starts_with("."),
                 true => match(
                   arg_expr_eff,
                   // `.Some(x)` variant shorthand AND `v.field` reads — a
@@ -10541,7 +10541,7 @@ Fix: wrap the call:
                   // every era-split `.Some(new_h)` arg SKIPPED this block
                   // while its sibling bare `.None` args fired) — accept
                   // that shape too.
-                  .FnCall(_, vs_f, _, _, _) => ((ast_expr_is_atom(&vs_f) && ast_expr_token(&vs_f).value.starts_with(".")) || ast_expr_is_fn_call_of(&vs_f, BF_DOT, .Some(usize(1)))),
+                  .FnCall(_, vs_f, _, _, _) => ((ast_expr_is_atom(&vs_f) && ast_expr_token(&vs_f).value.*.starts_with(".")) || ast_expr_is_fn_call_of(&vs_f, BF_DOT, .Some(usize(1)))),
                   _ => false
                 )
               );
@@ -12558,7 +12558,7 @@ Fix: wrap the call:
                     rm_rid := type_id_or_empty(&rm_conc);
                     rm_name := match(
                       func_expr,
-                      .FnCall(_, _, rm_dargs, _, _) => match(rm_dargs.get(usize(1)), .Some(rm_ne) => ast_expr_token(&rm_ne).value.clone(), .None => String.from("")),
+                      .FnCall(_, _, rm_dargs, _, _) => match(rm_dargs.get(usize(1)), .Some(rm_ne) => ast_expr_token(&rm_ne).value.*.clone(), .None => String.from("")),
                       .Atom(_, _) => String.from("")
                     );
                     if((rm_rid != "") && (rm_name != ""), {

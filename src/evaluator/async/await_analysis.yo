@@ -120,12 +120,12 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
                           inner_args.get(usize(1)),
                           .None => false,
                           .Some(.FnCall(_, _, _, _, _)) => false,
-                          .Some(.Atom(_, itok)) => (itok.value == obj_name)
+                          .Some(.Atom(_, itok)) => (itok.value.* == obj_name)
                         )
                       )
                     )
                   ),
-                  .Atom(_, tok) => (tok.value == obj_name)
+                  .Atom(_, tok) => (tok.value.* == obj_name)
                 )
               );
               cond(
@@ -134,7 +134,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
                   dot_args.get(usize(1)),
                   .None => false,
                   .Some(.FnCall(_, _, _, _, _)) => false,
-                  .Some(.Atom(_, tok)) => (tok.value == method_name)
+                  .Some(.Atom(_, tok)) => (tok.value.* == method_name)
                 )
               )
             }
@@ -208,7 +208,7 @@ is_join_handle_await_call :: (fn(expr : &AstExpr) -> bool)({
               dot_args.get(usize(1)),
               .None => false,
               .Some(.FnCall(_, _, _, _, _)) => false,
-              .Some(.Atom(_, tok)) => (tok.value == "await")
+              .Some(.Atom(_, tok)) => (tok.value.* == "await")
             )
           )
         )
@@ -243,7 +243,7 @@ get_future_variable_id_ :: (
   if(await_tok.kind != TokenKind.Identifier, {
     return(Option(String).None);
   });
-  await_var_name := await_tok.value.clone();
+  await_var_name := await_tok.value.*.clone();
   // Get the expression info to access the environment
   info := match(
     get_info(await_arg),
@@ -588,7 +588,7 @@ collect_variable_bindings_ :: (
         func_box,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, ftok) => (
-          (ftok.value == "let") || (ftok.value == ":=")
+          (ftok.value.* == "let") || (ftok.value.* == ":=")
         )
       );
       if(func_is_binding && (args.len() >= usize(2)), {
@@ -603,7 +603,7 @@ collect_variable_bindings_ :: (
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, name_tok) => {
                 if(name_tok.kind == TokenKind.Identifier, {
-                  var_name := name_tok.value.clone();
+                  var_name := name_tok.value.*.clone();
                   // Get the type from the second argument (the value being bound)
                   match(
                     args.get(usize(1)),

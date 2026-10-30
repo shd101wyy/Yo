@@ -168,12 +168,12 @@ _collect_anon_param_names :: (
   match(
     param_decl,
     .Atom(_, t) => {
-      out.push(t.value.clone());
+      out.push(t.value.*.clone());
     },
     .FnCall(_, fb, args, _, _) => match(
       fb,
       .Atom(_, ptok) => cond(
-        (ptok.value == BK_TUPLE) => {
+        (ptok.value.* == BK_TUPLE) => {
           (i : usize) = usize(0);
           n := args.len();
           while(i < n, {
@@ -182,7 +182,7 @@ _collect_anon_param_names :: (
               .Some(a) => match(
                 a,
                 .Atom(_, at) => {
-                  out.push(at.value.clone());
+                  out.push(at.value.*.clone());
                 },
                 .FnCall(_, _, _, _, _) => {
                   // Best-effort: use the first atom of the call (e.g.
@@ -192,7 +192,7 @@ _collect_anon_param_names :: (
                     .FnCall(_, _, ca, _, _) => match(
                       ca.get(usize(0)),
                       .Some(.Atom(_, nt)) => {
-                        out.push(nt.value.clone());
+                        out.push(nt.value.*.clone());
                       },
                       .Some(.FnCall(_, _, _, _, _)) => (),
                       .None => ()
@@ -209,7 +209,7 @@ _collect_anon_param_names :: (
         true => {
           // Single non-tuple FnCall — treat as one param with the
           // function head's atom value if available.
-          out.push(ptok.value.clone());
+          out.push(ptok.value.*.clone());
         }
       ),
       .FnCall(_, _, _, _, _) => ()
@@ -261,10 +261,10 @@ _is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
 _get_anon_op :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    .Atom(_, t) => t.value.clone(),
+    .Atom(_, t) => t.value.*.clone(),
     .FnCall(_, fb, _, _, _) => match(
       fb,
-      .Atom(_, t) => t.value.clone(),
+      .Atom(_, t) => t.value.*.clone(),
       .FnCall(_, _, _, _, _) => String.from("<unknown>")
     )
   )
@@ -312,13 +312,13 @@ _reject_old_closure_params :: (fn(decl : &AstExpr, exn : Exception) -> unit)(
 _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> String)(
   match(
     param_expr,
-    .Atom(_, ptok) => ptok.value.clone(),
+    .Atom(_, ptok) => ptok.value.*.clone(),
     .FnCall(_, fb, args, _, _) => match(
       fb,
       .Atom(_, fbtok) => cond(
-        (fbtok.value == ":") => match(
+        (fbtok.value.* == ":") => match(
           args.get(usize(0)),
-          .Some(.Atom(_, ntok)) => ntok.value.clone(),
+          .Some(.Atom(_, ntok)) => ntok.value.*.clone(),
           .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
           .None => fallback.clone()
         ),
@@ -833,7 +833,7 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
       if(!ast_expr_is_atom(&fld), {
         return(Option(AstExpr).None);
       });
-      rev.push(ast_expr_token(&fld).value.clone());
+      rev.push(ast_expr_token(&fld).value.*.clone());
       cur = recv;
     }, {
       walking = false;
@@ -906,7 +906,7 @@ _evaluate_capture_list :: (
       _cap_list_error(ctx, exn, ast_expr_token(&label_e), `A capture-list entry is named by an identifier (\`x\`, \`y : &p\`, \`&mut z\`); got \`${ast_expr_to_string(&label_e)}\`.`);
     });
     name_tok := ast_expr_token(&name_e);
-    label := name_tok.value.clone();
+    label := name_tok.value.*.clone();
     (di : usize) = usize(0);
     while(di < out.len(), {
       if(match(out.get(di), .Some(pe) => (pe.label == label), .None => false), {
@@ -936,20 +936,20 @@ _evaluate_capture_list :: (
         }
       );
       root_tok := ast_expr_token(&root_atom);
-      root_vars := get_variables_from_env(env, root_tok.value.clone());
+      root_vars := get_variables_from_env(env, root_tok.value.*.clone());
       root_var := match(
         root_vars.last(),
         .Some(v) => v,
         .None => {
-          _cap_list_error(ctx, exn, &root_tok, `Variable "${root_tok.value}" is not defined.`);
+          _cap_list_error(ctx, exn, &root_tok, `Variable "${root_tok.value.*}" is not defined.`);
           return(out);
         }
       );
       if(root_var.is_module_level, {
-        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name the module-level binding \`${root_tok.value}\`: a module-level place has no owner the closure's borrow could be checked against (decision 18, rule 3). Read it inside the body, or capture a copy: \`${label} : ${ast_expr_to_string(&place_e)}\`.`);
+        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name the module-level binding \`${root_tok.value.*}\`: a module-level place has no owner the closure's borrow could be checked against (decision 18, rule 3). Read it inside the body, or capture a copy: \`${label} : ${ast_expr_to_string(&place_e)}\`.`);
       });
       if(root_var.is_compile_time_only, {
-        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name \`${root_tok.value}\`: it is a compile-time value with no runtime storage.`);
+        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name \`${root_tok.value.*}\`: it is a compile-time value with no runtime storage.`);
       });
       saved_bexp := ctx.expected_type;
       ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -965,14 +965,14 @@ _evaluate_capture_list :: (
           ctx,
           exn,
           ast_expr_token(&place_e),
-          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(&place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ &${root_tok.value} }(...) => ${ast_expr_to_string(&place_e)}...\`.`
+          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(&place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ &${root_tok.value.*} }(...) => ${ast_expr_to_string(&place_e)}...\`.`
         );
       });
       // §3.13 A2: a future keeps its own copy of a `&T` parameter it borrows
       // (C receives the parameter by value, in the frame the future may
       // outlive), so it borrows the parameter whole, not a place inside it.
       if(ctx.is_inside_io_async_call && root_var.is_imm_borrow && (fields.len() > usize(0)), {
-        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow the parameter, \`{ &${root_tok.value} }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow the parameter, \`{ &${root_tok.value.*} }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
       });
       if(is_mut, {
         // Decision 38 D: a `mut` capture's place must be writable.
@@ -983,7 +983,7 @@ _evaluate_capture_list :: (
         // Decision 47 step 2: and its root binding is declared `mut(name)`.
         place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, env, ctx, exn);
         if(!root_var.is_reassignable, {
-          _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value} : &mut T\`.`);
+          _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value.*} : &mut T\`.`);
         });
       });
       out.push(
@@ -995,7 +995,7 @@ _evaluate_capture_list :: (
           value_ty : place_ty,
           init : ev_place,
           root_id : root_var.id,
-          root_name : root_tok.value.clone(),
+          root_name : root_tok.value.*.clone(),
           path : fields,
           root_is_value_param : root_var.is_imm_borrow,
           root_decl : if(migrate_explicit_copy_on(), _ic_decl_key(&root_var.token), String.new())
@@ -1054,7 +1054,7 @@ _evaluate_capture_list :: (
         if(!recorded_dup && ast_expr_is_atom(&init_e), {
           saved_fdexp := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).None;
-          fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(&init_e).value.clone()})`, exn);
+          fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(&init_e).value.*.clone()})`, exn);
           field_init = evaluate_expression_raw(&fd_dup, env, ctx, exn);
           ctx.expected_type = saved_fdexp;
         });
@@ -1352,7 +1352,7 @@ evaluate_anonymous_function_implementation :: (
       .FnCall(_, fb2, decl_args, _, _) => match(
         fb2,
         .Atom(_, ptok) => cond(
-          (ptok.value == BK_TUPLE) => decl_args,
+          (ptok.value.* == BK_TUPLE) => decl_args,
           true => {
             single_list := ArrayList(AstExpr).new();
             single_list.push(param_decl);

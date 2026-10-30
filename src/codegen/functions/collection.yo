@@ -265,7 +265,7 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &CodeGenContext,
 _callee_token_value :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")),
+    .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, tok) => tok.value.*, .FnCall(_, _, _, _, _) => String.from("")),
     .Atom(_, _) => String.from("")
   )
 );
@@ -915,7 +915,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
         ai = (ai + usize(1));
       });
     },
-    .Atom(_, atom_tok) => _register_extern_global_header(ast_expr_id(expr), &atom_tok.value, &ei_opt, context)
+    .Atom(_, atom_tok) => _register_extern_global_header(ast_expr_id(expr), &atom_tok.value.*, &ei_opt, context)
   );
   // Anonymous function value bound to this expression.
   match(
