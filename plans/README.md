@@ -296,6 +296,11 @@ against the libc build. The compiler and its release bundles stay hosted
 static musl. Every runtime phase starts only after VALUES_BY_DEFAULT so
 the cycle collector that decision 48 deletes is never ported onto the
 seam; the std-only P3 (formatting) and P7 (DNS) may start now.
+[`KEBAB_CASE_NAMES`](backlog/KEBAB_CASE_NAMES.md) (2026-10-30) makes every name
+that is only a string kebab-case: package names now (v0.2.74, `markdown-yo`;
+npm `@shd101wyy/markdown-yo`), the four other example projects and the `.yo`
+file and directory names after VBD (one `yo fix --migrate module-names` PR,
+a warning, never an error).
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
