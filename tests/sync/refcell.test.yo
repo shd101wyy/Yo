@@ -216,50 +216,54 @@ _rc_tracked_list :: (fn(n : i32) -> ArrayList(Rc(RefCell(_RcTracked))))({
   xs.push(rc(RefCell(_RcTracked).new(_RcTracked(n : n))));
   xs
 });
+// An `ArrayList` is a value since B8, so the second handle to ONE list is a
+// `ref` object around it: `a2 := a` shares the object, and `a2.xs.clear()`
+// drops the other handle to the cell the receiver is reached through.
+_RcBag :: ref(struct(xs : ArrayList(Rc(RefCell(_RcTracked)))));
 test("with, with_mut, replace_with and replace keep a cell reached through an Rc element alive", {
   _rc_cell_drops = i32(0);
-  a := _rc_tracked_list(i32(1));
-  mut(a2) := a.clone();
+  a := _RcBag(xs : _rc_tracked_list(i32(1)));
+  a2 := a;
   assert(
-    a(usize(0)).with_mut(v => {
-      a2.clear();
+    a.xs(usize(0)).with_mut(v => {
+      a2.xs.clear();
       v.n = (v.n + i32(1));
       _rc_cell_drops
     }) == i32(0),
     "with_mut: the cell outlives the body"
   );
   assert(_rc_cell_drops == i32(1), "and is destroyed once, after it");
-  b := _rc_tracked_list(i32(2));
-  mut(b2) := b.clone();
+  b := _RcBag(xs : _rc_tracked_list(i32(2)));
+  b2 := b;
   assert(
-    b(usize(0)).with(v => {
-      b2.clear();
+    b.xs(usize(0)).with(v => {
+      b2.xs.clear();
       _rc_cell_drops + (v.n - v.n)
     }) == i32(1),
     "with"
   );
   assert(_rc_cell_drops == i32(2), "destroyed once");
-  c := _rc_tracked_list(i32(3));
-  mut(c2) := c.clone();
-  old := c(usize(0)).replace_with(v => {
-    c2.clear();
+  c := _RcBag(xs : _rc_tracked_list(i32(3)));
+  c2 := c;
+  old := c.xs(usize(0)).replace_with(v => {
+    c2.xs.clear();
     _RcTracked(n : (v.n + _rc_cell_drops))
   });
   assert(old.n == i32(3), "replace_with: the old value, read from a live cell");
   assert(_rc_cell_drops == i32(3), "the new value is destroyed with the cell after the call; the old one is held");
-  d := _rc_tracked_list(i32(4));
-  mut(d2) := d.clone();
-  old_d := d(usize(0)).replace({
-    d2.clear();
+  d := _RcBag(xs : _rc_tracked_list(i32(4)));
+  d2 := d;
+  old_d := d.xs(usize(0)).replace({
+    d2.xs.clear();
     _RcTracked(n : _rc_cell_drops)
   });
   assert(old_d.n == i32(4), "replace: an argument that drops the last other handle");
   assert(_rc_cell_drops == i32(4), "the new value is destroyed with the cell after the call");
-  e := _rc_tracked_list(i32(5));
-  mut(e2) := e.clone();
+  e := _RcBag(xs : _rc_tracked_list(i32(5)));
+  e2 := e;
   assert(
-    RefCell(_RcTracked).with_mut(&e(usize(0)).*, v => {
-      e2.clear();
+    RefCell(_RcTracked).with_mut(&e.xs(usize(0)).*, v => {
+      e2.xs.clear();
       _rc_cell_drops + (v.n - v.n)
     }) == i32(4),
     "a `&` argument through the handle"
