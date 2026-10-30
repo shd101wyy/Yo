@@ -34,7 +34,7 @@
   Environment,
   get_variables_from_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -1015,7 +1015,8 @@ propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo),
 // create_capture_type_and_value
 // ---------------------------------------------------------------------------
 /// The part of a closure's capture-struct key that names its CALL signature:
-/// the codegen identity (`type_key`) of each parameter type and of the result.
+/// each parameter's mode (`&mut `, `&`, nothing by value; never its origin)
+/// and the codegen identity (`type_key`) of its type, and the result's.
 /// One closure literal is minted once per instantiation of the code around it
 /// (`Ch(i32)._add` and `Ch(u8)._add` each mint `s => …`), and codegen maps a
 /// capture struct to ONE closure function (`impl_closure_call_map`,
@@ -1023,6 +1024,9 @@ propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo),
 /// take different parameter types must therefore get distinct capture
 /// structs, or the call through either one reaches whichever closure the map
 /// kept (issues/fixed/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md).
+/// The same holds for two mints whose parameters differ only in a mode
+/// (one literal boxed at a `&mut i32` slot and at an `i32` slot,
+/// issues/fixed/2026-10-27-dyn-fn-types-differing-only-in-a-parameter-mode-share-one-vtable.md).
 /// Not a `Func` (no signature known): "".
 closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
   match(
@@ -1031,7 +1035,18 @@ closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
       out := String.from("(");
       (csk_i : usize) = usize(0);
       while(csk_i < csk_pts.len(), {
-        match(slot_pointee_at(&csk_pts, csk_i), .Some(csk_t) => out.push_string(type_key(&csk_t)), .None => ());
+        match(
+          csk_pts.get(csk_i),
+          .Some(csk_slot) => {
+            cond(
+              t_slot_is_mut_ref(&csk_slot) => out.push_str("&mut "),
+              t_slot_is_borrow(&csk_slot) => out.push_str("&"),
+              true => ()
+            );
+            match(slot_pointee_at(&csk_pts, csk_i), .Some(csk_t) => out.push_string(type_key(&csk_t)), .None => ());
+          },
+          .None => ()
+        );
         out.push_str(",");
         csk_i = (csk_i + usize(1));
       });
@@ -1247,8 +1262,7 @@ create_capture_type_and_value :: (
         &field_types_s.items,
         false,
         false,
-        env,
-        &capture_ty
+        env
       );
       // Build the capture struct EvalValue if all values are known.
       n_caps := cap_values.len();

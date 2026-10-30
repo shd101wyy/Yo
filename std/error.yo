@@ -49,12 +49,17 @@ export(Error);
 /// Type-erased dynamic error type. Wraps any type implementing `Error` and
 /// `Clone`.
 ///
-/// A `Dyn` owns its payload uniquely (plans/VALUES_BY_DEFAULT.md decision 7),
-/// and a handler receives the error it catches as a borrow
-/// (`throw(error : &AnyError)`), so keeping it (storing it, returning it,
-/// wrapping it in a `Context`) takes a copy: `err.clone()`, which copies the
-/// payload through the vtable's clone slot. That is why the payload must be
-/// `Clone`; `derive(MyError, Clone)` gives it one.
+/// A `Dyn` owns its payload uniquely (plans/VALUES_BY_DEFAULT.md decision 7).
+/// `throw` passes the error BY VALUE, so a handler owns what it catches and
+/// keeps it by moving it (`e -> unwind(Option(AnyError).Some(e))`); a thrower
+/// that wants to keep its error clones it before throwing.
+///
+/// The `Clone` bound is a v0.2.73 INTERIM, not a decision: only the chain API
+/// uses it (`Error.source` hands back a clone of the cause, `root_cause`,
+/// `error_chain`), because `Option(&T)` is not a type yet. At v0.2.74
+/// (decision 43 step 3) `AnyError` becomes a move-only `Dyn(Error)` and
+/// `Error.source` returns a borrow. Until then a payload must be `Clone`;
+/// `derive(MyError, Clone)` gives it one.
 AnyError :: Dyn(Error, Clone);
 export(AnyError);
 /// Allows using `String` directly as an error type.
@@ -230,7 +235,7 @@ export(Context);
 impl(
   Context,
   /// Wrap `cause` with `message`. The context owns its cause, so `cause` is
-  /// moved in (`err.clone()` keeps a caught error as well).
+  /// moved in: a handler owns the error it caught and moves it here.
   new : (fn(message : &String, cause : AnyError) -> Self)(
     Self(message : message.clone(), cause : cause)
   )
@@ -255,11 +260,12 @@ impl(
   )
 );
 /// Non-resumable exception handling effect record.
-/// Use `throw` to raise an `AnyError` and abort the current computation.
+/// Use `throw` to raise an `AnyError` and abort the current computation. The
+/// error is passed by value: the handler owns it.
 /// `throw` is `ctl(...)` — handler body may contain `unwind`, and the
 /// handler value is frame-bound (see plans/archive/EXPLICIT_EFFECTS.md §4).
 Exception :: struct(
-  throw : (ctl(generic(ResumeType : Type), error : &AnyError) -> ResumeType)
+  throw : (ctl(generic(ResumeType : Type), error : AnyError) -> ResumeType)
 );
 export(Exception);
 /// Creates a resumable exception effect record parameterized by the resume type.
@@ -268,7 +274,7 @@ export(Exception);
 /// regular `fn` returns are also valid via subtyping `fn <: ctl`.
 ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Type))(
   struct(
-    throw : (ctl(error : &AnyError) -> ResumeType)
+    throw : (ctl(error : AnyError) -> ResumeType)
   )
 );
 export(ResumableException);

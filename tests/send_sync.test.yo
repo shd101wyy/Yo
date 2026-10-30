@@ -15,6 +15,9 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { RwLock } :: import("std/sync/rwlock");
+{ OnceCell } :: import("std/sync/once");
+{ RefCell } :: import("std/sync/refcell");
+{ Mutex : AsyncMutex } :: import("std/async/mutex");
 
 // ============================================================================
 // The derivation, by reflection
@@ -304,16 +307,11 @@ test("a generic function's move-only closure parameter moves into a closure it p
 // As in Rust, an `Arc` cycle is legal and leaks unless a back edge is
 // cleared. `SsPeer` is an atomic object reaching itself through
 // `Arc(Mutex(Self))`, so it derives no `Acyclic`, and before W2 `Arc` rejected
-// it (E0602). A value struct of the same shape is wrongly derived `Acyclic`
-// today and so was accepted even before W2: that is the derivation bug
-// issues/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md,
-// open until W5. The leak itself, seen by `--debug-heap`, is the cli-case
-// tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle.
+// it (E0602). The leak itself, seen by `--debug-heap`, is the cli-case
+// tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle. The derivation
+// rows for the value-struct shape are W5's, below.
 SsPeer :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
-// `Arc(Mutex(SsPeer))` and `Mutex(SsPeer)` still derive `Acyclic`, wrongly:
-// the same S2 derivation bug, whose rows land here at W5. Recursion with no
-// cell on the back edge is `Acyclic`, the verdict the derivation gets right
-// today.
+// Recursion with no cell on the back edge is `Acyclic`.
 SsBoxNode :: struct(id : i32, next : Option(Box(Self)));
 test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it", {
   comptime_assert(!Type.impls(SsPeer, Acyclic), "the peer reaches itself");
@@ -354,4 +352,57 @@ test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
   );
   t := Thread(SsCyclic).spawn((tio : Io) => SsCyclic(v : i32(5), next : .None));
   assert(t.join().v == i32(5), "the node came back from the thread");
+});
+// ============================================================================
+// Decision 48 W5: `Acyclic` is the strong-cycle reach walk
+// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4)
+// ============================================================================
+// `T <: Acyclic` iff no cycle of strong edges is reachable from a `T`. A
+// recursion through a shared cell (`Rc`, `Arc`, a `ref` object) is a cycle; one
+// through a value, a `Box` or an owned buffer is a tree (the buffer rows are in
+// tests/send_sync_raw_pointer.test.yo); a `Weak`/`ArcWeak` edge is no edge.
+// The children are owned (`Box`), so the parent edge is the only edge back.
+SsWeakParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Weak(RefCell(Self)));
+SsStrongParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Option(Rc(RefCell(Self))));
+SsArcWeakPeer :: atomic(ref(struct(id : i32, peer : ArcWeak(Mutex(Self)))));
+// `ArrayList` is a `ref` object until decision 46's B8 makes it a value, so a
+// recursion through it runs through a shared cell: a list may hold a value
+// that holds the list. This row flips with B8.
+SsListNode :: struct(v : i32, kids : ArrayList(Self));
+test("a Weak edge is no edge, and a value or Box recursion is a tree", {
+  comptime_assert(Type.impls(SsWeakParent, Acyclic), "a weak edge is no edge");
+  comptime_assert(!Type.impls(SsStrongParent, Acyclic), "a strong-parent tree is not");
+  comptime_assert(Type.impls(SsArcWeakPeer, Acyclic), "an ArcWeak back edge is no cycle");
+  comptime_assert(Type.impls(Weak(RefCell(SsStrongParent)), Acyclic), "a Weak handle reaches nothing");
+  comptime_assert(Type.impls(SsBoxNode, Acyclic), "Option(Box(Self)) stays Acyclic");
+  comptime_assert(!Type.impls(SsListNode, Acyclic), "a recursion through the ArrayList object is not, until B8");
+  comptime_assert(Type.impls(ArrayList(SsBoxNode), Acyclic), "a list of a tree is Acyclic");
+});
+// issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md:
+// each type reaches itself through an atomic cell, so none is `Acyclic`.
+SsArcNode :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+SsArcNodeDirect :: struct(id : i32, peer : Arc(Self));
+SsPeerDirect :: atomic(ref(struct(id : i32, peer : Option(Arc(Self)))));
+test("a value struct that reaches itself through an Arc is not Acyclic", {
+  comptime_assert(!Type.impls(SsArcNode, Acyclic), "Node through Arc(Mutex(Self))");
+  comptime_assert(!Type.impls(Arc(Mutex(SsArcNode)), Acyclic), "Arc(Mutex(Node))");
+  comptime_assert(!Type.impls(SsArcNodeDirect, Acyclic), "Node through Arc(Self)");
+  comptime_assert(!Type.impls(Arc(Mutex(SsPeer)), Acyclic), "Arc(Mutex(Peer))");
+  comptime_assert(!Type.impls(Mutex(SsPeer), Acyclic), "Mutex(Peer)");
+  comptime_assert(!Type.impls(Arc(SsPeerDirect), Acyclic), "Arc(PeerDirect)");
+  comptime_assert(!Type.impls(AsyncMutex(SsArcNode), Acyclic), "an async Mutex of it");
+  comptime_assert(Type.impls(AsyncMutex(i32), Acyclic), "an async Mutex of plain data is Acyclic");
+});
+// issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md:
+// an object that holds a cyclic cell reaches that cycle, however it holds it
+// (the raw-pointer rows are in tests/send_sync_raw_pointer.test.yo).
+SsHoldsDirect :: atomic(ref(struct(x : SsCyclic)));
+SsHoldsOption :: atomic(ref(struct(x : Option(SsCyclic))));
+test("an object holding a cyclic cell behind an Option or a pointer is not Acyclic", {
+  comptime_assert(!Type.impls(SsHoldsDirect, Acyclic), "held directly");
+  comptime_assert(!Type.impls(SsHoldsOption, Acyclic), "held in an Option");
+  comptime_assert(!Type.impls(Arc(Option(SsCyclic)), Acyclic), "Arc(Option(Cyclic))");
+  comptime_assert(!Type.impls(OnceCell(SsCyclic), Acyclic), "OnceCell(Cyclic)");
+  comptime_assert(!Type.impls(Channel(SsCyclic), Acyclic), "Channel(Cyclic)");
+  comptime_assert(Type.impls(OnceCell(i32), Acyclic) && Type.impls(Channel(i32), Acyclic), "plain data keeps them Acyclic");
 });

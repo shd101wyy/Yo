@@ -149,8 +149,9 @@ test("arc alloc : .Some(a) shared across a thread is released into a", {
   assert(counts.live == usize(0), "the last handle released the cell into the allocator");
 });
 // A `Dyn(..., Send)` closure that captures a parameter of a generic
-// (`Impl(Fn)`) function is boxed by a synthesized `arc(closure)` whose `V` is
-// the closure's capture struct: the C result once had a second type, the
+// (`Impl(Fn)`) function is boxed by a synthesized `__yo_arc_cell(closure)`
+// (`arc(closure)` until H1) whose `V` is the closure's capture struct: the C
+// result once had a second type, the
 // unbound `Arc(V)` (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
 _ArcDynDetector :: struct(detect : Dyn(Fn(x : i32) -> i32, Send));
 _arc_dyn_run :: (fn(get : Impl(Fn(x : i32) -> i32, Send, Sync)) -> i32)({
@@ -332,6 +333,70 @@ test("Arc.make_mut on the only Arc with an ArcWeak alive moves to a fresh cell",
   before_b := addr_of(b.*);
   Arc.make_mut(&mut b).b = i32(40);
   assert(addr_of(b.*) == before_b, "no ArcWeak left: written in place");
+});
+// --- The uniqueness lock behind `Arc.make_mut` and `Arc.try_unwrap`
+// (issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md):
+// one CAS of the strong count from 1 to 0 instead of two loads. The
+// interleaving it closes cannot be forced from Yo source, so these rows drive
+// the runtime primitives directly. ---
+_arc_unique :: extern(
+  "Yo",
+  __yo_arc_lock_unique : (fn(cell : *void) -> bool),
+  __yo_arc_unlock_unique : (fn(cell : *void) -> unit),
+  __yo_arc_weak_count_raw : (fn(cell : *void) -> usize),
+  __yo_arc_release_locked : (fn(slot : *void) -> unit)
+);
+test("a locked Arc cell refuses ArcWeak.upgrade on another thread, and its weak count still reads", {
+  a := arc(_ArcPair(a : i32(1), b : i32(2)));
+  cell := (*void)(unsafe.cast(&a, *_ArcPair));
+  w := Arc.downgrade(&a);
+  w2 := ArcWeak.clone(&w);
+  assert(_arc_unique.__yo_arc_lock_unique(cell), "the only Arc locks its cell");
+  assert(w.strong_count() == usize(0), "the lock leaves a strong count of 0");
+  assert(w.weak_count() == usize(0), "the checked weak count answers 0 for a zero strong count");
+  assert(_arc_unique.__yo_arc_weak_count_raw(cell) == usize(2), "the raw read sees both ArcWeak handles");
+  t := Thread(bool).spawn({ w2 }(io) => w2.upgrade().is_none());
+  assert(t.join(), "an upgrade on another thread refuses the locked cell");
+  assert(_arc_unique.__yo_arc_weak_count_raw(cell) == usize(1), "the worker's ArcWeak went while the cell was locked");
+  assert(w.upgrade().is_none(), "an upgrade on this thread refuses it too");
+  assert(!_arc_unique.__yo_arc_lock_unique(cell), "a locked cell does not lock twice");
+  a.a = i32(10);
+  _arc_unique.__yo_arc_unlock_unique(cell);
+  assert(ref_count(a) == usize(1), "the unlock gives the count of 1 back");
+  w3 := ArcWeak.clone(&w);
+  t2 := Thread(i32).spawn({ w3 }(io) => match(w3.upgrade(), .Some(h) => h.a, .None => i32(0)));
+  assert(t2.join() == i32(10), "after the unlock an upgrade on another thread sees the write made under the lock");
+  h := w.upgrade();
+  assert(!_arc_unique.__yo_arc_lock_unique(cell), "a cell an upgraded handle shares does not lock");
+  assert(ref_count(a) == usize(2), "a failed lock leaves the count alone");
+  consume(h);
+});
+test("a locked cell whose payload moved out goes to its ArcWeak handles as dead", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  before := g_arc_weak_dropped;
+  a := arc(_ArcWeakProbe(n : i32(4)), alloc : .Some(heap));
+  cell := (*void)(unsafe.cast(&a, *_ArcWeakProbe));
+  w := Arc.downgrade(&a);
+  assert(_arc_unique.__yo_arc_lock_unique(cell), "the only Arc locks its cell");
+  p := __yo_ptr_read(addr_of(a.*));
+  _arc_unique.__yo_arc_release_locked((*void)(addr_of(a)));
+  assert(p.n == i32(4), "the payload moved out");
+  assert(g_arc_weak_dropped == before, "the cell did not drop the moved-out payload");
+  assert(counts.live == usize(1), "the ArcWeak keeps the cell's bytes");
+  t := Thread(bool).spawn({ w }(io) => w.upgrade().is_none());
+  assert(t.join(), "the payload is gone for the ArcWeak");
+  assert(counts.live == usize(0), "the last ArcWeak, dropped on the worker, freed the cell");
+  consume(p);
+  assert(g_arc_weak_dropped == (before + i32(1)), "the payload was dropped once, by its new owner");
+  b := arc(_ArcWeakProbe(n : i32(5)), alloc : .Some(heap));
+  cell_b := (*void)(unsafe.cast(&b, *_ArcWeakProbe));
+  assert(_arc_unique.__yo_arc_lock_unique(cell_b), "the only Arc locks its cell");
+  q := __yo_ptr_read(addr_of(b.*));
+  _arc_unique.__yo_arc_release_locked((*void)(addr_of(b)));
+  assert(counts.live == usize(0), "no ArcWeak: the release freed the cell");
+  consume(q);
+  assert(g_arc_weak_dropped == (before + i32(2)), "each payload dropped once");
 });
 // A recursive payload whose edge back to its own type is an `ArcWeak`: the
 // `Self` in the field is fixed up with the declaration, and the upgraded

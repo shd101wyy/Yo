@@ -102,7 +102,7 @@ _derive_eval_guarded :: (
   inner_exn := Exception(
     throw : (
       _err -> {
-        _flag_derive_impl_err(_err.to_string(), primary_diagnostic_code(_err));
+        _flag_derive_impl_err(_err.to_string(), primary_diagnostic_code(&_err));
         unwind(());
       }
     )
@@ -514,8 +514,8 @@ _evaluate_derive_guarded :: (
 )({
   guard_exn := Exception(
     throw : (
-      _d_err -> {
-        g_derive_eval_err.with_mut(xs => xs.push(_d_err.clone()));
+      derive_err -> {
+        g_derive_eval_err.with_mut({ derive_err }(xs) => xs.push(derive_err));
         unwind(())
       }
     )
@@ -557,7 +557,7 @@ evaluate_derive :: (
             while(g_derive_eval_err.with(xs => xs.len()) > err_mark, {
               _ := g_derive_eval_err.with_mut(xs => xs.pop());
             });
-            exn.throw(&d_err);
+            exn.throw(d_err);
           },
           .None => ()
         );

@@ -101,6 +101,37 @@ assert(parent_value == i32(1), "the leaf reaches its parent");
 
 Dropping `root` drops the tree: the only strong edges point down.
 
+## The `Acyclic` marker
+
+`T <: Acyclic` holds when no cycle of strong edges is reachable from a value of
+`T`. A cycle of values needs a shared cell on it (`Rc`, `Arc`, a `ref` object):
+a recursion through a value or a `Box` (`Option(Box(Self))`) builds a tree, and
+a `Weak` or `ArcWeak` edge is no edge.
+The marker is derived, and std requires it nowhere; a `where(T <: Acyclic)`
+bound is how an API promises that its values cannot hold a leaking cycle.
+
+```yo
+{ RefCell } :: import("std/sync/refcell");
+Tree :: struct(value : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Weak(RefCell(Self)));
+Graph :: struct(value : i32, peer : Option(Rc(RefCell(Self))));
+test("a Weak back edge keeps a type Acyclic", {
+  comptime_assert(Type.impls(Tree, Acyclic), "the only cell edge is a Weak");
+  comptime_assert(!Type.impls(Graph, Acyclic), "an Rc edge can close a cycle");
+});
+```
+
+`Tree` shows the derivation, not a usable tree: its `parent` can only name a
+root held in an `Rc`, because a `Box`-owned child has no cell to downgrade
+from. A tree whose children are `Rc` handles, like the parent-pointer example above,
+is not `Acyclic`: nothing in its type stops a child edge from pointing back
+at an ancestor. Neither, for now, is a type that recurs through an
+`ArrayList`: the list is a shared object, so a list can hold a value that
+holds the list. A type the derivation rejects can declare the marker,
+`impl(T, Acyclic())`, without `pragma(Pragma.AllowUnsafe)`: a wrong
+declaration leaks, it never dangles. The declaration also keeps the type's
+cells away from the cycle collector, and it exists only as long as the
+collector does.
+
 ## With the cycle collector
 
 A `Weak` is not an edge of the ownership graph. The collector's walk does not

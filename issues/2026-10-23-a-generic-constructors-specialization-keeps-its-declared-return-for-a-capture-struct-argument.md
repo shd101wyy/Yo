@@ -6,6 +6,12 @@
 (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`)
 was fixed in std by a reshape (`rc` and `arc` bind their `match`), not in the evaluator.
 
+**Update 2026-10-29 (H1):** `dyn(...)` no longer reaches this path through `rc`/`arc`. It boxes a closure with
+the prelude's `__yo_rc_cell`/`__yo_arc_cell` (`_prelude_cell_constructor`, `src/evaluator/values/dyn.yo`), copies
+with the same bound `match`, so the reproducer below now needs the tail-`match` shape restored in `__yo_rc_cell`.
+Those two are the only callers that pass a capture-struct `V` to a generic constructor; the issue stays open
+until V5 Generation A rewrites them onto `__yo_cell` or the adoption gate is fixed.
+
 ## What is wrong
 
 `create_specialized_function_inline` (`src/evaluator/calls/helper.yo`) evaluates

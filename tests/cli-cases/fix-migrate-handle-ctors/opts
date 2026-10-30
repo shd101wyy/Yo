@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate handle-ctors` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md
+# §5 B1): every call of the prelude's `rc`/`box`/`arc` becomes the handle's
+# constructor, `Rc.new(...)`/`Box.new(...)`/`Arc.new(...)`, with `alloc :`
+# kept. Where inference does not read the argument (an enum shorthand, a
+# number literal the call typed from its context) the type argument the old
+# call bound is written, `Rc(V).new(...)`; a closure literal inside `dyn(...)`
+# needs none. A parameter named `rc` is not the prelude's and stays, and a
+# generic body that would need its type argument written is listed. The
+# trailing `check` proves the rewritten file evaluates.
+stdout_keep=^fix:
+timeout=240

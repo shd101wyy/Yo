@@ -687,7 +687,7 @@ either order: `cond(c => 1, true => i64(2))` is an `i64`.
 
 Functions are declared using the `::` operator for compile-time definitions or `:=` for runtime values.
 
-Module-level `::` definitions and `impl(...)` registrations are order-independent: a function may call one defined later in the file, reference itself by name, or use a method whose `impl` appears below it. Imports, `open`, pragmas and runtime globals stay in source order. See [Definition Order](./DEFINITION_ORDER.md).
+Module-level `::` definitions, `impl(...)` registrations and `derive(T, ...)` statements are order-independent: a function may call one defined later in the file, reference itself by name, or use a method whose `impl` or `derive` appears below it. Imports, `open`, pragmas and runtime globals stay in source order. See [Definition Order](./DEFINITION_ORDER.md).
 
 ```yo
 // Function declaration with explicit type
@@ -4065,8 +4065,10 @@ derive(MathError, Clone);
 // Writing the two impls by hand still works, and is the way to go when the
 // message is not a simple per-variant string.
 // AnyError is Dyn(Error, Clone) — any type implementing Error and Clone can
-// be wrapped. A Dyn owns its payload uniquely and a handler borrows the error
-// it catches, so keeping a caught error takes `err.clone()`:
+// be wrapped. A Dyn owns its payload uniquely, and `throw` passes the error by
+// value, so a handler keeps a caught error by moving it. (The Clone bound is a
+// v0.2.73 interim: from v0.2.74 AnyError is Dyn(Error) again and
+// `Error.source` lends the cause, so the Clone requirement goes away.)
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // Downcast back to the concrete type:

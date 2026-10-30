@@ -58,10 +58,11 @@ test("AllowUnsafe + unsafe(...) is transparent inside a begin-block", {
   assert(doubled == i32(6), "block expression returns the inner value");
 });
 // ============================================================================
-// Phase A (THREAD_SAFETY): Manual impl(T, Send/Acyclic()) under pragma.
-// Auto-derived Acyclic is withheld from self-referential atomic objects
-// (correctly — the compiler can't prove no cycles form). Pragma'd code
-// can manually declare Acyclic when it audit-establishes immutability.
+// Phase A (THREAD_SAFETY): Manual impl(T, Send()) under pragma.
+// Derived Acyclic is withheld from self-referential atomic objects
+// (correctly — the compiler can't prove no cycles form). Code can
+// declare Acyclic when it audit-establishes immutability; since decision
+// 48 W5 the declaration needs no pragma.
 // ============================================================================
 test("AllowUnsafe + manual impl(T, Acyclic()) for self-referential atomic object", {
   ImmNode :: atomic(ref(struct(_value : i32, _next : Option(Self))));

@@ -396,9 +396,13 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           if(i > usize(0), {
             body = `${body}, `;
           });
-          // The slot's pointee only: an `Fn(...)` type prints without its
-          // parameter modes.
-          ts := match(cpts.get(i), .Some(t2) => recur(t_slot_pointee(&t2), _d + usize(1), visited), .None => `?`);
+          // The slot as a whole: `&mut T` / `&T` for a borrow (the
+          // `Reference` arm, which prints no origin), the bare `T` by value.
+          // The mode is part of the type, and this rendering is the codegen
+          // key of a `Dyn(Fn(...))` (`type_key`'s fallback), so two `Fn`
+          // types that differ only in a mode must never print alike
+          // (issues/fixed/2026-10-27-dyn-fn-types-differing-only-in-a-parameter-mode-share-one-vtable.md).
+          ts := match(cpts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });

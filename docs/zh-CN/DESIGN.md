@@ -664,7 +664,7 @@ comptime 分支无论顺序如何都会在其具体兄弟分支的类型处汇�
 
 函数使用 `::` 运算符进行编译期定义，或使用 `:=` 作为运行时值。
 
-模块级的 `::` 定义与 `impl(...)` 注册与顺序无关：函数可以调用文件中稍后定义的函数、以自己的名字递归、或使用 `impl` 位于其下方的方法。import、`open`、pragma 与运行期全局变量仍保持源码顺序。参见[定义顺序](./DEFINITION_ORDER.md)。
+模块级的 `::` 定义、`impl(...)` 注册与 `derive(T, ...)` 语句与顺序无关：函数可以调用文件中稍后定义的函数、以自己的名字递归、或使用 `impl` 或 `derive` 位于其下方的方法。import、`open`、pragma 与运行期全局变量仍保持源码顺序。参见[定义顺序](./DEFINITION_ORDER.md)。
 
 ```yo
 // 带显式类型的函数声明
@@ -3837,8 +3837,9 @@ derive(MathError, Clone);
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // 手写这两个 impl 依然可用；当消息不是简单的「每个变体一条字符串」时，就该那么写。
 // AnyError 是 Dyn(Error, Clone) — 任何实现了 Error 和 Clone 的类型都可以被包装。
-// Dyn 独占其载荷，而处理器以借用的方式接收捕获的错误，所以要保留一个捕获的错误
-// 需要 `err.clone()`：
+// Dyn 独占其载荷，而 `throw` 按值传递错误，所以处理器通过移动来保留捕获的错误。
+// （Clone 约束是 v0.2.73 的临时方案：从 v0.2.74 起 AnyError 恢复为 Dyn(Error)，
+// `Error.source` 以借用方式给出原因，不再要求 Clone。）
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // 向下转型回具体类型：

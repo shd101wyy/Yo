@@ -1,6 +1,6 @@
 # Lazy top-level bindings — order-independent `::` definitions and `impl` registration
 
-**Status: COMPLETE — P0–P5 LANDED 2026-09-05** (P0–P2 + P4: PR #427
+**Status: COMPLETE — P0–P5 LANDED 2026-09-05; P6 (`extern`) 2026-09-12; P7 (`derive`) 2026-10-29** (P0–P2 + P4: PR #427
 `feat/lazy-toplevel-bindings`; P3, retiring the impl-block forward shells: PR #435
 `feat/retire-impl-forward-shells`, §10 "P3 as landed"; P5, lifting the `std/`/`src/`
 seed gate: PR `feat/lazy-bindings-p5-lift-seed-gate`, merged once `SEED_VERSION`
@@ -495,3 +495,26 @@ time as before the campaign; no latency issue observed, none pinned.
   `SEED_VERSION` carries a release with it.
 - Byte identity holds: the compiler's own emission is identical before and
   after (an order-correct program forces nothing early).
+
+### P7 as landed (2026-10-29) — `derive(...)` statements are pending impls
+
+- A top-level `derive([generic(...)], [where(...)], T, Trait...)` is classified
+  as a pending impl of `T`'s head (`classify_pending_def`, `PendingDef.is_derive`
+  with `is_impl` set), so a method or trait miss on `T` forces it like an
+  `impl(T, ...)`. Before, it stayed an ordered statement, and a body forced
+  above it, or a method call above it, was E0610
+  (`issues/fixed/2026-10-27-a-derive-is-not-order-independent-like-an-impl.md`,
+  `issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`).
+- A derive declares no member label, so `_impl_expr_declares` never selects it:
+  outside an impl of `T` the existing "force every pending impl" fallback forces
+  it; INSIDE an impl of `T` a named miss now falls back to `T`'s pending derives
+  only (the in-block guard still keeps every other impl out).
+- A derive on the forcing stack does not take the in-impl guard: it registers
+  whole impls, and its own trait-bound checks (`Ord`'s `Self <: Eq`) must still
+  force later impls and derives of `T`.
+- `register_module_anchors` keeps a derive's unnamed-statement label, so no id
+  or C name moves. Byte identity holds: the compiler's own `src/main.yo`
+  emission (155 MB of C) is identical before and after, as are the emissions of
+  `tests/derive.test.yo` and `tests/derive_clone_complex.test.yo`.
+- Seed gate, as for P5/P6: `std/` and `src/` keep each derive above its first
+  use until `SEED_VERSION` carries the release with this change.

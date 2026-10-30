@@ -8373,14 +8373,48 @@ heavy run, the command is given in item 2.
      - Nearly every std/src copy was an error being kept. A handler borrows
        the error it catches (`throw(error : &AnyError)`), so a trap that
        returns it, a stored first error and `Error.source` all copy a
-       borrowed `Dyn`. `AnyError` therefore lists `Clone`
-       (`Dyn(Error, Clone)`): `Error.source` returns
+       borrowed `Dyn`. As a **v0.2.73 INTERIM only**, `AnyError` lists
+       `Clone` (`Dyn(Error, Clone)`): `Error.source` returns
        `Option(Dyn(SelfTrait, Clone))`, a clone of the cause; `Context`
        derives `Clone` and `Context.new` takes its cause by value; the std
        error types derive `Clone` (nine of them), and so do `YoError` and
-       `ExitWith`. The other options were rejected. A by-value `throw`
-       still leaves `Error.source` without a way to hand back its cause,
-       and `Rc` links would change what `downcast` and `is` see on a link.
+       `ExitWith`. The `Clone` bound is NOT decided. It exists because
+       `Option(&T)` is a comptime error until step 3.
+     - **The end state (B13 consultation verdict, 2026-10-29).** `AnyError`
+       is a move-only `Dyn(Error)` with no `Clone` bound, Rust's
+       `Box<dyn Error>`. `Exception.throw` and `ResumableException(T).throw`
+       take `error : AnyError` BY VALUE: the handler owns what it catches
+       and keeps it by moving. Sharing an error is opt-in (`Rc(AnyError)`,
+       `Arc(Dyn(Error, Send, Sync))`). Rejected for good: an `Rc`/`Arc`-
+       backed `AnyError`, `Rc` links in the chain, and an interim
+       callback/`has_source` API.
+       - **B13-b, errors by value**, is its own PR stacked on B13, aimed at
+         the v0.2.73 cut and time-boxed to its freeze (otherwise it is the
+         first PR of the v0.2.74 window, before step 2). It flips both
+         `throw` signatures, rewrites the 36 `src/` `exn.throw(&x)` sites,
+         and turns the handler keep sites into moves. It keeps the `Clone`
+         bound. As built (2026-10-29, branch `vbd/b13b-errors-by-value`):
+         the handler parameter is owned, so a handler-local helper taking
+         the error (`_reported_at_user_call`, `_with_instantiation_note`,
+         `_record_codegen_error`, `codegen_report_error`, `_flag_walk_abort`)
+         takes `err : AnyError` and returns or stores it by move; a read-only
+         use lends it (`render_any_error(&err)`, 8 sites by `yo fix
+         --migrate markers`, the rest by hand); `downcast(err, T)` takes the
+         owned error. Flipping the parameter surfaced a new S1: a handler
+         whose body is a bare `unwind(...)` released its parameter before
+         the operand read it (`e -> unwind(e.to_string())`,
+         `issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md`).
+         B13-b fixes it together with the open S1
+         `issues/fixed/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md`.
+         `generate_unwind` now evaluates the operand into a temp, then emits
+         the tail's parameter drops with its drop preamble. The compiler's
+         three traps are block bodies until the seed carries the fix.
+       - **v0.2.74, with decision 43 step 3 (N2).** `AnyError ::
+         Dyn(Error)`, and `Error.source` returns `Option(&Dyn(SelfTrait))`.
+         `root_cause` returns `&AnyError`, `error_chain` lends, `Context`
+         drops `derive(Clone)` and `downcast`/`is` borrow a link. The
+         `compile-io-async-body-swallowed-error` golden reverts to
+         `dyn(ToString + Error)`. The std error types' `derive(Clone)` stays.
      - A `mut` global holding a `Dyn` can be neither lent (E0916) nor copied
        (E0901), so std/log's sink and two src globals (`g_codegen_error`,
        `g_walk_abort`) became unmarked `RefCell` cells. `std/log.set_sink`

@@ -119,8 +119,31 @@ test("dyn(Rc.new(<closure>)) contextually types the closure, as dyn(rc(<closure>
   assert(a.detect(i32(1)) == i32(11), "Rc.new: the closure's x is an i32");
   assert(b.detect(i32(2)) == i32(20), "rc: unchanged");
 });
+// `dyn(Rc.new(<closure>))` in a body checked outside a definition-time trial
+// and specialized per call: a function with an `Impl(Fn(...))` parameter (per
+// closure) and a `generic(T)` function (per type). Its closure's type is the
+// `Dyn`'s open payload wrapper, so the cell is built by the prelude's
+// `__yo_rc_cell`, bound to the call by value: neither `rc` (deleted by
+// static-argument inference B3) nor `Rc(W).new` over the open wrapper, whose
+// payload lowered to `void*` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1).
+_dyn_rc_new_over :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
+  d := _Detector(detect : dyn(Rc.new(x => (get(x) + i32(1)))));
+  d.detect(i32(2))
+});
+_dyn_rc_new_generic :: (fn(generic(T : Type), v : T, n : i32) -> T)({
+  d := _Detector(detect : dyn(Rc.new(x => (x + n))));
+  assert(d.detect(i32(1)) == (n + i32(1)), "the closure, called through the Dyn");
+  v
+});
+test("dyn(Rc.new(<closure>)) in a generic body boxes per specialization", {
+  n := i32(10);
+  assert(_dyn_rc_new_over((x : i32) => (x + n)) == i32(13), "an Impl(Fn) body, first closure type");
+  assert(_dyn_rc_new_over((x : i32) => (x * n)) == i32(21), "a second closure type");
+  assert(_dyn_rc_new_generic(i32(7), n) == i32(7), "a generic(T) body at i32");
+  assert(_dyn_rc_new_generic(true, n), "and at bool");
+});
 // A payload over a type variable (`f : Impl(Fn(...))`) is boxed by the
-// prelude's `rc`, bound to the callee (`_synthesized_cell_call`,
+// prelude's `__yo_rc_cell`, bound to the callee (`_synthesized_cell_call`,
 // src/evaluator/values/dyn.yo).
 _box_fn :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(f));
 _box_fn_under_rc :: (fn(rc : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(rc));

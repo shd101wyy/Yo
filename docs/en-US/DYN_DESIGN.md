@@ -433,11 +433,15 @@ and move-only predicates) is a later step. Because std is judged too, a copying 
 collection of a non-`Clone` `Dyn` (`xs.get(i)`, `xs.last()`) is E0901 at the call: read the element
 through the subscript (`xs(i).m()`) or move it out (`xs.pop()`).
 
-**`AnyError` lists `Clone`.** A handler receives the error it catches as a borrow
-(`throw(error : &AnyError)`), so a handler that keeps the error (stores it, returns it, wraps it in
-a `Context`) copies it. `AnyError` is therefore `Dyn(Error, Clone)`, and a type erased into it must
-be `Clone` (`derive(MyError, Clone)`). `Error.source` returns a clone of the cause, and
-`Context.new` takes its cause by value.
+**Errors are thrown by value.** `Exception.throw` and `ResumableException(T).throw` take
+`error : AnyError` by value, so a handler owns the error it catches and keeps it (stores it,
+returns it, wraps it in a `Context`) by moving it; it lends it with `&e` to a function that only
+reads it. **`AnyError` still lists `Clone` for v0.2.73: an interim, not a decision.**
+`Error.source` cannot return a borrow before decision 43 step 3, so it returns a clone of the
+cause, which makes `AnyError` `Dyn(Error, Clone)` and requires a type erased into it to be `Clone`
+(`derive(MyError, Clone)`). At v0.2.74 (step 3), `AnyError` goes back to a move-only `Dyn(Error)`
+(Rust's `Box<dyn Error>`), and `Error.source` returns `Option(&Dyn(...))`, so the `Clone`
+requirement goes away.
 
 ## Reference Counting for Dyn
 

@@ -322,8 +322,8 @@ _evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContex
 _evaluate_guard_block_inner :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit)({
   guard_exn := Exception(
     throw : (
-      _g_err -> {
-        g_guard_block_err.with_mut(xs => xs.push(_g_err.clone()));
+      guard_err -> {
+        g_guard_block_err.with_mut({ guard_err }(xs) => xs.push(guard_err));
         unwind(())
       }
     )
@@ -1713,7 +1713,7 @@ evaluate_match :: (
           true => _evaluate_guard_block(&g, &env, ctx, &mut evaluated_g_gout)
         );
         ctx.expected_type = old_expected_g;
-        match(evaluated_g_gerr, .Some(evaluated_g_ge) => exn.throw(&evaluated_g_ge), .None => ());
+        match(evaluated_g_gerr, .Some(evaluated_g_ge) => exn.throw(evaluated_g_ge), .None => ());
         _commit_guard_copies(&env, base_frame_count);
         evaluated_g := match(evaluated_g_gout.get(usize(0)), .Some(evaluated_g_g) => evaluated_g_g, .None => make_err_expr());
         match(

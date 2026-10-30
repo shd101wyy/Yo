@@ -24,7 +24,15 @@ implemented (2026-10-27, `feat/w4-arc-weak`, stacked on W3):** `ArcWeak(T)`,
 weak-held path (§3.2 "As built"); ARC.md and DESIGN.md (both languages)
 gained the `ArcWeak` sentence. `make_mut`'s disassociation of weak handles
 landed for both on 2026-10-28, once the v0.2.72 seed emitted the weak-count
-runtime (§3.3). The other phases have not started.
+runtime (§3.3). **W5 is implemented (2026-10-29,
+`vbd/w5-acyclic-weak-edges`):** `Acyclic` is answered by one strong-cycle
+reach walk instead of the field-by-field derivation, the declared form needs
+no pragma, and std's `SAFETY:` sentences that justified an `Acyclic`
+declaration are gone (§4 "As built"). **W6a is implemented (2026-10-29,
+`vbd/w6a-collector-off-default`, stacked on W5):** `--cycle-collector off`
+is the default for one release, and §6 precondition 3 records the
+tracked-type counts and the oracle's report over the corpus. W6b has not
+started.
 
 ## 0. Verdict
 
@@ -44,7 +52,7 @@ runtime (§3.3). The other phases have not started.
    only purpose was to make an uncollectable cycle unrepresentable; with
    `ArcWeak` the cycle is breakable instead, which is Rust's answer, and the
    bound today does not even hold for a self-recursive payload
-   (`issues/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`).
+   (`issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`).
    `Mutex`, `RwLock`, `Channel` and the thread APIs drop it with `Arc`.
 4. **`Weak(T)` and `ArcWeak(T)` are Rust's `rc::Weak` and `sync::Weak`:**
    `downgrade`, `upgrade -> Option(Rc(T))`, a weak count in the cell, the
@@ -132,7 +140,9 @@ runtime (§3.3). The other phases have not started.
     `cycle-collector-off-leaks-a-cycle-the-debug-heap-reports`. The
     language suite runs `tests/cycle_collector.test.yo` under `Auto`, and
     the cli-case `test-cycle-collector-suite-under-off` runs it under
-    `Off`. `build-cycle-collector-off` pins the build path.
+    `Off`. `build-cycle-collector-off` pins the build path. (W6a: the
+    language suite runs the file under `Off`, the new default, so that
+    cli-case was deleted as a duplicate; nothing runs it under `Auto`.)
 - **Why a build choice and not a type.** The collector's cost and benefit
   are program-wide (the compiler itself runs with the collector mostly
   idle; a request server with per-request graphs wants it on), and a
@@ -214,7 +224,14 @@ only while it is non-zero (an `Arc` cell is never collected, so 0 is the
 payload gone), the last strong release reads the weak word with acquire and
 takes the weak-held path only when it is non-zero (no `ArcWeak` can appear
 then: making one needs a strong or a weak handle), and the dead flag is set
-with one `fetch_or` whose result decides the free. "No borrow
+with one `fetch_or` whose result decides the free. `Arc.make_mut` and
+`Arc.try_unwrap` decide uniqueness with Rust's CAS of the strong count from
+1 to 0 (`__yo_arc_lock_unique`), which an `upgrade` refuses; the weak word is
+then read raw, and a payload moved out under the lock hands the cell to the
+`ArcWeak` handles as dead (`__yo_arc_release_locked`). The primitives landed
+2026-10-29; the prelude calls them once a seed emits them
+(`SEED_VERSION_AUTOMATION.md`;
+`issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`). "No borrow
 marks on an `Rc`" was proved and then made structural ("guard first",
 lookahead §5 PR 4): four codegen sites could still mark or check a counted
 cell's `borrow_count` (a borrowed `for` guard, an interior `&` argument, the
@@ -328,6 +345,52 @@ no cycle of STRONG edges is reachable from a value of `T`. Three changes:
   struct that reaches itself through an atomic cell) is fixed on its own
   at W5, because the derived marker is what user bounds will read.
 
+**As built (W5).** Where the text above left a choice, the simplest one
+consistent with it:
+
+- The marker is no longer registered at definition time. `type_implements_trait`
+  answers `Acyclic` on demand (`_acyclic_by_reach`,
+  `src/evaluator/trait_checking.yo`) with Tarjan's walk over the nominal types
+  reachable from `T`: an edge is a field, a variant payload, or the pointee of
+  a raw pointer (an owned buffer `?*E`, `Box`'s `*V`, `Channel`'s `*T`), seen
+  through tuples, arrays, unions and refinements; a `Weak`/`ArcWeak` is no
+  edge. `T` is `Acyclic` iff no strongly connected component reachable from
+  it is cyclic AND holds a shared cell (a `ref`/`atomic` object). That is the
+  inductive answer: the old derivation read a self shell as an empty struct,
+  and an in-progress obligation as satisfied, so a recursion through a cell
+  came out `Acyclic` (`issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`),
+  and it answered an object from the collector's root test, which asks
+  whether the object is ON a cycle, not whether it reaches one
+  (`issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`).
+- A node with a negative impl reaches a cycle; a node with a declared impl,
+  concrete or generic, is trusted and not entered. A leaf the walk cannot
+  see into (an open type parameter, a `Dyn`, an unapplied constructor) is
+  asked through `type_implements_trait`, so `where(T <: Acyclic)` still
+  holds inside a generic body. Verdicts are memoized per node for one
+  `trait_impl_epoch`, except a walk that met a leaf or an unresolved shell.
+- "A node type with strong children and a weak parent" is pinned with
+  OWNED children (`first_child`/`next_sibling : Option(Box(Self))`): a tree
+  whose children are `Rc` handles is not `Acyclic`, since nothing in its
+  type stops a child edge from pointing at an ancestor, and the collector
+  agrees (it tracks that type).
+- "`ArrayList(Self)` stays `Acyclic`" holds only after decision 46's B8:
+  `ArrayList` is still a `ref` object, so a value that holds a list of
+  itself recurs through a shared cell (a list can hold a value that holds the
+  list), and base answers the same. The row is pinned as NOT `Acyclic`
+  with a note that it flips with B8; the owned-buffer recursion the row
+  means is pinned on a value with a `?*Self` buffer
+  (`tests/send_sync_raw_pointer.test.yo`).
+- The pragma rule keeps `Send` and `Sync` only. The prelude's
+  unconditional `impl(*T, Acyclic())` and `impl(Array(T, U), Acyclic())`
+  went (the walk follows the pointee and the element), as did
+  `std/async/mutex.yo`'s `Mutex(T)` and `_Core` declarations, which the walk
+  now derives. "`yo fix` drops the `SAFETY:` comments" was done by hand:
+  every std `SAFETY:` comment that mentions `Acyclic` also justifies a
+  `Send`, so the edit removes a sentence, not a comment, which no `yo fix`
+  mode can do safely; a user's stale `SAFETY:` comment is harmless. The
+  compiler's decision-21 declarations keep their comments until W6b deletes
+  the declarations.
+
 Where it is required: nowhere in std after W2 (`Arc` and the sync types
 drop it, §2; Rust's `Arc` has no such bound, the bound is viral through
 every generic wrapper around an `Arc`, and it rejects graphs that are torn
@@ -389,6 +452,65 @@ API that promises not to leak — and a possible `yo check` lint under
    rather than migrated (`plans/handover/VBD_LOOKAHEAD_2026-10-23.md` D23
    amendment), so W6a's std count starts without it.
 
+   **As built (W6a, 2026-10-29, `vbd/w6a-collector-off-default`).** `yo
+   compile`/`yo test` default to `--cycle-collector off`;
+   `--cycle-collector auto` and `build.CycleCollector.Auto` keep the
+   collector for this one release. `std/build.yo`'s default is `.Off`, the
+   build builtin reads a missing tenth argument as `off`, the libraries'
+   artifacts say `off`, and the build runner adds `--cycle-collector auto`
+   only for `Auto`, so a default build's argv and stamp are unchanged. The
+   compiler itself is built with the default, i.e. without the collector.
+   Collector-only test cases the flip broke were deleted, per the maintainer
+   rule (no collector coverage is preserved): `tests/explicit_allocators`'
+   "a cycle … is collected into its allocator", the codegen corpus's
+   `arraylist_self_cycle`, `deque_self_cycle`, `hashmap_self_cycle`,
+   `ref_enum_cycle` and `ref_enum_option_cycle`, and the cli-case
+   `test-cycle-collector-suite-under-off` (a duplicate of the suite's run).
+   The cli-cases that contrast the two modes name `auto` explicitly.
+   The measurement:
+
+   - **Tracked types, `src/`.** `yo compile src/main.yo --cycle-collector
+     auto`, counting the constructors that call `__yo_gc_register`: **153
+     of 693** `ref`/atomic constructors. 60 are compiler records
+     (`EvalContext`, `Environment`, `Frame`, `CodeGenContext`,
+     `FunctionGenerationContext`, `ExprInfo`, `Variable`, `PendingDef`,
+     `CapturedVariable`, `RegexNode`, the LSP's `JsonObjBuilder`, the doc
+     model's `Rc(DocModule)`, …), which the type graph says can reach
+     themselves through a `ref` container (`ArrayList`, `HashMap` and
+     `HashSet` are shared cells until B8). The other 93 are those std
+     containers, `Rc` and `__BorrowGuard` instantiated over the 60. Under
+     `off`: 0. They are possible cycles in the type graph, closed through a
+     `ref` container, not parent pointers; the compiler built without the
+     collector passes `check ./src` and its gates (last bullet).
+   - **Tracked types, std.** No std type is tracked on its own. Over the
+     batches of `tests/collections`, `tests/sync`, `tests/async` and
+     `yo test ./std` under `auto` (350 constructors), 7 types are
+     tracked in `tests/sync` and 7 in `tests/async`, all std generics or
+     test records instantiated over a test's own cyclic type (`sync`'s
+     `CyclicNode` under the `Mutex`/`RwLock` unlockers and an
+     `ArrayList`) or a test record holding an opaque future
+     (`async`'s `_FutHolder`, `_PtrHolder`, `Holder`); `collections` and
+     std's own tests: 0.
+   - **The oracle over the corpus**, `yo test ./tests --exclude
+     tests/internal --exclude tests/cli-cases --allocator debug` under the
+     new default, verdict on: **5,711 passed, 24 failed**. 21 are
+     `tests/cycle_collector.test.yo`'s garbage-cycle cases: under `off` the
+     file expects the cycle to leak (`collected(n)` is 0), and the oracle
+     reports exactly that; the same file under `auto` passes the oracle.
+     The other 3 fail under `auto` too and are open issues:
+     `tests/io/async_traits.test.yo` (a rejected `dyn(x)` inside
+     `comptime_expect_error`,
+     `issues/2026-10-24-comptime-expect-error-over-a-rejected-dyn-leaks-its-operand.md`),
+     `tests/net/tcp.test.yo`'s non-routable connect
+     (`issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md`)
+     and `tests/net/unix.test.yo`'s aborted accept
+     (`issues/2026-10-22-an-aborted-accept-leaks-its-peer-address-buffers.md`).
+     `yo test ./std --allocator debug`: 7/7. **No test outside the
+     collector's own file leaks a cycle without the collector.**
+   - **The compiler built without the collector** (`check src/main.yo`,
+     A B B A against the same tree built with it): max RSS 1,315,900 →
+     1,216,600 KB (x0.925), instructions x0.873, cycles x0.942.
+
 **What the deletion removes:**
 
 - the emitted collector (`src/codegen/functions/gc_runtime.yo`'s tracking
@@ -427,7 +549,7 @@ exclusion of `Rc`-reaching values keeps its other reason (aliasing).
 | W2 | `Arc` without `Acyclic` (std/sync, thread, prelude); `ARC.md` and `DESIGN.md` in both languages; the S2 issue retired, its reproducer kept as a derivation test | `tests/send_sync.test.yo`; an `Arc(Mutex(Node))` cycle compiles and `--debug-heap` reports it |
 | W3 | `Weak(T)`: the weak count in the freed 16 bits, `downgrade`/`upgrade`/`new`/counts/`ptr_eq`, `Clone`, the dead flag, the two free paths, `traverse_fn` skipping `Weak` | upgrade after the last strong is `.None`; the allocation is freed at the last `Weak` (`--debug-heap` count); a parent pointer through `Weak(RefCell(Node))`; a cycle broken by a `Weak` is untracked under `Auto` and leak-free under `Off`; an `upgrade` from a `Drop` during CollectWhite returns `.None`; ASan on all of it |
 | W4 | `ArcWeak(T)` with atomic counts; `Send`/`Sync`; ARC.md and DESIGN.md (both languages) gain the `ArcWeak` sentence deferred from W2 | the W3 rows across a `Thread.spawn`; TSan |
-| W5 | the derived `Acyclic` walk ignores `Weak` edges and answers a cycle through a cell inductively (the S2 derivation fix); the declared exemption without the pragma; `yo fix` drops the `SAFETY:` comments in std | `tests/send_sync.test.yo` rows: a weak-parent tree is `Acyclic`, a strong-parent one is not, `Option(Box(Self))` and `ArrayList(Self)` stay `Acyclic`; the S2 reproducer's types not `Acyclic`; an object holding a cyclic cell behind an `Option` or a pointer not `Acyclic` (`issues/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`, found at W2) |
+| W5 | the derived `Acyclic` walk ignores `Weak` edges and answers a cycle through a cell inductively (the S2 derivation fix); the declared exemption without the pragma; `yo fix` drops the `SAFETY:` comments in std | `tests/send_sync.test.yo` rows: a weak-parent tree is `Acyclic`, a strong-parent one is not, `Option(Box(Self))` and `ArrayList(Self)` stay `Acyclic`; the S2 reproducer's types not `Acyclic`; an object holding a cyclic cell behind an `Option` or a pointer not `Acyclic` (`issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`, found at W2) |
 | W6 | the default flips to `Off` for one release (the measurement of §6), then the collector, `Trace`, the declared `Acyclic` form, the large header and the knob are deleted (the derived `Acyclic` marker stays); docs in both languages; the origins plan's O9/O10 amended | §6's three preconditions recorded as met; the fixpoint and the memory ratchet (headers shrink); `yo test --allocator debug` green over the corpus with no collector |
 
 Each phase is one PR; W3 is Generation A (the prelude gains the types; std

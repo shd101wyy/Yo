@@ -368,7 +368,7 @@ d.speak(); // error[E0901]: use of moved value: `d`
 
 **第 A 代与第 B 代（Generation A / B）。** 第 A 代（B12）让该规则作用于 std 和编译器之外的程序。第 B 代（B13）移除了这一例外：std 和编译器像其他程序一样，用 `.clone()` 复制 `Dyn` 或移动它。该规则只会拒绝程序。它接受的每次复制都是源值的最后一次使用，并保持计数共享的表示，因此生成的 C 代码只在某次复制改成 `.clone()` 的地方变化。让移动成为类型本身的语义（显式复制与仅移动的谓词）是之后的一步。由于 std 也受该规则约束，在不含 `Clone` 的 `Dyn` 集合上调用复制型访问器（`xs.get(i)`、`xs.last()`）会在调用处报 E0901：请通过下标读取元素（`xs(i).m()`），或把它移出（`xs.pop()`）。
 
-**`AnyError` 列出了 `Clone`。** 处理器以借用的方式接收它捕获的错误（`throw(error : &AnyError)`），所以保留该错误（存储、返回、包进 `Context`）的处理器需要复制它。因此 `AnyError` 是 `Dyn(Error, Clone)`，被擦除进它的类型必须实现 `Clone`（`derive(MyError, Clone)`）。`Error.source` 返回原因的克隆，`Context.new` 按值接收其原因。
+**错误按值抛出。** `Exception.throw` 和 `ResumableException(T).throw` 按值接收 `error : AnyError`，所以处理器拥有它捕获的错误，并通过移动来保留它（存储、返回、包进 `Context`）；只读取该错误的函数用 `&e` 借用它。**`AnyError` 在 v0.2.73 仍列出 `Clone`：这是临时方案，并非定论。** 在决策 43 第 3 步之前，`Error.source` 无法返回借用，只能返回原因的克隆，因此 `AnyError` 是 `Dyn(Error, Clone)`，被擦除进它的类型必须实现 `Clone`（`derive(MyError, Clone)`）。在 v0.2.74（第 3 步），`AnyError` 恢复为仅可移动的 `Dyn(Error)`（即 Rust 的 `Box<dyn Error>`），`Error.source` 返回 `Option(&Dyn(...))`，因此不再要求 `Clone`。
 
 ## Dyn 的引用计数
 

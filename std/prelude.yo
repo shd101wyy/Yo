@@ -1069,9 +1069,8 @@ export(ComptimeToString);
 // comptime_float, comptime_str, bool, i8/i16/i32/i64, u8/u16/u32/u64,
 // f32/f64, isize/usize, char/int/uint/short/ushort/long/ulong/longlong/
 // ulonglong/longdouble) are plain value types with no heap allocations
-// or thread-local state. They are trivially safe to send across threads
-// and cannot form reference cycles. For these types, Send and Acyclic are
-// structural properties of the underlying C types.
+// or thread-local state. They are trivially safe to send across threads:
+// for these types, Send is a structural property of the underlying C types.
 // === Builtin types ===
 /// unit
 impl(unit, Acyclic());
@@ -6981,10 +6980,9 @@ export(longdouble : _longdouble);
 // A raw pointer *(T) is neither Send nor Sync (plans/VALUES_BY_DEFAULT.md
 // decision 38 E): nothing says who owns the pointee or who else reads it. A
 // type that holds one opts in with `impl(T, Send())` / `impl(T, Sync())`
-// under pragma(Pragma.AllowUnsafe), with a SAFETY comment.
-// *(T) is unconditionally Acyclic because raw pointers do not participate
-// in Yo's ARC reference-counting cycle analysis.
-impl(generic(T : Type), *T, Acyclic());
+// under pragma(Pragma.AllowUnsafe), with a SAFETY comment. Its `Acyclic` is
+// its pointee's: the strong-cycle reach walk follows a raw pointer, since an
+// owned buffer (`?*E`, `Box`'s `*V`) is one.
 impl(generic(T : Type), where(T <: Comptime), *T, Comptime());
 impl(generic(T : Type), where(T <: Runtime), *T, Runtime());
 /*
@@ -7072,11 +7070,10 @@ impl(
 /// Array
 // SAFETY: Array(T, U) is a fixed-size array value type. It is Send when T
 // is Send because an array value is copied across threads (each thread
-// gets an independent copy). It is unconditionally Acyclic because arrays
-// are value-typed — they do not participate in ARC reference counting.
+// gets an independent copy). Its `Acyclic` is its element's, which the
+// strong-cycle reach walk answers.
 impl(generic(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
 impl(generic(T : Type, U : usize), where(T <: Sync), Array(T, U), Sync());
-impl(generic(T : Type, U : usize), Array(T, U), Acyclic());
 impl(generic(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
 impl(generic(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
 /// `Array(T, U)`'s `Default` — N copies of `T.default()`, built at RUN TIME.
@@ -13393,7 +13390,7 @@ FutureState :: enum(
 );
 derive(FutureState, Copy, Clone);
 // SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
-// Aborted) with no heap allocations. It is trivially Send and Acyclic.
+// Aborted) with no heap allocations. It is trivially Send.
 impl(FutureState, Acyclic());
 impl(FutureState, Runtime());
 impl(FutureState, Send());
@@ -13548,3 +13545,48 @@ impl(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )
 );
+/// `dyn(...)`'s cell constructor: `dyn(v)` boxes a payload whose type is a
+/// type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) with
+/// `__yo_rc_cell(v)`, bound to the call by value. Compiler-internal, not
+/// exported; `rc` and `Rc.new` are the spellings to write. It outlives `rc`
+/// (static-argument inference B3) until V5 builds cells through `__yo_cell`
+/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a)).
+__yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
+  // `rc`'s body (and `Rc.new`'s), kept as `dyn(...)`'s own constructor:
+  // a closure literal's payload type is the `Dyn`'s open payload wrapper, and
+  // only a generic FUNCTION's binder resolves it to the capture struct
+  // (`_prelude_cell_constructor`, src/evaluator/values/dyn.yo). The `match` is
+  // bound for `rc`'s reason.
+  cell := match(
+    alloc,
+    .Some(a) => {
+      saved_ctx := __yo_scope_ctx();
+      saved_vtable := __yo_scope_vtable();
+      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+      placed := Rc(V)(value);
+      __yo_scope_set(saved_ctx, saved_vtable);
+      placed
+    },
+    .None => Rc(V)(value)
+  );
+  cell
+});
+/// `dyn(...)`'s atomically counted cell constructor, for a `Dyn(..., Send)`
+/// target: `__yo_rc_cell`'s twin. Compiler-internal, not exported.
+__yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))({
+  // `arc`'s body, kept as `dyn(...)`'s constructor for a Send target, for
+  // `__yo_rc_cell`'s reason.
+  cell := match(
+    alloc,
+    .Some(a) => {
+      saved_ctx := __yo_scope_ctx();
+      saved_vtable := __yo_scope_vtable();
+      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+      placed := Arc(V)(value);
+      __yo_scope_set(saved_ctx, saved_vtable);
+      placed
+    },
+    .None => Arc(V)(value)
+  );
+  cell
+});

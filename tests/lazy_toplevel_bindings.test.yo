@@ -223,6 +223,74 @@ test("an imported free function's trait-default miss does not force the importer
   t := LaterT(n : i32(2));
   assert(t.show() == i32(3), "show goes through the later impl's default");
 });
+// ---------- a derive is a pending impl of its target type ----------
+// issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md —
+// `b.clone()` above `derive(Bag, Clone)` was E0610 (No method "clone").
+Bag :: struct(items : ArrayList(i32), label : i32);
+_bag_clone_len :: (fn(b : &Bag) -> usize)({
+  c := b.clone();
+  c.items.len()
+});
+derive(Bag, Clone);
+test("a method call above the derive that provides it", {
+  b := Bag(items : ArrayList(i32).new(), label : i32(1));
+  b.items.push(i32(7));
+  b.items.push(i32(8));
+  assert(_bag_clone_len(&b) == usize(2), "the clone keeps both items");
+});
+// issues/fixed/2026-10-27-a-derive-is-not-order-independent-like-an-impl.md —
+// `_pair_first_user` forces `_pair_probe` before the walk reaches the derive,
+// and `get_cloned` needs `DPair : Clone`: E0610 on the derived `clone`.
+_pair_first_user :: (fn() -> usize)(_pair_probe());
+DPair :: struct(first : String, second : String);
+derive(DPair, Clone);
+_pair_probe :: (fn() -> usize)({
+  xs := ArrayList(DPair).new();
+  xs.push(DPair(first : `ab`, second : `c`));
+  match(
+    xs.get_cloned(usize(0)),
+    .Some(p) => p.first.len(),
+    .None => usize(0)
+  )
+});
+test("a definition forced before the derive its body needs", {
+  assert(_pair_first_user() == usize(2), "the cloned pair's first field");
+});
+// An impl member above the derive: the in-block miss forces the type's
+// pending derives (they declare their methods only once they run).
+DPt :: struct(x : i32);
+impl(
+  DPt,
+  twin : (fn(self : &Self) -> DPt)({
+    (r : DPt) = self.clone();
+    r
+  })
+);
+derive(DPt, Clone);
+test("an impl member calls a method from a later derive of its type", {
+  p := DPt(x : i32(5));
+  assert(p.twin().x == i32(5), "twin goes through the later derived clone");
+});
+// A derive whose bound names a later derive (`Ord` needs `Self <: Eq`) forces
+// it; one whose bound names a later hand-written impl still forces that impl
+// (a derive in flight does not take the in-impl guard).
+OrdK :: struct(a : i32);
+derive(OrdK, Ord(OrdK));
+derive(OrdK, Eq(OrdK));
+OrdH :: struct(a : i32);
+derive(OrdH, Ord(OrdH));
+impl(
+  OrdH,
+  Eq(OrdH)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.a == rhs.a),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.a != rhs.a)
+  )
+);
+test("a derive whose trait bound is met by a later derive or impl", {
+  assert(OrdK(a : i32(1)) < OrdK(a : i32(2)), "derived Ord over a later derived Eq");
+  assert(OrdH(a : i32(3)) > OrdH(a : i32(2)), "derived Ord over a later Eq impl");
+  assert(OrdK(a : i32(4)) == OrdK(a : i32(4)), "the later derived Eq");
+});
 // ---------- surfaced along the way: unit-valued body vs non-unit result ----------
 // A `{ ...; }` body's value is `()` (the parser appends a trailing unit); the
 // mismatch used to reach clang ("non-void function does not return a value").

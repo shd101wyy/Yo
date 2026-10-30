@@ -9,7 +9,7 @@ life of the process, like
 `issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`.
 
 **Status:** open. **Found:** 2026-10-21 with the v0.2.67 seed, as the
-control for `issues/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`.
+control for `issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`.
 
 ## Reproducer
 
@@ -88,4 +88,7 @@ refinement of this predicate, not a substitute for registering the cell.
 The reproducer's shape as a `tests/cycle_collector.test.yo` case (tracked
 count 1 before `Gc.collect()`, 0 after), and a
 `tests/codegen-bootstrap/rc_refcell_self_cycle.yo` row beside
-`arraylist_self_cycle.yo`.
+`arraylist_self_cycle.yo`. Superseded: no new cycle-collector tests are
+written (maintainer, 2026-10-24), and the corpus's `*_self_cycle.yo`
+programs were deleted when `--cycle-collector off` became the default
+(decision 48 W6a); W6b retires this issue with the collector.

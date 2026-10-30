@@ -1,0 +1,14 @@
+// issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md
+{ Exception, AnyError } :: import("std/error");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+fail :: (fn(exn : Exception) -> i32)(exn.throw(dyn(String.from("a fairly long error message to allocate"))));
+run :: (fn() -> String)({
+  exn := Exception(throw : (e -> unwind(e.to_string())));
+  _x := fail(exn);
+  String.from("no")
+});
+main :: (fn() -> unit)({
+  println(run());
+});
+export(main);

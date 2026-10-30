@@ -1102,3 +1102,48 @@ test("a Dyn listing Send and Sync compiles one member per name", {
   b := Arc.clone(a);
   assert((d() + (a.*() + b.*())) == i32(14), "a Send and Sync Dyn calls through its vtable, and through an Arc");
 });
+// Two `Dyn(Fn(...))` types that differ only in a parameter's mode are two
+// types with two vtables: the slot mode is part of the `Fn` type's key
+// (issues/fixed/2026-10-27-dyn-fn-types-differing-only-in-a-parameter-mode-share-one-vtable.md).
+test("Dyn(Fn(...)) types differing only in a parameter mode get their own vtables", {
+  (a : Dyn(Fn(x : &mut i32) -> unit)) = dyn((x : &mut i32) => {
+    x = (x + i32(1));
+  });
+  (b : Dyn(Fn(x : i32) -> i32)) = dyn((x : i32) => (x + i32(10)));
+  (c : Dyn(Fn(x : &i32) -> i32)) = dyn((x : &i32) => (x + i32(100)));
+  (mut(v) : i32) = i32(1);
+  a(&mut v);
+  assert(v == i32(2), "the &mut slot writes through to the caller");
+  assert(b(v) == i32(12), "the by-value slot takes a copy");
+  assert(c(&v) == i32(102), "the & slot reads through the borrow");
+});
+_DmA :: struct(n : i32);
+impl(
+  _DmA,
+  apply : (fn(self : &Self, f : Dyn(Fn(x : &mut i32) -> unit)) -> i32)({
+    (mut(v) : i32) = self.n;
+    f(&mut v);
+    v
+  })
+);
+_DmB :: struct(n : i32);
+impl(
+  _DmB,
+  apply : (fn(self : &Self, f : Dyn(Fn(x : i32) -> unit)) -> i32)({
+    f(self.n);
+    self.n
+  })
+);
+// One closure literal minted at two instantiations whose expected `Fn` slots
+// differ only in a mode: each mint is boxed with its own closure function.
+_dm_run :: (fn(generic(T : Type), t : T, k : i32) -> i32)(
+  t.apply(
+    dyn(x => {
+      _y := (x + k);
+    })
+  )
+);
+test("one closure literal boxed at a &mut slot and at a by-value slot", {
+  assert(_dm_run(_DmA(n : i32(1)), i32(5)) == i32(1), "the &mut mint");
+  assert(_dm_run(_DmB(n : i32(2)), i32(5)) == i32(2), "the by-value mint");
+});

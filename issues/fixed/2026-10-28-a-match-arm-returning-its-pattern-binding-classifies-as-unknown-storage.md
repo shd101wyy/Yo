@@ -114,6 +114,7 @@ Both fail with the develop `49aca7a72` binary and pass with the fix.
 
 ## Related
 
-`rc(b)`/`arc(b)` of a `ref` parameter still carry a false assert, for a
-different reason (the allocation-scope externs in their `alloc` arm):
-`issues/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md`.
+`rc(b)`/`arc(b)` of a `ref` parameter carried a false assert for a
+different reason (the allocation-scope externs in their `alloc` arm), fixed
+separately:
+`issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md`.
