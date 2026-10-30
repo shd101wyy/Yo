@@ -2534,7 +2534,7 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
     .Some(fb_ctx) => match(
       fb_ctx.kind,
       .FunctionBody => match(
-        fb_ctx.func_type,
+        &fb_ctx.func_type,
         .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box)),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
@@ -2958,7 +2958,7 @@ _evaluate_begin_expression_impl :: (
               .FunctionBody => match(
                 &fb_ctx.func_type,
                 // A projection returns its place's address (decision 24).
-                .Some(Rc(.Func({ result : ret_slot }))) => Option(TypeValue).Some(if(t_slot_is_borrow(&ret_slot), t_ptr(&t_slot_pointee(&ret_slot)), t_slot_pointee(&ret_slot))),
+                .Some(Rc(.Func({ result : ret_slot }))) => Option(TypeValue).Some(if(t_slot_is_borrow(&ret_slot), t_ptr(&t_slot_pointee(&ret_slot)), Rc.clone(t_slot_pointee(&ret_slot)))),
                 .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
@@ -3063,7 +3063,7 @@ _evaluate_begin_expression_impl :: (
             .Some(ir_fb) => match(
               ir_fb.kind,
               .FunctionBody => match(
-                ir_fb.func_type,
+                &ir_fb.func_type,
                 .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&t_slot_pointee(&ir_ret)),
                 .Some(_) => false,
                 .None => false
@@ -3509,7 +3509,7 @@ _evaluate_begin_expression_impl :: (
                     rb_is_ref := t_slot_is_borrow(&result_slot);
                     // A projection's `return(&place)` yields the place's
                     // address (decision 24, `rewrite_projection_tails`).
-                    expected_ret := if(rb_is_ref, t_ptr(&result_box), result_box);
+                    expected_ret := if(rb_is_ref, t_ptr(&result_box), Rc.clone(result_box));
                     // Decision 44: `return(f)` into a `Dyn(Fn(...))` result is
                     // `return(dyn(f))`.
                     if(!rb_is_ref, {

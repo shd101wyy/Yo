@@ -1825,7 +1825,7 @@ ${ast_expr_to_string(&actual_arg)}`
           match(
             get_closure_body_type(cb_fvd.*.func_id.clone()),
             .Some(cb_body_ty) => {
-              arg_type_for_synth = rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, t_slot_with_pointee(&cb_res, &cb_body_ty), cb_meta, no_types()));
+              arg_type_for_synth = rc(TypeValueNode.Func(Rc.clone(cb_ft), Rc.clone(cb_pt), Rc.clone(cb_it), Rc.clone(cb_wt), t_slot_with_pointee(&cb_res, &cb_body_ty), Rc.clone(cb_meta), no_types()));
             },
             .None => ()
           );
@@ -3817,12 +3817,12 @@ create_specialized_function_inline :: (
               })
             ) => rc(
               TypeValueNode.Func(
-                ft_ft,
-                ft_pt,
-                ft_it,
-                ft_wt,
+                Rc.clone(ft_ft),
+                Rc.clone(ft_pt),
+                Rc.clone(ft_it),
+                Rc.clone(ft_wt),
                 t_slot_with_pointee(&ft_res, &spec_ret_ty),
-                ft_meta,
+                Rc.clone(ft_meta),
                 no_types()
               )
             ),
@@ -4592,7 +4592,7 @@ create_specialized_function_inline :: (
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&specialized_body)),
             .Some(sb_info) => {
-              sb_ty := sb_info.ty;
+              sb_ty := Rc.clone(sb_info.ty);
               sb_ret_is_ref := fn_result_is_ref(&func_type);
               // A specialized body ending in a `never` expression adopts the
               // declared result (Phase 3.6; the concrete twin is in
@@ -4867,7 +4867,7 @@ create_specialized_function_inline :: (
               // The result's `&`/`&mut` is its slot (decision 43 step 2): the
               // pointee is re-evaluated, the slot rebuilt around it below.
               sp_res_b := t_slot_pointee(&sp_res_slot);
-              (sp_pl : SharedList(String)) = __fm5.*.param_labels;
+              (sp_pl : SharedList(String)) = Rc.clone(__fm5.*.param_labels);
               // The spec's C params must be named after the FuncVal's OWN
               // (source) labels — the body references those. `func_type` here
               // can be the DECLARED variable's type whose labels differ:
@@ -4882,7 +4882,7 @@ create_specialized_function_inline :: (
               sp_rico := __fm5.*.result_is_comptime_only;
               sp_pir := fn_param_mut_ref_flags(&func_type);
               sp_pio := fn_param_by_value_flags(&func_type);
-              sp_pis := match(__fm5.*.param_is_sink, .Some(l) => l, .None => no_flags());
+              sp_pis := match(&__fm5.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags());
               sp_hv := __fm5.*.has_variadic;
               sp_ie := __fm5.*.is_extern.clone();
               sp_en := __fm5.*.extern_name.clone();
@@ -5064,7 +5064,7 @@ create_specialized_function_inline :: (
                                     ) => {
                                       register_func_type(
                                         cw_fid.clone(),
-                                        rc(TypeValueNode.Func(cw_fts, cw_new_pts.clone(), cw_its, cw_wts, t_slot_with_pointee(&cw_old_ret, &cw_ret_res), cw_fm, no_types()))
+                                        rc(TypeValueNode.Func(Rc.clone(cw_fts), cw_new_pts.clone(), Rc.clone(cw_its), Rc.clone(cw_wts), t_slot_with_pointee(&cw_old_ret, &cw_ret_res), Rc.clone(cw_fm), no_types()))
                                       );
                                     },
                                     _ => ()
@@ -5482,8 +5482,8 @@ create_specialized_function_inline :: (
                 TypeValueNode.Func(
                   no_types(),
                   shared_list(spec_slots),
-                  sp_it,
-                  sp_wt,
+                  Rc.clone(sp_it),
+                  Rc.clone(sp_wt),
                   t_slot_with_pointee(&sp_res_slot, &spec_result),
                   rc(
                     FuncMeta(
@@ -6314,8 +6314,8 @@ resolve_param_types_from_expected :: (
     forall_out_types : &mut ArrayList(TypeValue)
   ) -> unit
 )({
-  default_pts := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
-  forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => __fm7.*.forall_labels, _ => no_labels());
+  default_pts := match(func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
+  forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => Rc.clone(__fm7.*.forall_labels), _ => no_labels());
   ret_b := match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => t_unit());
   if(forall_lbls.len() == usize(0), {
     return(());
@@ -7133,12 +7133,12 @@ try_to_call_function_with_arguments :: (
     );
   });
   match(
-    norm_func_type2,
+    &norm_func_type2,
     Rc(.Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b_slot, meta : __fm8 })) => {
       // The declared result's VALUE type; a projection's `&` is its slot.
       ret_b := t_slot_pointee(&ret_b_slot);
-      fl := __fm8.*.forall_labels;
-      pl := __fm8.*.param_labels;
+      fl := Rc.clone(__fm8.*.forall_labels);
+      pl := Rc.clone(__fm8.*.param_labels);
       pio := fn_param_by_value_flags(&norm_func_type2);
       pis := match(&__fm8.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags());
       pref := fn_param_mut_ref_flags(&norm_func_type2);
@@ -9134,7 +9134,7 @@ try_to_call_function_with_arguments :: (
             .Some(cfb) => match(
               cfb.kind,
               .FunctionBody => match(
-                cfb.func_type,
+                &cfb.func_type,
                 .Some(cfty) => match(cfty, Rc(.Func({ result : crb })) => t_slot_pointee(&crb), _ => rc(TypeValueNode.Unit)),
                 .None => rc(TypeValueNode.Unit)
               ),

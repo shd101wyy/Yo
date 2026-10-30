@@ -495,8 +495,8 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, fr_old, fr_meta, fr_vt)) => rc(TypeValueNode.Func(fr_ft, fr_pt, fr_it, fr_wt, t_slot_with_pointee(&fr_old, result), fr_meta, fr_vt)),
-    _ => ft
+    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, fr_old, fr_meta, fr_vt)) => rc(TypeValueNode.Func(Rc.clone(fr_ft), Rc.clone(fr_pt), Rc.clone(fr_it), Rc.clone(fr_wt), t_slot_with_pointee(&fr_old, result), Rc.clone(fr_meta), Rc.clone(fr_vt))),
+    _ => Rc.clone(ft)
   )
 );
 /// The opaque C type an `extern`/`c_include` `X : Type` member declares

@@ -2825,7 +2825,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // exists only for its side-effects + early `return`s. Binding a unit-valued
   // match to a `:=` temp made codegen emit an illegal `void temp = ;`.)
   match(
-    function_type,
+    &function_type,
     Rc(.Func({ result : r_slot6, meta : __fm6 })) => {
       r := t_slot_pointee(&r_slot6);
       ie := __fm6.*.is_extern.clone();
@@ -3260,7 +3260,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             sig_ret_override := if(
               ctl_generic_ret,
               Option(String).None,
-              match(sf, Rc(.Func({ result : sfr })) => erased_future_result_type_string(&t_slot_pointee(&sfr), &context.base), _ => Option(String).None)
+              match(&sf, Rc(.Func({ result : sfr })) => erased_future_result_type_string(&t_slot_pointee(&sfr), &context.base), _ => Option(String).None)
             );
             cast = `(${generate_function_prototype(&sf, String.from("(*)"), &context.base, &sig_ret_override, false)})`;
           },

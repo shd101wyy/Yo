@@ -483,7 +483,7 @@ _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Optio
         cond(
           !p1_compatible => Option(_IndexShape).None,
           // A projection: `&Self` for `index`, `&mut Self` for `index_mut`.
-          t_slot_is_borrow(&result_slot) => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : t_slot_is_mut_ref(&result_slot), output : result_box)),
+          t_slot_is_borrow(&result_slot) => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : t_slot_is_mut_ref(&result_slot), output : Rc.clone(result_box))),
           // The pre-V2b shape: self must be a pointer type OR a `&mut`
           // parameter, and the result a raw pointer to the element.
           ((p0_is_ptr || p0_is_ref) && is_pointer_type(&result_box)) => Option(_IndexShape).Some(
@@ -1380,7 +1380,7 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)`.
-  ct_ret_type := match(ct_fn_type, Rc(.Func({ result : ct_r })) => t_slot_pointee(&ct_r), _ => t_unit());
+  ct_ret_type := match(&ct_fn_type, Rc(.Func({ result : ct_r })) => t_slot_pointee(&ct_r), _ => t_unit());
   if(!is_pointer_type(&ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
@@ -1885,10 +1885,10 @@ _record_index_unchecked_twin :: (
       // Its element is the subscript's: the pointee of a pre-V2b
       // `*(Output)`, or a projection's result.
       same_output := match(
-        c.ty,
+        &c.ty,
         Rc(.Func({ result : twin_slot })) => {
           twin_ret := t_slot_pointee(&twin_slot);
-          twin_out := if(t_slot_is_borrow(&twin_slot), twin_ret, match(twin_ret, Rc(.Pointer(tp)) => tp, _ => t_unit()));
+          twin_out := if(t_slot_is_borrow(&twin_slot), Rc.clone(twin_ret), match(twin_ret, Rc(.Pointer(tp)) => Rc.clone(tp), _ => t_unit()));
           (t_slot_is_borrow(&twin_slot) || is_pointer_type(&twin_ret))
           && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
         },

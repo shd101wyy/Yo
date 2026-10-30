@@ -504,7 +504,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     );
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
     context.pending_deferred_drops = saved_drops;
-    return_type := match(context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
 
     // Caught here only when the handler that unwound was installed in THIS
     // function, so the value has this function's return type. Deciding by the

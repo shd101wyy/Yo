@@ -708,7 +708,7 @@ _reject_dyn_borrowing_future_methods :: (
             fvals.get(fi),
             .Some(.Some(.FuncVal(fvd, _))) => {
               res_ty = match(get_func_type(fvd.*.func_id.clone()), Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => rc(TypeValueNode.Unit));
-              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => bi.ty, .None => rc(TypeValueNode.Unit));
+              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => Rc.clone(bi.ty), .None => rc(TypeValueNode.Unit));
             },
             _ => ()
           );

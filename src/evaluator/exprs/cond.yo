@@ -778,7 +778,7 @@ evaluate_cond :: (
                           match(
                             ft,
                             Rc(.Func({ result : result_slot })) => {
-                              return_type = Option(TypeValue).Some(if(t_slot_is_borrow(&result_slot), t_ptr(&t_slot_pointee(&result_slot)), t_slot_pointee(&result_slot)));
+                              return_type = Option(TypeValue).Some(if(t_slot_is_borrow(&result_slot), t_ptr(&t_slot_pointee(&result_slot)), Rc.clone(t_slot_pointee(&result_slot))));
 
                             },
                             _ => ()

@@ -126,7 +126,7 @@ generate_function_prototype :: (
   match(
     function_type,
     Rc(.Func({ param_types, result : result_slot, meta : __fm1 })) => {
-      param_labels := __fm1.*.param_labels;
+      param_labels := Rc.clone(__fm1.*.param_labels);
       // The C pointer flags: a `&mut T` parameter, or a projection's `&T`.
       param_is_ref := fn_abi_param_is_ptr(function_type);
       // A borrowed result (`-> &T`) is the pointee's C type plus `*`.
