@@ -7955,8 +7955,10 @@ test("borrowed temporaries and closure-borrowed locals of an awaiting io.async b
 _a2_gen_push :: (fn(generic(T : Type), x : ArrayList(T), v : T, io : Io) -> Impl(Future(usize, Io)))(
   io.async({ x, v }(io : Io) => {
     io.await(yield(io), io);
-    x.push(v);
-    x.len()
+    // A capture-list entry is immutable (decision 47): rebind it to write.
+    mut(xs) := x;
+    xs.push(v);
+    xs.len()
   })
 );
 test("a generic io.async body's capture move flag belongs to its specialization", {
@@ -8102,10 +8104,13 @@ test("a local whose address a method call lends lives in the task across a suspe
   assert(rb.unwrap() == i32(0), "task B reads back its own 64 bytes and cell through the lent pointers");
 });
 // An argument lent both `&mut` and `&` to one call inside an `io.async` body
-// takes the same caller-owned +1 as outside one: `xs` lives in a task slot, and
-// the state-machine call path emitted only a by-value parameter's share, so a
-// callee replacing `xs` read the freed first list through its `&` argument
+// took the same caller-owned +1 as outside one while a list was a reference
+// type: `xs` lives in a task slot, and the state-machine call path emitted only
+// a by-value parameter's share, so a callee replacing `xs` read the freed first
+// list through its `&` argument
 // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
+// Since B8 a list is a value, so that overlap is decision 28's E0910; the task
+// still lends a slot local `&mut` beside a separate `&` list on each call path.
 (mut(g_alias_disposed) : i32) = i32(0);
 (mut(g_alias_seen) : usize) = usize(0);
 _AliasBox :: ref(struct(tag : i32));
@@ -8143,24 +8148,34 @@ _alias_clobber_in_task :: (fn(io : Io) -> Impl(Future(usize, Io)))(
     mut(xs) := ArrayList(_AliasBox).new();
     xs.push(_AliasBox(tag : i32(7)));
     xs.push(_AliasBox(tag : i32(8)));
+    mut(ys) := ArrayList(_AliasBox).new();
+    ys.push(_AliasBox(tag : i32(20)));
     io.await(yield(io), io);
-    _alias_clobber_unit(&mut xs, &xs);
+    _alias_clobber_unit(&mut xs, &ys);
     io.await(yield(io), io);
     xs.push(_AliasBox(tag : i32(9)));
-    n := _alias_clobber(&mut xs, &xs);
+    n := _alias_clobber(&mut xs, &ys);
     io.await(yield(io), io);
     xs.push(_AliasBox(tag : i32(10)));
-    m := io.await(_alias_clobber_then(&mut xs, &xs, io), io);
+    m := io.await(_alias_clobber_then(&mut xs, &ys, io), io);
     ((n + m) + xs.len())
   })
 );
-test("an argument lent both &mut and & to one call in an io.async body keeps its share", {
+test("a slot local lent &mut beside a separate & list in an io.async body", {
+  comptime_expect_error(
+    io.async((io : Io) => {
+      mut(xs) := ArrayList(_AliasBox).new();
+      io.await(yield(io), io);
+      _alias_clobber(&mut xs, &xs)
+    }),
+    "decision 28's value-root rule"
+  );
   before := g_alias_disposed;
   n := io.await(_alias_clobber_in_task(io), io);
   seen := g_alias_seen;
-  assert(seen == usize(2), `the statement call's borrowed list survived the writes, len ${seen.to_string()}`);
-  assert(n == usize(5), `the bound and the awaited calls' borrowed lists survived the writes, got ${n.to_string()}`);
-  assert(g_alias_disposed == (before + i32(13)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+  assert(seen == usize(1), `the statement call read the separate list, len ${seen.to_string()}`);
+  assert(n == usize(3), `the bound and the awaited calls read the separate list, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(14)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
 });
 // The share a borrowed projection takes for one call is declared at every
 // fused site of its wrapper: awaiting one wrapper twice in a task emits the
@@ -8185,7 +8200,7 @@ test("a borrowed projection's share is declared at each fused site of one wrappe
   before := g_alias_disposed;
   n := io.await(
     io.async((io : Io) => {
-      xs := ArrayList(_AliasBox).new();
+      mut(xs) := ArrayList(_AliasBox).new();
       xs.push(_AliasBox(tag : i32(1)));
       lock := _AliasLock(file : xs);
       a := io.await(_alias_release(lock, io), io);
@@ -8205,7 +8220,10 @@ test("a borrowed projection's share is declared at each fused site of one wrappe
 _alias_prologue :: (fn(io : Io) -> Impl(Future(usize, Io)))({
   mut(ys) := ArrayList(_AliasBox).new();
   ys.push(_AliasBox(tag : i32(3)));
-  n := _alias_clobber(&mut ys, &ys);
+  // A separate `&` list: lending `ys` twice is E0910 since B8.
+  mut(zs) := ArrayList(_AliasBox).new();
+  zs.push(_AliasBox(tag : i32(4)));
+  n := _alias_clobber(&mut ys, &zs);
   io.async((io : Io) => {
     io.await(yield(io), io);
     n
@@ -8222,7 +8240,7 @@ test("an aliased call in a wrapper's prologue compiles at each fused site of one
     io
   );
   assert(n == usize(2), `each prologue's borrowed list survived the writes, got ${n.to_string()}`);
-  assert(g_alias_disposed == (before + i32(8)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+  assert(g_alias_disposed == (before + i32(10)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
 });
 // A template of several parts lowers to one builder block (D10): an await in
 // a later part sits in a statement of that block, after the builder local is
