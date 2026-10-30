@@ -183,10 +183,14 @@ impl(
   Channel(T),
   where(T <: Send),
   /// Create a bounded channel with the given capacity.
-  /// Capacity must be > 0.
+  /// Capacity must be > 0. Panics when the allocator is out of memory.
   new : (fn(capacity : usize) -> Self)({
     assert(capacity > usize(0), "Channel.new: capacity must be > 0");
-    (ptr : *T) = (*T)(malloc(capacity * size_of(T)).unwrap());
+    // An out-of-memory buffer is an allocation diagnostic, like every other
+    // std constructor's, never a bare `unwrap` panic: `Thread.spawn` builds a
+    // channel per thread, so a fixed heap can run out right here
+    // (issues/fixed/2026-10-30-channel-new-oom-panics-as-an-unwrap-on-none.md).
+    (ptr : *T) = (*T)(malloc(capacity * size_of(T)).expect("Channel.new: out of memory"));
     return(
       Self(
         _data : ptr,

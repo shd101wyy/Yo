@@ -1,7 +1,10 @@
-// OOM behaviour under --allocator fixed for three allocation paths the
+// OOM behaviour under --allocator fixed for four allocation paths the
 // RC-constructor case (compile-allocator-fixed-oom) does not reach: async task
-// spawn, OS thread spawn, and String growth. Each must die with an allocation
-// diagnostic, never a NULL dereference.
+// spawn, OS thread spawn, String growth and a channel's ring buffer (the
+// allocation every `Thread.spawn` makes first; the thread shape reaches it only
+// when the heap happens to run out there, the channel shape every time). Each
+// must die with an allocation diagnostic, never a NULL dereference or an
+// `unwrap` panic.
 //
 // Abort exit codes differ by platform, so the program re-executes ITSELF once
 // per shape in child mode, and only the PARENT, which exits 0 portably,
@@ -13,6 +16,7 @@
 { println } :: import("std/fmt");
 { args } :: import("std/env");
 { Thread } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
 { sleep } :: import("std/sys/timer");
 
 /// Keeps every spawned thread's handle alive, so the handles accumulate in the
@@ -56,6 +60,12 @@ _child_string :: (fn() -> unit)({
     i = (i + usize(1));
   });
 });
+/// An 8 MiB ring buffer in a 64 KiB heap: the buffer allocation itself fails,
+/// on every run (the thread shape reaches the same allocation only when the
+/// heap happens to run out there).
+_child_channel :: (fn() -> unit)({
+  _ := Channel(u64).new(usize(1048576));
+});
 _is_alloc_diagnostic :: (fn(line : &String) -> bool)(
   line.contains(String.from("out of memory")) || line.contains(String.from("allocation failed"))
 );
@@ -79,6 +89,7 @@ main :: (fn(io : Io) -> unit)({
       cond(
         (shape == "task") => _child_task(io),
         (shape == "thread") => _child_thread(),
+        (shape == "channel") => _child_channel(),
         true => _child_string()
       );
       // Unreachable inside a 64 KiB heap; reaching it means the oracle broke.
@@ -91,6 +102,7 @@ main :: (fn(io : Io) -> unit)({
   shapes.push(String.from("task"));
   shapes.push(String.from("thread"));
   shapes.push(String.from("string"));
+  shapes.push(String.from("channel"));
   for(shapes, shape => {
     out := io.await(Command.new(&argv(usize(0))).arg(shape.clone()).env_clear().output(io), IoExn(io : io, exn : exn));
     text := String.from_bytes(out.stderr.clone());
