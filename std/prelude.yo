@@ -11103,22 +11103,25 @@ export(TryInto);
 // with the algebraic-effects system. Match on the `Result` instead, or
 // define an equivalent macro locally under `pragma(Pragma.AllowMacroDef);`
 // (tests/macro_def_pragma.test.yo keeps a working three-line version).
-/// The borrowed `for`'s loop-scoped borrow flag: `__borrow_guard(addr_of(coll))`
+/// The borrowed `for`'s loop-scoped borrow flag: `__borrow_guard(&coll)`
 /// acquires `coll`'s `borrow_count` and the guard's `Drop` releases it
 /// when the loop's block ends — on fall-through, `break`, `return` and effect
 /// `unwind` alike (the same scope-exit path `Mutex.with_lock`'s unlocker
 /// rides). While the flag is held, every container operation that could
 /// invalidate an element panics deterministically (`__yo_borrow_assert_unborrowed`).
 ///
-/// The guard holds a POINTER to the loop's source place, not a copy of the
-/// collection: a value collection (`ArrayList`, `String` since B8) cannot be
-/// copied, and it carries no flag either, so both builtins lower to nothing
-/// for it. The place outlives the guard: it is the caller's binding, or the
-/// hidden source local the macro binds before the guard.
+/// The guard holds the source's HANDLE only when the source is a
+/// reference-counted collection (a `ref`/`atomic` object such as `HashMap`),
+/// which is what carries the flag; copying that handle shares it. A value
+/// collection (`ArrayList`, `String` since B8) carries no flag and cannot be
+/// copied, so its guard holds `.None` and both builtins lower to nothing for
+/// it. The choice is made per instantiation, so a
+/// source that is a `&T` parameter needs no address, which a `&T` parameter
+/// does not have (E0921).
 __BorrowGuard :: (fn(comptime(C) : Type) -> comptime(Type))(
   ref(
     struct(
-      _c : *C
+      _c : Option(C)
     )
   )
 );
@@ -11126,14 +11129,25 @@ impl(
   generic(C : Type),
   __BorrowGuard(C),
   Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      __yo_borrow_release(&self._c.*);
-    })
+    drop : (fn(self : &mut Self) -> unit)(
+      match(
+        &self._c,
+        .Some(h) => __yo_borrow_release(&h),
+        .None => ()
+      )
+    )
   )
 );
-__borrow_guard :: (fn(generic(C : Type), c : *C) -> __BorrowGuard(C))({
-  __yo_borrow_acquire(&c.*);
-  __BorrowGuard(C)(_c : c)
+__borrow_guard :: (fn(generic(C : Type), c : &C) -> __BorrowGuard(C))({
+  __yo_borrow_acquire(c);
+  // The handle of a reference-counted object, which carries the flag;
+  // nothing for a value, which neither has one nor can be copied.
+  __BorrowGuard(C)(
+    _c : cond(
+      match(Type.get_info(C), .Struct(_, k) => match(k, .Object => true, .AtomicObject => true, _ => false), _ => false) => Option(C).Some(c),
+      true => Option(C).None
+    )
+  )
 });
 /// Whether the borrowed `for`'s source is a place the macro can borrow where
 /// it stands: a variable, or a field path rooted at one (`xs`, `self.items`,
@@ -11377,7 +11391,7 @@ for :: (
                 );
                 quote({
                   unquote(src_stmt);
-                  unquote(guard_var) := __borrow_guard(addr_of(unquote(src_place)));
+                  unquote(guard_var) := __borrow_guard(&unquote(src_place));
                   unquote(borrow_stmt);
                   unquote(cur_var) := unquote(c_var).walk_start();
                   __yo_borrow_check(
@@ -11438,7 +11452,7 @@ for :: (
                 );
                 quote({
                   unquote(src_stmt);
-                  unquote(guard_var) := __borrow_guard(addr_of(unquote(src_place)));
+                  unquote(guard_var) := __borrow_guard(&unquote(src_place));
                   unquote(borrow_stmt);
                   unquote(cur_var) := unquote(c_var).walk_start();
                   __yo_borrow_check(
