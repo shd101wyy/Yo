@@ -98,7 +98,7 @@ _enclosing_fn_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
 _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_ProjRootError))({
   ft := match(_enclosing_fn_type(ctx), .Some(t) => t, .None => return(Option(_ProjRootError).None));
   names := match(fn_result_origin_names(&ft), .Some(n) => n, .None => return(Option(_ProjRootError).None));
-  labels := match(ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.*.param_labels), _ => return(Option(_ProjRootError).None));
+  labels := match(&ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.*.param_labels), _ => return(Option(_ProjRootError).None));
   (i : usize) = usize(0);
   while(i < labels.len(), {
     if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
