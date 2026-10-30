@@ -1489,8 +1489,8 @@ _infer_unapplied_ctor_receiver :: (
       .None => ()
     );
   });
-  uc_res := _sai_decide(&uc_outcomes, &uc_static, &uc_recv, &uc_ctor, &uc_method, &uc_nodes, &uc_tys, uc_may_throw, env, ctx, exn);
-  if(uc_res.bound, {
+  uc_decided := _sai_decide(&uc_outcomes, &uc_static, &uc_recv, &uc_ctor, &uc_method, &uc_nodes, &uc_tys, uc_may_throw, env, ctx, exn);
+  if(uc_decided.bound, {
     match(
       expr_info_table_get(&ctx.expr_info_table, uc_memo_id),
       .Some(uc_bi) => match(
@@ -1509,7 +1509,7 @@ _infer_unapplied_ctor_receiver :: (
       .None => ()
     );
   });
-  uc_res
+  uc_decided
 });
 /// The place an argument evaluates as for inference: the value under a
 /// label (`self : x`), the place under a call-site borrow marker
