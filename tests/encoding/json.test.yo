@@ -643,9 +643,13 @@ test("JsonValue Eq compares objects as maps, not positionally", {
 });
 test("JsonValue Clone makes an independent tree", {
   a := json.parse("{\"xs\":[1]}").unwrap();
-  b := a.clone();
+  mut(b) := a.clone();
   assert(a == b, "the clone starts equal");
-  b.pointer(`/xs`).unwrap().push(JsonValue.Number(f64(2.0)));
+  // `pointer` reads a copy of the subtree (a value since B8): grow it and
+  // store it back.
+  mut(xs) := b.pointer(`/xs`).unwrap();
+  xs.push(JsonValue.Number(f64(2.0)));
+  _ := b.insert(`xs`, xs);
   assert(json.stringify(&a) == `{"xs":[1]}`, "the original is untouched");
   assert(json.stringify(&b) == `{"xs":[1,2]}`, "the clone grew");
 });

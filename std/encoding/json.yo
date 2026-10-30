@@ -228,6 +228,38 @@ impl(
 /// Is `token` a valid RFC 6901 array index — `"0"`, or digits with no leading
 /// zero? The RFC is explicit that `"01"` is not an index, so it must not
 /// silently resolve to element 1.
+/// The value `tokens(ti..)` names below `v` (`JsonValue.pointer`'s walk), a
+/// clone of it, or `.None`. Each step lends the child it descends into.
+_json_pointer_at :: (fn(v : &JsonValue, tokens : &ArrayList(String), ti : usize) -> Option(JsonValue))({
+  if(ti >= tokens.len(), {
+    return(Option(JsonValue).Some(v.clone()));
+  });
+  token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
+  match(
+    v,
+    .Object(keys, values) => {
+      mut(i) := usize(0);
+      while(i < keys.len(), i = (i + usize(1)), {
+        if(keys(i) == token, {
+          return(_json_pointer_at(&values(i), tokens, ti + usize(1)));
+        });
+      });
+      Option(JsonValue).None
+    },
+    .Array(items) => cond(
+      _is_rfc6901_index(&token) => match(
+        token.parse(usize),
+        .Ok(idx) => cond(
+          (idx < items.len()) => _json_pointer_at(&items(idx), tokens, ti + usize(1)),
+          true => Option(JsonValue).None
+        ),
+        .Err(_) => Option(JsonValue).None
+      ),
+      true => Option(JsonValue).None
+    ),
+    _ => Option(JsonValue).None
+  )
+});
 _is_rfc6901_index :: (fn(token : &String) -> bool)({
   b := &token;
   if(b.len() == usize(0), {
@@ -380,11 +412,15 @@ impl(
   /// Append `value` to an array.
   ///
   /// Panics when `self` is not an array.
-  push : (fn(self : &mut Self, value : JsonValue) -> unit)({
-    mut(items) := match(self, .Array(xs) => xs.clone(), _ => __yo_panic("JsonValue.push: requires the .Array variant"));
-    items.push(value);
-    self = Self.Array(items);
-  }),
+  push : (fn(self : &mut Self, value : JsonValue) -> unit)(
+    // The `&mut` receiver's match binds the list as a `&mut` place
+    // (decision 26), so the value is pushed where the list lives.
+    match(
+      self,
+      .Array(xs) => xs.push(value),
+      _ => __yo_panic("JsonValue.push: requires the .Array variant")
+    )
+  ),
   /// Resolve an RFC 6901 JSON Pointer — `serde_json::Value::pointer`.
   ///
   /// `""` is the whole document. Otherwise the pointer must start with `/`
@@ -400,35 +436,8 @@ impl(
       return(Option(JsonValue).None);
     });
     // `"/a/b"`.split("/") is ["", "a", "b"] — drop the leading empty token.
-    tokens := path.split(`/`);
-    (mut(current) : JsonValue) = self.clone();
-    mut(ti) := usize(1);
-    while(ti < tokens.len(), ti = (ti + usize(1)), {
-      token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
-      step := match(
-        &current,
-        .Object(_, _) => current.get(&token),
-        .Array(items) => cond(
-          _is_rfc6901_index(&token) => match(
-            token.parse(usize),
-            .Ok(idx) => items.get_cloned(idx),
-            .Err(_) => Option(JsonValue).None
-          ),
-          true => Option(JsonValue).None
-        ),
-        _ => Option(JsonValue).None
-      );
-      match(
-        step,
-        .Some(next) => {
-          current = next;
-        },
-        .None => {
-          return(Option(JsonValue).None);
-        }
-      );
-    });
-    Option(JsonValue).Some(current)
+    // The walk lends each step and clones only the value it resolves to.
+    _json_pointer_at(self, &path.split(`/`), usize(1))
   })
 );
 /// Index trait — `v(key)` returns the child JsonValue for `key`, panicking
