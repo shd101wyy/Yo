@@ -88,6 +88,28 @@ assert(parent_value == i32(1), "the leaf reaches its parent");
 
 释放 `root` 就释放整棵树：所有强边都指向下方。
 
+## `Acyclic` 标记
+
+`T <: Acyclic` 表示从 `T` 的值出发，到达不了任何由强边构成的环。值的环上必须有一个共享单元（`Rc`、`Arc`、
+`ref` 对象）：经由值或 `Box` 的递归（`Option(Box(Self))`）只构成树，而 `Weak` 或 `ArcWeak`
+边根本不是边。该标记是推导出来的，std 中没有任何地方要求它；
+`where(T <: Acyclic)` 约束是 API 承诺其值不会持有泄漏环的方式。
+
+```yo
+{ RefCell } :: import("std/sync/refcell");
+Tree :: struct(value : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Weak(RefCell(Self)));
+Graph :: struct(value : i32, peer : Option(Rc(RefCell(Self))));
+test("a Weak back edge keeps a type Acyclic", {
+  comptime_assert(Type.impls(Tree, Acyclic), "the only cell edge is a Weak");
+  comptime_assert(!Type.impls(Graph, Acyclic), "an Rc edge can close a cycle");
+});
+```
+
+子节点是 `Rc` 句柄的树（如上面的父指针示例）不是 `Acyclic`：它的类型并不阻止子节点的边指回祖先。
+目前经由 `ArrayList` 递归的类型也不是：列表是共享对象，因此列表可以持有一个持有该列表的值。
+推导拒绝的类型可以声明该标记 `impl(T, Acyclic())`，无需 `pragma(Pragma.AllowUnsafe)`：错误的声明只会泄漏，
+不会产生悬垂指针。该声明还会让这个类型的单元不被环回收器跟踪，它只与回收器同存续。
+
 ## 与环回收器
 
 `Weak` 不是所有权图中的边。回收器的遍历不访问 `Weak` 字段，手写的 `Trace` 也不得访问，因此经由 `Weak`

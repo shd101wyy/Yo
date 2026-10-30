@@ -1079,5 +1079,16 @@ enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
     _ => String.new()
   )
 );
-export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id);
+/// `enum_instance_node_id` for a struct or an enum: the nominal id plus the
+/// type arguments' identities, for a walk that keys nodes by instance (the
+/// `Acyclic` reach walk, evaluator/trait_checking.yo). "" for any other type.
+nominal_instance_node_id :: (fn(t : &TypeValue) -> String)(
+  match(
+    t,
+    Rc(.Struct({ id : nin_id, type_arguments : nin_tas })) => _tk_node_id(&nin_id, &nin_tas),
+    Rc(.EnumT({ id : nin_eid, type_arguments : nin_etas })) => _tk_node_id(&nin_eid, &nin_etas),
+    _ => String.new()
+  )
+);
+export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id, nominal_instance_node_id);
 export(TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled);

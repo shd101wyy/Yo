@@ -845,15 +845,13 @@ evaluate_enum_type :: (
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
   register_enum_final(shell_id.clone(), &enum_ty);
-  // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime) from the
-  // FINAL type: a reference enum's Acyclic needs it for the RC-cycle walk.
+  // Auto-derive trait markers (Send, Sync, Comptime, Runtime).
   auto_derive_traits_for_enum_type(
     enum_id.clone(),
     &variant_fields_s,
     force_reference_semantics,
     is_atomic_rc,
-    &env,
-    &enum_ty
+    &env
   );
   // Validate the enum can exist in at least ONE evaluation context — a
   // variant with comptime-only fields alongside one with runtime-only

@@ -98,11 +98,9 @@ _Core :: struct(
 // SAFETY: every read and write of `_st` happens under `_guard`, one thread at
 // a time, and the state holds only plain words and wakers, which are
 // thread-safe tokens that reach no `Rc` (`std/async/waker`). So the core may be
-// moved to, shared between and dropped on any thread, and cannot close a
-// cycle, which is what `Arc(_Core)` asks.
+// moved to, shared between and dropped on any thread.
 impl(_Core, Send());
 impl(_Core, Sync());
-impl(_Core, Acyclic());
 impl(
   _Core,
   /// The state cell. Read or write it only between `_guard.lock()` and
@@ -252,10 +250,6 @@ Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
 // `std/sync`'s `Mutex` and Rust's `tokio::sync::Mutex`.
 impl(generic(T : Type), where(T <: Send), Mutex(T), Send());
 impl(generic(T : Type), where(T <: Send), Mutex(T), Sync());
-// SAFETY: the core holds wakers (tokens, which reach no `Rc`) and the value
-// cell a `T`, so a mutex can close a cycle only through an `Acyclic` violation
-// in `T`.
-impl(generic(T : Type), where(T <: Acyclic), Mutex(T), Acyclic());
 impl(
   generic(T : Type),
   Mutex(T),
