@@ -616,7 +616,7 @@ _materialize_owned_rc_comptime_value :: (
   _store_temp_var_to_state_machine_if_needed(var_name.clone(), indent.clone(), context);
   c_name
 });
-/// A `cond` / `match` used as a value writes its result temp as a C local. In
+/// A `cond` / `match` / block used as a value writes its result temp as a C local. In
 /// an `io.async` state machine that temp can also have a task slot, and every
 /// later read of it (an `if`/`cond` condition whose arm awaits, a drop) goes
 /// through the slot, so the value must be stored there too — the step every
@@ -624,6 +624,9 @@ _materialize_owned_rc_comptime_value :: (
 /// Without it a `cond`/`if` whose condition is a `match` or `cond` read the
 /// zeroed slot and took the wrong branch whenever the branch awaited
 /// (issues/fixed/a-match-or-cond-condition-inside-io-async-takes-the-wrong-branch-when-the-branch-awaits.md).
+/// A block's result temp lent to a call after an await was never stored, so
+/// its scope-end drop released the zeroed slot and leaked the value
+/// (issues/fixed/2026-10-30-a-block-result-lent-to-a-call-after-an-await-leaks.md).
 _store_result_temp_in_task :: (fn(expr : &AstExpr, code : &String, indent : &String, context : &FunctionGenerationContext) -> String)({
   match(
     context.base.get_expr_info(expr),
@@ -896,7 +899,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
     .None => ()
   );
   if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), return(generate_field_access(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(generate_begin(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(_store_result_temp_in_task(expr, generate_begin(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(_store_result_temp_in_task(expr, generate_cond_expression(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(_store_result_temp_in_task(expr, generate_match_expression(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_address_of_call(expr, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
