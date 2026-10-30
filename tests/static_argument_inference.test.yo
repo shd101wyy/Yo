@@ -91,6 +91,8 @@ test("a parameter no consulted argument mentions is E0613 naming it", {
   comptime_expect_error(_Pair.left(i32(1)), "write the type arguments: `_Pair(...).left(...)`");
   comptime_expect_error(Rc.new(.None), "Cannot infer the type parameter `T` of `Rc`");
   comptime_expect_error(Rc.new(.None), "write the type arguments: `Rc(...).new(...)`");
+  // A `dyn(...)` value takes its type from the parameter like a closure; consulted, it was E0605.
+  comptime_expect_error(Rc.new(dyn(i32(1))), "Cannot infer the type parameter `T` of `Rc`");
   comptime_expect_error(_Wrap.lazy(() => i32(1)), "Cannot infer the type parameter `T` of `_Wrap`");
   w := _Wrap(i32).lazy(() => i32(1));
   assert(w.n == usize(0), "the written type arguments call it");

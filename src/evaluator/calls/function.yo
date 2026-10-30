@@ -24,6 +24,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom,
   ast_expr_is_atom_of,
   BF_DOT,
+  BK_DYN_LOWER,
   BK_TUPLE,
   BK_BEGIN,
   BK_COND,
@@ -1272,8 +1273,8 @@ _SaiBinding :: struct(ty : TypeValue, arg : usize);
 ///   `Rc.new(some_rc)` is `Rc(Rc(X))`). The candidates are every impl whose
 ///   receiver is an instance of `G` and which declares `m`
 ///   (`impls_of_constructor_method`); a closure literal, an enum shorthand
-///   `.X` and a defaulted argument are not consulted, nor is the call's
-///   expected type. A comptime literal binds its default type when nothing
+///   `.X`, a `dyn(...)` value and a defaulted argument are not consulted, nor
+///   is the call's expected type. A comptime literal binds its default type when nothing
 ///   else binds that binder (`Rc.new(42)` is `Rc(i32)`).
 ///
 /// The receiver's ExprInfo becomes `.TypeVal(G(A…))` once the choice is
@@ -1472,13 +1473,15 @@ _sai_arg_place :: (fn(arg : &AstExpr) -> AstExpr)({
   );
   ast_expr_strip_borrow_marker(&unlabeled)
 });
-/// An argument inference never evaluates (§2 step 3): a closure literal and
-/// an enum shorthand (`.X`, `.Some(x)`) take their type from the parameter.
+/// An argument inference never evaluates (§2 step 3): a closure literal, an
+/// enum shorthand (`.X`, `.Some(x)`) and a `dyn(...)` value take their type
+/// from the parameter (`dyn(...)` with no expected type is E0605).
 /// A field read `v.f` and a range `a..b` are calls of an operator atom that
 /// also starts with `.`, and are not shorthands.
 _sai_arg_is_contextual :: (fn(place : &AstExpr) -> bool)(
   cond(
     ast_expr_is_fn_call_of(place, "=>", Option(usize).None) => true,
+    ast_expr_is_fn_call_of(place, BK_DYN_LOWER, Option(usize).None) => true,
     ast_expr_is_atom(place) => _sai_is_shorthand_name(&ast_expr_token(place).value.*),
     ast_expr_is_fn_call_of(place, BF_DOT, .Some(usize(1))) => true,
     true => match(

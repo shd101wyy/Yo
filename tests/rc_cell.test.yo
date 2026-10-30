@@ -1,6 +1,6 @@
 //! `Rc(T)` is the shared, counted cell under its plans/VALUES_BY_DEFAULT.md
 //! name (§6 V1 step 1; it was spelled `Box(T)` until Generation B): it has
-//! construction by `rc(...)`, auto-dereference, patterns through
+//! construction by `Rc.new(...)`, auto-dereference, patterns through
 //! the payload, `dyn` over the cell, a type built by a comptime function,
 //! `ref_count`, and `Clone`/`Eq`/`Hash`/`Default`. The compiler recognises the
 //! cell by name (`shared_cell_names_at`, src/types/guards.yo), so each case
@@ -30,9 +30,9 @@ derive(Square, Copy, Clone);
 impl(Square, Probe(value : (self -> (self.side * self.side))));
 probe :: (fn(p : &Dyn(Probe)) -> i32)(p.value());
 /// A comptime function that builds the cell type: the instance is minted by a
-/// CTFE call of `Rc` inside it, and must be the same cell `rc(...)` builds.
+/// CTFE call of `Rc` inside it, and must be the same cell `Rc.new(...)` builds.
 CellOf :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(T));
-test("rc(v) builds an Rc(T) whose handles share one cell", {
+test("Rc.new(v) builds an Rc(T) whose handles share one cell", {
   (a : Rc(i32)) = Rc.new(i32(42));
   b := a;
   assert(b.* == i32(42), "a read through one handle sees the cell the other holds");
@@ -119,14 +119,14 @@ test("a cell type built by a comptime function is the same Rc", {
   assert(head == i32(4), "the CTFE-built Rc(List) is looked through like rc's");
 });
 test("dyn over an Rc dispatches on its payload", {
-  assert(probe(dyn(Rc.new(i32(42)))) == i32(42), "dyn(rc(v))");
+  assert(probe(dyn(Rc.new(i32(42)))) == i32(42), "dyn(Rc.new(v))");
   assert(probe(dyn(Rc(i32)(i32(43)))) == i32(43), "dyn(Rc(T)(v))");
   (d : Dyn(Probe)) = dyn(Rc.new(Square(side : i32(3))));
   assert(probe(&d) == i32(9), "a struct payload");
   match(
     downcast(d, Square),
     .Some(s) => assert(s.side == i32(3), "the downcast reads the payload"),
-    .None => assert(false, "a dyn over rc(Square) downcasts to Square")
+    .None => assert(false, "a dyn over Rc.new(Square) downcasts to Square")
   );
 });
 test("Rc implements Clone as a second handle, and Eq, Hash and Default by payload", {

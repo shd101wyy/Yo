@@ -1902,7 +1902,7 @@ ${ast_expr_to_string(&actual_arg)}`
   // time; a GENERIC function defers its body (should_defer_ft) and is
   // evaluated against THIS binding, so every `own` param of every specialized
   // generic lost its scope-end drop while the body's store still emitted the
-  // balancing `___dup` — a net +1 per call. `rc(v)`/`dyn(v)` are the
+  // balancing `___dup` — a net +1 per call. `Rc.new(v)`/`dyn(v)` are the
   // highest-traffic instances (prelude `box :: (fn(generic(V : Type),
   // own(value) : V) -> Rc(V))(Rc(V)(value))`), so every boxed value and
   // every `AnyError` payload leaked
@@ -3716,7 +3716,7 @@ create_specialized_function_inline :: (
                   .Some(rte_ty) => {
                     // Concrete, OR carrying only this call's own CLOSURE-typed
                     // forall arguments: a closure's type is an `Impl(Fn...)`
-                    // SomeT, so `arc(f)`'s `-> Arc(V)` re-evaluates to
+                    // SomeT, so `Arc.new(f)`'s `-> Arc(T)` re-evaluates to
                     // `Arc(<f's Impl>)` — the very instance the body's
                     // `Arc(V)(value)` builds through the same memo. Rejecting
                     // it kept the signature's `Arc(V)` (V still the bound

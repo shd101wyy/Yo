@@ -92,7 +92,7 @@ test("a cancelled receiver does not consume the next message", {
 });
 
 test("a cancelled locker neither takes the mutex nor swallows its wake", {
-  m := arc(Mutex(i32).new(i32(0)));
+  m := Arc.new(Mutex(i32).new(i32(0)));
   io.await(m.*.lock(io), io);
   // b blocks in lock and is cancelled while parked there.
   mb := Arc.clone(m);

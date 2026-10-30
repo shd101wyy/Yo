@@ -409,7 +409,7 @@ _require_dyn_traits_implemented :: (
   ) -> unit
 )({
   // Decide the bound on the UNDERLYING type when the payload is an Rc: both
-  // `dyn(rc(i32(42)))` and the auto-box path arrive here as `Rc(i32)`, while
+  // `dyn(Rc.new(i32(42)))` and the auto-box path arrive here as `Rc(i32)`, while
   // the impl is registered against `i32` (the same unwrap the trait-value
   // resolution does before its registry lookups).
   // Rules D4 + D9: a FUNCTION payload (`dyn(k)` into `Dyn(Fn() -> R, Send)`)
@@ -419,10 +419,10 @@ _require_dyn_traits_implemented :: (
   // and the early return below skipped every check for it
   // (issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md).
   // A `Dyn(..., Send)` shares its data object across threads, so the object
-  // must be atomically counted: a `rc(...)` payload is not
+  // must be atomically counted: an `Rc.new(...)` payload is not
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   if(match(dyn_type, Rc(.DynT(required_trait_types : sd_rtt)) => _traits_name_send(&sd_rtt.items), _ => false) && is_boxed_type(value_type) && !is_atomic_counted_handle_type(value_type), {
-    sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
+    sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`Arc.new\`) or \`Arc.new(v)\`.`;
     raise_flow_violation(format_error_message(token, &sd_msg), ctx, exn);
   });
   fv_payload := _unwrap_box_for_method_lookup(value_type);
