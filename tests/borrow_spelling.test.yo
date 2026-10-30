@@ -285,12 +285,14 @@ comptime_expect_error(
 );
 // A borrow result is a projection (decision 24): it yields a place spelled
 // with its sigil, never a value.
+// (A `Copy` pointee: a move-only one is first a copy out of the borrow,
+// E0901, since B8 made `String` a value.)
 comptime_expect_error(
-  bs_result :: (fn(s : &String) -> &String)(s),
+  bs_result :: (fn(s : &i32) -> &i32)(s),
   "a projection (decision 24)"
 );
 comptime_expect_error(
-  bs_mut_result :: (fn(s : &mut String) -> &mut String)(s),
+  bs_mut_result :: (fn(s : &mut i32) -> &mut i32)(s),
   "a projection (decision 24)"
 );
 comptime_expect_error(

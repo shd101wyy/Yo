@@ -16,6 +16,7 @@ MyExpr :: enum(
   Add(lhs : Rc(Self), rhs : Rc(Self)),
   List(items : ArrayList(Self))
 );
+derive(MyExpr, Clone);
 
 eval :: (fn(e : *MyExpr) -> i32)({
   return(
@@ -46,7 +47,7 @@ eval :: (fn(e : *MyExpr) -> i32)({
 });
 
 main :: (fn() -> unit)({
-  items := ArrayList(MyExpr).new();
+  mut(items) := ArrayList(MyExpr).new();
   items.push(MyExpr.Lit(i32(10)));
   items.push(MyExpr.Lit(i32(20)));
   items.push(MyExpr.Add(rc(MyExpr.Lit(i32(3))), rc(MyExpr.Lit(i32(4)))));

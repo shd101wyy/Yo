@@ -101,6 +101,7 @@ impl(
     })
   )
 );
+impl(HolderProbe, Clone(clone : (fn(self : &Self) -> Self)(self)));
 Holder :: enum(
   HEmpty,
   HOne(p : HolderProbe),
@@ -108,6 +109,7 @@ Holder :: enum(
   HNest(inner : Rc(Self)),
   HMany(xs : ArrayList(HolderProbe))
 );
+derive(Holder, Clone);
 _holder_weight :: (fn(h : Holder, stop : bool) -> i32)({
   if(stop, {
     return(i32(1));
@@ -141,13 +143,13 @@ test("Value enum: every payload is released once through the per-type drop and d
     one := Holder.HOne(p : HolderProbe(id : i32(1)));
     pair := Holder.HPair(a : HolderProbe(id : i32(2)), b : HolderProbe(id : i32(3)));
     nest := Holder.HNest(inner : rc(Holder.HOne(p : HolderProbe(id : i32(4)))));
-    probes := ArrayList(HolderProbe).new();
+    mut(probes) := ArrayList(HolderProbe).new();
     probes.push(HolderProbe(id : i32(5)));
     probes.push(HolderProbe(id : i32(6)));
     many := Holder.HMany(xs : probes);
     assert(_holder_weight(nest, true) == i32(1), "an early return drops its by-value Holder");
     assert(_holder_weight(many, false) == i32(4), "a fall-through drops its by-value Holder");
-    hs := ArrayList(Holder).new();
+    mut(hs) := ArrayList(Holder).new();
     hs.push(one);
     hs.push(pair);
     hs.push(Holder.HEmpty);
@@ -168,29 +170,30 @@ ListTree :: enum(
   LtList(xs : ArrayList(Self)),
   LtGrid(rows : ArrayList(ArrayList(Self)))
 );
+derive(ListTree, Clone);
 _list_tree_weight :: (fn(t : &ListTree) -> i32)(
   match(
     t,
     .LtLeaf(n) => n,
-    .LtList(xs) => match(xs.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+    .LtList(xs) => match(xs.get_cloned(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
     .LtGrid(rows) => match(
-      rows.get(usize(0)),
-      .Some(row) => match(row.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+      rows.get_cloned(usize(0)),
+      .Some(row) => match(row.get_cloned(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
       .None => i32(0)
     )
   )
 );
-_list_tree_first :: (fn(xs : &ArrayList(ListTree)) -> Option(ListTree))(xs.get(usize(0)));
+_list_tree_first :: (fn(xs : &ArrayList(ListTree)) -> Option(ListTree))(xs.get_cloned(usize(0)));
 test("Recursive value enum: ArrayList(Self).get and a declared Option(Self) are one type", {
-  inner := ArrayList(ListTree).new();
+  mut(inner) := ArrayList(ListTree).new();
   inner.push(ListTree.LtLeaf(n : i32(7)));
-  xs := ArrayList(ListTree).new();
+  mut(xs) := ArrayList(ListTree).new();
   xs.push(ListTree.LtList(xs : inner));
   w := match(_list_tree_first(&xs), .Some(f) => _list_tree_weight(&f), .None => i32(-1));
   assert(w == i32(7), "the first element's first leaf");
-  row := ArrayList(ListTree).new();
+  mut(row) := ArrayList(ListTree).new();
   row.push(ListTree.LtLeaf(n : i32(3)));
-  rows := ArrayList(ArrayList(ListTree)).new();
+  mut(rows) := ArrayList(ArrayList(ListTree)).new();
   rows.push(row);
   g := ListTree.LtGrid(rows : rows);
   assert(_list_tree_weight(&g) == i32(3), "a grid's first cell");
