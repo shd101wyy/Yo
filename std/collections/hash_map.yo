@@ -616,8 +616,9 @@ impl(
   /// the half of `try_insert` that runs after the probe; `entry` reuses it so
   /// that a miss costs one probe rather than two.
   ///
-  /// PANICS on allocation failure, like `insert` (D9).
-  _insert_at : (fn(self : &mut Self, index : usize, hash : u64, key : &K, value : &V) -> usize)({
+  /// PANICS on allocation failure, like `insert` (D9). The key and value are
+  /// moved in.
+  _insert_at : (fn(self : &mut Self, index : usize, hash : u64, sink(key) : K, sink(value) : V) -> usize)({
     slot := cond(
       Self._needs_resize(self) => {
         new_capacity := self._grown_capacity();
@@ -843,6 +844,9 @@ impl(
   /// defaults.extend(overrides);
   /// ```
   ///
+  /// The source is moved in, as `into_iter` consumes it: extend from
+  /// `src.clone()` to keep the source.
+  ///
   /// An ITERATOR is not accepted, only something that yields one. The prelude's
   /// blanket `into_iter` on `Iterator` is a bare METHOD, not an `IntoIterator`
   /// impl, so an iterator does not satisfy this bound however much its doc
@@ -853,7 +857,7 @@ impl(
     fn(
       generic(I : Type),
       self : &mut Self,
-      iterable : &I,
+      sink(iterable) : I,
       where(I <: IntoIterator(Item := MapEntry(K, V)))
     ) -> unit
   )({
@@ -978,11 +982,14 @@ impl(
   /// The body must not touch the map through another handle: anything that
   /// rehashes the table moves the key out of the slot the entry pinned. See
   /// `HashMapEntry` for the full invalidation rule.
-  entry : (fn(generic(R : Type), self : &mut Self, key : &K, sink(body) : Impl(FnOnce(e : &mut HashMapEntry(K, V)) -> R)) -> R)({
+  ///
+  /// The entry holds its own clone of the key (`K <: Clone`): a vacant insert
+  /// moves it into the map, which owns its keys (B8).
+  entry : (fn(generic(R : Type), self : &mut Self, key : &K, sink(body) : Impl(FnOnce(e : &mut HashMapEntry(K, V)) -> R), where(K <: Clone)) -> R)({
     hash := self._hash(key);
     (mut(e) : HashMapEntry(K, V)) = HashMapEntry(K, V)(
       _map : addr_of(self),
-      _key : key,
+      _key : key.clone(),
       _hash : hash,
       _slot : Self._probe(self, key, hash)
     );
@@ -990,17 +997,17 @@ impl(
   }),
   /// The value for `key`, inserting `default` first when absent — one probe,
   /// through the entry.
-  get_or_insert : (fn(self : &mut Self, key : &K, default : &V) -> V)(
+  get_or_insert : (fn(self : &mut Self, key : &K, default : &V, where(K <: Clone, V <: Clone)) -> V)(
     self.entry(key, { &default }(e) => e.or_insert(default))
   ),
   /// The value for `key`, inserting `make()`'s result first when absent —
   /// use over `get_or_insert` when constructing the default is costly.
-  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &Impl(Fn() -> V)) -> V)(
+  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &Impl(Fn() -> V), where(K <: Clone, V <: Clone)) -> V)(
     self.entry(key, { &make }(e) => e.or_insert_with(make))
   ),
   /// Update the value for `key` through `f` when present; no-op when absent.
   /// Returns true when an update happened.
-  update_with : (fn(self : &mut Self, key : &K, f : &Impl(Fn(v : &V) -> V)) -> bool)(
+  update_with : (fn(self : &mut Self, key : &K, f : &Impl(Fn(v : &V) -> V), where(K <: Clone)) -> bool)(
     self.entry(key, { &f }(e) => {
       e.and_modify(f);
       e.is_occupied()
@@ -1092,8 +1099,8 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMapEntry(K, V),
-  /// The key this entry was looked up with.
-  key : (fn(self : &Self) -> K)(self._key),
+  /// A clone of the key this entry was looked up with.
+  key : (fn(self : &Self, where(K <: Clone)) -> K)(self._key.clone()),
   /// True when the key is already in the map.
   is_occupied : (fn(self : &Self) -> bool)(
     match(
@@ -1104,11 +1111,11 @@ impl(
   ),
   /// True when the key is absent.
   is_vacant : (fn(self : &Self) -> bool)(!self.is_occupied()),
-  /// The stored value, or `.None` when the entry is vacant.
-  value : (fn(self : &Self) -> Option(V))(
+  /// A clone of the stored value, or `.None` when the entry is vacant.
+  value : (fn(self : &Self, where(V <: Clone)) -> Option(V))(
     match(
       self._slot,
-      .Occupied(index) => Option(V).Some((self._map.*._data_ptr().add(index)).*.value),
+      .Occupied(index) => Option(V).Some((self._map.*._data_ptr().add(index)).*.value.clone()),
       .Vacant(_) => Option(V).None
     )
   ),
@@ -1120,30 +1127,31 @@ impl(
   /// returning a borrow gets pointer-flavored `&T` parameters that do not
   /// deref, which is invalid C
   /// (`issues/2026-10-25-a-borrow-returning-generic-method-breaks-its-own-typed-parameters.md`),
-  /// so the value comes back as a copy, as before.
-  or_insert : (fn(self : &mut Self, default : &V) -> V)(
+  /// so the value comes back as a clone (`V <: Clone`); the vacant insert
+  /// stores a clone of `default` and of the entry's key.
+  or_insert : (fn(self : &mut Self, default : &V, where(K <: Clone, V <: Clone)) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value,
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value.clone(),
       .Vacant(index) => {
-        slot := self._map.*._insert_at(index, self._hash, &self._key, default);
+        slot := self._map.*._insert_at(index, self._hash, self._key.clone(), default.clone());
         self._slot = BucketProbe.Occupied(index : slot);
-        (self._map.*._data_ptr().add(slot)).*.value
+        (self._map.*._data_ptr().add(slot)).*.value.clone()
       }
     )
   ),
   /// The value for this key, inserting `make()`'s result first when vacant —
   /// use over `or_insert` when constructing the default is costly. As
   /// `or_insert`: the slot flips to `.Occupied`, and the value comes back as
-  /// a copy (see the `&mut V` note there).
-  or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V)) -> V)(
+  /// a clone (see the `&mut V` note there); `make()`'s result moves in.
+  or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V), where(K <: Clone, V <: Clone)) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value,
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value.clone(),
       .Vacant(index) => {
-        slot := self._map.*._insert_at(index, self._hash, &self._key, make());
+        slot := self._map.*._insert_at(index, self._hash, self._key.clone(), make());
         self._slot = BucketProbe.Occupied(index : slot);
-        (self._map.*._data_ptr().add(slot)).*.value
+        (self._map.*._data_ptr().add(slot)).*.value.clone()
       }
     )
   ),

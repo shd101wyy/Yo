@@ -42,15 +42,14 @@ test("Test join_all returns results in order", {
   assert(match(results(usize(1)), .Some(v) => (v == i32(20)), .None => false), "slot 1 should be 20");
   assert(match(results(usize(2)), .Some(v) => (v == i32(30)), .None => false), "slot 2 should be 30");
 });
-test("Test join_all drains the list it takes", {
-  // An `ArrayList` is still a shared handle (it becomes explicit-copy at
-  // V2b), so the caller's binding sees the list `join_all` drained: every
-  // handle moved out and was consumed by its join.
+test("Test join_all takes the list it drains", {
+  // An `ArrayList` is a value (B8): the list moves into `join_all`, and every
+  // handle moves out of it and is consumed by its join.
   mut(handles) := ArrayList(JoinHandle(Rc(i32))).new();
   handles.push(io.spawn(io.async((io : Io) => Rc(i32)(4)), io));
   handles.push(io.spawn(io.async((io : Io) => Rc(i32)(5)), io));
-  outs := io.await(join_all(handles.clone(), io), io);
-  assert(handles.len() == usize(0), "join_all drained the list");
+  outs := io.await(join_all(handles, io), io);
+  assert(outs.len() == usize(2), "one result per handle");
   // Each result moves out of its joined task.
   assert(match(outs(usize(0)).clone(), .Some(r) => (r.* == i32(4)), .None => false), "slot 0 moved out");
   assert(match(outs(usize(1)).clone(), .Some(r) => (r.* == i32(5)), .None => false), "slot 1 moved out");
@@ -83,7 +82,7 @@ test("Test race picks the fastest", {
   assert(back.len() == usize(2), "race hands the whole list back");
   assert(back(usize(1)).is_finished(), "the winner is terminal");
   assert(!back(usize(0)).is_finished(), "the loser is still running");
-  outs := io.await(join_all(back, io), io);
+  outs := io.await(join_all(back.clone(), io), io);
   assert(match(outs(usize(1)), .Some(v) => (v == i32(2)), .None => false), "winner result should be intact");
   assert(match(outs(usize(0)), .Some(v) => (v == i32(1)), .None => false), "loser should still complete normally");
 });

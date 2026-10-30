@@ -568,7 +568,7 @@ test("json.parse throws on content after the value, and names the position", {
 });
 test("JsonValue Default is null", {
   v := JsonValue.default();
-  assert(match(v, .Null => true, _ => false), "default JsonValue is .Null");
+  assert(match(&v, .Null => true, _ => false), "default JsonValue is .Null");
   assert(json.stringify(&v) == `null`, "the default value stringifies as null");
 });
 test("JsonValue variant predicates", {
@@ -677,7 +677,7 @@ test("an Int renders in decimal, never through %g", {
 test("an integer beyond 2^53 survives exactly — the reason the arm exists", {
   // As an f64 this value is indistinguishable from 2^53; as an Int it is exact.
   v := json.parse("9007199254740993").unwrap();
-  assert(match(v, .Int(_) => true, _ => false), "2^53+1 must take the Int arm");
+  assert(match(&v, .Int(_) => true, _ => false), "2^53+1 must take the Int arm");
   assert(v.as_i64().unwrap() == i64(9007199254740993), "as_i64 must be exact above 2^53");
   assert(json.stringify(&v) == "9007199254740993", `must round-trip exactly, got ${json.stringify(&v)}`);
 });
@@ -693,7 +693,7 @@ test("both arms are numbers, and Int widens to f64", {
 });
 test("integer ToJson emits Int, so a round trip is stable", {
   v := i32(7).to_json();
-  assert(match(v, .Int(_) => true, _ => false), "i32.to_json must emit Int");
+  assert(match(&v, .Int(_) => true, _ => false), "i32.to_json must emit Int");
   assert(json.stringify(&v) == "7", `must render as 7, got ${json.stringify(&v)}`);
   // FromJson still accepts both arms.
   back := i32.from_json(json.parse("7").unwrap()).unwrap();
