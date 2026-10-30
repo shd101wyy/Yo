@@ -842,11 +842,11 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // switch, so a `throw` inside the RHS would otherwise drop the not-yet-
       // declared `x`). Seed it with the parameters, which ARE in scope from entry
       // (they are declared by the prototype, not via get_variable_type_string).
-      context.base.declared_c_var_names = rc(RefCell(HashSet(String)).new(HashSet(String).new()));
+      context.base.declared_c_var_names = Rc.new(RefCell(HashSet(String)).new(HashSet(String).new()));
       // Also reset the block-scope stack (see declared_scopes / _keep_pending_drop
       // escape path): the flat base frame is seeded with the parameters, which are
       // in scope from entry. Body begin-blocks push/pop `"{"`-delimited sub-frames.
-      context.base.declared_scopes = rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
+      context.base.declared_scopes = Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
       match(
         &function_type,
         Rc(.Func({ param_types : _pt, meta : _pm })) => {

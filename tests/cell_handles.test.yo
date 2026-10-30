@@ -134,13 +134,13 @@ test("S19: ref_count counts the handles, not the constant 1", {
 test("a handle's dup/drop pair cancels as an Rc's does", {
   g := trc(i32(1));
   g2 := TRc.clone(g);
-  r := rc(i32(1));
+  r := Rc.new(i32(1));
   r2 := Rc.clone(r);
   assert(ref_count(g) == ref_count(r), `the handle counts as the Rc does: ${ref_count(g)} vs ${ref_count(r)}`);
   assert((g.* + g2.*) == (r.* + r2.*), "both copies are used after");
   a := tarc(i32(2));
   a2 := TArc.clone(a);
-  b := arc(i32(2));
+  b := Arc.new(i32(2));
   b2 := Arc.clone(b);
   assert(ref_count(a) == ref_count(b), `the atomic handle counts as the Arc does: ${ref_count(a)} vs ${ref_count(b)}`);
   assert((a.* + a2.*) == (b.* + b2.*), "both atomic copies are used after");
@@ -201,7 +201,7 @@ impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n, .B => i
 test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an Arc of one is", {
   (d : Dyn(_Area, Send)) = dyn(tarc(_AE.A(n : i32(7))));
   assert(d.area() == i32(7), "dispatched through the atomic handle");
-  (e : Dyn(_Area, Send)) = dyn(arc(_AE.A(n : i32(8))));
+  (e : Dyn(_Area, Send)) = dyn(Arc.new(_AE.A(n : i32(8))));
   assert(e.area() == i32(8), "and through the Arc");
 });
 test("D2: a handle auto-dereferences to its payload whatever Target its Deref impl names", {

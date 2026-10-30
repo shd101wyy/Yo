@@ -569,7 +569,7 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
 // Decision 38 D: what a borrow capture may name
 // ---------------------------------------------------------------------------
 test("borrow places: no borrow across an `Rc`/`Arc` deref", {
-  r := rc(_ClAcc(total : i32(4), other : i32(0)));
+  r := Rc.new(_ClAcc(total : i32(4), other : i32(0)));
   comptime_expect_error(_cl_call0({ t : &r.*.total }() => t), "cannot reach through an `Rc`");
   assert(_cl_call0({ &r }() => r.*.total) == i32(4), "capture the handle and re-derive the place");
 });

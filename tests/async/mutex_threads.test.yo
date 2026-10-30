@@ -14,7 +14,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Duration } :: import("std/time/duration");
 
 test("Test a task on another thread's loop contends for the same mutex", {
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
   m2 := Arc.clone(m);
   t := Thread(i64).spawn({ m2 : Arc.clone(m2) }(io : Io) => {
@@ -44,7 +44,7 @@ test("Test a task on another thread's loop contends for the same mutex", {
 // The order below is fixed by the waiter counts, not by timing: the foreign
 // waiter is queued before the same-loop one is spawned.
 test("Test the lock is handed FIFO across loops, ahead of a later same-loop waiter", {
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
   mf := Arc.clone(m);
   t := Thread(i64).spawn({ mf : Arc.clone(mf) }(io : Io) => {
@@ -97,7 +97,7 @@ test("Test the lock is handed FIFO across loops, ahead of a later same-loop wait
 // its waiter, and the thread has ended (its tasks released) before main
 // unlocks, so the order is fixed.
 test("Test a waiter cancelled on another thread's loop leaves the queue", {
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   assert(m.*.try_lock(), "main holds the lock");
   mf := Arc.clone(m);
   t := Thread(bool).spawn({ mf : Arc.clone(mf) }(io : Io) => {

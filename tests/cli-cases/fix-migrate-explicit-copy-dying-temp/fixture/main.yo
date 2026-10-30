@@ -24,7 +24,7 @@ main :: (fn() -> unit)({
   println(`${a} ${b} ${c} ${d} ${h.name} ${n.to_string()} ${first_name()}`);
   // A field read through a dereference of a dying `Rc` handle: the pointee
   // outlives the handle in `s.h` and is read again, so this one is cloned.
-  s := Shelf(h : rc(make()));
+  s := Shelf(h : Rc.new(make()));
   e := grab(&s).*.name;
   println(`${e} ${s.h.*.name}`);
 });

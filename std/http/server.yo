@@ -72,7 +72,7 @@ impl(
   bind : (fn(addr : SocketAddr, io : Io) -> Impl(Future(HttpServer, IoExn)))(
     io.async(e => {
       listener := e.io.await(TcpListener.bind(addr, e.io), e);
-      HttpServer(listener : rc(listener), max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : false)
+      HttpServer(listener : Rc.new(listener), max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : false)
     })
   ),
   /// The address the server is listening on.

@@ -64,11 +64,11 @@ _determine_type_universe :: (
   max_level := usize(0);
   i := usize(0);
   while(i < field_types.len(), {
-    field := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    field := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     subtype := match(
       g_type_of_type_visited_fn,
       .Some(f) => f(&field, visited_names),
-      .None => rc(TypeValueNode.TypeUni(usize(0)))
+      .None => Rc.new(TypeValueNode.TypeUni(usize(0)))
     );
     sub_level := match(
       subtype,
@@ -78,7 +78,7 @@ _determine_type_universe :: (
     max_level = _max_usize(max_level, sub_level);
     i = (i + usize(1));
   });
-  rc(TypeValueNode.TypeUni(max_level))
+  Rc.new(TypeValueNode.TypeUni(max_level))
 });
 // ---------------------------------------------------------------------------
 // _universe_of — the recursive core
@@ -142,51 +142,51 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
   match(
     ty,
     // Primitives -------------------------------------------------------------
-    Rc(.Unit) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.BoolT) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Void) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Int(_, _)) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Float(_)) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Usize) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Isize) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.Str) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.ComptimeInt) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.ComptimeFloat) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.ComptimeString) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CChar) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CShort) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CUShort) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CInt) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CUInt) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CLong) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CULong) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CLongLong) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CULongLong) => rc(TypeValueNode.TypeUni(usize(0))),
-    Rc(.CLongDouble) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Unit) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.BoolT) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Void) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Int(_, _)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Float(_)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Usize) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Isize) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Str) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.ComptimeInt) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.ComptimeFloat) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.ComptimeString) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CChar) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CShort) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CUShort) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CInt) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CUInt) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CLong) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CULong) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CLongLong) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CULongLong) => Rc.new(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CLongDouble) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     // Type universes: TypeUni(n) → TypeUni(n+1) -----------------------------
-    Rc(.TypeUni(lvl)) => rc(TypeValueNode.TypeUni(lvl + usize(1))),
+    Rc(.TypeUni(lvl)) => Rc.new(TypeValueNode.TypeUni(lvl + usize(1))),
     // Pointer: raw pointers are level-0 types --------------------------------
-    Rc(.Pointer(_)) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Pointer(_)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     // Array: recurse into element type --------------------------------------
     Rc(.Array(elem_box, _, _)) => match(
       g_type_of_type_visited_fn,
       .Some(f) => f(&elem_box, visited),
-      .None => rc(TypeValueNode.TypeUni(usize(0)))
+      .None => Rc.new(TypeValueNode.TypeUni(usize(0)))
     ),
     // Tuple: check all field types ------------------------------------------
     Rc(.Tuple(_, ftypes)) => _determine_type_universe(&ftypes.items, visited),
     // Function types: all functions are level-0 types -----------------------
-    Rc(.Func({ result : _ })) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Func({ result : _ })) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     // Struct: recurse into fields, guard against cycles by name.
     // Source-namespace structs (anonymous modules / imports) are
     // type-level-1, like traits (modules ARE structs; the namespace
     // itself is a comptime entity).
     Rc(.Struct({ id : sid, name : sname, field_types : ftypes, is_source_namespace : s_sns })) =>
       cond(
-        s_sns => rc(TypeValueNode.TypeUni(usize(1))),
+        s_sns => Rc.new(TypeValueNode.TypeUni(usize(1))),
         _name_in_visited(visited, &sname) => {
           g_universe_guard_fired = true;
-          rc(TypeValueNode.TypeUni(usize(0)))
+          Rc.new(TypeValueNode.TypeUni(usize(0)))
         },
         true => {
           mk := `struct:${sid}`;
@@ -202,7 +202,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
       cond(
         _name_in_visited(visited, &ename) => {
           g_universe_guard_fired = true;
-          rc(TypeValueNode.TypeUni(usize(0)))
+          Rc.new(TypeValueNode.TypeUni(usize(0)))
         },
         true => {
           mk2 := `enum:${eid}`;
@@ -216,7 +216,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
                 vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => no_types());
                 fi := usize(0);
                 while(fi < vfields.len(), {
-                  ft := match(vfields.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                  ft := match(vfields.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                   all_fields.push(ft);
                   fi = (fi + usize(1));
                 });
@@ -234,7 +234,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
       cond(
         _name_in_visited(visited, &uname) => {
           g_universe_guard_fired = true;
-          rc(TypeValueNode.TypeUni(usize(0)))
+          Rc.new(TypeValueNode.TypeUni(usize(0)))
         },
         true => {
           new_visited := visited.clone();
@@ -243,13 +243,13 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
         }
       ),
     // Traits and modules are type-level-1 types ----------------------------
-    Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => rc(TypeValueNode.TypeUni(usize(1))),
-    Rc(.FnTraitT(base_name : _)) => rc(TypeValueNode.TypeUni(usize(1))),
-    Rc(.FutureTraitT(base_name : _)) => rc(TypeValueNode.TypeUni(usize(1))),
+    Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => Rc.new(TypeValueNode.TypeUni(usize(1))),
+    Rc(.FnTraitT(base_name : _)) => Rc.new(TypeValueNode.TypeUni(usize(1))),
+    Rc(.FutureTraitT(base_name : _)) => Rc.new(TypeValueNode.TypeUni(usize(1))),
     // SomeT: return its parent_type (meta-type) ----------------------------
     Rc(.SomeT(parent_type : pt)) => Rc.clone(pt),
     // Remaining Phase 2f variants that live at type level 0 ---------------
-    _ => rc(TypeValueNode.TypeUni(usize(0)))
+    _ => Rc.new(TypeValueNode.TypeUni(usize(0)))
   )
 );
 // Set the function pointer after _universe_of is defined.

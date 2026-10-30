@@ -193,7 +193,7 @@ _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) 
       .FuncVal(__fvm8, cv) => if(
         __fvm8.*.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(rc(FuncValData(forall_names : names.clone(), params : __fvm8.*.params.clone(), param_type_names : __fvm8.*.param_type_names.clone(), evidence_params : __fvm8.*.evidence_params.clone(), body : __fvm8.*.body, cap_names : __fvm8.*.cap_names.clone(), cap_tys : __fvm8.*.cap_tys.clone(), func_id : __fvm8.*.func_id.clone(), env_key : __fvm8.*.env_key)), cv)
+        EvalValue.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.*.params.clone(), param_type_names : __fvm8.*.param_type_names.clone(), evidence_params : __fvm8.*.evidence_params.clone(), body : __fvm8.*.body, cap_names : __fvm8.*.cap_names.clone(), cap_tys : __fvm8.*.cap_tys.clone(), func_id : __fvm8.*.func_id.clone(), env_key : __fvm8.*.env_key)), cv)
       ),
       _ => v
     )
@@ -2652,7 +2652,7 @@ _inject_forall_captures :: (
               register_funcval_cap_slices(ifc_env_key, cap_slices_with_list(&ifc_prefix, &new_cvars));
             });
             // Flat names/types only when not aligned (see above).
-            injected := EvalValue.FuncVal(rc(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
+            injected := EvalValue.FuncVal(Rc.new(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
             owned_keys_record(&g_ifc_memo_owned, memo_key.clone());
             g_ifc_memo.with_mut(m => m.insert(memo_key, injected));
             Option(EvalValue).Some(injected)
@@ -2805,7 +2805,7 @@ find_methods_from_generic_impls :: (
               ftype := match(
                 entry.field_types.get(fi),
                 .Some(t) => t,
-                .None => rc(TypeValueNode.Unit)
+                .None => Rc.new(TypeValueNode.Unit)
               );
               fvalue := entry.field_values.get(fi);
               // Specialize the method TYPE with the impl's generic bindings:
@@ -3582,14 +3582,14 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
       if(rw_m.*.param_labels.len() != fv_params.len(), {
         return(Rc.clone(ty));
       });
-      rc(
+      Rc.new(
         TypeValueNode.Func(
           Rc.clone(rw_fts),
           Rc.clone(rw_pts),
           Rc.clone(rw_its),
           Rc.clone(rw_wts),
           Rc.clone(rw_res),
-          rc(
+          Rc.new(
             FuncMeta(
               forall_labels : Rc.clone(rw_m.*.forall_labels),
               param_labels : shared_list(fv_params),
@@ -3692,7 +3692,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
                   &fs,
                   r_nm.clone(),
                   r_lvl,
-                  rc(
+                  Rc.new(
                     TypeValueNode.SomeT(
                       generate_some_type_id(),
                       r_nm.clone(),
@@ -3719,7 +3719,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
       if(added == usize(0), {
         return(Rc.clone(method_ty));
       });
-      rc(
+      Rc.new(
         TypeValueNode.Func(
           Rc.clone(fr_fts),
           Rc.clone(fr_pts),
@@ -3825,7 +3825,7 @@ _materialize_default_body :: (
   // Clone and the caller still needs the registered one). Same pattern as
   // anonymous_function.yo's `body_ctx_func_val`.
   body_ctx_fv := EvalValue.FuncVal(
-    rc(
+    Rc.new(
       FuncValData(
         forall_names : ArrayList(String).new(),
         params : ArrayList(String).new(),
@@ -3936,7 +3936,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
         to_fix := ArrayList(String).new();
         (pi : usize) = usize(0);
         while(pi < apts.len(), pi = (pi + usize(1)), {
-          a_slot := match(apts.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          a_slot := match(apts.get(pi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           a_own := t_slot_is_by_value(&a_slot);
           e_own := match(epts.get(pi), .Some(t) => t_slot_is_by_value(&t), .None => false);
           e_ref := match(epts.get(pi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
@@ -3951,7 +3951,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
         if(to_fix.len() == usize(0), {
           return(false);
         });
-        if(!are_types_compatible(_with_receiver_mode_of(rc(TypeValueNode.Func(Rc.clone(afts), shared_list(fixed_slots), Rc.clone(aits), Rc.clone(awts), Rc.clone(aret), Rc.clone(ameta), Rc.clone(avts))), expected), expected), {
+        if(!are_types_compatible(_with_receiver_mode_of(Rc.new(TypeValueNode.Func(Rc.clone(afts), shared_list(fixed_slots), Rc.clone(aits), Rc.clone(awts), Rc.clone(aret), Rc.clone(ameta), Rc.clone(avts))), expected), expected), {
           return(false);
         });
         params := match(
@@ -4026,7 +4026,7 @@ _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> Typ
             );
             ri = (ri + usize(1));
           });
-          rc(TypeValueNode.Func(Rc.clone(afts), shared_list(slots), Rc.clone(aits), Rc.clone(awts), Rc.clone(aret), Rc.clone(ameta), Rc.clone(avts)))
+          Rc.new(TypeValueNode.Func(Rc.clone(afts), shared_list(slots), Rc.clone(aits), Rc.clone(awts), Rc.clone(aret), Rc.clone(ameta), Rc.clone(avts)))
         },
         true => Rc.clone(actual)
       ),
@@ -5317,7 +5317,7 @@ evaluate_module_value :: (
             (gdi : usize) = usize(0);
             while(gdi < gd_labels.len(), {
               gd_label := match(gd_labels.get(gdi), .Some(l) => l, .None => String.from(""));
-              gd_ty := match(gd_types.get(gdi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+              gd_ty := match(gd_types.get(gdi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               (gd_provided : bool) = false;
               (gpi : usize) = usize(0);
               while((gpi < g_method_names.len()) && !gd_provided, {
@@ -5834,7 +5834,7 @@ evaluate_module_value :: (
               (pvfi : usize) = usize(0);
               while(pvfi < pv_labels.len(), {
                 pv_lbl := match(pv_labels.get(pvfi), .Some(l) => l, .None => String.from(""));
-                pv_fty := match(pv_types.get(pvfi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                pv_fty := match(pv_types.get(pvfi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if((pv_lbl != "") && is_function_type(&pv_fty), {
                   register_provisional_trait_method(
                     receiver_type_id.clone(),
@@ -5941,7 +5941,7 @@ evaluate_module_value :: (
               (dfi : usize) = usize(0);
               while(dfi < dtf_labels.len(), {
                 d_label := match(dtf_labels.get(dfi), .Some(l) => l, .None => String.from(""));
-                d_ty := match(dtf_types.get(dfi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                d_ty := match(dtf_types.get(dfi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 // Did the impl provide this field?
                 (d_provided : bool) = false;
                 (dmi : usize) = usize(0);
@@ -6006,7 +6006,7 @@ evaluate_module_value :: (
                           d_fresh_id := stable_func_id(String.from("fn_"), &d_tok.module_path.*, usize(d_tok.row), usize(d_tok.column));
                           d_body_clone := clone_expr_fresh_ids(&d_fvd.*.body);
                           d_fresh := EvalValue.FuncVal(
-                            rc(
+                            Rc.new(
                               FuncValData(
                                 forall_names : d_fvd.*.forall_names.clone(),
                                 params : d_fvd.*.params.clone(),
@@ -6150,7 +6150,7 @@ evaluate_module_value :: (
                           cond(
                             (d_out.len() > usize(0)) => d_fresh,
                             true => EvalValue.FuncVal(
-                              rc(
+                              Rc.new(
                                 FuncValData(
                                   forall_names : d_fvd.*.forall_names.clone(),
                                   params : d_fvd.*.params.clone(),

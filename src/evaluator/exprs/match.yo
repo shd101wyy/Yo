@@ -282,7 +282,7 @@ _gadt_refined_expected :: (
   (refined : Option(TypeValue)) = Option(TypeValue).None;
   (k : usize) = usize(0);
   while((k < tca.len()) && refined.is_none(), {
-    tk := match(tca.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    tk := match(tca.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid, _ => String.new());
     if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
       match(
@@ -878,7 +878,7 @@ _ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environm
 _ownership_keep :: (fn(own : &_ArmOwnership, ty : &TypeValue, p : Pattern, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
   own.keeps.push(b);
-  Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : box(p))
+  Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p))
 });
 /// A part with a drop of its own (a counted cell or a move-only value).
 _part_has_drop :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_cell_or_move_only(ty));
@@ -920,7 +920,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (own.add_hidden && !in_cell && _part_has_drop(ty)) => {
         b := _ownership_hidden_bind(own, ty, env);
         own.unbound.push(b);
-        Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : box(p.clone()))
+        Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p.clone()))
       },
       true => p.clone()
     ),
@@ -933,7 +933,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_idx.push(fi);
         new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
@@ -949,7 +949,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          fty := match(ftys.get(f), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -1028,10 +1028,10 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         });
         si = (si + usize(1));
       });
-      Pattern.At(name : name.clone(), token : atok, atom : aatom, sub : box(new_sub))
+      Pattern.At(name : name.clone(), token : atok, atom : aatom, sub : Box.new(new_sub))
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
-      tb := Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : box(recur(&sub, &inner_ty, true, own, env, exn)));
+      tb := Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : Box.new(recur(&sub, &inner_ty, true, own, env, exn)));
       cond(
         (own.add_hidden && !in_cell && _part_has_drop(ty)) => _ownership_keep(own, ty, tb, env),
         true => tb
@@ -1042,7 +1042,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_subs.push(recur(&subs(i), &ety, cell, own, env, exn));
         i = (i + usize(1));
       });
@@ -1056,7 +1056,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_idx.push(fi);
         new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
@@ -1072,7 +1072,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          fty := match(ftys.get(f), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -1777,7 +1777,7 @@ evaluate_match :: (
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
-            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(vname.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
+            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => Rc.new(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(vname.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
             _ => Rc.clone(venum)
           );
           cond(is_ptr_match => t_ptr(&sel), true => sel)
@@ -2178,7 +2178,7 @@ evaluate_match :: (
       (vname : String) = String.new();
       (varity : usize) = usize(0);
       (vptr : bool) = false;
-      (vety : TypeValue) = rc(TypeValueNode.Unit);
+      (vety : TypeValue) = Rc.new(TypeValueNode.Unit);
       grows := ArrayList(Pattern).new();
       (has_unguarded_group_arm : bool) = false;
       (ai3 : usize) = usize(0);

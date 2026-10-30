@@ -142,7 +142,7 @@ impl(
       path_str := String.from_cstr(buf).unwrap();
       free(.Some((*void)(buf)));
       // Through `Path` once, so `path()` renders exactly what it did.
-      TempDir(_cell : box(_TempDirState(_path : Path.new(&path_str).to_string(), _removed : false)))
+      TempDir(_cell : Box.new(_TempDirState(_path : Path.new(&path_str).to_string(), _removed : false)))
     })
   ),
   /// `new_in` against the system temporary directory (`env.temp_dir()` —
@@ -268,7 +268,7 @@ impl(
       free(.Some((*void)(buf)));
       path := Path.new(&path_str).to_string();
       file := _file_mod.File._new(fd, path.clone());
-      TempFile(_cell : box(_TempFileState(_file : file, _path : path, _removed : false)))
+      TempFile(_cell : Box.new(_TempFileState(_file : file, _path : path, _removed : false)))
     })
   ),
   /// `new_in` against the system temporary directory (`env.temp_dir()`) —

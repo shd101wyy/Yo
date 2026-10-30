@@ -9896,7 +9896,7 @@ impl(
   Rc(T),
   Default(
     default : (fn() -> Self)(
-      rc((T <: Default).default())
+      Rc.new((T <: Default).default())
     )
   )
 );
@@ -9961,7 +9961,7 @@ impl(
     // SAFETY: an `Rc` handle is the address of its live cell.
     cell := unsafe(unsafe.cast(self, *T));
     if((ref_count(self) != usize(1)) || (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)), {
-      self = rc(self.*.clone());
+      self = Rc.new(self.*.clone());
     });
     addr_of(self.*)
   })
@@ -10230,7 +10230,11 @@ impl(
   /// e := Box(i32).new(i32(1));
   /// assert(e.* == i32(1), "the payload");
   /// ```
-  new : (fn(value : T, (alloc : Option(Allocator)) ?= .None) -> Self)({
+  new : (fn(value : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))({
+    // The result is written `Box(T)`, not `Self`, as for `Rc.new`/`Arc.new`:
+    // a specialization evaluates a written return type again, and a bare
+    // `Self` there resolved to the CALLER's impl receiver for an inferred
+    // `Box.new(v)` inside another type's impl (issues/2026-10-30-self-in-a-static-methods-signature-resolves-to-the-callers-impl-receiver-under-inference.md).
     al := Self._align();
     h := Self._header();
     cell := match(
@@ -10358,7 +10362,7 @@ impl(
   Box(T),
   Clone(
     clone : (fn(self : &Self) -> Self)(
-      box(unsafe(self._cell.*).clone(), alloc : Box(T).allocator(self))
+      Box.new(unsafe(self._cell.*).clone(), alloc : Box(T).allocator(self))
     )
   )
 );
@@ -10386,7 +10390,7 @@ impl(
   Box(T),
   Default(
     default : (fn() -> Self)(
-      box((T <: Default).default())
+      Box.new((T <: Default).default())
     )
   )
 );
@@ -10576,7 +10580,7 @@ impl(
     // SAFETY: an `Arc` handle is the address of its live cell.
     cell := unsafe(unsafe.cast(self, *T));
     if((ref_count(self) != usize(1)) || (__yo_arc_weak_weak_count((*void)(cell)) != usize(0)), {
-      self = arc(self.*.clone());
+      self = Arc.new(self.*.clone());
     });
     // SAFETY: `self` is now the cell's only handle on every thread, so the
     // write the caller makes through the projection is exclusive.

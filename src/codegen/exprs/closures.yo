@@ -278,7 +278,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
   // Resolve the capture struct + its fields.
-  capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => rc(TypeValueNode.Unit));
+  capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => Rc.new(TypeValueNode.Unit));
   field_labels := match(&capture_ty, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
   call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {

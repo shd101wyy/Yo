@@ -66,7 +66,7 @@ test("with_lock's body runs under the async lock alone and may probe the mutex",
 test("a contended lock suspends the waiter, and the loop stays live", {
   // Tasks share the mutex as `Arc(Mutex(T))`, each with its own handle
   // (plans/VALUES_BY_DEFAULT.md §3.13 A5).
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   m_holder := Arc.clone(m);
   holder := io.spawn(
     io.async({ m_holder : Arc.clone(m_holder) }(io : Io) => {

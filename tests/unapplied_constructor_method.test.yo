@@ -58,7 +58,7 @@ _clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(Rc.clone(x
 _Alias :: (fn(comptime(B) : Type) -> comptime(Type))(_Pair(i32, B));
 _Partial :: _Pair(i32, _);
 test("Rc.clone(b) infers T from the receiver", {
-  b := rc(i32(5));
+  b := Rc.new(i32(5));
   c := Rc.clone(b);
   Rc.make_mut(&mut b) = i32(7);
   assert(c.* == i32(5), "today's Rc clone is an independent cell");
@@ -66,37 +66,37 @@ test("Rc.clone(b) infers T from the receiver", {
   assert(ref_count(c) == usize(1), "the clone is a fresh cell");
 });
 test("Rc.clone(b) has the type Rc(i32).clone(b) has", {
-  b := rc(i32(3));
+  b := Rc.new(i32(3));
   (c : Rc(i32)) = Rc.clone(b);
   d := Rc(i32).clone(&b);
   assert(c.* == d.*, "both spellings clone the payload");
   comptime_assert(Type.eq(type_of(Rc.clone(b)), Rc(i32)), "the result is an Rc(i32)");
 });
 test("Rc.clone infers T inside a generic body", {
-  x := _clone_rc(rc(i32(9)));
-  y := _clone_rc(rc(true));
+  x := _clone_rc(Rc.new(i32(9)));
+  y := _clone_rc(Rc.new(true));
   assert(x.* == i32(9), "T := i32");
   assert(y.*, "T := bool");
 });
 test("Rc.clone(w) infers T from the receiver", {
-  w := rc(i32(5));
+  w := Rc.new(i32(5));
   c := Rc.clone(w);
   Rc.make_mut(&mut w) = i32(7);
   assert(c.* == i32(5), "today's Rc clone is a new cell (V2c makes it a handle)");
   comptime_assert(Type.eq(type_of(Rc.clone(w)), Rc(i32)), "the result is an Rc(i32)");
-  comptime_assert(Type.eq(type_of(Rc.clone(rc(true))), Rc(bool)), "T := bool");
+  comptime_assert(Type.eq(type_of(Rc.clone(Rc.new(true))), Rc(bool)), "T := bool");
   (d : Rc(i32)) = Rc(i32).clone(&w);
   assert(d.* == i32(7), "the applied spelling still works");
 });
 test("Rc.clone(w) on a nested wrapper names the outer constructor", {
-  w := rc(rc(i32(2)));
+  w := Rc.new(Rc.new(i32(2)));
   c := Rc.clone(w);
   comptime_assert(Type.eq(type_of(c), Rc(Rc(i32))), "T := Rc(i32), never a payload search");
-  v := rc(arc(i32(2)));
+  v := Rc.new(Arc.new(i32(2)));
   comptime_expect_error(Arc.clone(v), "which has type `Rc(Arc(i32))`, not an instance of `Arc`");
 });
 test("Arc.m(a) infers T from the receiver", {
-  a := arc(i32(3));
+  a := Arc.new(i32(3));
   h := Arc.clone(a);
   assert(h.* == i32(3), "the handle reads the payload");
   assert(ref_count(a) == usize(2), "a second handle to one cell");
@@ -126,16 +126,16 @@ test("a static method infers from its arguments; with none it is E0613", {
   assert(q.a == i32(2), "written type arguments call the static method");
 });
 test("a receiver of another type is E0613 naming both", {
-  a := arc(i32(1));
+  a := Arc.new(i32(1));
   comptime_expect_error(Rc.clone(a), "which has type `Arc(i32)`, not an instance of `Rc`");
-  r := rc(i32(1));
+  r := Rc.new(i32(1));
   comptime_expect_error(Arc.clone(r), "which has type `Rc(i32)`, not an instance of `Arc`");
-  b := rc(rc(i32(1)));
+  b := Rc.new(Rc.new(i32(1)));
   comptime_expect_error(Arc.clone(b), "not an instance of `Arc`");
   comptime_expect_error(Rc.clone(i32(1)), "which has type `i32`");
 });
 test("a method the instance lacks is still E0610, naming the instance", {
-  b := rc(i32(1));
+  b := Rc.new(i32(1));
   comptime_expect_error(Rc.nope(b), "No method \"nope\" on Rc(i32)");
   comptime_expect_error(Rc(i32).nope(b), "No method \"nope\" on Rc(i32)");
   p := _Pair(i32, bool)(a : i32(1), b : true);
@@ -150,7 +150,7 @@ test("a static call's E0610 names the type it was called on", {
 // Decision 17 (V2c) gives `Arc` the handle copy, so `Arc.clone(a)` infers
 // `T` from the receiver as `Rc.clone(b)` does.
 test("Arc.clone(a) is Arc(i32).clone(a)", {
-  a := arc(i32(2));
+  a := Arc.new(i32(2));
   c := Arc.clone(a);
   comptime_assert(Type.eq(type_of(Arc.clone(a)), Arc(i32)), "the result is an Arc(i32)");
   d := Arc(i32).clone(&a);
@@ -162,7 +162,7 @@ test("a module-qualified constructor, in a generic body specialized twice", {
   assert(mv.Cell.get(Cell(i32).wrap(i32(8))) == i32(8), "outside a generic body");
 });
 test("a receiver whose type is a bare type parameter", {
-  c := _clone_any(rc(i32(4)));
+  c := _clone_any(Rc.new(i32(4)));
   assert(c.* == i32(4), "T := Rc(i32)");
   comptime_expect_error(_clone_any(i32(5)), "which has type `i32`, not an instance of `Rc`");
 });

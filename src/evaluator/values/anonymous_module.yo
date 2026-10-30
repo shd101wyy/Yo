@@ -380,7 +380,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
+                      ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
                       env_adopt(&env, &ext_info.env);
                       ext_mod_type := Rc.clone(ext_info.ty);
                       if(!is_module_type(&ext_mod_type), {
@@ -530,7 +530,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           nk := efls.len();
                           while((k < nk) && !should_stop, {
                             ext_label := match(efls.get(k), .Some(l) => l, .None => String.from(""));
-                            ext_type := match(efts.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                            ext_type := match(efts.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
                                 ext_mod_path,
@@ -682,7 +682,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             return(
                               AnonModuleResult(
                                 module_value : EvalValue.UnitVal,
-                                module_type : rc(TypeValueNode.Unit),
+                                module_type : Rc.new(TypeValueNode.Unit),
                                 env : env,
                                 partial_module_error : Option(String).None
                               )
@@ -883,7 +883,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   sns_id := stable_sns_module_id(&env.module_path.*);
   register_sns_module(sns_id.clone(), &env.module_path.*);
-  module_type := rc(
+  module_type := Rc.new(
     TypeValueNode.Struct(
       sns_id.clone(),
       String.from(""),
@@ -1045,8 +1045,8 @@ _run_module_walk :: (
         unwind(
           AnonModuleResult(
             module_value : EvalValue.UnitVal,
-            module_type : rc(TypeValueNode.Unit),
-            env : Environment.new(rc(String.new())),
+            module_type : Rc.new(TypeValueNode.Unit),
+            env : Environment.new(Rc.new(String.new())),
             partial_module_error : Option(String).None
           )
         );

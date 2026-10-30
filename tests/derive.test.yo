@@ -488,7 +488,7 @@ derive(generic(A : Type), where(A <: Clone, A <: Eq(A)), CloneSlot(A), Clone, Eq
 test("derive Clone for a generic struct over containers of its parameter", {
   items := ArrayList(String).new();
   items.push(`x`);
-  p := ClonePeek(String)(n : i32(1), peeked : .Some(`p`), items : items, cell : box(`c`));
+  p := ClonePeek(String)(n : i32(1), peeked : .Some(`p`), items : items, cell : Box.new(`c`));
   q := p.clone();
   assert(q.n == i32(1), "n");
   assert(match(q.peeked, .Some(s) => (s == `p`), .None => false), "the Option field");
