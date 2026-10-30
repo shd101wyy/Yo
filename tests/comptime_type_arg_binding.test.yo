@@ -83,7 +83,7 @@ test("A comptime type argument holding a resolved Impl specializes", {
   assert(_ignore_t(IoFuture, m) == usize(4), "the Impl itself");
   assert(_ignore_t(_FutHolder, m) == usize(4), "a struct holding one");
   assert(!size_would_overflow(Park, usize(4)), "std's Park");
-  xs := ArrayList(Park).with_capacity_in(Allocator.global(), usize(0));
+  xs := ArrayList(Park).with_capacity(usize(0), alloc : .Some(Allocator.global()));
   assert(xs.len() == usize(0), "an ArrayList of Park in an explicit allocator");
 });
 // The enum twin: an enum instantiation's type arguments live on the type

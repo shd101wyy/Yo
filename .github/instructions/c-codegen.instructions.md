@@ -595,8 +595,8 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
 - User-visible constructors allocate via `__yo_rc_alloc_scoped`, reading
   the thread-local `__yo_current_allocator`. Since `with_allocator` was deleted
   (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1) its ONLY setter is `rc`/`arc`'s
-  swap around one cell construction (`__yo_scope_set`); `new_in(a)` instead
-  hands the `Allocator` value straight to the container's own buffer
+  swap around one cell construction (`__yo_scope_set`); a container's
+  `alloc : .Some(a)` instead hands the `Allocator` value straight to its own buffer
   allocation, and a `__yo_cell`'s `alloc` passes it as a parameter. The
   runtime's OWN blocks keep `__yo_rc_alloc` and are never placed. B2b deletes
   the thread-local, the scoped constructor reads and the state machine's
@@ -614,7 +614,14 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
   version 1 keeps it) and the extent `{size, align}` in the 16 before. Spell a
   placed allocation through `CodeGenContext.rc_alloc_scoped_call`, never a
   literal `__yo_rc_alloc_scoped(...)`: it adds `_Alignof(T)` under version 2.
-  Version 1's emitted C must stay byte-identical until std moves (Generation B).
+  std speaks version 2 since Generation B (v0.2.73); version 1 stays in the
+  emitter until no supported seed's std is version 1.
+- **`align_of(T)` of a layout only C knows** (an `extern` type, or a struct
+  holding one) folds to a typed unknown, and `generate_alignof` emits
+  `_Alignof(T)`, as `generate_sizeof` emits `sizeof`
+  (`issues/fixed/2026-10-28-align-of-a-type-holding-an-extern-type-never-transpiles.md`).
+  A seed older than that fix leaves the call untranspiled, so std must not
+  call `align_of` on such a type until `SEED_VERSION` carries the fix.
 
 ## Memory leak detection
 

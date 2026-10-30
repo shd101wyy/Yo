@@ -12,13 +12,13 @@ pragma(Pragma.AllowUnsafe);
 // A counting allocator: forwards to the global allocator and counts the
 // blocks it holds (`live`) and the alloc/realloc requests it served.
 _Counts :: struct(live : usize, requests : usize);
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.live = (c.*.live + usize(1)));
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   GlobalAllocator.malloc(size)
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.requests = (c.*.requests + usize(1)));
   cond(
@@ -29,7 +29,7 @@ _count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
   );
   GlobalAllocator.realloc(ptr, new_size)
 });
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   cond(
     ptr.is_some() => {
       c := (*_Counts)(ctx.unwrap());
@@ -2344,8 +2344,10 @@ test("unique Box: alloc places the cell, and a clone stays where its source live
   heap := _counting(addr_of(counts));
   {
     a := box(i32(7), alloc : .Some(heap));
-    assert(Allocator.owner_of((*void)(addr_of(a.*))).same(heap), "the cell's owner prefix names the allocator");
-    match(Box.allocator(a), .Some(o) => assert(o.same(heap), "Box.allocator reads it back"), .None => assert(false, "placed"));
+    // The owner prefix sits in front of the cell's flags word, as an `Rc`
+    // cell's sits in front of its count, so `Box.allocator` reads it, not
+    // `Allocator.owner_of` on the payload.
+    match(Box.allocator(a), .Some(o) => assert(o.same(heap), "the cell's owner prefix names the allocator"), .None => assert(false, "placed"));
     c := Box.clone(a);
     match(Box.allocator(c), .Some(o) => assert(o.same(heap), "the clone is in the allocator too"), .None => assert(false, "the clone is placed"));
     g := box(i32(1));

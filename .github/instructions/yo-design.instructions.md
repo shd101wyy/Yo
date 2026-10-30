@@ -106,8 +106,10 @@ The old shared spelling `Box(V)` / `box(v)` was deleted (V1 step 1 Generation B 
 **`Box(V)` is now the unique, uncounted cell** (V1 step 2, Rust's `Box<T>`):
 `Box :: (fn(comptime(V) : Type) -> comptime(Type))(newtype(_cell : *V))` in the prelude,
 `box(v, (alloc : Option(Allocator)) ?= .None)`. It is plain std Yo: a `Drop` (drop
-the payload, free the cell through its 16-byte owner prefix: `{ctx, vtable}`, a `.None`
-vtable = the global allocator), `Clone` where `T <: Clone` (placed where the source lives),
+the payload, free the cell: an 8-byte flags word sits in the `max(8, align_of(T))` bytes in
+front of the payload, its placed bit set only by an `alloc` argument, and only a placed cell
+carries the 16-byte owner prefix `{ctx, vtable}` in front of that header; Box's layout PR,
+2026-10-29), `Clone` where `T <: Clone` (placed where the source lives),
 `Eq`/`Hash`/`Default` by payload, `Deref`, `Send`/`Sync` bounded on `T`, and
 `Box.allocator(b)`. So it is move-only, explicit-copy when `T` is `Clone`: a non-last-use
 copy is E0901 and the copy is `Box.clone(b)` (`b.clone()` is E0616). The compiler knows it
@@ -243,9 +245,10 @@ The guarantee is data-race freedom for every program that compiles without `prag
   (`__YO_RC_TAG`): mask every count TEST with `__YO_RC_COUNT`, never a write.
 - **Global by default, placement by argument** (`plans/backlog/ALLOCATOR_PLACEMENT.md`,
   maintainer decision 2026-10-24). A creation without an allocator argument is
-  global; `box`/`rc`/`arc` take `(alloc : Option(Allocator)) ?= .None`, the
-  containers `new_in(a)`/`with_capacity_in(a, n)` (B2 turns those into the same
-  `alloc :` parameter). There is no user-visible allocation scope:
+  global; `box`/`rc`/`arc` and the containers' `new`/`with_capacity` take
+  `(alloc : Option(Allocator)) ?= .None` (B2a deleted `new_in`/`with_capacity_in`),
+  and `clone_in(a)` on `ArrayList`/`HashMap`/`String`/`StringBuilder` places a
+  copy. There is no user-visible allocation scope:
   `with_allocator`/`current_allocator` were deleted (B1). The thread-local
   `__yo_current_allocator` survives only for `rc`/`arc`'s one-construction swap;
   the RC constructor sites still read it (`__yo_rc_alloc_scoped`), the runtime's

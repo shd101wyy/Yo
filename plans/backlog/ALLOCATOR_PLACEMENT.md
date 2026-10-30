@@ -2,8 +2,9 @@
 
 > **Status: Backlog — decided 2026-10-24 (maintainer adopted the advisor's verdict); steps A1/B1/B2 are VBD
 > campaign items, step C follows v0.2.75.** A1 is #1572 (merged; it ships in v0.2.70). A2 and B1 are implemented
-> for v0.2.71 (branches `vbd/alloc-placement-a2` and `vbd/alloc-placement-b1`, stacked; 2026-10-25). B2 and C are
-> not started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
+> for v0.2.71 (branches `vbd/alloc-placement-a2` and `vbd/alloc-placement-b1`, stacked; 2026-10-25). B2a is
+> implemented with allocator v2 Generation B (branch `vbd/alloc-v2-gen-b-r2`, 2026-10-28; "As built" under §6 B2).
+> B2b and C are not started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
 > at `82671f612`. The maintainer's criterion: "Yo should be as explicit as possible because it is written by LLMs;
 > no backward compatibility; do things right." His answer to the verdict: "Adopt as recommended". This plan
 > replaces a same-day first draft (the "hybrid", §8 item 1). It amends `plans/reference/EXPLICIT_ALLOCATORS.md`
@@ -298,6 +299,20 @@ B2 ships as two PRs:
 
 If V5 Generation A slips to v0.2.73, B2b slips with it. B2a stays at v0.2.72.
 
+**As built, B2a (2026-10-28, branch `vbd/alloc-v2-gen-b-r2`, with allocator v2 Generation B; the v0.2.73
+window).**
+
+- `new`/`with_capacity` take the parameter on `ArrayList`, `HashMap`, `HashSet`, `StringBuilder`, and `new` on
+  `Deque` (it has no `with_capacity`). `ArrayList.new`'s `ensures` contract follows the defaulted parameter. A placed
+  constructor allocates its anchor block at once, as `new_in` did; `.None` allocates nothing, as before.
+- `clone_in(a : Allocator)` lands on `ArrayList`, `HashMap`, `String` and `StringBuilder`. `clone()` and `clone_in`
+  share one private `_clone_placed(alloc)` per type, so the two cannot drift.
+- **No `yo fix` repair.** The plan asks for none, and no published release has a user outside the tree: the
+  migration table (`docs/*/EXPLICIT_ALLOCATORS.md` "Containers") is the path. The 21 call sites in tests were
+  rewritten by a script, std's own by hand.
+- `HashMap._alloc_with_capacity_in(alloc, n)` became `_alloc_with_capacity(n, alloc)`, the one private constructor
+  (the sibling tests call it).
+
 ### Related: `Box`'s layout (the verdict's §7, maintainer decision 2026-10-24)
 
 Not a placement step, recorded here because the verdict carries it. Today every `Box` cell carries the 16-byte
@@ -310,6 +325,25 @@ after allocator v2 Generation B, in the v0.2.72 window, measured (Box allocation
 check/compile RSS ratchets) with its own emit-diff. It is std-only if the compiler's `Box` predicate and drop paths
 need no change (`unique_box_payload_type` in `src/types/guards.yo`, `src/codegen/exprs/drop_dup.yo`); that is to
 be verified in the PR.
+
+**As built (2026-10-29, branch `vbd/box-layout`, stacked on allocator v2 Generation B).** std only: the compiler
+knows `Box` through `unique_box_payload_type` (the stamped name and the `_cell : *V` newtype shape, unchanged),
+and `Box`'s drop is std's `Drop` impl, so no compiler path reads the layout (a stale comment in
+`src/codegen/exprs/return.yo` named the deleted `_box_owner_of`).
+
+- **Global cell:** `[pad][flags : u64][payload]`, the header `max(8, align_of(T))` bytes, flags `0`, from
+  `__yo_malloc` (alignment up to 16) or the aligned family above 16 (size rounded up to the alignment).
+- **Placed cell:** `Allocator.alloc`'s layout, a `max(16, align_of(T))`-byte prefix ending in the owner record,
+  then the header with the placed bit (`_BOX_PLACED`), then the payload. The block is asked for that span as its
+  alignment, and the drop tells the allocator `span + header + size_of(T)` and the span.
+- **The alignment is read without `align_of`**: `size_of(struct(_pad : u8, _v : T)) - size_of(T)`
+  (`_BoxAlignProbe`), because the seed that compiles std leaves `align_of` of a type holding an extern type
+  untranspiled (`plans/backlog/SEED_VERSION_AUTOMATION.md`, "`box` asks for its payload's alignment").
+- **Measured** (4,000,000 live global boxes, peak RSS; the PR's own binary with its parent's std against its
+  std): under mimalloc a `Box(i64)` or `Box(i32)` takes 16 bytes instead of 32 (164.1 MB → 100.6 MB), a 24-byte
+  payload 32 instead of 48 (225.6 MB → 164.1 MB). glibc's `malloc` rounds both layouts to the same chunk (a 32-byte
+  minimum, 48 for the 24-byte payload), so `--allocator system` programs see no change. A placed `Box(i64)` asks
+  its allocator for 32 bytes instead of 24: the owner prefix and the flags word.
 
 ### C: the root declaration (after v0.2.75; outside VBD)
 

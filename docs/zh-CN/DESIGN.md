@@ -1190,7 +1190,7 @@ s3 := s2; // RC = 3
 
 #### 显式分配器
 
-引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`box`、`rc` 和 `arc` 用 `alloc : .Some(a)`，容器用 `new_in(a)`：
+引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`box`、`rc`、`arc` 以及容器的 `new` / `with_capacity` 都用 `alloc : .Some(a)`：
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
@@ -1199,7 +1199,7 @@ Point :: struct(x : i32, y : i32);
 // `a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
 p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // 放在 `a` 里
 p2 := rc(Point(x : i32(1), y : i32(2))); // 没有参数：全局分配器
-xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
+xs := ArrayList(i32).new(alloc : .Some(a)); // 缓冲区在 `a` 里
 ```
 
 不需要新关键字，也没有分配作用域：一个调用做什么从不取决于它的调用者。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
@@ -3275,7 +3275,7 @@ assert(sum(&t) == 3);
 - **`Eq`、`Hash` 和 `Default`** 比较、哈希和构造的都是载荷。`T` 是 `Send`/`Sync`
   时 `Box(T)` 才是。
 - **布局。** `Box` 值是一个指针，`Option(Box(T))` 也是一个指针（`NULL` 即
-  `.None`）。单元在载荷前带有 16 字节的所有者前缀，记录放置它的分配器。
+  `.None`）。单元在载荷前带有一个 8 字节的标志字（头部共 `max(8, align_of(T))` 字节），就像 `Rc` 单元带有计数一样。由 `alloc` 参数放置的单元设置了标志字的放置位，并在头部之前带有 16 字节的所有者前缀，记录放置它的分配器；全局单元没有前缀。
 - **分配器。** `box(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时单元
   使用全局分配器。单元通过其所有者释放，
   `Box.clone(b)` 落在 `b` 所在的位置（由显式分配器放置的 box 克隆到同一个分配器中）。

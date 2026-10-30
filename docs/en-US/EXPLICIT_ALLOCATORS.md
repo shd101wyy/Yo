@@ -28,8 +28,8 @@ These are two separate concerns:
   last reference dies, exactly like any other object. Nothing is freed "when
   the allocator goes away" behind your back.
 - The release always returns the block to the allocator that made it. Every
-  block carries its owner in a 16-byte prefix in front of the returned
-  pointer, so a block freed on another thread, or long after the code that
+  block carries its owner in a prefix in front of the returned pointer (16
+  bytes, or the block's alignment when that is larger), so a block freed on another thread, or long after the code that
   created it returned, still goes back to the right place. There is no way to
   free a block into the wrong allocator.
 
@@ -61,7 +61,7 @@ main :: (fn() -> unit)({
     // One cell, placed in `a` by its `alloc` argument.
     p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     // A list whose buffer, and every growth of it, lives in `a`.
-    xs := ArrayList(i32).new_in(a);
+    xs := ArrayList(i32).new(alloc : .Some(a));
     xs.push(p.x);
     // No argument: the global allocator.
     ys := ArrayList(i32).new();
@@ -93,14 +93,14 @@ A function that lets its caller place what it creates declares the same
 defaulted parameter and passes it on. `Allocator`, `Option(Allocator)` and a
 struct holding one are opaque handles, so they are legal parameter types in a
 safe file (one without `pragma(Pragma.AllowUnsafe)`); using the handle's raw
-words, as `a.alloc(n)` does, still needs the pragma:
+words, as `a.alloc(n, align)` does, still needs the pragma:
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 
 Node :: struct(name : i32, kids : ArrayList(i32));
 make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
-  rc(Node(name : name, kids : ArrayList(i32).new()), alloc : alloc)
+  rc(Node(name : name, kids : ArrayList(i32).new(alloc : alloc)), alloc : alloc)
 );
 ```
 
@@ -110,7 +110,8 @@ Everything a program creates without such an argument is global:
   struct and wrap it: `rc(v, alloc : .Some(a))`),
 - the cell `dyn` makes for a value (`dyn(rc(v, alloc : .Some(a)))` places the
   `Dyn`'s data object: the `Rc` cell is used as it is, with no second cell),
-- interpolated strings (build a placed one with `StringBuilder.new_in(a)`),
+- interpolated strings (build a placed one with
+  `StringBuilder.new(alloc : .Some(a))`),
 - closure environments,
 - the state machines of `io.async` tasks,
 - the runtime's own bookkeeping (event-loop structures, thread pools).
@@ -122,26 +123,57 @@ callback rule in [Writing your own allocator](#writing-your-own-allocator).
 
 ## Containers
 
-The mutable containers' default constructors, `ArrayList.new()`,
-`ArrayList.with_capacity(n)`, `HashMap.new()`, `HashMap.with_capacity(n)` and
-`Deque.new()`, are global, and so are the types built on them (`HashSet`,
-`StringBuilder`, `String`). To place a container's buffer in an allocator, use
-the `_in` constructors:
+The mutable containers' constructors take the same defaulted
+`alloc : Option(Allocator)` as `box`, `rc` and `arc`. Without it a container is
+global, and so are the types built on them (`String`, an interpolation):
 
-| Container       | Explicit constructors                                    |
-| --------------- | -------------------------------------------------------- |
-| `ArrayList(T)`  | `new_in(a)`, `with_capacity_in(a, n)`                    |
-| `HashMap(K, V)` | `new_in(a)`, `with_capacity_in(a, n)`                    |
-| `HashSet(T)`    | `new_in(a)`, `with_capacity_in(a, n)`                    |
-| `Deque(T)`      | `new_in(a)`                                              |
-| `StringBuilder` | `new_in(a)`, `with_capacity_in(a, n)`                    |
+| Container       | Constructors taking `alloc`              | Placed copy    |
+| --------------- | ---------------------------------------- | -------------- |
+| `ArrayList(T)`  | `new(alloc : …)`, `with_capacity(n, alloc : …)` | `clone_in(a)` |
+| `HashMap(K, V)` | `new(alloc : …)`, `with_capacity(n, alloc : …)` | `clone_in(a)` |
+| `HashSet(T)`    | `new(alloc : …)`, `with_capacity(n, alloc : …)` |               |
+| `Deque(T)`      | `new(alloc : …)`                           |                |
+| `StringBuilder` | `new(alloc : …)`, `with_capacity(n, alloc : …)` | `clone_in(a)` |
+| `String`        |                                          | `clone_in(a)`  |
+
+```yo
+{ ArrayList } :: import("std/collections/array_list");
+
+main :: (fn() -> unit)({
+  a := Allocator.global(); // any `Allocator` value
+  xs := ArrayList(i32).with_capacity(usize(8), alloc : .Some(a));
+  xs.push(i32(1));
+  ys := xs.clone_in(Allocator.global()); // a copy placed explicitly
+  ys.push(i32(2));
+});
+export(main);
+```
 
 A container remembers its allocator. Every growth, shrink and final release of
 its buffer goes back to the allocator it was created with. `xs.allocator()`
 returns that allocator, or `.None` for a container on the global allocator. A
 `clone()` lands where its source lives: the clone of a list, map or `String` in
 an explicit allocator is in the same allocator, and the clone of a global
-container is global.
+container is global. `clone_in(a)` puts the copy's buffer in `a` instead,
+wherever the source lives; the copied elements go wherever their own `clone`
+puts them.
+
+A placed container allocates once at construction (an `ArrayList`, `Deque` or
+`StringBuilder` takes a block holding only the owner prefix, a `HashMap` its
+16 buckets), because its buffer is how it remembers the allocator. A global
+`new()` allocates nothing until the first insertion.
+
+**Before v0.2.73** the placed constructors were separate functions. They are
+deleted; rewrite each call:
+
+| Before                                | Now                                            |
+| ------------------------------------- | ---------------------------------------------- |
+| `ArrayList(T).new_in(a)`              | `ArrayList(T).new(alloc : .Some(a))`           |
+| `ArrayList(T).with_capacity_in(a, n)` | `ArrayList(T).with_capacity(n, alloc : .Some(a))` |
+| `HashMap(K, V).new_in(a)`             | `HashMap(K, V).new(alloc : .Some(a))`          |
+| `HashSet(T).with_capacity_in(a, n)`   | `HashSet(T).with_capacity(n, alloc : .Some(a))` |
+| `Deque(T).new_in(a)`                  | `Deque(T).new(alloc : .Some(a))`               |
+| `StringBuilder.new_in(a)`             | `StringBuilder.new(alloc : .Some(a))`          |
 
 The container's own size does not change: the allocator is recorded in the
 owner prefix of its buffer, with one bit of an existing word marking it.
@@ -202,21 +234,27 @@ are in the prelude, so they need no import; their methods (`Allocator.global()`,
 
 ```yo
 AllocatorVTable :: struct(
-  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
-  realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
-  free : (fn(ctx : ?*void, ptr : ?*void) -> unit)
+  alloc : (fn(ctx : ?*void, size : usize, align : usize) -> ?*void),
+  realloc : (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void),
+  free : (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)
 );
 Allocator :: struct(ctx : ?*void, vtable : *AllocatorVTable);
 ```
 
-The contract:
+This is interface version 2, the calls of Zig's `std.mem.Allocator`. The
+contract:
 
-- `alloc(ctx, size)` returns a block of at least `size` bytes aligned to 16,
-  or `.None`.
-- `realloc(ctx, ptr, new_size)` resizes a block this vtable's `alloc`
-  returned, keeping its first `min(old, new_size)` bytes. On `.None` the
-  original block is untouched and still owned by the caller.
-- `free(ctx, ptr)` releases such a block. There is no size argument.
+- `alloc(ctx, size, align)` returns a block of at least `size` bytes aligned
+  to `align`, or `.None`. `align` is a power of two, at least 16.
+- `realloc(ctx, ptr, old_size, new_size, align)` resizes a block this
+  vtable's `alloc` returned for `old_size` bytes at `align`, keeping its first
+  `min(old_size, new_size)` bytes. On `.None` the original block is untouched
+  and still owned by the caller.
+- `free(ctx, ptr, size, align)` releases such a block. `size` and `align` are
+  the values the block was allocated (or last reallocated) with, so a
+  size-class allocator, such as a pool, needs no header of its own.
+- A block can be freed on another thread (an `Arc` dropped there), so an
+  allocator shared across threads makes its `free` thread-safe.
 - The callbacks must not create a reference-counted object without an
   `alloc` argument: no `ref` constructor, and no `rc`, `arc` or `dyn` without
   `alloc`. For `rc(v, alloc : .Some(a))` and `arc(v, alloc : .Some(a))` they run
@@ -225,11 +263,14 @@ The contract:
   Containers, `String` and `box(...)` are global and safe to use. Get memory
   from `GlobalAllocator` or from a buffer you own, as the example below does.
 
-Your functions never see the 16-byte owner prefix: `std/allocator` asks your
-`alloc` for 16 bytes more than the caller wanted and manages the prefix
-itself. Implementing an allocator handles raw pointers, so the file needs
-`pragma(Pragma.AllowUnsafe);`. Using one, through an `alloc` argument or
-`new_in`, does not.
+Your functions never see the owner prefix: `std/allocator` asks your `alloc`
+for the prefix (`max(16, align)` bytes) plus what the caller wanted, aligned
+to `max(16, align)`, and manages the prefix itself. A reference-counted cell
+placed by an `alloc` argument carries 16 more bytes in front of the owner,
+recording the cell's size and alignment for its release, so its prefix is
+`max(32, align)` bytes. Implementing an allocator handles raw pointers, so the
+file needs `pragma(Pragma.AllowUnsafe);`. Using one, through an `alloc`
+argument, does not.
 
 A counting allocator that forwards to the global allocator:
 
@@ -237,22 +278,34 @@ A counting allocator that forwards to the global allocator:
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
 { GlobalAllocator } :: import("std/allocator");
+{ memcpy } :: import("std/libc/string");
 
 Point :: struct(x : i32, y : i32);
 _Counts :: struct(allocs : usize, frees : usize);
 
-_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+// The global allocator's aligned family serves every alignment, and is told
+// the alignment again on release.
+_count_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.allocs = (c.*.allocs + usize(1)));
-  GlobalAllocator.malloc(size)
+  GlobalAllocator.aligned_alloc(align, size)
 });
-_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
-  GlobalAllocator.realloc(ptr, new_size)
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(
+  match(
+    GlobalAllocator.aligned_alloc(align, new_size),
+    .Some(q) => {
+      n := cond((old_size < new_size) => old_size, true => new_size);
+      unsafe(memcpy(q, ptr.unwrap(), n));
+      GlobalAllocator.aligned_free(ptr);
+      .Some(q)
+    },
+    .None => .None
+  )
 );
-_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_count_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.frees = (c.*.frees + usize(1)));
-  GlobalAllocator.free(ptr);
+  GlobalAllocator.aligned_free(ptr);
 });
 _COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
 
@@ -280,16 +333,17 @@ raw pointers:
 | Call                            | What it does                                                         |
 | ------------------------------- | -------------------------------------------------------------------- |
 | `Allocator.global()`            | The global allocator as an `Allocator` value.                        |
-| `a.alloc(size)`                 | `size` bytes owned by `a`, 16-aligned, or `.None`.                   |
-| `Allocator.realloc(ptr, n)`     | Resize a block through the allocator that owns it.                   |
-| `Allocator.free(ptr)`           | Release a block to the allocator that owns it. `.None` is a no-op.   |
+| `a.alloc(size, align)`          | `size` bytes owned by `a`, aligned to `align` (at least 16), or `.None`; `.None` too for an `align` that is not a power of two. |
+| `Allocator.realloc(ptr, old_size, new_size, align)` | Resize a block through the allocator that owns it.                   |
+| `Allocator.free(ptr, size, align)` | Release a block to the allocator that owns it. `.None` is a no-op.   |
 | `Allocator.owner_of(ptr)`       | The allocator that owns a block.                                     |
 | `a.same(b)`                     | Whether two values are the same allocator.                           |
 
-`realloc`, `free` and `owner_of` take only the pointer: the owner prefix tells
-them which allocator to use. Never pass them a pointer that did not come from
-`Allocator.alloc`/`realloc`, and never release such a block with
-`GlobalAllocator.free`.
+`realloc` and `free` find the allocator through the owner prefix, so they take
+no allocator; they take the size and alignment the block was allocated with,
+which they pass on to it. Never pass them a pointer that did not come from
+`Allocator.alloc`/`realloc`, or a size or alignment other than the block's,
+and never release such a block with `GlobalAllocator.free`.
 
 ## Debugging: the leak report
 
@@ -314,12 +368,22 @@ once `rc` and `arc` place through the cell primitive
 (`plans/backlog/ALLOCATOR_PLACEMENT.md`, B2). Containers keep their size,
 because the allocator lives in the buffer's prefix rather than in a new field.
 
+Only a placed block pays for its owner. A global `Box` cell carries an 8-byte
+flags word in front of its payload, as an `Rc` cell carries its count; a
+placed one carries the 16-byte owner prefix in front of that word as well. A
+placed `Rc`/`Arc` cell's prefix is 32 bytes (the owner and the cell's extent),
+and a placed container buffer's is 16.
+
 ## Limits
 
 - **No arena in std.** See
   [When to use an explicit allocator](#when-to-use-an-explicit-allocator).
-- **No over-aligned buffers.** Blocks are 16-aligned. Containers of types
-  aligned more strictly than that are not supported, as before.
+- **Over-aligned types.** `Allocator.alloc`, the containers and `box` ask for
+  the payload's alignment, so an allocator can serve any power of two, and a
+  global `Box` of a type aligned above 16 comes from the aligned family. A
+  global `rc`/`arc` cell is only 16-aligned, so an `Rc` or `Arc` of such a type
+  must be placed. No Yo type is aligned above 16 today; an `extern` C type can
+  be.
 - **No placed `ref` objects.** A `ref` constructor takes no `alloc`
   argument. Make the type a value struct and place it with
   `rc(v, alloc : .Some(a))`.

@@ -8,17 +8,17 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("std/allocator");
 { AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 _LIVE := AtomicUsize.new(usize(0));
-_counting_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_counting_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   _LIVE.fetch_add(usize(1), MemoryOrder.AcqRel);
   GlobalAllocator.malloc(size)
 });
-_counting_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+_counting_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
   if(ptr.is_none(), {
     _LIVE.fetch_add(usize(1), MemoryOrder.AcqRel);
   });
   GlobalAllocator.realloc(ptr, new_size)
 });
-_counting_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_counting_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   if(ptr.is_some(), {
     _LIVE.fetch_sub(usize(1), MemoryOrder.AcqRel);
   });
