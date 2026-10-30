@@ -3918,16 +3918,30 @@ create_specialized_function_inline :: (
             Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&func_type),
             _ => no_flags()
           );
-          // The re-bind is NON-owning even for an `own(p)` parameter, and
-          // that is load-bearing, not an oversight: it re-binds only a
-          // closure parameter or one whose argument FOLDED to a constant
-          // (a struct literal, a template string), and for those the CALLER
-          // keeps its temporary and releases it after the call. An owning
-          // re-bind added a callee-side release on top — measured as corrupt
-          // `downcast` payloads and a SIGSEGV in tests/error_ergonomics
+          // The re-bind is NON-owning for a parameter whose type copies
+          // implicitly, and that is load-bearing, not an oversight: it
+          // re-binds only a closure parameter or one whose argument FOLDED to
+          // a constant (a struct literal, a template string), and for those
+          // the CALLER keeps its temporary and releases it after the call. An
+          // owning re-bind added a callee-side release on top — measured as
+          // corrupt `downcast` payloads and a SIGSEGV in tests/error_ergonomics
           // (`dyn(NotFound(...))` boxes a folded struct through
           // `rc(own(value))`). Phase 2.5 of plans/TYPE_SYSTEM_SOUNDNESS.md
           // tried the declared flag here and reverted it.
+          //
+          // A by-value parameter of a move-only type is the exception: its
+          // argument cannot be kept by the caller (the call MOVES it, as
+          // `check_if_function_parameter_matches_argument` bound it owning),
+          // so the re-bind keeps it owning too. Non-owning, it read as a
+          // borrow, and a body that moves it on — `match(o, .Err(e) =>
+          // Result(B, E).Err(e))` — was a false E0901 whenever the call's
+          // argument was a compile-time-known constructor
+          // (issues/fixed/2026-10-30-a-generic-functions-match-binding-cannot-move-out-of-a-compile-time-known-argument.md).
+          decl_param_by_value := match(
+            func_type,
+            Rc(.Func({ result : _ })) => fn_param_by_value_flags(&func_type),
+            _ => no_flags()
+          );
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -4412,7 +4426,7 @@ create_specialized_function_inline :: (
                     Option(EvalValue).Some(create_unknown_val(&p_ty)),
                     false,
                     match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
-                    false,
+                    match(decl_param_by_value.get(rbp_i), .Some(bv) => bv, .None => false) && type_requires_explicit_copy(&p_ty),
                     synthetic_token(&p_label, &callee_env.module_path.*)
                   );
                 },
