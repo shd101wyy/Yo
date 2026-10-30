@@ -126,7 +126,7 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
   !v.is_module_level && match(
     _enclosing_fn_type(ctx),
     .Some(Rc(.Func({ meta : pc_m }))) => {
-      labels := pc_m.*.param_labels;
+      labels := Rc.clone(pc_m.*.param_labels);
       (own : bool) = false;
       (i : usize) = usize(0);
       while(i < labels.len(), {

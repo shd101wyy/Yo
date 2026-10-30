@@ -4394,8 +4394,8 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
   seen := ArrayList(String).new();
   while(true, {
     match(
-      cur,
-      Rc(.FnTraitT(base_name : _)) => return(Option(TypeValue).Some(cur)),
+      Rc.clone(cur),
+      Rc(.FnTraitT(base_name : _)) => return(Option(TypeValue).Some(Rc.clone(cur))),
       Rc(.DynT({ required_trait_types : cft_drtt })) => return(_first_fn_trait(&cft_drtt.items)),
       Rc(.SomeT({ id : cft_id, required_trait_types : cft_rtt, resolution : cft_res })) => {
         match(_first_fn_trait(&cft_rtt), .Some(t) => return(Option(TypeValue).Some(t)), .None => ());
@@ -4410,7 +4410,7 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
         match(
           cft_res,
           .Some(n) => {
-            cur = n;
+            cur = Rc.clone(n);
           },
           .None => return(Option(TypeValue).None)
         );
@@ -4439,14 +4439,14 @@ fn_trait_call_func_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       rc(
         TypeValueNode.Func(
           no_types(),
-          fcf_p,
+          Rc.clone(fcf_p),
           no_types(),
           no_types(),
-          fcf_r,
+          Rc.clone(fcf_r),
           rc(
             FuncMeta(
               forall_labels : no_labels(),
-              param_labels : fcf_l,
+              param_labels : Rc.clone(fcf_l),
               implicit_labels : no_labels(),
               result_is_comptime_only : false,
               has_variadic : false,
