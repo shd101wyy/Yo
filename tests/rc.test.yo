@@ -2874,7 +2874,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
     holder.push(Rc.clone(shared));
     assert(ref_count(shared) == usize(2), "two handles, one cell");
     assert(counts.live == usize(1), "one cell, two handles");
-    assert(holder.get(usize(0)).unwrap().* == i32(42), "the held handle reads the placed cell");
+    assert(holder.get_cloned(usize(0)).unwrap().* == i32(42), "the held handle reads the placed cell");
   };
   assert(counts.live == usize(0), "the last handle released the cell into the allocator");
   n := match(Rc.try_unwrap(Rc.new(i32(4), alloc : .Some(heap))), .Ok(v) => v, .Err(_) => i32(0));
@@ -4083,7 +4083,7 @@ _V2cBare :: struct(h : Rc(i32));
 _v2c_keep :: (fn(h : &Rc(i32)) -> Rc(i32))(Rc.clone(h));
 _v2c_peek :: (fn(h : &Rc(i32)) -> i32)(h.*);
 _v2c_take :: (fn(h : Rc(i32)) -> i32)(h.*);
-_v2c_first :: (fn(xs : &ArrayList(Rc(i32))) -> Rc(i32))(match(xs.get(usize(0)), .Some(h) => h, .None => Rc.new(i32(0))));
+_v2c_first :: (fn(xs : &ArrayList(Rc(i32))) -> Rc(i32))(match(xs.get_cloned(usize(0)), .Some(h) => h, .None => Rc.new(i32(0))));
 _v2c_some :: (fn() -> Option(Rc(i32)))(.Some(Rc.new(i32(5))));
 test("Rc.clone is a second handle to the same cell, whatever the payload", {
   a := Rc.new(i32(1));
