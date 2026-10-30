@@ -266,7 +266,7 @@ bind_owning_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String,
         em := context.base.emitter;
         em.emit_string_line(`${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &context.base)} = ${code};`);
         _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
-        tv
+        tv.clone()
       },
       .None => code
     ),
@@ -618,7 +618,7 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
             emitted = true;
           });
         });
-        final_name := if(emitted || already_in_scope, vname, arg_code.clone());
+        final_name := if(emitted || already_in_scope, vname.clone(), arg_code.clone());
         // dup-on-store for an owned param: emit the arg's deferred `___dup` (set by
         // helper.yo's move-ownership branch) before the call uses it. Only in the
         // value-pass case — ref/`inout`/comptime/sm args transfer no ownership.
@@ -1729,7 +1729,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // the narrowed EnumT);
     // the callee source text (`.Some`) as a final fallback. All may carry a
     // leading `.`, which _generate_runtime_enum_construct strips.
-    from_val := match(ei.value, .Some(ev) => match(ev, .EnumVal(vr, _) => vr, _ => String.new()), .None => String.new());
+    from_val := match(ei.value, .Some(ev) => match(ev, .EnumVal(vr, _) => vr.clone(), _ => String.new()), .None => String.new());
     from_ty := match(&ei.ty, Rc(.EnumT({ selected_variant_name })) => match(selected_variant_name, .Some(v) => v, .None => String.new()), _ => String.new());
     from_callee := match(expr, .FnCall(_, f, _, _, _) => ast_expr_to_string(&f), .Atom(_, _) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
