@@ -1,0 +1,14 @@
+// `yo fix <path> --migrate cloned-accessors` lists, and does not rename, a
+// copying accessor whose element has no `Clone`: `get_cloned` demands
+// `where(T <: Clone)`, so `holders.get_cloned(...)` would not resolve.
+// `Holder` holds a counted handle and derives no `Clone`.
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+Holder :: struct(h : Rc(i32));
+main :: (fn() -> unit)({
+  holders := ArrayList(Holder).new();
+  holders.push(Holder(h : rc(i32(4))));
+  first := holders.get(usize(0));
+  assert(first.is_some(), "an element");
+});
+export(main);
