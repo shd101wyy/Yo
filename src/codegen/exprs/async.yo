@@ -259,46 +259,35 @@ _numeric_id_less :: (fn(a : &String, b : &String) -> bool)(
 _find_bundle_var_field :: (
   fn(state_machine_variables : &HashMap(String, CapturedVariable), target_key : &String, state_machine_field_aliases : &Option(HashMap(String, String))) -> Option(String)
 )({
-  it := state_machine_variables.into_iter();
-  (go : bool) = true;
   (best_aliased : Option(String)) = Option(String).None;
   (best_aliased_id : String) = String.new();
   (best_plain : Option(String)) = Option(String).None;
   (best_plain_id : String) = String.new();
-  while(go, {
-    match(
-      it.next(),
-      .Some(b) => {
-        sm_var := b.value;
-        is_outer := match(sm_var.kind, .Outer => true, .Local => false);
-        if(!is_outer && (type_key(&sm_var.base.ty) == target_key), {
-          vid := sm_var.base.id.clone();
-          alias_opt := match(
-            state_machine_field_aliases,
-            .Some(al) => al.get_cloned(vid.clone()),
-            .None => Option(String).None
-          );
-          match(
-            alias_opt,
-            .Some(a) => {
-              if(best_aliased.is_none() || _numeric_id_less(&vid, &best_aliased_id), {
-                best_aliased = Option(String).Some(a);
-                best_aliased_id = vid.clone();
-              });
-            },
-            .None => {
-              if(best_plain.is_none() || _numeric_id_less(&vid, &best_plain_id), {
-                best_plain = Option(String).Some(sm_local_field_name(vid.clone()));
-                best_plain_id = vid.clone();
-              });
-            }
-          );
-        });
-      },
-      .None => {
-        go = false;
-      }
-    );
+  for(&state_machine_variables, (_k, sm_var) => {
+    is_outer := match(sm_var.kind, .Outer => true, .Local => false);
+    if(!is_outer && (type_key(&sm_var.base.ty) == target_key), {
+      vid := sm_var.base.id.clone();
+      alias_opt := match(
+        state_machine_field_aliases,
+        .Some(al) => al.get_cloned(vid.clone()),
+        .None => Option(String).None
+      );
+      match(
+        alias_opt,
+        .Some(a) => {
+          if(best_aliased.is_none() || _numeric_id_less(&vid, &best_aliased_id), {
+            best_aliased = Option(String).Some(a);
+            best_aliased_id = vid.clone();
+          });
+        },
+        .None => {
+          if(best_plain.is_none() || _numeric_id_less(&vid, &best_plain_id), {
+            best_plain = Option(String).Some(sm_local_field_name(vid.clone()));
+            best_plain_id = vid.clone();
+          });
+        }
+      );
+    });
   });
   if(best_aliased.is_some(), best_aliased, best_plain)
 });
@@ -881,18 +870,10 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   });
   // Kahn's algorithm: seed the queue with indegree-0 nodes.
   queue := ArrayList(String).new();
-  it := indegree.into_iter();
-  (go : bool) = true;
-  while(go, {
-    match(
-      it.next(),
-      .Some(e) => if(e.value == usize(0), {
-        queue.push(e.key.clone());
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&indegree, (k, v) => {
+    if(v == usize(0), {
+      queue.push(k.clone());
+    });
   });
   ordered := ArrayList(String).new();
   (head : usize) = usize(0);
@@ -2035,8 +2016,8 @@ _collect_fused_sites :: (
 FusedLocalField :: struct(id : String, name : String, field_name : String, ty : TypeValue);
 _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField))({
   out := ArrayList(FusedLocalField).new();
-  cvs := site.block.analysis.captured_variables;
-  register_sm_captured_names(&cvs);
+  register_sm_captured_names(&site.block.analysis.captured_variables);
+  cvs := &site.block.analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
@@ -3173,9 +3154,8 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   saved_evidence_params := context.current_evidence_params;
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
-  cross_boundary_ids := cbr.cross_boundary_ids;
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
-  osr := compute_overlapping_slots(&cross_boundary_ids, &cbr.variable_segments, &block.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
+  osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &block.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
   overlapping_slot_aliases := osr.slot_aliases.clone();
   // Filter capturedVariables to those that need SM fields (or stay for drops).
   filtered := ArrayList(CapturedVariable).new();
@@ -3186,7 +3166,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
       src_cvs.get(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
-        keep := (is_outer || cross_boundary_ids.contains(v.base.id.to_string()) || await_future_temp_var_aliases.contains_key(v.base.id.to_string()) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
+        keep := (is_outer || cbr.cross_boundary_ids.contains(v.base.id.to_string()) || await_future_temp_var_aliases.contains_key(v.base.id.to_string()) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
         if(keep, {
           filtered.push(v);
         });
@@ -3337,7 +3317,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   context.state_machine_field_aliases = saved_field_aliases;
   em.emit_string_line(String.from(""));
   // Dispose function.
-  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), &block.result_type, &block.capture_type, &filtered_analysis, &local_var_drops, &cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
+  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), &block.result_type, &block.capture_type, &filtered_analysis, &local_var_drops, &cbr.cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
   context.state_machine_binding_ids = saved_binding_ids;
   context.sm_unwind_catch = saved_sm_unwind_catch;
   em.emit_string_line(String.from(""));
