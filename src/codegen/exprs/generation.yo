@@ -1109,7 +1109,7 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     // (issues/fixed/2026-10-30-an-io-async-closure-that-returns-early-leaks-its-captures.md).
     // In a state machine the atom keeps its own completion path (atom.yo).
     .Atom(_, atok) => if(
-      (atok.value == BK_RETURN) && context.in_async_state_machine.is_none(),
+      (atok.value.* == BK_RETURN) && context.in_async_state_machine.is_none(),
       generate_return(expr, indent.clone(), context),
       generate_atom(expr, context, indent)
     )
