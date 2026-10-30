@@ -64,17 +64,17 @@ test("log target/lazy families respect the level", {
   assert(log.enabled(log.Level.Warn), "Warn enabled at Warn");
   // Below the level: the message closure must NOT run.
   mut(ran) := ArrayList(i32).new();
-  log.debug_lazy(() => {
+  log.debug_lazy({ &mut ran }() => {
     ran.push(i32(1));
     String.from("never built")
   });
-  log.trace_lazy(() => {
+  log.trace_lazy({ &mut ran }() => {
     ran.push(i32(1));
     String.from("never built")
   });
   assert(ran.len() == usize(0), "lazy messages below the level are not built");
   // At/above the level: the closure runs (output goes to stderr).
-  log.warn_lazy(() => {
+  log.warn_lazy({ &mut ran }() => {
     ran.push(i32(2));
     String.from("std_export_coverage: warn_lazy ran")
   });
@@ -142,7 +142,7 @@ test("step_len", {
 // --- testing/bench: runs the body `iterations` times and reports timings.
 test("bench", {
   mut(count) := ArrayList(i32).new();
-  r := bench(String.from("coverage"), u64(25), () => {
+  r := bench(String.from("coverage"), u64(25), { &mut count }() => {
     count.push(i32(1));
   });
   assert(count.len() == usize(25), "body ran once per iteration");
