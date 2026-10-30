@@ -10371,21 +10371,46 @@ impl(
         .Some(cell) => {
           // SAFETY: the box is the cell's only owner, and this runs once.
           unsafe(drop_in_place(cell));
-          h := Self._header();
-          hdr := unsafe((*u8)(cell).sub(h));
-          cond(
-            ((Self._flags(cell) & _BOX_PLACED) != u64(0)) => {
-              owner := Self._owner_of(cell);
-              span := Self._owner_span();
-              owner.vtable.*.free(owner.ctx, .Some((*void)(unsafe(hdr.sub(span)))), span + h + size_of(T), span);
-            },
-            (Self._align() > _BOX_MALLOC_ALIGN) => __yo_aligned_free(.Some((*void)(hdr))),
-            true => __yo_free(.Some((*void)(hdr)))
-          );
+          Self._free_cell(cell);
         }
       )
     )
   )
+);
+impl(
+  generic(T : Type),
+  Box(T),
+  /// Free a cell whose payload is already dropped or moved out: a placed one
+  /// through the allocator its owner prefix records, a global one to the
+  /// global heap.
+  _free_cell : (fn(cell : *T) -> unit)({
+    h := Self._header();
+    hdr := unsafe((*u8)(cell).sub(h));
+    cond(
+      ((Self._flags(cell) & _BOX_PLACED) != u64(0)) => {
+        owner := Self._owner_of(cell);
+        span := Self._owner_span();
+        owner.vtable.*.free(owner.ctx, .Some((*void)(unsafe(hdr.sub(span)))), span + h + size_of(T), span);
+      },
+      (Self._align() > _BOX_MALLOC_ALIGN) => __yo_aligned_free(.Some((*void)(hdr))),
+      true => __yo_free(.Some((*void)(hdr)))
+    );
+  }),
+  /// Move the payload out and free the cell — Rust's `*b` move, or
+  /// `Box::into_inner`. The payload moves bitwise, so a move-only `T` works
+  /// (issues/fixed/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md).
+  into_inner : (fn(self : Self) -> T)({
+    mut(b) := self;
+    cell := b._cell;
+    // SAFETY: the box is the cell's only owner. The payload moves out
+    // bitwise and the cell is freed without dropping it; the box is then
+    // overwritten (dropping nothing) with the zeroed box, whose drop is a
+    // no-op, so the payload is neither dropped nor freed twice.
+    value := unsafe(__yo_ptr_read(cell));
+    Self._free_cell(cell);
+    unsafe(__yo_ptr_write(unsafe.cast(addr_of(b), *Option(*T)), Option(*T).None));
+    value
+  })
 );
 /// `Clone` — a new cell holding a clone of the payload, placed where the
 /// source lives (decision 12): a box placed by an explicit allocator clones
@@ -13127,7 +13152,7 @@ impl(
     fn(
       generic(A : Type, Acc : Type, F : Type),
       sink(self) : Self,
-      init : &Acc,
+      init : Acc,
       f : &F,
       where(Self <: Iterator(Item := A), F <: (Fn(acc : &Acc, item : &A) -> Acc))
     ) -> Acc
