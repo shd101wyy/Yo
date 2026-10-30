@@ -3478,10 +3478,12 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > (decision 32). `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
 > clone is always a second handle; a deep copy is `rc(h.*.clone())`. A generic body is judged at each instantiation, so a copy
 > of a `T` that is a handle needs `.clone()` there too (`where(T <: Clone)`).
-> std's generic bodies are the exception for now: their readers copy the
-> element through `T` (`ArrayList(Rc(T)).get(i)`, `HashMap.get`), so a copy
-> made inside std still shares the handle implicitly until code reads handle
-> elements through B6's accessors (`get_cloned`, `xs(i)` in place, `with`).
+> std's generic readers are judged the same way: `ArrayList(Rc(T)).get(i)`
+> and `HashMap.get` copy their element through `T`, so at a handle element
+> the call is E0901, reported at your call with the std location as a note.
+> Read handle elements through the accessors that do not copy: `xs(i)` in
+> place, `xs.get_cloned(i)` for a second handle, or `xs.with(i, ...)`.
+> `yo fix <path> --migrate cloned-accessors` spells the `_cloned` calls.
 >
 > Reference counting is Yo's *universal* object model, not one container's
 > opt-in policy: every `ref(struct(...))` is reference counted, and `Rc` is
