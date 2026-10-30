@@ -5975,6 +5975,30 @@ _field_named_local :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
     log
   })
 );
+/// A block's result lent to a call after an await: the block's result temp
+/// is stored in its task slot, so its scope-end drop releases it
+/// (issues/fixed/2026-10-30-a-block-result-lent-to-a-call-after-an-await-leaks.md).
+_block_lent_after_await :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (mut(log) : String) = String.new();
+    (mut(k) : usize) = usize(0);
+    while(k < usize(2), {
+      e.io.await(yield(e.io), e.io);
+      log.push_string({
+        t := String.from("x;");
+        t
+      });
+      k = (k + usize(1));
+    });
+    log
+  })
+);
+test("a block's result lent to a call after an await is released", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  got := io.await(_block_lent_after_await(io), IoExn(io : io, exn : exn));
+  assert(got == "x;x;", `both blocks appended (got ${got})`);
+});
 test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
