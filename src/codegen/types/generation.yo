@@ -1681,7 +1681,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
         tt := match(required_trait_types.get(ti), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         cond(
           is_fn_trait_type(&tt) => match(
-            tt,
+            Rc.clone(tt),
             Rc(.FnTraitT({ call_param_labels, call_param_types, call_result })) => {
               // `Fn(...) -> &T` (N1c): the slot has the projection's ABI.
               ret_str := dyn_slot_result_abi_string(&tt, context);

@@ -464,7 +464,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
             req_traits.get(ti),
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
               match(
-                rt,
+                Rc.clone(rt),
                 Rc(.FnTraitT({ base_name : fn_base, call_param_types, call_result })) => {
                   // `Fn(...) -> &T` (N1c): the slot has the projection's ABI.
                   return_str := dyn_slot_result_abi_string(&rt, &context.base);
