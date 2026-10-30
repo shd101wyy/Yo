@@ -10,9 +10,12 @@ The test "a mut receiver reached through a captured ref handle is written in pla
 
 ```yo
 _SpillCounter :: struct(n : i32);
-impl(_SpillCounter, bump : (fn(self : &mut Self) -> unit)({
-  self.n = (self.n + i32(1));
-}));
+impl(
+  _SpillCounter,
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
 _SpillBag :: ref(struct(c : _SpillCounter, xs : ArrayList(i32)));
 _spill_run :: (fn(act : &Impl(Fn() -> unit)) -> unit)({
   act();
@@ -20,10 +23,14 @@ _spill_run :: (fn(act : &Impl(Fn() -> unit)) -> unit)({
 test("a mut receiver reached through a captured ref handle is written in place", {
   b := _SpillBag(c : _SpillCounter(n : i32(0)), xs : ArrayList(i32).new());
   h := b;
-  _spill_run(&(() => {
-    h.c.bump();
-    h.xs.push(i32(7));
-  }));
+  _spill_run(
+    &(
+      () => {
+        h.c.bump();
+        h.xs.push(i32(7));
+      }
+    )
+  );
   assert(b.c.n == i32(1), "the closure's bump reached the handle's counter");
   assert(b.xs.len() == usize(1), "the closure's push reached the handle's list");
 });
