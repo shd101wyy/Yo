@@ -8030,8 +8030,8 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
   });
   res_ty0 := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
-    .Some(ci) => ci.ty,
-    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)), .Some(ri) => ri.ty, .None => return(()))
+    .Some(ci) => Rc.clone(ci.ty),
+    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)), .Some(ri) => Rc.clone(ri.ty), .None => return(()))
   );
   res_ty := _resolve_some_types_deep(&res_ty0, env);
   ty_arg := match(
