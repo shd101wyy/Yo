@@ -4884,8 +4884,8 @@ _mbl_in_body :: (fn(w : &mut _MblWalk) -> bool)(w.scope_starts.len() > usize(0))
 _mbl_declare :: (fn(w : &mut _MblWalk, name_e : &AstExpr, kind : u8) -> unit)(
   match(
     name_e,
-    .Atom(_, t) => if((t.kind == TokenKind.Identifier) && (t.value != "_"), {
-      w.decls.push(_MblDecl(name : t.value.clone(), kind : kind, row : usize(t.row), col : usize(t.column), key : _mbl_key(w, &t), loop_depth : w.loop_depth, fn_depth : w.fn_depth));
+    .Atom(_, t) => if((t.kind == TokenKind.Identifier) && (t.value.* != "_"), {
+      w.decls.push(_MblDecl(name : t.value.*.clone(), kind : kind, row : usize(t.row), col : usize(t.column), key : _mbl_key(w, &t), loop_depth : w.loop_depth, fn_depth : w.fn_depth));
     }),
     .FnCall(_, _, _, _, _) => ()
   )
@@ -4925,7 +4925,7 @@ _mbl_bind_target :: (fn(w : &mut _MblWalk, target : &AstExpr, kind : u8) -> unit
 _mbl_bind_pattern :: (fn(w : &mut _MblWalk, p : &AstExpr, kind : u8) -> unit)(
   match(
     p,
-    .Atom(_, t) => if(!t.value.starts_with(".") && (t.kind == TokenKind.Identifier), {
+    .Atom(_, t) => if(!t.value.*.starts_with(".") && (t.kind == TokenKind.Identifier), {
       _mbl_declare(w, p, kind);
     }),
     .FnCall(_, pf, pargs, pinfix, _) => cond(
@@ -5000,12 +5000,12 @@ _mbl_names_method :: (fn(ms : &_MblMethods, m : &AstExpr) -> bool)({
   if(!ast_expr_is_atom(m), {
     return(false);
   });
-  name := ast_expr_token(m).value.clone();
+  name := ast_expr_token(m).value.*.clone();
   ms.any_mut.contains(&name) || ms.any_other.contains(&name)
 });
 /// The write `how` at `at` of the place `place`.
 _mbl_write_place :: (fn(w : &mut _MblWalk, c : &_MblCtx, place : &AstExpr, at : &Token, how : u8) -> unit)(
-  match(_mbl_place_root(place, &c.methods), .Some((rt, step)) => _mbl_write(w, c, &rt.value, at, how, step), .None => ())
+  match(_mbl_place_root(place, &c.methods), .Some((rt, step)) => _mbl_write(w, c, &rt.value.*, at, how, step), .None => ())
 );
 /// Judge the write `how` at `at` of the binding `name` through `step`.
 _mbl_write :: (fn(w : &mut _MblWalk, c : &_MblCtx, name : &String, at : &Token, how : u8, step : u8) -> unit)({
@@ -5110,9 +5110,9 @@ _mbl_method_call :: (fn(w : &mut _MblWalk, c : &_MblCtx, recv : &AstExpr, m : &S
   match(
     _mbl_place_root(recv, &c.methods),
     .Some((rt, step)) => {
-      head := if(step == _MBL_S_NONE, match(_mbl_lookup(w, &rt.value), .Some(d) => match(c.heads.get(&d.key), .Some(h) => h, .None => String.new()), .None => String.new()), String.new());
+      head := if(step == _MBL_S_NONE, match(_mbl_lookup(w, &rt.value.*), .Some(d) => match(c.heads.get(&d.key), .Some(h) => h, .None => String.new()), .None => String.new()), String.new());
       if(_mbl_method_lends_mut(&c.methods, m, &head), {
-        _mbl_write(w, c, &rt.value, &ast_expr_token(recv), _MBL_W_RECV, step);
+        _mbl_write(w, c, &rt.value.*, &ast_expr_token(recv), _MBL_W_RECV, step);
       });
     },
     .None => ()
@@ -5125,7 +5125,7 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
     e,
     .Atom(_, _) => (),
     .FnCall(_, callee, args, infix, etok) => {
-      word := match(callee, .Atom(_, ct) => ct.value.clone(), .FnCall(_, _, _, _, _) => String.new());
+      word := match(callee, .Atom(_, ct) => ct.value.*.clone(), .FnCall(_, _, _, _, _) => String.new());
       cond(
         // Not code this run migrates: a `quote` template, a
         // `comptime_expect_error` case (its write may be the error it
@@ -5242,7 +5242,7 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
           if(!infix && _bsm_is_infix_of(&callee, "."), {
             m := _bsm_arg(&callee, usize(1));
             if(ast_expr_is_atom(&m), {
-              _mbl_method_call(w, c, &_bsm_arg(&callee, usize(0)), &ast_expr_token(&m).value);
+              _mbl_method_call(w, c, &_bsm_arg(&callee, usize(0)), &ast_expr_token(&m).value.*);
             });
           });
           recur(w, c, &callee, false);
@@ -5408,7 +5408,7 @@ _mbl_collect_methods :: (fn(e : &AstExpr, head : &String, out : &mut _MblMethods
       },
       true => {
         if(infix && ast_expr_is_atom_of(&f, ":") && (a.len() == usize(2)) && ast_expr_is_atom(&a(usize(0))), {
-          _mbl_note_member(&ast_expr_token(&a(usize(0))).value, &a(usize(1)), head, out);
+          _mbl_note_member(&ast_expr_token(&a(usize(0))).value.*, &a(usize(1)), head, out);
         });
         recur(&f, head, out);
         (i : usize) = usize(0);
@@ -5436,7 +5436,7 @@ _mbl_impl_head :: (fn(a : &ArrayList(AstExpr)) -> String)({
           g := gs(gi).clone();
           gname := if(_bsm_is_infix_of(&g, ":"), _bsm_arg(&g, usize(0)), g);
           if(ast_expr_is_atom(&gname), {
-            params.insert(ast_expr_token(&gname).value.clone());
+            params.insert(ast_expr_token(&gname).value.*.clone());
           });
         });
       },
@@ -5446,7 +5446,7 @@ _mbl_impl_head :: (fn(a : &ArrayList(AstExpr)) -> String)({
         if(!ast_expr_is_atom(&name_e), {
           return(String.new());
         });
-        name := ast_expr_token(&name_e).value.clone();
+        name := ast_expr_token(&name_e).value.*.clone();
         return(if(params.contains(&name), String.from("*"), name));
       }
     );
