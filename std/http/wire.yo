@@ -422,18 +422,18 @@ _split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &mut Ar
   });
   String.from_bytes(msg)
 });
-/// Replace the leftover bytes `carry` holds with `rest`.
-_carry_set :: (fn(carry : &Rc(RefCell(ArrayList(u8))), rest : &ArrayList(u8)) -> unit)(
-  carry.with_mut(c => {
+/// Replace the leftover bytes `carry` holds with `rest`, moved in.
+_carry_set :: (fn(carry : &Rc(RefCell(ArrayList(u8))), sink(rest) : ArrayList(u8)) -> unit)(
+  carry.with_mut({ rest }(c) => {
     c.clear();
-    c.extend_cloned(rest);
+    c.extend(rest);
   })
 );
 /// `_split_message` into a connection's shared leftover buffer.
 _split_into_carry :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &Rc(RefCell(ArrayList(u8)))) -> String)({
   mut(rest) := ArrayList(u8).new();
   message := _split_message(data, limit, &mut rest);
-  _carry_set(carry, &rest);
+  _carry_set(carry, rest);
   message
 });
 /// Which message is being read, which is what decides where its body ends
@@ -747,7 +747,7 @@ read_http_message_buffered :: (
               rest.push(result(k));
               k = (k + usize(1));
             });
-            _carry_set(carry, &rest);
+            _carry_set(carry, rest);
             mut(decoded) := ArrayList(u8).with_capacity(body_start + data.len());
             mut(j) := usize(0);
             while(j < body_start, {
