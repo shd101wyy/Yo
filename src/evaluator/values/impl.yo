@@ -3931,7 +3931,7 @@ _result_origin_params :: (fn(ft : &TypeValue) -> ArrayList(usize))({
   (i : usize) = usize(0);
   while(i < slots.len(), i = (i + usize(1)), {
     is_ref := match(slots.get(i), .Some(s) => t_slot_is_borrow(&s), .None => false);
-    if(is_ref && match(names, .Some(n) => fn_param_in_result_origin(ft, i, &n), .None => true), {
+    if(is_ref && match(&names, .Some(n) => fn_param_in_result_origin(ft, i, &n), .None => true), {
       out.push(i);
     });
   });
@@ -3947,7 +3947,7 @@ _impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> 
   });
   a_set := _result_origin_params(actual);
   e_set := _result_origin_params(expected);
-  labels := match(actual, Rc(.Func({ meta : ir_m })) => ir_m.*.param_labels, _ => return(Option(String).None));
+  labels := match(actual, Rc(.Func({ meta : ir_m })) => Rc.clone(ir_m.*.param_labels), _ => return(Option(String).None));
   extra := String.new();
   (ai : usize) = usize(0);
   while(ai < a_set.len(), ai = (ai + usize(1)), {

@@ -8016,7 +8016,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   while(i < args.len(), {
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
     p_own := match(param_is_owning.get(i), .Some(b) => b, .None => true);
-    p_in := match(res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
+    p_in := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
     if((p_ref || !p_own) && p_in, {
       match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref, label : _param_label_at(&meta_ty, i))), .None => ());
     });
