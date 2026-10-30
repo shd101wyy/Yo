@@ -331,11 +331,11 @@ resolve_var_name_in_context :: (
   fn(var_name : &String, context : &FunctionGenerationContext) -> String
 )({
   if(context.in_async_state_machine.is_none(), {
-    return(var_name);
+    return(var_name.clone());
   });
   match(
     context.state_machine_variables,
-    .None => var_name,
+    .None => var_name.clone(),
     .Some(vars) => {
       (result : String) = var_name.clone();
       (found : bool) = false;
