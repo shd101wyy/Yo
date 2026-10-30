@@ -2393,16 +2393,11 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // The fused nodes are also emitted in the wrapper's own function and state
   // machine: the per-program sets that stop a temp from being declared, or a
   // drop from being emitted, twice must not carry over between the two.
-  saved_temps := context.declared_temp_vars;
-  saved_drop_ids := context.emitted_deferred_drop_ids;
-  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
-  context.emitted_deferred_drop_ids = HashSet(usize).new();
-  saved_smv := context.state_machine_variables;
-  saved_aliases := context.state_machine_field_aliases;
-  saved_remap := context.variable_id_remapping;
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
-  context.state_machine_field_aliases = Option(HashMap(String, String)).None;
-  context.variable_id_remapping = Option(HashMap(String, String)).None;
+  saved_temps := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
+  saved_drop_ids := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
+  saved_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
+  saved_aliases := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).None);
+  saved_remap := replace(&mut context.variable_id_remapping, Option(HashMap(String, String)).None);
   match(
     get_func_type(site.wrapper_fid.clone()),
     Rc(.Func({ param_types : wpts, meta : wmeta })) => {
@@ -2448,17 +2443,17 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // temps). Its awaits suspend the CALLER; each is keyed and moved-read per
   // site.
   em.emit_string_line(`${indent}{`);
-  saved_temps2 := context.declared_temp_vars;
-  saved_drop_ids2 := context.emitted_deferred_drop_ids;
-  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
-  context.emitted_deferred_drop_ids = HashSet(usize).new();
+  saved_temps2 := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
+  saved_drop_ids2 := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
   saved_slot := context.sm_capture_slot;
   saved_prefix := context.fusion_field_prefix;
   saved_analysis := low.analysis;
   saved_emitted := low.emitted;
   saved_moved_reads := low.moved_reads;
   saved_pdd := context.pending_deferred_drops;
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site));
+  // The map restored above (the wrapper's) is taken out again and put back
+  // when the block is done: one map, as the shared handle was.
+  saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
   context.sm_capture_slot = `${site.prefix}capture`;
@@ -2487,7 +2482,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   em.emit_string_line(`${indent}}`);
   context.declared_temp_vars = saved_temps2;
   context.emitted_deferred_drop_ids = saved_drop_ids2;
-  context.state_machine_variables = saved_smv;
+  context.state_machine_variables = saved_smv2;
   context.state_machine_field_aliases = saved_aliases;
   context.variable_id_remapping = saved_remap;
   context.sm_capture_slot = saved_slot;
@@ -3843,10 +3838,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // async_await batch, arms nesting io.async inside io.async handlers).
   // Clear the sm-vars around the sync setter so the mappings resolve
   // against the sync future's own capture type only.
-  sync_saved_smv := context.state_machine_variables;
-  sync_saved_smfa := context.state_machine_field_aliases;
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
-  context.state_machine_field_aliases = Option(HashMap(String, String)).None;
+  sync_saved_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
+  sync_saved_smfa := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).None);
   sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), &future_trait_type, &eff_capture_type, context, match(sync_param_slots.get(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
   context.state_machine_variables = sync_saved_smv;
   context.state_machine_field_aliases = sync_saved_smfa;
