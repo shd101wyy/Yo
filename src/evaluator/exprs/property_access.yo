@@ -1229,6 +1229,13 @@ Raw pointer operations may dereference invalid memory.`
         return(expr);
       });
       prop_name_su := ast_expr_text(&property_expr);
+      // A member of a type holding a reference (`RefCell(&i32).new`,
+      // decision 43 step 3, N2a) builds or reads a value of it, which arrives
+      // with N2b: stop at the user's member access, before a std body
+      // specialized for it.
+      if(type_carries_origin(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), origin_value_phase_message(&type_val_inner))));
+      });
       su_labels := match(
         &type_val_inner,
         Rc(.Struct({ field_labels : labels })) => Rc.clone(labels),

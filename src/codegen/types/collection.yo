@@ -546,8 +546,13 @@ collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info 
   match(
     ei_opt,
     .Some(ei) => {
-      // The expression's own type.
-      collect_type(&ei.ty, context);
+      // The expression's own type. A type expression naming a reference
+      // type (`R :: &i32` in a body: the binding's type is the reference
+      // type itself, decision 43 step 3, N2a) has no runtime value and no C
+      // type.
+      if(!(is_type_value(&ei.value) && type_carries_origin(&ei.ty)), {
+        collect_type(&ei.ty, context);
+      });
       // A function value it resolves to (e.g. method lookups like temp.___drop).
       match(
         ei.value,
@@ -634,6 +639,16 @@ collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info 
     .FnCall(_, func_box, args, _, _) => {
       // Skip test blocks — they should not generate code.
       if(ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
+        return(());
+      });
+      // A type expression naming a type that holds a reference (`&i32`,
+      // `Option(&(i32, x))`, decision 43 step 3, N2a) has no runtime part:
+      // its operands (the `&` callee, the pointee) are no C types either.
+      if(match(
+        &ei_opt,
+        .Some(fe) => match(&fe.value, .Some(.TypeVal(fet)) => type_carries_origin(fet), _ => false),
+        .None => false
+      ), {
         return(());
       });
       recur(&func_box, context, info);
