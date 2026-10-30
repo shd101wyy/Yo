@@ -67,7 +67,7 @@ Yo 的 async 使用**代数效应**和 `Io` 效应类型。异步任务是**惰�
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := rc(RefCell(i32).new(i32(0)));
+  counter := Rc.new(RefCell(i32).new(i32(0)));
 
   // 惰性创建——两个任务都尚未启动
   task1 := io.async((io : Io) => {
@@ -388,9 +388,9 @@ export(main);
 
 借给借用的 Future 的位置不能经过 `ref` 对象、指针或对集合的索引（`h` 为 `ref` 对象时的 `io.await(count(&h.items, io), io)`，以及 `io.await(bump(&mut xs(i), io), io)`，都是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入或重新分配时没有任何检查能发现。改为借出句柄，在 Future 内每次使用时读取 `h.items`，或者让任务拥有这个值。固定大小数组的元素属于数组自身的存储，可以借出。
 
-对共享借用而言，`Rc` 与 `Arc` 解引用是例外：安全代码中没有任何句柄会写入 `Rc` 的载荷（E0919，决策 46）或 `Arc` 的载荷（它的状态只通过其内部的 `Mutex` 或原子类型改变，与 Rust 相同；`a.*.o.take()` 这类标准库修改方法与直接写入一样被拒绝，因为 D3 按每个被调用者实际写入的内容来判断），而任务自己的句柄让载荷保持存活。所以当 `a : Arc(Mutex(T))` 时，`io.await(a.*.lock(io), io)` 是允许的；`r : Rc(S)` 时的 `io.await(count(&r.*.items, io), io)`，以及只经过 `Rc` 和 `Arc` 解引用的路径（`rc(arc(m))`）也都允许。经由两者之一的 `&mut` 借用仍被拒绝：`Rc` 是 E0919，`Arc` 是 E0909。
+对共享借用而言，`Rc` 与 `Arc` 解引用是例外：安全代码中没有任何句柄会写入 `Rc` 的载荷（E0919，决策 46）或 `Arc` 的载荷（它的状态只通过其内部的 `Mutex` 或原子类型改变，与 Rust 相同；`a.*.o.take()` 这类标准库修改方法与直接写入一样被拒绝，因为 D3 按每个被调用者实际写入的内容来判断），而任务自己的句柄让载荷保持存活。所以当 `a : Arc(Mutex(T))` 时，`io.await(a.*.lock(io), io)` 是允许的；`r : Rc(S)` 时的 `io.await(count(&r.*.items, io), io)`，以及只经过 `Rc` 和 `Arc` 解引用的路径（`Rc.new(Arc.new(m))`）也都允许。经由两者之一的 `&mut` 借用仍被拒绝：`Rc` 是 E0919，`Arc` 是 E0909。
 
-借出的位置也不能以可变的模块级绑定 `mut(G)` 或 `thread_local(mut(x))` 为根，经过 `Arc` 解引用也不例外（模块级 `mut(G) := ...` 时，`io.await(bump(&mut G, io), io)` 是 E0909，`io.await(tenfold(&G, io), io)` 也是；`mut(G) := arc(...)` 时的 `io.await(peek(&G.*, io), io)` 同样如此）：同一线程上的任何任务都能按名字访问该绑定，并在本任务等待期间重新给它赋值，从而释放 Future 所借用的值。请借出一个局部副本，或在 Future 内按名字读取这个全局变量，每次使用都会读到它的当前值。未用 `mut` 声明的全局变量是不可变的（决策 47），因此它的 `&G` 可以借给借用的 Future；句柄全局变量背后存储中的位置仍遵循 E0916 的句柄规则。`::` 常量没有可改变的运行时存储，可以借出。
+借出的位置也不能以可变的模块级绑定 `mut(G)` 或 `thread_local(mut(x))` 为根，经过 `Arc` 解引用也不例外（模块级 `mut(G) := ...` 时，`io.await(bump(&mut G, io), io)` 是 E0909，`io.await(tenfold(&G, io), io)` 也是；`mut(G) := Arc.new(...)` 时的 `io.await(peek(&G.*, io), io)` 同样如此）：同一线程上的任何任务都能按名字访问该绑定，并在本任务等待期间重新给它赋值，从而释放 Future 所借用的值。请借出一个局部副本，或在 Future 内按名字读取这个全局变量，每次使用都会读到它的当前值。未用 `mut` 声明的全局变量是不可变的（决策 47），因此它的 `&G` 可以借给借用的 Future；句柄全局变量背后存储中的位置仍遵循 E0916 的句柄规则。`::` 常量没有可改变的运行时存储，可以借出。
 
 ### 中止的 Future
 
@@ -1350,7 +1350,7 @@ r2 := handle2.await(io);
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := rc(RefCell(i32).new(i32(0)));
+  counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
     counter.replace_with(v => (v + i32(1)));
@@ -1383,7 +1383,7 @@ export(main);
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := rc(RefCell(i32).new(i32(0)));
+  counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
     counter.replace_with(v => (v + i32(1)));
@@ -1471,7 +1471,7 @@ io.await(
 { sleep } :: import("std/sys/timer");
 
 main :: (fn(io : Io) -> unit)({
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   worker := m; // 同一把锁的另一个句柄（V2c 落地后写作 `m.clone()`）
   h := io.spawn(
     io.async({ worker }(io : Io) => {

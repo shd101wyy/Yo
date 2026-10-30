@@ -25,7 +25,7 @@ impl(generic(T : Type), Weak(T),
 `h.downgrade()`。
 
 ```yo
-a := rc(i32(7));
+a := Rc.new(i32(7));
 w := Rc.downgrade(&a);
 assert(w.strong_count() == usize(1), "one Rc");
 match(
@@ -45,7 +45,7 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
   所以在其中调用 `upgrade` 得到 `.None`。
 - **任一种类的最后一个句柄释放单元。** `Weak` 只让单元的字节保持分配，从不让载荷存活：在仍有 `Weak`
   时释放最后一个 `Rc`，分配会留给最后一个 `Weak` 去释放。由显式分配器放置的单元
-  （`rc(v, alloc : .Some(a))`）无论哪种情况都释放回该分配器。
+  （`Rc.new(v, alloc : .Some(a))`）无论哪种情况都释放回该分配器。
 - **`upgrade`** 在载荷存活时返回 `.Some(h)`（一个新的强句柄），最后一个 `Rc` 消失后返回 `.None`。
   `Weak.new()` 不指向任何单元，总是升级为 `.None`。
 - **计数与 Rust 的读法一致。** 载荷消失后 `strong_count` 为 0；`weak_count` 包括当前句柄，载荷消失后为 0。
@@ -77,8 +77,8 @@ Node :: struct(
   children : ArrayList(Rc(RefCell(Node)))
 );
 
-root := rc(RefCell(Node).new(Node(value : i32(1), parent : Weak(RefCell(Node)).new(), children : ArrayList(Rc(RefCell(Node))).new())));
-leaf := rc(RefCell(Node).new(Node(value : i32(2), parent : Rc.downgrade(&root), children : ArrayList(Rc(RefCell(Node))).new())));
+root := Rc.new(RefCell(Node).new(Node(value : i32(1), parent : Weak(RefCell(Node)).new(), children : ArrayList(Rc(RefCell(Node))).new())));
+leaf := Rc.new(RefCell(Node).new(Node(value : i32(2), parent : Rc.downgrade(&root), children : ArrayList(Rc(RefCell(Node))).new())));
 root.with_mut({ leaf }(n) => {
   n.children.push(leaf);
 });
@@ -132,7 +132,7 @@ test("a Weak back edge keeps a type Acyclic", {
 ```yo
 { Thread } :: import("std/thread");
 
-a := arc(i32(7));
+a := Arc.new(i32(7));
 w := Arc.downgrade(&a);
 t := Thread(unit).spawn({ w }(io) => {
   n := match(w.upgrade(), .Some(h) => h.*, .None => i32(0));

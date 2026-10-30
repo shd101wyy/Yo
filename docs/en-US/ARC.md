@@ -3,7 +3,7 @@
 `Arc(T)` provides shared ownership of a single value via atomic reference counting.
 It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
 in `std/prelude.yo` as a thin `atomic(ref(struct(...)))` wrapper, so `Arc` and
-`arc(...)` are available everywhere through the prelude. `Arc(T)` itself requires
+`Arc.new(...)` are available everywhere through the prelude. `Arc(T)` itself requires
 `T <: (Send, Sync)`, which keeps `Arc` from laundering non-thread-safe values into a
 thread-shareable wrapper. Each bound has its own reason:
 
@@ -53,7 +53,7 @@ places it on the global allocator (see [Placing the cell](#placing-the-cell)).
 - `Arc(T)` only accepts child types that are both `Send` and `Sync`. A regular
   `ref(struct(...))` value is neither. A type that is `Send` but not `Sync` (one that opts out
   with `impl(T, !(Sync()))`) goes in a `Mutex(T)` instead, which serializes access.
-- `arc(f)` of a function value (a closure or a named function) is judged by the value: what it
+- `Arc.new(f)` of a function value (a closure or a named function) is judged by the value: what it
   captures and what its code reaches must be `Send` and `Sync` (rules D4 and D9,
   `THREAD_SAFETY.md`).
 
@@ -70,22 +70,22 @@ need a single wrapped value.
 ### Creating an Arc
 
 ```yo
-value := arc(i32(42));
+value := Arc.new(i32(42));
 same := Arc(i32)(i32(42));
 ```
 
 ### Placing the cell
 
-`arc(value, alloc : .Some(a))` allocates the cell from the allocator `a`. The last handle's drop frees the cell through `a`, on
+`Arc.new(value, alloc : .Some(a))` allocates the cell from the allocator `a`. The last handle's drop frees the cell through `a`, on
 whichever thread drops it. Without `alloc`, the cell is on the global allocator
-([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). Unlike `box`, `arc` makes `a`
+([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). Unlike `Box.new`, `Arc.new` makes `a`
 the thread's allocation scope while the cell is allocated, so `a`'s own callbacks
 must not create a reference-counted object without an `alloc` argument (see
 "Writing your own allocator" there):
 
 ```yo
 // `alloc_a` is any `Allocator` value, e.g. `Allocator.global()`.
-shared := arc(i32(42), alloc : .Some(alloc_a));
+shared := Arc.new(i32(42), alloc : .Some(alloc_a));
 ```
 
 ### Dereferencing
@@ -93,7 +93,7 @@ shared := arc(i32(42), alloc : .Some(alloc_a));
 Access the inner value with `.*`, which yields borrowed access:
 
 ```yo
-value := arc(i32(42));
+value := Arc.new(i32(42));
 copied := value.*;
 assert(copied == i32(42), "inner value is 42");
 ```
@@ -105,10 +105,10 @@ same value. A second handle is spelled, as in Rust (decision 17 of
 [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): an implicit copy whose source is
 used again is E0901, and a handle's last use moves it. `yo fix <path> --migrate rc-clone` spells
 the clones in existing code. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
-handle; a deep copy of the value is spelled `arc(a.*.clone())`.
+handle; a deep copy of the value is spelled `Arc.new(a.*.clone())`.
 
 ```yo
-a := arc(i32(42));
+a := Arc.new(i32(42));
 b := Arc.clone(a);
 c := Arc.clone(b);
 
@@ -121,7 +121,7 @@ assert(b.* == c.*, "same shared value");
 ```yo
 { Thread } :: import("std/thread");
 
-shared := arc(i32(42));
+shared := Arc.new(i32(42));
 
 t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
   assert(shared.* == i32(42), "thread sees shared value");
@@ -146,7 +146,7 @@ Rust's do (decision 46 of
   payload is first cloned into a fresh cell that `h` alone holds.
 
 ```yo
-a := arc(i32(1));
+a := Arc.new(i32(1));
 b := Arc.clone(a);
 Arc.make_mut(&mut b) = i32(2); // b gets a cell of its own
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
@@ -181,7 +181,7 @@ stay allocated until the process exits, as they would in Rust:
 
 Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 
-a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
+a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
 b := Arc.clone(a);
 a.with_lock(v => {
   v.peer = .Some(b); // a -> mutex -> node -> a: this cell is never freed
