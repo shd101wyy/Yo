@@ -173,16 +173,16 @@ kept := ArrayList(i32).from(arr.clone());
 { ArrayList } :: import("std/collections/array_list");
 // `a` is any `Allocator` value: `Allocator.global()`, or your own vtable.
 list := ArrayList(i32).new(alloc : .Some(a)); // the buffer lives in `a`
-p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // one cell in `a`
+p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // one cell in `a`
 g := ArrayList(i32).new(); // no argument: always the global allocator
 // Passing placement on: legal in a safe file (`Allocator` is an opaque handle).
-make :: (fn(v : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(i32))(rc(v, alloc : alloc));
+make :: (fn(v : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(i32))(Rc.new(v, alloc : alloc));
 ```
 
 - RC still decides WHEN a block dies; the allocator decides WHERE. Releases
   route back automatically — never free an explicit allocator's block by hand.
 - Global by default, placement by argument: there is no allocation scope
-  (`with_allocator` is gone). `box`/`rc`/`arc` and the containers' `new` /
+  (`with_allocator` is gone). `Box.new`/`Rc.new`/`Arc.new` and the containers' `new` /
   `with_capacity` take `alloc : .Some(a)` (`new_in`/`with_capacity_in` are
   gone); `xs.clone_in(a)` places a copy. `ref` constructors,
   `dyn`'s cell, interpolated strings and tasks are always global.
@@ -212,14 +212,14 @@ Iterator :: trait(
 ## Boxes, pointers, and nullability
 
 ```yo
-counter := rc(RefCell(i32).new(i32(0))); // { RefCell } :: import("std/sync/refcell")
+counter := Rc.new(RefCell(i32).new(i32(0))); // { RefCell } :: import("std/sync/refcell")
 counter.replace_with(v => (v + i32(1))); // an Rc's payload is read-only through the handle (E0919)
 
 (ptr : Option(*u8)) = .None;
 ```
 
-- Use `box(value)` (a `Box(T)`) for a uniquely owned heap cell: recursive value types,
-  stable addresses. It is move-only; copy it with `Box.clone(b)`. Use `rc(value)` (an
+- Use `Box.new(value)` (a `Box(T)`) for a uniquely owned heap cell: recursive value types,
+  stable addresses. It is move-only; copy it with `Box.clone(b)`. Use `Rc.new(value)` (an
   `Rc(T)`) only when the cell is shared
 - Use `*(T)` for raw pointers
 - Model nullable pointers as `?*T` (= `?(*(T))`) or the explicit `Option(*T)`, not sentinel integers

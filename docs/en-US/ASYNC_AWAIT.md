@@ -69,7 +69,7 @@ Yo's async uses **algebraic effects** with the `Io` effect type. Async tasks are
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := rc(RefCell(i32).new(i32(0)));
+  counter := Rc.new(RefCell(i32).new(i32(0)));
 
   // Lazy creation — neither task starts yet
   task1 := io.async((io : Io) => {
@@ -458,7 +458,7 @@ an atomic inside it, as in Rust; a std mutator such as `a.*.o.take()` is
 rejected like a direct write, since D3 judges every callee by what it writes),
 and the task's own handle keeps the payload alive, so `io.await(a.*.lock(io), io)` with `a : Arc(Mutex(T))` is
 accepted, as are `io.await(count(&r.*.items, io), io)` with `r : Rc(S)` and a
-path that crosses only `Rc` and `Arc` dereferences (`rc(arc(m))`). A `&mut`
+path that crosses only `Rc` and `Arc` dereferences (`Rc.new(Arc.new(m))`). A `&mut`
 borrow through either is still rejected: E0919 for an `Rc`, E0909 for an
 `Arc`.
 
@@ -466,7 +466,7 @@ Nor may a lent place be rooted in a mutable module-level binding, `mut(G)`,
 or a `thread_local(mut(x))`, `Arc` dereferences included
 (`io.await(bump(&mut G, io), io)` with `mut(G) := ...` at module level is
 E0909, and so are `io.await(tenfold(&G, io), io)` and
-`io.await(peek(&G.*, io), io)` with `mut(G) := arc(...)`): any task on the
+`io.await(peek(&G.*, io), io)` with `mut(G) := Arc.new(...)`): any task on the
 thread can reach the binding by name and reassign it while this one waits,
 releasing the value the Future borrows. Lend a local copy, or read the global
 by name inside the Future, where each use reads its current value. A global
@@ -1487,7 +1487,7 @@ r2 := handle2.await(io);
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := rc(RefCell(i32).new(i32(0)));
+  counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
     counter.replace_with(v => (v + i32(1)));
@@ -1520,7 +1520,7 @@ export(main);
 { RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := rc(RefCell(i32).new(i32(0)));
+  counter := Rc.new(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
     counter.replace_with(v => (v + i32(1)));
@@ -1626,7 +1626,7 @@ longest waiter. It follows Rust's `tokio::sync::Mutex`:
 { sleep } :: import("std/sys/timer");
 
 main :: (fn(io : Io) -> unit)({
-  m := arc(Mutex(i64).new(i64(0)));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   worker := m; // another handle on the same mutex (`m.clone()` once V2c lands)
   h := io.spawn(
     io.async({ worker }(io : Io) => {

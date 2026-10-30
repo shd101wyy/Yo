@@ -69,7 +69,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(rc(Node(value : v, next : .None))); // 写入尾部槽位
+  cur = .Some(Rc.new(Node(value : v, next : .None))); // 写入尾部槽位
 });
 ```
 

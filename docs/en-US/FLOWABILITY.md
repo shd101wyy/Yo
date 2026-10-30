@@ -83,7 +83,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(rc(Node(value : v, next : .None))); // writes the tail slot
+  cur = .Some(Rc.new(Node(value : v, next : .None))); // writes the tail slot
 });
 ```
 

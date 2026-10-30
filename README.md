@@ -59,7 +59,7 @@ Below is a non-exhaustive list of features that Yo supports:
 - [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `Io` effect. Stackless coroutine & Cooperative multi-tasking. Lazy move-only Futures, single-threaded concurrency via state machine transformation).
 - [FFI](./docs/en-US/FFI.md) — `c_include(...)` / `extern(...)` evaluate to module values: bind, select, rename, or glob their members; a bare declaration is the glob; no shadowing.
 - [Memory safety by default](./docs/en-US/MEMORY_SAFETY.md) — user code can't write UB (no raw pointers, no FFI, no inline assembly) without an explicit `pragma(Pragma.AllowUnsafe);` opt-in. `name : &mut T` parameters for in-place mutation; `yo unsafe-report` for auditing the unsafe surface.
-- [Explicit allocators](./docs/en-US/EXPLICIT_ALLOCATORS.md) — Zig-style placement beside reference counting: global by default, and one argument at the creation site (`rc(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`) puts a block in allocator `a`; RC still decides when each dies, and every release goes back to the allocator that made the block.
+- [Explicit allocators](./docs/en-US/EXPLICIT_ALLOCATORS.md) — Zig-style placement beside reference counting: global by default, and one argument at the creation site (`Rc.new(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`) puts a block in allocator `a`; RC still decides when each dies, and every release goes back to the allocator that made the block.
 - `ref(struct(...))` and `ref(enum(...))` types with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/en-US/CYCLE_COLLECTION.md), and [`Weak(T)`](./docs/en-US/WEAK.md) handles that break a cycle without it.
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
 - Thread-per-core parallelism model (see [PARALLELISM.md](./docs/en-US/PARALLELISM.md)).
@@ -203,7 +203,7 @@ Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, whic
 - **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Drop`, `Send`, `Acyclic`, etc.
 - **Metaprogramming**: `Type`, `Expr`, `ExprList`
 - **Async**: `Io`, `FutureState`, `JoinHandle`
-- **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `arc`, `Rc`, `rc`
+- **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `Rc.new`, `Arc.new`
 - etc.
 
 ## Standard Library
