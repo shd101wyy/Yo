@@ -4019,7 +4019,7 @@ test("Rc.make_mut with a Weak alive moves the payload, not a clone, to a fresh c
   heap := _counting(addr_of(counts));
   clones := g_rc_mm_clones;
   drops := g_rc_mm_drops;
-  a := rc(_RcMmProbe(n : i32(1)), alloc : .Some(heap));
+  a := Rc.new(_RcMmProbe(n : i32(1)), alloc : .Some(heap));
   w := Rc.downgrade(&a);
   before := addr_of(a.*);
   Rc.make_mut(&mut a).n = i32(10);

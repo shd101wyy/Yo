@@ -9963,7 +9963,7 @@ impl(
     cell := unsafe(unsafe.cast(self, *T));
     cond(
       (ref_count(self) != usize(1)) => {
-        self = rc(self.*.clone());
+        self = Rc.new(self.*.clone());
       },
       (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)) => {
         // SAFETY: `self` is the cell's only strong handle, so nothing else
@@ -9972,7 +9972,7 @@ impl(
         // `Weak` handles as dead without dropping the payload.
         payload := __yo_ptr_read(addr_of(self.*));
         __yo_rc_forget_payload(self);
-        self = rc(payload);
+        self = Rc.new(payload);
       },
       true => ()
     );
@@ -10633,12 +10633,12 @@ impl(
             // slot, cleared by the release, takes the fresh cell.
             payload := __yo_ptr_read(addr_of(self.*));
             __yo_arc_release_locked((*void)(addr_of(self)));
-            self = arc(payload);
+            self = Arc.new(payload);
           }
         );
       },
       true => {
-        self = arc(self.*.clone());
+        self = Arc.new(self.*.clone());
       }
     );
     // SAFETY: `self` is now the cell's only handle on every thread, so the

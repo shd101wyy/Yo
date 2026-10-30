@@ -430,7 +430,7 @@ test("Arc.make_mut with an ArcWeak live on another thread moves the payload, not
   heap := _counting(addr_of(counts));
   clones := g_arc_mm_clones;
   drops := g_arc_mm_drops;
-  a := arc(_ArcMmProbe(n : i32(1)), alloc : .Some(heap));
+  a := Arc.new(_ArcMmProbe(n : i32(1)), alloc : .Some(heap));
   w := Arc.downgrade(&a);
   go := Channel(i32).new(usize(1));
   t := Thread(bool).spawn({ w, go }(io) => {
@@ -459,7 +459,7 @@ test("Arc.make_mut with an ArcWeak live on another thread moves the payload, not
 test("Arc.make_mut and Arc.try_unwrap against an ArcWeak upgrade on another thread", {
   (mut(round) : i32) = i32(0);
   while(round < i32(300), {
-    a := arc(_ArcPair(a : i32(0), b : i32(0)));
+    a := Arc.new(_ArcPair(a : i32(0), b : i32(0)));
     w := Arc.downgrade(&a);
     t := Thread(i32).spawn({ w }(io) => {
       h := w.upgrade();
@@ -470,7 +470,7 @@ test("Arc.make_mut and Arc.try_unwrap against an ArcWeak upgrade on another thre
     Arc.make_mut(&mut a).b = i32(1);
     assert(t.join() == i32(0), "the worker never sees make_mut's writes");
     assert((a.a + a.b) == i32(2), "the writes landed in a's cell");
-    b := arc(_ArcPair(a : i32(2), b : i32(3)));
+    b := Arc.new(_ArcPair(a : i32(2), b : i32(3)));
     w2 := Arc.downgrade(&b);
     t2 := Thread(i32).spawn({ w2 }(io) => match(w2.upgrade(), .Some(p) => (p.a + p.b), .None => i32(0)));
     n := match(

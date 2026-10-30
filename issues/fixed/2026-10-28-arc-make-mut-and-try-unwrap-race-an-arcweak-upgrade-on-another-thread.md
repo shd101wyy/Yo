@@ -97,10 +97,10 @@ emit (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
   upgrades to a moved-out payload. `make_mut` locks and reads the raw weak
   count. When it is zero, it unlocks and writes in place. Otherwise it moves
   the payload out under the lock, ends the old cell with
-  `__yo_arc_release_locked`, and stores `arc(payload)` in the cleared slot.
+  `__yo_arc_release_locked`, and stores `Arc.new(payload)` in the cleared slot.
   That is Rust's move, with no clone (Fable consultation #2, verdict A3).
   When the lock fails, it clones as before. `Rc.make_mut` moves in the
-  weak-only case too (`__yo_rc_forget_payload`, then `self = rc(payload)`),
+  weak-only case too (`__yo_rc_forget_payload`, then `self = Rc.new(payload)`),
   and WEAK_AND_UNCOLLECTED_RC §3.3 says so.
 - **Tests:** `tests/arc.test.yo` drives the primitives through an
   `extern("Yo", ...)` block (a locked cell refuses `upgrade` on another
