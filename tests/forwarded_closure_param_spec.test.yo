@@ -13,15 +13,15 @@ import("std/fmt");
 m :: import("./closure_forward/mod.yo");
 test("each forwarding helper runs the closure it was given", {
   mut(seen) := ArrayList(i32).new();
-  a := m.outer_a(() => {
+  a := m.outer_a({ &mut seen }() => {
     seen.push(i32(1));
     String.from("a")
   });
-  b := m.outer_b(() => {
+  b := m.outer_b({ &mut seen }() => {
     seen.push(i32(2));
     String.from("b")
   });
-  c := m.outer_c(() => {
+  c := m.outer_c({ &mut seen }() => {
     seen.push(i32(3));
     String.from("c")
   });
