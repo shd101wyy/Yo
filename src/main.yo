@@ -3887,6 +3887,14 @@ _run_migrate_cloned_accessors :: (
         println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` is called in a generic body, where \`${st.cloned}\` would demand \`Clone\` of every instantiation; left as written`);
         continue;
       });
+      // `m_cloned` demands `Clone` of the result (`where(T <: Clone)`),
+      // asked now that every impl is registered: a result without it is
+      // listed, not renamed to a call that does not resolve.
+      if(type_lacks_clone(&st.ty_value), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` returns \`${type_to_string(&st.ty_value)}\`, which has no \`Clone\`, so \`${st.cloned}\` does not apply; left as written (read it in place, or give the element \`Clone\`)`);
+        continue;
+      });
       // A receiver not rooted in a variable (a call's own result): the
       // container is a temporary that usually dies right after, so the
       // copy is usually a move.
@@ -14560,7 +14568,8 @@ Options:
                             whose source is used again),
                             cloned-accessors (r.m(...) -> r.m_cloned(...)
                             on a copying accessor whose result holds a
-                            String or collection), rc-clone
+                            String, collection or counted handle),
+                            rc-clone
                             (Rc.clone(h) / Arc.clone(h) on an implicit
                             copy of a counted handle whose source is
                             used again, a capture list on a closure
@@ -14604,8 +14613,9 @@ Examples:
                             mut-bindings（给程序写入的每个局部、模式或
                             编译期绑定加上 mut(x)），explicit-copy（源值之后仍被使用的
                             String / 集合隐式复制加上 .clone()），
-                            cloned-accessors（把结果持有 String / 集合的
-                            拷贝式读取 r.m(...) 改写为 r.m_cloned(...)），
+                            cloned-accessors（把结果持有 String / 集合 /
+                            计数句柄的拷贝式读取 r.m(...) 改写为
+                            r.m_cloned(...)），
                             rc-clone（源值之后仍被使用的计数句柄隐式复制
                             改写为 Rc.clone(h) / Arc.clone(h)，捕获句柄的
                             闭包加上捕获列表），或
