@@ -356,7 +356,7 @@ install success
 
 ```toml
 [package]
-name = "raylib_yo"
+name = "raylib-yo"
 
 [modules]
 default = "src/lib.yo"
@@ -377,7 +377,7 @@ raylib :: build.system_library({
 mod :: build.module({ name : "default" });
 mod.link(raylib);
 
-exe :: build.executable({ name : "raylib_yo", root : "./src/main.yo" });
+exe :: build.executable({ name : "raylib-yo", root : "./src/main.yo" });
 exe.link(raylib);
 
 install :: build.step("install", "Build all artifacts");
@@ -403,8 +403,8 @@ install.depend_on(exe);
 `build.yo` 中无需任何接线：在 `yo.toml` 中声明的依赖可按其名称导入，其命名模块按 `name/module` 导入：
 
 ```yo
-raylib_yo :: import("raylib_yo"); // 依赖的 [modules] default
-{ Circle } :: import("raylib_yo/shapes"); // 它的 [modules] shapes
+raylib :: import("raylib-yo"); // 依赖的 [modules] default
+{ Circle } :: import("raylib-yo/shapes"); // 它的 [modules] shapes
 ```
 
 这在每个命令中都成立——`yo build`、`yo compile`、`yo check`、`yo test`、`yo doc` 和语言服务器——因为编译器会在被编译文件之上找到最近的 `yo.toml`，并解析清单的依赖闭包（见[导入依赖](#导入依赖)）。
@@ -948,17 +948,17 @@ yo build --dry-run   # [dry-run]   verify proofs
 
 ```toml
 [package]
-name = "tetris_yo"
+name = "tetris-yo"
 version = "0.3.0"
 description = "Tetris in Yo"
 license = "MIT"
 
-[modules]                     # 导入方可写 `import("tetris_yo")` / `import("tetris_yo/board")`
+[modules]                     # 导入方可写 `import("tetris-yo")` / `import("tetris-yo/board")`
 default = "src/lib.yo"
 board   = "src/board.yo"
 
 [dependencies]
-raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
+raylib-yo = { git = "https://github.com/shd101wyy/raylib-yo", version = "^0.0.6" }
 json-yo   = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }
 utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
 mylib     = { path = "../mylib" }
@@ -971,7 +971,7 @@ snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 
 | 键            | 说明                                                             |
 | ------------- | ---------------------------------------------------------------- |
-| `name`        | 包名——导入方在 `import("name")` 中写的名字。必填。                |
+| `name`        | 包名——导入方在 `import("name")` 中写的名字。必填。使用 kebab-case（`markdown-yo`、`my-project`）；`-` 与 `_` 是不同的名字；包内的模块路径是 snake_case 文件名。只接受 `[A-Za-z0-9_-]`（E1506） |
 | `version`     | 本包的语义化版本（发布标签 `vX.Y.Z` 所携带的版本）                 |
 | `description` | 自由文本                                                         |
 | `license`     | SPDX 标识符                                                      |
@@ -997,7 +997,7 @@ install.depend_on(exe);
 
 ### 依赖条目
 
-一个依赖是一个表键（它的导入名）加一个内联表：
+一个依赖是一个表键（它的导入名，即包名：按约定使用 kebab-case，只能包含 `[A-Za-z0-9_-]`，E1506）加一个内联表：
 
 | 键        | 含义                                                                                     |
 | --------- | ---------------------------------------------------------------------------------------- |
@@ -1027,7 +1027,7 @@ git 条目最多锁定 `version` / `tag` / `branch` / `rev` 之一；只有 `git
 ### 添加依赖：`yo add`
 
 ```bash
-yo add shd101wyy/raylib_yo        # 最新发布标签，写成 version = "^X.Y.Z"
+yo add shd101wyy/raylib-yo        # 最新发布标签，写成 version = "^X.Y.Z"
 yo add user/json-yo@^1.2          # 一个范围
 yo add user/json-yo@v1.2.0        # 一个精确标签
 yo add github.com/user/repo       # 显式主机；https://… 与 git@host:path 也可以
@@ -1049,7 +1049,7 @@ yo install            # 解析依赖图，抓取 yo.toml 声明的依赖，写�
 yo install --locked   # CI：若 yo.lock 会改动则失败
 yo install --frozen   # --locked 加 --offline：不能改动，也不能下载
 yo update             # 在范围内 / 到分支最新提交重新解析全部依赖
-yo update raylib_yo   # 只更新一个
+yo update raylib-yo   # 只更新一个
 yo update --latest    # 并把 yo.toml 中的每个版本范围提升到最新发布版
 ```
 
@@ -1442,7 +1442,7 @@ DocConfig :: struct(
 - 客户端搜索
 - 侧边栏导航
 - 所有 CSS/JS 内联 — 可从 `file://` URL 直接打开，无需 CDN
-- 使用 [markdown_yo](https://github.com/shd101wyy/markdown_yo) 进行 Markdown 渲染 —— 它是编译器自身在 `yo.toml` 里声明的依赖，由 `yo install` 解析
+- 使用 [markdown-yo](https://github.com/shd101wyy/markdown-yo) 进行 Markdown 渲染 —— 它是编译器自身在 `yo.toml` 里声明的依赖，由 `yo install` 解析
 
 **Markdown**：生成 `README.md`（模块索引）和 `module/<name>.md`（每模块页面）。适合嵌入 GitHub 仓库或其他基于 Markdown 的文档系统。
 

@@ -4102,6 +4102,8 @@ inc :: (fn() -> unit)({
   - `类型`及其变体
 - `UPPER_SNAKE_CASE`
   - `常量`
+- `kebab-case`
+  - `包名`（`yo.toml` 的 `[package] name` 与依赖键，例如 `markdown-yo`；`-` 与 `_` 是不同的名字）
 
 ## 测试
 

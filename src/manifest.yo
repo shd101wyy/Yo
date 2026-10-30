@@ -12,15 +12,15 @@
 //!
 //! ```toml
 //! [package]
-//! name = "tetris_yo"
+//! name = "tetris-yo"
 //! version = "0.3.0"
 //!
-//! [modules]                    # importable as `tetris_yo` / `tetris_yo/board`
+//! [modules]                    # importable as `tetris-yo` / `tetris-yo/board`
 //! default = "src/lib.yo"
 //! board   = "src/board.yo"
 //!
 //! [dependencies]
-//! raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
+//! raylib-yo = { git = "https://github.com/shd101wyy/raylib-yo", version = "^0.0.6" }
 //! json-yo   = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }
 //! utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
 //! mylib     = { path = "../mylib" }
@@ -41,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { parse, TomlValue } :: import("std/encoding/toml");
 { parse_lock_file, find_lock_entry } :: import("./lock_file.yo");
 { get_global_cache_dir, store_tree_dir } :: import("./cache.yo");
+{ E_INVALID_PACKAGE_NAME } :: import("./diagnostics.yo");
 /// The manifest's file name, looked up in the entry file's directory and every
 /// directory above it.
 MANIFEST_FILENAME :: "yo.toml";
@@ -356,6 +357,60 @@ _parse_dependency :: (
     )
   )
 });
+// ---------------------------------------------------------------------------
+// Package names
+// ---------------------------------------------------------------------------
+/// True when the ASCII byte `b` may appear in a package name: a letter, a
+/// digit, `_` or `-`.
+_is_package_name_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) // a-z
+  || ((b >= u8(65)) && (b <= u8(90))) // A-Z
+  || ((b >= u8(48)) && (b <= u8(57))) // 0-9
+  || (b == u8(95)) // _
+  || (b == u8(45)) // -
+);
+/// True when `name` is a valid package name: one or more of `[A-Za-z0-9_-]`.
+/// The one check behind `[package] name`, every dependency key and
+/// `yo add --name` — a name is a TOML key, a directory under
+/// `yo-out/<triple>/deps/`, a CLI argument and the string inside
+/// `import("…")`, so a space, a quote, `.` or a path separator never belongs
+/// in it. Kebab-case (`markdown-yo`) is the convention, not a rule: `_` and
+/// upper case are accepted (a fetched dependency's own manifest is validated
+/// here too), and `-` and `_` are different names — nothing normalizes one
+/// into the other.
+_is_valid_package_name :: (fn(name : &String) -> bool)({
+  if(name.len() == usize(0), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < name.len(), {
+    match(
+      name.get_byte(i),
+      .Some(b) => {
+        if(!_is_package_name_byte(b), {
+          return(false);
+        });
+      },
+      .None => {
+        return(false);
+      }
+    );
+    i = (i + usize(1));
+  });
+  true
+});
+/// Why `name` (found at `what`: `[package] name`, a `[dependencies]` key, …)
+/// is rejected — shared by the manifest parser and `yo add`, which raise it as
+/// E1506.
+_invalid_package_name_message :: (fn(what : &String, name : &String) -> String)(
+  `${what} "${name}" is not a valid package name: use only ASCII letters, digits, "_" and "-" (package names are kebab-case by convention, e.g. "markdown-yo")`
+);
+/// The manifest parser's E1506 error. Its errors are plain messages every
+/// caller prefixes and re-throws, so the code rides in the `yo explain` tail
+/// the coded renderer prints (`format_coded_error`).
+_invalid_package_name_error :: (fn(where_ : &String, what : &String, name : &String) -> String)(
+  `${where_}: ${_invalid_package_name_message(what, name)}\nhelp: run \`yo explain ${E_INVALID_PACKAGE_NAME}\` for more information`
+);
 /// Every entry of the `[<table_name>]` table of `root`, appended to `out`.
 _parse_dependency_table :: (
   fn(
@@ -379,6 +434,10 @@ _parse_dependency_table :: (
           (i : usize) = usize(0);
           while(i < keys.len(), {
             name := keys(i).clone();
+            if(!_is_valid_package_name(&name), {
+              what := `[${table_name}] key`;
+              return(Result(unit, String).Err(_invalid_package_name_error(where_, &what, &name)));
+            });
             (dup : usize) = usize(0);
             while(dup < out.len(), {
               if(out(dup).name == name, {
@@ -432,8 +491,8 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
   if(name.len() == usize(0), {
     return(Result(Manifest, String).Err(`${where_}: [package] name is required`));
   });
-  if(name.contains("/") || name.contains("\\"), {
-    return(Result(Manifest, String).Err(`${where_}: [package] name "${name}" may not contain a path separator (it is what importers write in import("${name}"))`));
+  if(!_is_valid_package_name(&name), {
+    return(Result(Manifest, String).Err(_invalid_package_name_error(&where_, String.from("[package] name"), &name)));
   });
   version := match(_string_field(&package, String.from("version"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
   description := match(_string_field(&package, String.from("description"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
@@ -869,6 +928,8 @@ export(
   Manifest,
   find_manifest,
   parse_manifest,
+  _is_valid_package_name,
+  _invalid_package_name_message,
   load_manifest,
   abs_under,
   default_module_root,

@@ -36,33 +36,41 @@ InitOptions :: ref(
 // ---------------------------------------------------------------------------
 // Name sanitization
 // ---------------------------------------------------------------------------
-/// Return true if the ASCII byte `b` is valid in a project name
-/// (alphanumeric, underscore, or hyphen).
-_is_valid_name_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) // a-z
-  || ((b >= u8(65)) && (b <= u8(90))) // A-Z
-  || ((b >= u8(48)) && (b <= u8(57))) // 0-9
-  || (b == u8(95)) // _
-  || (b == u8(45)) // -
-);
-/// Replace characters that are not `[a-zA-Z0-9_-]` with `-`.
+/// The kebab-case package name `yo init` writes for `raw` (a directory
+/// basename or `--name`): ASCII letters are lowercased, every byte outside
+/// `[a-z0-9]` (`_`, `.`, spaces, …) becomes `-`, runs of `-` collapse to one
+/// and leading/trailing `-` are trimmed — `My_Project 2` is `my-project-2`.
+/// Kebab-case is Yo's package-name convention; the tool is inventing the name
+/// of a brand-new project, so it emits the canonical form, and a user who
+/// wants another edits yo.toml (the manifest accepts `[A-Za-z0-9_-]+`).
 sanitize_project_name :: (fn(raw : &String) -> String)({
   result := String.new();
-  bytes := raw.clone();
+  (pending_hyphen : bool) = false;
   i := usize(0);
-  while(i < bytes.len(), {
-    b_opt := bytes.get_byte(i);
+  while(i < raw.len(), {
     match(
-      b_opt,
+      raw.get_byte(i),
       .None => (),
-      .Some(b) => cond(
-        _is_valid_name_byte(b) => {
-          result.push_byte(b);
-        },
-        true => {
-          result.push_str("-");
-        }
-      )
+      .Some(b) => {
+        lower := cond(
+          ((b >= u8(65)) && (b <= u8(90))) => (b + u8(32)), // A-Z → a-z
+          true => b
+        );
+        cond(
+          ((lower >= u8(97)) && (lower <= u8(122))) || ((lower >= u8(48)) && (lower <= u8(57))) => {
+            // A separator seen since the last kept byte becomes one `-`,
+            // and only between two kept bytes (never leading or trailing).
+            if(pending_hyphen && (result.len() > usize(0)), {
+              result.push_str("-");
+            });
+            pending_hyphen = false;
+            result.push_byte(lower);
+          },
+          true => {
+            pending_hyphen = true;
+          }
+        );
+      }
     );
     i = (i + usize(1));
   });
@@ -349,7 +357,13 @@ init_project :: (
         .None => String.from("my-project")
       )
     );
-    project_name := sanitize_project_name(&raw_name);
+    // A name with no letter or digit at all sanitizes to "" — fall back to
+    // the same default a root directory gets.
+    sanitized := sanitize_project_name(&raw_name);
+    project_name := cond(
+      (sanitized.len() == usize(0)) => String.from("my-project"),
+      true => sanitized
+    );
     // Create directory structure
     e.io.await(create_dir_all(&project_dir, e.io), e);
     e.io.await(create_dir_all(project_dir.join(Path.new(String.from("src"))), e.io), e);

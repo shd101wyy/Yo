@@ -410,6 +410,7 @@ failures an agent hits on a fresh clone:
 | E1503 | `yo.lock` disagrees with `yo.toml` (out of date, absent or unusable under `--locked`) |
 | E1504 | the fetched dependency tree does not hash to what `yo.lock` records |
 | E1505 | no tag of the dependency satisfies every requirement on it |
+| E1506 | a package name (`[package] name`, a dependency key, `yo add --name`) outside `[A-Za-z0-9_-]+` |
 
 These render with their code and the `explain` tail like any other error, and
 `--error-format json` carries the code, so an error router can branch on the

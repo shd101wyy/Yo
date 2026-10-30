@@ -29,7 +29,7 @@ $ git submodule update --init --recursive
 Without it, `--allocator mimalloc` is an error that names the missing path, and
 so is `yo build` on Linux, whose `build.yo` picks mimalloc there.
 
-The compiler's one Yo dependency, `markdown_yo` (the Markdown renderer behind
+The compiler's one Yo dependency, `markdown-yo` (the Markdown renderer behind
 `yo doc --format html`), is declared in the repo-root `yo.toml` and fetched by
 Yo's own package manager:
 

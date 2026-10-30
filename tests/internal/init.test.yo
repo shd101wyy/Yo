@@ -20,9 +20,25 @@ import("std/fmt");
 // ---------------------------------------------------------------------------
 // sanitize_project_name
 // ---------------------------------------------------------------------------
-test("sanitize_project_name: alphanumeric unchanged", {
+test("sanitize_project_name: underscores become hyphens (kebab-case)", {
   name := sanitize_project_name(String.from("my_project-123"));
-  assert(name == "my_project-123", "valid chars unchanged");
+  assert(name == "my-project-123", `kebab form, got ${name}`);
+});
+test("sanitize_project_name: kebab-case unchanged", {
+  name := sanitize_project_name(String.from("markdown-yo"));
+  assert(name == "markdown-yo", `already kebab, got ${name}`);
+});
+test("sanitize_project_name: upper case is lowercased", {
+  name := sanitize_project_name(String.from("My_Project 2"));
+  assert(name == "my-project-2", `lowercased kebab, got ${name}`);
+});
+test("sanitize_project_name: runs of separators collapse, ends are trimmed", {
+  name := sanitize_project_name(String.from("__foo--_bar..baz-_"));
+  assert(name == "foo-bar-baz", `collapsed and trimmed, got ${name}`);
+});
+test("sanitize_project_name: no letter or digit sanitizes to empty", {
+  name := sanitize_project_name(String.from("_-_"));
+  assert(name.len() == usize(0), `only separators, got ${name}`);
 });
 test("sanitize_project_name: spaces replaced with hyphens", {
   name := sanitize_project_name(String.from("my project"));
