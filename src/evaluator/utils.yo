@@ -2437,6 +2437,11 @@ strip_mut_marker :: (fn(holder : &AstExpr, idx : usize, exn : Exception) -> Opti
       if(!ast_expr_is_atom(&name) || (ast_expr_token(&name).kind != TokenKind.Identifier), {
         exn.throw(dyn(format_error_message(ast_expr_token(&arg), `"mut" takes the binding's NAME: write \`mut(name) := init\`, \`(mut(name) : T) = init\`, \`.Some(mut(name))\` in a pattern or \`{ a, mut(name) }\` in a destructuring; got \`${ast_expr_to_string(&arg)}\` (plans/VALUES_BY_DEFAULT.md decision 47).`)));
       });
+      // The holder's list is the payload of the call's `Rc` (V4). This write
+      // reaches it through the `ArrayList` handle the `Rc(sm_args)` binder
+      // copies, which works only while `ArrayList` is a `ref` type; B8
+      // needs a write-free form
+      // (issues/questions/2026-10-30-how-should-the-mut-marker-strip-stop-writing-the-ast.md).
       list := sm_args;
       list(idx) = name;
       name_tok := ast_expr_token(&name);
