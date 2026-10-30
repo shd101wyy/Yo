@@ -105,17 +105,17 @@ test("same instantiation stays compatible, and generics with placeholders still 
 // another under one enum id. codegen keyed the outer one apart from a declared
 // `Option(Option(T))` (the C compiler rejected the `return`), and keyed
 // `Option(Option(i32))` and `Option(Option(String))` alike.
-_ww_wrap :: (fn(generic(U : Type), x : &U) -> Option(U))(.Some(x));
+_ww_wrap :: (fn(generic(U : Type), x : U) -> Option(U))(.Some(x));
 _ww_twice :: (fn(x : i32) -> Option(Option(i32)))({
-  y := _ww_wrap(&x);
-  _ww_wrap(&y)
-});
-_ww_nested :: (fn(x : i32) -> Option(Option(i32)))(_ww_wrap(_ww_wrap(&x)));
-_ww_generic :: (fn(generic(T : Type), x : &T) -> Option(Option(T)))({
   y := _ww_wrap(x);
-  _ww_wrap(&y)
+  _ww_wrap(y)
 });
-_ww_thrice :: (fn(x : i32) -> Option(Option(Option(i32))))(_ww_wrap(_ww_wrap(_ww_wrap(&x))));
+_ww_nested :: (fn(x : i32) -> Option(Option(i32)))(_ww_wrap(_ww_wrap(x)));
+_ww_generic :: (fn(generic(T : Type), x : T) -> Option(Option(T)))({
+  y := _ww_wrap(x);
+  _ww_wrap(y)
+});
+_ww_thrice :: (fn(x : i32) -> Option(Option(Option(i32))))(_ww_wrap(_ww_wrap(_ww_wrap(x))));
 _ww_inner :: (fn(o : Option(Option(i32))) -> i32)(match(o, .Some(.Some(v)) => v, _ => i32(-1)));
 test("a generic fn applied to its own Option result is the declared Option(Option(T))", {
   assert(_ww_inner(_ww_twice(i32(9))) == i32(9), "through a local");
@@ -129,7 +129,7 @@ test("a generic fn applied to its own Option result is the declared Option(Optio
 // same nesting cut `Option(i32) <: Runtime` inside `Option(Option(i32))` as a
 // cycle, so the outer type read as comptime-only and `:=` demanded `::`.
 _ww_bind :: (fn(n : i32) -> i32)({
-  a := _ww_wrap(_ww_wrap(&n));
+  a := _ww_wrap(_ww_wrap(n));
   _ww_inner(a)
 });
 test("a nested generic enum instance is a runtime type", {

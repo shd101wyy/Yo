@@ -34,8 +34,8 @@ impl(
   local_map_to : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      self : &Self,
-      f : &F,
+      sink(self) : Self,
+      f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(a : &A) -> B))
     ) -> LocalMapIter(Self, A, B, F)
   )(
@@ -157,6 +157,9 @@ derive(generic(T : Type), where(T <: Copy), _WcBox(T), Copy);
 _WcPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
 _wc_need_send :: (fn(generic(T : Type), x : &T, where(T <: Send)) -> unit)(());
 _wc_fwd :: (fn(generic(U : Type), y : &U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));
+_WcNotSend :: struct(x : i32);
+derive(_WcNotSend, Copy, Clone);
+impl(_WcNotSend, !Send());
 _WcKey :: struct(x : i32);
 impl(_WcKey, Eq(_WcKey)((==) : ((a, b) -> (a.x == b.x))));
 
@@ -164,7 +167,7 @@ test("where-clause bounds are enforced at the call site", {
   comptime_expect_error(_wc_need_both(_WcQ(x : i32(1))), "does not implement required trait _WcBar");
   comptime_expect_error(_wc_need_both_split(_WcQ(x : i32(1))), "does not implement required trait _WcBar");
   comptime_expect_error(_WcBox(_WcQ), "does not implement required trait _WcBar");
-  comptime_expect_error(_wc_fwd(ArrayList(i32).new()), "does not implement required trait Send");
+  comptime_expect_error(_wc_fwd(_WcNotSend(x : i32(1))), "does not implement required trait Send");
   comptime_expect_error(HashMap(_WcKey, i32).new(), "does not implement required trait Hash");
 });
 

@@ -283,14 +283,14 @@ test("interior-ref call releases the container's borrow flag on unwind", {
 // Positive: the migration recipe — copy the element out, then the
 // container is freely usable in the same call.
 test("copy the element out to combine with container use", {
-  use_both :: (fn(v : &mut i32, target : &ArrayList(i32)) -> unit)({
+  use_both :: (fn(v : &mut i32, target : &mut ArrayList(i32)) -> unit)({
     target.push(v);
     v = i32(0);
   });
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(7));
   mut(copied) := match(xs.get(usize(0)), .Some(v) => v, .None => i32(0));
-  use_both(&mut copied, &xs);
+  use_both(&mut copied, &mut xs);
   assert(xs.len() == usize(2), "pushed the copy");
   assert(xs(usize(0)) == i32(7), "original element untouched (v=0 wrote the copy)");
 });
@@ -404,13 +404,13 @@ comptime_expect_error(
 // hold an `ArrayList(String)`, so it is accepted
 // (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
 _put_str :: (fn(dst : &mut String, v : String) -> String)({
-  old := dst;
+  old := dst.clone();
   dst = v;
   old
 });
 _StrLists :: ref(struct(lists : ArrayList(String), tag : String));
 test("an element borrow beside a value that cannot reach the container", {
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
   v := String.from("c");
   old := _put_str(&mut xs(usize(0)), v);
@@ -426,12 +426,13 @@ test("an element borrow beside a value that cannot reach the container", {
 _ListBox :: struct(lists : ArrayList(String));
 test("an element borrow beside a value that can reach the container", {
   grow_beside :: (fn(dst : &mut String, other : ArrayList(String)) -> unit)({
-    other.push(String.from("grown"));
+    mut(o) := other;
+    o.push(String.from("grown"));
     dst = String.from("w");
   });
   hold_beside :: (fn(dst : &mut String, other : &_ListBox) -> unit)(());
   owner_beside :: (fn(dst : &mut String, other : &_StrLists) -> unit)(());
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
   comptime_expect_error(grow_beside(&mut xs(usize(0)), ArrayList(String).new()), "could hold a handle");
   b := _ListBox(lists : ArrayList(String).new());
@@ -455,17 +456,21 @@ _plain_write :: (fn(v : &mut String) -> unit)({
 test("an element borrow beside a variable holding a closure is rejected", {
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
-  (cb : Impl(Fn(v : &mut String) -> unit)) = (
-    v => {
-      xs.clear();
-      v = String.from("w");
-    }
-  );
-  comptime_expect_error(_write_through(&mut xs(usize(0)), cb), "could hold a handle");
+  // Since B8 the closure reaches the list through a `&mut` capture, which
+  // freezes `xs` for the closure's scope (decision 38 B).
+  {
+    (cb : Impl(Fn(v : &mut String) -> unit)) = (
+      { &mut xs }(v) => {
+        xs.clear();
+        v = String.from("w");
+      }
+    );
+    comptime_expect_error(_write_through(&mut xs(usize(0)), cb), "the closure `cb` borrows `xs`");
+  };
   assert(xs.len() == usize(1), "nothing ran");
 });
 test("an element borrow beside a plain fn is accepted", {
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
   _write_through(&mut xs(usize(0)), _plain_write);
   assert(xs(usize(0)) == "plain", "the plain fn ran in place");
@@ -475,14 +480,15 @@ test("an element borrow beside a closure in a struct field is rejected", {
   field_beside :: (fn(dst : &mut String, other : _CbFieldBox) -> unit)(());
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
-  (cb : Impl(Fn(v : &mut String) -> unit)) = (
-    v => {
-      xs.clear();
-      v = String.from("w");
-    }
-  );
-  b := _CbFieldBox(cb : dyn(cb));
-  comptime_expect_error(field_beside(&mut xs(usize(0)), b), "could hold a handle");
+  {
+    (cb : Impl(Fn(v : &mut String) -> unit)) = (
+      { &mut xs }(v) => {
+        xs.clear();
+        v = String.from("w");
+      }
+    );
+    comptime_expect_error(field_beside(&mut xs(usize(0)), _CbFieldBox(cb : dyn(cb))), "the closure `cb` borrows `xs`");
+  };
   assert(xs.len() == usize(1), "nothing ran");
 });
 _AreaT :: trait(area : (fn(self : &Self) -> i32));
@@ -490,7 +496,7 @@ _SquareT :: struct(s : i32);
 impl(_SquareT, _AreaT(area : (fn(self : &Self) -> i32)(self.s * self.s)));
 test("an element borrow beside a &Dyn is rejected", {
   dyn_beside :: (fn(dst : &mut String, other : &Dyn(_AreaT)) -> unit)(());
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
   (d : Dyn(_AreaT)) = dyn(rc(_SquareT(s : i32(2))));
   comptime_expect_error(dyn_beside(&mut xs(usize(0)), &d), "could hold a handle");

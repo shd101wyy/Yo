@@ -138,12 +138,14 @@ touch_bag :: (fn(x : &mut InoutBag, k : i32) -> InoutBag)({
   x.clone()
 });
 InoutEntry :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_items : ArrayList(V), n : i32));
+derive(generic(V : Type), where(V <: Clone), InoutEntry(V), Clone);
 impl(
   generic(V : Type),
+  where(V <: Clone),
   InoutEntry(V),
   bumped : (fn(self : &mut Self, k : i32) -> Self)({
     self.n = (self.n + k);
-    self
+    self.clone()
   })
 );
 test("returning an inout self of an RC-holding value struct as the body tail", {
