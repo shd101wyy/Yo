@@ -3452,9 +3452,9 @@ _run_migrate_explicit_copy :: (
       });
       // The type has `Clone` by the end of the run but not where the copy
       // was evaluated (`ExplicitCopySite.lacks_clone_at_copy`). A `.clone()`
-      // lookup there forces an `impl` further down the module, but not a
-      // `derive` (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md):
-      // a copy whose `Clone` is derived is listed rather than spelled.
+      // lookup there forces an `impl` or `derive` further down the module, but a
+      // seed older than that fix does not force a `derive` (issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md):
+      // a copy whose `Clone` is derived is listed rather than spelled until `SEED_VERSION` carries it.
       if(st.lacks_clone_at_copy && ic_clone_comes_from_derive(&st.ty_value), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied above the \`derive\` that gives \`${st.ty}\` its \`Clone\`, where a \`.clone()\` does not resolve; left as written (spell \`.clone()\` by hand, after moving the \`derive(..., Clone)\` above the copy)`);
