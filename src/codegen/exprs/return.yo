@@ -706,7 +706,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
   )
 );
 /// Deferred-dup handling for an atom return value.
-handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : &String, indent : &String, context : &FunctionGenerationContext) -> String)(
+handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : String, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -1341,7 +1341,7 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
     expr,
     .Atom(_, _) => {
       atom_code := generate_atom(expr, context, indent.clone());
-      final_code := handle_atom_deferred_dup(expr, &atom_code, indent.clone(), context);
+      final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
       // Own-param scope-end drops (function-scope, excluded from the caller's
       // flush-first — generation.yo non-begin path): AFTER the tail's dup so a
       // borrowed value leaving the fn keeps its +1, BEFORE the return.
