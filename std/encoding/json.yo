@@ -1891,20 +1891,17 @@ impl(
         .Object(keys, values) => {
           out := Self.new();
           (mut(i) : usize) = usize(0);
-          while(i < keys.len(), {
-            k := match(keys.get(i), .Some(key_s) => key_s, .None => String.new());
+          // Keys and values are read in place; the key is cloned into the
+          // map, which owns its keys (B8).
+          while((i < keys.len()) && (i < values.len()), {
             match(
-              values.get(i),
-              .Some(jv) => match(
-                _from_json_of(V, &jv),
-                .Ok(decoded_v) => {
-                  out.insert(k, decoded_v);
-                },
-                .Err(e) => {
-                  return(.Err(e));
-                }
-              ),
-              .None => ()
+              _from_json_of(V, &values(i)),
+              .Ok(decoded_v) => {
+                out.insert(keys(i).clone(), decoded_v);
+              },
+              .Err(e) => {
+                return(.Err(e));
+              }
             );
             i = (i + usize(1));
           });
