@@ -87,11 +87,14 @@ _newtype_single_label :: (fn(rhs_type : &TypeValue) -> Option(String))(
 /// LHS atom's env predates the binding. A local sharing a captured local's RC
 /// value writes that owner's slot (`sm_storage_id`).
 _sm_binding_slot :: (fn(key : ExprId, env : &Environment, name : &String, context : &FunctionGenerationContext) -> Option(String))({
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
-  if(context.in_async_state_machine.is_none(), {
+  if(context.state_machine_variables.is_none() || context.in_async_state_machine.is_none(), {
     return(Option(String).None);
   });
-  sm_slot_of(key, env, name, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot)
+  match(
+    context.state_machine_variables,
+    .Some(smv) => sm_slot_of(key, env, name, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+    .None => Option(String).None
+  )
 });
 /// A store into a named local's task slot gives the slot a value it owns: it
 /// clears the move flag a move out of its previous value set (`sm_move_flag_of`;
