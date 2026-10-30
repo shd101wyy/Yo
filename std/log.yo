@@ -272,7 +272,7 @@ _emit :: (fn(level : Level, target : &String, msg : &String) -> unit)({
   // A sink takes the record whole and renders it itself; the lock stays held
   // across the call, which is what serialises concurrent records.
   sunk := _global_sink.with_mut(
-    o => match(
+    { level, &target, &msg }(o) => match(
       o,
       .Some(sink) => {
         sink.write_line(level, target, msg);
