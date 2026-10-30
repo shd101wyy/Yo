@@ -141,7 +141,7 @@ json :: import("std/encoding/json");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, set_migrate_rc_clone, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, explicit_copy_type_is_collection, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, take_copying_accessor_sites } :: import("./evaluator/utils.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, HandleCtorSite, set_migrate_handle_ctors, take_handle_ctor_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -4601,6 +4601,178 @@ _run_migrate_dyn_spelling :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated values were not migrated`));
   });
 });
+/// `yo fix <path> --migrate handle-ctors` — static-argument inference
+/// Generation B1 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5): every call
+/// of the prelude's `rc`, `box` or `arc` becomes a call of the handle's
+/// constructor, `rc(x)` → `Rc.new(x)`, `box(x)` → `Box.new(x)`, `arc(x)` →
+/// `Arc.new(x)`, the arguments (`alloc :` included) kept as written. Semantic:
+/// the evaluator records a call only when its callee name resolves to the
+/// prelude's function (`_record_handle_ctor_call`), so a parameter or local
+/// named `rc` is left alone. Where static-argument inference would not bind
+/// the type from the argument (a closure literal outside `dyn(...)`, an
+/// enum shorthand such as `.None`, a number literal the old call typed from
+/// its context) the rewrite writes the type argument the old call bound,
+/// `Rc(V).new(`. A site that needs it and cannot print it (a type variable,
+/// a closure's type, a generic body evaluated at two types), and one whose
+/// source no longer spells the name, is listed and left as written. Code that
+/// evaluation never reaches is not seen; a `test(...)` body whose trial fails
+/// is listed.
+_run_migrate_handle_ctors :: (
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      load_err := _take_load_error();
+      if(proc_env.get(`YO_DEBUG_FIX`).is_some(), {
+        eprintln(`[fix] ${file}: ${match(load_err, .Some(le) => le, .None => String.from("(no load error)"))}`);
+      });
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its calls are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_handle_ctors(false);
+  sites := take_handle_ctor_sites();
+  skipped_tests := take_skipped_test_bodies();
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_rewritten : usize) = usize(0);
+  (n_typed : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (n_skipped_tests : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    listed_tests := HashSet(String).new();
+    (stj : usize) = usize(0);
+    while(stj < skipped_tests.len(), stj = (stj + usize(1)), {
+      sk := skipped_tests(stj);
+      if((canonical_module_path(sk.test_tok.module_path.*.clone()) == canon) && listed_tests.insert(sk.test_tok.byte_offset.to_string()), {
+        n_skipped_tests = (n_skipped_tests + usize(1));
+        println(`fix: ${file}:${(sk.test_tok.row + u32(1)).to_string()}:${(sk.test_tok.column + u32(1)).to_string()}: the body of test ${sk.name} does not evaluate (${sk.error}); its rc/box/arc calls may be left unmigrated, so review the body by hand`);
+      });
+    });
+    // One entry per position: the first record's site, every type key the
+    // position was evaluated at, and whether any record's argument is one
+    // inference does not consult.
+    positions := ArrayList(String).new();
+    first_site := HashMap(String, HandleCtorSite).new();
+    pos_keys := HashMap(String, HashSet(String)).new();
+    pos_contextual := HashSet(String).new();
+    pos_literal := HashSet(String).new();
+    pos_unprintable := HashSet(String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if(site_paths(si) == canon, {
+        st := sites(si).clone();
+        key := `${st.row.to_string()}:${st.col.to_string()}`;
+        if(!first_site.contains_key(&key), {
+          positions.push(key.clone());
+          first_site.insert(key.clone(), st.clone());
+          pos_keys.insert(key.clone(), HashSet(String).new());
+        });
+        ks := match(pos_keys.get(key.clone()), .Some(k) => k, .None => HashSet(String).new());
+        ks.insert(st.ty_key.clone());
+        pos_keys.insert(key.clone(), ks);
+        if(st.arg_kind == "contextual", {
+          pos_contextual.insert(key.clone());
+        });
+        if(st.arg_kind == "literal", {
+          pos_literal.insert(key.clone());
+        });
+        if(!st.printable, {
+          pos_unprintable.insert(key.clone());
+        });
+      });
+    });
+    if(positions.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    lines := src.split(String.from("\n"));
+    edits := ArrayList(_PendingFix).new();
+    (pi : usize) = usize(0);
+    while(pi < positions.len(), pi = (pi + usize(1)), {
+      key := positions(pi).clone();
+      st := match(first_site.get(key.clone()), .Some(s0) => s0, .None => sites(usize(0)).clone());
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
+      spelled := _rune_slice(&line, st.col, st.name.len());
+      next := _rune_slice(&line, st.col + st.name.len(), usize(1));
+      before := if(st.col > usize(0), _rune_slice(&line, st.col - usize(1), usize(1)), String.new());
+      // A closure literal directly inside `dyn(...)` is typed by `dyn`'s
+      // recognition of `Rc.new(<closure>)`, as it was of `rc(<closure>)`.
+      in_dyn := _handle_ctor_call_in_dyn(&lines, st.row, st.col);
+      needs_type := ((pos_contextual.contains(&key) && !in_dyn) || pos_literal.contains(&key));
+      n_keys := match(pos_keys.get(key.clone()), .Some(k) => k.len(), .None => usize(0));
+      skip_reason := cond(
+        ((spelled != st.name) || (next != "(") || _handle_ctor_name_continues(&before)) => `the source text does not spell \`${st.name}(\` at the recorded position`,
+        (needs_type && (n_keys > usize(1))) => `\`${st.name}(...)\` needs its type argument written (inference does not read this argument) and is evaluated at more than one type (a generic body)`,
+        (needs_type && pos_unprintable.contains(&key)) => `\`${st.name}(...)\` needs its type argument written (inference does not read this argument), and \`${st.ty_arg}\` has no spelling`,
+        true => String.new()
+      );
+      if(skip_reason.len() > usize(0), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: ${skip_reason}; left as written`);
+      }, {
+        replacement := if(needs_type, `${st.cell}(${st.ty_arg}).new`, `${st.cell}.new`);
+        if(needs_type, {
+          n_typed = (n_typed + usize(1));
+        });
+        if(dry_run, {
+          println(`fix: ${at}: \`${st.name}(\` would become \`${replacement}(\``);
+        });
+        edits.push(_PendingFix(row : st.row, col : st.col, len : st.name.len(), replacement : replacement, description : at));
+      });
+    });
+    n_rewritten = (n_rewritten + edits.len());
+    if(!dry_run && (edits.len() > usize(0)), {
+      _apply_fixes_to_file(file.clone(), &mut edits, io, exn);
+      fmt_argv := ArrayList(String).new();
+      fmt_argv.push(String.from("yo"));
+      fmt_argv.push(String.from("fmt"));
+      fmt_argv.push(file.clone());
+      run_fmt(&fmt_argv, io, exn);
+    });
+  });
+  verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
+  tests_note := if(n_skipped_tests > usize(0), `; ${n_skipped_tests.to_string()} test body(ies) did not evaluate (listed above)`, String.new());
+  println(`fix: ${verb} ${n_rewritten.to_string()} rc/box/arc call(s) to Rc.new/Box.new/Arc.new (${n_typed.to_string()} with the type argument written); ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated calls were not migrated`));
+  });
+});
+/// Is the call whose callee token starts at (`row`, `col`) the payload of a
+/// `dyn(...)`: does the text before it, whitespace and line breaks skipped,
+/// end with `dyn(`?
+_handle_ctor_call_in_dyn :: (fn(lines : &ArrayList(String), row : usize, col : usize) -> bool)({
+  first := match(lines.get_cloned(row), .Some(l) => l, .None => String.new());
+  (prefix : String) = _rune_slice(&first, usize(0), col).trim_end();
+  (r : usize) = row;
+  // The nearest non-blank text before the callee.
+  while((prefix.len() == usize(0)) && (r > usize(0)), {
+    r = (r - usize(1));
+    prefix = match(lines.get_cloned(r), .Some(l) => l.trim_end(), .None => String.new());
+  });
+  prefix.ends_with("dyn(")
+});
+/// Does the one-rune `before` continue a longer name or a member access
+/// (`x.rc(`, `my_rc(`), so the callee is not the name `rc` itself?
+_handle_ctor_name_continues :: (fn(before : &String) -> bool)({
+  if(before.len() != usize(1), {
+    return(false);
+  });
+  b := match(before.get_byte(usize(0)), .Some(x) => x, .None => return(false));
+  (b == u8(46)) || (b == u8(95)) || ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122)))
+});
 /// `yo fix --migrate mutable-globals` (plans/VALUES_BY_DEFAULT.md decision
 /// 47): evaluate every file, recording each module-level runtime binding that
 /// is written after its initializer (a reassignment, a field or element write
@@ -4754,7 +4926,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone] [--hot-path PATH]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone|handle-ctors] [--hot-path PATH]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -4780,8 +4952,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy") && (argv(next_m) != "cloned-accessors") && (argv(next_m) != "rc-clone")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings, explicit-copy, cloned-accessors or rc-clone`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy") && (argv(next_m) != "cloned-accessors") && (argv(next_m) != "rc-clone") && (argv(next_m) != "handle-ctors")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings, explicit-copy, cloned-accessors, rc-clone or handle-ctors`));
         });
         migrate = argv(next_m).clone();
         ai = (ai + usize(2));
@@ -4804,7 +4976,7 @@ run_fix :: (
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone] [--hot-path PATH]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone|handle-ctors] [--hot-path PATH]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -4922,6 +5094,9 @@ run_fix :: (
     // them as `--migrate markers` does.
     set_migrate_markers(true);
   });
+  if(migrate == "handle-ctors", {
+    set_migrate_handle_ctors(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -4977,6 +5152,10 @@ run_fix :: (
   });
   if(migrate == "rc-clone", {
     _run_migrate_rc_clone(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "handle-ctors", {
+    _run_migrate_handle_ctors(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -13509,11 +13688,13 @@ Options:
                             whose source is used again),
                             cloned-accessors (r.m(...) -> r.m_cloned(...)
                             on a copying accessor whose result holds a
-                            String or collection), or rc-clone
+                            String or collection), rc-clone
                             (Rc.clone(h) / Arc.clone(h) on an implicit
                             copy of a counted handle whose source is
                             used again, a capture list on a closure
-                            that captures one)
+                            that captures one), or handle-ctors
+                            (rc(x) -> Rc.new(x), box(x) -> Box.new(x),
+                            arc(x) -> Arc.new(x))
   --hot-path <path>         With --migrate explicit-copy or
                             cloned-accessors: list the sites in this file
                             or directory for a hand edit instead of
@@ -13552,10 +13733,12 @@ Examples:
                             编译期绑定加上 mut(x)），explicit-copy（源值之后仍被使用的
                             String / 集合隐式复制加上 .clone()），
                             cloned-accessors（把结果持有 String / 集合的
-                            拷贝式读取 r.m(...) 改写为 r.m_cloned(...)），或
+                            拷贝式读取 r.m(...) 改写为 r.m_cloned(...)），
                             rc-clone（源值之后仍被使用的计数句柄隐式复制
                             改写为 Rc.clone(h) / Arc.clone(h)，捕获句柄的
-                            闭包加上捕获列表）
+                            闭包加上捕获列表），或
+                            handle-ctors（rc(x) -> Rc.new(x)、
+                            box(x) -> Box.new(x)、arc(x) -> Arc.new(x)）
   --hot-path <path>         与 --migrate explicit-copy 或 cloned-accessors
                             一起使用：列出该文件或目录中的拷贝留待手工修改，
                             而不是改写它们（可重复）
