@@ -230,7 +230,7 @@ _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> boo
       (dbr_found : bool) = false;
       while((dbr_i < dbr_rtts.len()) && !dbr_found, {
         match(
-          dbr_rtts.get(dbr_i),
+          dbr_rtts.get_cloned(dbr_i),
           .Some(dbr_t) => if(type_to_string(&dbr_t) == want, {
             dbr_found = true;
           }),
@@ -345,7 +345,7 @@ _captures_offense :: (
         more = false;
       },
       .Some(var_name) => match(
-        cvwv.get(var_name.clone()),
+        cvwv.get_cloned(var_name.clone()),
         .None => (),
         .Some(info) => if(!_declared_bound_requires(&info.ty, marker), {
           match(
@@ -432,7 +432,7 @@ _declares_marker :: (fn(ty : &TypeValue, marker : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       while((i < rtts.len()) && !found, {
         match(
-          rtts.get(i),
+          rtts.get_cloned(i),
           .Some(t) => if(type_to_string(&t) == want, {
             found = true;
           }),
@@ -834,7 +834,7 @@ validate_capture_trait_requirements :: (
                     more = false;
                   },
                   .Some(var_name) => match(
-                    cvwv.get(var_name.clone()),
+                    cvwv.get_cloned(var_name.clone()),
                     .None => (),
                     .Some(info) => if(!_declared_bound_requires(&info.ty, &trait_type), {
                       // A captured FUNCTION value holds a marker by its value
@@ -1110,7 +1110,7 @@ create_capture_type_and_value :: (
             },
             .Some(cap_name) => {
               match(
-                cvwv.get(cap_name.clone()),
+                cvwv.get_cloned(cap_name.clone()),
                 .None => (),
                 .Some(fci) => {
                   field_labels.push(cap_name.clone());
@@ -1150,7 +1150,7 @@ create_capture_type_and_value :: (
       while(csi < field_labels.len(), {
         cap_key.push_string(match(field_labels.get(csi), .Some(l) => l, .None => String.from("")));
         cap_key.push_str(":");
-        cap_key.push_string(match(field_types.get(csi), .Some(t) => type_to_string(&t), .None => String.from("")));
+        cap_key.push_string(match(field_types.get_cloned(csi), .Some(t) => type_to_string(&t), .None => String.from("")));
         // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
         // `type_to_string` whether abstract (def-era eval — the captured
         // closure param is unbound, field lowers to void*) or resolved
@@ -1161,7 +1161,7 @@ create_capture_type_and_value :: (
         // tests/closure_param_forwarding.test.yo arm 2). Append the resolved
         // identity so the two eras mint DISTINCT capture structs.
         match(
-          field_types.get(csi),
+          field_types.get_cloned(csi),
           .Some(ck_t) => match(
             ck_t,
             Rc(.SomeT({ id : ck_sid, resolution : ck_rc })) => {
@@ -1232,7 +1232,7 @@ create_capture_type_and_value :: (
           while(dsi < field_labels.len(), dsi = (dsi + usize(1)), {
             match(
               field_labels.get(dsi),
-              .Some(dl) => match(sites_cvwv.get(dl.clone()), .Some(dfci) => register_capture_field_decl_site(struct_id.clone(), &dl, &dfci.decl_site), .None => ()),
+              .Some(dl) => match(sites_cvwv.get_cloned(dl.clone()), .Some(dfci) => register_capture_field_decl_site(struct_id.clone(), &dl, &dfci.decl_site), .None => ()),
               .None => ()
             );
           });
@@ -1442,7 +1442,7 @@ generate_captured_variable_dup_expressions :: (
         match(
           key_iter.next(),
           .Some(var_name) => match(
-            cvwv.get(var_name.clone()),
+            cvwv.get_cloned(var_name.clone()),
             .Some(ci) => cond(
               // A capture that is not implicitly copyable (a move-only one)
               // is MOVED into the capture struct

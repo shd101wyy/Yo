@@ -1467,7 +1467,7 @@ evaluate_anonymous_function_implementation :: (
           _trial_eval_annotation_type(&ann_tex, env, ctx, &mut ann_out);
           ctx.is_evaluating_function_type = ann_prev_flag;
           match(
-            ann_out.get(usize(0)),
+            ann_out.get_cloned(usize(0)),
             .Some(ann_user_ty) => {
               if(!ann_frame_pushed, {
                 _ann_fr := env.push_frame(false);
@@ -2143,7 +2143,7 @@ evaluate_anonymous_function_implementation :: (
     (bpa_i : usize) = usize(0);
     while((bpa_i < param_types.len()) && !body_params_abstract, {
       bpa_pt := match(
-        bound_param_types.get(bpa_i),
+        bound_param_types.get_cloned(bpa_i),
         .Some(t) => t,
         .None => match(slot_pointee_at(&param_types, bpa_i), .Some(t) => t, .None => t_unit())
       );
@@ -3110,7 +3110,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
             (wf_i : usize) = usize(0);
             while(wf_i < w_rtt.len(), {
               match(
-                w_rtt.get(wf_i),
+                w_rtt.get_cloned(wf_i),
                 .Some(w_rt) => if(is_fn_trait_type(&w_rt), {
                   if(w_fn_trait.is_none(), {
                     w_fn_trait = Option(TypeValue).Some(Rc.clone(w_rt));

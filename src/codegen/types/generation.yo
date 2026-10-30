@@ -1707,7 +1707,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
               (fi : usize) = usize(0);
               while(fi < nf, {
                 flabel := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
-                fty := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                fty := match(field_types.get_cloned(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if(!is_destructor_trait_member(&tt, &flabel), {
                   match(
                     _dyn_vtable_method_line(&flabel, &fty, &mut processed, context),
@@ -1734,7 +1734,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   (ui : usize) = usize(0);
   while(ui < up_targets.len(), {
     match(
-      up_targets.get(ui),
+      up_targets.get_cloned(ui),
       .Some(ut) => {
         ut_c := get_type_string(ut.clone(), context);
         members.push(`  const ${ut_c}_vtable* __yo_up_${ut_c}; // upcast to ${type_to_string(&ut)}`);
@@ -2319,7 +2319,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
       fwd_keys.next(),
       .Some(fcn) => if(!pass5_futures.contains(fcn.clone()) && !context.on_demand_body_cnames.contains(fcn.clone()), {
         match(
-          context.on_demand_fwd_only.get(fcn.clone()),
+          context.on_demand_fwd_only.get_cloned(fcn.clone()),
           .Some(fty) => {
             context.on_demand_body_cnames.insert(fcn.clone());
             generate_future_trait_declaration(&fty, fcn.clone(), context);

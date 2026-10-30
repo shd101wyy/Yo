@@ -76,7 +76,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
     Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
       (i : usize) = usize(0);
       while(i < fls.len(), {
-        ft := match(fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+        ft := match(fts.get_cloned(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
           match(fls.get(i), .Some(l) => out.push(l), .None => ());
         });
@@ -93,7 +93,7 @@ _reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token,
   seen_owner := ArrayList(String).new();
   (ti : usize) = usize(0);
   while(ti < traits.len(), {
-    tt := match(traits.get(ti), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+    tt := match(traits.get_cloned(ti), .Some(x) => x, .None => rc(TypeValueNode.Unit));
     names := _dyn_trait_slot_names(&tt);
     (ni : usize) = usize(0);
     while(ni < names.len(), {
@@ -297,7 +297,7 @@ evaluate_dyn_type :: (
   // iteration, so traits appended here are themselves expanded (BFS).
   qi := usize(0);
   while(qi < required_traits.len(), {
-    cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());
+    cur_trait := match(required_traits.get_cloned(qi), .Some(t) => t, .None => t_i32());
     scs := match(
       cur_trait,
       Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc,
@@ -305,7 +305,7 @@ evaluate_dyn_type :: (
     );
     k := usize(0);
     while(k < scs.len(), {
-      constraint := match(scs.get(k), .Some(t) => t, .None => t_i32());
+      constraint := match(scs.get_cloned(k), .Some(t) => t, .None => t_i32());
       cid := trait_id_for_dedup(&constraint);
       already := false;
       m := usize(0);

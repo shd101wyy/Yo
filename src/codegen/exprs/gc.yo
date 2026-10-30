@@ -64,7 +64,7 @@ generate_yo_gc_trace_child :: (fn(expr : &AstExpr, indent : &String, context : &
               Rc(.Func({ param_types : pts })) => if(
                 pts.len() > usize(0),
                 match(
-                  pts.items.last(),
+                  pts.items.last_cloned(),
                   .Some(pt) => match(t_slot_pointee(&pt), Rc(.Pointer(p2)) => Rc.clone(p2), _ => pointee),
                   .None => pointee
                 ),

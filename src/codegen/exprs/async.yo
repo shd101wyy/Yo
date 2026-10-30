@@ -2862,7 +2862,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   _per_clone_rsid.push_string(async_block_id.clone());
   if(is_some_type(&result_type), {
     match(
-      g_async_block_result_types.with(m => m.get(_per_clone_rsid.clone())),
+      g_async_block_result_types.with(m => m.get_cloned(_per_clone_rsid.clone())),
       .Some(rct) => {
         result_type = rct;
       },
@@ -3619,7 +3619,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   per_clone_key.push_string(ab_id.clone());
   if(is_some_type(&result_type), {
     match(
-      g_async_block_result_types.with(m => m.get(per_clone_key.clone())),
+      g_async_block_result_types.with(m => m.get_cloned(per_clone_key.clone())),
       .Some(rct) => {
         result_type = rct;
       },

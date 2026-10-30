@@ -687,7 +687,7 @@ _evaluate_trait_field :: (
         expected_tt,
         Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => {
           match(
-            fts.get(trait_field_index),
+            fts.get_cloned(trait_field_index),
             .Some(ft) => {
               expected_field_ty_opt = .Some(ft);
             },
@@ -1301,7 +1301,7 @@ evaluate_trait_type :: (
   (vf_i : usize) = usize(0);
   while(vf_i < field_types.len(), {
     vf_ty := match(
-      field_types.get(vf_i),
+      field_types.get_cloned(vf_i),
       .Some(t) => t,
       .None => {
         vf_i = (vf_i + usize(1));

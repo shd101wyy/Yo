@@ -764,7 +764,7 @@ evaluate_enum_type :: (
     (vi2 : usize) = usize(0);
     while(vi2 < variant_fields.len(), {
       vname := match(variant_names.get(vi2), .Some(n) => n, .None => String.new());
-      vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => no_types());
+      vfs := match(variant_fields.get_cloned(vi2), .Some(l) => l, .None => no_types());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {
         ft := match(vfs.get(fi2), .Some(x) => x, .None => rc(TypeValueNode.Unit));

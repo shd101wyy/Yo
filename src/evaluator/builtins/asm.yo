@@ -917,7 +917,7 @@ evaluate_asm :: (
       return_type = t_unit();
     },
     (return_output_types.len() == usize(1)) => {
-      return_type = match(return_output_types.get(usize(0)), .Some(t) => t, .None => t_unit());
+      return_type = match(return_output_types.get_cloned(usize(0)), .Some(t) => t, .None => t_unit());
     },
     true => {
       // Multiple outputs → tuple with positional labels.
@@ -926,7 +926,7 @@ evaluate_asm :: (
       (ti : usize) = usize(0);
       while(ti < return_output_types.len(), {
         labels.push(ti.to_string());
-        types.push(match(return_output_types.get(ti), .Some(t) => t, .None => t_unit()));
+        types.push(match(return_output_types.get_cloned(ti), .Some(t) => t, .None => t_unit()));
         ti = (ti + usize(1));
       });
       return_type = rc(TypeValueNode.Tuple(shared_list(labels), shared_list(types)));

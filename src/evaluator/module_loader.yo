@@ -143,7 +143,7 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
 /// touches every edge endpoint).
 _canonical :: (fn(p : &String) -> Rc(String))(
   match(
-    _canonical_memo.with(m => m.get(p)),
+    _canonical_memo.with(m => m.get_cloned(p)),
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(p));
@@ -173,7 +173,7 @@ mark_owner_always_visible :: (fn(module : &String) -> unit)({
 import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   start := _canonical(module);
   match(
-    g_import_closure_memo.with(m => m.get(&start.*)),
+    g_import_closure_memo.with(m => m.get_cloned(&start.*)),
     .Some(s) => {
       return(s);
     },
@@ -315,7 +315,7 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
         .None => EvalValue.UnitVal
       ),
       module_type : match(
-        g_module_cache_types.with(xs => xs.get(i)),
+        g_module_cache_types.with(xs => xs.get_cloned(i)),
         .Some(t) => t,
         .None => rc(TypeValueNode.Unit)
       ),
@@ -426,7 +426,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
       // rebuilt module type, and every later load reads that one.
       if(patched, {
         match(
-          g_module_cache_types.with(xs => xs.get(i)),
+          g_module_cache_types.with(xs => xs.get_cloned(i)),
           .Some(mt) => match(
             _module_type_with_field(&mt, name, &var.ty),
             .Some(rebuilt) => {

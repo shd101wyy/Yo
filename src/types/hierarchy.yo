@@ -64,7 +64,7 @@ _determine_type_universe :: (
   max_level := usize(0);
   i := usize(0);
   while(i < field_types.len(), {
-    field := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    field := match(field_types.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     subtype := match(
       g_type_of_type_visited_fn,
       .Some(f) => f(&field, visited_names),
@@ -102,7 +102,7 @@ _universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
-      bucket.get(i),
+      bucket.get_cloned(i),
       .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
         return(Option(TypeValue).Some(Rc.clone(e.universe)));
       }),

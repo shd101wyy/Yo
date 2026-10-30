@@ -192,7 +192,7 @@ _tk_somes_have_id :: (fn(somes : &ArrayList(TypeValue), id : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < somes.len()) && !found, {
-    found = match(somes.get(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false);
+    found = match(somes.get_cloned(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false);
     i = (i + usize(1));
   });
   found
@@ -817,7 +817,7 @@ type_identity_slot :: (fn(handles : &ArrayList(TypeValue), ty : &TypeValue) -> u
   (hi : usize) = handles.len();
   while(lo < hi, {
     mid := (lo + ((hi - lo) / usize(2)));
-    if(match(handles.get(mid), .Some(h) => __yo_ptr_lt(&h, ty), .None => false), {
+    if(match(handles.get_cloned(mid), .Some(h) => __yo_ptr_lt(&h, ty), .None => false), {
       lo = (mid + usize(1));
     }, {
       hi = mid;
@@ -827,7 +827,7 @@ type_identity_slot :: (fn(handles : &ArrayList(TypeValue), ty : &TypeValue) -> u
 });
 /// Whether `handles(slot)` is the handle `ty` itself.
 type_identity_slot_holds :: (fn(handles : &ArrayList(TypeValue), slot : usize, ty : &TypeValue) -> bool)(
-  match(handles.get(slot), .Some(h) => __yo_ptr_eq(&h, ty), .None => false)
+  match(handles.get_cloned(slot), .Some(h) => __yo_ptr_eq(&h, ty), .None => false)
 );
 /// `type_identity_cacheable`'s own identity memo: handles sorted by address,
 /// whether each mentions no type variable, and the epoch they were judged in.

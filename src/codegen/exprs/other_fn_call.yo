@@ -1332,7 +1332,7 @@ _per_arg_cast :: (fn(args_list : &String, param_types : &ArrayList(TypeValue), p
           out.push_str(", ");
         });
         pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
-        pty := match(param_types.get(i), .Some(pty_slot) => Option(TypeValue).Some(t_slot_pointee(&pty_slot)), .None => Option(TypeValue).None);
+        pty := match(param_types.get_cloned(i), .Some(pty_slot) => Option(TypeValue).Some(t_slot_pointee(&pty_slot)), .None => Option(TypeValue).None);
         if(!pref && pty.is_some() && match(
           &pty,
           .Some(pt) => _no_cast_by_value_param(&pt),
@@ -1564,7 +1564,7 @@ _call_may_unwind :: (fn(func_ei_value : &Option(EvalValue), function_type : &Typ
   (pi : usize) = usize(0);
   while((pi < npt) && !param_fn_or_ctl, {
     match(
-      param_types.get(pi),
+      param_types.get_cloned(pi),
       .Some(t_slot) => if(is_function_type(&t_slot_pointee(&t_slot)) || type_is_control_bound(&t_slot_pointee(&t_slot)), {
         param_fn_or_ctl = true;
       }),
@@ -1635,7 +1635,7 @@ _call_is_handler_installation :: (fn(key : ExprId, func_ei : &ExprInfo, function
   (result : bool) = false;
   (pi : usize) = usize(0);
   while((pi < npt) && !result, {
-    is_handler_param := match(param_types.get(pi), .Some(t_slot) => (is_function_type(&t_slot_pointee(&t_slot)) || type_is_control_bound(&t_slot_pointee(&t_slot))), .None => false);
+    is_handler_param := match(param_types.get_cloned(pi), .Some(t_slot) => (is_function_type(&t_slot_pointee(&t_slot)) || type_is_control_bound(&t_slot_pointee(&t_slot))), .None => false);
     if(is_handler_param, {
       match(
         runtime_args.get(pi),

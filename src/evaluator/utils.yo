@@ -3711,7 +3711,7 @@ _implicit_copy_first_member :: (fn(members : &ArrayList(TypeValue), depth : u32)
   (mi : usize) = usize(0);
   while(mi < members.len(), {
     match(
-      members.get(mi),
+      members.get_cloned(mi),
       .Some(m) => if(type_contains_rc_type(&m), {
         return(Option(String).Some(_implicit_copy_category_at(&m, depth + u32(1))));
       }),
@@ -3726,7 +3726,7 @@ _implicit_copy_plain_members :: (fn(members : &ArrayList(TypeValue)) -> bool)({
   (pi : usize) = usize(0);
   while(pi < members.len(), {
     match(
-      members.get(pi),
+      members.get_cloned(pi),
       .Some(m) => if(type_contains_rc_type(&m), {
         return(false);
       }),
@@ -3826,7 +3826,7 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
       (is_future : bool) = false;
       while(sti < st_traits.len(), {
         match(
-          st_traits.get(sti),
+          st_traits.get_cloned(sti),
           .Some(st) => if(is_future_trait_type(&st), {
             is_future = true;
           }),
@@ -5889,12 +5889,12 @@ merge_and_check_envs :: (
               cb_i = (cb_i + usize(1));
             });
             if(cb_tys.len() > usize(1), {
-              cb_first_ty := match(cb_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-              cb_first_cap := match(cb_caps.get(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
+              cb_first_ty := match(cb_tys.get_cloned(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+              cb_first_cap := match(cb_caps.get_cloned(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
               (cb_k : usize) = usize(1);
               while(cb_k < cb_tys.len(), {
-                cb_cur_ty := match(cb_tys.get(cb_k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-                cb_cur_cap := match(cb_caps.get(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
+                cb_cur_ty := match(cb_tys.get_cloned(cb_k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                cb_cur_cap := match(cb_caps.get_cloned(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
                 cb_tok := match(
                   bodies.get(match(cb_body_idx.get(usize(0)), .Some(x) => x, .None => usize(0))),
                   .Some(cb_b0) => ast_expr_token(&cb_b0),

@@ -322,7 +322,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     (pvi : usize) = usize(0);
     while(pvi < n_fields, {
       pv_lbl := match(field_labels.get(pvi), .Some(l) => l, .None => String.from(""));
-      pv_ty := match(field_types.get(pvi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+      pv_ty := match(field_types.get_cloned(pvi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       if((pv_lbl != "") && is_function_type(&pv_ty), {
         register_provisional_trait_method(
           pv_type_id.clone(),
@@ -345,7 +345,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   (i : usize) = usize(0);
   while(i < n_fields, {
     field_label_opt := field_labels.get(i);
-    field_type_opt := field_types.get(i);
+    field_type_opt := field_types.get_cloned(i);
     field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
     field_type := match(field_type_opt, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit));
     (found_arg : bool) = false;

@@ -282,11 +282,11 @@ _gadt_refined_expected :: (
   (refined : Option(TypeValue)) = Option(TypeValue).None;
   (k : usize) = usize(0);
   while((k < tca.len()) && refined.is_none(), {
-    tk := match(tca.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    tk := match(tca.get_cloned(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid, _ => String.new());
     if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
       match(
-        gra.get(k),
+        gra.get_cloned(k),
         .Some(g) => {
           refined = Option(TypeValue).Some(g);
         },
@@ -933,7 +933,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(ftys.get_cloned(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         new_idx.push(fi);
         new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
@@ -949,7 +949,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          fty := match(ftys.get_cloned(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -1042,7 +1042,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        ety := match(elem_tys.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         new_subs.push(recur(&subs(i), &ety, cell, own, env, exn));
         i = (i + usize(1));
       });
@@ -1325,7 +1325,7 @@ evaluate_match :: (
           (tca_i_em : usize) = usize(0);
           while(tca_i_em < tca_raw_em.len(), {
             match(
-              tca_raw_em.get(tca_i_em),
+              tca_raw_em.get_cloned(tca_i_em),
               .Some(tca_e_em) => {
                 tca_resolved_em.push(gadt_resolve_tca_entry(&tca_e_em));
               },

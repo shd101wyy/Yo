@@ -649,7 +649,7 @@ impl(
     targets := match(self.dyn_upcasts.get(src_key.clone()), .Some(t) => t, .None => ArrayList(TypeValue).new());
     (i : usize) = usize(0);
     while(i < targets.len(), {
-      if(match(targets.get(i), .Some(t) => (type_key(&t) == tgt_key), .None => false), {
+      if(match(targets.get_cloned(i), .Some(t) => (type_key(&t) == tgt_key), .None => false), {
         return(());
       });
       i = (i + usize(1));
@@ -1109,7 +1109,7 @@ extern_c_global_matches :: (fn(name : &String, ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < tys.len(), {
     match(
-      tys.get(i),
+      tys.get_cloned(i),
       .Some(gty) => if(type_key(&gty) == tk, {
         return(true);
       }),
@@ -1572,7 +1572,7 @@ _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
       n := rtts.len();
       while((i < n) && !found, {
         match(
-          rtts.get(i),
+          rtts.get_cloned(i),
           .Some(Rc(.FutureTraitT(_, _, _, _))) => {
             found = true;
           },
@@ -1600,7 +1600,7 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
       n := eft_rtts.len();
       while((eft_i < n) && eft_found.is_none(), {
         match(
-          eft_rtts.get(eft_i),
+          eft_rtts.get_cloned(eft_i),
           .Some(eft_rt) => match(
             &eft_rt,
             Rc(.FutureTraitT(_, _, _, _)) => {

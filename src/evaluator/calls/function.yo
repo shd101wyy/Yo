@@ -391,7 +391,7 @@ _reject_dyn_uncallable_method_call :: (
               (j : usize) = usize(0);
               while(j < fls.len(), {
                 if(match(fls.get(j), .Some(l) => (l == name_tok.value), .None => false), {
-                  ft := match(fts.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                  ft := match(fts.get_cloned(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                   if(dyn_member_is_method(&ft), {
                     match(
                       dyn_member_unsafe_reason(&ft),
@@ -1499,7 +1499,7 @@ _sai_arg_type :: (
   fn(args : &ArrayList(AstExpr), i : usize, nodes : &mut ArrayList(Option(AstExpr)), tys : &mut ArrayList(Option(TypeValue)), env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue)
 )({
   match(
-    tys.get(i),
+    tys.get_cloned(i),
     .Some(.Some(t)) => {
       return(Option(TypeValue).Some(t));
     },
@@ -1612,7 +1612,7 @@ _sai_bind_receiver :: (
     match(
       nodes.get(ni),
       .Some(.Some(n)) => match(
-        tys.get(ni),
+        tys.get_cloned(ni),
         .Some(.Some(n_ty)) => if(are_types_compatible_exact(&convert_comptime_type_to_runtime_type(&n_ty, env), &n_ty), {
           pre.push(ast_expr_id(&n));
         }),
@@ -1634,12 +1634,12 @@ _sai_normalize_binder_levels :: (fn(ty : &TypeValue, names : &ArrayList(String),
   (bi : usize) = usize(0);
   while(bi < names.len(), bi = (bi + usize(1)), {
     b_name := match(names.get(bi), .Some(n) => n, .None => String.new());
-    b_some := match(somes.get(bi), .Some(t) => t, .None => t_unit());
+    b_some := match(somes.get_cloned(bi), .Some(t) => t, .None => t_unit());
     b_lvl := match(&b_some, Rc(.SomeT({ frame_level : l })) => l, _ => usize(0));
     (ai : usize) = usize(0);
     while(ai < all.len(), ai = (ai + usize(1)), {
       match(
-        all.get(ai),
+        all.get_cloned(ai),
         .Some(Rc(.SomeT({ name : a_name, frame_level : a_lvl }))) => if((a_name == b_name) && (a_lvl != b_lvl), {
           subst_add(&s, &b_name, a_lvl, &b_some);
           added = true;
@@ -1685,7 +1685,7 @@ _sai_try_candidate :: (
   (ai : usize) = usize(0);
   while(ai < args.len(), ai = (ai + usize(1)), {
     match(
-      pts.get(ai),
+      pts.get_cloned(ai),
       .Some(pt_raw) => {
         // A parameter's type is its slot (`&T` is `Reference(T)`); the
         // argument binds the pointee.
@@ -1699,9 +1699,9 @@ _sai_try_candidate :: (
                 (gi : usize) = usize(0);
                 while(gi < got.len(), gi = (gi + usize(1)), {
                   match(
-                    got.get(gi),
+                    got.get_cloned(gi),
                     .Some(.Some(now)) => match(
-                      binds.get(gi),
+                      binds.get_cloned(gi),
                       .Some(.Some(prev)) => cond(
                         _forall_types_conflict(&prev.ty, &now) => {
                           return(
@@ -1749,7 +1749,7 @@ _sai_try_candidate :: (
     b_name := match(c.binder_names.get(bi), .Some(n) => n, .None => String.new());
     needed := _sai_mentions_binder_named(&c.receiver_pattern, &b_name);
     match(
-      binds.get(bi),
+      binds.get_cloned(bi),
       .Some(.Some(b)) => bindings.push(Option(TypeValue).Some(convert_comptime_type_to_runtime_type(&b.ty, env))),
       _ => {
         if(needed, {
@@ -1791,9 +1791,9 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   while(bi < c.binder_names.len(), bi = (bi + usize(1)), {
     b_name := match(c.binder_names.get(bi), .Some(n) => n, .None => String.new());
     match(
-      bindings.get(bi),
+      bindings.get_cloned(bi),
       .Some(.Some(bty)) => match(
-        c.binder_types.get(bi),
+        c.binder_types.get_cloned(bi),
         .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &b_name, lvl, &bty),
         _ => ()
       ),
@@ -1805,7 +1805,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   (ti : usize) = usize(0);
   while(ti < targs.len(), ti = (ti + usize(1)), {
     match(
-      targs.get(ti),
+      targs.get_cloned(ti),
       .Some(ta) => {
         arg_ty := substitute(&s, &ta);
         aid := alloc_global_expr_id();
@@ -1863,12 +1863,12 @@ _sai_decide :: (
   (oi : usize) = usize(0);
   while(oi < outcomes.len(), oi = (oi + usize(1)), {
     match(
-      outcomes.get(oi),
+      outcomes.get_cloned(oi),
       .Some(.Bound(r, site)) => {
         (dup : bool) = false;
         (di : usize) = usize(0);
         while((di < bound_tys.len()) && !dup, di = (di + usize(1)), {
-          dup = match(bound_tys.get(di), .Some(t) => are_types_compatible_exact(&t, &r), .None => false);
+          dup = match(bound_tys.get_cloned(di), .Some(t) => are_types_compatible_exact(&t, &r), .None => false);
         });
         if(!dup, {
           bound_tys.push(r);
@@ -1879,7 +1879,7 @@ _sai_decide :: (
     );
   });
   if(bound_tys.len() == usize(1), {
-    chosen := match(bound_tys.get(usize(0)), .Some(t) => t, .None => t_unit());
+    chosen := match(bound_tys.get_cloned(usize(0)), .Some(t) => t, .None => t_unit());
     return(_sai_bind_receiver(recv, &chosen, nodes, tys, env, ctx));
   });
   if(!may_throw, {
@@ -1894,7 +1894,7 @@ _sai_decide :: (
       if(li > usize(0), {
         listing.push_str(cond(((li + usize(1)) == bound_tys.len()) => " and ", true => ", "));
       });
-      listing.push_string(`\`${match(bound_tys.get(li), .Some(t) => type_to_string(&t), .None => String.new())}\` (the impl at ${match(bound_sites.get(li), .Some(s) => s, .None => String.new())})`);
+      listing.push_string(`\`${match(bound_tys.get_cloned(li), .Some(t) => type_to_string(&t), .None => String.new())}\` (the impl at ${match(bound_sites.get(li), .Some(s) => s, .None => String.new())})`);
     });
     exn.throw(
       dyn(
@@ -1908,7 +1908,7 @@ _sai_decide :: (
   });
   if(cands.len() == usize(1), {
     match(
-      outcomes.get(usize(0)),
+      outcomes.get_cloned(usize(0)),
       .Some(.WhereFailed(wb, wbound, wtrait, wsite)) => {
         exn.throw(
           dyn(
@@ -1926,7 +1926,7 @@ _sai_decide :: (
   (oj : usize) = usize(0);
   while(oj < outcomes.len(), oj = (oj + usize(1)), {
     match(
-      outcomes.get(oj),
+      outcomes.get_cloned(oj),
       .Some(.Conflict(cb, cfirst, cfirst_arg, clater, clater_arg)) => {
         exn.throw(
           dyn(
@@ -1944,7 +1944,7 @@ _sai_decide :: (
   (ok : usize) = usize(0);
   while(ok < outcomes.len(), ok = (ok + usize(1)), {
     match(
-      outcomes.get(ok),
+      outcomes.get_cloned(ok),
       .Some(.Unbound(ub)) => {
         exn.throw(
           dyn(
@@ -1962,7 +1962,7 @@ _sai_decide :: (
   (on : usize) = usize(0);
   while(on < outcomes.len(), on = (on + usize(1)), {
     match(
-      outcomes.get(on),
+      outcomes.get_cloned(on),
       .Some(.NoFit(na, nty, npt)) => {
         exn.throw(
           dyn(
@@ -2736,7 +2736,7 @@ _try_expand_call_overload :: (
   (cand_i : usize) = usize(0);
   while(cand_i < cand_vals.len(), {
     cv2 := match(cand_vals.get(cand_i), .Some(v) => v, .None => EvalValue.UnitVal);
-    ct2 := match(cand_tys.get(cand_i), .Some(t) => t, .None => t_unit());
+    ct2 := match(cand_tys.get_cloned(cand_i), .Some(t) => t, .None => t_unit());
     ok_out := ArrayList(bool).new();
     _trial_call_overload_candidate(&cv2, &ct2, call_expr, &func_expr, args, env, ctx, &mut ok_out);
     if(ok_out.len() > usize(0), {
@@ -2800,7 +2800,7 @@ ${ast_expr_to_string(call_expr)}`
     (csi : usize) = usize(0);
     while(csi < successes.len(), {
       s_ct_idx := match(successes.get(csi), .Some(i) => i, .None => usize(0));
-      s_ct_ty := match(cand_tys.get(s_ct_idx), .Some(t) => t, .None => t_unit());
+      s_ct_ty := match(cand_tys.get_cloned(s_ct_idx), .Some(t) => t, .None => t_unit());
       if(match(s_ct_ty, Rc(.Func({ meta : __sm1 })) => __sm1.*.result_is_comptime_only, _ => false), {
         ct_successes.push(s_ct_idx);
       });
@@ -2817,7 +2817,7 @@ ${ast_expr_to_string(call_expr)}`
     (si : usize) = usize(0);
     while(si < successes.len(), {
       sidx := match(successes.get(si), .Some(i) => i, .None => usize(0));
-      sty := match(cand_tys.get(sidx), .Some(t) => t, .None => t_unit());
+      sty := match(cand_tys.get_cloned(sidx), .Some(t) => t, .None => t_unit());
       has_ct_param := match(
         sty,
         Rc(.Func({ param_types : s_pts })) => {
@@ -2844,7 +2844,7 @@ ${ast_expr_to_string(call_expr)}`
     });
   }));
   winner_val := match(cand_vals.get(winner_idx), .Some(v) => v, .None => EvalValue.UnitVal);
-  winner_ty := match(cand_tys.get(winner_idx), .Some(t) => t, .None => t_unit());
+  winner_ty := match(cand_tys.get_cloned(winner_idx), .Some(t) => t, .None => t_unit());
   // Overwrite the callee's ExprInfo with the winner so the FuncVal arm of
   // `evaluate_function_call` performs the real call.
   out := new_expr_info(&info.env, &winner_ty);
@@ -2951,7 +2951,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
       (i : usize) = usize(0);
       while(i < fw_rtt.len(), {
         match(
-          fw_rtt.get(i),
+          fw_rtt.get_cloned(i),
           .Some(rt) => new_rtt.push(
             match(
               &rt,
@@ -2981,7 +2981,7 @@ _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
       (found : Option(String)) = Option(String).None;
       while((i < rtts.len()) && found.is_none(), {
         match(
-          rtts.get(i),
+          rtts.get_cloned(i),
           .Some(rt) => match(
             rt,
             Rc(.FutureTraitT({ output : o })) => match(
@@ -4786,7 +4786,7 @@ _gc_collect_binder_sites :: (
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
-        somes.get(si),
+        somes.get_cloned(si),
         .Some(sv) => match(
           &sv,
           Rc(.SomeT({ id : sid, name : snm, frame_level : slvl, required_trait_types : srt })) => {
@@ -4818,7 +4818,7 @@ _gc_collect_binder_sites :: (
             });
             (ri : usize) = usize(0);
             while(ri < srt.len(), {
-              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              match(srt.get_cloned(ri), .Some(rt) => work.push(rt), .None => ());
               ri = (ri + usize(1));
             });
           },
@@ -4900,7 +4900,7 @@ _gc_freshen_all_sites :: (
       // Dropping `required_trait_types` would silently discard a
       // `where(R <: (Send, Acyclic))` bound — the freshened binder must be the
       // same type variable, only with a per-call identity.
-      g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => rc(TypeValueNode.Unit));
+      g_proto := match(site_protos.get_cloned(gi), .Some(pv) => pv, .None => rc(TypeValueNode.Unit));
       g_made := match(
         &g_proto,
         Rc(.SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, kind_function_type : g_pkft })) => rc(
@@ -4948,7 +4948,7 @@ _gc_freshen_all_sites :: (
       while(sk < fresh_ids.len(), {
         if(match(fresh_ids.get(sk), .Some(x) => x, .None => String.new()) == s_id, {
           match(
-            fresh_types.get(sk),
+            fresh_types.get_cloned(sk),
             .Some(s_rep) => {
               subst_add(&gs, s_nm.clone(), s_lvl, &s_rep);
             },
@@ -5161,7 +5161,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           new_rtt := ArrayList(TypeValue).new();
           (rf_i : usize) = usize(0);
           while(rf_i < rf_rtt.len(), {
-            match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
+            match(rf_rtt.get_cloned(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
           rc(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, Rc.clone(rf_pt), new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft.clone(), rf_rc.clone()))
@@ -5294,7 +5294,7 @@ _fv_type_vars_are_callers_binders :: (fn(env : &Environment, t : &TypeValue) -> 
   (any_open : bool) = false;
   (si : usize) = usize(0);
   while(si < somes.len(), {
-    st := match(somes.get(si), .Some(s) => s, .None => t_unit());
+    st := match(somes.get_cloned(si), .Some(s) => s, .None => t_unit());
     si = (si + usize(1));
     if(!type_contains_some_type(&st), {
       continue;
@@ -5526,7 +5526,7 @@ _fv_refine_closure_expected :: (
           while(sq < info_arg_idx.len(), {
             sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
             s_info := match(infos.get(sq), .Some(i) => i, .None => new_expr_info(env, t_unit()));
-            s_dpt := match(declared_param_types.get(sp), .Some(t) => t_slot_pointee(&t), .None => t_unit());
+            s_dpt := match(declared_param_types.get_cloned(sp), .Some(t) => t_slot_pointee(&t), .None => t_unit());
             // Function-typed arguments are provisional here (see the
             // composite cross-check); only value arguments inform.
             if(!(is_function_type(&s_info.ty) || is_fn_trait_type(&s_info.ty) || is_some_type(&s_info.ty)), {
@@ -5549,7 +5549,7 @@ _fv_refine_closure_expected :: (
         (ms_i : usize) = usize(0);
         while(ms_i < mentioned.len(), {
           match(
-            mentioned.get(ms_i),
+            mentioned.get_cloned(ms_i),
             .Some(Rc(.SomeT({ name : sg_n, frame_level : sg_l }))) => if(sg_n == f_name, {
               subst_add(&sb, &sg_n, sg_l, &ft);
               any = true;
@@ -5641,7 +5641,7 @@ _fv_bind_unbound_forall_placeholders :: (
         wsomes := collect_somes_with_fn_sigs(match(wts.get(wi), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
         (wj : usize) = usize(0);
         while(wj < wsomes.len(), {
-          match(wsomes.get(wj), .Some(x) => sig_somes.push(x), .None => ());
+          match(wsomes.get_cloned(wj), .Some(x) => sig_somes.push(x), .None => ());
           wj = (wj + usize(1));
         });
         wi = (wi + usize(1));
@@ -5668,7 +5668,7 @@ _fv_bind_unbound_forall_placeholders :: (
     (si : usize) = usize(0);
     while((si < sig_somes.len()) && sig_st.is_none(), {
       match(
-        sig_somes.get(si),
+        sig_somes.get_cloned(si),
         .Some(st) => match(
           &st,
           Rc(.SomeT({ name : sn })) => if(sn == fname, {
@@ -5817,7 +5817,7 @@ _funcval_bind_foralls :: (
         pf_name := match(pre_forall_names.get(pfa_i), .Some(n) => n, .None => String.from(""));
         if(pf_name == fa_name, {
           pf_val := match(pre_forall_vals.get(pfa_i), .Some(v) => v, .None => EvalValue.UnitVal);
-          pf_ty := match(pre_forall_types.get(pfa_i), .Some(t) => t, .None => t_unit());
+          pf_ty := match(pre_forall_types.get_cloned(pfa_i), .Some(t) => t, .None => t_unit());
           // A TYPE argument binds as a `TypeVal` at `Type` (the same shape the
           // name-match arm below produces); a VALUE argument for a
           // value-generic (`generic(N : usize)`) keeps its own declared type.
@@ -5843,7 +5843,7 @@ _funcval_bind_foralls :: (
     };
     // The binder's first binding (explicit or from an argument) and the
     // argument that made it, for the per-call consistency check below.
-    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.last(), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
+    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.last_cloned(), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
     (fa_first_arg : Option(usize)) = Option(usize).None;
     while(ptn_i < n_ptn, {
       ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
@@ -5859,7 +5859,7 @@ _funcval_bind_foralls :: (
             later_info := match(evaled_arg_infos.get(ptn_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             later_ty := _funcval_infer_forall_ty(
               &later_info.ty,
-              match(expected_param_types.get(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
+              match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
               match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
               env
             );
@@ -5881,7 +5881,7 @@ _funcval_bind_foralls :: (
         // `_funcval_infer_forall_ty`'s.
         fa_infer_ty := _funcval_infer_forall_ty(
           &arg_info.ty,
-          match(expected_param_types.get(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
+          match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
           match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
           env
         );
@@ -5922,7 +5922,7 @@ _funcval_bind_foralls :: (
             _phantom_binder_args(&pp_decl, &pp_arg, fa_name.clone(), &mut pp_found);
             (pp_k : usize) = usize(0);
             while(pp_k < pp_found.len(), {
-              pp_ty := match(pp_found.get(pp_k), .Some(t) => t, .None => t_unit());
+              pp_ty := match(pp_found.get_cloned(pp_k), .Some(t) => t, .None => t_unit());
               if(_forall_types_conflict(&fa_prev, &pp_ty), {
                 fa_conflicts.push(_forall_conflict_message(fa_name.clone(), &fa_prev, match(fa_first_arg, .Some(i) => _forall_arg_phrase(i), .None => String.from("the explicit generic(...) argument")), &pp_ty, pp_i));
                 fa_conflict_args.push(pp_i);
@@ -5985,7 +5985,7 @@ _funcval_bind_foralls :: (
               while((sn_k < se_seen_names.len()) && !sn_found, {
                 if(match(se_seen_names.get(sn_k), .Some(n) => (n == sn_name), .None => false), {
                   sn_found = true;
-                  sn_prev := match(se_seen_tys.get(sn_k), .Some(t) => t, .None => t_unit());
+                  sn_prev := match(se_seen_tys.get_cloned(sn_k), .Some(t) => t, .None => t_unit());
                   sn_prev_len := match(se_seen_lens.get(sn_k), .Some(l) => l, .None => String.new());
                   sn_prev_arg := match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0));
                   if((sn_len.len() > usize(0)) && (sn_prev_len.len() > usize(0)) && (sn_len != sn_prev_len), {
@@ -6258,7 +6258,7 @@ _funcval_bind_foralls :: (
       (cx_b : usize) = usize(0);
       while(cx_b < fa_bound_names.len(), {
         cx_name := match(fa_bound_names.get(cx_b), .Some(n) => n, .None => String.new());
-        cx_prev := match(fa_bound_types.get(cx_b), .Some(t) => t, .None => t_unit());
+        cx_prev := match(fa_bound_types.get_cloned(cx_b), .Some(t) => t, .None => t_unit());
         cx_b = (cx_b + usize(1));
         match(
           _scratch_concrete_binding(&cx_env, cx_name.clone()),
@@ -6304,7 +6304,7 @@ _rre_binder_ids :: (
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
-        somes.get(si),
+        somes.get_cloned(si),
         .Some(sv) => match(
           sv,
           Rc(.SomeT({ id : sid, name : snm, required_trait_types : srt })) => {
@@ -6321,7 +6321,7 @@ _rre_binder_ids :: (
             });
             (ri : usize) = usize(0);
             while(ri < srt.len(), {
-              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              match(srt.get_cloned(ri), .Some(rt) => work.push(rt), .None => ());
               ri = (ri + usize(1));
             });
           },
@@ -6394,7 +6394,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
     (si : usize) = usize(0);
     while((si < somes.len()) && !found, {
       match(
-        somes.get(si),
+        somes.get_cloned(si),
         .Some(sv) => match(
           sv,
           Rc(.SomeT({ name : sn, required_trait_types : srt })) => {
@@ -6411,7 +6411,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
             });
             (ri : usize) = usize(0);
             while(ri < srt.len(), {
-              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              match(srt.get_cloned(ri), .Some(rt) => work.push(rt), .None => ());
               ri = (ri + usize(1));
             });
           },
@@ -6625,7 +6625,7 @@ _evaluate_funcval_runtime_call :: (
       (s_ret_any : bool) = false;
       (rsi : usize) = usize(0);
       while(rsi < ret_somes.len(), {
-        rst := match(ret_somes.get(rsi), .Some(t) => t, .None => t_unit());
+        rst := match(ret_somes.get_cloned(rsi), .Some(t) => t, .None => t_unit());
         match(
           rst,
           Rc(.SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _)) => {
@@ -6633,7 +6633,7 @@ _evaluate_funcval_runtime_call :: (
             while(bni < fa_bound_names.len(), {
               bn := match(fa_bound_names.get(bni), .Some(x) => x, .None => String.from(""));
               if(bn == rst_name, {
-                bt := match(fa_bound_types.get(bni), .Some(t) => t, .None => t_unit());
+                bt := match(fa_bound_types.get_cloned(bni), .Some(t) => t, .None => t_unit());
                 subst_add(&s_ret, rst_name.clone(), rst_lvl, &bt);
                 s_ret_any = true;
               });
@@ -6679,7 +6679,7 @@ _evaluate_funcval_runtime_call :: (
     (hkt_i : usize) = usize(0);
     while((hkt_i < hkt_somes.len()) && !hkt_ret_binder, {
       match(
-        hkt_somes.get(hkt_i),
+        hkt_somes.get_cloned(hkt_i),
         .Some(hkt_st) => match(
           hkt_st,
           Rc(.SomeT({ kind_function_type : hkt_kft })) => match(
@@ -6763,13 +6763,13 @@ _evaluate_funcval_runtime_call :: (
         _trial_eval_ret_type_expr(clone_expr_fresh_ids(&hkt_expr), fresh_env, ctx, &mut hkt_out);
         if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
           rre_dbg_self := match(&ctx.self_type, .Some(st) => type_to_string(&st), .None => String.from("<none>"));
-          rre_dbg_out := match(hkt_out.get(usize(0)), .Some(t) => type_to_string(&t), .None => String.from("<none>"));
+          rre_dbg_out := match(hkt_out.get_cloned(usize(0)), .Some(t) => type_to_string(&t), .None => String.from("<none>"));
           eprintln(`[rre] callee=${ast_expr_to_string(func_expr)} old=${rre_old_wanted.to_string()} era=${rre_era_suspect.to_string()} self=${rre_dbg_self} hkt=${rre_dbg_out} resolved_ret=${type_to_string(&resolved_ret)}`);
         });
         ctx.is_evaluating_function_type = hkt_prev_fnty;
         ctx.self_type = hkt_prev_self;
         match(
-          hkt_out.get(usize(0)),
+          hkt_out.get_cloned(usize(0)),
           // Accept a SomeT-free result, OR one whose SomeTs ALL resolve
           // concretely through their resolutions (the closure-`F` family:
           // `IterFilter(Self, F)` with the per-call `F → __impl_fn →
@@ -7118,7 +7118,7 @@ _evaluate_funcval_runtime_call :: (
     spec_forall_args := ArrayList(ArgEntry).new();
     (sfa_i : usize) = usize(0);
     while(sfa_i < fa_bound_names.len(), {
-      fbt := match(fa_bound_types.get(sfa_i), .Some(t) => t, .None => t_unit());
+      fbt := match(fa_bound_types.get_cloned(sfa_i), .Some(t) => t, .None => t_unit());
       // Use the binding's ACTUAL env value: a VALUE-level generic
       // (`generic(N : usize)`) is bound to an IntLit — the spec cache key
       // (compile_time_args in the mint) must carry the VALUE so distinct
@@ -7872,7 +7872,7 @@ _instantiate_struct_over_closure_args :: (
       (fi : usize) = usize(0);
       while(fi < fields.len(), {
         match(
-          arg_types.get(fi),
+          arg_types.get_cloned(fi),
           .Some(ic_arg_opt) => match(
             ic_arg_opt,
             .Some(ic_arg) => if(is_bound_closure_identity(&ic_arg), {
@@ -7916,7 +7916,7 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
   (i : usize) = usize(0);
   while(i < tys.len(), {
     match(
-      tys.get(i),
+      tys.get_cloned(i),
       .Some(t) => {
         (r : TypeValue) = Rc.clone(t);
         match(
@@ -7925,7 +7925,7 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
             (k : usize) = usize(0);
             while(k < ids.len(), {
               if(match(ids.get(k), .Some(x) => (x == t_id), .None => false), {
-                r = match(with.get(k), .Some(w) => w, .None => Rc.clone(t));
+                r = match(with.get_cloned(k), .Some(w) => w, .None => Rc.clone(t));
               });
               k = (k + usize(1));
             });
@@ -8635,7 +8635,7 @@ _evaluate_function_call_unanchored :: (
         // Only refine when the 2nd operand evaluated to a concrete type; a
         // shorthand operand left `snd_ty_holder` empty → keep the first overload.
         match(
-          snd_ty_holder.get(usize(0)),
+          snd_ty_holder.get_cloned(usize(0)),
           .Some(snd_ty) => {
             (osi : usize) = usize(0);
             (osel : bool) = false;
@@ -10583,7 +10583,7 @@ Fix: wrap the call:
                         _trial_eval_ret_type_expr(clone_expr_fresh_ids(&vs_e), env, ctx, &mut vs_out);
                         ctx.is_evaluating_function_type = vs_prev_fnty;
                         match(
-                          vs_out.get(usize(0)),
+                          vs_out.get_cloned(usize(0)),
                           .Some(vs_t) => if((get_all_some_types(&vs_t).len() == usize(0)) && !is_unit_type(&vs_t) && !_type_has_array_len_var(&vs_t), {
                             vs_override = Option(TypeValue).Some(vs_t);
                           }),
@@ -11233,7 +11233,7 @@ Fix: wrap the call:
         (fve_i : usize) = usize(0);
         while(fve_i < fv_exp_forall_names.len(), {
           fve_name := match(fv_exp_forall_names.get(fve_i), .Some(n) => n, .None => String.new());
-          fve_ty := match(fv_exp_forall_types.get(fve_i), .Some(t) => t, .None => t_unit());
+          fve_ty := match(fv_exp_forall_types.get_cloned(fve_i), .Some(t) => t, .None => t_unit());
           fve_i = (fve_i + usize(1));
           (fve_bound : bool) = false;
           (fve_j : usize) = usize(0);
@@ -11353,7 +11353,7 @@ Fix: wrap the call:
               while(rk < rn, {
                 bn := match(fa_bound_names.get(rk), .Some(s) => s, .None => String.from(""));
                 if((sname.len() > usize(0)) && (bn == sname), {
-                  rt = match(fa_bound_types.get(rk), .Some(t) => t, .None => Rc.clone(bind_decl_pt));
+                  rt = match(fa_bound_types.get_cloned(rk), .Some(t) => t, .None => Rc.clone(bind_decl_pt));
                   rk = rn;
                 }, {
                   rk = (rk + usize(1));
@@ -11887,7 +11887,7 @@ Fix: wrap the call:
               (s_ct_any : bool) = false;
               (ctsi : usize) = usize(0);
               while(ctsi < ct_ret_somes.len(), {
-                ct_rst := match(ct_ret_somes.get(ctsi), .Some(t) => t, .None => t_unit());
+                ct_rst := match(ct_ret_somes.get_cloned(ctsi), .Some(t) => t, .None => t_unit());
                 match(
                   ct_rst,
                   Rc(.SomeT(_, ct_rst_name, ct_rst_lvl, _, _, _, _, _, _, _)) => {
@@ -11895,7 +11895,7 @@ Fix: wrap the call:
                     while(ct_bni < fa_bound_names.len(), {
                       ct_bn := match(fa_bound_names.get(ct_bni), .Some(x) => x, .None => String.from(""));
                       if(ct_bn == ct_rst_name, {
-                        ct_bt := match(fa_bound_types.get(ct_bni), .Some(t) => t, .None => t_unit());
+                        ct_bt := match(fa_bound_types.get_cloned(ct_bni), .Some(t) => t, .None => t_unit());
                         subst_add(&s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
                         s_ct_any = true;
                       });

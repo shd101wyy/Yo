@@ -930,7 +930,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     // The loop condition proves the index in [0, len); the panic arms carry
     // that invariant instead of trusting unwrap (safe-mode D7).
     vname := match(binder_names.get(vi), .Some(vn) => vn, .None => __yo_panic("contracts: binder_names.get(vi) — vi < len by loop condition"));
-    vty := match(binder_types.get(vi), .Some(vt) => vt, .None => __yo_panic("contracts: binder_types.get(vi) — vi < len by loop condition"));
+    vty := match(binder_types.get_cloned(vi), .Some(vt) => vt, .None => __yo_panic("contracts: binder_types.get(vi) — vi < len by loop condition"));
     _ := add_variable_to_env(
       &cur_env,
       vname.clone(),
@@ -1693,7 +1693,7 @@ register_impl_inheritance_task :: (
       (bih : usize) = usize(0);
       while(bih < p_names.len(), {
         __pn := match(p_names.get(bih), .Some(x) => x, .None => String.new());
-        __pt := match(p_types.get(bih), .Some(x) => x, .None => t_unit());
+        __pt := match(p_types.get_cloned(bih), .Some(x) => x, .None => t_unit());
         if(__pn.len() > usize(0), {
           add_variable_to_env(
             &pred_env,
@@ -2350,7 +2350,7 @@ register_impl_variance_task :: (
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
     __pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
-    __pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
+    __pt := match(p_types.get_cloned(bi), .Some(x) => x, .None => t_unit());
     if(__pn.len() > usize(0), {
       add_variable_to_env(
         &pred_env,
@@ -3237,7 +3237,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
     pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
-    pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
+    pt := match(p_types.get_cloned(bi), .Some(x) => x, .None => t_unit());
     if(pn.len() > usize(0), {
       add_variable_to_env(
         &pred_env,

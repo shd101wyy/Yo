@@ -76,7 +76,7 @@ register_dyn_upcast_targets :: (fn(context : &CodeGenContext) -> unit)({
           targets := context.dyn_upcast_targets(entry.dyn_type.clone());
           (t : usize) = usize(0);
           while(t < targets.len(), {
-            tgt := match(targets.get(t), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+            tgt := match(targets.get_cloned(t), .Some(x) => x, .None => rc(TypeValueNode.Unit));
             tkey := `${type_key(entry.concrete_type.clone())}_${type_key(tgt.clone())}`;
             if(context.dyn_impls.get(tkey.clone()).is_none(), {
               context.register_dyn_impl(

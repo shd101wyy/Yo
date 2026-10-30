@@ -68,7 +68,7 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
     Rc(.TraitT({ field_types : fts, assoc_constraint_types : acts })) => {
       (i : usize) = usize(0);
       while(i < fts.len(), {
-        match(fts.get(i), .Some(t) => parts.push(t), .None => ());
+        match(fts.get_cloned(i), .Some(t) => parts.push(t), .None => ());
         i = (i + usize(1));
       });
       (j : usize) = usize(0);
@@ -89,11 +89,11 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
   );
   (p : usize) = usize(0);
   while(p < parts.len(), {
-    somes := get_all_some_types(match(parts.get(p), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
+    somes := get_all_some_types(match(parts.get_cloned(p), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
     p = (p + usize(1));
     (k : usize) = usize(0);
     while(k < somes.len(), {
-      hit := match(somes.get(k), .Some(st) => match(st, Rc(.SomeT({ name : n, frame_level : l })) => ((n == sv_n) && (l == sv_l)), _ => false), .None => false);
+      hit := match(somes.get_cloned(k), .Some(st) => match(st, Rc(.SomeT({ name : n, frame_level : l })) => ((n == sv_n) && (l == sv_l)), _ => false), .None => false);
       if(hit, {
         return(true);
       });
@@ -129,7 +129,7 @@ _wrapper_carrier_args_concrete :: (fn(rtts : &ArrayList(TypeValue)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < rtts.len()) && ok, {
-    rtt := match(rtts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    rtt := match(rtts.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     match(
       rtt,
       Rc(.FnTraitT(call_param_types : cc_pts, call_result : cc_cr)) => {
@@ -207,13 +207,13 @@ _alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e
 _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(usize))({
   (i : usize) = usize(0);
   while(i < types.len(), {
-    t := match(types.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+    t := match(types.get_cloned(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
     somes := get_all_some_types(&t);
     match(&t, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
     (j : usize) = usize(0);
     while(j < somes.len(), {
       match(
-        somes.get(j),
+        somes.get_cloned(j),
         .Some(Rc(.SomeT({ name : nm, frame_level : lv }))) => if(nm == label, {
           return(Option(usize).Some(lv));
         }),
@@ -296,7 +296,7 @@ _future_trait_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
     Rc(.SomeT(required_trait_types : rtt)) => {
       (i : usize) = usize(0);
       while(i < rtt.len(), i = (i + usize(1)), {
-        match(rtt.get(i), .Some(Rc(.FutureTraitT(base_name : _))) => return(rtt.get(i)), _ => ());
+        match(rtt.get_cloned(i), .Some(Rc(.FutureTraitT(base_name : _))) => return(rtt.get_cloned(i)), _ => ());
       });
       Option(TypeValue).None
     },
@@ -461,7 +461,7 @@ _compat_impl :: (
     );
     i := usize(0);
     while(i < artt.len(), {
-      req := match(artt.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+      req := match(artt.get_cloned(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
       satisfied := false;
       j := usize(0);
       while(j < drtt.len(), {
@@ -503,7 +503,7 @@ _compat_impl :: (
     );
     i := usize(0);
     while(i < erts.len(), {
-      req := match(erts.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+      req := match(erts.get_cloned(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
       satisfied := false;
       j := usize(0);
       while(j < adrtt.len(), {
@@ -591,7 +591,7 @@ _compat_impl :: (
         (all_ok : bool) = true;
         (ri2 : usize) = usize(0);
         while((ri2 < erts2.len()) && all_ok, {
-          req2 := match(erts2.get(ri2), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+          req2 := match(erts2.get_cloned(ri2), .Some(v) => v, .None => rc(TypeValueNode.Unit));
           if(!_bound_mentions_some(&req2, expected) && !impl_check(actual, &req2), {
             all_ok = false;
           });
@@ -658,7 +658,7 @@ _compat_impl :: (
                 (a_all_ok : bool) = true;
                 (a_ri : usize) = usize(0);
                 while((a_ri < a_reqs.len()) && a_all_ok, {
-                  a_req := match(a_reqs.get(a_ri), .Some(v) => v, .None => rc(TypeValueNode.Unit));
+                  a_req := match(a_reqs.get_cloned(a_ri), .Some(v) => v, .None => rc(TypeValueNode.Unit));
                   if(!_bound_mentions_some(&a_req, actual) && !a_impl_check(expected, &a_req), {
                     a_all_ok = false;
                   });
@@ -1446,8 +1446,8 @@ _compat_impl :: (
 
           (xw_i : usize) = usize(0);
           while((xw_i < artt.len()) && xw_ok, {
-            xa := match(artt.get(xw_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-            xe := match(ertt.get(xw_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+            xa := match(artt.get_cloned(xw_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+            xe := match(ertt.get_cloned(xw_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             if(!recur(&xa, &xe, mode, visited), {
               xw_ok = false;
             });

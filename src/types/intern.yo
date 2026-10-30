@@ -430,7 +430,7 @@ _intern_key_into :: (
           ntf := tft.len();
           (itf : usize) = usize(0);
           while(itf < ntf, {
-            match(tft.get(itf), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(tft.get_cloned(itf), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             itf = (itf + usize(1));
           });
@@ -444,7 +444,7 @@ _intern_key_into :: (
           nsc := tsc.len();
           (isc : usize) = usize(0);
           while(isc < nsc, {
-            match(tsc.get(isc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(tsc.get_cloned(isc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             isc = (isc + usize(1));
           });
@@ -452,7 +452,7 @@ _intern_key_into :: (
           nnc := tnsc.len();
           (inc : usize) = usize(0);
           while(inc < nnc, {
-            match(tnsc.get(inc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(tnsc.get_cloned(inc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             inc = (inc + usize(1));
           });
@@ -497,7 +497,7 @@ _intern_key_into :: (
           nrt := smrtt.len();
           (irt : usize) = usize(0);
           while(irt < nrt, {
-            match(smrtt.get(irt), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(smrtt.get_cloned(irt), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             irt = (irt + usize(1));
           });
@@ -513,7 +513,7 @@ _intern_key_into :: (
           nnt := smntt.len();
           (int_ : usize) = usize(0);
           while(int_ < nnt, {
-            match(smntt.get(int_), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(smntt.get_cloned(int_), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             int_ = (int_ + usize(1));
           });
@@ -853,12 +853,12 @@ purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
 intern_type :: (fn(t : &TypeValue) -> TypeValue)({
   key := type_intern_key(t, usize(0), HashSet(String).new());
   match(
-    g_type_intern.with(m => m.get(&key)),
+    g_type_intern.with(m => m.get_cloned(&key)),
     .Some(canon) => canon,
     .None => {
       owned_keys_record(&g_type_intern_owned, key.clone());
       g_type_intern.with_mut({ key, t : Rc.clone(t) }(m) => m.insert(key.clone(), Rc.clone(t)));
-      match(g_type_intern.with(m => m.get(&key)), .Some(c) => c, .None => rc(TypeValueNode.Unit))
+      match(g_type_intern.with(m => m.get_cloned(&key)), .Some(c) => c, .None => rc(TypeValueNode.Unit))
     }
   )
 });

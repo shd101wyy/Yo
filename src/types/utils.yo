@@ -663,7 +663,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
   (ci : usize) = usize(0);
   while(ci < comps.len(), {
     match(
-      recur(match(comps.get(ci), .Some(c) => c, .None => rc(TypeValueNode.Unit)), depth + u32(1)),
+      recur(match(comps.get_cloned(ci), .Some(c) => c, .None => rc(TypeValueNode.Unit)), depth + u32(1)),
       .Some(found) => {
         return(Option(TypeValue).Some(found));
       },
@@ -818,7 +818,7 @@ type_holds_dyn_by_value :: (fn(ty : &TypeValue) -> bool)(_holds_dyn_by_value_inn
 _any_holds_dyn_by_value :: (fn(fields : &ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < fields.len(), {
-    if(match(fields.get(i), .Some(ft) => _holds_dyn_by_value_inner(&ft, depth), .None => false), {
+    if(match(fields.get_cloned(i), .Some(ft) => _holds_dyn_by_value_inner(&ft, depth), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -882,7 +882,7 @@ is_future_value_type :: (fn(ty : &TypeValue) -> bool)(
     Rc(.SomeT({ required_trait_types : rtt })) => {
       (i : usize) = usize(0);
       while(i < rtt.len(), {
-        if(match(rtt.get(i), .Some(t) => is_future_trait_type(&t), .None => false), {
+        if(match(rtt.get_cloned(i), .Some(t) => is_future_trait_type(&t), .None => false), {
           return(true);
         });
         i = (i + usize(1));
@@ -937,7 +937,7 @@ _type_walk_enter :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32) -> Opt
   (i : usize) = usize(0);
   while(i < w.memo.len(), {
     match(
-      w.memo.get(i),
+      w.memo.get_cloned(i),
       .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
         return(Option(bool).Some(e.answer));
       }),
@@ -948,7 +948,7 @@ _type_walk_enter :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32) -> Opt
   (pi : usize) = usize(0);
   while(pi < w.path.len(), {
     match(
-      w.path.get(pi),
+      w.path.get_cloned(pi),
       .Some(f) => if(__yo_ptr_eq(&f.ty, ty), {
         w.cut = true;
         return(Option(bool).Some(false));
@@ -1334,7 +1334,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   );
   (ci : usize) = usize(0);
   while(ci < comps.len(), {
-    c := match(comps.get(ci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    c := match(comps.get_cloned(ci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     match(
       cond(type_is_move_only(&c) => recur(&c, depth + u32(1)), true => Option(String).None),
       .Some(inner) => {
@@ -1503,7 +1503,7 @@ type_has_no_open_some :: (fn(t : &TypeValue) -> bool)({
   (hno_i : usize) = usize(0);
   while(hno_i < hno_somes.len(), {
     match(
-      hno_somes.get(hno_i),
+      hno_somes.get_cloned(hno_i),
       .Some(hno_s) => {
         if(is_some_type(resolve_cell_chain(&hno_s)), {
           return(false);
@@ -1553,7 +1553,7 @@ _any_reaches_non_atomic_cell :: (fn(fields : &ArrayList(TypeValue), w : &mut _Ty
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(ft) => if(_reaches_non_atomic_cell_inner(&ft, w, depth), {
         return(true);
       }),
@@ -1840,7 +1840,7 @@ buffer_element_types :: (fn(fields : &ArrayList(TypeValue)) -> ArrayList(TypeVal
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(f) => match(buffer_element_type(&f), .Some(e) => out.push(e), .None => ()),
       .None => ()
     );
@@ -2246,7 +2246,7 @@ type_contains_some_type :: (fn(ty : &TypeValue) -> bool)(
         (cst_i : usize) = usize(0);
         while(cst_i < cst_rtt.len(), {
           match(
-            cst_rtt.get(cst_i),
+            cst_rtt.get_cloned(cst_i),
             .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
               cst_has_fn_or_fut = true;
             },
@@ -2558,7 +2558,7 @@ enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -
           (j : usize) = usize(0);
           while((j < fs.len()) && !in_field, {
             match(
-              fs.get(j),
+              fs.get_cloned(j),
               .Some(Rc(.SomeT({ id : fid }))) => if(fid == ta_id, {
                 in_field = true;
               }),
@@ -2591,7 +2591,7 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
   (has_rt_only : bool) = false;
   (fi : usize) = usize(0);
   while(fi < fts.len(), {
-    (ft : TypeValue) = match(fts.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    (ft : TypeValue) = match(fts.get_cloned(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     fi = (fi + usize(1));
     // A pointer field classifies by its POINTEE (`*(Self)` / `*(i32)` are
     // both-context; `*(Rc(i32))` is runtime-only — tests/basic arm 10's
@@ -2655,7 +2655,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
               (sarc_ii : usize) = usize(0);
               while(sarc_ii < sarc_inner.len(), {
                 match(
-                  sarc_inner.get(sarc_ii),
+                  sarc_inner.get_cloned(sarc_ii),
                   .Some(sarc_is) => {
                     somes.push(sarc_is);
                     ()
@@ -2679,7 +2679,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < somes.len()) && ok, {
-    st := match(somes.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    st := match(somes.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     (cur : TypeValue) = st;
     (seen : ArrayList(String)) = ArrayList(String).new();
     (walk : bool) = true;
@@ -2828,7 +2828,7 @@ _resolves_to_concrete_type :: (fn(t : &TypeValue) -> bool)({
 _any_future_trait :: (fn(tys : &ArrayList(TypeValue)) -> bool)({
   (aft_i : usize) = usize(0);
   while(aft_i < tys.len(), {
-    if(match(tys.get(aft_i), .Some(aft_t) => is_future_trait_type(&aft_t), .None => false), {
+    if(match(tys.get_cloned(aft_i), .Some(aft_t) => is_future_trait_type(&aft_t), .None => false), {
       return(true);
     });
     aft_i = (aft_i + usize(1));
@@ -2869,7 +2869,7 @@ type_contains_some_type_deep :: (fn(ty : &TypeValue) -> bool)({
   (found : bool) = false;
   while((i < n) && !found, {
     match(
-      sts.get(i),
+      sts.get_cloned(i),
       .Some(st) => if(type_contains_some_type(&st), {
         found = true;
       }),
@@ -2892,12 +2892,12 @@ type_mentions_impl_fn_or_future :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < sts.len(), {
     match(
-      sts.get(i),
+      sts.get_cloned(i),
       .Some(Rc(.SomeT({ required_trait_types : rtt }))) => {
         (j : usize) = usize(0);
         while(j < rtt.len(), {
           match(
-            rtt.get(j),
+            rtt.get_cloned(j),
             .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
               return(true);
             },
@@ -3041,7 +3041,7 @@ _max_field_alignment :: (fn(fts : &ArrayList(TypeValue)) -> Option(usize))({
   (i : usize) = usize(0);
   n := fts.len();
   while((i < n) && !unknown, {
-    ft := match(fts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    ft := match(fts.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     match(
       _align_via_slot(&ft),
       .Some(a) => {
@@ -3065,7 +3065,7 @@ _aggregate_size :: (fn(fts : &ArrayList(TypeValue)) -> Option(usize))({
   (i : usize) = usize(0);
   n := fts.len();
   while((i < n) && !unknown, {
-    ft := match(fts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    ft := match(fts.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     match(
       _size_via_slot(&ft),
       .Some(fbits) => match(
@@ -3108,7 +3108,7 @@ _c_aggregate_size :: (fn(fts : &ArrayList(TypeValue)) -> Option(usize))({
   n := fts.len();
   while(i < n, {
     match(
-      fts.get(i),
+      fts.get_cloned(i),
       .Some(ft) => if(!is_unit_type(&ft), {
         members = (members + usize(1));
       }),
@@ -3511,7 +3511,7 @@ derive(_ReprMemoEntry, Clone);
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.with(xs => xs.len()), {
-    if(match(g_repr_path.with(xs => xs.get(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
+    if(match(g_repr_path.with(xs => xs.get_cloned(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -3523,7 +3523,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
-      bucket.get(i),
+      bucket.get_cloned(i),
       .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
         return(Option(bool).Some(e.answer));
       }),
@@ -3896,7 +3896,7 @@ _mentions_trait_self :: (fn(ty : &TypeValue) -> bool)({
   somes := get_all_some_types(ty);
   (i : usize) = usize(0);
   while(i < somes.len(), {
-    if(match(somes.get(i), .Some(s) => match(s, Rc(.SomeT({ name : n })) => (n == "Self"), _ => false), .None => false), {
+    if(match(somes.get_cloned(i), .Some(s) => match(s, Rc(.SomeT({ name : n })) => (n == "Self"), _ => false), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -3965,7 +3965,7 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
             (j : usize) = usize(0);
             while((j < fls.len()) && !found, {
               if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
-                ft := match(fts.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                ft := match(fts.get_cloned(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 found = (dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none());
               });
               j = (j + usize(1));
@@ -4010,7 +4010,7 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
             (j : usize) = usize(0);
             while((j < fls.len()) && out.is_empty(), {
               if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
-                ft := match(fts.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                ft := match(fts.get_cloned(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
                   match(
                     ft,
@@ -4094,7 +4094,7 @@ _is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
     Rc(.SomeT({ required_trait_types : uc_rtt })) => {
       (i : usize) = usize(0);
       while(i < uc_rtt.len(), i = (i + usize(1)), {
-        if(match(uc_rtt.get(i), .Some(uc_t) => match(uc_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
+        if(match(uc_rtt.get_cloned(i), .Some(uc_t) => match(uc_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
           return(true);
         });
       });
@@ -4242,7 +4242,7 @@ _type_mentions_generic_length :: (fn(ty : &TypeValue, depth : u32) -> bool)(
 _any_mentions_generic_length :: (fn(tys : &ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < tys.len(), {
-    if(match(tys.get(i), .Some(t) => _type_mentions_generic_length(&t, depth + u32(1)), .None => false), {
+    if(match(tys.get_cloned(i), .Some(t) => _type_mentions_generic_length(&t, depth + u32(1)), .None => false), {
       return(true);
     });
     i = (i + usize(1));

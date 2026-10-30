@@ -166,7 +166,7 @@ _eval_body_for_ctfe :: (
   (cap_i : usize) = usize(0);
   while(cap_i < n_cap, {
     cn := match(cap_names.get(cap_i), .Some(n) => n, .None => String.from(""));
-    ct := match(cap_tys.get(cap_i), .Some(t) => t, .None => t_unit());
+    ct := match(cap_tys.get_cloned(cap_i), .Some(t) => t, .None => t_unit());
     cv := match(cap_vals.get(cap_i), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
     is_ct := match(cv, .Some(_) => true, .None => false);
     _add := add_variable_to_env(
@@ -203,7 +203,7 @@ _eval_body_for_ctfe :: (
   (p_i : usize) = usize(0);
   while(p_i < n_p, {
     plabel := match(param_labels.get(p_i), .Some(l) => l, .None => String.from(""));
-    ptype := match(param_types.get(p_i), .Some(t) => t_slot_pointee(&t), .None => t_unit());
+    ptype := match(param_types.get_cloned(p_i), .Some(t) => t_slot_pointee(&t), .None => t_unit());
     punknown := create_unknown_val(&ptype);
     ptok := synthetic_token(&plabel, &env.module_path.*);
     _add_p := add_variable_to_env(
@@ -511,7 +511,7 @@ analyze_ctfe_capability :: (
           });
         }
       );
-      match(out.get(usize(0)), .Some(r) => .Some(r), .None => Option(CtfeComptimeFn).None)
+      match(out.get_cloned(usize(0)), .Some(r) => .Some(r), .None => Option(CtfeComptimeFn).None)
     }
   )
 });

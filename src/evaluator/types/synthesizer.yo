@@ -649,7 +649,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       i := usize(0);
       while((i < field_types.len()) && !res, {
         ft := match(
-          field_types.get(i),
+          field_types.get_cloned(i),
           .Some(t) => t,
           .None => {
             i = field_types.len();
@@ -749,7 +749,7 @@ _synthesize_implicit_params :: (
   (ei : usize) = usize(0);
   while(ei < n_exp, {
     exp_ty := match(
-      expected_types.get(ei),
+      expected_types.get_cloned(ei),
       .Some(t) => t,
       .None => {
         ei = n_exp;
@@ -762,7 +762,7 @@ _synthesize_implicit_params :: (
       already_matched := match(matched_given.get(gj), .Some(b) => b, .None => false);
       if(!already_matched, {
         giv_ty := match(
-          given_types.get(gj),
+          given_types.get_cloned(gj),
           .Some(g) => g,
           .None => {
             gj = n_giv;
@@ -986,7 +986,7 @@ _synthesize_types_impl :: (
               (eti : usize) = usize(0);
               while(eti < n_et, {
                 exp_trait := match(
-                  expected_traits.get(eti),
+                  expected_traits.get_cloned(eti),
                   .Some(t) => t,
                   .None => {
                     eti = n_et;
@@ -999,7 +999,7 @@ _synthesize_types_impl :: (
                     (fi : usize) = usize(0);
                     while(fi < given_traits.len(), {
                       giv_trait := match(
-                        given_traits.get(fi),
+                        given_traits.get_cloned(fi),
                         .Some(t) => t,
                         .None => {
                           fi = given_traits.len();
@@ -1020,7 +1020,7 @@ _synthesize_types_impl :: (
                     (fi : usize) = usize(0);
                     while(fi < given_traits.len(), {
                       giv_trait := match(
-                        given_traits.get(fi),
+                        given_traits.get_cloned(fi),
                         .Some(t) => t,
                         .None => {
                           fi = given_traits.len();
@@ -1083,7 +1083,7 @@ _synthesize_types_impl :: (
       (eti : usize) = usize(0);
       while(eti < n_et, {
         exp_trait := match(
-          exp_traits.get(eti),
+          exp_traits.get_cloned(eti),
           .Some(t) => t,
           .None => {
             eti = n_et;
@@ -1457,8 +1457,8 @@ _synthesize_types_impl :: (
       );
       (tci_sy : usize) = usize(0);
       while(tci_sy < tca_n_sy, {
-        et_sy := match(exp_tca_sy.get(tci_sy), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        gt_sy := match(giv_tca_sy.get(tci_sy), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        et_sy := match(exp_tca_sy.get_cloned(tci_sy), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        gt_sy := match(giv_tca_sy.get_cloned(tci_sy), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         res_sy := _synthesize_types_impl(&et_sy, &ee, &gt_sy, &ge, checked, opts, exn);
         ee = res_sy.expected_env;
         ge = res_sy.given_env;
@@ -1542,7 +1542,7 @@ _synthesize_types_impl :: (
       (i : usize) = usize(0);
       while(i < n, {
         et := match(
-          exp_ft.get(i),
+          exp_ft.get_cloned(i),
           .Some(t) => t,
           .None => {
             i = n;
@@ -1550,7 +1550,7 @@ _synthesize_types_impl :: (
           }
         );
         gt := match(
-          giv_ft.get(i),
+          giv_ft.get_cloned(i),
           .Some(t) => t,
           .None => {
             i = n;

@@ -160,7 +160,7 @@ _subst_lookup_by_name :: (fn(s : &Substitution, name : &String) -> Option(TypeVa
     ni := match(s.names.get(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       return(
-        match(s.types.get(i), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None)
+        match(s.types.get_cloned(i), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None)
       );
     });
     i = (i + usize(1));
@@ -282,7 +282,7 @@ subst_lookup :: (fn(s : &Substitution, name : &String, level : usize) -> Option(
     if((ni == name) && (li == level), {
       return(
         match(
-          s.types.get(i),
+          s.types.get_cloned(i),
           .Some(t) => Option(TypeValue).Some(t),
           .None => Option(TypeValue).None
         )
@@ -316,7 +316,7 @@ _type_mentions_some_id :: (fn(ty : &TypeValue, id : &String) -> bool)({
   somes := get_all_some_types(ty);
   (i : usize) = usize(0);
   while(i < somes.len(), {
-    if(match(somes.get(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false), {
+    if(match(somes.get_cloned(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -354,7 +354,7 @@ _is_self_pattern :: (fn(s : &Substitution, ty : &TypeValue) -> bool)({
   if(s.self_from.len() == usize(0), {
     return(false);
   });
-  from := match(s.self_from.get(usize(0)), .Some(f) => f, .None => rc(TypeValueNode.Unit));
+  from := match(s.self_from.get_cloned(usize(0)), .Some(f) => f, .None => rc(TypeValueNode.Unit));
   ty_id := match(ty, Rc(.Struct({ id : sid })) => sid, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid, _ => String.new());
   if(ty_id.is_empty(), {
     return(false);
@@ -451,7 +451,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
     if(!_mfb_is_binder(forall_labels, &nm), {
       masked.names.push(nm);
       masked.levels.push(match(s.levels.get(ci), .Some(v) => v, .None => usize(0)));
-      masked.types.push(match(s.types.get(ci), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
+      masked.types.push(match(s.types.get_cloned(ci), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
     });
     ci = (ci + usize(1));
   });
@@ -518,8 +518,8 @@ _substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> Typ
     return(_substitute_node(s, ty, is_root));
   });
   (at : usize) = _node_memo_lower_bound(s, ty);
-  if(match(s.node_memo_from.get(at), .Some(f) => __yo_ptr_eq(&f, ty), .None => false), {
-    return(match(s.node_memo_to.get(at), .Some(t) => t, .None => Rc.clone(ty)));
+  if(match(s.node_memo_from.get_cloned(at), .Some(f) => __yo_ptr_eq(&f, ty), .None => false), {
+    return(match(s.node_memo_to.get_cloned(at), .Some(t) => t, .None => Rc.clone(ty)));
   });
   out := _substitute_node(s, ty, is_root);
   // The recursion inserted entries of its own, so the slot moved.
@@ -534,7 +534,7 @@ _node_memo_lower_bound :: (fn(s : &Substitution, ty : &TypeValue) -> usize)({
   (hi : usize) = s.node_memo_from.len();
   while(lo < hi, {
     mid := (lo + ((hi - lo) / usize(2)));
-    if(match(s.node_memo_from.get(mid), .Some(f) => __yo_ptr_lt(&f, ty), .None => false), {
+    if(match(s.node_memo_from.get_cloned(mid), .Some(f) => __yo_ptr_lt(&f, ty), .None => false), {
       lo = (mid + usize(1));
     }, {
       hi = mid;
@@ -553,7 +553,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
     // Interned like
     // every other arm; the hash-consing invariant is load-bearing for codegen
     // identity.
-    intern_type(match(s.self_to.get(usize(0)), .Some(st) => st, .None => Rc.clone(ty))),
+    intern_type(match(s.self_to.get_cloned(usize(0)), .Some(st) => st, .None => Rc.clone(ty))),
     intern_type(
       match(
         ty,
@@ -644,7 +644,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
               new_fts := ArrayList(TypeValue).new();
               i := usize(0);
               while(i < fts.len(), {
-                elem := match(fts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                elem := match(fts.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 new_fts.push(_substitute_at(&s_nom_t, &elem, false));
                 i = (i + usize(1));
               });
@@ -692,14 +692,14 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
               new_rts := ArrayList(TypeValue).new();
               i := usize(0);
               while(i < rts.len(), {
-                elem := match(rts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                elem := match(rts.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 new_rts.push(_substitute_at(s, &elem, false));
                 i = (i + usize(1));
               });
               new_nts := ArrayList(TypeValue).new();
               i = usize(0);
               while(i < nts.len(), {
-                elem := match(nts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                elem := match(nts.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 new_nts.push(_substitute_at(s, &elem, false));
                 i = (i + usize(1));
               });
@@ -812,7 +812,7 @@ substitute_all :: (fn(s : &Substitution, types : &ArrayList(TypeValue)) -> Array
   result := ArrayList(TypeValue).new();
   i := usize(0);
   while(i < types.len(), {
-    elem := match(types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    elem := match(types.get_cloned(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     result.push(substitute(s, &elem));
     i = (i + usize(1));
   });

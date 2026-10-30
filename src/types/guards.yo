@@ -828,7 +828,7 @@ is_rc_type :: (fn(t : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       while((i < req_traits.len()) && !found, {
         match(
-          req_traits.get(i),
+          req_traits.get_cloned(i),
           .Some(tr) => {
             if(is_future_trait_type(&tr), {
               found = true;
@@ -881,7 +881,7 @@ _some_type_implements_future :: (fn(t : &TypeValue) -> bool)(
       (sf_i : usize) = usize(0);
       while((sf_i < sf_rtts.len()) && !sf_found, {
         match(
-          sf_rtts.get(sf_i),
+          sf_rtts.get_cloned(sf_i),
           .Some(sf_rt) => if(is_future_trait_type(&sf_rt), {
             sf_found = true;
           }),
