@@ -14,6 +14,7 @@
 Holder :: struct(
   name : String
 );
+derive(Holder, Clone);
 
 use_alias :: (
   fn(h : &Holder) -> usize
@@ -25,8 +26,8 @@ use_alias :: (
 reassign_alias :: (
   fn(h : &Holder) -> usize
 )({
-  (mut(h2) : Holder) = h;
-  h2 = h;
+  (mut(h2) : Holder) = h.clone();
+  h2 = h.clone();
   h2.name.len()
 });
 
