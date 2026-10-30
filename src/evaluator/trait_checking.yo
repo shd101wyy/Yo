@@ -1037,7 +1037,11 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // A closure's capture record may hold another closure, whose type is a
   // SomeT bound to its own capture record: that is a concrete type, not a
   // type variable.
-  if(type_mentions_some_type(&ty) && !(is_closure_capture_struct(&ty) && type_has_no_open_some(&ty)), {
+  // `type_identity_cacheable` is `!type_mentions_some_type`, remembered per
+  // type identity: this predicate runs on every type the mutation summary
+  // classifies, and the uncached walk was 7% of `check src/main.yo`'s
+  // allocation calls (issues/fixed/2026-10-30-rc-clone-calls-defeat-the-mutation-summary-memo.md).
+  if(!type_identity_cacheable(&ty) && !(is_closure_capture_struct(&ty) && type_has_no_open_some(&ty)), {
     return(false);
   });
   env := match(
