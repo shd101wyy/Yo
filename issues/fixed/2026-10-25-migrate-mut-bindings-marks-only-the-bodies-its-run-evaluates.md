@@ -2,10 +2,10 @@
 
 **Severity:** S2 — after a sweep, a written local in a generic body (or a platform branch, or an async body that only codegen lowers) that the migration run never evaluated stays unmarked, so once the tree loses its decision 47 exemption a user call that instantiates that body is rejected with E0917 inside the library; the sweep reports success and nothing flags the gap.
 
-**Status:** open. Found 2026-10-25 by the std half of decision 47 locals Generation B
-(VBD P5, `plans/handover/VBD_RELEASE_SCHEDULE.md` §5c decision 18). That PR closes every
-instance it found in `std/` by hand. The tool limitation stays, and the src half
-(v0.2.72) will hit it again.
+**Status:** fixed 2026-10-30 (branch `fix/mut-bindings-coverage`, for v0.2.74). Found
+2026-10-25 by the std half of decision 47 locals Generation B (VBD P5,
+`plans/handover/VBD_RELEASE_SCHEDULE.md` §5c decision 18), which closed every instance it
+found in `std/` by hand.
 
 ## Evidence
 
@@ -76,3 +76,59 @@ A sound migration has to see every body. Two options:
 The first is the evaluator's "check a generic definition" pass, which Yo does not have.
 The second needs only the AST, but cannot see through inferred types. Until one of
 them exists, the hunt above is part of every decision 47 sweep.
+
+## Root cause
+
+The migration recorded a write only where `binding_require_mut` / `place_require_mut`
+ran, that is, where evaluation reached the write. Measured with `YO_DEBUG_SWALLOW=1`:
+a generic body's definition-time trial binds its type parameters to `SomeT` and stops
+at the first construct the evaluator cannot type that way (`T(1)`, "TypeVal SomeT
+callee without FnTrait"; `rhs > T(0)` typed as non-`bool`); the error is swallowed
+and every statement after it goes unvisited. A blanket `impl`'s default method (the
+prelude's iterator adapters) gets no trial at all, a `cond(platform == ...)` arm for
+another target is pruned, and an instantiation sees only the types the run happens to
+use.
+
+## Fix
+
+`yo fix --migrate mut-bindings` now has a lexical half (`_mbl_run`, `src/main.yo`).
+After the evaluating pass it walks every listed file as parsed, resolves each written
+name through the block, closure, `match` arm, `for` and parameter scopes around it
+(past a `fn` literal only compile-time bindings resolve), and judges every write that
+evaluation did not:
+
+- A reassignment always writes its binding (a `(x : T);` declaration counts as written
+  when assigned twice, or inside a loop or closure it is declared outside of).
+- A field or element store, a `&mut` lend and a `&mut self` call write it when the
+  place is the binding's own storage. Evaluation records what it learned about each
+  declaration it reached outside a generic specialization (`take_mut_decl_facets`,
+  `take_mut_decl_heads`, `src/env.yo`): whether a lend, a field step, an element step
+  or a dereference lands in the binding's storage, whether it is a borrow, and its type
+  head. A declaration evaluation never reached is judged as a value.
+- Whether `recv.m(...)` lends `recv` exclusively comes from the `impl` and `trait`
+  blocks of std and the listed files: a name declared both ways resolves by the
+  receiver's type head, else by the trait that declares it.
+- Evaluation records each write it judged (`record_mut_judged`, `src/expr_info.yo`) and
+  the walk leaves those to its verdict, so evaluated code keeps its exact answers. A
+  judgment inside a generic body's specialization is not recorded: another
+  instantiation may hold a value where this one holds a handle.
+
+Measured by stripping every `mut(...)` below module level from `std/` (1,125 markers)
+and running one `yo fix ./std --migrate mut-bindings`, with no test trees, targets or
+`src/main.yo` in the list:
+
+| binary | restored | missed | spare |
+| --- | --- | --- | --- |
+| v0.2.73 (seed) | 1,052 | 73 | 0 |
+| this fix | 1,125 | 0 | 4 |
+
+The hunt above closed this class by hand (71 sites plus rebinds). The 4 spare markers are `ArrayList` locals in
+bodies no evaluation reached (`HashMap.from`, `HashSet.from`, two in `std/http/wire.yo`):
+the walk cannot see that the type is a `ref` handle today. They become required when
+B8–B11 make the collections values.
+
+Regression test: `tests/cli-cases/fix-migrate-mut-bindings-reaches-unevaluated-bodies`
+(a generic body past its trial's `T(1)`, a blanket `impl` default and another target's
+`cond` arm; `check use.yo`, which instantiates them, failed with E0917 inside `lib.yo`
+before the fix). `YO_DEBUG_FIX_LEXICAL_ONLY=1` makes the walk judge every write and
+prints each binding evaluation marked that the walk did not.

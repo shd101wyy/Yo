@@ -7,6 +7,8 @@
 # it; and a `cond(platform == ...)` arm for another target. Before the fix
 # the run marked none of `acc`, `i`, `it`, `n` and `tries`, and the trailing
 # `check use.yo`, whose calls instantiate `power` and `drain_count`, failed
-# with E0917 inside lib.yo. `limit` is only read and stays unmarked.
+# with E0917 inside lib.yo. `limit` is only read and stays unmarked. `seen`
+# gets a spare marker: no evaluation saw its type, so its `push` counts as a
+# write (an `ArrayList` is a `ref` handle today and a value after B8-B11).
 stdout_keep=^fix:|^error|E0917
 timeout=240
