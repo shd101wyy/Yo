@@ -381,3 +381,7 @@ The maintainer deferred these until after VBD. They follow v0.2.76 (v0.2.75 befo
   declaration, the `std/heap` catalog's first four modules with a link-source declaration for mimalloc (a missing
   `vendor/` stays the hard error `--allocator mimalloc` already gives, decided 2026-10-24), and the deletion of `--allocator` on compile and build, `--heap-size`,
   `--debug-heap`, `build.allocator` and `AllocatorKind`. `yo test --allocator debug` survives (decided 2026-10-24).
+- kebab-case names (`plans/backlog/KEBAB_CASE_NAMES.md`, decided 2026-10-30): Part B renames the four other example
+  projects (`raylib_yo`, `tetris_yo`, `markdown_it_yo`, `http_server_demo_yo`) and Part C the module files and
+  directories, with `yo fix --migrate module-names` and a naming warning. Part A (package names, `markdown-yo`) is in
+  v0.2.74.
