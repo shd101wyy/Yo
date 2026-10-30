@@ -30,11 +30,11 @@ fs_dir :: import("std/fs/dir");
 // batch (issues/2026-10-25-a-returned-method-call-in-batch-form-misses-the-callee-lend.md).
 // Before the V3 review round this future copied the descriptor and compiled
 // anywhere; the borrowing is pinned by the runtime tests below.
-// A `File` is never `Sync` (its methods write the state through `&Self`),
-// and not `Send` until `String`, which holds its path, is (V2b). The docs
-// claimed `Send` and `Arc(Mutex(File))` sharing (VBD V3 review, 2026-10-25).
+// A `File` is never `Sync` (its methods write the state through `&Self`).
+// It is `Send` since B8 made `String`, which holds its path, a value
+// (decision 46); before that the shared `String` object kept it on one thread.
 comptime_assert(!Type.impls(File, Sync), "a File is not Sync");
-comptime_assert(!Type.impls(File, Send), "a File is not Send until String is (V2b)");
+comptime_assert(Type.impls(File, Send), "a File is Send: its path String is a value since B8");
 // ============================================================================
 // Convenience function tests
 // ============================================================================

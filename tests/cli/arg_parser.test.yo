@@ -146,10 +146,10 @@ test("ArgParser nested subcommand", {
   result := parser.parse(&args);
   assert(result.is_ok(), "should parse nested");
   parsed := result.unwrap();
-  sub1 :=( parsed.get_subcommand).clone()().unwrap();
+  sub1 := parsed.get_subcommand().clone().unwrap();
   assert(sub1 == `container`, "first level should be container");
   inner := parsed.get_subcommand_args().unwrap();
-  sub2 := inner.get_subcommand().unwrap();
+  sub2 := inner.get_subcommand().clone().unwrap();
   assert(sub2 == `ls`, "second level should be ls");
   inner2 := inner.get_subcommand_args().unwrap();
   assert(inner2.get_flag(`--all`), "all flag should be set");

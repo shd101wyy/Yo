@@ -11942,7 +11942,8 @@ impl(
   where(I <: Iterator(Item := A)),
   IterPeekable(I, A),
   /// Return the next element without consuming it. Repeated calls return
-  /// the same element until `next()` is called.
+  /// the same element until `next()` is called. The element is copied out,
+  /// so `A` is `Copy`; `peek_cloned` clones one that is not.
   peek : (fn(self : &mut Self) -> Option(A))({
     cond(
       self._peeked.is_none() => {
@@ -11951,6 +11952,16 @@ impl(
       true => ()
     );
     self._peeked
+  }),
+  /// `peek` for an element that is not `Copy`: a clone of the next element.
+  peek_cloned : (fn(self : &mut Self, where(A <: Clone)) -> Option(A))({
+    cond(
+      self._peeked.is_none() => {
+        self._peeked = self._inner.next();
+      },
+      true => ()
+    );
+    self._peeked.clone()
   })
 );
 impl(
