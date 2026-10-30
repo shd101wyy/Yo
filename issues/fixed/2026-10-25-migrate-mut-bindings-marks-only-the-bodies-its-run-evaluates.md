@@ -127,6 +127,10 @@ bodies no evaluation reached (`HashMap.from`, `HashSet.from`, two in `std/http/w
 the walk cannot see that the type is a `ref` handle today. They become required when
 B8–B11 make the collections values.
 
+The walk knows the `&mut self` methods declared in std and the listed files only. A call
+of a method that only an unlisted dependency declares, in a body no evaluation reached, is
+not counted, so list a dependency's files with the code that uses it.
+
 Regression test: `tests/cli-cases/fix-migrate-mut-bindings-reaches-unevaluated-bodies`
 (a generic body past its trial's `T(1)`, a blanket `impl` default and another target's
 `cond` arm; `check use.yo`, which instantiates them, failed with E0917 inside `lib.yo`
