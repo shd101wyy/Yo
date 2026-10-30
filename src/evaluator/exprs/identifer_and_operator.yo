@@ -354,6 +354,26 @@ evaluate_identifier_and_operator :: (
             not_found_repair = Option(String).None;
           });
         });
+        // The prelude's `rc`/`box`/`arc`, deleted by static-argument inference
+        // B3 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5): the handle's
+        // constructor is the one fix, so rewriting the token (`rc` →
+        // `Rc.new`) is the repair, over any rename or import candidate. The
+        // repair cannot print a type argument, so a closure or `.None`
+        // argument then meets E0613's written-arguments help; v0.2.73's
+        // `--migrate handle-ctors` writes it.
+        (not_found_repair_label : Option(String)) = Option(String).None;
+        match(
+          _deleted_handle_ctor(&identifier_string),
+          .Some(ctor) => {
+            not_found_help = Option(String).Some(
+              `\`${identifier_string}(x)\` is \`${ctor}(x)\`: the prelude's \`rc\`, \`box\` and \`arc\` were removed (static-argument inference). Or run \`yo fix <path> --migrate handle-ctors\` with yo v0.2.73, which also writes the type argument a closure or \`.None\` argument needs (\`Rc(T).new(...)\`).`
+            );
+            not_found_repair = Option(String).Some(ctor.clone());
+            not_found_repair_label = Option(String).Some(`rewrite \`${identifier_string}\` to \`${ctor}\``);
+            import_repair = Option(String).None;
+          },
+          .None => ()
+        );
         if(is_unlabeled_ensures_atom(ast_expr_id(expr)), {
           // Phase V1 (decision D3, plans/backlog/FORMAL_VERIFICATION.md): the
           // atom sits in an `ensures(...)` predicate of an unlabeled-return
@@ -381,7 +401,7 @@ evaluate_identifier_and_operator :: (
                   `Variable "${identifier_string}" not found.`,
                   &not_found_help,
                   fix_name.clone(),
-                  `rename to "${fix_name}"`
+                  match(not_found_repair_label, .Some(l) => l, .None => `rename to "${fix_name}"`)
                 ),
                 .None => match(
                   import_repair,
@@ -623,6 +643,17 @@ evaluate_identifier_and_operator :: (
   );
   expr
 });
+/// The handle constructor that replaced the deleted prelude builtin `name`
+/// (`rc` → `Rc.new`, `box` → `Box.new`, `arc` → `Arc.new`); `.None` for any
+/// other name.
+_deleted_handle_ctor :: (fn(name : &String) -> Option(String))(
+  cond(
+    (name == "rc") => .Some(String.from("Rc.new")),
+    (name == "box") => .Some(String.from("Box.new")),
+    (name == "arc") => .Some(String.from("Arc.new")),
+    true => .None
+  )
+);
 /// Whether a read of `variable` at `token` after the variable was moved is
 /// rejected: a user-named binding read from source code, of any type. A move
 /// consumes the name (plans/VALUES_BY_DEFAULT.md §0): after `take(a)` with
