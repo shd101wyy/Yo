@@ -26,7 +26,7 @@ impl(generic(T : Type), Weak(T),
 payload method named `downgrade` stays reachable as `h.downgrade()`.
 
 ```yo
-a := rc(i32(7));
+a := Rc.new(i32(7));
 w := Rc.downgrade(&a);
 assert(w.strong_count() == usize(1), "one Rc");
 match(
@@ -49,7 +49,7 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
 - **The last handle of either kind frees the cell.** A `Weak` keeps the cell's
   bytes allocated, never its payload: an `Rc` dropped while a `Weak` remains
   leaves the allocation for the last `Weak` to free. A cell placed by an
-  explicit allocator (`rc(v, alloc : .Some(a))`) is freed into it either way.
+  explicit allocator (`Rc.new(v, alloc : .Some(a))`) is freed into it either way.
 - **`upgrade`** is `.Some(h)`, a new strong handle, while the payload is alive,
   and `.None` once the last `Rc` is gone. `Weak.new()` names no cell and always
   upgrades to `.None`.
@@ -90,8 +90,8 @@ Node :: struct(
   children : ArrayList(Rc(RefCell(Node)))
 );
 
-root := rc(RefCell(Node).new(Node(value : i32(1), parent : Weak(RefCell(Node)).new(), children : ArrayList(Rc(RefCell(Node))).new())));
-leaf := rc(RefCell(Node).new(Node(value : i32(2), parent : Rc.downgrade(&root), children : ArrayList(Rc(RefCell(Node))).new())));
+root := Rc.new(RefCell(Node).new(Node(value : i32(1), parent : Weak(RefCell(Node)).new(), children : ArrayList(Rc(RefCell(Node))).new())));
+leaf := Rc.new(RefCell(Node).new(Node(value : i32(2), parent : Rc.downgrade(&root), children : ArrayList(Rc(RefCell(Node))).new())));
 root.with_mut({ leaf }(n) => {
   n.children.push(leaf);
 });
@@ -161,7 +161,7 @@ into a spawned thread:
 ```yo
 { Thread } :: import("std/thread");
 
-a := arc(i32(7));
+a := Arc.new(i32(7));
 w := Arc.downgrade(&a);
 t := Thread(unit).spawn({ w }(io) => {
   n := match(w.upgrade(), .Some(h) => h.*, .None => i32(0));

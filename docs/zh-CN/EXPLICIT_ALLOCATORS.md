@@ -31,7 +31,7 @@ Yo 不检查的是分配器自身的生命周期：它的上下文和 vtable 必
 活得更久（见[编写自己的分配器](#编写自己的分配器)）。
 
 **默认全局，放置靠参数。** 不带分配器参数的创建总是使用全局分配器。调用方无法设置
-分配作用域：`ArrayList(i32).new()` 或 `rc(v)` 这样的调用做什么，从不取决于它的调用者。
+分配作用域：`ArrayList(i32).new()` 或 `Rc.new(v)` 这样的调用做什么，从不取决于它的调用者。
 放到其他分配器中的每一次放置，都以一个参数的形式出现在创建处。
 
 ## 快速上手
@@ -50,7 +50,7 @@ main :: (fn() -> unit)({
   a := Allocator.global();
   {
     // 一个单元，由它的 `alloc` 参数放在 `a` 中。
-    p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
+    p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     // 一个列表，它的缓冲区及其每一次增长都在 `a` 中。
     xs := ArrayList(i32).new(alloc : .Some(a));
     xs.push(p.x);
@@ -66,17 +66,17 @@ export(main);
 
 ## 放置：`alloc` 参数
 
-`box`、`rc` 和 `arc`，以及它们对应的类型构造函数（`Box(T).new`、`Rc(T).new`、
-`Arc(T).new`），接受可选的 `alloc : Option(Allocator)`。`.Some(a)` 把单元放在 `a`
+句柄构造函数 `Box.new`、`Rc.new` 和 `Arc.new`（写出类型时为 `Box(T).new`、`Rc(T).new`、
+`Arc(T).new`）接受可选的 `alloc : Option(Allocator)`。`.Some(a)` 把单元放在 `a`
 中；默认值 `.None` 把它放在全局分配器上。单元通过放置它的分配器释放，无论最后一个
 句柄在哪个线程上被 drop。Yo 不会把值自动包装成 `Option`，所以调用方要写
 `.Some(...)`：
 
 ```yo
 // `a` 是任意 `Allocator` 值。
-b := box(i32(1), alloc : .Some(a));
-r := rc(i32(2), alloc : .Some(a));
-c := arc(i32(3), alloc : .Some(a));
+b := Box.new(i32(1), alloc : .Some(a));
+r := Rc.new(i32(2), alloc : .Some(a));
+c := Arc.new(i32(3), alloc : .Some(a));
 ```
 
 一个允许调用方放置其所创建对象的函数，声明同样带默认值的参数并把它传下去。
@@ -89,28 +89,28 @@ c := arc(i32(3), alloc : .Some(a));
 
 Node :: struct(name : i32, kids : ArrayList(i32));
 make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
-  rc(Node(name : name, kids : ArrayList(i32).new(alloc : alloc)), alloc : alloc)
+  Rc.new(Node(name : name, kids : ArrayList(i32).new(alloc : alloc)), alloc : alloc)
 );
 ```
 
 程序中不带这种参数创建的一切都是全局的：
 
 - `ref` struct 和 `ref` enum 的构造（要放置它，把它改成值结构体再包装：
-  `rc(v, alloc : .Some(a))`），
-- `dyn` 为值创建的单元（`dyn(rc(v, alloc : .Some(a)))` 放置的是 `Dyn` 的数据对象：
+  `Rc.new(v, alloc : .Some(a))`），
+- `dyn` 为值创建的单元（`dyn(Rc.new(v, alloc : .Some(a)))` 放置的是 `Dyn` 的数据对象：
   `Rc` 单元被原样使用，不会再建第二个单元），
 - 插值字符串（用 `StringBuilder.new(alloc : .Some(a))` 构建一个被放置的字符串），
 - 闭包环境，
 - `io.async` 任务的状态机，
 - 运行时自身的簿记（事件循环结构、线程池）。
 
-`box` 直接调用 `a` 的 `alloc`。`rc` 和 `arc` 在这一次构造期间把 `a` 设为当前线程的
-分配作用域（直到单元原语自己接受分配器为止），所以用于 `rc` 或 `arc` 的分配器必须
+`Box.new` 直接调用 `a` 的 `alloc`。`Rc.new` 和 `Arc.new` 在这一次构造期间把 `a` 设为当前线程的
+分配作用域（直到单元原语自己接受分配器为止），所以用于 `Rc.new` 或 `Arc.new` 的分配器必须
 遵守[编写自己的分配器](#编写自己的分配器)中的回调规则。
 
 ## 容器
 
-可变容器的构造函数接受与 `box`、`rc`、`arc` 相同的带默认值参数
+可变容器的构造函数接受与 `Box.new`、`Rc.new`、`Arc.new` 相同的带默认值参数
 `alloc : Option(Allocator)`。不带它时容器是全局的，建立在它们之上的类型（`String`、
 插值）也一样：
 
@@ -192,7 +192,7 @@ Point :: struct(x : i32, y : i32);
 main :: (fn() -> unit)({
   a := Allocator.global(); // 任意 `Allocator`：它是 `Send`
   t := Thread(i32).spawn(io => {
-    p := rc(Point(x : i32(1), y : i32(2)), alloc : .Some(a));
+    p := Rc.new(Point(x : i32(1), y : i32(2)), alloc : .Some(a));
     p.x + p.y
   });
   println(`${t.join()}`);
@@ -229,9 +229,9 @@ Allocator :: struct(ctx : ?*void, vtable : *AllocatorVTable);
 - 块可能在另一个线程上被释放（在那里 drop 的 `Arc`），所以被多个线程共享的分配器
   要让它的 `free` 线程安全。
 - 回调不能创建不带 `alloc` 参数的引用计数对象：其中不能有 `ref` 构造器，也不能有
-  不带 `alloc` 的 `rc`、`arc` 或 `dyn`。在 `rc(v, alloc : .Some(a))` 和
-  `arc(v, alloc : .Some(a))` 中，回调运行时当前线程的分配作用域正是它自己的分配器，
-  这样的分配会再次调用 `alloc`，递归直到栈溢出。容器、`String` 和 `box(...)` 是全局的，
+  不带 `alloc` 的 `Rc.new`、`Arc.new` 或 `dyn`。在 `Rc.new(v, alloc : .Some(a))` 和
+  `Arc.new(v, alloc : .Some(a))` 中，回调运行时当前线程的分配作用域正是它自己的分配器，
+  这样的分配会再次调用 `alloc`，递归直到栈溢出。容器、`String` 和 `Box.new(...)` 是全局的，
   可以放心使用。请从 `GlobalAllocator` 或你自己持有的缓冲区获取内存，如下面的示例
   所示。
 
@@ -281,7 +281,7 @@ main :: (fn() -> unit)({
   counts := _Counts(allocs : usize(0), frees : usize(0));
   a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(_COUNT_VTABLE));
   {
-    p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
+    p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a));
     println(`${p.x}`);
   };
   println(`allocs=${counts.allocs} frees=${counts.frees}`); // allocs=1 frees=1
@@ -323,9 +323,9 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 
 ## 开销
 
-`ref` 构造器、`dyn` 盒子和 `io.async` 任务仍会检查 `rc` 和 `arc` 为一次构造设置的
+`ref` 构造器、`dyn` 盒子和 `io.async` 任务仍会检查 `Rc.new` 和 `Arc.new` 为一次构造设置的
 线程分配作用域：一次 relaxed 原子读取和一次分支，编译器自举的测量结果在噪声范围内
-（`plans/archive/EXPLICIT_ALLOCATORS.md`）。等 `rc` 和 `arc` 通过单元原语放置之后，
+（`plans/archive/EXPLICIT_ALLOCATORS.md`）。等 `Rc.new` 和 `Arc.new` 通过单元原语放置之后，
 这个检查就会删除（`plans/backlog/ALLOCATOR_PLACEMENT.md`，B2）。容器大小不变，因为
 分配器存放在缓冲区的前缀里，而不是新增的字段。
 
@@ -337,12 +337,12 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 ## 限制
 
 - **std 中没有 arena。** 见[何时使用显式分配器](#何时使用显式分配器)。
-- **超对齐的类型。** `Allocator.alloc`、容器和 `box` 会按载荷的对齐申请，所以分配器
+- **超对齐的类型。** `Allocator.alloc`、容器和 `Box.new` 会按载荷的对齐申请，所以分配器
   可以满足任意 2 的幂的对齐，对齐超过 16 的类型的全局 `Box` 由对齐分配族提供。全局的
-  `rc`/`arc` 单元只按 16 对齐，所以这种类型的 `Rc` 或 `Arc` 必须被放置。目前没有 Yo
+  `Rc`/`Arc` 单元只按 16 对齐，所以这种类型的 `Rc` 或 `Arc` 必须被放置。目前没有 Yo
   类型的对齐超过 16；`extern` C 类型可能超过。
 - **不能放置 `ref` 对象。** `ref` 构造器不接受 `alloc` 参数。把类型改成值结构体，
-  再用 `rc(v, alloc : .Some(a))` 放置。
+  再用 `Rc.new(v, alloc : .Some(a))` 放置。
 
 设计记录（含测量数据和各阶段的历史）见 `plans/archive/EXPLICIT_ALLOCATORS.md`，
 已落地的决定汇总在 `plans/reference/EXPLICIT_ALLOCATORS.md`，放置规则（“默认全局，

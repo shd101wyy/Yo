@@ -16,8 +16,8 @@ use_id :: (fn(value : Dyn(Id)) -> unit) { x := value.id(); };
 
 main :: (fn() -> unit) {
   // 值类型必须装箱
-  use_id(dyn(rc(42)));
-  use_id(dyn(rc(true)));
+  use_id(dyn(Rc.new(42)));
+  use_id(dyn(Rc.new(true)));
 
   // 引用语义类型可以直接使用
   point := Point(x: 3, y: 4);
@@ -52,7 +52,7 @@ typedef struct {
 
 ```c
 // 对于值类型 — 必须使用 Rc(T)
-Box_i32* boxed = /* rc(42) */;  // Rc(i32) 是引用语义类型
+Box_i32* boxed = /* Rc.new(42) */;  // Rc(i32) 是引用语义类型
 void* data = boxed;               // 存储 Box 指针
 
 // 对于引用语义类型 — 直接使用
@@ -139,21 +139,21 @@ d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn 
 
 ```yo
 // 值类型必须装箱
-dyn(rc(42)); // OK：rc(42) 返回 Rc(i32)，这是一个引用语义类型
-dyn(rc(true)); // OK：rc(true) 返回 Rc(bool)
+dyn(Rc.new(42)); // OK：Rc.new(42) 返回 Rc(i32)，这是一个引用语义类型
+dyn(Rc.new(true)); // OK：Rc.new(true) 返回 Rc(bool)
 // 引用语义类型可以直接使用
 point := Point(x : 3, y : 4); // point : Point，Point 是引用语义类型
 dyn(point); // OK：point 是引用语义类型
 // 直接传值会自动装箱
-dyn(42); // 42 自动变为 rc(42)
-dyn(true); // true 自动变为 rc(true)
+dyn(42); // 42 自动变为 Rc.new(42)
+dyn(true); // true 自动变为 Rc.new(true)
 ```
 
 **`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `Arc(T).new` 而不是 `Rc(T).new` 装箱值类型。非原子的引用载荷是错误：
 
 ```yo
 (d : Dyn(Fn() -> unit, Send)) = dyn(k); // OK：k 用 arc 装箱
-(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k)); // 错误：其载荷必须是原子引用计数的
+(e : Dyn(Fn() -> unit, Send)) = dyn(Rc.new(k)); // 错误：其载荷必须是原子引用计数的
 ```
 
 ### 4. 静态虚表和包装函数
@@ -172,7 +172,7 @@ int32_t wrapper_Box_i32_id(void* self_ptr) {
   return fn_i32_id(&box->value);  // 提取值，调用原始方法
 }
 
-// dyn(rc(i32)) 的静态虚表
+// Rc(i32) 上 Dyn 的静态虚表
 static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
   .id = wrapper_Box_i32_id  // 指向包装函数
 };
@@ -197,14 +197,14 @@ static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
 构造 `Dyn` 时，值必须是引用语义类型。`Dyn` 结构体在栈上创建，并存储数据指针。
 
 ```c
-// 对于 dyn(rc(42))：
-Box_i32* boxed = /* rc(42) 的结果 */;  // 已经 RC = 1
+// 对于 dyn(Rc.new(42))：
+Box_i32* boxed = /* Rc.new(42) 的结果 */;  // 已经 RC = 1
 
 __yo_dyn_trait_id result = {
   .data = boxed,
   .vtable = &__yo_vtable_Box_i32_Id
 };
-// 注意：此处不执行 dup，所有权从 rc(42) 转移到 dyn
+// 注意：此处不执行 dup，所有权从 Rc.new(42) 转移到 dyn
 ```
 
 ```c
@@ -409,7 +409,7 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 
 1. **`Dyn` 是值类型**：简单结构体 `{ void* data, vtable* }`，无 ref_header。它独占其载荷：`Dyn(Trait, Clone)` 通过虚表的 `__yo_clone` 槽位用 `.clone()` 复制，其他 `Dyn` 都是仅移动类型
 2. **`data` 必须是引用语义类型**：确保数据始终是引用计数的
-3. **值类型使用 `rc()`**：`dyn(rc(42))` 将值包装在 `Rc(T)` 引用语义类型中
+3. **值类型使用 `Rc.new()`**：`dyn(Rc.new(42))` 将值包装在 `Rc(T)` 引用语义类型中
 4. **引用语义类型直接使用**：`dyn(Point(3, 4))` 直接使用 Point 指针
 5. **Rc 的包装函数**：生成的包装函数在调用 impl 方法前先解包 `Rc(T)`
 6. **简单的引用计数**：只有 `data` 是引用计数的，`Dyn` 结构体按值复制

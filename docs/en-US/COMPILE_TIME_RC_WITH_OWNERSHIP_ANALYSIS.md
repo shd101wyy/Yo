@@ -129,7 +129,7 @@ consume :: (fn(sink(box) : Rc(i32)) -> unit)({
   // box is dropped at end of function
 });
 
-b := rc(42); // b owns
+b := Rc.new(42); // b owns
 consume(b); // b cannot be used after this point
 call_consume :: (fn(p : Rc(i32)) -> unit)({
   // p borrows by default
@@ -170,10 +170,10 @@ assert(ref_count(b) == usize(1), "one owner");
 
 The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
 
-`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` is Yo's shared cell; it used to be spelled `Box(T)`. `Box(T)` is now the uniquely owned, uncounted cell (`plans/VALUES_BY_DEFAULT.md`, V1 step 2): a move-only value with a `Drop` that frees its cell, explicit-copy through `Box.clone(b)`, so the machinery tracks it like any other move-only value and never emits a count operation for it.
+`ref_count(x)` reads the count; `Rc.new(v)` allocates a reference-counted cell: it takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` is Yo's shared cell; it used to be spelled `Box(T)`. `Box(T)` is now the uniquely owned, uncounted cell (`plans/VALUES_BY_DEFAULT.md`, V1 step 2): a move-only value with a `Drop` that frees its cell, explicit-copy through `Box.clone(b)`, so the machinery tracks it like any other move-only value and never emits a count operation for it.
 
 ```yo
-a := rc(i32(42));
+a := Rc.new(i32(42));
 assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 ```
 
@@ -215,9 +215,9 @@ use_point(point); // No ___dup, p borrows point
 **Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
 ```yo
-x := rc(12); // x owns rc(12), RC = 1
+x := Rc.new(12); // x owns Rc.new(12), RC = 1
 {
-  y := rc(13); // y owns rc(13), RC = 1
+  y := Rc.new(13); // y owns Rc.new(13), RC = 1
   x = y; // DANGER if x just borrows from y...
   // End of inner scope
   ___drop(y); // RC = 0, memory freed
@@ -231,16 +231,16 @@ printf("%d\n", x.*); // BUG: x would point to freed memory!
 With our model (assignments always own):
 
 ```yo
-x := rc(12); // x owns rc(12), RC = 1
+x := Rc.new(12); // x owns Rc.new(12), RC = 1
 {
-  y := rc(13); // y owns rc(13), RC = 1
+  y := Rc.new(13); // y owns Rc.new(13), RC = 1
   x = y; // ___dup(y), ___drop(old x), x owns new value
-  // rc(13): RC = 2; old rc(12): RC = 0, freed
-  ___drop(y); // rc(13): RC = 1
+  // Rc.new(13): RC = 2; old Rc.new(12): RC = 0, freed
+  ___drop(y); // Rc.new(13): RC = 1
 };
 
-printf("%d\n", x.*); // ✅ Safe: x owns rc(13), RC = 1
-___drop(x); // rc(13): RC = 0, freed
+printf("%d\n", x.*); // ✅ Safe: x owns Rc.new(13), RC = 1
+___drop(x); // Rc.new(13): RC = 0, freed
 ```
 
 ## Our Approach: Simple Ownership with Optimization
@@ -255,9 +255,9 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 **Example - simple and safe:**
 
 ```yo
-x := rc(12);
+x := Rc.new(12);
 {
-  y := rc(13);
+  y := Rc.new(13);
   x = y; // Always safe: ___dup(y), ___drop(old x)
 };
 printf("%d\n", x.*); // Always works: x owns a valid reference
@@ -356,7 +356,7 @@ create :: (fn() -> Point)({
 **Begin blocks:**
 
 ```yo
-x := rc(1);
+x := Rc.new(1);
 y := {
   ();
   x // ___dup(x) when returning from begin block
@@ -367,13 +367,13 @@ y := {
 **Match expressions:**
 
 ```yo
-optional := Option(Rc(i32)).Some(rc(42)); // optional owns
+optional := Option(Rc(i32)).Some(Rc.new(42)); // optional owns
 x := match(
   optional,
   // `value` here is borrowed, not owned
   // ___dup(value) inserted here
   .Some(value) => value,
-  .None => rc(0)
+  .None => Rc.new(0)
 );
 ```
 
@@ -410,7 +410,7 @@ consume :: (fn(sink(box) : Rc(i32)) -> unit)({
   // box is dropped at end of function
 });
 
-b := rc(42); // b owns
+b := Rc.new(42); // b owns
 consume(b); // b is consumed
 // b cannot be used after this point
 // If the argument is borrowed/non-owning, the compiler inserts ___dup.
