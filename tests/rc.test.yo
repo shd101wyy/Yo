@@ -1991,15 +1991,15 @@ test("ref_count(x) reads the count of every cell shape", {
     };
   };
   assert(ref_count(a1) == usize(1), "ref_count(a1) == 1");
-  // ArrayList (a ref struct): the list handle's own count.
+  // ArrayList: a value since B8, so 1 like any value; a clone is its own list.
   mut(l1) := ArrayList(i32).new();
   l1.push(i32(1));
   {
     l2 := l1.clone();
     {
       l3 := l2;
-      assert(ref_count(l1) == usize(2), "ref_count(l1) == 2");
-      assert(ref_count(l3) == usize(2), "ref_count(l3) == 2");
+      assert(ref_count(l1) == usize(1), "ref_count(l1) == 1");
+      assert(ref_count(l3) == usize(1), "ref_count(l3) == 1");
     };
   };
   assert(ref_count(l1) == usize(1), "ref_count(l1) == 1");
@@ -3402,26 +3402,28 @@ test("an exit from a later argument releases the share a receiver took through a
 });
 // The share is released by exits that leave the call, not by an exit inside
 // the argument (a loop's `break`) or inside the closure (its `return`).
-_rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : &mut ArrayList(Rc(_RcvCell))) -> i32)(
-  hs(usize(0)).peek_k({
+_rcv_exit_inner :: (fn(hs : &_RcvBag(Rc(_RcvCell)), hs2 : _RcvBag(Rc(_RcvCell))) -> i32)(
+  hs.xs(usize(0)).peek_k({
     mut(s) := i32(0);
     while(true, {
       s = (s + i32(1));
       cond((s > i32(2)) => break, true => ());
     });
     s
-  }, { &mut hs2 }() => {
-    hs2.clear();
+  }, { hs2 }() => {
+    hs2.xs.clear();
     cond(true => return(()), true => ());
     _rcv_drops = (_rcv_drops + i32(100));
   })
 );
 test("an exit inside a later argument or its closure keeps the receiver's share", {
   _rcv_drops = i32(0);
-  mut(hs) := ArrayList(Rc(_RcvCell)).new();
-  hs.push(Rc.new(_RcvCell(n : i32(1))));
-  mut(hs2) := hs.clone();
-  assert(_rcv_exit_inner(&hs, &mut hs2) == i32(4), "the cell outlives the call");
+  // One list behind two handles (`_RcvBag`, as above): the closure empties
+  // the list the receiver is read from.
+  hs := _RcvBag(Rc(_RcvCell))(xs : ArrayList(Rc(_RcvCell)).new());
+  hs.xs.push(Rc.new(_RcvCell(n : i32(1))));
+  hs2 := hs;
+  assert(_rcv_exit_inner(&hs, hs2) == i32(4), "the cell outlives the call");
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
 });
 
