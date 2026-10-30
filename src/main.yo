@@ -4977,25 +4977,35 @@ _mbl_bind_param :: (fn(w : &mut _MblWalk, p : &AstExpr, typed : bool) -> unit)(
   )
 );
 /// The binding a place is rooted in and the first step from it: `x`,
-/// `x.f...`, `x(i)...`, `x.*...`. `.None` for anything else (a call's
-/// result, a literal).
-_mbl_place_root :: (fn(e : &AstExpr) -> Option(Tuple(Token, u8)))(
+/// `x.f...`, `x(i)...`, `x.*...`. `.None` for anything else: a literal, or
+/// a call's result (`x.m(a)` where some `impl` or `trait` declares a method
+/// `m`; `x.f(i)` is otherwise read as an element of the field `f`).
+_mbl_place_root :: (fn(e : &AstExpr, ms : &_MblMethods) -> Option(Tuple(Token, u8)))(
   match(
     e,
     .Atom(_, t) => if(t.kind == TokenKind.Identifier, Option(Tuple(Token, u8)).Some((t, _MBL_S_NONE)), Option(Tuple(Token, u8)).None),
     .FnCall(_, pf, pargs, pinfix, _) => cond(
       (pinfix && ast_expr_is_atom_of(&pf, ".") && (pargs.len() == usize(2))) => {
         step := if(ast_expr_is_atom_of(&_bsm_arg(e, usize(1)), "*"), _MBL_S_DEREF, _MBL_S_FIELD);
-        match(recur(&_bsm_arg(e, usize(0))), .Some((rt, rs)) => Option(Tuple(Token, u8)).Some((rt, if(rs == _MBL_S_NONE, step, rs))), .None => Option(Tuple(Token, u8)).None)
+        match(recur(&_bsm_arg(e, usize(0)), ms), .Some((rt, rs)) => Option(Tuple(Token, u8)).Some((rt, if(rs == _MBL_S_NONE, step, rs))), .None => Option(Tuple(Token, u8)).None)
       },
       pinfix => Option(Tuple(Token, u8)).None,
-      true => match(recur(&pf), .Some((rt, rs)) => Option(Tuple(Token, u8)).Some((rt, if(rs == _MBL_S_NONE, _MBL_S_INDEX, rs))), .None => Option(Tuple(Token, u8)).None)
+      (_bsm_is_infix_of(&pf, ".") && _mbl_names_method(ms, &_bsm_arg(&pf, usize(1)))) => Option(Tuple(Token, u8)).None,
+      true => match(recur(&pf, ms), .Some((rt, rs)) => Option(Tuple(Token, u8)).Some((rt, if(rs == _MBL_S_NONE, _MBL_S_INDEX, rs))), .None => Option(Tuple(Token, u8)).None)
     )
   )
 );
+/// Whether `m` is a name some `impl` or `trait` declares a `self` method by.
+_mbl_names_method :: (fn(ms : &_MblMethods, m : &AstExpr) -> bool)({
+  if(!ast_expr_is_atom(m), {
+    return(false);
+  });
+  name := ast_expr_token(m).value.clone();
+  ms.any_mut.contains(&name) || ms.any_other.contains(&name)
+});
 /// The write `how` at `at` of the place `place`.
 _mbl_write_place :: (fn(w : &mut _MblWalk, c : &_MblCtx, place : &AstExpr, at : &Token, how : u8) -> unit)(
-  match(_mbl_place_root(place), .Some((rt, step)) => _mbl_write(w, c, &rt.value, at, how, step), .None => ())
+  match(_mbl_place_root(place, &c.methods), .Some((rt, step)) => _mbl_write(w, c, &rt.value, at, how, step), .None => ())
 );
 /// Judge the write `how` at `at` of the binding `name` through `step`.
 _mbl_write :: (fn(w : &mut _MblWalk, c : &_MblCtx, name : &String, at : &Token, how : u8, step : u8) -> unit)({
@@ -5035,10 +5045,12 @@ _mbl_write :: (fn(w : &mut _MblWalk, c : &_MblCtx, name : &String, at : &Token, 
     (d.kind == _MBL_COMPTIME) => if((how == _MBL_W_ASSIGN) || (how == _MBL_W_STORE), {
       _mbl_mark(w, &d);
     }),
-    // A parameter takes no `mut`: its write is listed. Without a type from
-    // evaluation only a reassignment, or a store into a parameter declared by
-    // value, is certainly one.
-    ((d.kind == _MBL_PARAM) || (d.kind == _MBL_TYPED_PARAM)) => if((how == _MBL_W_ASSIGN) || facets.is_some() || ((d.kind == _MBL_TYPED_PARAM) && (how == _MBL_W_STORE)), {
+    // A parameter takes no `mut`: its write is listed. A reassignment
+    // certainly is one; a store or lend through a `fn` parameter declared by
+    // value is one when evaluation saw a value type, or for a store, without
+    // a type. A closure parameter's mode comes from the slot it fills, which
+    // the walk cannot see, so only its reassignment is listed.
+    ((d.kind == _MBL_PARAM) || (d.kind == _MBL_TYPED_PARAM)) => if((how == _MBL_W_ASSIGN) || ((d.kind == _MBL_TYPED_PARAM) && (facets.is_some() || (how == _MBL_W_STORE))), {
       w.params.push(MutableGlobalSite(path : w.file.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone()));
     }),
     true => _mbl_mark(w, &d)
@@ -5096,7 +5108,7 @@ _mbl_method_lends_mut :: (fn(ms : &_MblMethods, name : &String, head : &String) 
 /// (`x.m()`), not for a place under it (`x.f.m()`).
 _mbl_method_call :: (fn(w : &mut _MblWalk, c : &_MblCtx, recv : &AstExpr, m : &String) -> unit)(
   match(
-    _mbl_place_root(recv),
+    _mbl_place_root(recv, &c.methods),
     .Some((rt, step)) => {
       head := if(step == _MBL_S_NONE, match(_mbl_lookup(w, &rt.value), .Some(d) => match(c.heads.get(&d.key), .Some(h) => h, .None => String.new()), .None => String.new()), String.new());
       if(_mbl_method_lends_mut(&c.methods, m, &head), {
@@ -5627,11 +5639,42 @@ _run_migrate_mut_markers :: (
   // The writes no evaluation judged, judged as parsed.
   (n_lexical : usize) = usize(0);
   if(bindings, {
-    lex := _mbl_run(files, std_path, take_mut_decl_facets(), take_mut_decl_heads(), take_mut_judged(), io, exn);
+    // `YO_DEBUG_FIX_LEXICAL_ONLY=1` validates the walk against evaluation:
+    // it judges every write as parsed, ignoring which ones evaluation judged,
+    // and prints each binding evaluation marked that the walk did not.
+    lexical_only := proc_env.get(`YO_DEBUG_FIX_LEXICAL_ONLY`).is_some();
+    judged_writes := take_mut_judged();
+    lex := _mbl_run(files, std_path, take_mut_decl_facets(), take_mut_decl_heads(), if(lexical_only, HashSet(String).new(), judged_writes), io, exn);
     site_keys := HashSet(String).new();
     (ski : usize) = usize(0);
     while(ski < sites.len(), ski = (ski + usize(1)), {
       site_keys.insert(`${canonical_module_path(sites(ski).path.clone())}:${sites(ski).row.to_string()}:${sites(ski).col.to_string()}`);
+    });
+    if(lexical_only, {
+      walk_keys := HashSet(String).new();
+      (wki : usize) = usize(0);
+      while(wki < lex.marks.len(), wki = (wki + usize(1)), {
+        walk_keys.insert(`${canonical_module_path(lex.marks(wki).path.clone())}:${lex.marks(wki).row.to_string()}:${lex.marks(wki).col.to_string()}`);
+      });
+      migrated := HashSet(String).new();
+      (mgi : usize) = usize(0);
+      while(mgi < files.len(), mgi = (mgi + usize(1)), {
+        migrated.insert(canonical_module_path(files(mgi).clone()));
+      });
+      (n_missed : usize) = usize(0);
+      (n_in_files : usize) = usize(0);
+      (smi : usize) = usize(0);
+      while(smi < sites.len(), smi = (smi + usize(1)), {
+        sm := sites(smi).clone();
+        if(migrated.contains(&canonical_module_path(sm.path.clone())), {
+          n_in_files = (n_in_files + usize(1));
+          if(!walk_keys.contains(&`${canonical_module_path(sm.path.clone())}:${sm.row.to_string()}:${sm.col.to_string()}`), {
+            n_missed = (n_missed + usize(1));
+            eprintln(`[fix] the walk missed ${display_module_path(&sm.path)}:${(sm.row + usize(1)).to_string()}:${(sm.col + usize(1)).to_string()} ${sm.expect}`);
+          });
+        });
+      });
+      eprintln(`[fix] lexical only: the walk marks ${walk_keys.len().to_string()}; evaluation marks ${n_in_files.to_string()} in the listed files, ${n_missed.to_string()} of them missed by the walk`);
     });
     (lmi : usize) = usize(0);
     while(lmi < lex.marks.len(), lmi = (lmi + usize(1)), {
