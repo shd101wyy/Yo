@@ -372,23 +372,22 @@ is_str_type :: (fn(t : &TypeValue) -> bool)(
 // The prelude's shared, counted cell, by name
 // ---------------------------------------------------------------------------
 /// One spelling of the prelude's shared, counted cell: its type constructor
-/// (`Rc`) and its generic value constructor (`rc`). The compiler synthesizes
-/// only the type's `new` (`Rc(T).new(v)`); `constructor` is read by
-/// `dyn(rc(<closure>))`'s recognition alone, and goes with the prelude's `rc`
-/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, B3).
-SharedCellNames :: struct(type_name : str, constructor : str);
+/// (`Rc`). The compiler synthesizes the type's `new` (`Rc(T).new(v)`). The
+/// prelude's value constructor `rc`, and the field that named it, went with
+/// static-argument inference B3 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5).
+SharedCellNames :: struct(type_name : str);
 derive(SharedCellNames, Copy, Clone);
 /// The shared cell's CANONICAL spelling: the one the compiler synthesizes
 /// itself — the cell `dyn(...)` wraps around a payload that is not an object
 /// (`dyn(i32(1))` builds `Rc(i32).new(i32(1))`, `values/dyn.yo`). It was
-/// `Box`/`box` until V1 step 1's Generation B made it `Rc`/`rc`.
+/// `Box` until V1 step 1's Generation B made it `Rc`.
 shared_cell_canonical_names :: (fn() -> SharedCellNames)(
-  SharedCellNames(type_name : "Rc", constructor : "rc")
+  SharedCellNames(type_name : "Rc")
 );
 /// The ONE list of the shared cell's spellings, canonical first; `.None` past
 /// the end. Every name check on the cell reads it: the instance-name stamp
 /// (`comptime_fn.yo`), `is_box_type` / `is_boxed_type` below, and the
-/// `dyn(<ctor>(<closure>))` recognition (`values/dyn.yo`).
+/// `dyn(Rc.new(<closure>))` recognition (`values/dyn.yo`).
 ///
 /// plans/VALUES_BY_DEFAULT.md §6 V1 step 1 renames `Box` to `Rc`. It is
 /// seed-gated: the seed compiles `src/` against the tree's `std/`, so the
@@ -420,27 +419,6 @@ is_shared_cell_type_name :: (fn(name : &String) -> bool)({
     i = (i + usize(1));
   });
   found
-});
-/// The type constructor name a shared-cell VALUE constructor builds (`rc` →
-/// `Rc`); `.None` for any other name.
-shared_cell_type_name_of_constructor :: (fn(fn_name : &String) -> Option(String))({
-  (i : usize) = usize(0);
-  (out : Option(String)) = .None;
-  while(out.is_none(), {
-    match(
-      shared_cell_names_at(i),
-      .Some(n) => {
-        if(fn_name == n.constructor, {
-          out = .Some(String.from(n.type_name));
-        });
-      },
-      .None => {
-        break;
-      }
-    );
-    i = (i + usize(1));
-  });
-  out
 });
 /// True if `name` is a STAMPED shared-cell instance name: a type constructor
 /// name from the list followed by `(` (`Rc(i32)`, `Rc(Self)`).
@@ -1265,7 +1243,6 @@ export(
   is_shared_cell_type_name,
   is_counted_cell_type,
   is_weak_handle_type,
-  shared_cell_type_name_of_constructor,
   shared_cell_canonical_names,
   is_fn_trait_type,
   is_function_type_and_is_type_function,
