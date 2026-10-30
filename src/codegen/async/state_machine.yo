@@ -1000,7 +1000,7 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
   if(!(is_some_type(future_type) && type_implements_future(future_type)), {
     return(false);
   });
-  fid := match(future_type, Rc(.SomeT({ id })) => id, _ => String.from(""));
+  fid := match(future_type, Rc(.SomeT({ id })) => id.clone(), _ => String.from(""));
   if(context.base.types.contains_key(fid.clone()), {
     return(false);
   });
@@ -1202,7 +1202,7 @@ find_bundle_field_name :: (
               smvar := b.value;
               is_outer := match(smvar.kind, .Outer => true, .Local => false);
               if(!is_outer, {
-                svid := match(&smvar.base.ty, Rc(.Struct({ id })) => id, _ => String.from(""));
+                svid := match(&smvar.base.ty, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
                 if(svid == target_id, {
                   aliased := match(state_machine_field_aliases, .Some(al) => al.get_cloned(smvar.base.id.to_string()), .None => Option(String).None);
                   match(
