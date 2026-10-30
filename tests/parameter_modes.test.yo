@@ -78,7 +78,7 @@ test("a still implicitly copyable kind is shared into a by-value parameter, as `
   s := String.from("hello");
   assert(_pm_take(s) == usize(5), "the callee got its own share");
   assert(s.len() == usize(5), "s stays usable");
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(s);
   assert((xs.len() == usize(1)) && (s == "hello"), "pushed by value and still usable");
 });
@@ -86,7 +86,7 @@ test("a still implicitly copyable kind is shared into a by-value parameter, as `
 _PmHandle :: ref(struct(n : i32));
 test("an io.async body shares a handle into a by-value parameter: the slot keeps its own reference", {
   t := io.async((io : Io) => {
-    xs := ArrayList(_PmHandle).new();
+    mut(xs) := ArrayList(_PmHandle).new();
     q := _PmHandle(n : i32(2));
     io.await(sleep(u64(1)), io);
     xs.push(q);
@@ -264,7 +264,7 @@ _pm_is_one :: (fn(v : &i32) -> bool)(v == i32(1));
 _pm_first_is_one :: (fn(xs : &ArrayList(i32), comptime(k) : i32) -> bool)(_pm_is_one(&xs(usize(0))));
 _pm_first_by :: (fn(xs : &ArrayList(i32), cmp : &Impl(Fn(v : &i32) -> bool)) -> bool)(cmp(&xs(usize(0))));
 test("&xs(i) lends an element from a body evaluated per specialization", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   assert(_pm_first_is_one(&xs, i32(3)), "comptime-specialized body");
   assert(_pm_first_by(&xs, v => (v == i32(1))), "closure-taking body");
@@ -289,7 +289,7 @@ test("a callee lending through markers does not write its &mut T parameter", {
   assert(t.lookup(&s) < u64(7), "a &T binding handed to a &mut T parameter nothing writes");
 });
 test("a marker that does not fit the parameter is an error", {
-  s := String.from("x");
+  mut(s) := String.from("x");
   (c : i32) = i32(0);
   comptime_expect_error(_pm_len(&mut s), "is not `&mut T`");
   comptime_expect_error(_pm_inc(&c), "lend the place with `&mut c`");
@@ -432,7 +432,7 @@ test("the deleted spellings inout and own are errors naming mut and sink", {
   comptime_expect_error({
     inout(y) := _c;
   }, "`inout(x)` was deleted");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   comptime_expect_error(
     for(xs, inout(x) => {
@@ -615,7 +615,7 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
   }, "`mut(x)` was deleted");
   comptime_expect_error({ imm(_c) }() => i32(1), "`imm(x)` was deleted");
   comptime_expect_error({ mut(z) : &mut _c }() => i32(1), "`mut(x)` was deleted");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   comptime_expect_error(
     for(xs, mut(x) => {
@@ -730,7 +730,7 @@ test("a later argument cannot overwrite or relend the place an earlier argument 
     _pm_peek(&a, a.bump(i32(1)))
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
-    xs := ArrayList(String).new();
+    mut(xs) := ArrayList(String).new();
     xs.push(String.from("a"));
     _pm_str_len(&xs(usize(0)), {
       xs.push(String.from("b"));
@@ -751,7 +751,7 @@ test("a later argument cannot overwrite or relend the place an earlier argument 
     "a later argument may write a field the lent place does not overlap"
   );
   assert(p.k == i32(3), "the disjoint write landed");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(xs.len()));
   assert(xs(usize(0)) == i32(0), "a `&mut self` receiver lets a later argument read it");
 });
