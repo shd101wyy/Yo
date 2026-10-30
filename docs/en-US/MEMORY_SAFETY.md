@@ -33,7 +33,7 @@ This is the default user experience. No pragma needed, no `addr_of(...)` calls, 
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
@@ -127,7 +127,7 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 - `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
 - **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
-- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for reference-semantics elements that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
+- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for reference-semantics elements (`ref(struct(...))`) that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for a `Copy` element it is a copy, written back with `xs(i) = v`; a `String` or other move-only element is copied out with `xs.get_cloned(i)` and written in place with `xs.with(i, s => …)`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 

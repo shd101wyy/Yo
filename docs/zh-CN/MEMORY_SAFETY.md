@@ -33,7 +33,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
@@ -127,7 +127,7 @@ main :: (fn() -> unit)({
 
 - `str` 是唯一的内建视图类型，且只能指向**静态**字符串数据（字面量、`comptime_str`）—— 它永远不会指向可能被释放的堆缓冲区。
 - **集合上的区间操作是拷贝。** `list(usize(1)..usize(3))` 与 `String` 的区间产生一个独立持有的值，而不是源缓冲区上的窗口 —— 不存在可悬空的堆切片类型。
-- **元素访问只交出值，从不交出内部指针。** `xs.get(i)` 返回元素 —— object 元素返回指向元素*对象*的句柄（就地变异、且在容器增长/realloc 之后依然有效）；struct 元素返回拷贝，用 `xs(i) = v` 写回。安全表达式无法产生指向容器缓冲区内部的指针，因此增长失效根本无法表达。
+- **元素访问只交出值，从不交出内部指针。** `xs.get(i)` 返回元素 —— 引用语义元素（`ref(struct(...))`）返回指向元素*对象*的句柄（就地变异、且在容器增长/realloc 之后依然有效）；`Copy` 元素返回拷贝，用 `xs(i) = v` 写回；`String` 等只能移动的元素用 `xs.get_cloned(i)` 拷出，用 `xs.with(i, s => …)` 就地写入。安全表达式无法产生指向容器缓冲区内部的指针，因此增长失效根本无法表达。
 
 这些规则的讲解见 [FLOWABILITY.md](./FLOWABILITY.md)；编写安全代码不需要了解它们 —— 危险的形态会被编译器直接拒绝。
 

@@ -262,7 +262,7 @@ local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In sa
 LIMIT :: i32(5); // a constant: fine from any thread
 hits := AtomicI32(i32(0)); // an atomic object: shared state, fine
 (thread_local(mut(scratch)) : i32) = i32(0); // per-thread mutable state: fine
-g := ArrayList(i32).new(); // fine on the main thread only
+mut(g) := ArrayList(i32).new(); // fine on the main thread only
 fill :: (fn() -> unit)({
   g.push(i32(1));
 });
@@ -304,7 +304,7 @@ write `(f : Impl(Fn(Io) -> unit, Send)) = count`. A value is checked once, where
 converted into that type (an argument, a return, a declared binding).
 
 ```yo
-g := ArrayList(i32).new(); // main thread only
+mut(g) := ArrayList(i32).new(); // main thread only
 hits := AtomicI32(i32(0));
 fill :: (fn(io : Io) -> unit)({
   g.push(i32(1));
