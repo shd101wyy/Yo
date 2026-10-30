@@ -1176,3 +1176,44 @@ test("one closure literal boxed at a &mut slot and at a by-value slot", {
   assert(_dm_run(_DmA(n : i32(1)), i32(5)) == i32(1), "the &mut mint");
   assert(_dm_run(_DmB(n : i32(2)), i32(5)) == i32(2), "the by-value mint");
 });
+// A downcast copies a move-only payload with its `clone`, never bitwise: the
+// Dyn's box and the result each own one value, each dropped once
+// (issues/fixed/2026-10-31-a-downcast-to-a-move-only-type-drops-the-payload-twice.md).
+(mut(g_dc_drops) : i32) = i32(0);
+(mut(g_dc_clones) : i32) = i32(0);
+_DcFd :: struct(n : i32);
+impl(
+  _DcFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dc_drops = (g_dc_drops + i32(1));
+    })
+  )
+);
+impl(
+  _DcFd,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      g_dc_clones = (g_dc_clones + i32(1));
+      _DcFd(n : self.n)
+    })
+  )
+);
+impl(_DcFd, ToString(to_string : (fn(self : &Self) -> String)(String.from("fd"))));
+impl(_DcFd, Error());
+test("a downcast copies a move-only payload with its clone, each copy dropped once", {
+  {
+    (err : AnyError) = dyn(_DcFd(n : i32(3)));
+    n := match(downcast(err, _DcFd), .Some(f) => f.n, .None => i32(0));
+    assert(n == i32(3), "the downcast reads the payload");
+    assert(g_dc_clones == i32(1), "the payload is copied with its clone");
+  };
+  drops := g_dc_drops;
+  assert(drops == i32(2), `the Dyn's payload and the downcast copy dropped once each, got ${drops.to_string()}`);
+});
+test("a downcast to a move-only type needs a Dyn that lists Clone", {
+  comptime_expect_error({
+    (d : Dyn(ToString)) = dyn(_DcFd(n : i32(1)));
+    downcast(d, _DcFd)
+  }, "the Dyn must list `Clone`");
+});

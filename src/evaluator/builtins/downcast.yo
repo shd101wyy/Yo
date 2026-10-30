@@ -4,6 +4,8 @@
 //!   - Checks the first argument has a Dyn type.
 //!   - Checks the second argument is a type value.
 //!   - Returns Option(T) as a runtime unknown value.
+//!   - Rejects a move-only T unless the Dyn lists `Clone` (E0901): the
+//!     payload is copied out through its `clone`.
 //!
 //! `upcast(dyn_value, Dyn(Tgt...))` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8):
 //!   - Checks the first argument has a Dyn type and the second is a Dyn type.
@@ -40,7 +42,8 @@ pragma(Pragma.AllowUnsafe);
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
-{ E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
+{ E_TRAIT_NOT_IMPLEMENTED, E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
+{ type_is_move_only, dyn_type_lists_clone } :: import("../../types/utils.yo");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
@@ -145,6 +148,22 @@ evaluate_downcast :: (
     .Some(_) => rc(TypeValueNode.Unit),
     .None => rc(TypeValueNode.Unit)
   );
+  // A downcast copies the payload out and the Dyn keeps its own. A move-only
+  // payload has no implicit copy, so it is copied through its `Clone`, which
+  // codegen reads from the Dyn's evidence: the Dyn must list `Clone`.
+  if(type_is_move_only(&target_type) && !dyn_type_lists_clone(&dyn_type), {
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message(
+            ast_expr_token(&type_expr),
+            `downcast copies the payload out of the Dyn, which keeps its own, and \`${type_to_string(&target_type)}\` is move-only: it is copied with its \`clone\`, so the Dyn must list \`Clone\` (\`${type_to_string(&dyn_type)}\` does not). Downcast from a \`Dyn(..., Clone)\`, such as std/error's \`AnyError\`.`
+          ),
+          E_USE_OF_MOVED_VALUE
+        )
+      )
+    );
+  });
   // Construct Option(T) — Dyn only wraps object types.
   option_type := create_option_type(&target_type);
   result_value := create_unknown_val(&option_type);
