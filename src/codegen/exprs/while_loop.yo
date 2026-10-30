@@ -14,6 +14,7 @@
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, fresh_local_name } :: import("../utils/index.yo");
 { is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
 { expr_info_consumed_variable_drop_expressions, expr_info_comptime_unrolled_bodies } :: import("../../expr_info.yo");
+{ replace } :: import("std/mem");
 /// Emit `<indent><text>` + newline.
 _emit_line :: (fn(em : &Emitter, indent : &String, text : &String) -> unit)({
   line := indent.clone();
@@ -124,8 +125,8 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
       ei_opt := context.base.get_expr_info(body_expr);
       current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
       current_consumed := match(ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
-      prev_pending := context.pending_deferred_drops;
-      prev_consumed := context.consumed_var_pending_drops;
+      prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+      prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_drops, &prev_pending));
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_consumed, &prev_consumed));
       em := context.base.emitter;
@@ -234,8 +235,8 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
       bei_opt := context.base.get_expr_info(body_expr);
       body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
       body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
-      prev_pending := context.pending_deferred_drops;
-      prev_consumed := context.consumed_var_pending_drops;
+      prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+      prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_drops, &prev_pending));
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_consumed, &prev_consumed));
       em := context.base.emitter;
@@ -267,7 +268,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
 _emit_while_cond_break :: (fn(cond_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   cnd_drops := match(context.base.get_expr_info(cond_expr), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
-  cnd_prev := context.pending_deferred_drops;
+  cnd_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
   cc := _call_generate_expr(cond_expr, indent.clone(), context);
   context.pending_deferred_drops = cnd_prev;
