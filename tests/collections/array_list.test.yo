@@ -1682,3 +1682,17 @@ test("extend consumes the other list; extend_cloned keeps it", {
   g.extend(ArrayList(i32).new());
   assert(g.len() == usize(0), "an empty list adds nothing");
 });
+// A list extended with itself through a `ref` root: the `&ArrayList` argument
+// is a copy of the list's fields taken at the call, so its buffer pointer is
+// the one the growth frees; the elements are read from the grown list
+// (issues/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md).
+_AlCell :: ref(struct(xs : ArrayList(String)));
+test("extend_cloned of a list with itself through a ref root appends a copy", {
+  // Full at two, so the first appended element reallocates the buffer.
+  o := _AlCell(xs : ArrayList(String).with_capacity(usize(2)));
+  o.xs.push(String.from("a-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  o.xs.push(String.from("b-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  o.xs.extend_cloned(&o.xs);
+  assert(o.xs.len() == usize(4), "four elements");
+  assert((o.xs(usize(2)) == o.xs(usize(0))) && (o.xs(usize(3)) == o.xs(usize(1))), "the appended half copies the first");
+});
