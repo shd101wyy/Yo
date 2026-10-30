@@ -382,6 +382,83 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-30): make_mut reuses the owner (Rc/Arc.allocator)
+
+`Rc.make_mut` and `Arc.make_mut` place their fresh cell (another strong
+handle shares the cell: a clone; only weak handles share it: a move) with
+the default allocator, so a cell placed with `alloc : .Some(a)` moves to the
+global heap
+(`issues/questions/2026-10-29-make-mut-places-its-fresh-cell-with-the-default-allocator-not-the-old-cells.md`).
+The decision (Fable consultation #7, Q2, 2026-10-30) is Rust's
+`this.alloc.clone()`: the fresh cell reuses the old cell's allocator, on
+both paths of both handle kinds. `Box.clone` already places through
+`Box.allocator(self)`. The allocator is recorded in the cell's owner prefix,
+whose layout codegen owns, so the prelude reads it through runtime hooks.
+`src/env.yo` instantiates `Rc.make_mut`, so the prelude may call them only
+once the seed emits them.
+
+**Generation A (v0.2.74, `fix/rc-owner-hooks-gen-a`):** two `extern("Yo")`
+scalar hooks beside `__yo_scope_of_object` in
+`src/codegen/types/generation.yo`, emitted under both allocator interface
+versions: `__yo_rc_owner_ctx(cell : *void) -> ?*void` and
+`__yo_rc_owner_vtable(cell : *void) -> ?*void`. They return the owner
+prefix's `ctx` and `vtable`, or NULL for a global cell (a NULL vtable means
+the global allocator, the shape of `__yo_scope_ctx`/`__yo_scope_vtable`).
+They read the `__YO_RC_TAG` bit with a relaxed atomic load: an `Arc` cell's
+count is updated through `_Atomic` casts while other threads hold handles,
+so a plain read on the clone path is a data race under TSan. The mutation
+summary reads both as non-mutating (`_msp_extern_is_owner_read`,
+`src/evaluator/effects/mutation_summary.yo`), so reading a lent handle's
+owner does not count as mutating the handle.
+
+**Generation B (v0.2.75, once `SEED_VERSION` carries Generation A):** in
+`std/prelude.yo`:
+
+- Declare the two hooks in the `extern("Yo", ...)` block beside
+  `__yo_scope_ctx`/`__yo_scope_vtable`, and delete the test-local
+  `extern("Yo", ...)` block that declares them in
+  `tests/for_macro_borrow_user_collection.test.yo`: user code cannot
+  redeclare a prelude extern.
+- Add a public `allocator` to `Rc(T)` and to `Arc(T)` that mirrors
+  `Box.allocator`, including its doc comment: it is spelled `Rc.allocator(h)`
+  because a payload with its own `allocator` makes `h.allocator()`
+  ambiguous (E0616). Rust has `Rc::allocator(&this)`. A sketch:
+
+  ```yo ignore
+  allocator : (fn(self : &Self) -> Option(Allocator))({
+    // SAFETY: an `Rc` handle is the address of its live cell.
+    cell := (*void)(unsafe(unsafe.cast(self, *T)));
+    match(
+      __yo_rc_owner_vtable(cell),
+      .Some(v) => .Some(Allocator(ctx : __yo_rc_owner_ctx(cell), vtable : (*AllocatorVTable)(v))),
+      .None => .None
+    )
+  })
+  ```
+
+- Read `owner := Rc.allocator(self)` / `Arc.allocator(self)` at the entry
+  of each `make_mut`, before `__yo_rc_forget_payload`,
+  `__yo_arc_release_locked` or the assignment that releases the old cell.
+  The prefix does not change after construction, so no further atomics are
+  needed. Pass `alloc : owner` at all four fresh-cell sites. `make_mut`
+  takes no allocator parameter of its own (no `make_mut_in`).
+- Tests: four counting-allocator rows (per kind × per path) in
+  `tests/rc.test.yo` and `tests/arc.test.yo`. Each asserts that
+  `Rc/Arc.allocator(h)` is `.Some` and the same allocator after
+  `make_mut`, that two cells are live while the old handle or `Weak` lives,
+  and that the count goes back to zero once both are gone. Add one row per
+  kind showing that a global handle stays `.None`, and put the `Arc` rows in
+  the TSan thread corpus. The two "moves the payload, not a clone, to a
+  fresh cell" rows flip their expectation.
+- Docs, in both languages: `EXPLICIT_ALLOCATORS.md` gains the `Rc`/`Arc`
+  accessor rows beside `Box`'s and one sentence saying that `make_mut`
+  keeps the allocator. `WEAK.md` and `ARC.md` get one sentence each.
+- Move the question doc per `issues/README.md`'s taxonomy.
+
+Generation B does not wait on V5: if V5 Generation A has moved `make_mut`
+onto `__yo_cell` by then, the diff is the same `alloc : owner` on whatever
+spelling `make_mut` has (V5 keeps the owner prefix in `__yo_cell`'s block).
+
 ## Seed-gated follow-up (2026-10-29): `Arc.make_mut` and `Arc.try_unwrap` take the uniqueness lock
 
 `Arc.make_mut` and `Arc.try_unwrap` decide that `self` is the cell's only

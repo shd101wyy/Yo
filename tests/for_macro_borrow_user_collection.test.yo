@@ -526,6 +526,51 @@ test("borrowed for: moving the object into an Rc cell through an alias does not 
   assert(seen == usize(8), "each cell reads the list once per element");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });
+// Reading the allocator an object's cell was placed with only reads it: the
+// owner hooks `Rc.allocator`/`Arc.allocator` will call for `make_mut`
+// (plans/backlog/SEED_VERSION_AUTOMATION.md, "make_mut reuses the owner").
+// Without `_msp_extern_is_owner_read` the `__yo_` prefix counted the reads
+// as mutating their argument, so `owner_is_global` asserted `b` unborrowed
+// and panicked through the second handle. Generation B declares the hooks
+// in the prelude, and this block goes then: user code cannot redeclare a
+// prelude extern.
+extern(
+  "Yo",
+  __yo_rc_owner_ctx :
+    (fn(cell : *void) -> ?*void),
+  __yo_rc_owner_vtable :
+    (fn(cell : *void) -> ?*void)
+);
+owner_is_global :: (fn(b : VBag) -> bool)({
+  // SAFETY: a `ref` object handle is the address of its live cell.
+  cell := (*void)(unsafe(unsafe.cast(&b, *void)));
+  __yo_rc_owner_ctx(cell).is_none() && __yo_rc_owner_vtable(cell).is_none()
+});
+test("borrowed for: reading the object's owner through an alias does not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  c := Counter(n : usize(3));
+  bag := VBag(
+    items : xs,
+    c : c.clone(),
+    local : CountLocal(c : c.clone()),
+    konst : CountConst(c : c.clone()),
+    chain : CountChain(c : c.clone()),
+    h : HCounter(n : usize(3)),
+    p : PCounter(n : usize(3))
+  );
+  other := bag;
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    if(owner_is_global(other), {
+      seen = (seen + usize(1));
+    });
+    x = (x * i32(10));
+  });
+  assert(seen == usize(2), "a global object has no owner, read once per element");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
+});
 // A callee that writes an INERT module-level global (an `i32`, a `Copy`
 // struct of scalars) mutates only that static: no argument's storage is reachable from
 // it, so it does not count as mutating every argument. Before the fix such a
