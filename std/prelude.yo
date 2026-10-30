@@ -9944,12 +9944,13 @@ impl(
   generic(T : Type),
   where(T <: Clone),
   Rc(T),
-  /// The payload, written (a mutable projection): when another handle of
-  /// either kind shares the cell, `self` first moves to a fresh cell holding
-  /// a clone of the payload, so the write never reaches the other handles.
-  /// Rust's `Rc::make_mut`; the clone is spelled in the name (§0.1 of the
-  /// plan). As Rust's, it disassociates `Weak` handles: a `Weak` to the only
-  /// `Rc`'s cell upgrades to `.None` afterwards, since `self` left the cell.
+  /// The payload, written (a mutable projection), so the write never
+  /// reaches another handle. When another `Rc` shares the cell, `self` first
+  /// moves to a fresh cell holding a clone of the payload (the clone is
+  /// spelled in the name, §0.1 of the plan). When only `Weak` handles share
+  /// it, the payload itself moves to a fresh cell, with no clone, and the
+  /// old cell goes to the `Weak` handles, which upgrade to `.None`
+  /// afterwards. Rust's `Rc::make_mut`.
   ///
   /// ```yo
   /// a := rc(i32(1));
@@ -9960,9 +9961,21 @@ impl(
   make_mut : (fn(self : &mut Self) -> &mut T)({
     // SAFETY: an `Rc` handle is the address of its live cell.
     cell := unsafe(unsafe.cast(self, *T));
-    if((ref_count(self) != usize(1)) || (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)), {
-      self = rc(self.*.clone());
-    });
+    cond(
+      (ref_count(self) != usize(1)) => {
+        self = rc(self.*.clone());
+      },
+      (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)) => {
+        // SAFETY: `self` is the cell's only strong handle, so nothing else
+        // reads the payload: it moves out bitwise and the cell stops owning
+        // it. The assignment's release of the old cell then hands it to the
+        // `Weak` handles as dead without dropping the payload.
+        payload := __yo_ptr_read(addr_of(self.*));
+        __yo_rc_forget_payload(self);
+        self = rc(payload);
+      },
+      true => ()
+    );
     addr_of(self.*)
   })
 );
@@ -10539,45 +10552,95 @@ impl(
     clone : (fn(self : &Self) -> Self)(___dup(self))
   )
 );
-/// `Rc`'s doors, for `Arc` (plans/VALUES_BY_DEFAULT.md decision 46). The
-/// count is read atomically; a handle the caller owns, with a count of 1, is
-/// the only one on any thread.
+// The uniqueness lock behind `Arc.try_unwrap` and `Arc.make_mut`: Rust's
+// CAS of the strong count from 1 to 0, which an `ArcWeak.upgrade` on another
+// thread refuses, instead of two loads it could slip between
+// (issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md).
+extern(
+  "Yo",
+  /// Takes the strong count of `cell` from 1 to 0: true when the caller's
+  /// handle was the only one, and then no `ArcWeak` upgrades until the
+  /// unlock; false and nothing changed otherwise.
+  __yo_arc_lock_unique :
+    (fn(cell : *void) -> bool),
+  /// Gives a locked cell its strong count of 1 back.
+  __yo_arc_unlock_unique :
+    (fn(cell : *void) -> unit),
+  /// The `ArcWeak` count of a locked cell (`usize.MAX` when it saturated):
+  /// `__yo_arc_weak_weak_count` answers 0 for the zero strong count a lock
+  /// leaves.
+  __yo_arc_weak_count_raw :
+    (fn(cell : *void) -> usize),
+  /// Ends a locked cell whose payload was moved out, without dropping the
+  /// payload: the cell goes to its `ArcWeak` handles as dead, or is freed
+  /// when there is none. `slot` is the address of the locking handle, which
+  /// is cleared, so its own release does nothing.
+  __yo_arc_release_locked :
+    (fn(slot : *void) -> unit)
+);
+/// `Rc`'s doors, for `Arc` (plans/VALUES_BY_DEFAULT.md decision 46). A
+/// handle the caller owns proves it is the only one on any thread by taking
+/// the uniqueness lock.
 impl(
   generic(T : Type),
   where(T <: (Send, Sync)),
   Arc(T),
-  /// The payload by value when `self` is the only handle to its cell, else
-  /// `.Err(self)`. Rust's `Arc::try_unwrap`.
-  try_unwrap : (fn(sink(self) : Self) -> Result(T, Self))(
+  /// The payload by value when `self` is the only `Arc` to its cell, else
+  /// `.Err(self)`. `ArcWeak` handles to the cell upgrade to `.None`
+  /// afterwards. Rust's `Arc::try_unwrap`.
+  try_unwrap : (fn(sink(self) : Self) -> Result(T, Self))({
+    // SAFETY: an `Arc` handle is the address of its live cell.
+    cell := (*void)(unsafe(unsafe.cast(&self, *T)));
     cond(
-      (ref_count(self) == usize(1)) => {
-        // SAFETY: `self` is the cell's only reference on every thread (the
-        // count is read with acquire ordering), so the payload is moved out
-        // bitwise, and the cell, released with `self`, no longer drops it.
+      __yo_arc_lock_unique(cell) => {
+        // SAFETY: the lock left a strong count of 0, so `self` is the cell's
+        // only strong handle on every thread and no `ArcWeak` upgrades: the
+        // payload is moved out bitwise, and the cell goes to the `ArcWeak`
+        // handles as dead (freed now if there is none) without dropping it.
         payload := __yo_ptr_read(addr_of(self.*));
-        __yo_rc_forget_payload(&self);
+        __yo_arc_release_locked((*void)(addr_of(self)));
         .Ok(payload)
       },
       true => .Err(self)
     )
-  )
+  })
 );
 impl(
   generic(T : Type),
   where(T <: (Send, Sync, Clone)),
   Arc(T),
-  /// The payload, written: when another handle of either kind shares the
-  /// cell, `self` first moves to a fresh cell holding a clone of the payload.
-  /// Rust's `Arc::make_mut`: an `ArcWeak` to the only `Arc`'s cell upgrades
-  /// to `.None` afterwards. Unlike Rust's, the check is two loads, not a
-  /// CAS, so an `upgrade` racing it on another thread can still slip in
-  /// (`issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`).
+  /// The payload, written, so the write never reaches another handle. When
+  /// another `Arc` shares the cell, `self` first moves to a fresh cell
+  /// holding a clone of the payload. When only `ArcWeak` handles share it,
+  /// the payload itself moves to a fresh cell, with no clone, and the old
+  /// cell goes to the `ArcWeak` handles, which upgrade to `.None` afterwards.
+  /// Rust's `Arc::make_mut`.
   make_mut : (fn(self : &mut Self) -> &mut T)({
     // SAFETY: an `Arc` handle is the address of its live cell.
-    cell := unsafe(unsafe.cast(self, *T));
-    if((ref_count(self) != usize(1)) || (__yo_arc_weak_weak_count((*void)(cell)) != usize(0)), {
-      self = arc(self.*.clone());
-    });
+    cell := (*void)(unsafe(unsafe.cast(self, *T)));
+    cond(
+      __yo_arc_lock_unique(cell) => {
+        // The weak count is read while no upgrade can succeed. Zero stays
+        // zero after the unlock: a new `ArcWeak` takes a strong handle (only
+        // `self`) or another `ArcWeak`.
+        cond(
+          (__yo_arc_weak_count_raw(cell) == usize(0)) => __yo_arc_unlock_unique(cell),
+          true => {
+            // SAFETY: the lock left a strong count of 0, so `self` is the
+            // cell's only strong handle on every thread and no `ArcWeak`
+            // upgrades: the payload moves out bitwise, the cell goes to the
+            // `ArcWeak` handles as dead without dropping it, and the handle's
+            // slot, cleared by the release, takes the fresh cell.
+            payload := __yo_ptr_read(addr_of(self.*));
+            __yo_arc_release_locked((*void)(addr_of(self)));
+            self = arc(payload);
+          }
+        );
+      },
+      true => {
+        self = arc(self.*.clone());
+      }
+    );
     // SAFETY: `self` is now the cell's only handle on every thread, so the
     // write the caller makes through the projection is exclusive.
     addr_of(self.*)

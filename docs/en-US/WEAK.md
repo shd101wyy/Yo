@@ -60,9 +60,9 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
   `weak_count()` reports `usize.MAX` then.
 - **`Rc.try_unwrap`** succeeds with `Weak` handles alive; they upgrade to `.None`
   afterwards. **`Rc.make_mut`** disassociates them, as Rust's does: when a
-  `Weak` names the only `Rc`'s cell, the `Rc` first moves to a fresh cell
-  holding a clone of the payload, so the `Weak` never sees the write and
-  upgrades to `.None` afterwards.
+  `Weak` names the only `Rc`'s cell, the payload moves to a fresh cell (no
+  clone), so the `Weak` never sees the write and upgrades to `.None`
+  afterwards.
 
 ## What a `Weak` is not
 

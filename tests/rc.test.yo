@@ -3989,6 +3989,51 @@ test("Rc.make_mut on the only Rc with a Weak alive moves to a fresh cell", {
   Rc.make_mut(&mut b).b = i32(40);
   assert(addr_of(b.*) == before_b, "no Weak left: written in place");
 });
+// `Rc.make_mut` on a cell only `Weak` handles share moves the payload to a
+// fresh cell, as Rust's does: no clone, no drop, and the old cell goes to the
+// `Weak` handles as dead (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.3). The
+// fresh cell is placed by the default allocator, so the counting allocator
+// sees only the old one.
+(mut(g_rc_mm_clones) : i32) = i32(0);
+(mut(g_rc_mm_drops) : i32) = i32(0);
+_RcMmProbe :: struct(n : i32);
+impl(
+  _RcMmProbe,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      g_rc_mm_clones = (g_rc_mm_clones + i32(1));
+      _RcMmProbe(n : self.n)
+    })
+  )
+);
+impl(
+  _RcMmProbe,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_rc_mm_drops = (g_rc_mm_drops + i32(1));
+    })
+  )
+);
+test("Rc.make_mut with a Weak alive moves the payload, not a clone, to a fresh cell", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  clones := g_rc_mm_clones;
+  drops := g_rc_mm_drops;
+  a := rc(_RcMmProbe(n : i32(1)), alloc : .Some(heap));
+  w := Rc.downgrade(&a);
+  before := addr_of(a.*);
+  Rc.make_mut(&mut a).n = i32(10);
+  assert(a.n == i32(10), "the write landed");
+  assert(addr_of(a.*) != before, "the write landed in a fresh cell");
+  assert(g_rc_mm_clones == clones, "no Clone ran");
+  assert(g_rc_mm_drops == drops, "no payload drop ran");
+  assert(counts.live == usize(1), "the old cell stays live while the Weak names it");
+  assert(w.upgrade().is_none(), "the Weak upgrades to .None after the call");
+  consume(w);
+  assert(counts.live == usize(0), "the last Weak freed the old cell");
+  consume(a);
+  assert(g_rc_mm_drops == (drops + i32(1)), "the moved payload drops once, with its new cell");
+});
 test("Rc.try_unwrap succeeds with a Weak alive and leaves the Weak dangling", {
   counts := _counts();
   heap := _counting(addr_of(counts));

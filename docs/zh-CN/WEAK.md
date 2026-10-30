@@ -52,8 +52,8 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
 - **弱计数会饱和**，上限是指向同一单元的 32767 个句柄。饱和的单元停止计数且永不释放：这是泄漏，绝不会
   产生悬垂句柄。此时 `weak_count()` 报告 `usize.MAX`。
 - **`Rc.try_unwrap`** 在仍有 `Weak` 时也会成功，之后这些 `Weak` 升级为 `.None`。**`Rc.make_mut`** 与 Rust 的
-  一样会解除这些 `Weak` 句柄的关联：当有 `Weak` 指向唯一的 `Rc` 的单元时，该 `Rc` 会先移到一个持有载荷克隆的
-  新单元，因此该 `Weak` 永远看不到写入，之后升级为 `.None`。
+  一样会解除这些 `Weak` 句柄的关联：当有 `Weak` 指向唯一的 `Rc` 的单元时，载荷会移到一个新单元（不克隆），
+  因此该 `Weak` 永远看不到写入，之后升级为 `.None`。
 
 ## `Weak` 不是什么
 

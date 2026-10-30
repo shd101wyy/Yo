@@ -229,9 +229,9 @@ with one `fetch_or` whose result decides the free. `Arc.make_mut` and
 1 to 0 (`__yo_arc_lock_unique`), which an `upgrade` refuses; the weak word is
 then read raw, and a payload moved out under the lock hands the cell to the
 `ArcWeak` handles as dead (`__yo_arc_release_locked`). The primitives landed
-2026-10-29; the prelude calls them once a seed emits them
+2026-10-29 and the prelude calls them from the v0.2.73 seed on
 (`SEED_VERSION_AUTOMATION.md`;
-`issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`). "No borrow
+`issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`). "No borrow
 marks on an `Rc`" was proved and then made structural ("guard first",
 lookahead §5 PR 4): four codegen sites could still mark or check a counted
 cell's `borrow_count` (a borrowed `for` guard, an interior `&` argument, the
@@ -253,11 +253,17 @@ and `Arc` cells, `src/types/guards.yo`); `tests/rc.test.yo` pins it.
 - `upgrade`: `.Some(handle)` with `strong += 1` iff the cell is not dead;
   `.None` otherwise. `Weak.new()` points at no allocation and always
   upgrades to `.None`.
-- `make_mut`: clones the payload into a fresh cell iff `strong != 1` or
-  `weak != 0`, so a `Weak` to the only strong handle's cell is
-  disassociated (upgrades to `.None` afterwards) instead of seeing the
-  write. Rust moves the payload out in that case; Yo clones, as it does for
-  a shared cell (`make_mut` already requires `T <: Clone`).
+- `make_mut`: when `strong != 1`, clones the payload into a fresh cell.
+  When `strong == 1` and `weak != 0`, moves the payload out to a fresh cell
+  without cloning it, as Rust does, and the old cell goes to the `Weak`
+  handles as dead with no payload drop. Either way a `Weak` to the cell is
+  disassociated (it upgrades to `.None` afterwards) instead of seeing the
+  write. `Arc` decides this under the uniqueness lock (§3.2). Until the
+  Generation B of
+  `issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md`,
+  Yo cloned in the weak-only case too (Fable consultation #2, verdict A3).
+  The fresh cell is placed by the default allocator, not the old cell's:
+  `issues/questions/2026-10-29-make-mut-places-its-fresh-cell-with-the-default-allocator-not-the-old-cells.md`.
 - The owner prefix and `__yo_rc_free`'s routing are unchanged: the free,
   whenever it happens, goes to the allocator that placed the cell.
 

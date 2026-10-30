@@ -115,7 +115,9 @@ assert(shared.* == i32(42), "main still sees shared value");
 `Arc` 的载荷通过句柄只能读取：安全代码中通过它的写入会被拒绝，共享修改需要通过 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型进行。`Arc(RefCell(T))` 会被拒绝，因为 `RefCell` 永远不是 `Sync`。有两个入口可以证明句柄是唯一的，与 Rust 相同（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决策 46）：
 
 - **`Arc.try_unwrap(h)`** 消耗该句柄：若任何线程上都没有其他句柄，返回 `.Ok(payload)`（单元被释放），否则返回 `.Err(h)`。
-- **`Arc.make_mut(&mut h)`**（`T <: Clone`）是被写入的载荷：共享的载荷会先被克隆到只有 `h` 持有的新单元中。
+- **`Arc.make_mut(&mut h)`**（`T <: Clone`）是被写入的载荷：共享的载荷会先被克隆到只有 `h` 持有的新单元中。若只有 `ArcWeak` 句柄共享该单元，载荷会不经克隆地移到一个新单元，之后这些 `ArcWeak` 升级为 `.None`。
+
+两者都在一个原子步骤中判定唯一性（Rust 的做法：把强计数从 1 比较并交换为 0），因此另一个线程上的 `ArcWeak.upgrade` 要么发生在它之前（句柄因而算作共享），要么发现单元已被占用并返回 `.None`。
 
 ```yo
 a := arc(i32(1));

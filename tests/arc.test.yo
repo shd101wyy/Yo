@@ -335,7 +335,7 @@ test("Arc.make_mut on the only Arc with an ArcWeak alive moves to a fresh cell",
   assert(addr_of(b.*) == before_b, "no ArcWeak left: written in place");
 });
 // --- The uniqueness lock behind `Arc.make_mut` and `Arc.try_unwrap`
-// (issues/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md):
+// (issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md):
 // one CAS of the strong count from 1 to 0 instead of two loads. The
 // interleaving it closes cannot be forced from Yo source, so these rows drive
 // the runtime primitives directly. ---
@@ -397,6 +397,92 @@ test("a locked cell whose payload moved out goes to its ArcWeak handles as dead"
   assert(counts.live == usize(0), "no ArcWeak: the release freed the cell");
   consume(q);
   assert(g_arc_weak_dropped == (before + i32(2)), "each payload dropped once");
+});
+// `Arc.make_mut` on a cell only `ArcWeak` handles share moves the payload to
+// a fresh cell, as Rust's does: no clone, no drop, and the old cell goes to
+// the `ArcWeak` handles as dead (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+// §3.3). The ArcWeak lives on another thread across the call. The fresh cell
+// is placed by the default allocator, so the counting allocator sees only the
+// old one.
+(mut(g_arc_mm_clones) : i32) = i32(0);
+(mut(g_arc_mm_drops) : i32) = i32(0);
+_ArcMmProbe :: struct(n : i32);
+impl(
+  _ArcMmProbe,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      g_arc_mm_clones = (g_arc_mm_clones + i32(1));
+      _ArcMmProbe(n : self.n)
+    })
+  )
+);
+impl(
+  _ArcMmProbe,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_arc_mm_drops = (g_arc_mm_drops + i32(1));
+    })
+  )
+);
+{ Channel } :: import("std/sync/channel");
+test("Arc.make_mut with an ArcWeak live on another thread moves the payload, not a clone, to a fresh cell", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  clones := g_arc_mm_clones;
+  drops := g_arc_mm_drops;
+  a := arc(_ArcMmProbe(n : i32(1)), alloc : .Some(heap));
+  w := Arc.downgrade(&a);
+  go := Channel(i32).new(usize(1));
+  t := Thread(bool).spawn({ w, go }(io) => {
+    _ := go.recv();
+    w.upgrade().is_none()
+  });
+  before := addr_of(a.*);
+  Arc.make_mut(&mut a).n = i32(10);
+  assert(a.n == i32(10), "the write landed");
+  assert(addr_of(a.*) != before, "the write landed in a fresh cell");
+  assert(g_arc_mm_clones == clones, "no Clone ran");
+  assert(g_arc_mm_drops == drops, "no payload drop ran");
+  assert(counts.live == usize(1), "the old cell stays live while the ArcWeak names it");
+  _ := go.send(i32(1));
+  assert(t.join(), "the ArcWeak upgrades to .None after the call");
+  assert(counts.live == usize(0), "the worker's ArcWeak freed the old cell");
+  consume(a);
+  assert(g_arc_mm_drops == (drops + i32(1)), "the moved payload drops once, with its new cell");
+});
+// The issue's stress loop
+// (issues/repros/2026-10-28-arc-make-mut-races-an-arcweak-upgrade.yo), for
+// the TSan thread corpus: a worker upgrades and drops the only `ArcWeak`
+// while the owner runs `make_mut` or `try_unwrap`. An upgrade either lands
+// before the lock, and the owner clones or gets its handle back, or finds
+// the cell taken: the worker never reads a write or a moved-out payload.
+test("Arc.make_mut and Arc.try_unwrap against an ArcWeak upgrade on another thread", {
+  (mut(round) : i32) = i32(0);
+  while(round < i32(300), {
+    a := arc(_ArcPair(a : i32(0), b : i32(0)));
+    w := Arc.downgrade(&a);
+    t := Thread(i32).spawn({ w }(io) => {
+      h := w.upgrade();
+      consume(w);
+      match(h, .Some(p) => (p.a + p.b), .None => i32(0))
+    });
+    Arc.make_mut(&mut a).a = i32(1);
+    Arc.make_mut(&mut a).b = i32(1);
+    assert(t.join() == i32(0), "the worker never sees make_mut's writes");
+    assert((a.a + a.b) == i32(2), "the writes landed in a's cell");
+    b := arc(_ArcPair(a : i32(2), b : i32(3)));
+    w2 := Arc.downgrade(&b);
+    t2 := Thread(i32).spawn({ w2 }(io) => match(w2.upgrade(), .Some(p) => (p.a + p.b), .None => i32(0)));
+    n := match(
+      Arc.try_unwrap(b),
+      .Ok(p) => (p.a + p.b),
+      .Err(h) => (h.a + h.b)
+    );
+    assert(n == i32(5), "the payload came out whole, or the handle came back");
+    m := t2.join();
+    assert((m == i32(0)) || (m == i32(5)), "the worker read the whole payload or none");
+    round = (round + i32(1));
+  });
 });
 // A recursive payload whose edge back to its own type is an `ArcWeak`: the
 // `Self` in the field is fixed up with the declaration, and the upgraded
