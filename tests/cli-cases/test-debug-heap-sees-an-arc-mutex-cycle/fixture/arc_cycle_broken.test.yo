@@ -4,7 +4,7 @@
 // back edge before the last handle is dropped, leaves nothing live.
 Node :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
 test("an Arc(Mutex(Node)) cycle broken before the last handle goes", {
-  a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
+  a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
   b := Arc.clone(a);
   a.with_lock(v => {
     v = Node(id : i32(1), peer : .Some(Arc.clone(b)));

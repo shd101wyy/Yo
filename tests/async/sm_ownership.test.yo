@@ -994,7 +994,7 @@ test("a capture list and a nested implicit capture of the same name compile", {
 // capture moves it, so the enclosing state machine's dispose must not drop
 // it as well (a heap-use-after-free).
 test("a nested implicit capture moving an enclosing capture is dropped once", {
-  b := box(u64(5));
+  b := Box.new(u64(5));
   outer := io.async({ b }(io : Io) => {
     inner := io.async((io : Io) => {
       io.await(sleep(u64(1)), io);
@@ -1158,9 +1158,9 @@ _sm_er_take :: (fn(b : Box(i32), r : &Rc(RefCell(i32))) -> unit)({
   });
 });
 test("an early return after moving a task-slot local into a call drops it once", {
-  result := rc(RefCell(i32).new(0));
+  result := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
-    s := box(i32(100));
+    s := Box.new(i32(100));
     cond(
       result.with(cur => (cur == i32(0))) => {
         io.await(yield(io), io);
@@ -1177,9 +1177,9 @@ test("an early return after moving a task-slot local into a call drops it once",
   assert(result.with(cur => cur) == i32(100), "the early return ran after the move");
 });
 test("an early return after moving a task-slot local into a closure's capture drops it once", {
-  result := rc(RefCell(i32).new(0));
+  result := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
-    s := box(i32(200));
+    s := Box.new(i32(200));
     cond(
       result.with(cur => (cur == i32(0))) => {
         io.await(yield(io), io);

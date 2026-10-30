@@ -1410,7 +1410,7 @@ _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize
 /// hard-global instead (B1). The argument is evaluated once, into a temp
 /// named after the call `call`.
 _cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  opt_ty := match(context.base.get_expr_info(alloc_arg), .Some(ai) => Rc.clone(ai.ty), .None => rc(TypeValueNode.Unit));
+  opt_ty := match(context.base.get_expr_info(alloc_arg), .Some(ai) => Rc.clone(ai.ty), .None => Rc.new(TypeValueNode.Unit));
   alloc_ty := match(
     &opt_ty,
     Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
@@ -1483,7 +1483,7 @@ _generate_runtime_enum_construct :: (
             n := rt_args.len();
             (i : usize) = usize(0);
             while(i < n, {
-              fty := match(vftys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+              fty := match(vftys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               if(!is_unit_type(&fty), {
                 fcode := match(rt_args.get(i), .Some(a) => sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), rt_args, i, false, indent, context), .None => String.from(""));
                 if(any_field, {
@@ -1945,7 +1945,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           .Some(rv) => match(rv, .TypeVal(inner) => Rc.clone(inner), _ => Rc.clone(rdi.ty)),
           .None => Rc.clone(rdi.ty)
         ),
-        .None => match(dm_runtime.get(usize(0)), .Some(rv) => match(context.base.get_expr_info(&rv), .Some(rvi) => Rc.clone(rvi.ty), .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit))
+        .None => match(dm_runtime.get(usize(0)), .Some(rv) => match(context.base.get_expr_info(&rv), .Some(rvi) => Rc.clone(rvi.ty), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit))
       );
       tid := type_id_or_empty(&recv_ty);
       // Enter the dispatch when we have EITHER a registry type-id OR a recorded
@@ -2077,7 +2077,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // Resolved BEFORE the argument loop (they only need `method_fv`)
             // so the loop can tell whether an empty — i.e. `unit` — argument
             // has a real C parameter slot to fill with the dead byte.
-            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(&mv)), .None => rc(TypeValueNode.Unit));
+            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(&mv)), .None => Rc.new(TypeValueNode.Unit));
             cm_ptypes := match(&cm_mft, Rc(.Func({ param_types : cpt })) => Rc.clone(cpt), _ => no_types());
             cm_arg_list := ArrayList(String).new();
             cnma := dm_runtime.len();
@@ -2322,14 +2322,14 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       extract_fn_trait_from_type(&func_ei.ty),
       .Some(ftt) => match(
         ftt,
-        Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _)) => rc(
+        Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _)) => Rc.new(
           TypeValueNode.Func(
             no_types(),
             Rc.clone(cpt),
             no_types(),
             no_types(),
             Rc.clone(cr_box),
-            rc(
+            Rc.new(
               FuncMeta(
                 forall_labels : no_labels(),
                 param_labels : Rc.clone(cpl),
@@ -2499,7 +2499,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           if(is_cell, {
             em_c := context.base.emitter;
             if(ctor_list.len() > usize(0), {
-              payload_ty := match(ctor_fields.get(usize(0)), .Some(f) => Rc.clone(f.ty), .None => rc(TypeValueNode.Unit));
+              payload_ty := match(ctor_fields.get(usize(0)), .Some(f) => Rc.clone(f.ty), .None => Rc.new(TypeValueNode.Unit));
               payload_tmp := `__yo_cell_payload_${ast_expr_id(expr).to_string()}`;
               em_c.emit_string_line(`${indent}${get_type_string(&payload_ty, &context.base)} ${payload_tmp} = ${ctor_list};`);
               ctor_list = payload_tmp;
@@ -2888,7 +2888,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     },
     _ => ()
   );
-  (result_type : TypeValue) = match(&function_type, Rc(.Func({ result : r })) => Rc.clone(r), _ => rc(TypeValueNode.Unit));
+  (result_type : TypeValue) = match(&function_type, Rc(.Func({ result : r })) => Rc.clone(r), _ => Rc.new(TypeValueNode.Unit));
   // A SHARED field-fn type's declared result can be an unresolved per-call
   // generic SomeT (Exception.throw's ResumeType) — the CALL's ExprInfo carries
   // the per-call resolution (try_to_call rebuilds the result SomeT with

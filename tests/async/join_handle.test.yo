@@ -43,7 +43,7 @@ test("Test JoinHandle state while suspended", {
 // 3. abort() of a suspended task: await returns .None
 // ---------------------------------------------------------------------------
 test("Test JoinHandle abort returns None", {
-  ran := rc(RefCell(bool).new(false));
+  ran := Rc.new(RefCell(bool).new(false));
   fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.with_mut(cur => {
@@ -64,7 +64,7 @@ test("Test JoinHandle abort returns None", {
 //    through the state switch).
 // ---------------------------------------------------------------------------
 test("Test aborted task pending completion is safe", {
-  ran2 := rc(RefCell(bool).new(false));
+  ran2 := Rc.new(RefCell(bool).new(false));
   fut := io.async({ ran2 : Rc.clone(ran2) }(io : Io) => {
     io.await(sleep(u64(10)), io);
     ran2.with_mut(cur => {
@@ -166,7 +166,7 @@ test("abort of a directly spawned raw IoFuture stays Aborted after the operation
   assert(h.await(io).is_none(), "await reads .None");
 });
 test("aborting a task aborts the named child future it awaits", {
-  ran := rc(RefCell(bool).new(false));
+  ran := Rc.new(RefCell(bool).new(false));
   child := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.with_mut(cur => {
@@ -186,7 +186,7 @@ test("aborting a task aborts the named child future it awaits", {
   assert(hp.await(io).is_none(), "the parent reads .None");
 });
 test("aborting a task leaves a task it joins running", {
-  ran := rc(RefCell(bool).new(false));
+  ran := Rc.new(RefCell(bool).new(false));
   shared := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(20)), io);
     ran.with_mut(cur => {
@@ -305,7 +305,7 @@ test("awaiting a handle moves a move-only result out; a dropped handle releases 
   assert(g_jh_res_disposed == (before + i32(3)), "the joined result is disposed once");
 });
 test("a dropped handle detaches its task, which runs to the end", {
-  ran := rc(RefCell(bool).new(false));
+  ran := Rc.new(RefCell(bool).new(false));
   {
     _h := io.spawn(
       io.async({ ran : Rc.clone(ran) }(io : Io) => {

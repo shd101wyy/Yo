@@ -276,7 +276,7 @@ impl(
       module_path : &String,
       exn : Exception
     ) -> Self
-  )(Parser.new_shared(rc(input_string.clone()), rc(module_path.clone()), exn)),
+  )(Parser.new_shared(Rc.new(input_string.clone()), Rc.new(module_path.clone()), exn)),
   /// A parser over the byte range `[start_byte, end_byte)` of `input`, its
   /// tokens positioned in the whole file (`tokenize_span`). Template
   /// interpolation bodies are parsed through this.
@@ -713,9 +713,9 @@ impl(
                 o.ch,
                 exn
               ),
-              true => Parser.new_shared(rc(sp.expr_text.clone()), Rc.clone(self.module_path), exn)
+              true => Parser.new_shared(Rc.new(sp.expr_text.clone()), Rc.clone(self.module_path), exn)
             ),
-            .None => Parser.new_shared(rc(sp.expr_text.clone()), Rc.clone(self.module_path), exn)
+            .None => Parser.new_shared(Rc.new(sp.expr_text.clone()), Rc.clone(self.module_path), exn)
           );
           expr_ordinal = (expr_ordinal + usize(1));
           (inner_prog : ArrayList(AstExpr)) = sub_parser.get_expression_program(exn);

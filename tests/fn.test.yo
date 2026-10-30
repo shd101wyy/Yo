@@ -275,12 +275,12 @@ test("Test Dyn closure callback with manual boxing", {
     return(cb(v));
   });
   a := 2;
-  x := use_cb(10, dyn(rc(u => (u + 1 + a)))); // capture variable 'a'
+  x := use_cb(10, dyn(Rc.new(u => (u + 1 + a)))); // capture variable 'a'
   assert(x == 13);
-  y := use_cb(20, dyn(rc(u => (u * 2)))); // capture nothing
+  y := use_cb(20, dyn(Rc.new(u => (u * 2)))); // capture nothing
   assert(y == 40);
   b := Rc(i32)(5);
-  z := use_cb(10, dyn(rc(u => (u + 1 + b.*)))); // capture variable 'b'
+  z := use_cb(10, dyn(Rc.new(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16);
 });
 test("Test the `where` scoping in functions", {
@@ -393,7 +393,7 @@ test("Test generic functions", {
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
-    comptime_expect_error(id(Rc(i32), rc(i32(123))), "is a counted handle");
+    comptime_expect_error(id(Rc(i32), Rc.new(i32(123))), "is a counted handle");
   };
   {
     id :: (fn(comptime(T) : Type, val : &T) -> T)({
@@ -866,7 +866,7 @@ _unit_bump :: (fn(b : &Rc(RefCell(i32)), by : i32) -> unit)(
   })
 );
 test("Binding a unit-returning call compiles and still runs the call", {
-  counter := rc(RefCell(i32).new(0));
+  counter := Rc.new(RefCell(i32).new(0));
   // The binding form that used to emit invalid C.
   _r := _unit_bump(&counter, i32(7));
   assert(counter.with(cur => cur) == i32(7), "bound unit call must still execute");
@@ -910,7 +910,7 @@ test("A comptime literal argument is checked against a concrete parameter type",
 // own clone: a second handle to the same cell (decision 17).
 _fn_clone_any :: (fn(comptime(T) : Type, val : &T, where(T <: Clone)) -> T)(val.clone());
 test("a where(T <: Clone) clone at T := Rc(i32) is a second handle", {
-  a := rc(i32(123));
+  a := Rc.new(i32(123));
   b := _fn_clone_any(Rc(i32), &a);
   assert(b.* == i32(123), "the clone reads the payload");
   assert(ref_count(a) == usize(2), "the Rc's own clone: a second handle");

@@ -82,12 +82,12 @@ impl(
 // Each result is bound before it is asserted; the test after this one makes
 // the calls operands of `!`.
 test("! on a runtime pointee through a call-result pointer in a comptime-parameterized fn", {
-  w := _NotWrap(i32)(st : box(_NotCell(i32)(flag : true, v : i32(1))));
+  w := _NotWrap(i32)(st : Box.new(_NotCell(i32)(flag : true, v : i32(1))));
   first := w.take();
   assert(first == false, "the flag was set: ! of true");
   second := w.take();
   assert(second, "take cleared the flag: ! of false");
-  mut(b) := box(false);
+  mut(b) := Box.new(false);
   clear := _not_flag(i32, _not_ptr(&b));
   assert(clear, "! of a bool read through a call's pointer");
   b.* = true;
@@ -114,13 +114,13 @@ _not_store_only :: (fn(comptime(T) : Type, p : *_NotStoreCell) -> bool)({
 });
 _not_store_cell :: (fn(b : &Box(_NotStoreCell)) -> *_NotStoreCell)(addr_of(b.*));
 test("a store in a comptime-parameterized fn first called as an operand of ! is emitted", {
-  c := box(_NotStoreCell(flag : true));
+  c := Box.new(_NotStoreCell(flag : true));
   assert(!!_not_store_take(i32, _not_store_cell(&c)), "the first call reads the set flag");
   assert(!_not_store_take(i32, _not_store_cell(&c)), "the first call's store cleared it");
-  d := box(_NotStoreCell(flag : true));
+  d := Box.new(_NotStoreCell(flag : true));
   assert(!!_not_store_only(u8, _not_store_cell(&d)), "a store with no read before it");
   assert(!d.*.flag, "that store ran too");
-  w := _NotWrap(i64)(st : box(_NotCell(i64)(flag : true, v : i64(1))));
+  w := _NotWrap(i64)(st : Box.new(_NotCell(i64)(flag : true, v : i64(1))));
   assert(!w.take(), "through a generic method: ! of the set flag");
   assert(w.take(), "the method's store cleared the flag");
 });
