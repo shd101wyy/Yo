@@ -24,10 +24,10 @@ pragma(Pragma.AllowUnsafe);
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry, call_function_value_marker } :: import("../context.yo");
-{ EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, shared_list, no_labels } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, shared_cell_type_name_of_constructor, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
@@ -1033,7 +1033,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                 );
                 j = (j + usize(1));
               });
-              trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
+              trait_vals.push(EvalValue.TraitVal(tname, shared_list(field_names), shared_opt_values(field_vals)));
               ()
             },
             // Fn trait (Dyn(Fn(...)) — e.g. a dyn'd CLOSURE stored in a struct
@@ -1047,8 +1047,8 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
               trait_vals.push(
                 EvalValue.TraitVal(
                   fn_base.clone(),
-                  ArrayList(String).new(),
-                  ArrayList(Option(EvalValue)).new()
+                  no_labels(),
+                  no_opt_values()
                 )
               );
               ()

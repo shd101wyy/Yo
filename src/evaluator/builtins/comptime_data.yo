@@ -18,7 +18,7 @@
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, value_cell_new, shared_values } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
@@ -36,7 +36,7 @@ _unquote :: (fn(raw : &String) -> String)({
 /// declaration order; the variant name is dot-prefixed, which is how every
 /// enum value is stored.
 _cv :: (fn(variant : &String, fields : &ArrayList(EvalValue)) -> EvalValue)(
-  EvalValue.EnumVal(`.${variant}`, fields)
+  EvalValue.EnumVal(`.${variant}`, shared_values(fields.clone()))
 );
 _cv0 :: (fn(variant : &String) -> EvalValue)(_cv(variant, ArrayList(EvalValue).new()));
 _cv1 :: (fn(variant : &String, field : &EvalValue) -> EvalValue)({
@@ -72,7 +72,7 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
         match(items.get(i), .Some(it) => out.push(_lift_json(&it)), .None => ());
         i = (i + usize(1));
       });
-      _cv1(String.from("List"), EvalValue.ComptimeListVal(out))
+      _cv1(String.from("List"), EvalValue.ComptimeListVal(value_cell_new(out)))
     },
     .Object(keys, values) => {
       ks := ArrayList(EvalValue).new();
@@ -84,8 +84,8 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
-      fs.push(EvalValue.ComptimeListVal(ks));
-      fs.push(EvalValue.ComptimeListVal(vs));
+      fs.push(EvalValue.ComptimeListVal(value_cell_new(ks)));
+      fs.push(EvalValue.ComptimeListVal(value_cell_new(vs)));
       _cv(String.from("Table"), &fs)
     }
   )
@@ -109,7 +109,7 @@ _lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
         match(items.get(i), .Some(it) => out.push(_lift_toml(&it)), .None => ());
         i = (i + usize(1));
       });
-      _cv1(String.from("List"), EvalValue.ComptimeListVal(out))
+      _cv1(String.from("List"), EvalValue.ComptimeListVal(value_cell_new(out)))
     },
     .Table(keys, values) => {
       ks := ArrayList(EvalValue).new();
@@ -121,8 +121,8 @@ _lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
-      fs.push(EvalValue.ComptimeListVal(ks));
-      fs.push(EvalValue.ComptimeListVal(vs));
+      fs.push(EvalValue.ComptimeListVal(value_cell_new(ks)));
+      fs.push(EvalValue.ComptimeListVal(value_cell_new(vs)));
       _cv(String.from("Table"), &fs)
     }
   )

@@ -26,8 +26,8 @@ pragma(Pragma.AllowUnsafe);
 { Environment, env_adopt } :: import("../../env.yo");
 { register_sns_module, EvalContext, LoadModuleResult } :: import("../context.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
-{ EvalValue, type_of_eval_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ EvalValue, type_of_eval_value, value_cell_new } :: import("../../value.yo");
+{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { YoError, format_error_message, take_error_diagnostics, note_diagnostic_of_token } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -321,7 +321,7 @@ _build_module_val_from_env :: (fn(env : &Environment) -> EvalValue)({
   });
   sns_id2 := stable_sns_module_id(&env.module_path.*);
   register_sns_module(sns_id2.clone(), &env.module_path.*);
-  EvalValue.StructVal(sns_id2, names, values)
+  EvalValue.StructVal(sns_id2, shared_list(names), value_cell_new(values))
 });
 // ---------------------------------------------------------------------------
 // evaluate_import

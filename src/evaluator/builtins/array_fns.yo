@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_unknown_val, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_unknown_val, create_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_array_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -188,7 +188,7 @@ evaluate_yo_array_fill :: (
       elements.push(fill_value);
       i = (i + usize(1));
     });
-    array_val := EvalValue.ArrayVal(elements);
+    array_val := EvalValue.ArrayVal(value_cell_new(elements));
     out_info := new_expr_info(&cur_env, &array_type_tv);
     out_info.value = Option(EvalValue).Some(array_val);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

@@ -20,7 +20,7 @@ import("std/string");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, value_cell_new } :: import("../../value.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
@@ -110,7 +110,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     i = (i + usize(1));
   });
   // Build ComptimeList value and annotate ExprInfo.
-  list_val := EvalValue.ComptimeListVal(elements);
+  list_val := EvalValue.ComptimeListVal(value_cell_new(elements));
   out_info := new_expr_info(&env, comptime_list_type);
   out_info.value = Option(EvalValue).Some(list_val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

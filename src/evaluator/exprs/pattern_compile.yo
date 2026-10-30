@@ -45,7 +45,7 @@
 { new_expr_info, expr_info_table_get, expr_info_table_set, struct_effective_ctor_fid, migrate_rc_pattern_on, record_rc_pattern_site } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_unknown_val, ValueCell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_unique_box_type, is_struct_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -206,7 +206,7 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
     return(false);
   });
   match(
-    v.value.last(),
+    v.value.get(usize(0)),
     .Some(.IntLit(_)) => true,
     .Some(.FloatLit(_)) => true,
     .Some(.BoolVal(_)) => true,
@@ -734,17 +734,17 @@ _compile_variant :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(head), new_expr_info(env, &selected));
   // The known field values, when the scrutinee is a known value of THIS
   // variant (a different variant's fields are irrelevant — the arm is dead).
-  (field_vals : Option(ArrayList(EvalValue))) = match(
+  (field_vals : Option(SharedList(EvalValue))) = match(
     value_opt,
     .Some(v) => match(
       v,
       .EnumVal(sv_name, sv_fields) => cond(
-        _variant_name_eq(sv_name.clone(), vname.clone()) => Option(ArrayList(EvalValue)).Some(sv_fields),
-        true => Option(ArrayList(EvalValue)).None
+        _variant_name_eq(sv_name.clone(), vname.clone()) => Option(SharedList(EvalValue)).Some(Rc.clone(sv_fields)),
+        true => Option(SharedList(EvalValue)).None
       ),
-      _ => Option(ArrayList(EvalValue)).None
+      _ => Option(SharedList(EvalValue)).None
     ),
-    .None => Option(ArrayList(EvalValue)).None
+    .None => Option(SharedList(EvalValue)).None
   );
   // `.V({…})`: a single anonymous-record argument carries the labeled
   // sub-patterns (bare `{a}` is the parser's `(a : a)`).
@@ -953,7 +953,7 @@ _compile_variant :: (
       eprintln(`[tmint-varpayload] enum=${eid5} var=${vname} payload_id=${fid5} n_ta=${fta5.to_string()} cfid=${fcf5} ty=${type_to_string(&fty)}`);
     });
     fval := match(
-      field_vals,
+      &field_vals,
       .Some(fvs) => fvs.get(fidx),
       .None => Option(EvalValue).None
     );
@@ -994,7 +994,7 @@ _struct_type_in_scope :: (fn(name : &String, env : &Environment) -> Option(TypeV
     return(Option(TypeValue).None);
   });
   match(
-    v.value.last(),
+    v.value.get(usize(0)),
     .Some(val) => match(
       val,
       .TypeVal(t) => cond(is_struct_type(&t) => Option(TypeValue).Some(Rc.clone(t)), true => Option(TypeValue).None),
@@ -1039,11 +1039,11 @@ _compile_tuple :: (
     );
     return(Pattern.Wildcard);
   });
-  (elem_vals : Option(ArrayList(EvalValue))) = match(
+  (elem_vals : Option(ValueCell)) = match(
     value_opt,
-    .Some(.TupleVal(fs)) => Option(ArrayList(EvalValue)).Some(fs),
-    .Some(_) => Option(ArrayList(EvalValue)).None,
-    .None => Option(ArrayList(EvalValue)).None
+    .Some(.TupleVal(fs)) => Option(ValueCell).Some(Rc.clone(fs)),
+    .Some(_) => Option(ValueCell).None,
+    .None => Option(ValueCell).None
   );
   subs := ArrayList(Pattern).new();
   (i : usize) = usize(0);
@@ -1051,7 +1051,7 @@ _compile_tuple :: (
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     ety := match(elem_tys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     ev := match(
-      elem_vals,
+      &elem_vals,
       .Some(evs) => evs.get(i),
       .None => Option(EvalValue).None
     );
@@ -1081,11 +1081,11 @@ _compile_struct :: (
   labels := _struct_field_labels(struct_ty);
   field_tys := _struct_field_tys(struct_ty);
   arity := field_tys.len();
-  (field_vals : Option(ArrayList(EvalValue))) = match(
+  (field_vals : Option(ValueCell)) = match(
     value_opt,
-    .Some(.StructVal(_, _, fvs)) => Option(ArrayList(EvalValue)).Some(fvs),
-    .Some(_) => Option(ArrayList(EvalValue)).None,
-    .None => Option(ArrayList(EvalValue)).None
+    .Some(.StructVal(_, _, fvs)) => Option(ValueCell).Some(Rc.clone(fvs)),
+    .Some(_) => Option(ValueCell).None,
+    .None => Option(ValueCell).None
   );
   field_idx := ArrayList(usize).new();
   subs := ArrayList(Pattern).new();
@@ -1206,7 +1206,7 @@ _compile_struct :: (
     });
     fty := match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     fval := match(
-      field_vals,
+      &field_vals,
       .Some(fvs) => fvs.get(fidx),
       .None => Option(EvalValue).None
     );
@@ -1271,7 +1271,7 @@ _wrapper_pattern_ctor :: (fn(e : &AstExpr, env : &Environment) -> Option(_Wrappe
     return(.None);
   });
   match(
-    v.value.last(),
+    v.value.get(usize(0)),
     .Some(.FuncVal(data, _)) => .Some(_WrapperCtor(name : nm, func_id : data.func_id.clone())),
     _ => .None
   )

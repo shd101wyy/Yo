@@ -8988,9 +8988,34 @@ stage-2 RSS):
     `Box` children after V2b B6
     (`issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`);
     it stays `ref(enum)` until then.
-- **`EvalValue`:** last. The comptime-place model aliases on purpose, so its
-  place fields stay `Rc(ArrayList(Self))`. Its children are `Rc` or a
-  unique `Box`, decided by measurement.
+- **`EvalValue`:** last. Decided 2026-10-30 (Fable consultation #10): two
+  PRs, both before V5 Generation A.
+  - **PR 1, the places (v0.2.74, a B8 prerequisite).** The comptime-place
+    model aliases on purpose: a variable's value cell (`Variable.value`),
+    `PtrVal.target_value`, the element and field lists of `ArrayVal`,
+    `ComptimeListVal`, `TupleVal` and `StructVal.field_values`, and
+    `ComptimeRef`'s four lists are one named type,
+    `ValueCell :: Rc(RefCell(ArrayList(EvalValue)))` (`src/value.yo`). The
+    earlier spelling, `Rc(ArrayList(Self))`, cannot hold a place: decision
+    46 makes an `Rc`'s payload read-only (E0919), and the copy-then-write
+    that compiles today (`slots := list; slots(i) = v`) is a deep copy once
+    B8 makes `ArrayList` a value, so the write would be lost. Reads keep
+    their spelling (`cell.len()`, `cell.get(i)`); a write is
+    `cell.set(i, v)`, a `with_mut` body. `value_cell_of` (env.yo) stays the
+    one constructor of a variable's cell, and every runtime binding shares
+    one empty cell (`empty_value_cell()`). The read-only payload lists
+    (`EnumVal.fields`, `FuncVal.cap_vals`, `StructVal`/`TraitVal.field_names`,
+    `TraitVal.field_values`) are `SharedList`s, as `TypeValue`'s are.
+    `EvalValue` itself stays a `ref(enum)` (option A1).
+  - **PR 2, the handle (A2):** `EvalValue :: Rc(EvalValueNode)`, the
+    `TypeValue`/`VcTerm` shape, after B8's `src/` sweep merges, or folded
+    into V5 Generation A, which makes the same edit. The value enum with
+    `Box`/`Rc` children (A3) is not built: decision 21's 2026-10-13 table
+    measured that shape for `TypeValue` at 2.3× the check time and 2.6× the
+    self-emit time.
+  - **Fallback** if PR 1's A/B fails its bar (3% wall, 3% max RSS on a
+    stage-2 `check ./src`): decision 41's expression-scoped
+    `RefCell.get`/`get_mut`, which reads a cell without a closure.
 - **Tests.** `tests/internal/*` as the differential, the fixpoint, and the
   memory ratchet.
   - **Wrapper patterns** (decision 31). `Box(p)`, `Rc(p)` and `Arc(p)`

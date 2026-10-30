@@ -51,7 +51,9 @@ pragma(Pragma.AllowUnsafe);
   is_enum_val,
   is_tuple_val,
   is_unknown_val,
-  eval_value_eq
+  eval_value_eq,
+  value_cell_new,
+  shared_values
 } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
 { TypeValue, t_refine_inner, no_labels } :: import("../../types/definitions.yo");
@@ -203,13 +205,15 @@ resolve_unknown_values_and_some_type_in_type :: (
 // ---------------------------------------------------------------------------
 // rebuild_list_with_index
 // ---------------------------------------------------------------------------
-/// Return a new ArrayList(EvalValue) that is a copy of `vals` with the element
-/// at `idx` replaced by `new_val`.
+/// Return a new ArrayList(EvalValue) that is a copy of `vals` (an
+/// `ArrayList`, a `SharedList` or a `ValueCell`: anything with `len`/`get`)
+/// with the element at `idx` replaced by `new_val`.
 ///
 /// Used when updating compile-time struct/tuple/array/enum field values.
 rebuild_list_with_index :: (
   fn(
-    vals : &ArrayList(EvalValue),
+    generic(L : Type),
+    vals : &L,
     idx : usize,
     new_val : &EvalValue
   ) -> ArrayList(EvalValue)
@@ -1782,7 +1786,7 @@ evaluate_assignment :: (
                       if(is_same_val, {
                         new_ref_opt := match(
                           av.value.get(usize(0)),
-                          .Some(.StructVal(tn, fnames, fvals)) => Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))),
+                          .Some(.StructVal(tn, fnames, fvals)) => Option(EvalValue).Some(EvalValue.StructVal(tn, Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val)))),
                           .Some(_) => av.value.get(usize(0)),
                           .None => av.value.get(usize(0))
                         );
@@ -1797,14 +1801,14 @@ evaluate_assignment :: (
                         match(
                           pc_cur_val,
                           .StructVal(tn, fnames, fvals) =>
-                            Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))),
+                            Option(EvalValue).Some(EvalValue.StructVal(tn, Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val)))),
                           _ => pc_var.value.get(usize(0))
                         ),
                       true =>
                         match(
                           pc_cur_val,
                           .TupleVal(fvals) =>
-                            Option(EvalValue).Some(EvalValue.TupleVal(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))),
+                            Option(EvalValue).Some(EvalValue.TupleVal(value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val)))),
                           _ => pc_var.value.get(usize(0))
                         )
                     );
@@ -1822,7 +1826,7 @@ evaluate_assignment :: (
                     .ArrayVal(elems) =>
                       cond(
                         (arr_idx_us < elems.len()) =>
-                          Option(EvalValue).Some(EvalValue.ArrayVal(rebuild_list_with_index(&elems, arr_idx_us, &pc_rhs_arr))),
+                          Option(EvalValue).Some(EvalValue.ArrayVal(value_cell_new(rebuild_list_with_index(&elems, arr_idx_us, &pc_rhs_arr)))),
                         true => pc_var.value.get(usize(0))
                       ),
                     _ => pc_var.value.get(usize(0))
@@ -1887,7 +1891,7 @@ evaluate_assignment :: (
                       pc_rhs_enum := match(prop_rhs_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
                       ev_fi_us := usize(ev_fi);
                       new_ev_opt := Option(EvalValue).Some(
-                        EvalValue.EnumVal(ev_variant, rebuild_list_with_index(&ev_fields, ev_fi_us, &pc_rhs_enum))
+                        EvalValue.EnumVal(ev_variant, shared_values(rebuild_list_with_index(&ev_fields, ev_fi_us, &pc_rhs_enum)))
                       );
                       update_existing_variable(&env, &pc_var, make_variable_with_value(&pc_var, &new_ev_opt));
                     });
@@ -1910,26 +1914,14 @@ evaluate_assignment :: (
           prop_rhs_info.value,
           .None => (),
           .Some(cr_rhs_val) => {
-            // A pattern binding below a cell is a read-only copy; each write
-            // goes through an owned handle to the same shared list.
+            // Each place is a `ValueCell` every holder shares: the write
+            // goes through the cell's `with_mut` door (`set`).
             match(
               cr,
-              .ArrayRef(cr_elements, cr_index) => {
-                slots := cr_elements;
-                slots(cr_index) = cr_rhs_val;
-              },
-              .ComptimeListRef(cr_elements, cr_index) => {
-                slots := cr_elements;
-                slots(cr_index) = cr_rhs_val;
-              },
-              .StructRef(cr_field_values, cr_field_index) => {
-                slots := cr_field_values;
-                slots(cr_field_index) = cr_rhs_val;
-              },
-              .TupleRef(cr_fields, cr_field_index) => {
-                slots := cr_fields;
-                slots(cr_field_index) = cr_rhs_val;
-              }
+              .ArrayRef(cr_elements, cr_index) => cr_elements.set(cr_index, cr_rhs_val),
+              .ComptimeListRef(cr_elements, cr_index) => cr_elements.set(cr_index, cr_rhs_val),
+              .StructRef(cr_field_values, cr_field_index) => cr_field_values.set(cr_field_index, cr_rhs_val),
+              .TupleRef(cr_fields, cr_field_index) => cr_fields.set(cr_field_index, cr_rhs_val)
             );
             is_comptime_only_prop = true;
           }

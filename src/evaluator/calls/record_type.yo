@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, shared_list } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
   ModuleTypeCallResult,
   ExpectedTypeCtx
 } :: import("../context.yo");
-{ EvalValue, value_to_string } :: import("../../value.yo");
+{ EvalValue, value_to_string, value_cell_new } :: import("../../value.yo");
 { set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -249,7 +249,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     );
     k = (k + usize(1));
   });
-  module_val := EvalValue.StructVal(sns_ty_id, result_names, result_values);
+  module_val := EvalValue.StructVal(sns_ty_id, shared_list(result_names), value_cell_new(result_values));
   ModuleTypeCallResult(module_value : module_val, caller_env : caller_env)
 });
 export(try_to_implement_module_with_arguments_by_module_type);

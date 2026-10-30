@@ -70,7 +70,8 @@
 /// silent 64-bit collision would merge two capture structs in the emitted C.
 (g_capture_struct_ids_r : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 {
-  EvalValue
+  EvalValue,
+  value_cell_new
 } :: import("../../value.yo");
 {
   CapturedVarInfo,
@@ -1308,8 +1309,8 @@ create_capture_type_and_value :: (
         Option(EvalValue).Some(
           EvalValue.StructVal(
             struct_id.clone(),
-            field_labels_s.items.clone(),
-            concrete_vals
+            Rc.clone(field_labels_s),
+            value_cell_new(concrete_vals)
           )
         )
       }, Option(EvalValue).None);

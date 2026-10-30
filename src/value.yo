@@ -6,9 +6,9 @@
 //! value at compile time.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList, ArrayListIter } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, shared_list, no_types } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, SharedList, SharedListCell, shared_list, no_types, no_labels } :: import("./types/definitions.yo");
 { t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
 { is_type_0 } :: import("./types/guards.yo");
 { AstExpr, exprs_are_equal } :: import("./expr.yo");
@@ -68,7 +68,7 @@ EvalValue :: ref(
     /// `variant` stores the full dot-prefixed name (e.g. `".Some"`, `".None"`).
     /// `fields` holds the evaluated values of the constructor arguments in
     /// declaration order (positional).
-    EnumVal(variant : String, fields : ArrayList(Self)),
+    EnumVal(variant : String, fields : SharedList(Self)),
     /// A compiled function value: parameter names, unevaluated body expression,
     /// and a snapshot of the definition-time environment for lexical scoping.
     ///
@@ -96,7 +96,7 @@ EvalValue :: ref(
     /// Option(EvalValue) / nested ArrayList(EvalValue) copy).
     FuncVal(
       data : Rc(FuncValData),
-      cap_vals : ArrayList(Self)
+      cap_vals : SharedList(Self)
     ),
     /// Control-flow signal emitted by a `return(expr)` statement.
     ///
@@ -135,17 +135,17 @@ EvalValue :: ref(
     ///
     /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
     /// `field_names` and `field_values` are parallel arrays in field-declaration order.
-    StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self)),
+    StructVal(ty_name : String, field_names : SharedList(String), field_values : Rc(RefCell(ArrayList(Self)))),
     // Phase 2h — remaining value types ---------------------------------------
     /// An anonymous tuple value.
     ///
     /// `fields` holds the compile-time values of all tuple elements in order.
-    TupleVal(fields : ArrayList(Self)),
+    TupleVal(fields : Rc(RefCell(ArrayList(Self)))),
     /// A compile-time array value.
     ///
     /// `elements` holds the element values in index order.
     /// The element type is tracked in the surrounding `EvalResult.ty` (Array variant).
-    ArrayVal(elements : ArrayList(Self)),
+    ArrayVal(elements : Rc(RefCell(ArrayList(Self)))),
     /// A compile-time slice into an array.
     ///
     /// `source` is a `Rc(EvalValue)` wrapping an `ArrayVal`.
@@ -156,8 +156,8 @@ EvalValue :: ref(
     ///
     /// A compile-time pointer to a value.
     ///
-    /// `target_value` is a SINGLE-ELEMENT list holding the pointed-to value —
-    /// the SAME list object as the source variable's value cell, so mutations
+    /// `target_value` is a SINGLE-ELEMENT `ValueCell` holding the pointed-to
+    /// value — the SAME cell as the source variable's value cell, so mutations
     /// through the pointer are visible to reads of the original (mutable
     /// reference semantics; the arm-22 comptime scalar-pointer model). For
     /// simple variables, `target_value(0)` is the value directly and
@@ -173,19 +173,19 @@ EvalValue :: ref(
     /// elements or fields), so codegen needs the type to emit the aggregate
     /// the pointer addresses
     /// (issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md).
-    PtrVal(target_value : ArrayList(Self), target_index : usize, aggregate_ty : Option(TypeValue)),
+    PtrVal(target_value : Rc(RefCell(ArrayList(Self))), target_index : usize, aggregate_ty : Option(TypeValue)),
     /// A compile-time trait object value.
     ///
     /// `ty_name` is the trait type name (e.g. `"Display"`).
     /// `field_names` and `field_values` are parallel arrays in field-declaration
     /// order. `field_values` uses `Option(Self)` so that runtime-only fields
     /// (where the compile-time value is unknown) can be represented as `.None`.
-    TraitVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Option(Self))),
+    TraitVal(ty_name : String, field_names : SharedList(String), field_values : SharedList(Option(Self))),
     /// A compile-time list (used for variadics and metaprogramming).
     ///
     /// `elements` holds the element values. The element type is tracked in the
     /// surrounding `EvalResult.ty` (ComptimeListT variant).
-    ComptimeListVal(elements : ArrayList(Self)),
+    ComptimeListVal(elements : Rc(RefCell(ArrayList(Self)))),
     /// An expression value (metaprogramming / quote).
     ///
     /// `expr` holds the quoted `AstExpr` node.
@@ -224,6 +224,102 @@ impl(
   Clone(
     clone : (fn(self : &Self) -> Self)(self)
   )
+);
+/// A compile-time PLACE: the list of values a pointer or a field write
+/// reaches, shared by every holder (plans/VALUES_BY_DEFAULT.md V4,
+/// `EvalValue`). Four places alias on purpose — a variable's value cell
+/// (`Variable.value`, a one-element list), `PtrVal.target_value`, the
+/// element and field lists of `ArrayVal`, `ComptimeListVal`, `TupleVal` and
+/// `StructVal.field_values`, and `ComptimeRef`'s four lists — so a write
+/// through `p.*`, `xs(i) = v` or `s.f = v` at compile time is seen by every
+/// other holder. An `Rc`'s payload is read-only through the handle
+/// (decision 46), so the list sits in a `RefCell`: reads keep their
+/// spelling (`cell.len()`, `cell.get(i)`), and a write goes through
+/// `cell.set(i, v)` (a `with_mut` body). A copy of the handle is
+/// `Rc.clone(cell)`; `value_cell_new(xs)` builds one.
+ValueCell :: Rc(RefCell(ArrayList(EvalValue)));
+impl(
+  ValueCell,
+  /// Number of values in the place.
+  len : (fn(self : &Self) -> usize)(self.*.with(xs => xs.len())),
+  /// True when the place holds no value (a runtime variable's cell).
+  is_empty : (fn(self : &Self) -> bool)(self.*.with(xs => xs.is_empty())),
+  /// The value at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.*.with(xs => xs.get(i))),
+  /// Store `v` at `i`, seen by every holder of the place; panics past the end.
+  set : (fn(self : &Self, i : usize, v : EvalValue) -> unit)(
+    self.*.with_mut(xs => {
+      xs(i) = v;
+    })
+  )
+);
+/// A new place holding `items`.
+value_cell_new :: (fn(sink(items) : ArrayList(EvalValue)) -> ValueCell)(
+  Rc.new(RefCell(ArrayList(EvalValue)).new(items))
+);
+/// The ONE shared EMPTY place, handed to every runtime (`.None`) binding
+/// (`value_cell_of` in env.yo) and to every default that needs a cell. It is
+/// never written: nothing pushes into a place, and `&(x)` refuses to build a
+/// `PtrVal` out of an empty cell (`builtins/ptr_fns.yo`), so no pointer
+/// stores through it. A self-emit keeps millions of runtime Variables alive,
+/// and each would otherwise pay a cell for a permanently empty list.
+(g_empty_value_cell : ValueCell) = value_cell_new(ArrayList(EvalValue).new());
+/// A handle to the shared empty place.
+empty_value_cell :: (fn() -> ValueCell)(Rc.clone(g_empty_value_cell));
+/// The read-only payload lists of an `EvalValue` (`EnumVal.fields`,
+/// `FuncVal.cap_vals`, `TraitVal.field_values`) are `SharedList`s, as
+/// `TypeValue`'s are (plans/VALUES_BY_DEFAULT.md V4, `EvalValue`): built
+/// once, never written, and a copy is one count bump.
+(g_no_values : SharedList(EvalValue)) = Rc.new(SharedListCell(EvalValue)(items : ArrayList(EvalValue).new()));
+/// The one shared empty `SharedList(EvalValue)`.
+no_values :: (fn() -> SharedList(EvalValue))(Rc.clone(g_no_values));
+/// Share `items` as a `SharedList(EvalValue)`; an empty `items` yields the
+/// one shared empty list. (`shared_list` cannot serve an enum element: its
+/// `T.no_list()` names a variant of the enum.)
+shared_values :: (fn(sink(items) : ArrayList(EvalValue)) -> SharedList(EvalValue))(
+  cond(
+    items.is_empty() => no_values(),
+    true => Rc.new(SharedListCell(EvalValue)(items : items))
+  )
+);
+impl(
+  SharedList(EvalValue),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : EvalValue,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : EvalValue,
+    IntoIter : ArrayListIter(EvalValue),
+    into_iter : (fn(self : Self) -> ArrayListIter(EvalValue))(self.*.items.into_iter())
+  )
+);
+(g_no_opt_values : SharedList(Option(EvalValue))) = Rc.new(SharedListCell(Option(EvalValue))(items : ArrayList(Option(EvalValue)).new()));
+/// The one shared empty `SharedList(Option(EvalValue))`.
+no_opt_values :: (fn() -> SharedList(Option(EvalValue)))(Rc.clone(g_no_opt_values));
+/// Share `items` as a `SharedList(Option(EvalValue))`, as `shared_values`.
+shared_opt_values :: (fn(sink(items) : ArrayList(Option(EvalValue))) -> SharedList(Option(EvalValue)))(
+  cond(
+    items.is_empty() => no_opt_values(),
+    true => Rc.new(SharedListCell(Option(EvalValue))(items : items))
+  )
+);
+impl(
+  SharedList(Option(EvalValue)),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.*.items.get(i))
 );
 /// Element-wise equality for `EvalValue`.
 ///
@@ -839,10 +935,10 @@ value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
     .UnknownVal(_, _) => true,
-    .EnumVal(_, fields) => _values_contain_unknown(&fields),
-    .StructVal(_, _, field_values) => _values_contain_unknown(&field_values),
-    .TupleVal(fields) => _values_contain_unknown(&fields),
-    .ArrayVal(elements) => _values_contain_unknown(&elements),
+    .EnumVal(_, fields) => _values_contain_unknown(&fields.*.items),
+    .StructVal(_, _, field_values) => field_values.*.with(xs => _values_contain_unknown(xs)),
+    .TupleVal(fields) => fields.*.with(xs => _values_contain_unknown(xs)),
+    .ArrayVal(elements) => elements.*.with(xs => _values_contain_unknown(xs)),
     _ => false
   )
 );
@@ -993,8 +1089,8 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
         i = (i + usize(1));
       });
       cond(
-        is_sns => Rc.new(TypeValueNode.Struct(name.clone(), String.from(""), shared_list(labels.clone()), shared_list(tys), false, false, false, String.from(""), no_types(), true)),
-        true => Rc.new(TypeValueNode.Struct(String.from(""), name.clone(), shared_list(labels.clone()), shared_list(tys), false, false, false, String.from(""), no_types(), false))
+        is_sns => Rc.new(TypeValueNode.Struct(name.clone(), String.from(""), Rc.clone(labels), shared_list(tys), false, false, false, String.from(""), no_types(), true)),
+        true => Rc.new(TypeValueNode.Struct(String.from(""), name.clone(), Rc.clone(labels), shared_list(tys), false, false, false, String.from(""), no_types(), false))
       )
     },
     .UnknownVal(ty, _) => Rc.clone(ty),
@@ -1002,6 +1098,7 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
   )
 );
 export(EvalValue, FuncValData, EvalResult, eval_result, create_type_value, type_of_eval_value);
+export(ValueCell, value_cell_new, empty_value_cell, no_values, no_opt_values, shared_values, shared_opt_values);
 export(value_to_string);
 export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref);
 export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);

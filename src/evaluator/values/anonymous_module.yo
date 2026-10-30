@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, value_cell_new } :: import("../../value.yo");
 {
   register_sns_module,
   record_module_ordered_read,
@@ -396,7 +396,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Extract the source-namespace StructVal if available
                       ext_mod_val_opt := match(
                         ext_info.value,
-                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn.clone(), ns.clone(), vs)),
+                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn.clone(), Rc.clone(ns), Rc.clone(vs))),
                         .Some(_) => Option(EvalValue).None,
                         .None => Option(EvalValue).None
                       );
@@ -902,7 +902,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
       true // is_source_namespace
     )
   );
-  module_val := EvalValue.StructVal(sns_id.clone(), module_names, module_vals);
+  module_val := EvalValue.StructVal(sns_id.clone(), shared_list(module_names), value_cell_new(module_vals));
   AnonModuleResult(
     module_value : module_val,
     module_type : module_type,

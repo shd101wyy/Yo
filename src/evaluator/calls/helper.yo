@@ -134,7 +134,10 @@ pragma(Pragma.AllowUnsafe);
   create_unknown_val,
   is_unknown_val,
   is_type_val,
-  is_func_val
+  is_func_val,
+  no_values,
+  shared_values,
+  value_cell_new
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -2742,7 +2745,7 @@ _build_forward_ref_funcval :: (
             func_id : specialized_func_id.clone()
           )
         ),
-        ArrayList(EvalValue).new()
+        no_values()
       ),
       _ => EvalValue.UnitVal
     ),
@@ -4826,7 +4829,7 @@ create_specialized_function_inline :: (
                 env_key : new_env_key
               )
             ),
-            new_cap_vals
+            shared_values(new_cap_vals)
           );
           if(g_mint_recordings_open > usize(0), {
             g_minted_specializations.with_mut(xs => xs.push(specialized_func_val));
@@ -5715,7 +5718,7 @@ evaluate_ctl_function_body_inline :: (
   orig_evidence_params := match(original_func_val, .FuncVal(__fvd6, _) => __fvd6.*.evidence_params, _ => ArrayList(String).new());
   orig_body := match(original_func_val, .FuncVal(__fvd7, _) => __fvd7.*.body, _ => make_err_expr());
   orig_cap_src := match(original_func_val, .FuncVal(__fvd8, _) => fv_capture_source(&__fvd8.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
-  orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
+  orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => Rc.clone(cv), _ => no_values());
   orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
   orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.*.env_key, _ => usize(0));
   // -------------------------------------------------------------------------
@@ -6006,7 +6009,7 @@ evaluate_ctl_function_body_inline :: (
         env_key : ctl_env_key
       )
     ),
-    ctl_cap_vals
+    shared_values(ctl_cap_vals)
   );
   // -------------------------------------------------------------------------
   // Cache the result.
@@ -8711,7 +8714,7 @@ try_to_call_function_with_arguments :: (
                   if(wb_from_cell && wb_plain && wb_top_frame && !match(v_out, .TypeVal(wb_t) => is_some_type(&wb_t), _ => true), {
                     wb_cell := ArrayList(EvalValue).new();
                     wb_cell.push(v_out);
-                    last_v.value = wb_cell;
+                    last_v.value = value_cell_new(wb_cell);
                   });
                   forall_arg_vals.push(
                     ArgEntry(

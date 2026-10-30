@@ -16,7 +16,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_call_args_unmarked } :: import("../../expr.yo");
-{ EvalValue, is_func_val, is_struct_val } :: import("../../value.yo");
+{ EvalValue, is_func_val, is_struct_val, empty_value_cell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
 {
   is_enum_type,
@@ -146,8 +146,8 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
       .Some(v) => match(
         v.value.get(usize(0)),
         .Some(val) => if(is_struct_val(&val), {
-          field_names := match(val, .StructVal(_, fns, _) => fns, _ => ArrayList(String).new());
-          field_values := match(val, .StructVal(_, _, fvs) => fvs, _ => ArrayList(EvalValue).new());
+          field_names := match(val, .StructVal(_, fns, _) => Rc.clone(fns), _ => no_labels());
+          field_values := match(val, .StructVal(_, _, fvs) => Rc.clone(fvs), _ => empty_value_cell());
           (fi : usize) = usize(0);
           while(fi < field_names.len(), {
             flbl := match(field_names.get_cloned(fi), .Some(l) => l, .None => String.from(""));

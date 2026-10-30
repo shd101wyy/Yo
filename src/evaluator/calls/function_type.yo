@@ -63,7 +63,7 @@ pragma(Pragma.AllowUnsafe);
   _is_verify_target,
   resolve_verify_mode
 } :: import("../builtins/contracts.yo");
-{ EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val, no_values, shared_values } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param, impl_param_unmet_trait, judge_function_argument_markers } :: import("../trait_checking.yo");
 {
   is_flowable_expr,
@@ -1104,7 +1104,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
               func_id : stable_func_id(String.from(""), &rp_tok.module_path.*, usize(rp_tok.row), usize(rp_tok.column))
             )
           ),
-          ArrayList(EvalValue).new()
+          no_values()
         );
         if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
           eprintln(`[fbctx-fnty-rp]`);
@@ -1530,7 +1530,7 @@ Result type: ${type_to_string(&result_box)}`
             env_key : ft_env_key
           )
         ),
-        cap_vals
+        shared_values(cap_vals)
       );
       // Phase A of a lazy top-level binding (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
       // §4.3): when this application IS the RHS of the definition being
@@ -1859,7 +1859,7 @@ Result type: ${type_to_string(&result_box)}`
                 func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
               )
             ),
-            ArrayList(EvalValue).new()
+            no_values()
           );
           if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
             eprintln(`[fbctx-fnty-flow]`);
@@ -2329,7 +2329,7 @@ Result type: ${type_to_string(&result_box)}`
                   func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
                 )
               ),
-              ArrayList(EvalValue).new()
+              no_values()
             );
             dg_ctx := create_function_body_evaluation_context(function_type, &dg_fv, &dg_env, ctx);
             dg_out := ArrayList(AstExpr).new();

@@ -11,11 +11,10 @@
 //! * `ControlFlowKind` is an enum over the four flow kinds (return / unwind /
 //!   break / continue) for type-safe function parameterisation.
 //!
-//! * The `ComptimeRef` enum carries the inner `ArrayList(EvalValue)`
-//!   directly (not the full EvalValue wrapper), preserving the type invariant and
-//!   enabling in-place mutation via the shared ArrayList reference handle.
-//!   The mutation semantics work because ArrayList is a ref-counted object; copying
-//!   the variant still shares the same underlying list.
+//! * The `ComptimeRef` enum carries the aggregate's `ValueCell` directly (not
+//!   the full EvalValue wrapper), preserving the type invariant. The cell is an
+//!   `Rc(RefCell(...))` place shared by every holder, so an in-place write
+//!   through it is seen by all of them.
 //!
 //! * `ExprInfo :: object(...)` marks optional fields `Option(T)`; required fields
 //!   stay non-optional. The `new_expr_info(env, ty)` factory initialises all
@@ -40,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 { is_some_type, is_function_type } :: import("./types/guards.yo");
 { is_control_fn, is_effect_record_member, get_func_type } :: import("./function_value.yo");
 { type_to_string } :: import("./types/string.yo");
-{ EvalValue } :: import("./value.yo");
+{ EvalValue, ValueCell } :: import("./value.yo");
 {
   AstExpr,
   ExprId,
@@ -279,22 +278,23 @@ control_flow_to_string :: (fn(cf : ControlFlowFlags) -> String)({
 /// Unified compile-time element/field reference for mutation and pointer creation.
 /// Enables compile-time operations like `arr(0) = value`, `&(arr(0))`.
 ///
-/// Each variant stores the inner `ArrayList(EvalValue)` directly rather than
-/// the full `EvalValue` wrapper, preserving the type invariant.
-/// Mutation works because `ArrayList` is a ref-counted object — copying the
-/// variant shares the same underlying list, so writes are visible to all holders.
+/// Each variant stores the aggregate's `ValueCell` (src/value.yo) rather than
+/// the full `EvalValue` wrapper, preserving the type invariant. The cell is
+/// the place every holder shares, so a write (`cell.set(i, v)`) is visible to
+/// all of them (plans/VALUES_BY_DEFAULT.md V4, `EvalValue`).
 ComptimeRef :: enum(
   /// Array or slice element.  Mutates `elements[index]`.
-  ArrayRef(elements : ArrayList(EvalValue), index : usize),
+  ArrayRef(elements : ValueCell, index : usize),
   /// ComptimeList element.  Mutates `elements[index]`.
-  ComptimeListRef(elements : ArrayList(EvalValue), index : usize),
+  ComptimeListRef(elements : ValueCell, index : usize),
   /// Struct field via ComptimeIndex.  Mutates `field_values[field_index]`.
-  StructRef(field_values : ArrayList(EvalValue), field_index : usize),
+  StructRef(field_values : ValueCell, field_index : usize),
   /// Tuple field via ComptimeIndex.  Mutates `fields[field_index]`.
-  TupleRef(fields : ArrayList(EvalValue), field_index : usize)
+  TupleRef(fields : ValueCell, field_index : usize)
 );
-// No derives for ComptimeRef — ArrayList(EvalValue) fields are mutable ref-counted
-// objects shared by reference; deep clone/eq is not needed.
+// `Clone` copies the place handles (`Rc.clone` of each cell): a clone names
+// the same place. No `Eq`: a place has no value identity to compare.
+derive(ComptimeRef, Clone);
 // ---------------------------------------------------------------------------
 // RuntimeDestructuring
 // ---------------------------------------------------------------------------
@@ -532,7 +532,7 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
         capture_type : x.capture_type.clone(),
         macro_expansion : x.macro_expansion,
         original_expr : x.original_expr,
-        comptime_ref : x.comptime_ref,
+        comptime_ref : x.comptime_ref.clone(),
         index_trait_ptr_type : x.index_trait_ptr_type.clone(),
         index_method_type : x.index_method_type.clone(),
         index_method_value : x.index_method_value,
@@ -645,7 +645,7 @@ expr_info_set_original_expr :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> un
 expr_info_comptime_ref :: (fn(info : &ExprInfo) -> Option(ComptimeRef))(
   match(
     info.rare,
-    .Some(r) => r.comptime_ref,
+    .Some(r) => r.comptime_ref.clone(),
     .None => Option(ComptimeRef).None
   )
 );
@@ -655,7 +655,7 @@ expr_info_set_comptime_ref :: (fn(info : &ExprInfo, v : &Option(ComptimeRef)) ->
     return(());
   });
   r := _expr_info_rare_for_write(info);
-  r.comptime_ref = v;
+  r.comptime_ref = v.clone();
   ()
 });
 expr_info_index_trait_ptr_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
