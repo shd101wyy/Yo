@@ -2032,7 +2032,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     // condition, so the infinite-loop head of `while(true, { … break … })`
     // carries no comptime value — and the literal is no bound name.
     if(tok.kind == TokenKind.Bool, {
-      return(Option(VcTerm).Some(rc(VcTermNode.BoolLit(tok.value.* == "true"))));
+      return(Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(tok.value.* == "true"))));
     });
     name := tok.value.*.clone();
     return(
@@ -3739,7 +3739,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
   });
   a := a_opt.unwrap();
   idx_name := `__yo_for_idx_${ast_expr_id(e).to_string()}`;
-  ctx.vars.insert(idx_name.clone(), rc(VcTermNode.BvLit(value : u64(0), width : usize(64))));
+  ctx.vars.insert(idx_name.clone(), Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64))));
   fr := ForFrame(idx_name : idx_name.clone(), coll_name : coll_name, list : list_t.unwrap(), elem : elem_opt.unwrap(), elem_name : ast_expr_text(&var).*);
   ctx.for_frames.push(fr);
   r := _loop_core(ctx, e, &a, Option(AstExpr).None, ctx.for_frames.get(ctx.for_frames.len() - usize(1)));
@@ -5124,7 +5124,7 @@ _call_term :: (
           result := _list_option_term(ctx, e, &info.ty, &lr.elem, &xs_t, &last_i, &len_t);
           if(ast_expr_is_atom(&lr.recv), {
             new_len := _app3(VcOp.IteOp, &non_empty, &last_i, &len_t);
-            rebound := rc(VcTermNode.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len)));
+            rebound := Rc.new(VcTermNode.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len)));
             rnm := ast_expr_text(&lr.recv).*;
             ctx.vars.insert(rnm.clone(), rebound);
             // A popped parameter is a mutation its callers must learn of

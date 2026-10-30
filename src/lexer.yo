@@ -308,7 +308,7 @@ tokenize_span :: (
           k = (k + usize(1));
         });
         ws_str := ws_sb.to_string();
-        tokens.push(Token(kind : TokenKind.Whitespace, value : rc(ws_str), row : u32(ws_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
+        tokens.push(Token(kind : TokenKind.Whitespace, value : Rc.new(ws_str), row : u32(ws_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
         i = k;
       },
       // Line comment: //, ///, //!
@@ -331,7 +331,7 @@ tokenize_span :: (
           k = (k + usize(1));
         });
         cm_str := cm_sb.to_string();
-        tokens.push(Token(kind : comment_kind, value : rc(cm_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
+        tokens.push(Token(kind : comment_kind, value : Rc.new(cm_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
         i = k;
       },
       // Block comment: /*, /**, /*!
@@ -382,7 +382,7 @@ tokenize_span :: (
           exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, bc_start_ln, col, `unterminated block comment`)));
         });
         cm_str := cm_sb.to_string();
-        tokens.push(Token(kind : block_kind, value : rc(cm_str), row : u32(bc_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
+        tokens.push(Token(kind : block_kind, value : Rc.new(cm_str), row : u32(bc_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
         i = k;
       },
       // ( ) [ ] { }
@@ -463,7 +463,7 @@ tokenize_span :: (
         });
         val_sb.write_byte(u8(0x27));
         tok_val := val_sb.to_string();
-        tokens.push(Token(kind : TokenKind.CharLit, value : rc(tok_val), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
+        tokens.push(Token(kind : TokenKind.CharLit, value : Rc.new(tok_val), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
         i = (i + usize(1));
       },
       // String literal: "..."
@@ -601,7 +601,7 @@ tokenize_span :: (
         });
         val_sb.write_byte(u8(0x22));
         tok_val := val_sb.to_string();
-        tokens.push(Token(kind : TokenKind.StringLit, value : rc(tok_val), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
+        tokens.push(Token(kind : TokenKind.StringLit, value : Rc.new(tok_val), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
         i = (i + usize(1));
       },
       // Template string: `...`
@@ -780,7 +780,7 @@ tokenize_span :: (
           exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, tpl_start_ln, col, `unterminated template string`)));
         });
         ts_val := ts_sb.to_string();
-        tokens.push(Token(kind : TokenKind.TemplateString, value : rc(ts_val), row : u32(tpl_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
+        tokens.push(Token(kind : TokenKind.TemplateString, value : Rc.new(ts_val), row : u32(tpl_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
         i = (i + usize(1));
       },
       // Comma and semicolon
