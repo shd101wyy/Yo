@@ -328,12 +328,19 @@ impl(
   push_string : (fn(self : &mut Self, other : &Self) -> unit)({
     (olen : usize) = other._bytes.len();
     if(olen > usize(0), {
-      // Grow first, then read `other`'s pointer: `other` may share this very
-      // buffer (`s.push_string(s)`), and a pointer taken before the growth
-      // would dangle (issues/fixed/a-string-pushed-onto-itself-reads-its-freed-buffer.md).
+      // `other` may be this very string, reached through a `ref` root
+      // (`o.s.push_string(&o.s)`, which decision 28's value-root rule does
+      // not cover). Since B8 a `&String` argument is a copy of the string's
+      // fields taken at the call, so its buffer pointer is the one this
+      // growth frees: when the two share a buffer, the bytes are read from
+      // `self`'s grown buffer, whose first `olen` bytes they still are
+      // (issues/fixed/a-string-pushed-onto-itself-reads-its-freed-buffer.md,
+      // issues/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md).
+      src := other._bytes.ptr();
+      aliased := match(src, .Some(op) => match(self._bytes.ptr(), .Some(sp) => (op == sp), .None => false), .None => false);
       self._bytes.ensure_total_capacity(self._bytes.len() + olen);
       match(
-        other._bytes.ptr(),
+        cond(aliased => self._bytes.ptr(), true => src),
         .Some(p) => self._bytes.extend_from_ptr(p, olen),
         .None => ()
       );

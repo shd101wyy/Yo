@@ -2031,8 +2031,16 @@ impl(
   extend_cloned : (fn(self : &mut Self, other : &ArrayList(T)) -> unit)({
     (mut(i) : usize) = usize(0);
     n := other.len();
+    // `other` may be this very list, reached through a `ref` root
+    // (`o.xs.extend_cloned(&o.xs)`). A `&ArrayList` argument is a copy of the
+    // list's fields taken at the call, so its buffer pointer is the one a
+    // growth frees: reserve first, and when the two share a buffer, read the
+    // elements from `self`, whose first `n` they still are
+    // (issues/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md).
+    aliased := ((n > usize(0)) && match(other.ptr(), .Some(op) => match(self.ptr(), .Some(sp) => (op == sp), .None => false), .None => false));
+    self.ensure_total_capacity(self._length + n);
     while(i < n, i = (i + usize(1)), {
-      self.push(other(i).clone());
+      self.push(cond(aliased => self(i).clone(), true => other(i).clone()));
     });
   }),
   /// A clone of the element at `index`, or `.None` when `index >= len()` —
