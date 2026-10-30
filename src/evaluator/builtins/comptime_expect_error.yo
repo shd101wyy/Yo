@@ -23,7 +23,7 @@
 { Token } :: import("../../token.yo");
 { ArrayList } :: import("std/collections/array_list");
 { Environment, Frame, frame_truncate_variables, env_frames_for_write } :: import("../../env.yo");
-{ EvalContext, forcing_depths, truncate_forcing_depths, sync_counted_handle_std_generic } :: import("../context.yo");
+{ EvalContext, forcing_depths, truncate_forcing_depths, sync_mut_decl_census_untrusted } :: import("../context.yo");
 { format_error_message, error_message_text } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 {
@@ -323,7 +323,7 @@ evaluate_comptime_expect_error :: (
   ctx.is_evaluating_generic_impl_specialization = saved_gen_impl;
   ctx.currently_specializing_function = saved_spec;
   ctx.currently_specializing_function_stack = saved_spec_stack;
-  sync_counted_handle_std_generic(ctx);
+  sync_mut_decl_census_untrusted(ctx);
   ctx.current_impl_trait_field_labels = saved_wt_labels;
   ctx.current_impl_trait_field_types = saved_wt_types;
   while(env.frames.len() > saved_frames_len, {

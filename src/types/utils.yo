@@ -1422,28 +1422,12 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
   )
 );
 /// Decision 17's rule is on (`type_holds_counted_handle`); `yo fix
-/// --migrate rc-clone` turns it off while it records the copies it spells
-/// (`set_counted_handle_rule`).
+/// --migrate rc-clone` and `cloned-accessors` turn it off while they record
+/// the copies they spell (`set_counted_handle_rule`).
 (mut(g_counted_handle_rule_on) : bool) = true;
 set_counted_handle_rule :: (fn(on : bool) -> unit)({
   g_counted_handle_rule_on = on;
 });
-/// The evaluator is specializing a generic function or method defined in std
-/// (`sync_counted_handle_std_generic`, evaluator/context.yo). Its copies of a
-/// `T` that is a handle (`ArrayList(T).get`'s element, `Option(T).unwrap`'s
-/// payload) are not judged by decision 17 (plans/VALUES_BY_DEFAULT.md V2c, as
-/// built): a specialization's types are concrete, so a copy of a `T` cannot
-/// be told from a copy of an `Rc(U)` there, and the whole body is exempt.
-/// Measured 2026-10-28 with `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` (which judges
-/// these bodies): std itself is clean, and `check ./src` fails 238 of 276
-/// files, every one at `HashMap.get` or `ArrayList.get` instantiated at a
-/// handle element. The exemption goes once src reads handle elements through
-/// B6's accessors (`get_cloned`, `xs(i)` in place, `with`).
-(mut(g_counted_handle_std_generic) : bool) = false;
-set_counted_handle_std_generic :: (fn(on : bool) -> unit)({
-  g_counted_handle_std_generic = on;
-});
-counted_handle_std_generic_on :: (fn() -> bool)(g_counted_handle_std_generic);
 type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || type_holds_counted_handle(ty)));
 /// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc`/`Arc` needs
 /// `.clone()`, as in Rust. A new handle is a new owner, so sharing is visible
@@ -1455,18 +1439,18 @@ type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(t
 /// implicitly until V5 and B12), at a closure (judged by its capture record,
 /// decision 36: one owning an `Rc` is not `Copy`) and at a type variable. A
 /// generic body's copy of a `T` is judged as decision 36's flip judges it,
-/// at each instantiation, except inside std (`set_counted_handle_std_generic`):
-/// std's generic readers (`ArrayList(T).get`, `Option(T)`'s combinators) copy
-/// their element through `T`, and B6's accessors are the spelling that does
-/// not copy.
+/// at each instantiation, std's included: a std reader that copies its
+/// element through `T` (`ArrayList(T).get`, `HashMap(K, V).get`) is E0901 at
+/// a handle element, reported at the user's call with B6's accessors as the
+/// repair (`get_cloned`, `xs(i)` in place, `with`; `_reported_at_user_call`).
 ///
 /// `yo fix --migrate rc-clone` suspends the rule while it records the copies
 /// it spells (`set_counted_handle_rule`): the tree it migrates still copies
 /// them implicitly.
-type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)(g_counted_handle_rule_on && !g_counted_handle_std_generic && type_holds_counted_handle_ignoring_migration(ty));
+type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)(g_counted_handle_rule_on && type_holds_counted_handle_ignoring_migration(ty));
 /// `type_holds_counted_handle` whether or not the rule is suspended (by `yo
-/// fix --migrate rc-clone`, or in a std generic body): what the migration
-/// records a copy by, so it spells exactly the copies the rule rejects.
+/// fix --migrate rc-clone` or `cloned-accessors`): what the migrations record
+/// a copy by, so they spell exactly the copies the rule rejects.
 type_holds_counted_handle_ignoring_migration :: (fn(ty : &TypeValue) -> bool)({
   w := _type_walk_new();
   _holds_counted_handle_inner(ty, &mut w, u32(0))
@@ -4125,7 +4109,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, set_counted_handle_std_generic, counted_handle_std_generic_on, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, buffer_element_types, value_type_owns_buffer, value_type_owns_buffer_outright, _type_refs_back_to_cyclic);
 export(type_requires_inference);
