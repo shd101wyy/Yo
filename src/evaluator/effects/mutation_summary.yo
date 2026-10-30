@@ -210,6 +210,36 @@ _ms_touched_add :: (fn(touched : &mut ArrayList(String), fid : &String) -> unit)
     touched.push(fid.clone());
   });
 });
+/// Is `fid`'s body `___dup(p)` of its first parameter `p`? That is the
+/// prelude's `Rc`/`Arc` `Clone.clone`, the callee of every decision-17
+/// `Rc.clone(h)`. Its summary needs no walk: it writes nothing, and its
+/// result is the first argument's cell (`___dup` passes its operand through,
+/// `_msp_pass_through_head`). Answering from the body's shape matters because
+/// a specialization's body can have no ExprInfo in the table a caller is
+/// summarized against, and that conservative answer is never memoized and
+/// poisons the caller's memo too: every function calling `Rc.clone`, and each
+/// of its callers, was re-analysed on every query (the `Pattern.clone` /
+/// `clone_patterns` cycle 180,000 times in `check src/main.yo`,
+/// issues/fixed/2026-10-30-rc-clone-calls-defeat-the-mutation-summary-memo.md).
+_ms_body_dups_first_param :: (fn(fid : &String, body : &AstExpr) -> bool)(
+  match(
+    body,
+    .FnCall(_, _, args, _, _) => if(
+      ast_expr_is_fn_call_of(body, "___dup", Option(usize).Some(usize(1))),
+      match(
+        args.get(usize(0)),
+        .Some(a) => match(
+          a,
+          .Atom(_, tok) => match(_msp_labels(fid).items.get(usize(0)), .Some(l0) => (l0 == tok.value), .None => false),
+          _ => false
+        ),
+        .None => false
+      ),
+      false
+    ),
+    _ => false
+  )
+);
 /// Namespace struct for the mutually recursive summary/walk pair —
 /// module-level bindings are define-before-use, so the mutual recursion
 /// (summary_for → walk → summary_for) needs the impl-block forward-decl
@@ -232,6 +262,9 @@ impl(
       }),
       .None => ()
     );
+    if(_ms_body_dups_first_param(fid, body), {
+      return(false);
+    });
     if(g_ms_in_progress.with(m => m.get(fid.clone())).is_some(), {
       _ms_touched_add(touched, fid.clone());
       return(false);
@@ -1521,6 +1554,9 @@ impl(
       }),
       .None => ()
     );
+    if(_ms_body_dups_first_param(fid, body), {
+      return(_MspAnalysis(mask : param_mutation_mask_new(), ret : _msp_param_root(usize(0), false)));
+    });
     if(g_msp_in_progress.with(m => m.get(fid.clone())).is_some(), {
       _ms_touched_add(touched, fid.clone());
       return(_MspAnalysis(mask : param_mutation_mask_new(), ret : _msp_root(MSP_ROOTED)));
