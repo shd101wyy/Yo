@@ -8328,7 +8328,7 @@ impl(
     )
   ),
   /// Return `Some(value)` if the predicate returns `true`, otherwise `None`.
-  filter : (fn(self : &Self, predicate : &Impl(Fn(a : &T) -> bool)) -> Option(T))(
+  filter : (fn(self : Self, predicate : &Impl(Fn(a : &T) -> bool)) -> Option(T))(
     match(
       self,
       .Some(value) => cond(
@@ -8339,7 +8339,7 @@ impl(
     )
   ),
   /// Return this option if `Some`, otherwise call `f` and return its result.
-  or_else : (fn(self : &Self, f : &Impl(Fn() -> Option(T))) -> Option(T))(
+  or_else : (fn(self : Self, f : &Impl(Fn() -> Option(T))) -> Option(T))(
     match(
       self,
       .Some(value) => Option(T).Some(value),
@@ -8347,10 +8347,13 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), self : &Self, default_val : &B, f : &Impl(Fn(a : &T) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : &Self, default_val : B, f : &Impl(Fn(a : &T) -> B)) -> B)(
     match(
       self,
-      .Some(value) => f(&value),
+      .Some(value) => {
+        drop(default_val);
+        f(&value)
+      },
       .None => default_val
     )
   ),
@@ -8363,18 +8366,24 @@ impl(
     )
   ),
   /// Return `optb` if `self` is `Some`, otherwise `None`.
-  and : (fn(generic(B : Type), self : &Self, optb : &Option(B)) -> Option(B))(
+  and : (fn(generic(B : Type), self : &Self, optb : Option(B)) -> Option(B))(
     match(
       self,
       .Some(_) => optb,
-      .None => Option(B).None
+      .None => {
+        drop(optb);
+        Option(B).None
+      }
     )
   ),
   /// Return `self` if `Some`, otherwise return `optb`.
-  or : (fn(self : &Self, optb : &Option(T)) -> Option(T))(
+  or : (fn(self : Self, optb : Option(T)) -> Option(T))(
     match(
       self,
-      .Some(value) => Option(T).Some(value),
+      .Some(value) => {
+        drop(optb);
+        Option(T).Some(value)
+      },
       .None => optb
     )
   ),
@@ -8403,7 +8412,7 @@ impl(
     )
   ),
   /// Call `f` with the contained value (if `Some`), then return the option.
-  inspect : (fn(self : &Self, f : &Impl(Fn(a : &T) -> unit)) -> Option(T))(
+  inspect : (fn(self : Self, f : &Impl(Fn(a : &T) -> unit)) -> Option(T))(
     match(
       self,
       .Some(value) => {
@@ -8439,7 +8448,7 @@ impl(
   generic(T : Type),
   Option(Option(T)),
   /// Collapse one level of nesting.
-  flatten : (fn(self : &Self) -> Option(T))(
+  flatten : (fn(self : Self) -> Option(T))(
     match(
       self,
       .Some(inner) => inner,
@@ -9203,7 +9212,7 @@ impl(
   generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Map the `Ok` value with `f`, leaving `Err` untouched.
-  map : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &OkType) -> B)) -> Result(B, ErrorType))(
+  map : (fn(generic(B : Type), self : Self, f : &Impl(Fn(a : &OkType) -> B)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => Result(B, ErrorType).Ok(f(&value)),
@@ -9211,7 +9220,7 @@ impl(
     )
   ),
   /// Map the `Err` value with `f`, leaving `Ok` untouched.
-  map_err : (fn(generic(F : Type), self : &Self, f : &Impl(Fn(a : &ErrorType) -> F)) -> Result(OkType, F))(
+  map_err : (fn(generic(F : Type), self : Self, f : &Impl(Fn(a : &ErrorType) -> F)) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9219,7 +9228,7 @@ impl(
     )
   ),
   /// Chain a computation that may fail on the `Ok` value.
-  and_then : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
+  and_then : (fn(generic(B : Type), self : Self, f : &Impl(Fn(a : &OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => f(&value),
@@ -9227,7 +9236,7 @@ impl(
     )
   ),
   /// Chain a recovery computation on the `Err` value.
-  or_else : (fn(generic(F : Type), self : &Self, f : &Impl(Fn(a : &ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
+  or_else : (fn(generic(F : Type), self : Self, f : &Impl(Fn(a : &ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9235,23 +9244,29 @@ impl(
     )
   ),
   /// Return `res` if `Ok`, otherwise propagate `Err`.
-  and : (fn(generic(B : Type), self : &Self, res : &Result(B, ErrorType)) -> Result(B, ErrorType))(
+  and : (fn(generic(B : Type), self : Self, res : Result(B, ErrorType)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(_) => res,
-      .Err(error) => Result(B, ErrorType).Err(error)
+      .Err(error) => {
+        drop(res);
+        Result(B, ErrorType).Err(error)
+      }
     )
   ),
   /// Return `self` if `Ok`, otherwise return `res`.
-  or : (fn(generic(F : Type), self : &Self, res : &Result(OkType, F)) -> Result(OkType, F))(
+  or : (fn(generic(F : Type), self : Self, res : Result(OkType, F)) -> Result(OkType, F))(
     match(
       self,
-      .Ok(value) => Result(OkType, F).Ok(value),
+      .Ok(value) => {
+        drop(res);
+        Result(OkType, F).Ok(value)
+      },
       .Err(_) => res
     )
   ),
   /// Convert to `Option(OkType)`, discarding the error.
-  ok : (fn(self : &Self) -> Option(OkType))(
+  ok : (fn(self : Self) -> Option(OkType))(
     match(
       self,
       .Ok(value) => Option(OkType).Some(value),
@@ -9259,7 +9274,7 @@ impl(
     )
   ),
   /// Convert to `Option(ErrorType)`, discarding the success value.
-  err : (fn(self : &Self) -> Option(ErrorType))(
+  err : (fn(self : Self) -> Option(ErrorType))(
     match(
       self,
       .Ok(_) => Option(ErrorType).None,
@@ -9267,10 +9282,13 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), self : &Self, default_val : &B, f : &Impl(Fn(a : &OkType) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : &Self, default_val : B, f : &Impl(Fn(a : &OkType) -> B)) -> B)(
     match(
       self,
-      .Ok(value) => f(&value),
+      .Ok(value) => {
+        drop(default_val);
+        f(&value)
+      },
       .Err(_) => default_val
     )
   ),
@@ -9315,7 +9333,7 @@ impl(
     )
   ),
   /// Call `f` with the `Ok` value (if any), then return the result.
-  inspect : (fn(self : &Self, f : &Impl(Fn(a : &OkType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect : (fn(self : Self, f : &Impl(Fn(a : &OkType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => {
@@ -9326,7 +9344,7 @@ impl(
     )
   ),
   /// Call `f` with the `Err` value (if any), then return the result.
-  inspect_err : (fn(self : &Self, f : &Impl(Fn(a : &ErrorType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect_err : (fn(self : Self, f : &Impl(Fn(a : &ErrorType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => Result(OkType, ErrorType).Ok(value),
@@ -9356,7 +9374,7 @@ impl(
   generic(T : Type, E : Type),
   Result(Result(T, E), E),
   /// Collapse one level of nesting.
-  flatten : (fn(self : &Self) -> Result(T, E))(
+  flatten : (fn(self : Self) -> Result(T, E))(
     match(
       self,
       .Ok(inner) => inner,
@@ -9370,7 +9388,7 @@ impl(
   Result(Option(T), E),
   /// `Ok(Some(v))` becomes `Some(Ok(v))`, `Ok(None)` becomes `None`,
   /// `Err(e)` becomes `Some(Err(e))`.
-  transpose : (fn(self : &Self) -> Option(Result(T, E)))(
+  transpose : (fn(self : Self) -> Option(Result(T, E)))(
     match(
       self,
       .Ok(opt) => match(
@@ -9388,7 +9406,7 @@ impl(
   Option(Result(T, E)),
   /// `Some(Ok(v))` becomes `Ok(Some(v))`, `None` becomes `Ok(None)`,
   /// `Some(Err(e))` becomes `Err(e)`.
-  transpose : (fn(self : &Self) -> Result(Option(T), E))(
+  transpose : (fn(self : Self) -> Result(Option(T), E))(
     match(
       self,
       .Some(r) => match(
@@ -9405,15 +9423,18 @@ impl(
   generic(T : Type),
   Option(T),
   /// Convert `Some(value)` to `Ok(value)`, or return `Err(err)` if `None`.
-  ok_or : (fn(generic(E : Type), self : &Self, err : &E) -> Result(T, E))(
+  ok_or : (fn(generic(E : Type), self : Self, err : E) -> Result(T, E))(
     match(
       self,
-      .Some(value) => Result(T, E).Ok(value),
+      .Some(value) => {
+        drop(err);
+        Result(T, E).Ok(value)
+      },
       .None => Result(T, E).Err(err)
     )
   ),
   /// Convert `Some(value)` to `Ok(value)`, or call `err_fn` to produce `Err` if `None`.
-  ok_or_else : (fn(generic(E : Type), self : &Self, err_fn : &Impl(Fn() -> E)) -> Result(T, E))(
+  ok_or_else : (fn(generic(E : Type), self : Self, err_fn : &Impl(Fn() -> E)) -> Result(T, E))(
     match(
       self,
       .Some(value) => Result(T, E).Ok(value),

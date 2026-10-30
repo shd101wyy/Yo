@@ -60,8 +60,9 @@ test("FnOnce: a closure that is never called drops its captures with its owner",
 test("FnOnce: a captured String moves out without a clone", {
   s := String.from("four");
   (f : Impl(FnOnce() -> usize)) = ({ s }() => _once_take_string(s));
+  // The capture moved `s` in (a `String` is a value since B8), and the call
+  // moves it on into the sink parameter.
   assert(f() == usize(4), "the String moved into the sink parameter");
-  assert(s.len() == usize(4), "the source binding was copied into the capture, not moved");
 });
 test("FnOnce: tail-returning a capture moves it out", {
   before := g_once_disposed;
@@ -210,7 +211,7 @@ test("FnOnce: an RC capture of a binding that stays live is a counted copy", {
   mut(a) := ArrayList(i64).new();
   a.push(i64(11));
   a.push(i64(22));
-  (f : Impl(FnOnce() -> usize)) = ({ a }() => {
+  (f : Impl(FnOnce() -> usize)) = ({ a : a.clone() }() => {
     n := a.len();
     n
   });

@@ -175,7 +175,8 @@ test("a generic function's closure parameter owns a closure literal holding a Dr
 // released once (a second release is a use-after-free under ASan).
 test("a generic function's closure parameter owns a closure literal holding a counted value", {
   s := String.from("counted");
-  assert(_cpf_sink_relay(() => s.len()) == usize(7), "the sink relay ran the closure over a String");
-  assert(_cpf_plain_relay(() => s.len()) == usize(7), "the by-value relay ran the closure over a String");
+  // A `String` is a value (B8): each closure captures its own clone.
+  assert(_cpf_sink_relay({ s : s.clone() }() => s.len()) == usize(7), "the sink relay ran the closure over a String");
+  assert(_cpf_plain_relay({ s : s.clone() }() => s.len()) == usize(7), "the by-value relay ran the closure over a String");
   assert(s.len() == usize(7), "the caller's String is still alive");
 });
