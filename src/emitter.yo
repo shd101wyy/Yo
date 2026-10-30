@@ -397,7 +397,7 @@ impl(
     (hi : usize) = usize(0);
     while(hi < hits.len(), {
       match(
-        hits.get(hi),
+        hits.get_cloned(hi),
         .Some(k) => match(
           self.move_zeroes.remove(&k),
           .Some(stmts) => {
@@ -542,8 +542,8 @@ impl(
   }),
   /// Append a raw `String` value + newline to the code section.
   emit_string_line : (fn(self : &mut Self, c : &String) -> unit)({
-    match(&self.declared_ref, .Some(s) => s.with_mut(set => _emitter_record_declared_temp(set, c.clone())), .None => ());
-    match(&self.scope_ref, .Some(st) => st.with_mut(stack => _emitter_track_scope(stack, c.clone())), .None => ());
+    match(&self.declared_ref, .Some(s) => s.with_mut({ &c }(set) => _emitter_record_declared_temp(set, c.clone())), .None => ());
+    match(&self.scope_ref, .Some(st) => st.with_mut({ &c }(stack) => _emitter_track_scope(stack, c.clone())), .None => ());
     self.code.push_string(c.clone());
     self.code.push_str("\n");
     if(self.move_zeroes.len() > usize(0), {
@@ -558,7 +558,7 @@ impl(
   /// and every exit after it releases the value
   /// (issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md).
   mark_declared_in_scope : (fn(self : &mut Self, name : &String) -> unit)(
-    match(&self.scope_ref, .Some(st) => st.with_mut(stack => stack.push(name.clone())), .None => ())
+    match(&self.scope_ref, .Some(st) => st.with_mut({ &name }(stack) => stack.push(name.clone())), .None => ())
   ),
   /// A `#line` directive must start a physical line: an `emit`/`emit_string`
   /// fragment with no trailing newline gets its newline first, so a directive
@@ -589,7 +589,7 @@ impl(
       return(());
     });
     match(
-      self.line_last_path,
+      &self.line_last_path,
       .Some(last) => if((last == path) && (self.line_last_row == usize(row)), {
         return(());
       }),
@@ -621,7 +621,7 @@ impl(
       return(());
     });
     match(
-      self.line_last_path,
+      &self.line_last_path,
       .Some(_) => {
         self._ensure_code_line_start();
         line := line_restore_marker();

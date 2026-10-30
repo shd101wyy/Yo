@@ -860,7 +860,7 @@ fn_param_by_value_flags :: (fn(ft : &TypeValue) -> SharedList(bool))({
 register_struct_field_comptime_flags :: (
   fn(struct_id : &String, flags : &ArrayList(bool)) -> unit
 )({
-  g_struct_field_comptime_flags.with_mut(m => m.insert(struct_id.clone(), flags.clone()));
+  g_struct_field_comptime_flags.with_mut({ &flags, &struct_id }(m) => m.insert(struct_id.clone(), flags.clone()));
   ()
 });
 /// Get the per-field compile-time-only flags for a struct id (`.None` if the
@@ -868,7 +868,7 @@ register_struct_field_comptime_flags :: (
 get_struct_field_comptime_flags :: (
   fn(struct_id : &String) -> Option(ArrayList(bool))
 )(
-  g_struct_field_comptime_flags.with(m => m.get(struct_id.clone()))
+  g_struct_field_comptime_flags.with(m => m.get_cloned(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListIter, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(t_origin_elided, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

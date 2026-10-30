@@ -95,7 +95,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
   // A replay's records are already named by the `@<key>` entry that
   // triggered it.
   if(g_input_hashing && !g_replaying, {
-    g_touches.with_mut(xs => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
+    g_touches.with_mut({ &content_sha256, &fs }(xs) => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
   });
   (i : usize) = usize(0);
   while(i < g_input_files.with(xs => xs.len()), {
@@ -109,7 +109,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
     i = (i + usize(1));
   });
   g_input_files.with_mut(xs => xs.push(fs.clone()));
-  g_input_hashes.with_mut(xs => xs.push(content_sha256.clone()));
+  g_input_hashes.with_mut({ &content_sha256 }(xs) => xs.push(content_sha256.clone()));
 });
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
 /// long-lived process (the LSP, `check --watch`) does not accumulate.
@@ -160,7 +160,7 @@ module_load_end :: (fn(key : &String, mark : usize) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_module_touches.with_mut(m => m.insert(key.clone(), out.clone()));
+  g_module_touches.with_mut({ &key, &out }(m) => m.insert(key.clone(), out.clone()));
 });
 /// Module `key` was found in the module cache: note it in the touch log (so an
 /// enclosing load's slice names it) and replay its inputs into this compile's
@@ -169,7 +169,7 @@ module_cache_hit :: (fn(key : &String) -> unit)({
   if(!g_input_hashing, {
     return(());
   });
-  g_touches.with_mut(xs => xs.push(`@${key}`));
+  g_touches.with_mut({ &key }(xs) => xs.push(`@${key}`));
   g_replaying = true;
   _replay_module(key);
   g_replaying = false;
@@ -178,7 +178,7 @@ _replay_module :: (fn(key : &String) -> unit)({
   if(g_replayed_modules.with(s => s.contains(key)), {
     return(());
   });
-  g_replayed_modules.with_mut(s => s.insert(key.clone()));
+  g_replayed_modules.with_mut({ &key }(s) => s.insert(key.clone()));
   match(
     g_module_touches.with(m => m.get_cloned(key)),
     .Some(list) => {
