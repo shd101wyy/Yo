@@ -33,6 +33,7 @@
 { Exception, IoExn } :: import("std/error");
 { DirEntry, read_dir } :: import("std/fs/dir");
 { platform, Platform, arch, Arch : ProcessArch } :: import("std/process");
+{ Command } :: import("std/process/command");
 // ── Supported architectures ───────────────────────────────────────────
 Arch :: enum(X86_64, Aarch64, X86, Arm, Wasm32);
 derive(Arch, Copy, Clone);
@@ -483,6 +484,40 @@ is_target_musl :: (fn(target : &TargetInfo) -> bool)(
 is_target_posix :: (fn(target : &TargetInfo) -> bool)(
   !is_target_windows(target) && !is_target_wasm(target)
 );
+// ── Host C compiler discovery ─────────────────────────────────────────
+/// `compiler --version` probe — stdio ignored, availability = exit 0.
+_check_compiler_available :: (fn(compiler : &String, io : Io) -> bool)({
+  probe := Command.new(compiler.clone());
+  probe.arg(String.from("--version"));
+  // A spawn failure (missing binary) throws through IoExn — treat it as
+  // "not available" rather than propagating.
+  inner_exn := Exception(throw : (_e -> unwind(false)));
+  out := io.await(probe.output(io), IoExn(io : io, exn : inner_exn));
+  out.status.raw == i32(0)
+});
+/// First available C compiler — tries clang, cc, gcc, zig in that order.
+/// The one discovery both `yo compile` (`--cc` unset) and `yo build` (no
+/// `--cc`/`--c-compiler`) resolve their default through, so the two commands
+/// agree on any box. Lives beside `host_target` because it describes the
+/// host's toolchain, not a target's; moved from main.yo when `yo build`
+/// stopped assuming a clang that may not be installed
+/// (issues/fixed/2026-10-31-yo-build-defaults-to-clang-and-dies-on-clang-less-boxes.md).
+_find_available_compiler :: (fn(io : Io) -> Option(String))({
+  candidates := ArrayList(String).new();
+  candidates.push(String.from("clang"));
+  candidates.push(String.from("cc"));
+  candidates.push(String.from("gcc"));
+  candidates.push(String.from("zig"));
+  (fci : usize) = usize(0);
+  while(fci < candidates.len(), {
+    c := match(candidates.get(fci), .Some(x) => x, .None => String.from(""));
+    if(_check_compiler_available(c.clone(), io), {
+      return(Option(String).Some(c));
+    });
+    fci = (fci + usize(1));
+  });
+  Option(String).None
+});
 export(
   Arch,
   Os,
@@ -516,5 +551,6 @@ export(
   is_target_emscripten,
   is_target_standalone_wasi,
   is_target_musl,
-  is_target_posix
+  is_target_posix,
+  _find_available_compiler
 );

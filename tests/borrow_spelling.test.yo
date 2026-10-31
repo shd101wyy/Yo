@@ -265,17 +265,21 @@ comptime_expect_error(
   }),
   "is a borrow mode, not a type"
 );
-// `&mut(T, p)` is decision 43's origin-qualified reference, not supported
-// yet. Its two-argument marker used to re-evaluate itself until `yo check`
+// `&mut(T, p)` is decision 43's origin-qualified reference. Its
+// two-argument marker used to re-evaluate itself until `yo check`
 // overflowed its stack (exit 139), in every type position
 // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
+// Decision 43 step 2 (N1a) spells it as a parameter's type only; a result,
+// a pointee, a local's annotation and a type argument come later.
 comptime_expect_error(
   bs_origin_mut_result :: (fn(xs : &mut i32) -> &mut(i32, xs))(xs),
   "is an origin-qualified reference"
 );
+// The second argument is read by its kind: a type there is E0922, not a
+// tuple (a tuple type is `Tuple(A, B)`).
 comptime_expect_error(
   bs_origin_mut_param :: (fn(xs : &mut(i32, i32)) -> unit)(()),
-  "is an origin-qualified reference"
+  "is a type, not an origin"
 );
 comptime_expect_error(
   bs_origin_mut_type_argument :: (fn() -> unit)({
@@ -331,4 +335,66 @@ comptime_expect_error(
 comptime_expect_error(
   bs_unlabeled_fn_slot :: (fn(f : &Impl(Fn(&i32) -> i32)) -> i32)(i32(0)),
   "Expected a label for function parameter"
+);
+// Decision 43 step 2 (N1a; plans/backlog/REFERENCES_AND_ORIGINS.md O1): the
+// `Origin` kind, `generic(p : Origin)`, and a parameter typed `&(T, p)` /
+// `&mut(T, p)`. The origin is carried in the parameter's slot and checked
+// from N1c on; the mode, the pointee and the emitted C are the elided
+// form's. An origin binder is not a type parameter, so these functions are
+// not generic.
+bs_origin_first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v);
+bs_origin_bump :: (fn(generic(p : Origin), v : &mut(i32, p)) -> unit)({
+  v = (v + i32(1));
+});
+bs_origin_union :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a + b);
+bs_origin_apply :: (fn(generic(p : Origin), f : Impl(Fn(v : &(i32, p)) -> i32), v : &(i32, p)) -> i32)(f(v));
+bs_origin_generic :: (fn(generic(T : Type, p : Origin), v : &(T, p)) -> T)(v);
+test("a parameter typed `&(T, p)` / `&mut(T, p)` lends like `&T` / `&mut T`", {
+  x := i32(41);
+  assert(bs_origin_first(&x) == i32(41), "a `&(i32, p)` parameter reads the caller's value");
+  mut(y) := i32(1);
+  bs_origin_bump(&mut y);
+  assert(y == i32(2), "a `&mut(i32, p)` parameter writes the caller's place");
+  assert(bs_origin_union(&x, &y) == i32(43), "a union `(p, q)` in origin position");
+  assert(bs_origin_apply((v : &i32) => (v + i32(1)), &x) == i32(42), "an `Fn(v : &(i32, p))` slot takes a closure with an elided `&i32` parameter");
+  assert(bs_origin_generic(&x) == i32(41), "a type parameter and an origin parameter side by side");
+});
+bs_apply_elided :: (fn(f : Impl(Fn(v : &i32) -> i32), v : &i32) -> i32)(f(v));
+test("a spelled origin and an elided one are one function type", {
+  x := i32(7);
+  assert(bs_apply_elided(bs_origin_first, &x) == i32(7), "the spelled-origin function fills the elided slot");
+});
+comptime_expect_error(
+  bs_origin_undeclared :: (fn(v : &(i32, q)) -> i32)(v),
+  "The origin `q` is not declared"
+);
+comptime_expect_error(
+  bs_origin_param_place :: (fn(xs : &i32, v : &(i32, xs)) -> i32)(v),
+  "is not an origin parameter"
+);
+comptime_expect_error(
+  bs_origin_not_a_name :: (fn(generic(p : Origin), v : &(i32, i32(1))) -> i32)(v),
+  "is not an origin"
+);
+comptime_expect_error(
+  bs_origin_ref_to_ref :: (fn(generic(r : Origin), a : &mut&(i32, r)) -> unit)(()),
+  "a reference to a reference"
+);
+comptime_expect_error(
+  bs_origin_generic_param :: (fn(generic(p : Origin, T : &(i32, p))) -> unit)(()),
+  "is erased at runtime"
+);
+comptime_expect_error(
+  bs_origin_type_argument :: (fn(generic(p : Origin)) -> unit)({
+    _o := Option(&(i32, p)).None;
+  }),
+  "is an origin-qualified reference"
+);
+// `Origin` is reserved like `Type` (decision 43 step 2): a binding of the
+// name is rejected naming the kind.
+comptime_expect_error(
+  bs_origin_reserved :: (fn() -> unit)({
+    Origin := i32(1);
+  }),
+  "it is the kind of an origin"
 );

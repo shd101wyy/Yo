@@ -223,7 +223,7 @@ import("std/fmt");
   ast_expr_is_local_borrow_mode_call,
   borrow_mode_not_a_type_message
 } :: import("../../expr.yo");
-{ projection_tail_mode } :: import("../../expr.yo");
+{ projection_tail_mode, ast_expr_is_infix_op_fn_call } :: import("../../expr.yo");
 { is_never_type } :: import("../../types/guards.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
@@ -645,6 +645,19 @@ _evaluate_exists_or_call :: (
   cond(
     ctx.is_ghost_context => evaluate_exists(expr, env, ctx, exn),
     true => evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
+  )
+);
+/// `&(T, o)` / `&mut(T, o)` outside a parameter's type (decision 43 step 2,
+/// N1a): the positions that arrive in later pieces of N1/N2.
+_origin_reference_position_message :: (fn(e : &AstExpr) -> String)(
+  `\`${ast_expr_to_string(e)}\` is an origin-qualified reference (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). It is written as a parameter's type, \`x : &(T, p)\` / \`x : &mut(T, p)\` with \`generic(p : Origin)\`; as a result type, a reference's pointee (\`&mut &(T, p)\`), a local's annotation or a type argument it is not supported yet. \`&mut x\` alone lends one place.`
+);
+/// The first argument of a two-argument `&(A, B)` is a type (a soft trial).
+_origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
+  match(
+    e,
+    .FnCall(_, _, Rc(oa_args), _, _) => match(oa_args.get(usize(0)), .Some(a0) => _borrow_operand_is_type(&a0, env, ctx), .None => false),
+    .Atom(_, _) => false
   )
 );
 /// `&T` / `&mut T` whose operand is a TYPE: decision 42's "a borrow mode,
@@ -1141,6 +1154,19 @@ _evaluate_expression :: (
           evaluate_import(expr, env, ctx, exn),
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR, .Some(usize(1)))) =>
           evaluate_raw_pointer_call(expr, env, ctx, exn),
+        // `&(T, o)` (the operator-call form, not infix `a & b`) whose first
+        // argument is a type: decision 43's origin-qualified reference, in a
+        // position other than a parameter's type (which
+        // `evaluate_function_parameter` reads before evaluating anything).
+        (
+          (__dk_len == usize(1)) &&
+            ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(2))) &&
+              !ast_expr_is_infix_op_fn_call(expr) &&
+                _origin_reference_operand_is_type(expr, env, ctx)
+        ) => {
+          exn.throw(dyn(format_error_message(ast_expr_token(expr), _origin_reference_position_message(expr))));
+          expr
+        },
         // `&x` is only a borrow marker (decision 33, V3b Generation B step
         // 3): a call argument lending to an `imm` parameter is peeled before
         // evaluation, so one that reaches here is not lending. `yo fix
@@ -1184,14 +1210,7 @@ _evaluate_expression :: (
           // form re-evaluated this very call until the stack overflowed
           // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
           if(!ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .Some(usize(1))), {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(expr),
-                  `\`${ast_expr_to_string(expr)}\` is an origin-qualified reference (\`&mut(T, p)\`, plans/backlog/REFERENCES_AND_ORIGINS.md O1), which is not supported yet: \`&mut\` lends one place (\`&mut x\`), and a parameter is written \`x : &mut T\`.`
-                )
-              )
-            );
+            exn.throw(dyn(format_error_message(ast_expr_token(expr), _origin_reference_position_message(expr))));
           });
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
             exn.throw(dyn(format_error_message(ast_expr_token(expr), borrow_mode_not_a_type_message(ast_place_text(ast_expr_strip_borrow_marker(expr)), true))));

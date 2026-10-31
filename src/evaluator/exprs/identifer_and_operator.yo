@@ -21,7 +21,7 @@
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom }
 :: import("../context.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_origin_kind } :: import("../../types/definitions.yo");
 { t_str, t_unit, t_bool, t_void, t_never, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
 { is_some_type, is_function_type } :: import("../../types/guards.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -108,6 +108,8 @@ evaluate_identifier_and_operator :: (
     ),
     (id_len == usize(6)) => cond(
       (identifier == "ushort") => Option(TypeValue).Some(t_c_ushort()),
+      // The `Origin` kind (decision 43 step 2): `generic(p : Origin)`.
+      (identifier == "Origin") => Option(TypeValue).Some(t_origin_kind()),
       true => Option(TypeValue).None
     ),
     (id_len == usize(8)) => cond(
@@ -354,6 +356,26 @@ evaluate_identifier_and_operator :: (
             not_found_repair = Option(String).None;
           });
         });
+        // The prelude's `rc`/`box`/`arc`, deleted by static-argument inference
+        // B3 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5): the handle's
+        // constructor is the one fix, so rewriting the token (`rc` →
+        // `Rc.new`) is the repair, over any rename or import candidate. The
+        // repair cannot print a type argument, so a closure or `.None`
+        // argument then meets E0613's written-arguments help; v0.2.73's
+        // `--migrate handle-ctors` writes it.
+        (not_found_repair_label : Option(String)) = Option(String).None;
+        match(
+          _deleted_handle_ctor(&identifier_string),
+          .Some(ctor) => {
+            not_found_help = Option(String).Some(
+              `\`${identifier_string}(x)\` is \`${ctor}(x)\`: the prelude's \`rc\`, \`box\` and \`arc\` were removed (static-argument inference). Or run \`yo fix <path> --migrate handle-ctors\` with yo v0.2.73, which also writes the type argument a closure or \`.None\` argument needs (\`Rc(T).new(...)\`).`
+            );
+            not_found_repair = Option(String).Some(ctor.clone());
+            not_found_repair_label = Option(String).Some(`rewrite \`${identifier_string}\` to \`${ctor}\``);
+            import_repair = Option(String).None;
+          },
+          .None => ()
+        );
         if(is_unlabeled_ensures_atom(ast_expr_id(expr)), {
           // Phase V1 (decision D3, plans/backlog/FORMAL_VERIFICATION.md): the
           // atom sits in an `ensures(...)` predicate of an unlabeled-return
@@ -381,7 +403,7 @@ evaluate_identifier_and_operator :: (
                   `Variable "${identifier_string}" not found.`,
                   &not_found_help,
                   fix_name.clone(),
-                  `rename to "${fix_name}"`
+                  match(not_found_repair_label, .Some(l) => l, .None => `rename to "${fix_name}"`)
                 ),
                 .None => match(
                   import_repair,
@@ -623,6 +645,17 @@ evaluate_identifier_and_operator :: (
   );
   expr
 });
+/// The handle constructor that replaced the deleted prelude builtin `name`
+/// (`rc` → `Rc.new`, `box` → `Box.new`, `arc` → `Arc.new`); `.None` for any
+/// other name.
+_deleted_handle_ctor :: (fn(name : &String) -> Option(String))(
+  cond(
+    (name == "rc") => .Some(String.from("Rc.new")),
+    (name == "box") => .Some(String.from("Box.new")),
+    (name == "arc") => .Some(String.from("Arc.new")),
+    true => .None
+  )
+);
 /// Whether a read of `variable` at `token` after the variable was moved is
 /// rejected: a user-named binding read from source code, of any type. A move
 /// consumes the name (plans/VALUES_BY_DEFAULT.md §0): after `take(a)` with

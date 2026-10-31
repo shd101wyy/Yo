@@ -10,7 +10,8 @@ was fixed in std by a reshape (`rc` and `arc` bind their `match`), not in the ev
 the prelude's `__yo_rc_cell`/`__yo_arc_cell` (`_prelude_cell_constructor`, `src/evaluator/values/dyn.yo`), copies
 with the same bound `match`, so the reproducer below now needs the tail-`match` shape restored in `__yo_rc_cell`.
 Those two are the only callers that pass a capture-struct `V` to a generic constructor; the issue stays open
-until V5 Generation A rewrites them onto `__yo_cell` or the adoption gate is fixed.
+until the adoption gate is fixed. V5 Generation A rewrites their bodies onto `__yo_cell` but keeps them (Fable
+consultation #7, 2026-10-30); static-argument inference B3 deleted `rc`/`arc` and kept these two.
 
 ## What is wrong
 
@@ -62,3 +63,7 @@ and `arc` can drop the bound `match`, but only once `SEED_VERSION` carries
 the fix: the v0.2.68 seed needs the bound shape to build the compiler. The
 two regression tests above are this fix's tests once the prelude returns to
 the tail shape.
+
+Acceptance (Fable consultation #7): retry Fable consultation #5's H1(b), building `dyn`'s cell as
+`Rc(resolve_cell_chain(T)).new`, and delete `__yo_rc_cell`/`__yo_arc_cell`, `_is_open_payload`,
+`_prelude_cell_callee` and `_prelude_cell_constructor`. Not scheduled before v0.2.76.

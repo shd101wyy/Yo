@@ -296,7 +296,14 @@ FuncMeta :: struct(
   /// decision 24) rather than `-> &T` (a read projection). Defaulted so a
   /// construction site that drops it degrades to the read projection, which
   /// rejects writes instead of admitting them.
-  (result_is_mut_ref : bool) ?= false
+  (result_is_mut_ref : bool) ?= false,
+  /// The `generic(p : Origin)` binders (decision 43 step 2, N1a): the
+  /// origin parameters a slot's `OriginSet` may name. They are not
+  /// `forall_labels` — a function abstract only over origins is not generic
+  /// (origins are erased from every identity but the borrow checker's, so
+  /// nothing specializes on them). Not in `type_to_string`, `type_key` or the
+  /// intern key: the slots that name them already differ. `.None` = none.
+  (origin_labels : Option(SharedList(String))) ?= Option(SharedList(String)).None
 );
 derive(FuncMeta, Clone);
 /// One node of the Yo type universe: the payload behind a `TypeValue` handle.
@@ -712,10 +719,24 @@ impl(SharedList(String), SharedListElem(no_list : no_label_lists));
 /// The origin of a reference written without one. Every origin step 1 builds
 /// is this one shared value.
 t_origin_elided :: (fn() -> TypeValue)(Rc.clone(g_origin_elided));
+/// The `Origin` kind (decision 43 step 2, N1a): what `generic(p : Origin)`
+/// annotates, as `TypeUni(0)` is the kind of a type.
+(g_origin_kind : TypeValue) = Rc.new(TypeValueNode.OriginKind);
+t_origin_kind :: (fn() -> TypeValue)(Rc.clone(g_origin_kind));
+/// A spelled origin: the set of `names`, each an origin parameter of the
+/// enclosing signature or a reference parameter's place (resolved against
+/// that signature by the checker).
+t_origin_named :: (fn(names : &SharedList(String)) -> TypeValue)(Rc.new(TypeValueNode.OriginSet(places : names.clone(), is_elided : false)));
 /// `&T` (`mutable = false`) or `&mut T`, with the elided origin.
 t_reference :: (fn(pointee : &TypeValue, mutable : bool) -> TypeValue)(
   Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(g_origin_elided)))
 );
+/// `&(T, origin)` / `&mut(T, origin)`: a reference with a spelled origin.
+t_reference_with_origin :: (fn(pointee : &TypeValue, mutable : bool, origin : &TypeValue) -> TypeValue)(
+  Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : origin.clone()))
+);
+/// The value is the `Origin` kind.
+is_origin_kind :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.OriginKind) => true, _ => false));
 /// The slot of a parameter with the given mode: `&mut T` when `is_mut_ref`,
 /// else `T` when `is_by_value`, else `&T`.
 t_slot :: (fn(pointee : &TypeValue, is_mut_ref : bool, is_by_value : bool) -> TypeValue)(
@@ -846,4 +867,4 @@ get_struct_field_comptime_flags :: (
   g_struct_field_comptime_flags.with(m => m.get(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
-export(t_origin_elided, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);
+export(t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

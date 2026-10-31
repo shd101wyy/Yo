@@ -8,7 +8,8 @@ and succeed, so the inconsistency reads as a flake, not a missing toolchain.
 Workarounds exist (`--cc cc`, install clang, run inside `nix develop`), and CI
 plus every macOS dev box have clang, which is why this survived.
 
-**Status:** OPEN — found 2026-10-25 while re-recording the
+**Status:** FIXED 2026-10-31 (see the Fix section) — found 2026-10-25 while
+re-recording the
 `tests/cli-cases/init-build-test` golden for the v3-std branch (head
 `1f08ba0c8`): the case's `yo build test` failed with "2 failed" and leftover
 `tests/.yo_selftest_batch_*_*.bin.asan_probe.c` files, which is what the
@@ -59,3 +60,17 @@ when `ctx.c_compiler` is the unprobed default (or probe once at context build).
 The regression test is a cli-case (`yo build test` with a PATH that has cc but
 no clang) whose golden — clean pass under `cc`, or an error naming the
 compiler — follows from the chosen direction, so it is left to the fix.
+
+## Fix (2026-10-31)
+
+Fixed by the probe-once-at-context-build direction, together with
+`issues/fixed/2026-10-31-yo-build-defaults-to-clang-and-dies-on-clang-less-boxes.md`
+(the same defect, filed independently 2026-10-31): `run_build` resolves
+`ctx.c_compiler` through the new `_resolve_c_compiler`, which runs the SAME
+discovery `yo compile` uses (`_find_available_compiler`, moved to
+`src/target.yo` and now shared), so `run_test_suite` forwards `cc`/`gcc` on a
+clang-less box and the child's ASan probe runs against a compiler that
+exists. A box with no compiler at all now gets compile's named
+"No C compiler found" error at build start instead of the bare ENOENT.
+Regression test: `tests/internal/build_runner.test.yo`, "the build's default
+C compiler is probed, not the literal clang".

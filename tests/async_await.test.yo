@@ -8284,3 +8284,16 @@ test("Test an await inside a later template part", {
   s := `a${io.await(_d10_after(i32(1), io), io)}b${io.await(_d10_after(i32(2), io), io)}c`;
   assert(s == `a1b2c`, "both awaits resolve, in order");
 });
+// A template of several parts lowers to one builder block (D10): an await in
+// a later part sits in a statement of that block, after the builder local is
+// bound, so the local crosses the suspension.
+_d10_after :: (fn(n : i32, rio : Io) -> Impl(Future(i32, Io)))(
+  rio.async({ n }(aio : Io) => {
+    aio.await(yield(aio), aio);
+    n
+  })
+);
+test("Test an await inside a later template part", {
+  s := `a${io.await(_d10_after(i32(1), io), io)}b${io.await(_d10_after(i32(2), io), io)}c`;
+  assert(s == `a1b2c`, "both awaits resolve, in order");
+});

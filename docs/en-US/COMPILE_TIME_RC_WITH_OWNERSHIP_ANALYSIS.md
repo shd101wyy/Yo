@@ -177,7 +177,7 @@ a := Rc.new(i32(42));
 assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 ```
 
-Like every prelude name, `rc` cannot be redefined: a module-level or local definition named `rc` is a shadowing error. A function parameter or a `match` pattern binding named `rc` is allowed and shadows the prelude's `rc` inside its scope.
+The prelude's `rc(v)`, `box(v)` and `arc(v)` were deleted (static-argument inference B3, v0.2.74): a call of one is E0401, whose help names the constructor (`rc(x)` is `Rc.new(x)`) and whose `yo fix` repair rewrites the name. `rc` is an ordinary name now, free for a local, a parameter or a pattern binding.
 
 ### Assignment Creates Ownership
 

@@ -284,6 +284,16 @@ rejects it). V5 Generation A rewrites the two bodies onto `__yo_cell` with `rc`'
     `yo fix --migrate handle-ctors` with v0.2.73", the last release whose mode can type the old calls; the token
     repair cannot print a `V`, so a closure or `.None` site it rewrites then meets E0613's written-arguments help.
   - No alias is kept, following the no-backward-compatibility policy.
+  - **As built (v0.2.74 window):** the prelude's `rc`/`box`/`arc` and their exports are deleted; `SharedCellNames`
+    loses `constructor` and `shared_cell_type_name_of_constructor` goes. E0401 on the three names carries the help and
+    the token repair (`_deleted_handle_ctor`, `src/evaluator/exprs/identifer_and_operator.yo`). The `dyn` recognizer
+    accepts `Rc.new(<closure>)` and `Arc.new(<closure>)`, each with an optional `alloc` argument (named or
+    positional), and forwards it into `__yo_rc_cell`/`__yo_arc_cell` (Fable consultation #7). The two cells and
+    `dyn.yo`'s three helpers survive. `tests/rc_binding_gives_way.test.yo` and `tests/handle_constructors.test.yo` pin
+    the E0401 help; the cli case `fix-migrate-handle-ctors` is replaced by `fix-rewrites-a-deleted-handle-builtin`,
+    because the tree's mode can no longer type an old call. The `handle-ctors` mode itself stays until v0.2.76. Of
+    the `issues/repros/` files that spell the old calls, the two `scripts/bootstrap/gates_fast.sh` compiles are
+    migrated; the rest are historical records and keep their spelling.
 - **B4, "`new` means an empty collection".** A grep on 2026-10-23 finds no doc or skill sentence that says so. What
   exists is `ArrayList(T).new()`'s `ensures(r.len() == usize(0))`, which stays true. B2 re-greps (`\bnew\b` near
   "empty" in `docs/`, `.github/`) and rewords any hit to "`new` is a type's primary constructor; a collection's
@@ -298,7 +308,7 @@ rejects it). V5 Generation A rewrites the two bodies onto `__yo_cell` with `rc`'
 | --- | --- | --- |
 | A1–A3 | **v0.2.72** (cadence; off the critical path), A2/A3 first in the window | v0.2.70 is a short seed release. Any piece merges once its Tier 1 passes (§5c decision 20). Shipping A in v0.2.71 would give B one release of slack, but v0.2.71 is the heaviest window and carries B12's `Dyn` changes beside A3's `dyn.yo` edits, so A targets v0.2.72. A2/A3's C change lands before step 1's emit-diff baseline (§5). |
 | B1, B2, B4 | **B1 shipped in v0.2.73** (#1674). **B2 moves to v0.2.74**, the first PR of its window and still before B3 (Fable consultation #5, 2026-10-29: B3's gates are a published mode and a seed whose `dyn` no longer names `rc`, so B2 only has to precede B3 in the same window). Planned: v0.2.73, as the first PR of its window, on the v0.2.72 seed | B needs a seed with A1–A3, and v0.2.72 is the first. The builtins stay in this release so that the published mode can still resolve and type old calls. The README projects are migrated with v0.2.73. K7's docs sweep (v0.2.74) then reads the final spelling, and V5 Generation B rewrites only the `new` bodies. |
-| B3 | **v0.2.74**, on the v0.2.73 seed | One release after the mode ships, so v0.2.73 is a published release whose mode works; H1 shipped in v0.2.73 through fallback (a), so the seed's `dyn` resolves `__yo_rc_cell`/`__yo_arc_cell`, not `rc`/`arc`. B3 is a deletion and a diagnostic, small beside W6b's risk in the same release. B3 keeps the two private constructors and `dyn.yo`'s three helpers, widens the A3 recognizer past one argument and forwards `alloc` into them (Fable consultation #7, 2026-10-30; V5 Generation A rewrites them with `Rc.new`/`Arc.new`). |
+| B3 | **Landed in the v0.2.74 window**, on the v0.2.73 seed | One release after the mode ships, so v0.2.73 is a published release whose mode works; H1 shipped in v0.2.73 through fallback (a), so the seed's `dyn` resolves `__yo_rc_cell`/`__yo_arc_cell`, not `rc`/`arc`. B3 is a deletion and a diagnostic, small beside W6b's risk in the same release. B3 keeps the two private constructors and `dyn.yo`'s three helpers, widens the A3 recognizer past one argument and forwards `alloc` into them (Fable consultation #7, 2026-10-30; V5 Generation A rewrites them with `Rc.new`/`Arc.new`). |
 | `handle-ctors` retired | **v0.2.75** | with every other mode |
 
 - **If any of A1–A3 misses v0.2.72**, B1/B2 move to v0.2.74 on the v0.2.73 seed and B3 rides v0.2.75 with the
