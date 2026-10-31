@@ -18,7 +18,7 @@
 { write_string } :: import("std/fs/file");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 { mm_set_open_document, mm_forget_open_document, resolve_std_path } :: import("../../src/module_manager.yo");
-{ generic_impl_binder_bound_counts } :: import("../../src/evaluator/values/impl.yo");
+{ generic_impl_binder_bound_counts, impls_of_constructor_method, note_concrete_ctor_method } :: import("../../src/evaluator/values/impl.yo");
 {
   Environment,
   add_where_clause_constraint_for_type_application,
@@ -788,4 +788,37 @@ test("a where-bound restated on each method of a generic impl is recorded once",
     i = (i + usize(1));
   });
   mm_forget_open_document(doc_path.clone());
+});
+
+test("impls_of_constructor_method: repeated calls within one epoch return the same list", {
+  // The concrete half is pushed into the returned list on EVERY call; the
+  // cached entry must stay generic-only, or each call within one
+  // trait-impl epoch appends its concrete candidates to the STORED list
+  // again (issues/fixed/2026-10-31-ctor-method-cache-appends-its-concrete-candidates-on-every-call.md).
+  clear_type_trait_methods();
+  // A ctor-stamped instance: a non-empty constructor_func_id is what
+  // `note_concrete_ctor_method` keys the entry by.
+  recv := Rc.new(
+    TypeValueNode.Struct(
+      id : String.from("ty_ctor_acc"),
+      name : String.from("Acc"),
+      field_labels : no_labels(),
+      field_types : no_types(),
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from("ctor_acc_fid"),
+      type_arguments : no_types(),
+      is_source_namespace : false
+    )
+  );
+  register_type_trait_method(String.from("ty_ctor_acc"), _entry(String.from("m_acc")));
+  note_concrete_ctor_method(&recv, &String.from("m_acc"), &t_i32(), &String.from("test:ctor_acc"));
+  first := impls_of_constructor_method(&String.from("ctor_acc_fid"), &String.from("m_acc"));
+  second := impls_of_constructor_method(&String.from("ctor_acc_fid"), &String.from("m_acc"));
+  assert(
+    first.len() == second.len(),
+    `repeated calls accumulate: first=${first.len().to_string()} second=${second.len().to_string()}`
+  );
+  assert(second.len() == usize(1), `want the one concrete candidate, got ${second.len().to_string()}`);
 });
