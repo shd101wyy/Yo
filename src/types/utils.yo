@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -3999,7 +3999,37 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
     _ => false
   )
 );
-/// The per-parameter `inout` flags of the vtable slot `name` of `dyn_ty`,
+/// True when the vtable slot `name` of `dyn_ty` is a projection method
+/// (`-> &T`, decision 24): the slot returns its place's address.
+dyn_vtable_slot_result_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
+  match(
+    dyn_ty,
+    Rc(.DynT({ required_trait_types : rtt })) => {
+      (i : usize) = usize(0);
+      while(i < rtt.len(), {
+        match(
+          rtt.get(i),
+          .Some(Rc(.TraitT({ field_labels : fls, field_types : fts }))) => {
+            (j : usize) = usize(0);
+            while(j < fls.len(), {
+              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
+                ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                return(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none() && fn_result_is_ref(&ft));
+              });
+              j = (j + usize(1));
+            });
+          },
+          _ => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    },
+    _ => false
+  )
+);
+/// The per-parameter pointer flags of the vtable slot `name` of `dyn_ty`
+/// (a `&mut T` parameter, and a projection's `&T` one),
 /// indexed like a method call's runtime arguments: `[receiver, explicit...]`
 /// (an Fn `call` slot has no receiver parameter, so its flag 0 is `false`).
 /// Empty when `dyn_ty` has no such slot.
@@ -4029,11 +4059,13 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
                 ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
                   match(
-                    ft,
+                    &ft,
                     Rc(.Func({ param_types : fpts })) => {
                       (k : usize) = usize(0);
                       while(k < fpts.len(), {
-                        out.push(match(fpts.get(k), .Some(fs) => t_slot_is_mut_ref(&fs), .None => false));
+                        // A projection's `&T` parameter is a pointer too
+                        // (decision 34, `fn_param_is_ptr_borrow`).
+                        out.push(match(fpts.get(k), .Some(fs) => t_slot_is_mut_ref(&fs), .None => false) || fn_param_is_ptr_borrow(&ft, k));
                         k = (k + usize(1));
                       });
                     },
@@ -4228,7 +4260,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such
