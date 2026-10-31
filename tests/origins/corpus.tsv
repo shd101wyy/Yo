@@ -12,8 +12,8 @@ wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	-|is an origin-qualified ref
 wf-undeclared-origin	O1 declare-before-use	neg	N1	WF_UNDECLARED	E0922|is not declared
 wf-outward-field	O1, O4	pos	N2	ACCEPT	-|a type constructor's origin parameter
 ret-local	O3 return rule, §5 route 1	neg	N1	E0912	-|A projection yields a place
-ret-byvalue-param	O3 return rule (E0912's rule)	neg	N1	E0912	-|is an origin-qualified reference
-ret-param-place	O3 return rule	pos	N1	ACCEPT	-|is an origin-qualified reference
+ret-byvalue-param	O3 return rule (E0912's rule)	neg	N1	E0912	E0912|a by-value parameter
+ret-param-place	O3 return rule	pos	N1	ACCEPT	-|a projection (decision 24)
 words	§3 words, O6	pos	N2	ACCEPT	-|is an origin-qualified reference
 words-then-write	O3 step 2	neg	N2	E0911	-|is an origin-qualified reference
 get2-mut-pair	O3 step 2	pos	N2	ACCEPT	-|is an origin-qualified reference
@@ -54,8 +54,8 @@ generic-bounded-rc	O10	neg	N1	E0909	E0401|Variable "Escapable" not found
 generic-escapable-rc	O10	pos	N1	ACCEPT	E0401|Variable "Escapable" not found
 closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	-|a payload bounded by an origin
 closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	-|a payload bounded by an origin
-closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	E0401|Variable "__yo_imm" not found
-closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	E0401|Variable "__yo_imm" not found
+closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	-|A closure trait's result is a value
+closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	-|A closure trait's result is a value
 closure-param-into-capture	hole: elision x closures	neg	N2	UNION	-|is an origin-qualified reference
 closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|is a borrow mode, not a type
 closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	-|is a borrow mode, not a type
@@ -64,13 +64,13 @@ async-cold-start-await-first	O8	pos	N3	ACCEPT	E0909|would hold a borrowing futur
 async-forward-local	O8 return rule	neg	N3	E0912	E0909|is declared inside the block
 async-forward-param	O8 forwarding	pos	N3	ACCEPT	E0909|is second-class and cannot be returned
 await-local-borrow	O5	pos	N1	ACCEPT	accept
-impl-wider-than-trait	O7 traits (an impl against its trait)	neg	N1	ORIGIN_MISMATCH	-|is an origin-qualified reference
-impl-narrower-than-trait	O7 traits (an impl against its trait)	pos	N1	ACCEPT	-|is an origin-qualified reference
+impl-wider-than-trait	O7 traits (an impl against its trait)	neg	N1	ORIGIN_MISMATCH	-|a projection (decision 24)
+impl-narrower-than-trait	O7 traits (an impl against its trait)	pos	N1	ACCEPT	-|Failed to evaluate
 dyn-call-elided-result	§5 route 5 (a Dyn call maps from the trait signature)	neg	N1	E0911	E0911|Cannot write `o` here
-dyn-call-spelled-result	§5 route 5 (a Dyn call maps from the trait signature)	pos	N1	ACCEPT	-|is an origin-qualified reference
-effect-resume-local	O7 effect handlers, §4 handler lowering	neg	N1	E0912	-|is an origin-qualified reference
-effect-resume-capture	O7 effect handlers, §4 handler lowering	neg	N1	ORIGIN_MISMATCH	-|is an origin-qualified reference
-effect-resume-param	O7 effect handlers, §4 handler lowering	pos	N1	ACCEPT	-|is an origin-qualified reference
+dyn-call-spelled-result	§5 route 5 (a Dyn call maps from the trait signature)	pos	N1	ACCEPT	E0911|Cannot write
+effect-resume-local	O7 effect handlers, §4 handler lowering	neg	N1	E0912	-|is called by name
+effect-resume-capture	O7 effect handlers, §4 handler lowering	neg	N1	ORIGIN_MISMATCH	-|is called by name
+effect-resume-param	O7 effect handlers, §4 handler lowering	pos	N1	ACCEPT	-|is called by name
 macro-ret-local	O3 return rule, §4 macro lowering	neg	N1	E0912	-|lends a borrow: it is written as a call argument
 index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E0911	-|A local borrow (`y := &mut place`) needs a place
 place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	-|is an origin-qualified reference
