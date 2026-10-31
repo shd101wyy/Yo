@@ -172,7 +172,7 @@ json :: import("std/encoding/json");
   explain_to_json
 } :: import("./diagnostics_registry.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
+{ host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi, _find_available_compiler } :: import("./target.yo");
 { set_target_pointer_size, type_lacks_clone } :: import("./types/utils.yo");
 { TypeValue, TypeValueNode, SharedList, no_types, no_labels, slot_pointee_at } :: import("./types/definitions.yo");
 { is_function_type } :: import("./types/guards.yo");
@@ -7228,33 +7228,8 @@ _format_heap_size :: (fn(bytes : usize) -> String)(
     true => `${bytes.to_string()} bytes`
   )
 );
-/// `compiler --version` probe — stdio ignored, availability = exit 0.
-_check_compiler_available :: (fn(compiler : &String, io : Io) -> bool)({
-  probe := Command.new(compiler.clone());
-  probe.arg(String.from("--version"));
-  // A spawn failure (missing binary) throws through IoExn — treat it as
-  // "not available" rather than propagating.
-  inner_exn := Exception(throw : (_e -> unwind(false)));
-  out := io.await(probe.output(io), IoExn(io : io, exn : inner_exn));
-  out.status.raw == i32(0)
-});
-/// First available C compiler — tries clang, cc, gcc, zig in that order.
-_find_available_compiler :: (fn(io : Io) -> Option(String))({
-  candidates := ArrayList(String).new();
-  candidates.push(String.from("clang"));
-  candidates.push(String.from("cc"));
-  candidates.push(String.from("gcc"));
-  candidates.push(String.from("zig"));
-  (fci : usize) = usize(0);
-  while(fci < candidates.len(), {
-    c := match(candidates.get(fci), .Some(x) => x, .None => String.from(""));
-    if(_check_compiler_available(c.clone(), io), {
-      return(Option(String).Some(c));
-    });
-    fci = (fci + usize(1));
-  });
-  Option(String).None
-});
+/// `compiler --version` probe and the clang/cc/gcc/zig discovery that walks it
+/// live in target.yo (`_find_available_compiler`), shared with `yo build`.
 /// The parent directory of a Windows-or-POSIX path (both separators).
 _win_dirname :: (fn(p : &String) -> String)({
   (last_sep : isize) = (isize(0) - isize(1));

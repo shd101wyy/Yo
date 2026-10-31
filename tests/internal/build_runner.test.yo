@@ -5,17 +5,23 @@
 /// never pin the DAG shape. Note `detect_cycle` returns the cycle NODE NAME
 /// (`Option(String)`) where TS returns the cycle path array — asserts are
 /// presence/absence, matching the TS assertions' substance.
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
+pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { String } :: import("std/string");
 import("std/fmt");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { assert, panic } :: import("std/assert");
-{ DAGNode, DAGNodeKind, build_dag, detect_cycle, artifact_input_stamp, set_compiler_identity, optimize_level_for, level_wants_debug_symbols } :: import("../../src/build_runner.yo");
+{ DAGNode, DAGNodeKind, build_dag, detect_cycle, artifact_input_stamp, set_compiler_identity, optimize_level_for, level_wants_debug_symbols, _resolve_c_compiler } :: import("../../src/build_runner.yo");
 { IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
-{ write_string } :: import("std/fs/file");
+{ write_string, copy } :: import("std/fs/file");
+{ args, env, cwd } :: import("std/env");
+{ platform, Platform } :: import("std/process");
+{ exit } :: import("std/libc/stdlib");
 { BuildRegistry, BuildArtifact, ArtifactKind, BuildVerifyConfig, ResolvedDep } :: import("../../src/evaluator/builtins/build.yo");
 _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> BuildArtifact)(
   BuildArtifact(
@@ -416,4 +422,85 @@ test("artifact stamp: a different compiler binary is a different stamp", {
   assert(a1.len() > usize(0), "the record pass produced a stamp");
   assert(!(a1 == b), "a different compiler binary must not match the recorded stamp");
   assert(a1 == a2, "the same compiler and inputs reproduce the stamp");
+});
+test("the build's default C compiler is probed, not the literal clang", {
+  // issues/fixed/2026-10-31-yo-build-defaults-to-clang-and-dies-on-clang-less-boxes.md:
+  // `yo build` used to default ctx.c_compiler to the literal "clang" with no
+  // availability probe — on a box whose PATH has cc but no clang the test
+  // suite's child compile spawned a nonexistent binary and every run died
+  // with a bare "file or directory not found". The default now goes through
+  // the same discovery `yo compile` uses.
+  //
+  // The fake compilers are this batch binary itself re-exec'd
+  // (YO_FAKE_BUILD_CC_MODE gates the child mode, which exits 0 — all a
+  // `--version` availability probe checks), copied into a scratch dir under
+  // compiler NAMES and reached by masking PATH to that dir, the pattern of
+  // tests/internal/compile.test.yo. `copy` carries the exec bits along.
+  match(
+    env.get(`YO_FAKE_BUILD_CC_MODE`),
+    .Some(_) => {
+      // Child mode — a fake C compiler: the availability probe only checks
+      // the exit status, so succeed without producing anything.
+      unsafe(exit(int(0)));
+    },
+    .None => ()
+  );
+  // Parent mode — drive the default resolution against controlled PATHs.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error while resolving the default cc: ${err.to_string()}`);
+        unwind(String.new());
+      }
+    )
+  );
+  thrown := ArrayList(String).new();
+  catch_exn := Exception(
+    throw : (
+      err -> {
+        thrown.push(err.to_string());
+        unwind(String.new());
+      }
+    )
+  );
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  // Arm the child gate AFTER this body's own check has run: every probe
+  // child inherits it and exits at the gate instead of re-running the file.
+  _svm := env.set(String.from("YO_FAKE_BUILD_CC_MODE"), String.from("1"));
+  scratch := `/tmp/yo_build_cc_probe_fixture`;
+  empty := `/tmp/yo_build_cc_probe_fixture_empty`;
+  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
+  io.await(create_dir_all(Path.new(empty.clone()), io), IoExn(io : io, exn : exn));
+  self_argv := args();
+  exe_suffix := if(platform == Platform.Windows, String.from(".exe"), String.new());
+  // A `cc` but NO `clang`: the clang-less box the issue was filed from.
+  io.await(
+    copy(Path.new(&self_argv(usize(0))), Path.new(`${scratch}/cc${exe_suffix}`), io),
+    IoExn(io : io, exn : exn)
+  );
+  cur_path := match(env.get(`PATH`), .Some(pv) => pv, .None => String.new());
+  _sp := env.set(String.from("PATH"), scratch.clone());
+  cc_only := _resolve_c_compiler(&Option(String).None, io, exn);
+  // clang present again: the probe's first candidate must win over cc.
+  io.await(
+    copy(Path.new(&self_argv(usize(0))), Path.new(`${scratch}/clang${exe_suffix}`), io),
+    IoExn(io : io, exn : exn)
+  );
+  clang_first := _resolve_c_compiler(&Option(String).None, io, exn);
+  // An explicit --cc wins without probing: gcc is NOT on the masked PATH.
+  explicit := _resolve_c_compiler(&Option(String).Some(String.from("gcc")), io, exn);
+  // No compiler anywhere: the same named error `yo compile` raises, not a
+  // bare ENOENT from the first child spawn.
+  _sp2 := env.set(String.from("PATH"), empty.clone());
+  _nothing := _resolve_c_compiler(&Option(String).None, io, catch_exn);
+  _sp3 := env.set(String.from("PATH"), cur_path);
+  assert(cc_only == `cc`, `a PATH with cc but no clang resolves cc, got "${cc_only}"`);
+  assert(clang_first == `clang`, `clang wins when present, got "${clang_first}"`);
+  assert(explicit == `gcc`, `an explicit --cc wins without probing, got "${explicit}"`);
+  assert(thrown.len() == usize(1), "an empty toolchain throws the named no-compiler error");
+  match(
+    thrown.get_cloned(usize(0)),
+    .Some(msg) => assert(msg.contains(`No C compiler found`), `the error names the missing toolchain, got "${msg}"`),
+    .None => assert(false, "the empty-toolchain error was thrown")
+  );
 });

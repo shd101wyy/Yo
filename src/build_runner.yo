@@ -67,7 +67,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { ResolveMode } :: import("./resolver.yo");
 { resolve_all_system_libraries } :: import("./pkg_config.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
-{ TargetInfo, parse_target, host_target, is_target_windows, is_target_macos, is_target_wasm } :: import("./target.yo");
+{ TargetInfo, parse_target, host_target, is_target_windows, is_target_macos, is_target_wasm, _find_available_compiler } :: import("./target.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Build options
@@ -1900,13 +1900,16 @@ compile_artifact :: (
     });
     // Force emcc for wasm targets. `compile` also
     // auto-selects it, but only from a target it can SEE — and ctx.c_compiler
-    // defaults to "clang", which would otherwise be passed through explicitly
-    // and defeat that auto-selection.
+    // is a probed-or-explicit compiler NAME, which would otherwise be passed
+    // through explicitly and defeat that auto-selection.
     eff_ti_cc := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
     if(is_target_wasm(&eff_ti_cc), {
       cmd.arg(String.from("--cc"));
       cmd.arg(String.from("emcc"));
     }, {
+      // The probed default can still BE "clang" (the probe tries it first);
+      // forwarding it is redundant — the child's own discovery is clang-first
+      // too — so skip and keep the default child argv unchanged.
       if(ctx.c_compiler != "clang", {
         cmd.arg(String.from("--cc"));
         cmd.arg(&ctx.c_compiler);
@@ -2415,7 +2418,8 @@ run_test_suite :: (
     test_path := Path.new(&ctx.project_dir).join(Path.new(&suite.root));
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("test"));
-    // Forward the build's C compiler to the child test run.
+    // Forward the build's C compiler (explicit or probed via
+    // `_resolve_c_compiler`) to the child test run.
     cmd.arg(String.from("--c-compiler"));
     cmd.arg(ctx.c_compiler.clone());
     // Forward the parent's `--std-path` override to the child test run (same
@@ -3261,6 +3265,32 @@ evaluate_build_file :: (
 );
 // ---------------------------------------------------------------------------
 // Exports
+/// The build's C compiler: an explicit `--cc`/`--c-compiler` wins; otherwise
+/// the same discovery `yo compile` uses (`_find_available_compiler` — clang,
+/// cc, gcc, zig, first available), so a box without clang builds through
+/// cc/gcc instead of dying on the first child spawn with a bare
+/// "file or directory not found" that names neither the compiler nor the
+/// step (issues/fixed/2026-10-31-yo-build-defaults-to-clang-and-dies-on-clang-less-boxes.md).
+/// No compiler anywhere is the same named error `yo compile` raises.
+_resolve_c_compiler :: (
+  fn(explicit : &Option(String), io : Io, exn : Exception) -> String
+)({
+  match(
+    explicit,
+    .Some(cc) => cc.clone(),
+    .None => match(
+      _find_available_compiler(io),
+      .Some(found) => found,
+      .None => {
+        exn.throw(
+          dyn(`Error: No C compiler found. Please install a C compiler (cc, gcc, clang, or zig) or specify one using the -cc/--c-compiler flag.`)
+        );
+        String.new()
+      }
+    )
+  )
+});
+export(_resolve_c_compiler);
 run_build :: (
   fn(
     options : &BuildOptions,
@@ -3294,11 +3324,11 @@ run_build :: (
       },
       .None => String.from(".")
     );
-    c_compiler := match(
-      options.c_compiler,
-      .Some(cc) => cc.clone(),
-      .None => String.from("clang")
-    );
+    // Probe-then-default, agreeing with `yo compile`: see
+    // `_resolve_c_compiler`. The literal "clang" this replaces died with a
+    // bare ENOENT on any box whose PATH had no clang
+    // (issues/fixed/2026-10-31-yo-build-defaults-to-clang-and-dies-on-clang-less-boxes.md).
+    c_compiler := _resolve_c_compiler(&options.c_compiler, e.io, e.exn);
     // The project's manifest (yo.toml): its `[package]` table is what
     // `build.manifest` reads during the evaluation below, its dependency
     // closure is what every artifact's `import("name")` resolves through, and
