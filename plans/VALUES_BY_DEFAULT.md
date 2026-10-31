@@ -7947,6 +7947,12 @@ heavy run, the command is given in item 2.
              program and in the compiler, unmeasured. At B8 this becomes the
              `.clone()` an owned result needs, so B8 must also stop routing
              a `String` part through `to_string` (append it by borrow).
+             As built (D10, landed ahead of B8 on 2026-10-30): a template of
+             two or more parts builds one `String`, a literal part through
+             `push_str` and an interpolated one through
+             `ToString.append_to(self, out : &mut String)`, which `String`
+             and `str` override to append by borrow; only a one-part
+             template still calls `to_string`.
            - `json.yo:561` and `toml.yo:463`: the parsers hold their input
              bytes by sharing so that they never copy the input. B8
              chooses between a by-value input and one copy per parse.

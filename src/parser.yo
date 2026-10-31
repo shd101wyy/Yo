@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
   BK_ARRAY,
   BK_ARRAY_VAL,
   BK_BEGIN,
+  BK_BORROW_MUT,
   BK_IMPORT,
   BK_ANON_STRUCT,
   BK_FN,
@@ -164,6 +165,20 @@ _is_old_capture_mode_pun :: (fn(expr : &AstExpr) -> bool)(
       )
     ),
     .None => false
+  )
+);
+/// A synthetic token of the D10 template lowering, positioned at the template
+/// token `at` so a diagnostic about the lowered code points at the template.
+_template_syn_tok :: (fn(at : &Token, kind : TokenKind, value : &String) -> Token)(
+  Token(
+    kind : kind,
+    value : intern_token_str(value),
+    row : at.row,
+    column : at.column,
+    character : at.character,
+    byte_offset : at.byte_offset,
+    module_path : Rc.clone(at.module_path),
+    input : Rc.clone(at.input)
   )
 );
 /// The result of peeling a `:spec` suffix off a template-string interpolation.
@@ -481,6 +496,29 @@ impl(
     );
     match_idx == e
   }),
+  /// `recv.<m_tok>(args...)`, its synthetic nodes at fresh ids, positioned
+  /// at the template `outer_tok` (the D10 builder lowering in
+  /// `parse_template_string`).
+  _template_method_call : (
+    fn(self : &mut Self, recv : AstExpr, d_tok : &Token, m_tok : &Token, args : ArrayList(AstExpr), outer_tok : &Token) -> AstExpr
+  )({
+    prop_args := ArrayList(AstExpr).new();
+    prop_args.push(recv);
+    prop_args.push(.Atom(self.alloc_id(), m_tok));
+    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), d_tok), Rc.new(prop_args), true, d_tok);
+    .FnCall(self.alloc_id(), prop, Rc.new(args), false, outer_tok)
+  }),
+  /// `part.append_to(&mut <name_tok>)`: one interpolated part of a template
+  /// appended to the builder local (D10).
+  _template_append_call : (
+    fn(self : &mut Self, part : &AstExpr, d_tok : &Token, append_tok : &Token, borrow_tok : &Token, name_tok : &Token, outer_tok : &Token) -> AstExpr
+  )({
+    borrow_args := ArrayList(AstExpr).new();
+    borrow_args.push(.Atom(self.alloc_id(), name_tok));
+    call_args := ArrayList(AstExpr).new();
+    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), borrow_tok), Rc.new(borrow_args), false, borrow_tok));
+    self._template_method_call(part, d_tok, append_tok, call_args, outer_tok)
+  }),
   parse_template_string : (fn(self : &mut Self, tok : &Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value.*.clone();
@@ -551,7 +589,6 @@ impl(
     });
     // Synthetic tokens for building the expression chain
     dot_tok := self.make_syn_tok(TokenKind.Dot, String.from("."));
-    plus_tok := self.make_syn_tok(TokenKind.Operator, String.from("+"));
     to_str_tok := self.make_syn_tok(TokenKind.Identifier, String.from("to_string"));
     fmt_tok := self.make_syn_tok(TokenKind.Identifier, String.from("format"));
     // Helper: build `e.to_string()` — takes explicit params since local fns
@@ -680,6 +717,31 @@ impl(
       )
     });
     num_parts := part_content.len();
+    // A template of two or more parts builds ONE `String` (lookahead D10,
+    // plans/handover/VBD_LOOKAHEAD_2026-10-23.md): a fresh local starts as the
+    // empty string (which allocates nothing), every part is appended to it in
+    // order (`b.push_str("lit")`, `e.append_to(&mut b)`,
+    // `e.format("spec").append_to(&mut b)`), and the block yields the local:
+    //
+    //   { mut(__yo_tpl_N) := "".to_string(); __yo_tpl_N.push_str("lit"); e.append_to(&mut __yo_tpl_N); __yo_tpl_N }
+    //
+    // so an interpolated `String` part is appended by borrow instead of being
+    // copied out through `to_string()` and joined with `+`. The builder never
+    // starts as a part's `to_string()`: while `String` still shares its buffer
+    // on copy, that would append into the part's own bytes. The lowering names
+    // no type and no free function, only methods: a spliced fragment
+    // (`parse_expr_from_code`) resolves it without an import. `N` is a fresh
+    // expression id, so a template nested in an interpolation never shadows
+    // its parent's local. A one-part template stays `p.to_string()` (or
+    // `p.format("spec")`) itself.
+    single_part := (num_parts == usize(1));
+    tpl_name_tok := _template_syn_tok(tok, TokenKind.Identifier, &`__yo_tpl_${self.alloc_id()}`);
+    tpl_mut_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("mut"));
+    tpl_bind_tok := _template_syn_tok(tok, TokenKind.Operator, &String.from(":="));
+    tpl_borrow_tok := _template_syn_tok(tok, TokenKind.Operator, &String.from(BK_BORROW_MUT));
+    tpl_push_str_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("push_str"));
+    tpl_append_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("append_to"));
+    tpl_stmts := ArrayList(AstExpr).new();
     (result_expr_opt : Option(AstExpr)) = .None;
     body_origins := _template_body_origins(tok);
     (expr_ordinal : usize) = usize(0);
@@ -745,7 +807,7 @@ impl(
                 module_path : Rc.clone(tok.module_path),
                 input : Rc.clone(tok.input)
               );
-              make_ts_spec_call(
+              formatted := make_ts_spec_call(
                 &inner_expr,
                 &dot_tok,
                 &fmt_tok,
@@ -756,9 +818,14 @@ impl(
                 self.alloc_id(),
                 self.alloc_id(),
                 self.alloc_id()
+              );
+              cond(
+                single_part => formatted,
+                true => self._template_append_call(&formatted, &dot_tok, &tpl_append_tok, &tpl_borrow_tok, &tpl_name_tok, tok)
               )
             },
-            true => make_ts_call(&inner_expr, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+            single_part => make_ts_call(&inner_expr, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id()),
+            true => self._template_append_call(&inner_expr, &dot_tok, &tpl_append_tok, &tpl_borrow_tok, &tpl_name_tok, tok)
           )
         },
         true => {
@@ -775,30 +842,58 @@ impl(
             module_path : Rc.clone(tok.module_path),
             input : Rc.clone(tok.input)
           );
-          make_ts_call(.Atom(self.alloc_id(), str_tok), &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+          (lit_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);
+          cond(
+            single_part => make_ts_call(&lit_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id()),
+            true => {
+              // `__yo_tpl_N.push_str("content")`: a literal part is appended
+              // straight from its static bytes.
+              lit_args := ArrayList(AstExpr).new();
+              lit_args.push(lit_atom);
+              (name_atom : AstExpr) = .Atom(self.alloc_id(), tpl_name_tok);
+              self._template_method_call(name_atom, &dot_tok, &tpl_push_str_tok, lit_args, tok)
+            }
+          )
         }
       );
-      result_expr_opt = match(
-        result_expr_opt,
-        .None => Option(AstExpr).Some(part_expr),
-        .Some(prev) => {
-          // prev.(+)(part_expr)
-          prop_args := ArrayList(AstExpr).new();
-          prop_args.push(prev);
-          prop_args.push(.Atom(self.alloc_id(), plus_tok));
-          (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_tok), Rc.new(prop_args), true, dot_tok);
-          call_args := ArrayList(AstExpr).new();
-          call_args.push(part_expr);
-          Option(AstExpr).Some(.FnCall(self.alloc_id(), prop, Rc.new(call_args), false, tok))
+      cond(
+        single_part => {
+          result_expr_opt = .Some(part_expr);
+        },
+        true => {
+          tpl_stmts.push(part_expr);
         }
       );
       pi = (pi + usize(1));
     });
-    final_expr := match(
-      result_expr_opt,
-      .Some(e) => e,
-      .None => {
-        return(ParseResult(expr : make_err_expr(), index : (index + usize(1))));
+    (final_expr : AstExpr) = cond(
+      single_part => match(
+        result_expr_opt,
+        .Some(e) => e,
+        .None => {
+          return(ParseResult(expr : make_err_expr(), index : (index + usize(1))));
+        }
+      ),
+      true => {
+        // `mut(__yo_tpl_N) := "".to_string()`
+        empty_tok := _template_syn_tok(tok, TokenKind.StringLit, &String.from("\"\""));
+        (empty_atom : AstExpr) = .Atom(self.alloc_id(), empty_tok);
+        empty_str := make_ts_call(&empty_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id());
+        mut_args := ArrayList(AstExpr).new();
+        mut_args.push(.Atom(self.alloc_id(), tpl_name_tok));
+        bind_args := ArrayList(AstExpr).new();
+        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_mut_tok), Rc.new(mut_args), false, tpl_mut_tok));
+        bind_args.push(empty_str);
+        block_args := ArrayList(AstExpr).new();
+        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_bind_tok), Rc.new(bind_args), true, tpl_bind_tok));
+        si := usize(0);
+        while(si < tpl_stmts.len(), {
+          match(tpl_stmts.get(si), .Some(st) => block_args.push(st), .None => ());
+          si = (si + usize(1));
+        });
+        block_args.push(.Atom(self.alloc_id(), tpl_name_tok));
+        begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
+        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(block_args), false, begin_tok)
       }
     );
     ParseResult(expr : final_expr, index : (index + usize(1)))

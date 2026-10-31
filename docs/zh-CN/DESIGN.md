@@ -2744,6 +2744,8 @@ greeting := `Hello, ${name}!, age: ${age}`;
 // 值为 "Hello, Alice!, age: 16"
 ```
 
+含两个或更多部分的模板只构建一个 `String`，并按顺序把各部分追加进去：字面量部分用 `push_str`，插值部分用 `ToString.append_to(self, out : &mut String)`。`append_to` 的默认实现追加 `self.to_string()`；`String` 和 `str` 以借用方式追加自己的字节，因此 `String` 部分不会先被复制一次。类型可以重写 `append_to`，把自己的文本直接写入结果。只有一个部分的模板（`${s}`）就是 `s.to_string()`。
+
 ##### 格式说明符 —— `${value:spec}`
 
 插值可以在冒号后带一个格式说明符，语法与 Rust、Python 一致（不支持动态宽度与精度）：
