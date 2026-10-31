@@ -96,7 +96,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // ArrayList handle never escapes the match as a copy.
   arg_len := match(
     expr,
-    .FnCall(_, _, args, _, _) => args.len(),
+    .FnCall(_, _, Rc(args), _, _) => args.len(),
     .Atom(_, _) => usize(0)
   );
   // Validate: FnTrait types expect exactly 1 argument (the closure body).
@@ -112,7 +112,7 @@ try_to_implement_closure_by_fn_module_type :: (
   });
   closure_body_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   // Clone the body so we can use it twice (once in FuncVal box, once for evaluation).

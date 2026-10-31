@@ -299,7 +299,7 @@ _reject_private_method_call :: (
   );
   name_expr := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => match(
+    .FnCall(_, _, Rc(pargs), _, _) => match(
       pargs.get(usize(1)),
       .Some(a) => a,
       .None => {
@@ -375,7 +375,7 @@ _reject_dyn_uncallable_method_call :: (
   );
   name_expr := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => match(
+    .FnCall(_, _, Rc(pargs), _, _) => match(
       pargs.get(usize(1)),
       .Some(a) => a,
       .None => {
@@ -483,7 +483,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   // arm) — the ArrayList handle never escapes the match as a copy.
   obj := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => match(
+    .FnCall(_, _, Rc(pargs), _, _) => match(
       pargs.get(usize(0)),
       .Some(o) => o,
       .None => {
@@ -496,7 +496,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   );
   name_expr := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => match(
+    .FnCall(_, _, Rc(pargs), _, _) => match(
       pargs.get(usize(1)),
       .Some(n) => n,
       .None => {
@@ -683,7 +683,7 @@ _reject_wrapper_payload_clash :: (
   );
   name_tok := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => match(
+    .FnCall(_, _, Rc(pargs), _, _) => match(
       pargs.get(usize(1)),
       .Some(a) => ast_expr_token(&a),
       .None => {
@@ -806,7 +806,7 @@ _reject_class1_panic_method_call :: (
   );
   c1_name_expr := match(
     callee,
-    .FnCall(_, _, c1_pargs, _, _) => match(
+    .FnCall(_, _, Rc(c1_pargs), _, _) => match(
       c1_pargs.get(usize(1)),
       .Some(a) => a,
       .None => {
@@ -891,7 +891,7 @@ _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
 _cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
   ty_args := ArrayList(AstExpr).new();
   ty_args.push(_synth_name_atom("Allocator", at));
-  opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), ty_args, false, at);
+  opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), Rc.new(ty_args), false, at);
   opt_eval := evaluate_expression_raw(&opt_expr, env, ctx, exn);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&opt_eval)),
@@ -964,7 +964,7 @@ _try_structural_copy_clone :: (
   // D6: read where bound — the list never escapes as a copy.
   recv := match(
     callee,
-    .FnCall(_, _, pa, _, _) => match(
+    .FnCall(_, _, Rc(pa), _, _) => match(
       pa.get(usize(0)),
       .Some(r) => r,
       .None => {
@@ -977,7 +977,7 @@ _try_structural_copy_clone :: (
   );
   name_ok := match(
     callee,
-    .FnCall(_, _, pa, _, _) => match(pa.get(usize(1)), .Some(n) => (ast_expr_token(&n).value.* == "clone"), .None => false),
+    .FnCall(_, _, Rc(pa), _, _) => match(pa.get(usize(1)), .Some(n) => (ast_expr_token(&n).value.* == "clone"), .None => false),
     _ => false
   );
   if(!name_ok, {
@@ -1027,7 +1027,7 @@ _structural_clone_precedes_lookup :: (fn(callee : &AstExpr, arg_count : usize, c
   });
   (recv_ty : Option(TypeValue)) = match(
     callee,
-    .FnCall(_, _, sp_args, _, _) => match(
+    .FnCall(_, _, Rc(sp_args), _, _) => match(
       sp_args.get(usize(0)),
       .Some(sp_recv) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sp_recv)), .Some(sp_ri) => Option(TypeValue).Some(Rc.clone(sp_ri.ty)), .None => Option(TypeValue).None),
       .None => Option(TypeValue).None
@@ -1056,7 +1056,7 @@ _try_find_receiver_method :: (
   });
   prop_args := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => pargs,
+    .FnCall(_, _, Rc(pargs), _, _) => pargs,
     _ => {
       return(Option(ReceiverMethodResult).None);
     }
@@ -1202,7 +1202,7 @@ _try_find_receiver_method :: (
               dc_args.push(method_name_expr);
               deref_callee := match(
                 callee,
-                .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb, dc_args, dc_infix, dc_tok),
+                .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb, Rc.new(dc_args), dc_infix, dc_tok),
                 _ => callee
               );
               match(
@@ -1319,7 +1319,7 @@ _infer_unapplied_ctor_receiver :: (
   // D6: read where bound — the list never escapes as a copy.
   uc_recv := match(
     callee,
-    .FnCall(_, _, a, _, _) => match(
+    .FnCall(_, _, Rc(a), _, _) => match(
       a.get(usize(0)),
       .Some(r) => r,
       .None => {
@@ -1332,7 +1332,7 @@ _infer_unapplied_ctor_receiver :: (
   );
   uc_method_expr := match(
     callee,
-    .FnCall(_, _, a, _, _) => a.get(usize(1)),
+    .FnCall(_, _, Rc(a), _, _) => a.get(usize(1)),
     _ => Option(AstExpr).None
   );
   uc_method := match(uc_method_expr, .Some(m) => ast_expr_to_string(&m), .None => String.from("?"));
@@ -1400,7 +1400,7 @@ _infer_unapplied_ctor_receiver :: (
   uc_head := match(
     uc_recv,
     .Atom(_, uc_tok) => uc_tok.value.*.clone(),
-    .FnCall(_, _, uc_ra, _, _) => match(uc_ra.get(usize(1)), .Some(uc_m) => ast_expr_to_string(&uc_m), .None => String.new())
+    .FnCall(_, _, Rc(uc_ra), _, _) => match(uc_ra.get(usize(1)), .Some(uc_m) => ast_expr_to_string(&uc_m), .None => String.new())
   );
   uc_memo_id := ast_expr_id(&uc_recv);
   match(
@@ -1519,7 +1519,7 @@ _sai_arg_place :: (fn(arg : &AstExpr) -> AstExpr)({
   unlabeled := cond(
     ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) => match(
       arg,
-      .FnCall(_, _, la, _, _) => match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()),
+      .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()),
       _ => arg.clone()
     ),
     true => arg.clone()
@@ -1877,7 +1877,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   });
   recv_id := ast_expr_id(recv);
   mark_node_preevaluated(recv_id);
-  call := AstExpr.FnCall(alloc_global_expr_id(), recv.clone(), call_args, false, ast_expr_token(recv));
+  call := AstExpr.FnCall(alloc_global_expr_id(), recv.clone(), Rc.new(call_args), false, ast_expr_token(recv));
   saved_et := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   built := evaluate_expression_raw(&call, env, ctx, exn);
@@ -2081,7 +2081,7 @@ _static_dot_receiver_self_type :: (
   // D6: read where bound — the list never escapes as a copy.
   recv := match(
     callee,
-    .FnCall(_, _, a, _, _) => match(
+    .FnCall(_, _, Rc(a), _, _) => match(
       a.get(usize(0)),
       .Some(r) => r,
       .None => {
@@ -2123,7 +2123,7 @@ _instance_dot_receiver_self_type :: (
   // D6: read where bound — the list never escapes as a copy.
   recv := match(
     callee,
-    .FnCall(_, _, a, _, _) => match(
+    .FnCall(_, _, Rc(a), _, _) => match(
       a.get(usize(0)),
       .Some(r) => r,
       .None => {
@@ -2189,7 +2189,7 @@ _rre_dot_receiver_type :: (
   // D6: read where bound — the list never escapes as a copy.
   recv := match(
     callee,
-    .FnCall(_, _, a, _, _) => match(
+    .FnCall(_, _, Rc(a), _, _) => match(
       a.get(usize(0)),
       .Some(r) => r,
       .None => {
@@ -2358,7 +2358,7 @@ _build_receiver_call_args :: (
       );
       amp_args := ArrayList(AstExpr).new();
       amp_args.push(receiver_expr.clone());
-      all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, amp_args, false, recv_tok));
+      all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, Rc.new(amp_args), false, recv_tok));
     }, {
       all_args.push(receiver_expr.clone());
     });
@@ -2979,12 +2979,12 @@ _try_rewrite_range_index_to_slice_copy :: (
   ma_args := ArrayList(AstExpr).new();
   ma_args.push(func_expr);
   ma_args.push(method_atom);
-  method_access := AstExpr.FnCall(alloc_global_expr_id(), dot_atom, ma_args, true, tok);
+  method_access := AstExpr.FnCall(alloc_global_expr_id(), dot_atom, Rc.new(ma_args), true, tok);
   new_args := ArrayList(AstExpr).new();
   new_args.push(arg0);
   // Keep the ORIGINAL call id so the result's ExprInfo lands on the same
   // node — same node identity.
-  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), method_access, new_args, false, tok))
+  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), method_access, Rc.new(new_args), false, tok))
 });
 /// The SomeType id of a Future type's OUTPUT, unwrapping an `Impl(Future(T,E))`
 /// constraint. `io.async`'s return type is `Impl(Future(T, E))`, represented as a
@@ -3262,13 +3262,13 @@ _future_value_leaves :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit
   cond(
     is_branching => match(
       e,
-      .FnCall(_, _, b_args, _, _) => {
+      .FnCall(_, _, Rc(b_args), _, _) => {
         (ai : usize) = usize(0);
         while(ai < b_args.len(), ai = (ai + usize(1)), {
           match(
             b_args.get(ai),
             .Some(arm) => if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
-              match(arm, .FnCall(_, _, arm_args, _, _) => match(arm_args.get(usize(1)), .Some(v) => recur(&v, out), .None => ()), .Atom(_, _) => ());
+              match(arm, .FnCall(_, _, Rc(arm_args), _, _) => match(arm_args.get(usize(1)), .Some(v) => recur(&v, out), .None => ()), .Atom(_, _) => ());
             }),
             .None => ()
           );
@@ -3278,7 +3278,7 @@ _future_value_leaves :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit
     ),
     ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
       e,
-      .FnCall(_, _, s_args, _, _) => match(s_args.last(), .Some(tail) => recur(&tail, out), .None => ()),
+      .FnCall(_, _, Rc(s_args), _, _) => match(s_args.last(), .Some(tail) => recur(&tail, out), .None => ()),
       .Atom(_, _) => out.push(e)
     ),
     true => out.push(e)
@@ -3363,7 +3363,7 @@ _is_plain_place_expr :: (fn(e : &AstExpr) -> bool)({
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
     match(
       cur,
-      .FnCall(_, _, d_args, _, _) => {
+      .FnCall(_, _, Rc(d_args), _, _) => {
         if(!match(d_args.get(usize(1)), .Some(f) => (ast_expr_is_atom(&f) && !ast_expr_is_atom_of(&f, "*")), .None => false), {
           return(false);
         });
@@ -3419,7 +3419,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     return(());
   });
   (op_callee : AstExpr) = match(expr, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
-  op_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
+  op_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(()));
   bs := ArrayList(CaptureBorrow).new();
   collect_type_borrows(&info.ty, &mut bs);
   if((bs.len() == usize(0)) && some_resolution(&info.ty).is_none() && _callee_is_opaque_function_value(expr, &op_callee, ctx), {
@@ -3526,7 +3526,7 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
     if(match(lookup_method_callee_value(ast_expr_id(call)), .Some(.FuncVal(_, _)) => true, _ => false), {
       return(false);
     });
-    recv := match(callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(false)), .Atom(_, _) => return(false));
+    recv := match(callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(false)), .Atom(_, _) => return(false));
     recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => return(false));
     if(is_dyn_type(&recv_ty) || match(recv_ty, Rc(.Pointer(inner)) => is_dyn_type(&inner), _ => false), {
       return(false);
@@ -3583,7 +3583,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
   (arg_offset : usize) = usize(0);
   if(ast_expr_is_fn_call_of(op_callee, BF_DOT, Option(usize).Some(usize(2))) && (!labels_known || (labels.len() == (op_args.len() + usize(1)))), {
     arg_offset = usize(1);
-    recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+    recv := match(op_callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.new(TypeValueNode.Unit));
     recv_is_cell := is_counted_handle_type(&recv_ty);
@@ -3607,7 +3607,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
     label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
-      place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      place := match(lent, .FnCall(_, _, Rc(m_args), _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       lent_mut := (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || (labels_known && _borrow_rooted_is_mut(bs, &label)));
       place_hops := place_cell_hops(&place, ctx);
       _check_future_lend_hops(&place, &label, &place_hops, lent_mut, ctx, exn);
@@ -3638,7 +3638,7 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
-      recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(())), .Atom(_, _) => return(()));
+      recv := match(op_callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(())), .Atom(_, _) => return(()));
       _check_lent_place_untouched_after(&recv, &recv, op_args, usize(0), ctx, exn);
     });
   });
@@ -3647,7 +3647,7 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
     label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
-      place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      place := match(lent, .FnCall(_, _, Rc(m_args), _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       _check_lent_place_untouched_after(&place, &lent, op_args, ai + usize(1), ctx, exn);
     });
   });
@@ -3702,7 +3702,7 @@ _future_lends_into :: (fn(e : &AstExpr, via : &AstExpr, ctx : &EvalContext, out 
       },
       true => match(
         leaf,
-        .FnCall(_, leaf_callee, leaf_args, _, _) => _future_call_lends_into(&leaf_callee, &leaf_args, &leaf_bs, via, ctx, out, depth),
+        .FnCall(_, leaf_callee, Rc(leaf_args), _, _) => _future_call_lends_into(&leaf_callee, &leaf_args, &leaf_bs, via, ctx, out, depth),
         .Atom(_, _) => ()
       )
     );
@@ -3723,7 +3723,7 @@ _future_call_lends_into :: (
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(leaf_bs, &self_label), {
-      recv := match(leaf_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      recv := match(leaf_callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       match(
         _lent_place_of(&recv),
         .Some(rp) => out.push(_FutureLend(place : rp, is_mut : _borrows_root_named_mut(leaf_bs, &self_label), via : via.clone())),
@@ -3881,7 +3881,7 @@ _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayLis
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
-      recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(())), .Atom(_, _) => return(()));
+      recv := match(op_callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(())), .Atom(_, _) => return(()));
       _reject_global_lend_to_future(&recv, ctx, exn);
     });
   });
@@ -3890,7 +3890,7 @@ _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayLis
     label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
-      place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      place := match(lent, .FnCall(_, _, Rc(m_args), _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       _reject_global_lend_to_future(&place, ctx, exn);
     });
   });
@@ -3926,7 +3926,7 @@ _lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
   while(!ast_expr_is_atom(&cur), {
     match(
       cur,
-      .FnCall(_, callee, c_args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+      .FnCall(_, callee, Rc(c_args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
         fld := match(c_args.get(usize(1)), .Some(f) => f, .None => return(Option(_LentPlace).None));
         if(ast_expr_is_atom(&fld) && !ast_expr_is_atom_of(&fld, "*"), {
           rev.push(ast_expr_token(&fld).value.*.clone());
@@ -3996,7 +3996,7 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
     .None => ()
   );
   (callee : AstExpr) = match(e, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(Option(Tuple(AstExpr, String)).None));
-  c_args := match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  c_args := match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   first := match(c_args.get(usize(0)), .Some(f) => f, .None => make_err_expr());
   cond(
     (ast_expr_is_fn_call_of(e, "&mut", Option(usize).Some(usize(1))) && _lent_place_touched(&first, lent, ctx)) => {
@@ -4011,7 +4011,7 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
         .Some(.FuncVal(mfv, _)) => match(get_func_type(&mfv.*.func_id), Rc(.Func({ param_types : mm_pts })) => match(mm_pts.get(usize(0)), .Some(mm_s) => t_slot_is_mut_ref(&mm_s), .None => false), _ => false),
         _ => false
       );
-      recv := match(callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      recv := match(callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       if(recv_mut && _lent_place_touched(&recv, lent, ctx), {
         return(Option(Tuple(AstExpr, String)).Some((e, String.from("lends `&mut` (the receiver of a `&mut self` method)"))));
       });
@@ -4094,7 +4094,7 @@ _lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstE
 /// A root in `moved_before` was already moved when the call started
 /// (`_lent_roots_moved_before`), so no argument of this call moved it.
 _check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
+  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(()));
   (li : usize) = usize(0);
   while(li < lends.len(), li = (li + usize(1)), {
     match(
@@ -4187,7 +4187,7 @@ _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
     match(
       cur,
       .Atom(_, _) => return(true),
-      .FnCall(_, ul_callee, ul_args, ul_infix, _) => {
+      .FnCall(_, ul_callee, Rc(ul_args), ul_infix, _) => {
         cur = cond(
           ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
             if(!match(ul_args.get(usize(1)), .Some(f) => ast_expr_is_atom(&f), .None => false), {
@@ -4221,7 +4221,7 @@ _CallLend :: struct(place : AstExpr, lent_arg : AstExpr, from : usize, marked : 
 /// type-qualified call (`T.m(&x, k)`) names a type there, not a receiver.
 _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))({
   out := ArrayList(_CallLend).new();
-  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(out));
+  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(out));
   (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(out));
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     match(
@@ -4229,7 +4229,7 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
       .Some(.FuncVal(mfv, _)) => match(
         get_func_type(&mfv.*.func_id),
         Rc(.Func({ param_types : mpt })) => if(((op_args.len() + usize(1)) <= mpt.len()) && !match(mpt.get(usize(0)), .Some(mp0) => t_slot_is_by_value(&mp0), .None => true), {
-          recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+          recv := match(op_callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
           recv_mut := match(mpt.get(usize(0)), .Some(mp0) => t_slot_is_mut_ref(&mp0), .None => false);
           out.push(
             _CallLend(
@@ -4293,7 +4293,7 @@ _global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContex
         found := match(_lent_root_variable(&cur, ctx), .Some(sv) => Option(Variable).Some(sv), .None => get_variables_from_env(env, &root_tok.value.*).last());
         return(match(found, .Some(rv) => if(rv.is_module_level && !rv.is_compile_time_only, Option(Variable).Some(rv), Option(Variable).None), .None => Option(Variable).None));
       },
-      .FnCall(_, gl_callee, gl_args, gl_infix, _) => {
+      .FnCall(_, gl_callee, Rc(gl_args), gl_infix, _) => {
         cur = cond(
           ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
             base := match(gl_args.get(usize(0)), .Some(b) => b, .None => return(Option(Variable).None));
@@ -4319,7 +4319,7 @@ _global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContex
 _is_scalar_operator_call :: (fn(call : &AstExpr, ctx : &EvalContext) -> bool)(
   match(
     call,
-    .FnCall(_, so_callee, so_args, _, _) => {
+    .FnCall(_, so_callee, Rc(so_args), _, _) => {
       if(!(ast_expr_is_atom(&so_callee) && (ast_expr_token(&so_callee).kind == TokenKind.Operator)), {
         return(false);
       });
@@ -4351,7 +4351,7 @@ _note_call_writes_judged :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend)) 
   match(
     call,
     .FnCall(_, nc_callee, _, _, _) => if(ast_expr_is_fn_call_of(&nc_callee, BF_DOT, Option(usize).Some(usize(2))), {
-      match(nc_callee, .FnCall(_, _, nc_args, _, _) => match(nc_args.get(usize(0)), .Some(recv) => record_mut_judged(&ast_expr_token(&recv)), .None => ()), .Atom(_, _) => ());
+      match(nc_callee, .FnCall(_, _, Rc(nc_args), _, _) => match(nc_args.get(usize(0)), .Some(recv) => record_mut_judged(&ast_expr_token(&recv)), .None => ()), .Atom(_, _) => ());
     }),
     .Atom(_, _) => ()
   );
@@ -4471,11 +4471,11 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, env :
 /// issues/questions/2026-10-17-how-a-non-copy-mut-global-is-read-once-buffers-are-unique.md,
 /// option 1).
 _is_structural_clone_call :: (fn(call : &AstExpr, place_ty : &TypeValue, env : &Environment, ctx : &EvalContext) -> bool)({
-  (callee : AstExpr) = match(call, .FnCall(_, c, a, _, _) => if(a.len() == usize(0), c, return(false)), .Atom(_, _) => return(false));
+  (callee : AstExpr) = match(call, .FnCall(_, c, Rc(a), _, _) => if(a.len() == usize(0), c, return(false)), .Atom(_, _) => return(false));
   if(!ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(false);
   });
-  is_clone := match(callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(1)), .Some(m) => ast_expr_is_atom_of(&m, "clone"), .None => false), .Atom(_, _) => false);
+  is_clone := match(callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(1)), .Some(m) => ast_expr_is_atom_of(&m, "clone"), .None => false), .Atom(_, _) => false);
   if(!is_clone, {
     return(false);
   });
@@ -4494,7 +4494,7 @@ _is_structural_clone_call :: (fn(call : &AstExpr, place_ty : &TypeValue, env : &
 _place_display :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .FnCall(_, _, d_args, _, _) => if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), match(d_args.get(usize(0)), .Some(base) => match(d_args.get(usize(1)), .Some(m) => `${recur(&base)}.${ast_expr_to_string(&m)}`, .None => ast_expr_to_string(e)), .None => ast_expr_to_string(e)), ast_expr_to_string(e)),
+    .FnCall(_, _, Rc(d_args), _, _) => if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), match(d_args.get(usize(0)), .Some(base) => match(d_args.get(usize(1)), .Some(m) => `${recur(&base)}.${ast_expr_to_string(&m)}`, .None => ast_expr_to_string(e)), .None => ast_expr_to_string(e)), ast_expr_to_string(e)),
     .Atom(_, _) => ast_expr_to_string(e)
   )
 );
@@ -4595,12 +4595,12 @@ _call_receiver_place :: (fn(call : &AstExpr) -> Option(AstExpr))({
   if(!ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(AstExpr).None);
   });
-  recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(Option(AstExpr).None)), .Atom(_, _) => return(Option(AstExpr).None));
+  recv := match(op_callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(Option(AstExpr).None)), .Atom(_, _) => return(Option(AstExpr).None));
   if(_is_plain_place_expr(&recv), Option(AstExpr).Some(recv), Option(AstExpr).None)
 });
 /// The place an argument `&x`/`&mut x` lends.
 _lent_argument_place :: (fn(lent : &AstExpr) -> Option(AstExpr))(
-  if(ast_expr_is_fn_call_of(lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(lent, "&mut", .Some(usize(1))), match(lent, .FnCall(_, _, m_args, _, _) => m_args.get(usize(0)), .Atom(_, _) => Option(AstExpr).None), Option(AstExpr).None)
+  if(ast_expr_is_fn_call_of(lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(lent, "&mut", .Some(usize(1))), match(lent, .FnCall(_, _, Rc(m_args), _, _) => m_args.get(usize(0)), .Atom(_, _) => Option(AstExpr).None), Option(AstExpr).None)
 );
 /// The root names of the places `call` may lend (its `&x`/`&mut x` arguments
 /// and its receiver) whose binding is already moved before the call's
@@ -4609,7 +4609,7 @@ _lent_argument_place :: (fn(lent : &AstExpr) -> Option(AstExpr))(
 /// `match(&x, …)`); everywhere else `&x` of a moved binding is E0901.
 _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayList(String))({
   out := ArrayList(String).new();
-  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(out));
+  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(out));
   places := ArrayList(AstExpr).new();
   match(_call_receiver_place(call), .Some(r) => places.push(r), .None => ());
   // An infix operator's operands may be lent (`a == b`); which ones is known
@@ -5501,7 +5501,7 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
     if(!ast_expr_is_fn_call_of(&we, "<:", Option(usize).Some(usize(2))), {
       continue;
     });
-    we_args := match(we, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    we_args := match(we, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
     lhs := match(we_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     rhs := match(we_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     if(!ast_expr_is_atom(&lhs), {
@@ -5511,7 +5511,7 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
       _scratch_concrete_binding(se, ast_expr_token(&lhs).value.*),
       .Some(target) => {
         traits := cond(
-          ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None) => match(rhs, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()),
+          ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None) => match(rhs, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new()),
           true => {
             one := ArrayList(AstExpr).new();
             one.push(rhs);
@@ -5522,13 +5522,13 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
         while(t < traits.len(), {
           tr := match(traits.get(t), .Some(e) => e, .None => make_err_expr());
           t = (t + usize(1));
-          tr_args := match(tr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+          tr_args := match(tr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
           (a : usize) = usize(0);
           while(a < tr_args.len(), {
             ta := match(tr_args.get(a), .Some(e) => e, .None => make_err_expr());
             a = (a + usize(1));
             if(ast_expr_is_fn_call_of(&ta, ":=", Option(usize).Some(usize(2))), {
-              pair := match(ta, .FnCall(_, _, p, _, _) => p, _ => ArrayList(AstExpr).new());
+              pair := match(ta, .FnCall(_, _, Rc(p), _, _) => p, _ => ArrayList(AstExpr).new());
               al := match(pair.get(usize(0)), .Some(e) => e, .None => make_err_expr());
               av := match(pair.get(usize(1)), .Some(e) => e, .None => make_err_expr());
               if(ast_expr_is_atom(&al) && ast_expr_is_atom(&av) && (ast_expr_token(&av).value.* == name), {
@@ -7000,7 +7000,7 @@ _evaluate_funcval_runtime_call :: (
   // `yo fix --migrate explicit-copy`: a raw pointer this call hands back
   // (`first_ptr(&marks)`) ties the variables its arguments are rooted in to
   // that pointer (`record_copy_pointer`).
-  if(migrate_explicit_copy_on(), match(expr, .FnCall(_, _, rcp_args, _, _) => record_copy_pointer(&resolved_ret, &rcp_args, env, &ast_expr_token(expr)), .Atom(_, _) => ()));
+  if(migrate_explicit_copy_on(), match(expr, .FnCall(_, _, Rc(rcp_args), _, _) => record_copy_pointer(&resolved_ret, &rcp_args, env, &ast_expr_token(expr)), .Atom(_, _) => ()));
   out_rt := new_expr_info(env, &resolved_ret);
   out_rt.value = Option(EvalValue).Some(_call_result_unknown(&resolved_ret, env));
   // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
@@ -7639,7 +7639,7 @@ _d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)(
   (recv_is_module : bool) = false;
   match(
     func_expr,
-    .FnCall(_, d6_dot, d6_args, _, _) => {
+    .FnCall(_, d6_dot, Rc(d6_args), _, _) => {
       d6_is_dot := match(d6_dot, .Atom(_, d6_dtok) => (d6_dtok.kind == TokenKind.Dot), _ => false);
       if(d6_is_dot && (d6_args.len() == usize(2)), {
         match(
@@ -7674,7 +7674,7 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
   recv_ty_str := match(
     match(
       func_expr,
-      .FnCall(_, _, a, _, _) => a.get(usize(0)),
+      .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)),
       _ => Option(AstExpr).None
     ),
     .Some(recv) => match(
@@ -7686,7 +7686,7 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
   );
   method_name := match(
     func_expr,
-    .FnCall(_, _, a, _, _) => match(a.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.from("?")),
+    .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.from("?")),
     _ => String.from("?")
   );
   // On a `Deref` wrapper the method retry (`_try_find_receiver_method`) also
@@ -7694,7 +7694,7 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
   deref_note := match(
     match(
       func_expr,
-      .FnCall(_, _, a, _, _) => a.get(usize(0)),
+      .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)),
       _ => Option(AstExpr).None
     ),
     .Some(recv) => match(
@@ -7746,7 +7746,7 @@ _generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, c
   cond(
     !ast_expr_token(func_expr).module_path.*.starts_with(String.from("auto-generated://")) => err,
     true => match(
-      match(func_expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None),
+      match(func_expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), _ => Option(AstExpr).None),
       .Some(recv) => match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
         .Some(ri) => mark_generic_independent(err, &ri.ty, &ri.ty),
@@ -7792,7 +7792,7 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   if(ca_infix || !ast_expr_is_fn_call_of(&ca_callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(AccessorCallInfo).None);
   });
-  ca_pargs := match(ca_callee, .FnCall(_, _, pa, _, _) => pa, .Atom(_, _) => return(Option(AccessorCallInfo).None));
+  ca_pargs := match(ca_callee, .FnCall(_, _, Rc(pa), _, _) => pa, .Atom(_, _) => return(Option(AccessorCallInfo).None));
   ca_recv := match(ca_pargs.get(usize(0)), .Some(r) => r, .None => return(Option(AccessorCallInfo).None));
   ca_name_tok := match(
     ca_pargs.get(usize(1)),
@@ -8091,7 +8091,7 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
   });
   (callee, args) := match(
     call,
-    .FnCall(_, hc_callee, hc_args, false, _) => (hc_callee, hc_args),
+    .FnCall(_, hc_callee, Rc(hc_args), false, _) => (hc_callee, hc_args),
     _ => return(())
   );
   name_tok := match(callee, .Atom(_, t) => t, _ => return(()));
@@ -8141,7 +8141,7 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
   (ai : usize) = usize(0);
   while((ai < args.len()) && value_arg.is_none(), ai = (ai + usize(1)), {
     a := args(ai).clone();
-    is_alloc := (ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))) && match(a, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(.Atom(_, lt)) => (lt.value.* == "alloc"), _ => false), _ => false));
+    is_alloc := (ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))) && match(a, .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(0)), .Some(.Atom(_, lt)) => (lt.value.* == "alloc"), _ => false), _ => false));
     if(!is_alloc, {
       value_arg = Option(AstExpr).Some(a);
     });
@@ -8209,7 +8209,7 @@ _audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &E
     call,
     .FnCall(_, aa_callee, _, _, _) => match(
       aa_callee,
-      .FnCall(_, _, aa_pa, _, _) => match(aa_pa.get(usize(1)), .Some(.Atom(_, nt)) => nt, _ => ast_expr_token(call)),
+      .FnCall(_, _, Rc(aa_pa), _, _) => match(aa_pa.get(usize(1)), .Some(.Atom(_, nt)) => nt, _ => ast_expr_token(call)),
       .Atom(_, _) => ast_expr_token(call)
     ),
     .Atom(_, _) => ast_expr_token(call)
@@ -8258,7 +8258,7 @@ _accessor_recv_of :: (fn(call : &AstExpr) -> AstExpr)(
     call,
     .FnCall(_, ar_callee, _, false, _) => match(
       ar_callee,
-      .FnCall(_, _, ar_pa, _, _) => match(ar_pa.get(usize(0)), .Some(ar_base) => ar_base, .None => call.clone()),
+      .FnCall(_, _, Rc(ar_pa), _, _) => match(ar_pa.get(usize(0)), .Some(ar_base) => ar_base, .None => call.clone()),
       .Atom(_, _) => call.clone()
     ),
     _ => call.clone()
@@ -8290,7 +8290,7 @@ _local_borrow_note_call_site :: (fn(call : &AstExpr, call_tok : &Token, ctx : &E
   (is_scalar_op : bool) = false;
   match(
     call,
-    .FnCall(_, callee, cargs, _, _) => {
+    .FnCall(_, callee, Rc(cargs), _, _) => {
       callee_text = ast_expr_to_string(&callee);
       ctok := ast_expr_token(&callee);
       if(ast_expr_is_atom(&callee) && (ctok.kind == TokenKind.Operator), {
@@ -8493,7 +8493,7 @@ _evaluate_function_call_unanchored :: (
   );
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   // Pre-fold `-(IntLit)` to a comptime negative integer literal.
@@ -9125,7 +9125,7 @@ _evaluate_function_call_unanchored :: (
       // (b) dot-access callee: receiver struct id + field label lookup.
       match(
         func_expr,
-        .FnCall(_, iob_dot, iob_dargs, _, _) => if(match(iob_dot, .Atom(_, iob_dtok) => (iob_dtok.kind == TokenKind.Dot), _ => false)
+        .FnCall(_, iob_dot, Rc(iob_dargs), _, _) => if(match(iob_dot, .Atom(_, iob_dtok) => (iob_dtok.kind == TokenKind.Dot), _ => false)
         && (iob_dargs.len() == usize(2)), {
           iob_fld := match(
             iob_dargs.get(usize(1)),
@@ -9171,7 +9171,7 @@ _evaluate_function_call_unanchored :: (
       // the spelling fallback.
       iob_user_fn := match(
         func_expr,
-        .FnCall(_, iob_dot2, iob_dargs2, _, _) => if(
+        .FnCall(_, iob_dot2, Rc(iob_dargs2), _, _) => if(
           match(iob_dot2, .Atom(_, iob_dtok2) => (iob_dtok2.kind == TokenKind.Dot), _ => false)
           && (iob_dargs2.len() == usize(2)),
           match(
@@ -10109,7 +10109,7 @@ Fix: wrap the call:
             pa_body := AstExpr.FnCall(
               alloc_global_expr_id(),
               AstExpr.Atom(alloc_global_expr_id(), synthetic_token(pa_orig_name.clone(), &env.module_path.*)),
-              pa_body_args,
+              Rc.new(pa_body_args),
               false,
               tok.clone()
             );
@@ -10191,7 +10191,7 @@ Fix: wrap the call:
         (fv_forall_arg_exprs : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
         if(match(args.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(&a0, "generic", Option(usize).None), .None => false), {
           fv_g_node := match(args.get(usize(0)), .Some(a0) => a0, .None => make_err_expr());
-          fv_g_args := match(fv_g_node, .FnCall(_, _, g_as, _, _) => g_as, .Atom(_, _) => ArrayList(AstExpr).new());
+          fv_g_args := match(fv_g_node, .FnCall(_, _, Rc(g_as), _, _) => g_as, .Atom(_, _) => ArrayList(AstExpr).new());
           fv_forall_arg_exprs = Option(ArrayList(AstExpr)).Some(fv_g_args.clone());
           fv_peeled := ArrayList(AstExpr).new();
           {
@@ -10510,7 +10510,7 @@ Fix: wrap the call:
             if((ai < n_p) && ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2))), {
               q_cl_args := match(
                 arg_expr,
-                .FnCall(_, _, q_as, _, _) => q_as.clone(),
+                .FnCall(_, _, Rc(q_as), _, _) => q_as.clone(),
                 _ => ArrayList(AstExpr).new()
               );
               q_label_expr := match(q_cl_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -12498,7 +12498,7 @@ Fix: wrap the call:
               );
               amp_args := ArrayList(AstExpr).new();
               amp_args.push(method_info.receiver_expr);
-              all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, amp_args, false, recv_tok));
+              all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, Rc.new(amp_args), false, recv_tok));
             }, {
               all_args.push(method_info.receiver_expr);
             });
@@ -12640,7 +12640,7 @@ Fix: wrap the call:
                     rm_rid := type_id_or_empty(&rm_conc);
                     rm_name := match(
                       func_expr,
-                      .FnCall(_, _, rm_dargs, _, _) => match(rm_dargs.get(usize(1)), .Some(rm_ne) => ast_expr_token(&rm_ne).value.*.clone(), .None => String.from("")),
+                      .FnCall(_, _, Rc(rm_dargs), _, _) => match(rm_dargs.get(usize(1)), .Some(rm_ne) => ast_expr_token(&rm_ne).value.*.clone(), .None => String.from("")),
                       .Atom(_, _) => String.from("")
                     );
                     if((rm_rid != "") && (rm_name != ""), {

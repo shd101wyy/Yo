@@ -23,7 +23,7 @@
 { EvalValue } :: import("../../value.yo");
 { TypeValue, no_types, no_labels, slot_pointee_at, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
-{ HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation } :: import("../../expr_info.yo");
+{ HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation, emitted_block_statements } :: import("../../expr_info.yo");
 { YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
 { is_unit_type, is_counted_handle_type, is_counted_cell_type, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { function_param_mutation_mask, param_mutation_mask_hits, rc_write_audit_enabled, audit_rc_writes } :: import("../../evaluator/effects/mutation_summary.yo");
@@ -141,7 +141,7 @@ _insert_attr_before_first_decl :: (
 
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Shallow-copy a deferred-drop/dup expr list into a FRESH ArrayList (same AstExpr
 /// refs, independent list). `context.pending_deferred_drops` is MUTATED as drops are
@@ -224,7 +224,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
       },
       .None => ()
     );
-    args := _args(body_expr);
+    args := emitted_block_statements(_args(body_expr));
     n := args.len();
     if(n > usize(0), {
       (find_return : bool) = false;

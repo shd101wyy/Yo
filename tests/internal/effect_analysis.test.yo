@@ -48,7 +48,7 @@ make_simple_call :: (fn(func_name : str, arg : &AstExpr, char_pos : usize) -> As
   AstExpr.FnCall(
     usize(0),
     make_ident(func_name),
-    args,
+    Rc.new(args),
     false,
     make_token_at(TokenKind.Identifier, func_name, char_pos)
   )
@@ -61,7 +61,7 @@ make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> As
   dot_fncall := AstExpr.FnCall(
     usize(0),
     AstExpr.Atom(usize(0), make_token(TokenKind.Dot, ".")),
-    dot_args,
+    Rc.new(dot_args),
     true,
     make_token(TokenKind.Dot, ".")
   );
@@ -70,7 +70,7 @@ make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> As
   AstExpr.FnCall(
     usize(0),
     dot_fncall,
-    outer_args,
+    Rc.new(outer_args),
     false,
     make_token(TokenKind.Identifier, method_name)
   )

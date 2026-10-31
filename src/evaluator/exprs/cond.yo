@@ -119,7 +119,7 @@ evaluate_cond :: (
   // Extract argument list.
   statements := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   statement_count := statements.len();
@@ -153,12 +153,12 @@ evaluate_cond :: (
     });
     cond_expr := match(
       statement,
-      .FnCall(_, _, sargs, _, _) => match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     case_body_expr := match(
       statement,
-      .FnCall(_, _, sargs, _, _) => match(sargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     parsed_stmts.push(

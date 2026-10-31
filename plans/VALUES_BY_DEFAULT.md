@@ -8909,6 +8909,46 @@ stage-2 RSS):
     `initialization_assignment.yo`, `assignment.yo`) go through
     `ExprInfo.macro_expansion`, or `args` becomes `Rc(ArrayList(Self))`.
   - `FuncValData` stays behind `Rc`.
+  - **As built (2026-10-31, B8's prerequisite):** a call's list is
+    `args : Rc(ArrayList(Self))`. The node itself stays a `ref(enum)` until V5.
+    - **Clone.** `AstExpr`'s `Clone` shares the list with `Rc.clone(fargs)`, so
+      it stays O(1) once `ArrayList` is a value. This was the 173-file root of
+      the B8 flip probe.
+    - **Arms.** The 937 arms that bind the list (935 in `src/`) spell the
+      wrapper pattern, `.FnCall(_, _, Rc(args), _, _)`. The binder is the
+      payload, so no arm body changed.
+    - **Constructions.** The 119 other constructions (92 in `src/`, 27 in
+      `tests/internal`) wrap the list in `Rc.new(list)`. Both rewrites were
+      made by a script; the hand edits are the type, `Clone` and the two
+      in-place writes below.
+    - **In-place writes.** An audit of writes through a list bound by
+      `Rc(args)`, directly, through a local alias or through a helper that
+      returns the list, found two.
+      - The verifier's `strip_proved_ensures_asserts` no longer rewrites the
+        body. It records the proved `ensures` asserts in a side table
+        (`note_stripped_statement`, `src/expr_info.yo`), and the statement
+        emitters read a block through `emitted_block_statements`: the
+        function body, `{ … }` blocks, the async state machine's body and the
+        fused-await wrapper.
+      - `strip_mut_marker` (decision 47) still writes through the `ref` list
+        it copies, which B8 breaks
+        (`issues/questions/2026-10-30-how-should-the-mut-marker-strip-stop-writing-the-ast.md`).
+    - **Measured** (base `908ef0295` against this tree, each stage 1 built by
+      the v0.2.73 seed):
+      - The C that the two stage 1 binaries emit for this tree's
+        `src/main.yo` is byte-identical (156,152,190 B), so the compiler's
+        output is unchanged.
+      - The self-emit grows from 155,950,156 B to 156,152,190 B (+0.13%).
+      - `check src/main.yo` on a glibc-malloc rebuild of each tree's
+        self-emit makes 2,965,538,225 allocation calls, against the base's
+        2,956,353,278 (+0.31%: one `Rc` cell per call node). The ratchet
+        baseline is 2,928,830,929.
+      - `check src/main.yo` over this tree, stage 1 binaries, three
+        interleaved rounds each (A B B A A B), medians: max RSS 1,292,328 KB
+        → 1,315,768 KB (+1.8%); `instructions:u` 3,079,201,833,573 →
+        3,079,397,889,190 (+0.006%); `cycles:u` ×0.9998. The RSS is the
+        extra cell per call node. With B8 the list moves inside that cell and
+        the separate `ArrayList` allocation goes away.
 - **`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`:** `Box` children. As built:
   - **`Z3Sexpr`** (2026-10-17): a value enum,
     `enum(Atom(text : String), List(items : ArrayList(Self)))`. It has no

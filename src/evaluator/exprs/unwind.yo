@@ -108,7 +108,7 @@ evaluate_unwind :: (
     .None => t_i32()
   );
   // `unwind` accepts at most one argument.
-  n_args := match(expr, .FnCall(_, _, args, _, _) => args.len(), .Atom(_, _) => usize(0));
+  n_args := match(expr, .FnCall(_, _, Rc(args), _, _) => args.len(), .Atom(_, _) => usize(0));
   if(n_args > usize(1), {
     exn.throw(
       dyn(
@@ -141,7 +141,7 @@ evaluate_unwind :: (
   // Pull arg out of the FnCall.
   arg_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
