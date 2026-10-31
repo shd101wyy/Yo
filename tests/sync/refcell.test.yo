@@ -172,7 +172,7 @@ test("into_inner moves a move-only payload out, dropped exactly once", {
     assert(g_tok_drops == before, "nothing dropped while it is held");
   };
   assert(g_tok_drops == (before + i32(1)), "dropped once, by its new owner");
-  b := box(_MoveTok(n : i32(2)));
+  b := Box.new(_MoveTok(n : i32(2)));
   u := b.into_inner();
   assert((u.n == i32(2)) && (g_tok_drops == (before + i32(1))), "Box.into_inner moves the payload out too");
 });

@@ -107,7 +107,7 @@ impl(
                 _flags : flags,
                 _pattern : pattern.clone(),
                 _n_groups : n_groups,
-                _group_names : rc(parser.group_names().clone())
+                _group_names : Rc.new(parser.group_names().clone())
               )
             )
           }
@@ -232,9 +232,9 @@ impl(
   /// instead of a copy of the input each (B8).
   _build_match : (fn(self : &Self, slots : &ArrayList(usize), input : &String, shared : &mut Option(Rc(String))) -> RegexMatch)({
     if(shared.is_none(), {
-      shared = .Some(rc(input.clone()));
+      shared = .Some(Rc.new(input.clone()));
     });
-    shared_input := match(&shared, .Some(r) => Rc.clone(r), .None => rc(input.clone()));
+    shared_input := match(&shared, .Some(r) => Rc.clone(r), .None => Rc.new(input.clone()));
     bytes := &input;
     unset := usize.MAX;
     match_start_byte := slots(usize(0));
@@ -547,7 +547,7 @@ impl(
     RegexMatchIter(
       _regex : self,
       _vm : vm,
-      _input : rc(input.clone()),
+      _input : Rc.new(input.clone()),
       _byte_pos : byte_pos,
       _has_prefix : has_prefix
     )

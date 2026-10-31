@@ -112,7 +112,7 @@ test("prologue and argument effects run once, in order", {
     )
   );
   // The argument reads `log` and counts its runs in a global.
-  log := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  log := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   v := io.await(_logged(&log, _log_len_at_arg(&log), io), IoExn(io : io, exn : exn));
   assert(v == i32(0), "the argument ran first, before the prologue's push");
   assert(g_fusion_arg_runs == i32(1), "the argument ran once");

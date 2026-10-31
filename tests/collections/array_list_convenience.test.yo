@@ -233,7 +233,7 @@ test("retain over twenty thousand elements is one pass and leaves refcounts bala
   // witness: every kept slot holds a reference, every dropped slot released
   // one, and the final reject-all takes it back to the baseline. (A `String`
   // is a value since B8, so the witness is an `Rc(String)`.)
-  shared := rc(`keep-shared`.to_string());
+  shared := Rc.new(`keep-shared`.to_string());
   base := ref_count(shared);
   mut(list) := ArrayList(Rc(String)).new();
   (mut(i) : i32) = i32(0);
@@ -243,7 +243,7 @@ test("retain over twenty thousand elements is one pass and leaves refcounts bala
         list.push(Rc.clone(shared));
       },
       true => {
-        list.push(rc(`drop-${i}`.to_string()));
+        list.push(Rc.new(`drop-${i}`.to_string()));
       }
     );
   });
