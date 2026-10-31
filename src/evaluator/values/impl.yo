@@ -3064,7 +3064,8 @@ _fmg_cache_put :: (
     g_fmg_method_cache.with_mut(m => m.clear());
     g_fmg_method_cache_epoch = epoch;
   });
-  g_fmg_method_cache.with_mut(m => m.insert(_fmg_cache_key(resolved, method_name, owner), cands));
+  key := _fmg_cache_key(resolved, method_name, owner);
+  g_fmg_method_cache.with_mut(m => m.insert(key, cands));
   _fmg_cache_record_fast(resolved, method_name, owner, cands);
 });
 /// Search ALL registered generic impls for matching entries that have a field
