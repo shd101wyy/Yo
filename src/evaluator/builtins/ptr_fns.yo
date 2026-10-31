@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   record_addr_of_site,
   migrate_addr_of_on
 } :: import("../../expr_info.yo");
-{ Variable, Environment, snapshot_env, get_variables_from_env } :: import("../../env.yo");
+{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
   EvalValue,
@@ -119,6 +119,70 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
   });
   Option(_ProjRootError).None
 });
+/// The enclosing body's parameter names as written: a closure's own (its
+/// body context's `FuncValData.params`), which may differ from its expected
+/// `Fn` slot's labels; otherwise (a named function's body context carries
+/// none) the function type's labels.
+_enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      fb.kind,
+      .FunctionBody => match(
+        &fb.func_value,
+        .Some(.FuncVal(epn_d, _)) => if(!epn_d.*.params.is_empty(), Option(ArrayList(String)).Some(epn_d.*.params.clone()), _enclosing_type_labels(&fb.func_type)),
+        _ => _enclosing_type_labels(&fb.func_type)
+      ),
+      _ => Option(ArrayList(String)).None
+    ),
+    .None => Option(ArrayList(String)).None
+  )
+);
+_enclosing_type_labels :: (fn(ft : &Option(TypeValue)) -> Option(ArrayList(String)))(
+  match(ft, .Some(Rc(.Func({ meta : etl_m }))) => Option(ArrayList(String)).Some(etl_m.*.param_labels.items.clone()), _ => Option(ArrayList(String)).None)
+);
+/// Whether `name` (bound to `v`) is a binding of an ENCLOSING function,
+/// which a closure or handler body reaches as a capture: a parameter the
+/// function being evaluated does not declare, or a local bound in a frame
+/// below the one its own parameters are bound in (both frame indices are
+/// read in the current environment, so they compare within one generation).
+_place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
+  !v.is_module_level && match(
+    _enclosing_param_names(ctx),
+    .Some(labels) => {
+      (own : bool) = false;
+      (i : usize) = usize(0);
+      while(i < labels.len(), {
+        if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+          own = true;
+        });
+        i = (i + usize(1));
+      });
+      cond(
+        own => false,
+        v.is_parameter => true,
+        true => match(
+          labels.get(usize(0)),
+          .Some(first) => {
+            p_idx := ArrayList(usize).new();
+            n_idx := ArrayList(usize).new();
+            match(
+              find_variable_in_env_at(env, &first, &mut p_idx),
+              .Some(_) => match(
+                find_variable_in_env_at(env, name, &mut n_idx),
+                .Some(_) => match(p_idx.get(usize(0)), .Some(pi) => match(n_idx.get(usize(0)), .Some(ni) => (ni < pi), .None => false), .None => false),
+                .None => false
+              ),
+              .None => false
+            )
+          },
+          .None => false
+        )
+      )
+    },
+    .None => false
+  )
+);
 _join_names :: (fn(names : &SharedList(String)) -> String)({
   out := String.new();
   (i : usize) = usize(0);
@@ -144,6 +208,12 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
     .Atom(_, pr_tok) => match(
       get_variables_from_env(env, pr_tok.value.*.clone()).last(),
       .Some(v) => cond(
+        // A closure's result origin is per-call (O2): its own reference
+        // parameters, never a capture, which outlives the call.
+        _place_root_is_closure_capture(&pr_tok.value.*, &v, env, ctx) => _proj_err(
+          `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${pr_tok.value.*}\` is a binding of the enclosing function, which the closure captures.`,
+          Option(str).Some(E_ORIGIN_MISMATCH)
+        ),
         (!v.is_parameter || v.is_compile_time_only || !(v.is_ref || v.is_imm_borrow)) => _proj_err(
           `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value.*}\` is ${cond(v.is_parameter => "a by-value parameter", v.is_module_level => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
           if(v.is_module_level, Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
