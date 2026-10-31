@@ -34,6 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { MapEntry } :: import("./entry.yo");
 { AllocError } :: import("../allocator.yo");
 { HashMap, HashMapError, HashMapIter, HashMapIterPtr } :: import("./hash_map");
+mem :: import("../mem.yo");
 { ArrayList } :: import("./array_list.yo");
 /// Error variants for HashSet operations.
 ///
@@ -216,15 +217,17 @@ impl(
   /// Walks the SMALLER set and probes the larger, so the cost is
   /// O(min(len(self), len(other))) whichever way round it is called.
   is_disjoint : (fn(self : &Self, other : &Self) -> bool)({
-    smaller := cond((self.len() <= other.len()) => self, true => other);
-    larger := cond((self.len() <= other.len()) => other, true => self);
+    // A cond of two borrows is not a place (decision 42: a local borrow needs
+    // `&place`), so the smaller/larger choice is made twice, at each use: the
+    // iterator comes from the smaller side, the membership test from the
+    // larger. Neither set is copied (a value set is move-only, B9).
     mut(result) := true;
-    mut(it) := smaller.iter();
+    mut(it) := cond((self.len() <= other.len()) => self.iter(), true => other.iter());
     while(true, {
       match(
         it.next(),
         .Some(p) => cond(
-          larger.contains(&p.*) => {
+          cond((self.len() <= other.len()) => other.contains(&p.*), true => self.contains(&p.*)) => {
             result = false;
           },
           true => ()
@@ -238,7 +241,7 @@ impl(
   }),
   /// Every element of either set.
   union : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
-    out := Self.new();
+    mut(out) := Self.new();
     mut(it) := self.iter();
     while(true, {
       match(
@@ -279,7 +282,7 @@ impl(
   }),
   /// Elements present in BOTH sets.
   intersection : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
-    out := Self.new();
+    mut(out) := Self.new();
     mut(it) := self.iter();
     while(true, {
       match(
@@ -307,7 +310,7 @@ impl(
   }),
   /// Elements in `self` that are NOT in `other`.
   difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
-    out := Self.new();
+    mut(out) := Self.new();
     mut(it) := self.iter();
     while(true, {
       match(
@@ -335,7 +338,7 @@ impl(
   }),
   /// Elements in exactly one of the two sets.
   symmetric_difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
-    out := Self.new();
+    mut(out) := Self.new();
     mut(it) := self.iter();
     while(true, {
       match(
@@ -415,9 +418,14 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : HashSetIter(T),
-    into_iter : (fn(self : Self) -> HashSetIter(T))(
-      HashSetIter(T)(_inner : self._map.into_iter())
-    )
+    into_iter : (fn(sink(self) : Self) -> HashSetIter(T))({
+      // Move the backing map out (B9: a field cannot move out of an owned
+      // struct, and a value pattern on this wrapper needs `==`): `replace`
+      // leaves an empty map behind, which drops with the spent wrapper.
+      mut(me) := self;
+      mut(fresh) := HashMap(T, unit).new();
+      HashSetIter(T)(_inner : mem.replace(&mut me._map, fresh).into_iter())
+    })
   )
 );
 /// Pointer iterator over a HashSet — yields `*(T)` INTO the backing map's
