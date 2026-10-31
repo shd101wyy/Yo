@@ -17,7 +17,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_call_args_unmarked } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, empty_value_cell } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 {
   is_enum_type,
   is_function_type,
@@ -504,7 +504,8 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     );
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
     context.pending_deferred_drops = saved_drops;
-    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(Rc.clone(r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+
     // Caught here only when the handler that unwound was installed in THIS
     // function, so the value has this function's return type. Deciding by the
     // effect bundle (a bundle built here counted as an installation) let a

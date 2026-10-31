@@ -269,10 +269,11 @@ comptime_expect_error(
 // two-argument marker used to re-evaluate itself until `yo check`
 // overflowed its stack (exit 139), in every type position
 // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
-// Decision 43 step 2 (N1a) spells it as a parameter's type only; a result,
-// a pointee, a local's annotation and a type argument come later.
+// Decision 43 step 2 spells it as a parameter's type (N1a) and as a
+// result type (N1b); a pointee, a local's annotation and a type argument
+// come later.
 comptime_expect_error(
-  bs_origin_mut_result :: (fn(xs : &mut i32) -> &mut(i32, xs))(xs),
+  bs_origin_mut_pointee :: (fn(xs : &mut i32) -> &mut&mut(i32, xs))(xs),
   "is an origin-qualified reference"
 );
 // The second argument is read by its kind: a type there is E0922, not a
@@ -388,7 +389,51 @@ comptime_expect_error(
   }),
   "is an origin-qualified reference"
 );
+// Decision 43 step 2 (N1b): a result `-> &(T, o)` / `-> &mut(T, o)` spells
+// the origin the projection borrows from: an origin parameter, a
+// reference parameter's place, or a union of them. The mode, the pointee
+// and the emitted C are the elided `-> &T` form's.
+BsTrio :: struct(a : i32, b : i32, c : i32);
+bs_ret_origin :: (fn(generic(p : Origin), t : &(BsTrio, p)) -> &(i32, p))(&t.a);
+bs_ret_place :: (fn(t : &mut BsTrio) -> &mut(i32, t))(&mut t.b);
+bs_ret_union :: (fn(generic(p : Origin), s : &(BsTrio, p), t : &BsTrio, pick : bool) -> &(i32, (p, t)))(
+  cond(
+    pick => &s.c,
+    true => &t.c
+  )
+);
+bs_ret_read :: (fn(x : &i32) -> i32)(x + i32(0));
+test("a result typed `&(T, o)` / `&mut(T, o)` projects like `-> &T` / `-> &mut T`", {
+  t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+  assert(bs_ret_read(bs_ret_origin(&t)) == i32(1), "an origin parameter's result reads the caller's place");
+  mut(u) := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+  bs_ret_place(&mut u) = i32(50);
+  assert(u.b == i32(50), "a `&mut(i32, t)` result writes the caller's place");
+  assert(bs_ret_read(bs_ret_union(&t, &u, true)) == i32(3), "a union `(p, t)` result, first arm");
+  assert(bs_ret_read(bs_ret_union(&t, &u, false)) == i32(6), "a union `(p, t)` result, second arm");
+});
+comptime_expect_error(
+  bs_ret_byvalue :: (fn(v : BsTrio) -> &(i32, v))(&v.a),
+  "a by-value parameter"
+);
+comptime_expect_error(
+  bs_ret_undeclared :: (fn(t : &BsTrio) -> &(i32, q))(&t.a),
+  "The origin `q` is not declared"
+);
+comptime_expect_error(
+  bs_ret_type_param :: (fn(generic(T : Type), t : &BsTrio) -> &(i32, T))(&t.a),
+  "is a type parameter, not an origin"
+);
+comptime_expect_error(
+  bs_ret_not_a_name :: (fn(t : &BsTrio) -> &(i32, t.a))(&t.a),
+  "is not an origin"
+);
+comptime_expect_error(
+  bs_fn_trait_ref_result :: (fn(f : Impl(Fn(x : &i32) -> &i32)) -> unit)(()),
+  "A closure trait's result is a value"
+);
 // `Origin` is reserved like `Type` (decision 43 step 2): a binding of the
+
 // name is rejected naming the kind.
 comptime_expect_error(
   bs_origin_reserved :: (fn() -> unit)({
