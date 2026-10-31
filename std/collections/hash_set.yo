@@ -62,12 +62,18 @@ HashSet :: (
     where(T <: (Eq(T), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      _map : HashMap(T, unit)
-    )
+  struct(
+    _map : HashMap(T, unit)
   )
 );
+// A value wrapper of `HashMap(T, unit)` (B9): cloning clones every element,
+// which needs `T <: Clone` (`HashMap`'s `Clone` requires it of both sides).
+derive(generic(T : Type), where(T <: (Eq(T), Hash, Clone)), HashSet(T), Clone);
+// SAFETY: a value `HashSet(T)` is the only owner of its wrapped map's buffers
+// (B9, as `HashMap`'s SAFETY note in hash_map.yo): it is `Send`/`Sync` exactly
+// when `T` is, through `HashMap(T, unit)`'s impls.
+impl(generic(T : Type), where(T <: Send), HashSet(T), Send());
+impl(generic(T : Type), where(T <: Sync), HashSet(T), Sync());
 impl(
   generic(T : Type),
   where(T <: (Eq(T), Hash)),
