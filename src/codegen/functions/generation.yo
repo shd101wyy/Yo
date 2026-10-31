@@ -61,83 +61,91 @@ _insert_attr_before_first_decl :: (
   fn(em : &Emitter, c_name : &String, attr_line : &String, code_limit_b : usize) -> unit
 )({
   needle := ` ${c_name}(`;
-  nb := needle;
-  nlen := nb.len();
   (bi : usize) = usize(0);
   while(bi < usize(4), {
-    // Read-only search over a String copy: O(1), the copy shares the buffer
-    // (a borrow once VALUES_BY_DEFAULT V2b makes `String` unique), never the
-    // ~110 MB byte copy `to_bytes()` would make per stub. Stage 2 is the
-    // spilled code, if any.
-    (hay : String) = cond(
-      (bi == usize(0)) => em.headers,
-      (bi == usize(1)) => em.declarations,
-      (bi == usize(2)) => if(
-        em.code_spilled_bytes > usize(0),
-        String.from_bytes(read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`))))),
-        String.new()
-      ),
-      true => em.code
+    // Read-only scans of the buffers in place (never the ~110 MB byte copy
+    // `to_bytes()` would make per stub). Stage 2 is the spilled code, if any.
+    rewritten := cond(
+      (bi == usize(0)) => _attr_scan(&em.headers, em.headers.len(), &needle, attr_line),
+      (bi == usize(1)) => _attr_scan(&em.declarations, em.declarations.len(), &needle, attr_line),
+      (bi == usize(2)) => if(em.code_spilled_bytes > usize(0), {
+        spilled := String.from_bytes(read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`)))));
+        _attr_scan(&spilled, spilled.len(), &needle, attr_line)
+      }, Option(ArrayList(u8)).None),
+      true => _attr_scan(&em.code, code_limit_b, &needle, attr_line)
     );
-    limit := cond((bi == usize(3)) => code_limit_b, true => hay.len());
-    if(limit >= nlen, {
-      last_start := (limit - nlen);
-      (si : usize) = usize(0);
-      while(si <= last_start, {
-        (mi : usize) = usize(0);
-        (all_eq : bool) = true;
-        while((mi < nlen) && all_eq, {
-          a := match(hay.get_byte(si + mi), .Some(b0) => b0, .None => u8(0));
-          b := match(nb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
-          if(a != b, {
-            all_eq = false;
-          });
-          mi = (mi + usize(1));
-        });
-        if(all_eq, {
-          // Walk back to the start of this line.
-          (ls : usize) = si;
-          while((ls > usize(0)) && match(hay.get_byte(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
-            ls = (ls - usize(1));
-          });
-          out := ArrayList(u8).new();
-          (ci : usize) = usize(0);
-          while(ci < ls, {
-            out.push(match(hay.get_byte(ci), .Some(cb) => cb, .None => u8(0)));
-            ci = (ci + usize(1));
-          });
-          ab := attr_line.clone();
-          (ai : usize) = usize(0);
-          while(ai < ab.len(), {
-            out.push(match(ab.get_byte(ai), .Some(cb) => cb, .None => u8(0)));
-            ai = (ai + usize(1));
-          });
-          out.push(u8(10));
-          (ci2 : usize) = ls;
-          total := hay.len();
-          while(ci2 < total, {
-            out.push(match(hay.get_byte(ci2), .Some(cb) => cb, .None => u8(0)));
-            ci2 = (ci2 + usize(1));
-          });
-          cond(
-            (bi == usize(0)) => {
-              em.headers = String.from_bytes(out);
-            },
-            (bi == usize(1)) => {
-              em.declarations = String.from_bytes(out);
-            },
-            (bi == usize(2)) => em.rewrite_code_spill(out),
-            true => {
-              em.code = String.from_bytes(out);
-            }
-          );
-          return(());
-        });
-        si = (si + usize(1));
-      });
-    });
+    match(
+      rewritten,
+      .Some(out) => {
+        cond(
+          (bi == usize(0)) => {
+            em.headers = String.from_bytes(out);
+          },
+          (bi == usize(1)) => {
+            em.declarations = String.from_bytes(out);
+          },
+          (bi == usize(2)) => em.rewrite_code_spill(out),
+          true => {
+            em.code = String.from_bytes(out);
+          }
+        );
+        return(());
+      },
+      .None => ()
+    );
     bi = (bi + usize(1));
   });
+});
+/// `_insert_attr_before_first_decl`'s scan of one buffer: the bytes of `hay`
+/// with `attr_line` inserted on its own line before the first line holding
+/// `nb` at an offset below `limit`, or `.None` when there is no such line.
+_attr_scan :: (fn(hay : &String, limit : usize, nb : &String, attr_line : &String) -> Option(ArrayList(u8)))({
+  nlen := nb.len();
+  if(limit >= nlen, {
+    last_start := (limit - nlen);
+    (si : usize) = usize(0);
+    while(si <= last_start, {
+      (mi : usize) = usize(0);
+      (all_eq : bool) = true;
+      while((mi < nlen) && all_eq, {
+        a := match(hay.get_byte(si + mi), .Some(b0) => b0, .None => u8(0));
+        b := match(nb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
+        if(a != b, {
+          all_eq = false;
+        });
+        mi = (mi + usize(1));
+      });
+      if(all_eq, {
+        // Walk back to the start of this line.
+        (ls : usize) = si;
+        while((ls > usize(0)) && match(hay.get_byte(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
+          ls = (ls - usize(1));
+        });
+        out := ArrayList(u8).new();
+        (ci : usize) = usize(0);
+        while(ci < ls, {
+          out.push(match(hay.get_byte(ci), .Some(cb) => cb, .None => u8(0)));
+          ci = (ci + usize(1));
+        });
+        ab := attr_line.clone();
+        (ai : usize) = usize(0);
+        while(ai < ab.len(), {
+          out.push(match(ab.get_byte(ai), .Some(cb) => cb, .None => u8(0)));
+          ai = (ai + usize(1));
+        });
+        out.push(u8(10));
+        (ci2 : usize) = ls;
+        total := hay.len();
+        while(ci2 < total, {
+          out.push(match(hay.get_byte(ci2), .Some(cb) => cb, .None => u8(0)));
+          ci2 = (ci2 + usize(1));
+        });
+        return(Option(ArrayList(u8)).Some(out));
+      });
+      si = (si + usize(1));
+    });
+  });
+  Option(ArrayList(u8)).None
 });
 
 /// Args of a FnCall (empty for an Atom).
