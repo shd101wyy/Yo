@@ -41,12 +41,13 @@ derive(_FindResult, Copy, Clone);
 /// Sorted map maintaining entries in key order.
 /// Provides ordered iteration and O(log n) lookup via binary search. Insert is O(n).
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _entries : ArrayList(MapEntry(K, V))
-    )
+  struct(
+    _entries : ArrayList(MapEntry(K, V))
   )
 );
+// A value since B10 (plans/VALUES_BY_DEFAULT.md): cloning clones every entry,
+// which needs `K` and `V` to be `Clone` (through `MapEntry`'s derived Clone).
+derive(generic(K : Type, V : Type), where(K <: Clone, V <: Clone), BTreeMap(K, V), Clone);
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),

@@ -41,14 +41,36 @@ _CAP_TAG :: (usize(1) << ((size_of(usize) * usize(8)) - usize(1)));
 _CAP_MASK :: (_CAP_TAG - usize(1));
 /// Circular buffer supporting efficient push/pop at both front and back.
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _buf : ?*T,
-      _head : usize,
-      _tail : usize,
-      _len : usize,
-      _capacity : usize
-    )
+  struct(
+    _buf : ?*T,
+    _head : usize,
+    _tail : usize,
+    _len : usize,
+    _capacity : usize
+  )
+);
+// SAFETY: a value `Deque(T)` is the only owner of its ring buffer (B10,
+// plans/VALUES_BY_DEFAULT.md): moving the deque moves every element with it,
+// so it is `Send`/`Sync` exactly when `T` is (decision 38 E, as `ArrayList`).
+impl(generic(T : Type), where(T <: Send), Deque(T), Send());
+impl(generic(T : Type), where(T <: Sync), Deque(T), Sync());
+/// Clone implementation for Deque — deep-clones each element into a fresh ring
+/// (hand-written: the ring's raw buffer cannot be derived over).
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  Deque(T),
+  Clone(
+    // A clone lives where its source lives (as ArrayList's Clone).
+    clone : (fn(self : &Self) -> Self)({
+      out := Deque(T).with_capacity(self._len);
+      i := usize(0);
+      while(i < self._len, {
+        out.push_back(self.get_cloned(i).unwrap());
+        i = (i + usize(1));
+      });
+      out
+    })
   )
 );
 impl(
