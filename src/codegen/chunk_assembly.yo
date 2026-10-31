@@ -696,7 +696,7 @@ assemble_chunks :: (
     (chunk_base_opt : &Option(String)) ?= .None
   ) -> ChunkAssembly
 )({
-  chunk_base := match(chunk_base_opt, .Some(b) => b, .None => String.new());
+  chunk_base := match(chunk_base_opt, .Some(b) => b.clone(), .None => String.new());
   n := if(n_chunks < usize(1), usize(1), n_chunks);
   code_bytes := code.to_bytes();
   // 1. The header-defined name set: static definitions already living in the

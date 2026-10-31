@@ -1459,7 +1459,7 @@ _current_result_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
 _current_c_result_type :: (fn(rt : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     context.override_return_type_str,
-    .Some(s) => s,
+    .Some(s) => s.clone(),
     .None => {
       base := get_type_string(rt, &context.base);
       if(_current_result_is_ref(context), {
@@ -1616,7 +1616,7 @@ generate_call_deferred_drops :: (fn(expr : &AstExpr, indent : &String, context :
 /// Record whose unwind is in flight: the handler being generated. The frame
 /// that installed it (`unwind_catches_of_body`) is the one that catches it.
 _emit_unwind_target :: (fn(indent : &String, context : &FunctionGenerationContext) -> unit)({
-  origin := match(context.current_unwind_origin, .Some(o) => o, .None => String.from("0"));
+  origin := match(context.current_unwind_origin, .Some(o) => o.clone(), .None => String.from("0"));
   em := context.base.emitter;
   em.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
 });

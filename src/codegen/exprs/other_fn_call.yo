@@ -3412,7 +3412,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // (issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md).
   // Only a may-unwind call clears and checks `__yo_effect_escaped`.
   if(ou_may_unwind || ei.variable_name.is_some(), {
-    fp_tv := match(ei.variable_name, .Some(tv) => tv, .None => `_eu_${ast_expr_id(expr).to_string()}`);
+    fp_tv := match(ei.variable_name, .Some(tv) => tv.clone(), .None => `_eu_${ast_expr_id(expr).to_string()}`);
     already := match(context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
     if(!already, {
       record_declared_temp_var(context, fp_tv.clone());
