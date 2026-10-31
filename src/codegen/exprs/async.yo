@@ -2445,22 +2445,18 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   em.emit_string_line(`${indent}{`);
   saved_temps2 := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
   saved_drop_ids2 := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
-  saved_slot := context.sm_capture_slot;
-  saved_prefix := context.fusion_field_prefix;
+  saved_slot := replace(&mut context.sm_capture_slot, `${site.prefix}capture`);
+  saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
   saved_analysis := low.analysis;
-  saved_emitted := low.emitted;
-  saved_moved_reads := low.moved_reads;
-  saved_pdd := context.pending_deferred_drops;
+  saved_emitted := replace(&mut low.emitted, HashSet(usize).new());
+  saved_moved_reads := replace(&mut low.moved_reads, HashMap(usize, String).new());
+  saved_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   // The map restored above (the wrapper's) is taken out again and put back
   // when the block is done: one map, as the shared handle was.
   saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
-  context.sm_capture_slot = `${site.prefix}capture`;
-  context.fusion_field_prefix = site.prefix.clone();
   low.analysis = site.block.analysis;
-  low.emitted = HashSet(usize).new();
-  low.moved_reads = HashMap(usize, String).new();
   pdd := match(saved_pdd, .Some(p) => _copy_expr_list(&p), .None => ArrayList(AstExpr).new());
   match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
@@ -3174,9 +3170,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
 });
 _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  saved_sm_vars := context.state_machine_variables;
   saved_evidence_params := context.current_evidence_params;
-  saved_field_aliases := context.state_machine_field_aliases;
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
   cross_boundary_ids := cbr.cross_boundary_ids;
@@ -3260,7 +3254,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
     },
     .None => ()
   );
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(sm_var_map);
+  saved_sm_vars := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(sm_var_map));
   // Merged field aliases: await_future_N + slot_N + closure-param slot fields.
   merged_aliases := _copy_string_map(&await_future_temp_var_aliases);
   osa_it := overlapping_slot_aliases.clone().into_iter();
@@ -3293,7 +3287,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
     },
     .None => ()
   );
-  context.state_machine_field_aliases = Option(HashMap(String, String)).Some(merged_aliases);
+  saved_field_aliases := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).Some(merged_aliases));
   // Resume function (returns local-var drops). It is its own C function, so
   // it gets its own declared-name set and block-scope stack, seeded with its
   // one parameter `sm`, exactly as generate_function does for a body. The
@@ -3311,10 +3305,9 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   push_declared_scope(&context.base, String.from("sm"));
   em.declared_ref = Option(Rc(RefCell(HashSet(String)))).Some(Rc.clone(context.base.declared_c_var_names));
   em.scope_ref = Option(Rc(RefCell(ArrayList(String)))).Some(Rc.clone(context.base.declared_scopes));
-  saved_binding_ids := context.state_machine_binding_ids;
-  context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
-  saved_sm_unwind_catch := context.sm_unwind_catch;
-  context.sm_unwind_catch = _sm_unwind_catch_for(block, context);
+  saved_binding_ids := replace(&mut context.state_machine_binding_ids, Option(HashSet(String)).Some(HashSet(String).new()));
+  block_unwind_catch := _sm_unwind_catch_for(block, context);
+  saved_sm_unwind_catch := replace(&mut context.sm_unwind_catch, block_unwind_catch);
   // [`#line` directives] The resume function's prologue and the dispatch
   // switch around the body are compiler-generated; the body's statements set
   // their own `.yo` positions inside. Restore honest C numbering before and
