@@ -1,8 +1,9 @@
 //! `Rc(T).new`, `Box(T).new` and `Arc(T).new`, the handle constructors
 //! (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A2), and the cell `dyn(...)`
 //! synthesizes through them (A3). The prelude's `rc`/`box`/`arc` forward to
-//! these until Generation B; tests/rc.test.yo and tests/arc.test.yo pin those
-//! spellings.
+//! these until B3 deletes them; the "rc, box and arc forward" test below and
+//! tests/rc_binding_gives_way.test.yo pin those spellings until then (B2 swept
+//! every other call in tests/ to the constructors).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
@@ -197,6 +198,17 @@ test("Rc.new, Box.new and Arc.new infer the payload type, alloc included", {
     assert(((a.* + b.*) + c.*) == i32(6), "the payloads");
   };
   assert(counts.live == usize(0), "every cell went back");
+});
+// A static method's written `Self` result was evaluated with the caller's
+// impl receiver under inference: `Box.new(v)` in `_BoxHolder`'s impl was
+// E0604 "body has type Box(i32), declared result _BoxHolder" until `Box.new`
+// wrote its result as `Box(T)`
+// (issues/2026-10-30-self-in-a-static-methods-signature-resolves-to-the-callers-impl-receiver-under-inference.md).
+_BoxHolder :: struct(c : Box(i32));
+impl(_BoxHolder, make : (fn(v : i32) -> Self)(_BoxHolder(c : Box.new(v))));
+test("Box.new inside another type's impl builds a Box, not that impl's Self", {
+  h := _BoxHolder.make(i32(4));
+  assert(h.c.* == i32(4), "the payload");
 });
 test("Rc.new(some_rc) is an Rc(Rc(i32))", {
   inner := Rc.new(i32(4));

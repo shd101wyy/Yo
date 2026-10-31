@@ -19,12 +19,12 @@ t_auto :: (fn() -> unit)({
 
 t_manual :: (fn() -> unit)({
   a := 2;
-  x := use_cb(10, dyn(rc(u => (u + 1 + a)))); // capture variable 'a'
+  x := use_cb(10, dyn(Rc.new(u => (u + 1 + a)))); // capture variable 'a'
   assert(x == 13, "mx");
-  y := use_cb(20, dyn(rc(u => (u * 2)))); // capture nothing
+  y := use_cb(20, dyn(Rc.new(u => (u * 2)))); // capture nothing
   assert(y == 40, "my");
   b := Rc(i32)(5);
-  z := use_cb(10, dyn(rc(u => (u + 1 + b.*)))); // capture variable 'b'
+  z := use_cb(10, dyn(Rc.new(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16, "mz");
 });
 

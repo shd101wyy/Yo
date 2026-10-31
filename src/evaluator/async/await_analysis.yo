@@ -87,7 +87,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
     .FnCall(_, outer_func_box, _, _, _) => match(
       outer_func_box,
       .Atom(_, _) => false,
-      .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
+      .FnCall(_, dot_func_box, Rc(dot_args), is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
@@ -108,7 +108,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
                   // `e.io.await(statx(...))` emitted NO await sequence at all
                   // — downstream reads of the result produced empty operands
                   // `(() < ())` (stage-2 expected-expression cluster).
-                  .FnCall(_, inner_fb, inner_args, inner_infix, _) => cond(
+                  .FnCall(_, inner_fb, Rc(inner_args), inner_infix, _) => cond(
                     (inner_infix == false) => false,
                     (inner_args.len() != usize(2)) => false,
                     true => match(
@@ -196,7 +196,7 @@ is_join_handle_await_call :: (fn(expr : &AstExpr) -> bool)({
     .FnCall(_, outer_func_box, _, _, _) => match(
       outer_func_box,
       .Atom(_, _) => false,
-      .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
+      .FnCall(_, dot_func_box, Rc(dot_args), is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
@@ -433,7 +433,7 @@ analyze_await_points :: (
   // same map on purpose, a closure captures by value
   // (plans/VALUES_BY_DEFAULT.md §3.13), and an `Rc`'s payload is read-only
   // through the handle (decision 46).
-  await_extras := rc(RefCell(HashMap(String, AwaitPointExtra)).new(HashMap(String, AwaitPointExtra).new()));
+  await_extras := Rc.new(RefCell(HashMap(String, AwaitPointExtra)).new(HashMap(String, AwaitPointExtra).new()));
   result := analyze_suspension_points(
     body.clone(),
     get_info,
@@ -462,7 +462,7 @@ analyze_await_points :: (
       if(is_begin, {
         match(
           tail,
-          .FnCall(_, _, a, _, _) => if(a.len() > usize(0), {
+          .FnCall(_, _, Rc(a), _, _) => if(a.len() > usize(0), {
             match(
               a.last(),
               .Some(last) => {
@@ -582,7 +582,7 @@ collect_variable_bindings_ :: (
   match(
     expr,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       // Check if this is a "let" or ":=" binding declaration
       func_is_binding := match(
         func_box,

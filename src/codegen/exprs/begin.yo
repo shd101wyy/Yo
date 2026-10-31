@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
-{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
+{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions, emitted_block_statements } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -158,7 +158,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   em := context.base.emitter;
   indent2 := indent.clone();
   indent2.push_str("  ");
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := emitted_block_statements(match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new()));
   match(
     ei.variable_name,
     .Some(temp_var) => {

@@ -1,0 +1,14 @@
+# `yo fix <path> --migrate mut-bindings` marks the bindings written in code
+# no evaluation of the run reaches
+# (issues/fixed/2026-10-25-migrate-mut-bindings-marks-only-the-bodies-its-run-evaluates.md):
+# `power`'s generic body, whose definition-time trial stops at `T(1)` (a type
+# variable called as a constructor) before its writes; a blanket `impl`'s
+# default method, which nothing evaluates until a caller's type instantiates
+# it; and a `cond(platform == ...)` arm for another target. Before the fix
+# the run marked none of `acc`, `i`, `it`, `n` and `tries`, and the trailing
+# `check use.yo`, whose calls instantiate `power` and `drain_count`, failed
+# with E0917 inside lib.yo. `limit` is only read and stays unmarked. `seen`
+# gets a spare marker: no evaluation saw its type, so its `push` counts as a
+# write (an `ArrayList` is a `ref` handle today and a value after B8-B11).
+stdout_keep=^fix:|^error|E0917
+timeout=240

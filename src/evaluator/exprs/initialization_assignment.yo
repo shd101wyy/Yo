@@ -136,7 +136,7 @@ _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop
     if(ast_expr_is_fn_call(&cur) && ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         cur,
-        .FnCall(_, _, dargs, _, _) => {
+        .FnCall(_, _, Rc(dargs), _, _) => {
           recv := match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr());
           fld := match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
           hops.push(_InoutPlaceHop(node : cur, field : fld));
@@ -233,7 +233,7 @@ _evaluate_inout_local_binding :: (
   // The LHS: `mut(name)`, one identifier, and the annotation `T` of
   // `(name : &T) = &place`, which the parse-time rewrite (decision 42) passes
   // as a second argument.
-  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if((lhs_args.len() != usize(1)) && (lhs_args.len() != usize(2)), {
     exn.throw(
       dyn(
@@ -716,13 +716,13 @@ _bind_projection_result :: (
 /// pin, `macro_expansion` = the cell expression it takes.
 evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
   (env : Environment) = env_in;
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   rhs := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   lhs_tok := ast_expr_token(&lhs);
   is_mut := ast_expr_is_inout_mode_call(&lhs, .None);
   sig := if(is_mut, String.from("&mut "), String.from("&"));
-  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(&name_expr), {
     exn.throw(dyn(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`)));
@@ -957,7 +957,7 @@ _rhs_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
   head_ok := (fn(h : &AstExpr) -> bool)(
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
-      .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
+      .FnCall(_, _, Rc(hargs), _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
       .Atom(_, _) => false
     )
   );
@@ -995,12 +995,12 @@ evaluate_initialization_assignment :: (
   // Extract lhs and rhs from args.
   (lhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   (rhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   // `name := rhs` and `name := &mut place` declare RUNTIME storage, so
@@ -1086,7 +1086,7 @@ evaluate_initialization_assignment :: (
     should_convert_to_runtime_type = false;
     actual_lhs = match(
       lhs,
-      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(cargs), _, _) => match(cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
   });
@@ -1100,7 +1100,7 @@ evaluate_initialization_assignment :: (
   if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_GIVEN, .None), {
     n_given_args := match(
       lhs,
-      .FnCall(_, _, gargs, _, _) => gargs.len(),
+      .FnCall(_, _, Rc(gargs), _, _) => gargs.len(),
       .Atom(_, _) => usize(0)
     );
     if(n_given_args != usize(1), {
@@ -1116,7 +1116,7 @@ evaluate_initialization_assignment :: (
     is_implicit = true;
     actual_lhs = match(
       lhs,
-      .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(gargs), _, _) => match(gargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
   });
@@ -1133,7 +1133,7 @@ evaluate_initialization_assignment :: (
   // nothing declares.
   (is_thread_local_decl : bool) = false;
   if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .None), {
-    n_tl_args := match(lhs, .FnCall(_, _, targs, _, _) => targs.len(), .Atom(_, _) => usize(0));
+    n_tl_args := match(lhs, .FnCall(_, _, Rc(targs), _, _) => targs.len(), .Atom(_, _) => usize(0));
     if(n_tl_args != usize(1), {
       exn.throw(
         dyn(
@@ -1146,7 +1146,7 @@ evaluate_initialization_assignment :: (
     });
     tl_atom := match(
       lhs,
-      .FnCall(_, _, targs, _, _) => match(targs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(targs), _, _) => match(targs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     if(!ast_expr_is_atom(&tl_atom), {
@@ -1163,7 +1163,7 @@ evaluate_initialization_assignment :: (
     actual_lhs = tl_atom;
     match(
       expr,
-      .FnCall(_, _, ia_args, _, _) => {
+      .FnCall(_, _, Rc(ia_args), _, _) => {
         // A pattern binding below a cell is a read-only copy; the write goes
         // through an owned handle to the same list.
         tl_args := ia_args;
@@ -1542,7 +1542,7 @@ ${rhs_str}`
                 register_type_display_name(st_id.clone(), binding_name.clone());
                 register_type_binding_name(st_id.clone(), binding_name.clone());
                 Option(TypeValue).Some(
-                  rc(TypeValueNode.Struct(st_id.clone(), binding_name, Rc.clone(st_fls), Rc.clone(st_fts), st_ref, st_at, st_nt, st_cfid.clone(), Rc.clone(st_ta), st_sns))
+                  Rc.new(TypeValueNode.Struct(st_id.clone(), binding_name, Rc.clone(st_fls), Rc.clone(st_fts), st_ref, st_at, st_nt, st_cfid.clone(), Rc.clone(st_ta), st_sns))
                 )
               },
               true => Option(TypeValue).None
@@ -1554,14 +1554,14 @@ ${rhs_str}`
                 register_type_binding_name(en_id.clone(), binding_name.clone());
                 register_type_binding_name(`${en_id}__self_shell`, binding_name.clone());
                 Option(TypeValue).Some(
-                  rc(TypeValueNode.EnumT(en_id.clone(), binding_name, Rc.clone(en_vns), Rc.clone(en_vfs), en_sel.clone(), Rc.clone(en_vfl), Rc.clone(en_vd), en_irs, en_iar, Rc.clone(en_tas)))
+                  Rc.new(TypeValueNode.EnumT(en_id.clone(), binding_name, Rc.clone(en_vns), Rc.clone(en_vfs), en_sel.clone(), Rc.clone(en_vfl), Rc.clone(en_vd), en_irs, en_iar, Rc.clone(en_tas)))
                 )
               },
               true => Option(TypeValue).None
             ),
             Rc(.Union(un_name, un_fls, un_fts)) => cond(
               (un_name.len() == usize(0)) => Option(TypeValue).Some(
-                rc(TypeValueNode.Union(binding_name, Rc.clone(un_fls), Rc.clone(un_fts)))
+                Rc.new(TypeValueNode.Union(binding_name, Rc.clone(un_fls), Rc.clone(un_fts)))
               ),
               // A union's `name` is its identity (`union_<module>_<binding>_r…`),
               // so it is never renamed. The FIRST binding becomes its display
@@ -1582,7 +1582,7 @@ ${rhs_str}`
             // the where-clause "does not implement required trait" error.
             Rc(.TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct)) => cond(
               (tr_name.len() == usize(0)) => Option(TypeValue).Some(
-                rc(TypeValueNode.TraitT(binding_name, tr_atns.clone(), tr_fls.clone(), tr_fts.clone(), tr_id.clone(), tr_conc.clone(), tr_sc.clone(), tr_nsc.clone(), Rc.clone(tr_atcl), Rc.clone(tr_atct)))
+                Rc.new(TypeValueNode.TraitT(binding_name, tr_atns.clone(), tr_fls.clone(), tr_fts.clone(), tr_id.clone(), tr_conc.clone(), tr_sc.clone(), tr_nsc.clone(), Rc.clone(tr_atcl), Rc.clone(tr_atct)))
               ),
               true => Option(TypeValue).None
             ),

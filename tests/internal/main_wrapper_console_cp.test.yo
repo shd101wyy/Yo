@@ -36,12 +36,12 @@ mk_target :: (fn(triple : str) -> TargetInfo)(
 mk_user_main_funcval :: (fn() -> EvalValue)({
   tok := Token(
     kind : TokenKind.Identifier,
-    value : rc(String.from("main")),
+    value : Rc.new(String.from("main")),
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : rc(String.from("app.yo")),
-    input : rc(String.new())
+    module_path : Rc.new(String.from("app.yo")),
+    input : Rc.new(String.new())
   );
   data := FuncValData(
     forall_names : ArrayList(String).new(),
@@ -53,7 +53,7 @@ mk_user_main_funcval :: (fn() -> EvalValue)({
     cap_tys : ArrayList(TypeValue).new(),
     func_id : String.from("fn_yo_id_test_console_cp_main")
   );
-  EvalValue.FuncVal(rc(data), ArrayList(EvalValue).new())
+  EvalValue.FuncVal(Rc.new(data), ArrayList(EvalValue).new())
 });
 
 emit_main_wrapper_for :: (fn(triple : str) -> String)({

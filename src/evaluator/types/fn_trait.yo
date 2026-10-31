@@ -41,7 +41,7 @@ import("std/fmt");
 _fn_trait_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -119,8 +119,8 @@ evaluate_fn_trait_type :: (
       });
       match(
         info.value,
-        .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
-        .None => rc(TypeValueNode.Unit)
+        .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+        .None => Rc.new(TypeValueNode.Unit)
       )
     },
     .None => {
@@ -132,7 +132,7 @@ evaluate_fn_trait_type :: (
           )
         )
       );
-      rc(TypeValueNode.Unit)
+      Rc.new(TypeValueNode.Unit)
     }
   );
   // Pop the parameters frame

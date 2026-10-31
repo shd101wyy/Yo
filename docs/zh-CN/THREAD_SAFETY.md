@@ -62,9 +62,9 @@ Raw :: struct(p : ?*u8);
 在安全代码中，通过 `atomic(ref(struct(...)))` 写入是**编译时错误** —— 字段与索引赋值，以及任何进入它的、其被调用者可能通过该参数写入的 `&mut` 路径（传给 `&mut T` 参数的实参，或接收者为 `self : &mut Self` 的方法）：
 
 ```yo
-a := arc(i32(0));
+a := Arc.new(i32(0));
 a.* = i32(5); // 错误：不能写入原子对象字段
-c := arc(Counter(n : i32(0)));
+c := Arc.new(Counter(n : i32(0)));
 c.*.bump(); // 错误：不能在原子对象 'c' 上调用 &mut self 方法
 bump_by_ten(c.*); // 错误：不能传递以原子对象 'c' 为根的 &mut 参数
 ```
@@ -203,7 +203,7 @@ Thread(i32).spawn(io => counter); // 错误：……但另一个线程读取了 
 
 - **派生与任务闭包体**：直接写进 `Send` 位置的闭包字面量（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调）在书写处检查。
 - **传入的函数值**：传给 `Impl(Fn(...), Send)` 参数的具名函数或闭包在调用处判断。
-- **泛型约束**：绑定到 `where(T <: Send)` 或 `where(T <: Sync)` 参数的函数同样判断：`arc(f)`（两者都判断）、`Channel(type_of(f))`、泛型的 `g(f)`。
+- **泛型约束**：绑定到 `where(T <: Send)` 或 `where(T <: Sync)` 参数的函数同样判断：`Arc.new(f)`（两者都判断）、`Channel(type_of(f))`、泛型的 `g(f)`。
 - **被捕获的函数**：被另一个线程的闭包捕获的闭包，按被捕获的值判断。
 - **`Sync` 位置**：`Impl(Fn(...), Sync)` 参数对 `Sync` 做同样的检查：捕获了 `Rc` 的闭包不是 `Sync`，代码触及非 `Sync` 全局变量的闭包也不是。
 
@@ -226,7 +226,7 @@ Thread(unit).spawn(fill); // 错误：fill 的代码触及 g
     g.push(i32(2));
   }
 );
-a := arc(k); // 错误：k 的代码触及 g
+a := Arc.new(k); // 错误：k 的代码触及 g
 Holder :: struct(f : (fn(io : Io) -> unit));
 h := Holder(f : count);
 Thread(unit).spawn((io : Io) => {

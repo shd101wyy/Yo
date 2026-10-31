@@ -194,7 +194,7 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
 // 7. timeout — deadline aborts the task
 // ---------------------------------------------------------------------------
 test("Test timeout aborts on deadline", {
-  ran := rc(RefCell(bool).new(false));
+  ran := Rc.new(RefCell(bool).new(false));
   fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(100)), io);
     ran.with_mut(cur => {
@@ -231,8 +231,8 @@ sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(RefCell(bool)), io : Io) -> I
   })
 );
 test("Test race_first returns the fastest task's value", {
-  ran0 := rc(RefCell(bool).new(false));
-  ran2 := rc(RefCell(bool).new(false));
+  ran0 := Rc.new(RefCell(bool).new(false));
+  ran2 := Rc.new(RefCell(bool).new(false));
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy_flag(i32(10), u64(60), Rc.clone(ran0), io), io));
   handles.push(io.spawn(sleepy(i32(20), u64(1), io), io));
@@ -251,7 +251,7 @@ test("Test race_first with a single handle", {
   assert(match(r, .Some(v) => (v == i32(7)), .None => false), "one handle wins by default");
 });
 test("Test any_first returns the first COMPLETED value and aborts the rest", {
-  ran0 := rc(RefCell(bool).new(false));
+  ran0 := Rc.new(RefCell(bool).new(false));
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy_flag(i32(1), u64(60), Rc.clone(ran0), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
@@ -403,7 +403,7 @@ test("Test any inside a task skips an aborted handle", {
   assert(r == i32(1), "any resolves to the completing handle's index from inside a task");
 });
 test("Test aborting the joining task leaves the joined task running", {
-  done := rc(RefCell(bool).new(false));
+  done := Rc.new(RefCell(bool).new(false));
   worker := io.async({ done : Rc.clone(done) }(io : Io) => {
     io.await(sleep(u64(20)), io);
     done.with_mut(cur => {
@@ -829,7 +829,7 @@ impl(
   )
 );
 test("Test a stream loop suspends its task between items", {
-  ticks := rc(RefCell(i32).new(0));
+  ticks := Rc.new(RefCell(i32).new(0));
   seen := ArrayList(i32).new();
   t := Ticker(_n : i32(3));
   task := io.async({ t, seen, ticks : Rc.clone(ticks) }(io : Io) => {
@@ -878,7 +878,7 @@ test("Stream.for_each releases what its body closure captures", {
   before := g_fe_disposed;
   {
     t := _FeThing(n : i32(2));
-    total := rc(RefCell(i32).new(0));
+    total := Rc.new(RefCell(i32).new(0));
     io.await(
       Countdown(_n : i32(3)).for_each({ t, total : Rc.clone(total) }(x) => {
         total.with_mut(cur => {
@@ -919,9 +919,9 @@ impl(
   )
 );
 test("Test collect over chains of different shapes whose source holds an Rc", {
-  a := io.await(RcCountdown(_n : rc(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).map(x => (x + i32(1))).collect(io), io);
-  b := io.await(RcCountdown(_n : rc(RefCell(i32).new(i32(4)))).filter(x => (x > i32(1))).filter(x => (x < i32(4))).collect(io), io);
-  c := io.await(RcCountdown(_n : rc(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).filter(x => (x > i32(20))).collect(io), io);
+  a := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).map(x => (x + i32(1))).collect(io), io);
+  b := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).filter(x => (x > i32(1))).filter(x => (x < i32(4))).collect(io), io);
+  c := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).filter(x => (x > i32(20))).collect(io), io);
   assert(a.len() == usize(4), "map then map keeps every item");
   assert(a(usize(0)) == i32(41), "and applies both maps: 4 * 10 + 1");
   assert(b.len() == usize(2), "filter then filter keeps 3 and 2");

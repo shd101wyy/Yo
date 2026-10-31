@@ -9,7 +9,7 @@
 // Phase O (THREAD_SAFETY): Atomic object field writes forbidden in safe code
 // ============================================================================
 test("read atomic object field is allowed", {
-  a := arc(i32(42));
+  a := Arc.new(i32(42));
   assert(a.* == i32(42), "read through arc.* should work");
 });
 test("read custom atomic object field is allowed", {
@@ -18,7 +18,7 @@ test("read custom atomic object field is allowed", {
   assert(m.value == i32(99), "read through custom field should work");
 });
 test("construct atomic object is allowed", {
-  a := arc(i32(7));
+  a := Arc.new(i32(7));
   assert(a.* == i32(7), "construction should work");
 });
 
@@ -109,7 +109,7 @@ comptime_expect_error({
 // is created.
 _send_captures_still_spawn :: (fn() -> unit)({
   n := i32(3);
-  a := arc(i32(4));
+  a := Arc.new(i32(4));
   hits := AtomicI32(i32(0));
   (bump : Impl(Fn() -> unit)) = (
     () => {
@@ -170,7 +170,7 @@ _run_on_thread :: (fn(sink(cb) : Impl(Fn() -> unit, Send)) -> unit)({
   t.join();
 });
 _helper_with_send_captures :: (fn() -> unit)({
-  hits := arc(AtomicI32(i32(0)));
+  hits := Arc.new(AtomicI32(i32(0)));
   h := Arc.clone(hits);
   (inner : Impl(Fn() -> unit)) = (
     () => {
@@ -226,7 +226,7 @@ comptime_expect_error({
 // `Arc` of an atomic; judged as a plain struct field, the closure type was never
 // `Send`, and capturing `k` was refused.
 _arc_of_a_closure_over_a_closure_crosses_threads :: (fn() -> unit)({
-  hits := arc(AtomicI32(i32(0)));
+  hits := Arc.new(AtomicI32(i32(0)));
   h := hits;
   (inner : Impl(Fn() -> unit)) = (
     () => {
@@ -239,7 +239,7 @@ _arc_of_a_closure_over_a_closure_crosses_threads :: (fn() -> unit)({
       inner();
     }
   );
-  k := arc(outer);
+  k := Arc.new(outer);
   t := Thread(unit).spawn((io : Io) => {
     k.*();
     ()

@@ -29,12 +29,12 @@ import("std/fmt");
 mk_token :: (fn(value : str) -> Token)(
   Token(
     kind : TokenKind.Identifier,
-    value : rc(String.from(value)),
+    value : Rc.new(String.from(value)),
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : rc(String.from("test")),
-    input : rc(String.from(""))
+    module_path : Rc.new(String.from("test")),
+    input : Rc.new(String.from(""))
   )
 );
 mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
@@ -42,7 +42,7 @@ mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstEx
   callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_UNWIND));
   args := ArrayList(AstExpr).new();
   args.push(arg_atom);
-  AstExpr.FnCall(call_id, callee, args, false, mk_token(BF_UNWIND))
+  AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_UNWIND))
 });
 stub_evaluate_i32 :: (
   fn(
@@ -74,7 +74,7 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   i32_ty := t_i32();
   ctx_ptr.enclosing_function_return_type = .Some(i32_ty);
   ctx_ptr.is_inside_given_handler = true;
-  env := Environment.new(rc(String.from("test")));
+  env := Environment.new(Rc.new(String.from("test")));
   call := mk_escape_call(usize(21), "0", usize(22));
   result := evaluate_unwind(&call, &env, &ctx, exn);
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result));

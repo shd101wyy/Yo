@@ -159,7 +159,7 @@ _is_capture_record_rebuild :: (fn(ei : &ExprInfo) -> bool)(
 /// `__yo_capture_field(c, i)`: field `i` of closure `c`'s capture record, in
 /// place (`(c).<field>`, or `(c)-><field>` through a pointer).
 generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  cf_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  cf_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => Rc.clone(ri.ty), .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
@@ -278,7 +278,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
   // Resolve the capture struct + its fields.
-  capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => rc(TypeValueNode.Unit));
+  capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => Rc.new(TypeValueNode.Unit));
   field_labels := match(&capture_ty, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
   call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {

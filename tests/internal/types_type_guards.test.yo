@@ -23,7 +23,7 @@ mk_struct :: (
     is_newtype : bool
   ) -> TypeValue
 )(
-  rc(
+  Rc.new(
     TypeValueNode.Struct(
       id : String.from(""),
       name : String.from(name),
@@ -45,7 +45,7 @@ box_labels :: (fn() -> ArrayList(String))({
   l
 });
 test("is_dyn_type matches DynT only", {
-  dyn_ty := rc(TypeValueNode.DynT(no_types(), no_levels(), no_types(), no_levels()));
+  dyn_ty := Rc.new(TypeValueNode.DynT(no_types(), no_levels(), no_types(), no_levels()));
   assert(is_dyn_type(&dyn_ty), "DynT");
   assert(!is_dyn_type(t_i32()), "i32 is not Dyn");
 });
@@ -73,7 +73,7 @@ test("is_newtype_type", {
 test("is_str_type matches the dedicated Str variant only", {
   // Post-slice-rework model (TS TypeTag.Str): `str` is its own TypeValue
   // variant, NOT a newtype Struct named "str" (commit 49f51b35).
-  str_ty := rc(TypeValueNode.Str);
+  str_ty := Rc.new(TypeValueNode.Str);
   legacy_struct_str := mk_struct("str", empty_labels(), false, false, true);
   not_str_name := mk_struct("string", empty_labels(), false, false, true);
   assert(is_str_type(&str_ty), "TypeValue.Str");

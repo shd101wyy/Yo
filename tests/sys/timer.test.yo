@@ -12,7 +12,7 @@ test("Test Io timer", {
   // =========================================================================
   // Test: async timer operations
   // =========================================================================
-  value := rc(RefCell(i32).new(0));
+  value := Rc.new(RefCell(i32).new(0));
   task1 := io.async({ value : Rc.clone(value) }(io : Io) => {
     assert(value.with(cur => cur) == 0); // 0
     value.with_mut(cur => {
@@ -56,7 +56,7 @@ test("Test zero-length sleep completes", {
   // parked forever (issues/fixed/sleep-zero-disarms-linux-timerfd.md).
   r0 := io.await(sleep(u64(0)), io);
   assert(r0 >= i32(0), "sleep(0) awaited from a plain context should complete without error");
-  inner := rc(RefCell(bool).new(false));
+  inner := Rc.new(RefCell(bool).new(false));
   t := io.async({ inner : Rc.clone(inner) }(io : Io) => {
     r1 := io.await(sleep(u64(0)), io);
     assert(r1 >= i32(0), "sleep(0) awaited inside a task should complete without error");
@@ -120,7 +120,7 @@ _sleeper :: (fn(ms : i32, order : &Rc(RefCell(ArrayList(i32))), io : Io) -> Impl
   })
 );
 _timer_order :: (fn(io : Io) -> unit)({
-  order := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  order := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   h60 := io.spawn(_sleeper(i32(60), &order, io), io);
   h20 := io.spawn(_sleeper(i32(20), &order, io), io);
   h30 := io.spawn(_sleeper(i32(30), &order, io), io);

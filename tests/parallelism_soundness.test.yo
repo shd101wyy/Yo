@@ -35,7 +35,7 @@ LIMIT :: i32(5);
 // Already enforced (Phase O): field assignment through an `Arc` root.
 comptime_expect_error({
   _d3_field_assignment :: (fn() -> unit)({
-    a := arc(Counter(n : i32(0)));
+    a := Arc.new(Counter(n : i32(0)));
     a.*.n = i32(1);
   });
   _d3_field_assignment();
@@ -43,7 +43,7 @@ comptime_expect_error({
 // D3 (Phase 1): an `inout(self)` method called on a place inside an `Arc`.
 comptime_expect_error({
   _d3_inout_self_receiver :: (fn() -> unit)({
-    a := arc(Counter(n : i32(0)));
+    a := Arc.new(Counter(n : i32(0)));
     a.*.bump();
   });
   _d3_inout_self_receiver();
@@ -54,7 +54,7 @@ _bump_by_ten :: (fn(c : &mut Counter) -> unit)({
 });
 comptime_expect_error({
   _d3_inout_argument :: (fn() -> unit)({
-    a := arc(Counter(n : i32(0)));
+    a := Arc.new(Counter(n : i32(0)));
     _bump_by_ten(&mut a.*);
   });
   _d3_inout_argument();
@@ -62,7 +62,7 @@ comptime_expect_error({
 // D3 (Phase 1): index assignment through an `Arc` of a fixed array.
 comptime_expect_error({
   _d3_index_assignment :: (fn() -> unit)({
-    a := arc(Array(i32, usize(2))(i32(0), i32(0)));
+    a := Arc.new(Array(i32, usize(2))(i32(0), i32(0)));
     a.*(usize(0)) = i32(7);
   });
   _d3_index_assignment();
@@ -82,42 +82,42 @@ comptime_expect_error({
 Holder :: struct(a : Arc(Counter), n : i32);
 comptime_expect_error({
   _d3_field_root_assignment :: (fn() -> unit)({
-    h := Holder(a : arc(Counter(n : i32(0))), n : i32(0));
+    h := Holder(a : Arc.new(Counter(n : i32(0))), n : i32(0));
     h.a.*.n = i32(1);
   });
   _d3_field_root_assignment();
 }, "atomic object");
 comptime_expect_error({
   _d3_tuple_root_assignment :: (fn() -> unit)({
-    t := (arc(Counter(n : i32(0))), i32(1));
+    t := (Arc.new(Counter(n : i32(0))), i32(1));
     t.0.*.n = i32(5);
   });
   _d3_tuple_root_assignment();
 }, "atomic object");
 comptime_expect_error({
   _d3_rc_of_arc_assignment :: (fn() -> unit)({
-    r := rc(arc(Counter(n : i32(0))));
+    r := Rc.new(Arc.new(Counter(n : i32(0))));
     r.*.*.n = i32(3);
   });
   _d3_rc_of_arc_assignment();
 }, "atomic object");
 comptime_expect_error({
   _d3_field_root_payload_replaced :: (fn() -> unit)({
-    h := Holder(a : arc(Counter(n : i32(0))), n : i32(0));
+    h := Holder(a : Arc.new(Counter(n : i32(0))), n : i32(0));
     h.a.* = Counter(n : i32(9));
   });
   _d3_field_root_payload_replaced();
 }, "atomic object");
 comptime_expect_error({
   _d3_field_root_inout_argument :: (fn() -> unit)({
-    h := Holder(a : arc(Counter(n : i32(0))), n : i32(0));
+    h := Holder(a : Arc.new(Counter(n : i32(0))), n : i32(0));
     _bump_by_ten(&mut h.a.*);
   });
   _d3_field_root_inout_argument();
 }, "atomic object");
 comptime_expect_error({
   _d3_tuple_root_inout_receiver :: (fn() -> unit)({
-    t := (arc(Counter(n : i32(0))), i32(1));
+    t := (Arc.new(Counter(n : i32(0))), i32(1));
     t.0.*.bump();
   });
   _d3_tuple_root_inout_receiver();
@@ -142,7 +142,7 @@ comptime_expect_error({
 }, "atomic object");
 comptime_expect_error({
   _d3_arc_mut_match_scrutinee :: (fn() -> unit)({
-    a := arc(Counter(n : i32(0)));
+    a := Arc.new(Counter(n : i32(0)));
     match(&mut a.*, c => c.bump());
   });
   _d3_arc_mut_match_scrutinee();
@@ -162,7 +162,7 @@ test("D3 canary: a `&mut` lend of a plain place or of the atomic binding itself 
 // Canary: the struct that holds the `Arc` is still a plain value: its own
 // fields are written, and the `Arc`'s payload is read, as before.
 test("D3 canary: a struct holding an Arc writes its own fields and reads through the Arc", {
-  mut(h) := Holder(a : arc(Counter(n : i32(4))), n : i32(0));
+  mut(h) := Holder(a : Arc.new(Counter(n : i32(4))), n : i32(0));
   h.n = i32(2);
   assert((h.n + h.a.*.n) == i32(6), "the field write landed and the payload read through the Arc");
 });
@@ -185,14 +185,14 @@ impl(
   describe : (fn(self : &mut Self) -> i32)(self.n)
 );
 test("D3 canary: a read-only inout(self) method and ToString through an Arc are legal", {
-  a := arc(Counter(n : i32(4)));
+  a := Arc.new(Counter(n : i32(4)));
   assert(a.*.describe() == i32(4), "read-only inout(self) receiver through an Arc");
   s := `n=${a.*.n}`;
   assert(s == `n=4`, "ToString (inout(self)) on a field through an Arc");
 });
 // Canary: a local COPY of the value is not an atomic root.
 test("D3 canary: mutating a local copy taken out of an Arc is legal", {
-  a := arc(Counter(n : i32(0)));
+  a := Arc.new(Counter(n : i32(0)));
   mut(c) := a.*;
   c.bump();
   assert(c.n == i32(1), "the copy was bumped");
@@ -213,14 +213,14 @@ test("D3 canary: Mutex.with_lock may mutate the protected value", {
 Slot :: struct(o : Option(i64));
 comptime_expect_error({
   _d3_std_take_through_arc :: (fn() -> unit)({
-    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    a := Arc.new(Slot(o : Option(i64).Some(i64(1))));
     _t := a.*.o.take();
   });
   _d3_std_take_through_arc();
 }, "the callee may write through that mut parameter");
 comptime_expect_error({
   _d3_std_replace_through_arc :: (fn() -> unit)({
-    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    a := Arc.new(Slot(o : Option(i64).Some(i64(1))));
     _t := a.*.o.replace(i64(2));
   });
   _d3_std_replace_through_arc();
@@ -229,7 +229,7 @@ comptime_expect_error({
 // field while this thread reads it.
 comptime_expect_error({
   _d3_std_take_on_another_thread :: (fn() -> unit)({
-    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    a := Arc.new(Slot(o : Option(i64).Some(i64(1))));
     b := a;
     t := Thread(unit).spawn((io : Io) => {
       _t := b.*.o.take();
@@ -250,7 +250,7 @@ _slot_peek :: (fn(w : &Slot, io : Io) -> Impl(Future(i64, Io)))(
 );
 test("D3: a std mutator through an Arc in another task is rejected", {
   comptime_expect_error({
-    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    a := Arc.new(Slot(o : Option(i64).Some(i64(1))));
     b := a;
     task := io.async({ b }(io : Io) => {
       _t := b.*.o.take();
@@ -289,7 +289,7 @@ test("D3 canary: std mutators on owned values, through &mut, and under a lock", 
   m := Mutex(Slot).new(Slot(o : Option(i64).Some(i64(7))));
   got := m.with_lock(v => v.o.take());
   assert(got == Option(i64).Some(i64(7)), "take inside with_lock");
-  a := arc(Slot(o : Option(i64).Some(i64(3))));
+  a := Arc.new(Slot(o : Option(i64).Some(i64(3))));
   assert(a.*.o.is_some(), "a read-only std method through an Arc");
   assert(a.*.o.unwrap_or(i64(0)) == i64(3), "a by-value std method through an Arc");
 });
@@ -308,7 +308,7 @@ comptime_expect_error({
   });
   _d4_spawn_over_array_list();
 });
-// D4 (Phase 4): the same closure through `arc(...)` — `Arc(V)` requires
+// D4 (Phase 4): the same closure through `Arc.new(...)` — `Arc(V)` requires
 // `V <: Send`, and a closure type holds `Send` only when its captures do.
 comptime_expect_error({
   _d4_arc_of_non_send_closure :: (fn() -> unit)({
@@ -318,7 +318,7 @@ comptime_expect_error({
         items.push(i32(1));
       }
     );
-    _a := arc(f);
+    _a := Arc.new(f);
   });
   _d4_arc_of_non_send_closure();
 });
@@ -339,10 +339,10 @@ comptime_expect_error({
   _d4_generic_send_bound();
 });
 // Canary: a closure whose only capture is an atomic satisfies the bound, both
-// through a generic `where(T <: Send)` and through `arc(...)` (the `arc` form
+// through a generic `where(T <: Send)` and through `Arc.new(...)` (the `arc` form
 // emitted two Arc instances for one type until P-26,
 // issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
-test("D4 canary: a closure over an atomic satisfies where(T <: Send), and arc() of it runs on a thread", {
+test("D4 canary: a closure over an atomic satisfies where(T <: Send), and Arc.new of it runs on a thread", {
   hits := AtomicI32(i32(0));
   (bump : Impl(Fn() -> unit)) = (
     () => {
@@ -350,7 +350,7 @@ test("D4 canary: a closure over an atomic satisfies where(T <: Send), and arc() 
     }
   );
   _needs_send(&bump);
-  a := arc(bump);
+  a := Arc.new(bump);
   // Called in place: `bump` owns an atomic, so it is not `Copy`
   // (decision 36) and `a.*` cannot be copied out of the Arc.
   t := Thread(unit).spawn((io : Io) => {
@@ -581,7 +581,7 @@ comptime_expect_error({
         g_items.push(i32(9));
       }
     );
-    _a := arc(k);
+    _a := Arc.new(k);
   });
   _d9_arc_of_reaching_closure();
 });
@@ -664,7 +664,7 @@ comptime_expect_error({
 });
 // A `Dyn(..., Send)` shares its data object across threads, so the object is
 // counted atomically: `dyn(...)` boxes a closure with `arc`, and an explicit
-// non-atomic `rc(...)` payload is rejected
+// non-atomic `Rc.new(...)` payload is rejected
 // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
 comptime_expect_error({
   _dsend_box :: (fn() -> unit)({
@@ -674,7 +674,7 @@ comptime_expect_error({
         ();
       }
     );
-    (d : Dyn(Fn() -> unit, Send)) = dyn(rc(k));
+    (d : Dyn(Fn() -> unit, Send)) = dyn(Rc.new(k));
     d;
   });
   _dsend_box();
@@ -747,14 +747,14 @@ test("D9 canary: function values that reach only atomics are Send by every route
 // and body built two Arc instances until
 // issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md.
 d9_arc_hits := AtomicI32(i32(0));
-test("D4/D9 canary: arc() of a capture-free closure runs on a thread", {
+test("D4/D9 canary: Arc.new of a capture-free closure runs on a thread", {
   (k : Impl(Fn() -> unit)) = (
     () => {
       d9_arc_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
       ();
     }
   );
-  a := arc(k);
+  a := Arc.new(k);
   t := Thread(unit).spawn((io : Io) => {
     f := a.*;
     f();
@@ -793,7 +793,7 @@ test("an Arc(Dyn(Fn, Send, Sync)) shared by two threads and the spawner", {
       ();
     }
   );
-  (d : Arc(Dyn(Fn() -> unit, Send, Sync))) = arc(dyn(k));
+  (d : Arc(Dyn(Fn() -> unit, Send, Sync))) = Arc(Dyn(Fn() -> unit, Send, Sync)).new(dyn(k));
   ta := Thread(unit).spawn({ d : Arc.clone(d) }(io : Io) => {
     d.*();
     ()

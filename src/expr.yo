@@ -410,10 +410,17 @@ ExprId :: usize;
 /// An AST expression node. There are exactly two kinds:
 ///  - Atom: a single token (identifier, literal, operator, dot, …)
 ///  - FnCall: a function call with a func expression, args list, infix flag, and token
+///
+/// A call's `args` list sits behind an `Rc` (plans/VALUES_BY_DEFAULT.md V4,
+/// `AstExpr`): copying a node (its `Clone`, a specialization's tree copy)
+/// shares the list with one count bump, `Rc.clone(args)`, and stays O(1)
+/// once `ArrayList` is a value (B8). Build a call with
+/// `AstExpr.FnCall(id, func, Rc.new(list), is_infix, token)`; an arm reads the
+/// list through the wrapper pattern, `.FnCall(_, _, Rc(args), _, _)`.
 AstExpr :: ref(
   enum(
     Atom(id : ExprId, token : Token),
-    FnCall(id : ExprId, func : Self, args : ArrayList(Self), is_infix : bool, token : Token)
+    FnCall(id : ExprId, func : Self, args : Rc(ArrayList(Self)), is_infix : bool, token : Token)
   )
 );
 // SAFETY: an AstExpr tree has no back edges. Nothing in src/ writes a payload
@@ -432,8 +439,9 @@ AstExpr :: ref(
 // issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
 impl(AstExpr, Acyclic());
 // SHARE-on-recursion Clone (replaces `derive(AstExpr, Clone)`). `AstExpr` is now
-// a `ref(enum)`, so its `func` (a `Self` handle) and `args` (`ArrayList(Self)`)
-// fields are RC handles — cloning SHARES them (RC-bump) rather than deep-copying.
+// a `ref(enum)`, so its `func` (a `Self` handle) and `args` (an
+// `Rc(ArrayList(Self))`) fields are RC handles — cloning SHARES them (an RC bump;
+// `Rc.clone` for the list, decision 17) rather than deep-copying.
 // This is O(1), preserves node ids (matching the derived clone's id-keeping
 // semantics that the ExprInfo table relies on), and avoids the def-time
 // body-eval infinite recursion a deep clone hits on a shell-less recursive
@@ -447,7 +455,7 @@ impl(
       match(
         self,
         .Atom(aid, atok) => AstExpr.Atom(aid, atok.clone()),
-        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs, finfix, ftok.clone())
+        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, Rc.clone(fargs), finfix, ftok.clone())
       )
     )
   )
@@ -492,7 +500,7 @@ clone_expr_fresh_ids :: (fn(e : &AstExpr) -> AstExpr)({
   match(
     e,
     .Atom(_, tok) => AstExpr.Atom(alloc_global_expr_id(), tok.clone()),
-    .FnCall(_, func_box, args, is_infix, tok) => {
+    .FnCall(_, func_box, Rc(args), is_infix, tok) => {
       new_args := ArrayList(AstExpr).new();
       (ci : usize) = usize(0);
       n := args.len();
@@ -506,7 +514,7 @@ clone_expr_fresh_ids :: (fn(e : &AstExpr) -> AstExpr)({
         );
         ci = (ci + usize(1));
       });
-      AstExpr.FnCall(alloc_global_expr_id(), recur(&func_box), new_args, is_infix, tok.clone())
+      AstExpr.FnCall(alloc_global_expr_id(), recur(&func_box), Rc.new(new_args), is_infix, tok.clone())
     }
   )
 });
@@ -516,7 +524,7 @@ make_err_expr :: (fn() -> AstExpr)(
     usize(0),
     Token(
       kind : TokenKind.Identifier,
-      value : rc(String.from("?")),
+      value : Rc.new(String.from("?")),
       row : u32(0),
       column : u32(0),
       character : u32(0),
@@ -585,7 +593,7 @@ ast_expr_is_infix_op_fn_call :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, func_box, args, is_infix, _) => cond(
+    .FnCall(_, func_box, Rc(args), is_infix, _) => cond(
       (is_infix == false) => false,
       (args.len() != usize(2)) => false,
       true => match(
@@ -601,7 +609,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
   match(
     e,
     .Atom(_, _) => ast_expr_text(e).*,
-    .FnCall(_, func_box, args, is_infix, _) => {
+    .FnCall(_, func_box, Rc(args), is_infix, _) => {
       n := args.len();
       func_is_op_or_dot := match(
         func_box,
@@ -760,7 +768,7 @@ ast_expr_is_fn_call_of :: (fn(e : &AstExpr, func_name : str, arg_count : Option(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       func_name_matches := match(
         func_box,
         .Atom(_, tok) => (tok.value.* == func_name),
@@ -859,7 +867,7 @@ borrow_mode_not_a_type_message :: (fn(ty : &String, is_mut : bool) -> String)({
 ast_expr_is_capture_mode_entry :: (fn(e : &AstExpr) -> bool)(
   (ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(1)))) && match(
     e,
-    .FnCall(_, _, ce_args, ce_infix, _) => (!ce_infix && match(ce_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)),
+    .FnCall(_, _, Rc(ce_args), ce_infix, _) => (!ce_infix && match(ce_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)),
     .Atom(_, _) => false
   )
 );
@@ -903,7 +911,7 @@ ast_expr_strip_borrow_marker :: (fn(e : &AstExpr) -> AstExpr)(
   cond(
     (ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1)))) => match(
       e,
-      .FnCall(_, _, sm_args, _, _) => match(sm_args.get(usize(0)), .Some(sm_a) => sm_a, .None => e),
+      .FnCall(_, _, Rc(sm_args), _, _) => match(sm_args.get(usize(0)), .Some(sm_a) => sm_a, .None => e),
       .Atom(_, _) => e
     ),
     true => e
@@ -917,7 +925,7 @@ ast_expr_strip_borrow_marker :: (fn(e : &AstExpr) -> AstExpr)(
 ast_call_args_unmarked :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, ua_args, _, _) => {
+    .FnCall(_, _, Rc(ua_args), _, _) => {
       out := ArrayList(AstExpr).new();
       (ui : usize) = usize(0);
       while(ui < ua_args.len(), ui = (ui + usize(1)), {
@@ -937,7 +945,7 @@ ast_place_text :: (fn(e : &AstExpr) -> String)(
   match(
     e,
     .Atom(_, _) => ast_expr_text(e).*,
-    .FnCall(_, pf, pargs, _, _) => cond(
+    .FnCall(_, pf, Rc(pargs), _, _) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => {
         base := recur(match(pargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()));
         field := match(
@@ -977,7 +985,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : &AstExpr, func_names : &ArrayList(str), ar
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       func_name_in_list := match(
         func_box,
         .Atom(_, tok) => {
@@ -1021,10 +1029,10 @@ exprs_are_equal :: (fn(e1 : &AstExpr, e2 : &AstExpr) -> bool)(
       .Atom(_, tok2) => (tok1.value.* == tok2.value.*),
       .FnCall(_, _, _, _, _) => false
     ),
-    .FnCall(_, func1, args1, _, _) => match(
+    .FnCall(_, func1, Rc(args1), _, _) => match(
       e2,
       .Atom(_, _) => false,
-      .FnCall(_, func2, args2, _, _) => {
+      .FnCall(_, func2, Rc(args2), _, _) => {
         if(!recur(&func1, &func2), {
           return(false);
         });
@@ -1167,7 +1175,7 @@ expect_expr_to_be_fn_call_of :: (
     .Some(n) => {
       actual := match(
         expr,
-        .FnCall(_, _, args, _, _) => args.len(),
+        .FnCall(_, _, Rc(args), _, _) => args.len(),
         _ => usize(0)
       );
       if(actual != n, {
@@ -1218,7 +1226,7 @@ expect_expr_to_be_fn_call_of_any :: (
     .Some(n) => {
       actual := match(
         expr,
-        .FnCall(_, _, args, _, _) => args.len(),
+        .FnCall(_, _, Rc(args), _, _) => args.len(),
         _ => usize(0)
       );
       if(actual != n, {
@@ -1278,7 +1286,7 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
   });
   pair_args := match(
     arg,
-    .FnCall(_, _, pa, _, _) => pa,
+    .FnCall(_, _, Rc(pa), _, _) => pa,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   label_matches := match(
@@ -1360,7 +1368,7 @@ _BorrowSigil :: struct(is_mut : bool, inner : AstExpr, tok : Token);
 _borrow_sigil_of :: (fn(e : &AstExpr) -> Option(_BorrowSigil))(
   match(
     e,
-    .FnCall(_, sf, sargs, s_infix, _) => cond(
+    .FnCall(_, sf, Rc(sargs), s_infix, _) => cond(
       (s_infix || (sargs.len() != usize(1))) => Option(_BorrowSigil).None,
       true => match(
         sf,
@@ -1379,7 +1387,7 @@ _borrow_sigil_of :: (fn(e : &AstExpr) -> Option(_BorrowSigil))(
 /// `__yo_imm(args...)` / `__yo_mut(args...)`, its head synthesized at the sigil `at`.
 _borrow_mode_call :: (fn(is_mut : bool, args : &ArrayList(AstExpr), at : &Token) -> AstExpr)({
   mtok := _synth_desugar_tok(TokenKind.Identifier, cond(is_mut => BK_MUT, true => BK_IMM), at);
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), mtok), args.clone(), false, mtok)
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), mtok), Rc.new(args.clone()), false, mtok)
 });
 _borrow_mode_call1 :: (fn(is_mut : bool, arg : &AstExpr, at : &Token) -> AstExpr)({
   one := ArrayList(AstExpr).new();
@@ -1391,7 +1399,7 @@ _BsPair :: struct(lhs : AstExpr, rhs : AstExpr);
 _bs_infix_pair :: (fn(e : &AstExpr, op : str) -> Option(_BsPair))(
   match(
     e,
-    .FnCall(_, pf, pargs, p_infix, _) => cond(
+    .FnCall(_, pf, Rc(pargs), p_infix, _) => cond(
       (p_infix && (pargs.len() == usize(2)) && ast_expr_is_atom_of(&pf, op)) => Option(_BsPair).Some(
         _BsPair(lhs : match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), rhs : match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()))
       ),
@@ -1408,7 +1416,7 @@ _bs_with_operands :: (fn(e : &AstExpr, lhs : &AstExpr, rhs : &AstExpr) -> AstExp
       ops := ArrayList(AstExpr).new();
       ops.push(lhs);
       ops.push(rhs);
-      AstExpr.FnCall(wid, wf, ops, w_infix, wtok)
+      AstExpr.FnCall(wid, wf, Rc.new(ops), w_infix, wtok)
     },
     .Atom(_, _) => e
   )
@@ -1417,12 +1425,12 @@ _bs_with_operands :: (fn(e : &AstExpr, lhs : &AstExpr, rhs : &AstExpr) -> AstExp
 _bs_with_args :: (fn(e : &AstExpr, args : &ArrayList(AstExpr)) -> AstExpr)(
   match(
     e,
-    .FnCall(wid, wf, _, w_infix, wtok) => AstExpr.FnCall(wid, wf, args.clone(), w_infix, wtok),
+    .FnCall(wid, wf, _, w_infix, wtok) => AstExpr.FnCall(wid, wf, Rc.new(args.clone()), w_infix, wtok),
     .Atom(_, _) => e
   )
 );
 _bs_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// An identifier atom: the only name a local borrow or a capture pun binds.
 _bs_is_name :: (fn(e : &AstExpr) -> bool)(
@@ -1527,7 +1535,7 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
     ),
     ast_expr_is_capture_list_params(lhs) => match(
       lhs,
-      .FnCall(lid, cl_callee, cl_params, cl_infix, ltok) => {
+      .FnCall(lid, cl_callee, Rc(cl_params), cl_infix, ltok) => {
         (changed : bool) = false;
         entries := _bs_args(&cl_callee);
         new_entries := ArrayList(AstExpr).new();
@@ -1552,7 +1560,7 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
           .None => cl_params
         );
         cond(
-          changed => Option(AstExpr).Some(AstExpr.FnCall(lid, _bs_with_args(&cl_callee, &new_entries), new_params, cl_infix, ltok)),
+          changed => Option(AstExpr).Some(AstExpr.FnCall(lid, _bs_with_args(&cl_callee, &new_entries), Rc.new(new_params), cl_infix, ltok)),
           true => Option(AstExpr).None
         )
       },
@@ -1587,10 +1595,10 @@ _bs_is_sigil :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1)))
 );
 _bs_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
-  match(e, .FnCall(_, _, a, _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
+  match(e, .FnCall(_, _, Rc(a), _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
 );
 _bs_is_infix_of :: (fn(e : &AstExpr, op : str) -> bool)(
-  match(e, .FnCall(_, f, a, infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(&f, op)), .Atom(_, _) => false)
+  match(e, .FnCall(_, f, Rc(a), infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(&f, op)), .Atom(_, _) => false)
 );
 /// `L : &T`, through a `?=` default or an `= value` (allocation-free).
 _bs_param_is_target :: (fn(p : &AstExpr) -> bool)(
@@ -1615,7 +1623,7 @@ _is_borrow_spelling_target :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, _, args, _, _) => cond(
+    .FnCall(_, _, Rc(args), _, _) => cond(
       _bs_is_param_list_head(e) => _bs_any_param_is_target(&args),
       _bs_is_infix_of(e, "->") => (_bs_is_param_list_head(_bs_arg(e, usize(0))) && (_bs_is_sigil(_bs_arg(e, usize(1))) || _bs_param_is_target(_bs_arg(e, usize(1))))),
       _bs_is_infix_of(e, "=>") => {
@@ -1736,7 +1744,7 @@ _borrow_spelling_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))({
                 ops := ArrayList(AstExpr).new();
                 ops.push(_borrow_mode_call(ts.is_mut, &ann, &ts.tok));
                 ops.push(s.inner);
-                return(Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(e), AstExpr.Atom(alloc_global_expr_id(), bind_tok), ops, true, bind_tok)));
+                return(Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(e), AstExpr.Atom(alloc_global_expr_id(), bind_tok), Rc.new(ops), true, bind_tok)));
               }),
               .None => ()
             ),
@@ -1771,7 +1779,7 @@ _borrow_spelling_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))({
 _is_borrowed_match_scrutinee :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_MATCH, .None) && match(
     e,
-    .FnCall(_, _, ms_args, _, _) => match(
+    .FnCall(_, _, Rc(ms_args), _, _) => match(
       ms_args.get(usize(0)),
       .Some(s0) => (ast_expr_is_fn_call_of(&s0, BK_BORROW_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&s0, BF_ADDRESS_OF, Option(usize).Some(usize(1)))),
       .None => false
@@ -1783,7 +1791,7 @@ _contains_desugar_target :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       if(ast_expr_is_fn_call_of(e, BK_QUOTE, .None), {
         return(false);
       });
@@ -1828,7 +1836,7 @@ _is_await_method_call :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, .FnCall(_, dot, dargs, is_infix, _), _, _, _) => (
+    .FnCall(_, .FnCall(_, dot, Rc(dargs), is_infix, _), _, _, _) => (
       is_infix && (dargs.len() == usize(2)) &&
         match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
           dargs.get(usize(1)),
@@ -1846,7 +1854,7 @@ _is_return_of_await :: (fn(e : &AstExpr) -> bool)({
   });
   match(
     e,
-    .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(arg) => _is_await_method_call(&arg), .None => false),
+    .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(arg) => _is_await_method_call(&arg), .None => false),
     .Atom(_, _) => false
   )
 });
@@ -1869,7 +1877,7 @@ _wrap_glob_destructure :: (fn(decl : &AstExpr) -> AstExpr)({
   pat := AstExpr.FnCall(
     alloc_global_expr_id(),
     AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_ANON_STRUCT, &tok)),
-    pat_args,
+    Rc.new(pat_args),
     false,
     tok
   );
@@ -1879,7 +1887,7 @@ _wrap_glob_destructure :: (fn(decl : &AstExpr) -> AstExpr)({
   AstExpr.FnCall(
     alloc_global_expr_id(),
     AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, BK_CONST, &tok)),
-    bind_args,
+    Rc.new(bind_args),
     true,
     tok
   )
@@ -1888,7 +1896,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => e,
-    .FnCall(id, func_box, args, is_infix, tok) => {
+    .FnCall(id, func_box, Rc(args), is_infix, tok) => {
       if(ast_expr_is_fn_call_of(e, BK_QUOTE, .None), {
         return(e);
       });
@@ -1934,7 +1942,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
           arrow1 := AstExpr.FnCall(
             alloc_global_expr_id(),
             AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", &tok)),
-            arrow1_args,
+            Rc.new(arrow1_args),
             true,
             tok
           );
@@ -1946,7 +1954,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
               AstExpr.FnCall(
                 alloc_global_expr_id(),
                 AstExpr.Atom(alloc_global_expr_id(), unit_tok),
-                ArrayList(AstExpr).new(),
+                Rc.new(ArrayList(AstExpr).new()),
                 false,
                 unit_tok
               )
@@ -1958,7 +1966,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
           arrow2 := AstExpr.FnCall(
             alloc_global_expr_id(),
             AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", &tok)),
-            arrow2_args,
+            Rc.new(arrow2_args),
             true,
             tok
           );
@@ -1969,7 +1977,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
             AstExpr.FnCall(
               id,
               AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_COND, &tok)),
-              cond_args,
+              Rc.new(cond_args),
               false,
               tok
             )
@@ -1986,20 +1994,20 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
         awaited := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
         tmp_name := String.from("__yo_return_await_");
         tmp_name.push_string(alloc_global_expr_id().to_string());
-        tmp_cell := rc(tmp_name);
+        tmp_cell := Rc.new(tmp_name);
         bind_args := ArrayList(AstExpr).new();
         bind_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, Rc.clone(tmp_cell), &tok)));
         bind_args.push(awaited);
         bind := AstExpr.FnCall(
           alloc_global_expr_id(),
           AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, BK_INIT_ASSIGN, &tok)),
-          bind_args,
+          Rc.new(bind_args),
           true,
           tok
         );
         ret_args := ArrayList(AstExpr).new();
         ret_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, tmp_cell, &tok)));
-        ret := AstExpr.FnCall(id, func_box, ret_args, is_infix, tok);
+        ret := AstExpr.FnCall(id, func_box, Rc.new(ret_args), is_infix, tok);
         block_args := ArrayList(AstExpr).new();
         block_args.push(bind);
         block_args.push(ret);
@@ -2007,7 +2015,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
           AstExpr.FnCall(
             alloc_global_expr_id(),
             AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_BEGIN, &tok)),
-            block_args,
+            Rc.new(block_args),
             false,
             tok
           )
@@ -2035,7 +2043,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
           );
           bm_i = (bm_i + usize(1));
         });
-        return(AstExpr.FnCall(id, recur(&func_box), bm_args, is_infix, tok));
+        return(AstExpr.FnCall(id, recur(&func_box), Rc.new(bm_args), is_infix, tok));
       });
       // Every argument of a `begin` block is a statement: a bare
       // `c_include(...)` / `extern(...)` there is the glob-destructure sugar.
@@ -2054,7 +2062,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
         );
         di = (di + usize(1));
       });
-      AstExpr.FnCall(id, recur(&func_box), new_args, is_infix, tok)
+      AstExpr.FnCall(id, recur(&func_box), Rc.new(new_args), is_infix, tok)
     }
   )
 );
@@ -2124,7 +2132,7 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
   );
   args := ArrayList(AstExpr).new();
   args.push(body);
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), begin_tok.clone()), args, false, begin_tok)
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), begin_tok.clone()), Rc.new(args), false, begin_tok)
 });
 export(wrap_body_in_begin);
 // ---------------------------------------------------------------------------
@@ -2172,14 +2180,14 @@ projection_tail_mode :: (fn(e : &AstExpr) -> Option(bool))(
 _with_arg :: (fn(e : &AstExpr, i : usize, a : &AstExpr) -> AstExpr)(
   match(
     e,
-    .FnCall(wa_id, wa_f, wa_args, wa_infix, wa_tok) => {
+    .FnCall(wa_id, wa_f, Rc(wa_args), wa_infix, wa_tok) => {
       na := ArrayList(AstExpr).new();
       (k : usize) = usize(0);
       while(k < wa_args.len(), {
         na.push(if(k == i, a, wa_args(k)));
         k = (k + usize(1));
       });
-      AstExpr.FnCall(wa_id, wa_f, na, wa_infix, wa_tok)
+      AstExpr.FnCall(wa_id, wa_f, Rc.new(na), wa_infix, wa_tok)
     },
     .Atom(_, _) => e
   )
@@ -2203,16 +2211,16 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         mismatches.push(bs.tok);
       });
       mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = rc(mark.value.*.clone());
+      mark.module_path = Rc.new(mark.value.*.clone());
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);
-      AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), head), one, false, mark)
+      AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), head), Rc.new(one), false, mark)
     },
     .None => cond(
       ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
         e,
-        .FnCall(_, _, pb_args, _, _) => if(pb_args.len() == usize(0), e, {
+        .FnCall(_, _, Rc(pb_args), _, _) => if(pb_args.len() == usize(0), e, {
           last := (pb_args.len() - usize(1));
           out := e;
           (k : usize) = usize(0);
@@ -2235,7 +2243,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
       ),
       (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => match(
         e,
-        .FnCall(_, _, pc_args, _, _) => {
+        .FnCall(_, _, Rc(pc_args), _, _) => {
           out := e;
           (k : usize) = usize(0);
           while(k < pc_args.len(), {
@@ -2277,14 +2285,14 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
     ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))) => Option(AstExpr).Some(_projection_tail(e, is_mut, mismatches)),
     true => match(
       e,
-      .FnCall(_, pr_f, pr_args, _, _) => {
+      .FnCall(_, pr_f, Rc(pr_args), _, _) => {
         // A `cond`/`match` arm is a branch, not a closure: walk its body.
         in_branch := (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
         (out : Option(AstExpr)) = match(
           _projection_returns(&pr_f, is_mut, mismatches),
           .Some(nf) => match(
             e,
-            .FnCall(pf_id, _, pf_args, pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, pf_args.clone(), pf_infix, pf_tok)),
+            .FnCall(pf_id, _, Rc(pf_args), pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, Rc.new(pf_args.clone()), pf_infix, pf_tok)),
             .Atom(_, _) => Option(AstExpr).None
           ),
           .None => Option(AstExpr).None

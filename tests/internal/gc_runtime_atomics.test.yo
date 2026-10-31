@@ -271,7 +271,7 @@ mk_vtable_type :: (fn(alloc_n : usize, realloc_n : usize, free_n : usize, revers
     field_labels.push(String.from("free"));
     field_types.push(mk_slot_type(free_n));
   });
-  rc(
+  Rc.new(
     TypeValueNode.Struct(
       id : String.from("struct_decl_std__prelude_1_1"),
       name : String.from("AllocatorVTable"),
@@ -340,4 +340,20 @@ test("allocator interface version 2 aligns, records the extent and frees by size
   ctx.base.alloc_abi_v2 = true;
   call := ctx.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &String.from("T"));
   assert(call == "__yo_rc_alloc_scoped(__yo_sc, sizeof(T), _Alignof(T))", "v2: the call passes the alignment");
+});
+/// Pin: both interface versions emit the owner hooks the prelude reads for
+/// `make_mut` (plans/backlog/SEED_VERSION_AUTOMATION.md, "make_mut reuses the
+/// owner"): the owner prefix's ctx and vtable, NULL for a global cell, with
+/// the tag bit read by a relaxed atomic load, because an `Arc` cell's count
+/// is updated through `_Atomic` casts while other threads hold handles.
+test("the owner hooks read the tag bit atomically and the owner prefix under both interface versions", {
+  tag_read := "if (atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)p)->ref_count, memory_order_relaxed) & __YO_RC_TAG) {";
+  for(array(false, true), v2 => {
+    c := emit_type_preamble(v2);
+    assert(c.contains("static inline void* __yo_rc_owner_ctx(void* p) {"), "the ctx hook");
+    assert(c.contains("static inline void* __yo_rc_owner_vtable(void* p) {"), "the vtable hook");
+    assert(c.contains("return ((const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE))->ctx;"), "ctx: the 16 bytes before the object");
+    assert(c.contains("return (void*)((const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE))->vtable;"), "vtable: the 16 bytes before the object");
+    assert(c.split(&tag_read).len() == usize(3), "each hook reads the tag bit with a relaxed atomic load");
+  });
 });

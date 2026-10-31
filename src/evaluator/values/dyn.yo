@@ -136,7 +136,7 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
       .Some(tn) => .Some(DynCellConstructor(type_name : tn, unapplied_receiver : .None)),
       .None => .None
     ),
-    .FnCall(_, _, dot_args, _, _) => cond(
+    .FnCall(_, _, Rc(dot_args), _, _) => cond(
       (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false)) => match(
         dot_args.get(usize(0)),
         .Some(.Atom(r_id, r_tok)) => cond(
@@ -192,7 +192,7 @@ _synthesized_cell_call :: (
     ctor_callee,
     .Some(callee) => {
       callee_id := ast_expr_id(&callee);
-      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), callee_id)
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at), callee_id)
     },
     .None => {
       recv_id := alloc_global_expr_id();
@@ -213,8 +213,8 @@ _synthesized_cell_call :: (
       dot_args := ArrayList(AstExpr).new();
       dot_args.push(recv);
       dot_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("new"), &env.module_path.*)));
-      callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), dot_args, true, dot_tok);
-      (AstExpr.FnCall(alloc_global_expr_id(), callee, call_args, false, at), recv_id)
+      callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(dot_args), true, dot_tok);
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at), recv_id)
     }
   )
 });
@@ -409,7 +409,7 @@ _require_dyn_traits_implemented :: (
   ) -> unit
 )({
   // Decide the bound on the UNDERLYING type when the payload is an Rc: both
-  // `dyn(rc(i32(42)))` and the auto-box path arrive here as `Rc(i32)`, while
+  // `dyn(Rc.new(i32(42)))` and the auto-box path arrive here as `Rc(i32)`, while
   // the impl is registered against `i32` (the same unwrap the trait-value
   // resolution does before its registry lookups).
   // Rules D4 + D9: a FUNCTION payload (`dyn(k)` into `Dyn(Fn() -> R, Send)`)
@@ -419,10 +419,10 @@ _require_dyn_traits_implemented :: (
   // and the early return below skipped every check for it
   // (issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md).
   // A `Dyn(..., Send)` shares its data object across threads, so the object
-  // must be atomically counted: a `rc(...)` payload is not
+  // must be atomically counted: an `Rc.new(...)` payload is not
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   if(match(dyn_type, Rc(.DynT(required_trait_types : sd_rtt)) => _traits_name_send(&sd_rtt.items), _ => false) && is_boxed_type(value_type) && !is_atomic_counted_handle_type(value_type), {
-    sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
+    sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`Arc.new\`) or \`Arc.new(v)\`.`;
     raise_flow_violation(format_error_message(token, &sd_msg), ctx, exn);
   });
   fv_payload := _unwrap_box_for_method_lookup(value_type);
@@ -574,7 +574,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
         Rc(.TraitT({ name : tn, field_labels : fls, field_types : fts })) => {
           (j : usize) = usize(0);
           while(j < fts.len(), {
-            ft := match(fts.get(j), .Some(f) => f, .None => rc(TypeValueNode.Unit));
+            ft := match(fts.get(j), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit));
             if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
               owned := match(&ft, Rc(.Func({ result : _ })) => match(fn_param_by_value_at(&ft, usize(0)), .Some(o) => o, .None => false), _ => false);
               if(owned, {
@@ -702,13 +702,13 @@ _reject_dyn_borrowing_future_methods :: (
           // The method's result type, and its body's evaluated type: the
           // borrows ride on the body's `io.async` wrapper, which the declared
           // `Impl(Future(...))` result reaches only through its resolution.
-          (res_ty : TypeValue) = rc(TypeValueNode.Unit);
-          (body_ty : TypeValue) = rc(TypeValueNode.Unit);
+          (res_ty : TypeValue) = Rc.new(TypeValueNode.Unit);
+          (body_ty : TypeValue) = Rc.new(TypeValueNode.Unit);
           match(
             fvals.get(fi),
             .Some(.Some(.FuncVal(fvd, _))) => {
-              res_ty = match(get_func_type(fvd.*.func_id.clone()), Rc(.Func({ result : r })) => Rc.clone(r), _ => rc(TypeValueNode.Unit));
-              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => Rc.clone(bi.ty), .None => rc(TypeValueNode.Unit));
+              res_ty = match(get_func_type(fvd.*.func_id.clone()), Rc(.Func({ result : r })) => Rc.clone(r), _ => Rc.new(TypeValueNode.Unit));
+              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => Rc.clone(bi.ty), .None => Rc.new(TypeValueNode.Unit));
             },
             _ => ()
           );
@@ -824,7 +824,7 @@ _generic_impl_method_for_dyn :: (
         callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), &caller_env.module_path.*));
         call_args := ArrayList(AstExpr).new();
         call_args.push(recv_atom);
-        call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
+        call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok);
         ctx.pending_method_self_type = Option(TypeValue).Some(receiver_type.clone());
         // The synthetic call has no expected result: the surrounding
         // context's (the `Dyn` a `dyn(...)` argument is checked against)
@@ -867,7 +867,7 @@ _dyn_clone_payload_identity :: (fn(payload_ty : &TypeValue, dyn_type : &TypeValu
     t_dyn_payload_wrapper(dyn_type, frame_level),
     .Some(w) => match(
       w,
-      Rc(.SomeT(w_id, _, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _)) => rc(TypeValueNode.SomeT(w_id, String.from("Impl"), w_fl, Rc.clone(w_pt), w_rtt, w_rtl, w_ntt, w_ntl, w_kft.clone(), Option(TypeValue).Some(concrete))),
+      Rc(.SomeT(w_id, _, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _)) => Rc.new(TypeValueNode.SomeT(w_id, String.from("Impl"), w_fl, Rc.clone(w_pt), w_rtt, w_rtl, w_ntt, w_ntl, w_kft.clone(), Option(TypeValue).Some(concrete))),
       _ => payload_ty.clone()
     ),
     .None => payload_ty.clone()
@@ -901,7 +901,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       // `_generic_impl_method_for_dyn` passes its receiver.
       call_args := ArrayList(AstExpr).new();
       call_args.push(recv_atom);
-      call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
+      call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok);
       ctx.expected_type = Option(ExpectedTypeCtx).None;
       res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
       ctx.expected_type = saved_expected;
@@ -1112,7 +1112,7 @@ _dyn_type_from_payload_or_throw :: (
           )
         );
       });
-      rc(
+      Rc.new(
         TypeValueNode.DynT(
           required_trait_types : no_types(),
           required_trait_levels : no_levels(),
@@ -1160,7 +1160,7 @@ evaluate_dyn_value :: (
   // Extract the args ArrayList and the single value argument.
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a,
     _ => {
       exn.throw(
         dyn(
@@ -1229,7 +1229,7 @@ evaluate_dyn_value :: (
         // covers the dyn-closure pattern.)
         dyn_cell_closure := match(
           value_arg,
-          .FnCall(_, dbc_fn, dbc_args, _, _) => cond(
+          .FnCall(_, dbc_fn, Rc(dbc_args), _, _) => cond(
             (
               (dbc_args.len() == usize(1)) && match(
                 dbc_args.get(usize(0)),
@@ -1255,7 +1255,7 @@ evaluate_dyn_value :: (
                       dbc_callee_id := ast_expr_id(&dbc_callee);
                       rebuilt := match(
                         value_arg,
-                        .FnCall(dbc_id, _, dbc_call_args, dbc_flag, dbc_tok) => Option(AstExpr).Some(AstExpr.FnCall(dbc_id, dbc_callee, dbc_call_args.clone(), dbc_flag, dbc_tok.clone())),
+                        .FnCall(dbc_id, _, Rc(dbc_call_args), dbc_flag, dbc_tok) => Option(AstExpr).Some(AstExpr.FnCall(dbc_id, dbc_callee, Rc.new(dbc_call_args.clone()), dbc_flag, dbc_tok.clone())),
                         _ => Option(AstExpr).None
                       );
                       match(
@@ -1344,7 +1344,7 @@ evaluate_dyn_value :: (
             negative_trait_levels : ntl
           )
         ) =>
-          rc(
+          Rc.new(
             TypeValueNode.DynT(
               required_trait_types : Rc.clone(rtt),
               required_trait_levels : Rc.clone(rtl),
@@ -1392,7 +1392,7 @@ evaluate_dyn_value :: (
               .Some(iec) => match(
                 &iec.ty,
                 Rc(.SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _)) => {
-                  ne_box_inner_ty = rc(
+                  ne_box_inner_ty = Rc.new(
                     TypeValueNode.SomeT(
                       bx_id.clone(),
                       bx_nm.clone(),
@@ -1584,7 +1584,7 @@ evaluate_dyn_value :: (
         )
       ) =>
         Option(TypeValue).Some(
-          rc(
+          Rc.new(
             TypeValueNode.DynT(
               required_trait_types : Rc.clone(rtt),
               required_trait_levels : Rc.clone(rtl),
@@ -1610,7 +1610,7 @@ evaluate_dyn_value :: (
           negative_trait_levels : ntl
         )
       ) =>
-        rc(
+        Rc.new(
           TypeValueNode.DynT(
             required_trait_types : Rc.clone(rtt),
             required_trait_levels : Rc.clone(rtl),
@@ -1636,7 +1636,7 @@ evaluate_dyn_value :: (
             )
           )
         );
-        rc(
+        Rc.new(
           TypeValueNode.DynT(
             required_trait_types : no_types(),
             required_trait_levels : no_levels(),

@@ -67,7 +67,7 @@ import("std/fmt");
 // ---------------------------------------------------------------------------
 /// Get the args of a FnCall expression (empty for non-FnCall).
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Get the func expression of a FnCall (or the expr itself for Atom).
 _fn_call_func :: (fn(e : &AstExpr) -> AstExpr)(
@@ -152,7 +152,7 @@ _type_value_cycle_step :: (
           vfs := match(e_vfs.get(i), .Some(l) => l, .None => no_types());
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
-            ft := match(vfs.get(j), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+            ft := match(vfs.get(j), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
             if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
               hit = true;
             });
@@ -175,7 +175,7 @@ _type_value_cycle_step :: (
         (hit : bool) = false;
         (i : usize) = usize(0);
         while((i < s_fts.len()) && !hit, {
-          ft := match(s_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+          ft := match(s_fts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
           if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
             hit = true;
           });
@@ -188,7 +188,7 @@ _type_value_cycle_step :: (
       (hit : bool) = false;
       (i : usize) = usize(0);
       while((i < t_fts.len()) && !hit, {
-        ft := match(t_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+        ft := match(t_fts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
@@ -200,7 +200,7 @@ _type_value_cycle_step :: (
       (hit : bool) = false;
       (i : usize) = usize(0);
       while((i < u_fts.len()) && !hit, {
-        ft := match(u_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+        ft := match(u_fts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
@@ -235,7 +235,7 @@ _evaluate_discriminant :: (
           )
         )
       );
-      new_expr_info(env_in, rc(TypeValueNode.Unit))
+      new_expr_info(env_in, Rc.new(TypeValueNode.Unit))
     }
   );
   if(disc_info.value.is_none(), {
@@ -357,7 +357,7 @@ evaluate_enum_type :: (
   if(!decl_tok.module_path.*.starts_with(String.from("auto-generated://")) && is_prelude_or_generated_file(Option(String).Some(decl_tok.module_path.*.clone()), ctx.std_path.clone()), {
     register_prelude_enum_decl(&decl_key);
   });
-  prelim_ty := rc(
+  prelim_ty := Rc.new(
     TypeValueNode.EnumT(
       shell_id.clone(),
       String.from(""),
@@ -424,7 +424,7 @@ evaluate_enum_type :: (
             new_args := ArrayList(AstExpr).new();
             new_args.push(arrow_lhs);
             new_args.push(eq_disc);
-            AstExpr.FnCall(fid, ffunc, new_args, finfix, ftok)
+            AstExpr.FnCall(fid, ffunc, Rc.new(new_args), finfix, ftok)
           },
           .Atom(_, _) => enum_arg
         );
@@ -652,7 +652,7 @@ evaluate_enum_type :: (
           ra := match(recur_args.get(gi), .Some(a) => a, .None => make_err_expr());
           evaluated_ra := evaluate_expression_raw(&ra, &env, ctx, exn);
           ra_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ra));
-          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
+          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
           if(!is_type_value(&ra_info.value), {
             exn.throw(
               dyn(
@@ -665,8 +665,8 @@ evaluate_enum_type :: (
           });
           ra_ty := match(
             ra_info.value,
-            .Some(v) => match(v, .TypeVal(inner) => Rc.clone(inner), _ => rc(TypeValueNode.Unit)),
-            .None => rc(TypeValueNode.Unit)
+            .Some(v) => match(v, .TypeVal(inner) => Rc.clone(inner), _ => Rc.new(TypeValueNode.Unit)),
+            .None => Rc.new(TypeValueNode.Unit)
           );
           this_variant_args.push(ra_ty);
           gi = (gi + usize(1));
@@ -705,7 +705,7 @@ evaluate_enum_type :: (
               n_tcp := fc_plabels.len();
               while(tci < n_tcp, {
                 p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
-                p_ty := match(slot_pointee_at(&fc_ptypes, tci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                p_ty := match(slot_pointee_at(&fc_ptypes, tci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
                 if(is_type_0(&p_ty), {
                   vars := get_variables_from_env(&env, &p_lbl);
@@ -767,7 +767,7 @@ evaluate_enum_type :: (
       vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => no_types());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {
-        ft := match(vfs.get(fi2), .Some(x) => x, .None => rc(TypeValueNode.Unit));
+        ft := match(vfs.get(fi2), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         visited := ArrayList(String).new();
         if(_type_reaches_root_by_value(&ft, enum_id.clone(), shell_id.clone(), &mut visited), {
           exn.throw(
@@ -793,7 +793,7 @@ evaluate_enum_type :: (
   variant_field_labels_s := shared_list(variant_field_labels);
   variant_discriminants_s := shared_list(variant_discriminants);
   variant_fields_s := shared_list(variant_fields);
-  pre_final_ty := rc(
+  pre_final_ty := Rc.new(
     TypeValueNode.EnumT(
       enum_id.clone(),
       String.from(""),
@@ -828,7 +828,7 @@ evaluate_enum_type :: (
     patched_fields.push(shared_list(new_list));
     pf_i = (pf_i + usize(1));
   });
-  enum_ty := rc(
+  enum_ty := Rc.new(
     TypeValueNode.EnumT(
       enum_id.clone(),
       String.from(""),

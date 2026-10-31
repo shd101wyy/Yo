@@ -810,7 +810,7 @@ read_http_message :: (
     Impl(Future(Result(String, HttpError), IoExn))
 )(
   io.async({ &stream, max_bytes, kind }(e : IoExn) => {
-    framed := e.io.await(read_http_message_buffered(stream, max_bytes, kind, rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new())), e.io), e);
+    framed := e.io.await(read_http_message_buffered(stream, max_bytes, kind, Rc.new(RefCell(ArrayList(u8)).new(ArrayList(u8).new())), e.io), e);
     framed
   })
 );

@@ -16,8 +16,8 @@ use_id :: (fn(value : Dyn(Id)) -> unit) { x := value.id(); };
 
 main :: (fn() -> unit) {
   // Value types must be boxed
-  use_id(dyn(rc(42)));
-  use_id(dyn(rc(true)));
+  use_id(dyn(Rc.new(42)));
+  use_id(dyn(Rc.new(true)));
 
   // Reference-semantics types can be used directly
   point := Point(x: 3, y: 4);
@@ -57,7 +57,7 @@ The `data` field **must** point to an reference-semantics type (reference counte
 
 ```c
 // For value types - MUST use Rc(T)
-Box_i32* boxed = /* rc(42) */;  // Rc(i32) is an reference-semantics type
+Box_i32* boxed = /* Rc.new(42) */;  // Rc(i32) is an reference-semantics type
 void* data = boxed;               // Store Box pointer
 
 // For reference-semantics types - use directly
@@ -157,14 +157,14 @@ written: `d.get()` could not say which trait's method it means.
 
 ```yo
 // Value types must be boxed
-dyn(rc(42)); // OK: rc(42) returns Rc(i32), which is an reference-semantics type
-dyn(rc(true)); // OK: rc(true) returns Rc(bool)
+dyn(Rc.new(42)); // OK: Rc.new(42) returns Rc(i32), which is an reference-semantics type
+dyn(Rc.new(true)); // OK: Rc.new(true) returns Rc(bool)
 // Reference-semantics types can be used directly
 point := Point(x : 3, y : 4); // point : Point, Point is reference-semantics type
 dyn(point); // OK: point is an reference-semantics type
 // Direct value will be automatically boxed
-dyn(42); // 42 becomes rc(42) automatically
-dyn(true); // true becomes rc(true) automatically
+dyn(42); // 42 becomes Rc.new(42) automatically
+dyn(true); // true becomes Rc.new(true) automatically
 ```
 
 **A `Send` Dyn's payload is atomic.** Every copy of a `Dyn(Trait, Send)` may live on another
@@ -174,7 +174,7 @@ reference payload is an error:
 
 ```yo
 (d : Dyn(Fn() -> unit, Send)) = dyn(k); // OK: k is boxed with arc
-(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k)); // error: its payload must be atomically reference counted
+(e : Dyn(Fn() -> unit, Send)) = dyn(Rc.new(k)); // error: its payload must be atomically reference counted
 ```
 
 ### 4. Static Vtables and Wrappers
@@ -193,7 +193,7 @@ int32_t wrapper_Box_i32_id(void* self_ptr) {
   return fn_i32_id(&box->value);  // Extract value, call original
 }
 
-// Static vtable for dyn(rc(i32))
+// Static vtable for a Dyn over Rc(i32)
 static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
   .id = wrapper_Box_i32_id  // Points to wrapper
 };
@@ -218,14 +218,14 @@ static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
 When constructing a `Dyn`, the value must be an reference-semantics type. The `Dyn` struct is created on the stack and stores the data pointer.
 
 ```c
-// For dyn(rc(42)):
-Box_i32* boxed = /* result of rc(42) */;  // Already has RC = 1
+// For dyn(Rc.new(42)):
+Box_i32* boxed = /* result of Rc.new(42) */;  // Already has RC = 1
 
 __yo_dyn_trait_id result = {
   .data = boxed,
   .vtable = &__yo_vtable_Box_i32_Id
 };
-// Note: No dup here, ownership transfers from rc(42) to dyn
+// Note: No dup here, ownership transfers from Rc.new(42) to dyn
 ```
 
 ```c
@@ -484,7 +484,7 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
    its payload: `Dyn(Trait, Clone)` copies with `.clone()` through the vtable's `__yo_clone` slot,
    and any other `Dyn` is move-only
 2. **`data` must be reference-semantics type**: Enforces that data is always reference counted
-3. **Value types use `rc()`**: `dyn(rc(42))` wraps value in `Rc(T)` reference-semantics type
+3. **Value types use `Rc.new()`**: `dyn(Rc.new(42))` wraps value in `Rc(T)` reference-semantics type
 4. **Reference-semantics types direct**: `dyn(Point(3, 4))` uses Point pointer directly
 5. **Wrappers for Rc**: Generated wrappers unwrap `Rc(T)` before calling impl methods
 6. **Simple RC**: Only `data` is reference counted, `Dyn` struct is copied by value

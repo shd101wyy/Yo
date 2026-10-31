@@ -594,13 +594,13 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
   bare `__yo_free` — a bare free silently breaks every placed block.
 - User-visible constructors allocate via `__yo_rc_alloc_scoped`, reading
   the thread-local `__yo_current_allocator`. Since `with_allocator` was deleted
-  (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1) its ONLY setter is `rc`/`arc`'s
+  (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1) its ONLY setter is `Rc.new`/`Arc.new`'s
   swap around one cell construction (`__yo_scope_set`); a container's
   `alloc : .Some(a)` instead hands the `Allocator` value straight to its own buffer
   allocation, and a `__yo_cell`'s `alloc` passes it as a parameter. The
   runtime's OWN blocks keep `__yo_rc_alloc` and are never placed. B2b deletes
   the thread-local, the scoped constructor reads and the state machine's
-  scope restore once V5 moves `rc`/`arc` onto the cell.
+  scope restore once V5 moves `Rc.new`/`Arc.new` onto the cell.
 - **Two allocator interface versions, one switch.** `CodeGenContext.alloc_abi_v2`
   is read off the shape of std's `AllocatorVTable` (`std_allocator_abi_is_v2`,
   never a flag). std's struct is the one whose id was minted by a module under

@@ -28,12 +28,12 @@ _mk_func_val :: (fn(fid : str, label : str, param : TypeValue) -> EvalValue)({
   register_func_type(String.from(fid), t_func_simple(labels, tys, t_unit()));
   tok := Token(
     kind : TokenKind.Identifier,
-    value : rc(String.from(label)),
+    value : Rc.new(String.from(label)),
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : rc(String.from("app.yo")),
-    input : rc(String.new())
+    module_path : Rc.new(String.from("app.yo")),
+    input : Rc.new(String.new())
   );
   data := FuncValData(
     forall_names : ArrayList(String).new(),
@@ -45,10 +45,10 @@ _mk_func_val :: (fn(fid : str, label : str, param : TypeValue) -> EvalValue)({
     cap_tys : ArrayList(TypeValue).new(),
     func_id : String.from(fid)
   );
-  EvalValue.FuncVal(rc(data), ArrayList(EvalValue).new())
+  EvalValue.FuncVal(Rc.new(data), ArrayList(EvalValue).new())
 });
 test("a `K : &Type` parameter slot makes the original unemittable", {
-  fv := _mk_func_val("fn_yo_id_test_slot_type_param", "K", rc(TypeValueNode.TypeUni(usize(0))));
+  fv := _mk_func_val("fn_yo_id_test_slot_type_param", "K", Rc.new(TypeValueNode.TypeUni(usize(0))));
   assert(_is_generic_unspecialized_func(&fv), "a Type-universe parameter behind a `&` slot is generic");
 });
 test("an `x : &Expr` parameter slot marks a macro, never a C function", {
@@ -60,7 +60,7 @@ test("a `&T` slot over an unresolved SomeT counts as a generic parameter", {
   assert(_func_has_some_param(String.from("fn_yo_id_test_slot_some_param")), "SomeT behind a `&` slot");
 });
 test("a concrete `&i32` slot is emittable", {
-  fv := _mk_func_val("fn_yo_id_test_slot_concrete_param", "x", rc(TypeValueNode.Int(u8(32), true)));
+  fv := _mk_func_val("fn_yo_id_test_slot_concrete_param", "x", Rc.new(TypeValueNode.Int(u8(32), true)));
   assert(!_is_generic_unspecialized_func(&fv), "a concrete parameter is emittable");
   assert(!_func_has_some_param(String.from("fn_yo_id_test_slot_concrete_param")), "no SomeT");
 });

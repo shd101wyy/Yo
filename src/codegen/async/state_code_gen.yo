@@ -62,7 +62,7 @@ is_io_future_type :: (fn(ty : &TypeValue) -> bool)({
   rts := match(ty, Rc(.SomeT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < rts.len(), {
-    rt := match(rts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    rt := match(rts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(is_concrete_trait_type(&rt), {
       return(true);
     });
@@ -103,7 +103,7 @@ collect_branch_await_exprs :: (
   match(
     expr,
     .Atom(_, _) => (),
-    .FnCall(_, f, args, _, _) => {
+    .FnCall(_, f, Rc(args), _, _) => {
       recur(&f, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -121,14 +121,14 @@ _await_future_expr_is_borrowed_place :: (fn(e : &AstExpr) -> bool)({
   if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     return(false);
   });
-  e_args := match(e, .FnCall(_, _, __afp_a, _, _) => __afp_a, .Atom(_, _) => ArrayList(AstExpr).new());
+  e_args := match(e, .FnCall(_, _, Rc(__afp_a), _, _) => __afp_a, .Atom(_, _) => ArrayList(AstExpr).new());
   field := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
   if(!ast_expr_is_atom(&field), {
     return(false);
   });
   (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
   while(ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(root, .FnCall(_, _, __afp_ra, _, _) => __afp_ra.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+    r_args := match(root, .FnCall(_, _, Rc(__afp_ra), _, _) => __afp_ra.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     r_field := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
     if(!ast_expr_is_atom(&r_field), {
       return(false);

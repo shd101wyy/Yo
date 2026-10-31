@@ -375,7 +375,7 @@ top_handler :: (raise : Raise) = ((msg) -> { unwind(i32(0)); });
 P :: *(Raise);  // rejected
 
 // ❌ Storing in an Rc — heap outlives the install frame.
-b := rc((msg) -> { unwind(i32(0)); });
+b := Rc(Raise).new((msg) -> { unwind(i32(0)); });
 
 // ❌ Closure capturing a handler — closure escapes; handler with it.
 (r : Raise) = ((msg) -> { unwind(i32(0)); });

@@ -541,7 +541,7 @@ test("accept pending in a spawned task before the client connects", {
   ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19913));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
+  seen := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_d6_scripted_server(listener, usize(1), Rc.clone(seen), io), ioe);
   eprintln(`  client: connecting while the server task's accept is pending`);
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
@@ -568,7 +568,7 @@ test("three request/response rounds against a spawned scripted server", {
   ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19914));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
+  seen := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_d6_scripted_server(listener, usize(3), Rc.clone(seen), io), ioe);
   mut(round) := 0;
   while(round < 3, {

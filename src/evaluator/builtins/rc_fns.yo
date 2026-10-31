@@ -57,7 +57,7 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
-  rc(
+  Rc.new(
     TypeValueNode.EnumT(
       String.from(""),
       // id: empty (compat checks use name only)
@@ -90,7 +90,7 @@ _eval_arg :: (
 )({
   arg_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(fargs.get(arg_idx), .Some(x) => x, .None => make_err_expr()),
+    .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(arg_idx), .Some(x) => x, .None => make_err_expr()),
     _ => make_err_expr()
   );
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -120,7 +120,7 @@ _require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn :
     name := String.from(builtin);
     place := match(
       expr,
-      .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_to_string(&x), .None => String.new()),
+      .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_to_string(&x), .None => String.new()),
       _ => String.new()
     );
     exn.throw(dyn(format_error_message(&tok, destroying_builtin_error_message(&name, &place))));
@@ -317,7 +317,7 @@ evaluate_yo_dup_array_element :: (
   if(!is_array_type(&array_type), {
     tok := match(
       expr,
-      .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+      .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
       _ => ast_expr_token(expr)
     );
     exn.throw(
@@ -349,7 +349,7 @@ evaluate_yo_dup_tuple_element :: (
   if(!is_tuple_type(&tuple_type), {
     tok := match(
       expr,
-      .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+      .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
       _ => ast_expr_token(expr)
     );
     exn.throw(
@@ -375,7 +375,7 @@ evaluate_yo_dup_tuple_element :: (
     .None => {
       tok := match(
         expr,
-        .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(1)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+        .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(1)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
         _ => ast_expr_token(expr)
       );
       exn.throw(

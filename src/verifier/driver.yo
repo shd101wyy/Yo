@@ -440,12 +440,12 @@ resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
 /// The self-test assumption `x == (bvadd 1 1)` over a fresh 32-bit x.
 _self_test_sum_assumption :: (fn() -> VcTerm)({
   eq_args := ArrayList(VcTerm).new();
-  eq_args.push(rc(VcTermNode.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32)))));
+  eq_args.push(Rc.new(VcTermNode.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32)))));
   add_args := ArrayList(VcTerm).new();
-  add_args.push(rc(VcTermNode.BvLit(value : u64(1), width : usize(32))));
-  add_args.push(rc(VcTermNode.BvLit(value : u64(1), width : usize(32))));
-  eq_args.push(rc(VcTermNode.App(VcOp.BvAdd, add_args)));
-  rc(VcTermNode.App(VcOp.EqOp, eq_args))
+  add_args.push(Rc.new(VcTermNode.BvLit(value : u64(1), width : usize(32))));
+  add_args.push(Rc.new(VcTermNode.BvLit(value : u64(1), width : usize(32))));
+  eq_args.push(Rc.new(VcTermNode.App(VcOp.BvAdd, add_args)));
+  Rc.new(VcTermNode.App(VcOp.EqOp, eq_args))
 });
 /// Build one self-test obligation: `x := 1+1 ⊢ x == goal_val`.
 _self_test_query :: (fn(name : &String, goal_val : u64) -> VcQuery)({
@@ -453,8 +453,8 @@ _self_test_query :: (fn(name : &String, goal_val : u64) -> VcQuery)({
   q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
   q.assume(_self_test_sum_assumption());
   q.goal = vc_eq(
-    rc(VcTermNode.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32)))),
-    rc(VcTermNode.BvLit(value : goal_val, width : usize(32)))
+    Rc.new(VcTermNode.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32)))),
+    Rc.new(VcTermNode.BvLit(value : goal_val, width : usize(32)))
   );
   q
 });

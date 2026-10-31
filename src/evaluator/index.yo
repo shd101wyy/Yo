@@ -58,18 +58,18 @@ _evaluator_ctx_load_module :: (fn(path : &String) -> LoadModuleResult)(
         f(path.clone()),
         .Some(v) => LoadModuleResult(
           module_value : v,
-          module_type : rc(TypeValueNode.Unit),
+          module_type : Rc.new(TypeValueNode.Unit),
           module_error : Option(String).None
         ),
         .None => LoadModuleResult(
           module_value : EvalValue.UnitVal,
-          module_type : rc(TypeValueNode.Unit),
+          module_type : Rc.new(TypeValueNode.Unit),
           module_error : Option(String).Some(`Module not found: ${path}`)
         )
       ),
     .None => LoadModuleResult(
       module_value : EvalValue.UnitVal,
-      module_type : rc(TypeValueNode.Unit),
+      module_type : Rc.new(TypeValueNode.Unit),
       module_error : Option(String).Some(String.from("No module loader registered"))
     )
   )
@@ -168,7 +168,7 @@ impl(
     // parser.yo `parse` (this constructor drives Parser directly).
     program := desugar_program_if_calls(parser.get_program(exn));
     // --- Create base environment ---
-    (env : Environment) = Environment.new(rc(module_path.clone()));
+    (env : Environment) = Environment.new(Rc.new(module_path.clone()));
     // NOTE: no module-loader wiring call here. `import("...")` resolves through
     // `load_module_fn` directly (used for the prelude just below) and through
     // `g_evaluator_load_fn`.
@@ -198,7 +198,7 @@ impl(
                     match(
                       pvalues.get(pi),
                       .Some(pval_item) => {
-                        env.define_val(&pname, rc(TypeValueNode.Unit), true, .Some(pval_item));
+                        env.define_val(&pname, Rc.new(TypeValueNode.Unit), true, .Some(pval_item));
                         ()
                       },
                       .None => ()

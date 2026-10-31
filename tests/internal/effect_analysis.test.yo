@@ -19,23 +19,23 @@
 make_token :: (fn(kind : TokenKind, v : str) -> Token)(
   Token(
     kind : kind,
-    value : rc(String.from(v)),
+    value : Rc.new(String.from(v)),
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : rc(String.from("")),
-    input : rc(String.from(""))
+    module_path : Rc.new(String.from("")),
+    input : Rc.new(String.from(""))
   )
 );
 make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
   Token(
     kind : kind,
-    value : rc(String.from(v)),
+    value : Rc.new(String.from(v)),
     row : u32(0),
     column : u32(0),
     character : u32(character),
-    module_path : rc(String.from("")),
-    input : rc(String.from(""))
+    module_path : Rc.new(String.from("")),
+    input : Rc.new(String.from(""))
   )
 );
 make_ident :: (fn(v : str) -> AstExpr)(
@@ -48,7 +48,7 @@ make_simple_call :: (fn(func_name : str, arg : &AstExpr, char_pos : usize) -> As
   AstExpr.FnCall(
     usize(0),
     make_ident(func_name),
-    args,
+    Rc.new(args),
     false,
     make_token_at(TokenKind.Identifier, func_name, char_pos)
   )
@@ -61,7 +61,7 @@ make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> As
   dot_fncall := AstExpr.FnCall(
     usize(0),
     AstExpr.Atom(usize(0), make_token(TokenKind.Dot, ".")),
-    dot_args,
+    Rc.new(dot_args),
     true,
     make_token(TokenKind.Dot, ".")
   );
@@ -70,7 +70,7 @@ make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> As
   AstExpr.FnCall(
     usize(0),
     dot_fncall,
-    outer_args,
+    Rc.new(outer_args),
     false,
     make_token(TokenKind.Identifier, method_name)
   )

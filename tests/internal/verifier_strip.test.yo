@@ -1,7 +1,10 @@
 //! The `verify+` strip-pass tests (FORMAL_VERIFICATION.md V3 task 6):
 //! obligations that PROVED have their spliced `ensures failed` asserts
-//! removed from the function body before codegen; the `requires failed`
-//! entry guards STAY (their proof obligation lives at call sites).
+//! left out of the emitted code; the `requires failed` entry guards STAY
+//! (their proof obligation lives at call sites). The strip records the
+//! asserts instead of rewriting the body (an `AstExpr` is not written after
+//! it is built, V4), so the counts below read the statements the emitters
+//! emit, `emitted_block_statements`, and the body itself keeps both asserts.
 //!
 //! In-process model (verifier_negative's shape): the test imports the
 //! evaluator + verifier, arms the fixture as a verification target, loads
@@ -34,6 +37,7 @@
   verify_and_strip_tasks
 } :: import("../../src/verifier/driver.yo");
 { EvalValue } :: import("../../src/value.yo");
+{ emitted_block_statements } :: import("../../src/expr_info.yo");
 { AstExpr, ast_expr_to_string, ast_expr_token } :: import("../../src/expr.yo");
 { VerifyTask } :: import("../../src/evaluator/builtins/contracts.yo");
 
@@ -89,18 +93,28 @@ _task_func_val :: (fn(tasks : &ArrayList(VerifyTask)) -> EvalValue)(
     .None => EvalValue.UnitVal
   )
 );
-/// Count the spliced contract asserts of one label in a wrapped body.
+/// Count the spliced contract asserts of one label that the emitters emit
+/// from a wrapped body (`emitted_block_statements`).
 _count_contract_asserts :: (fn(func_val : &EvalValue, label : &String) -> usize)(
   match(
     func_val,
-    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.body, label.clone()),
+    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.body, label.clone(), true),
     _ => usize(0)
   )
 );
-_count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String) -> usize)(
+/// Count the spliced contract asserts of one label in the wrapped body's AST,
+/// stripped or not.
+_count_contract_asserts_in_ast :: (fn(func_val : &EvalValue, label : &String) -> usize)(
+  match(
+    func_val,
+    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.body, label.clone(), false),
+    _ => usize(0)
+  )
+);
+_count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String, emitted_only : bool) -> usize)(
   match(
     body,
-    .FnCall(_, _, args, _, _) => _count_labeled_asserts(&args, label.clone()),
+    .FnCall(_, _, Rc(args), _, _) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args), label.clone()), _count_labeled_asserts(&args, label.clone())),
     .Atom(_, _) => usize(0)
   )
 );
@@ -161,8 +175,12 @@ test("strip drops proved ensures asserts and keeps the requires guard (mechanism
   proved.push(true);
   stripped := strip_proved_ensures_asserts(&fv, &proved);
   assert(stripped == usize(1), `exactly the ensures assert is stripped, got ${stripped.to_string()}`);
-  assert(_count_contract_asserts(&fv, String.from("ensures failed")) == usize(0), "post-strip: no ensures assert");
+  assert(_count_contract_asserts(&fv, String.from("ensures failed")) == usize(0), "post-strip: no ensures assert is emitted");
   assert(_count_contract_asserts(&fv, String.from("requires failed")) == usize(1), "post-strip: the requires guard stays");
+  // The strip does not rewrite the body: the AST keeps the assert, and the
+  // emitters leave it out.
+  assert(_count_contract_asserts_in_ast(&fv, String.from("ensures failed")) == usize(1), "post-strip: the body's AST keeps the ensures assert");
+  assert(strip_proved_ensures_asserts(&fv, &proved) == usize(0), "a second strip finds nothing new to strip");
 });
 
 test("verify+ end-to-end: proved obligations strip the assert (real solver)", {

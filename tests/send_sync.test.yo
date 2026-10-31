@@ -141,7 +141,7 @@ comptime_expect_error({
 _run_sync :: (fn(f : &Impl(Fn() -> i32, Sync)) -> i32)(f());
 comptime_expect_error({
   _imm_capture_of_rc :: (fn() -> i32)({
-    r := rc(i32(1));
+    r := Rc.new(i32(1));
     _run_sync(() => r.*)
   });
   _imm_capture_of_rc();
@@ -260,7 +260,7 @@ test("a negative Sync marker leaves a type Send", {
 // `T <: (Send, Sync)`.
 comptime_expect_error({
   _arc_not_sync :: (fn() -> unit)({
-    _a := arc(SsNotSync(n : i32(1)));
+    _a := Arc.new(SsNotSync(n : i32(1)));
   });
   _arc_not_sync();
 }, "Sync");
@@ -316,7 +316,7 @@ SsBoxNode :: struct(id : i32, next : Option(Box(Self)));
 test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it", {
   comptime_assert(!Type.impls(SsPeer, Acyclic), "the peer reaches itself");
   comptime_assert(Type.impls(SsBoxNode, Acyclic), "a Box back edge is no cycle");
-  a := arc(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
+  a := Arc.new(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
   b := Arc.clone(a);
   a.with_lock(v => {
     v = SsPeer(id : i32(1), peer : .Some(Arc.clone(b)));
@@ -337,7 +337,7 @@ test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
   comptime_assert(!Type.impls(Mutex(SsCyclic), Acyclic), "a Mutex of it is not Acyclic");
   comptime_assert(!Type.impls(RwLock(SsCyclic), Acyclic), "an RwLock of it is not Acyclic");
   comptime_assert(Type.impls(Mutex(i32), Acyclic) && Type.impls(Arc(i32), Acyclic), "an acyclic payload keeps the container Acyclic");
-  a := arc(SsCyclic(v : i32(1), next : .None));
+  a := Arc.new(SsCyclic(v : i32(1), next : .None));
   assert(a.*.v == i32(1), "the Arc holds the node");
   m := Mutex(SsCyclic).new(SsCyclic(v : i32(2), next : .None));
   assert(m.with_lock(n => n.v) == i32(2), "the Mutex holds the node");

@@ -108,7 +108,7 @@ _is_discard_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && (_atom_value(e) == String.from("_"))
 );
 _fn_call_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, args, _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(args), _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip the surrounding `"` delimiters that the StrLit convention
 /// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
@@ -929,7 +929,7 @@ evaluate_asm :: (
         types.push(match(return_output_types.get(ti), .Some(t) => t, .None => t_unit()));
         ti = (ti + usize(1));
       });
-      return_type = rc(TypeValueNode.Tuple(shared_list(labels), shared_list(types)));
+      return_type = Rc.new(TypeValueNode.Tuple(shared_list(labels), shared_list(types)));
     }
   );
   // --- Validate template placeholders ---

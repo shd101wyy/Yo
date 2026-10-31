@@ -171,7 +171,7 @@ derive(VcQuantKind, Copy, Clone);
 /// branch and merges the snapshots with `ite` terms, so subterms are shared,
 /// and every child is an `Rc(Self)` handle. A node is never copied and a
 /// copy of a term is one count bump. Build a term with
-/// `rc(VcTermNode.X(...))`; a `match` on a `VcTerm` spells the handle,
+/// `Rc.new(VcTermNode.X(...))`; a `match` on a `VcTerm` spells the handle,
 /// `Rc(.X(...))`.
 VcTermNode :: enum(
   /// Reference to a declared constant.
@@ -287,7 +287,7 @@ new_vc_query :: (fn(name : &String) -> VcQuery)(
     name : name.clone(),
     declarations : ArrayList(VcDecl).new(),
     assumptions : ArrayList(VcAssumption).new(),
-    goal : rc(VcTermNode.BoolLit(true)),
+    goal : Rc.new(VcTermNode.BoolLit(true)),
     fundecls : ArrayList(VcSort).new(),
     axioms : ArrayList(VcTerm).new(),
     fun_decls : ArrayList(VcFunDecl).new(),
@@ -302,48 +302,48 @@ new_vc_query :: (fn(name : &String) -> VcQuery)(
 vc_not :: (fn(t : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(Rc.clone(t));
-  rc(VcTermNode.App(VcOp.NotOp, args))
+  Rc.new(VcTermNode.App(VcOp.NotOp, args))
 });
 /// N-ary conjunction.
 vc_and :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(0), {
-    return(rc(VcTermNode.BoolLit(true)));
+    return(Rc.new(VcTermNode.BoolLit(true)));
   });
   if(ts.len() == usize(1), {
-    return(match(ts.get(usize(0)), .Some(t) => t, .None => rc(VcTermNode.BoolLit(true))));
+    return(match(ts.get(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(true))));
   });
-  rc(VcTermNode.App(VcOp.AndOp, ts))
+  Rc.new(VcTermNode.App(VcOp.AndOp, ts))
 });
 /// N-ary disjunction.
 vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(0), {
-    return(rc(VcTermNode.BoolLit(false)));
+    return(Rc.new(VcTermNode.BoolLit(false)));
   });
   if(ts.len() == usize(1), {
-    return(match(ts.get(usize(0)), .Some(t) => t, .None => rc(VcTermNode.BoolLit(false))));
+    return(match(ts.get(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(false))));
   });
-  rc(VcTermNode.App(VcOp.OrOp, ts))
+  Rc.new(VcTermNode.App(VcOp.OrOp, ts))
 });
 /// Implication `a => b` (right-associative chain when built pairwise).
 vc_imp :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(Rc.clone(a));
   args.push(Rc.clone(b));
-  rc(VcTermNode.App(VcOp.ImpOp, args))
+  Rc.new(VcTermNode.App(VcOp.ImpOp, args))
 });
 /// Equality `a = b`.
 vc_eq :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(Rc.clone(a));
   args.push(Rc.clone(b));
-  rc(VcTermNode.App(VcOp.EqOp, args))
+  Rc.new(VcTermNode.App(VcOp.EqOp, args))
 });
 /// Distinctness `a != b`.
 vc_distinct :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(Rc.clone(a));
   args.push(Rc.clone(b));
-  rc(VcTermNode.App(VcOp.DistinctOp, args))
+  Rc.new(VcTermNode.App(VcOp.DistinctOp, args))
 });
 export(
   VcSort,

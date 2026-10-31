@@ -422,7 +422,7 @@ impl(
   })
 );
 // Handing the object to a callee that only stores it is not a mutation either.
-// `RefCell.new` boxes its slot with `box(slot)`, omitting `box`'s
+// `RefCell.new` boxes its slot with `Box.new(slot)`, omitting `Box.new`'s
 // `alloc ?= .None`: the analysis matches the given arguments to the leading
 // parameters instead of giving up on the call.
 keep_in_cell :: (fn(b : VBag) -> RefCell(VBag))(RefCell(VBag).new(b));
@@ -466,7 +466,7 @@ test("borrowed for: read-only methods iterating a value field by value, through 
 // The same assert came back when `Box.new` took an over-aligned payload's
 // block from `__yo_aligned_alloc`, which the analysis did not count as fresh
 // (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
-keep_boxed :: (fn(b : VBag) -> Box(VBag))(box(b));
+keep_boxed :: (fn(b : VBag) -> Box(VBag))(Box.new(b));
 test("borrowed for: boxing the object through an alias does not trip the flag", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
@@ -498,7 +498,7 @@ test("borrowed for: boxing the object through an alias does not trip the flag", 
 // unknown storage, so `keep_rc`/`keep_rc_new` asserted `b` unborrowed and
 // panicked through the second handle
 // (issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md).
-keep_rc :: (fn(b : VBag) -> Rc(VBag))(rc(b));
+keep_rc :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 keep_rc_new :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 test("borrowed for: moving the object into an Rc cell through an alias does not trip the flag", {
   xs := ArrayList(i32).new();
@@ -524,6 +524,51 @@ test("borrowed for: moving the object into an Rc cell through an alias does not 
     x = (x * i32(10));
   });
   assert(seen == usize(8), "each cell reads the list once per element");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
+});
+// Reading the allocator an object's cell was placed with only reads it: the
+// owner hooks `Rc.allocator`/`Arc.allocator` will call for `make_mut`
+// (plans/backlog/SEED_VERSION_AUTOMATION.md, "make_mut reuses the owner").
+// Without `_msp_extern_is_owner_read` the `__yo_` prefix counted the reads
+// as mutating their argument, so `owner_is_global` asserted `b` unborrowed
+// and panicked through the second handle. Generation B declares the hooks
+// in the prelude, and this block goes then: user code cannot redeclare a
+// prelude extern.
+extern(
+  "Yo",
+  __yo_rc_owner_ctx :
+    (fn(cell : *void) -> ?*void),
+  __yo_rc_owner_vtable :
+    (fn(cell : *void) -> ?*void)
+);
+owner_is_global :: (fn(b : VBag) -> bool)({
+  // SAFETY: a `ref` object handle is the address of its live cell.
+  cell := (*void)(unsafe(unsafe.cast(&b, *void)));
+  __yo_rc_owner_ctx(cell).is_none() && __yo_rc_owner_vtable(cell).is_none()
+});
+test("borrowed for: reading the object's owner through an alias does not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  c := Counter(n : usize(3));
+  bag := VBag(
+    items : xs,
+    c : c.clone(),
+    local : CountLocal(c : c.clone()),
+    konst : CountConst(c : c.clone()),
+    chain : CountChain(c : c.clone()),
+    h : HCounter(n : usize(3)),
+    p : PCounter(n : usize(3))
+  );
+  other := bag;
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    if(owner_is_global(other), {
+      seen = (seen + usize(1));
+    });
+    x = (x * i32(10));
+  });
+  assert(seen == usize(2), "a global object has no owner, read once per element");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });
 // A callee that writes an INERT module-level global (an `i32`, a `Copy`

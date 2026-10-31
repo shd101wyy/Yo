@@ -85,7 +85,7 @@ YO_COLOR=always yo build         # 通过环境变量设置
 
 `yo fix <path> --migrate dyn-spelling` 是决策 44 的迁移：在该决策下，每一次擦除为 `Dyn` 都要写出来。它对每个文件求值，把裸传入 `Dyn(Fn(...))` 绑定、字段、实参或结果的可调用值包上 `dyn(...)`：具名闭包、具名 `fn`、`Impl(Fn(...))` 形参、闭包字面量（`run(f)` → `run(dyn(f))`，`S(cb : f)` → `S(cb : dyn(f))`，以 `g` 结尾的函数体 → `dyn(g)`）。它所替代的拒绝是 E0618。文本已不再在一行内打印为所求值表达式的值，会连同位置列出并保持原样。
 
-`yo fix <path> --migrate handle-ctors` 把 prelude 的句柄内建函数改为句柄的构造函数（静态实参推断，第 B 代）：`rc(x)` → `Rc.new(x)`，`box(x)` → `Box.new(x)`，`arc(x)` → `Arc.new(x)`，实参（包括 `alloc :`）保持原样。它对每个文件求值，只改写名字解析为 prelude 函数的调用，因此名为 `rc` 的形参或局部变量保持不变。推断不读取值实参的地方（枚举简写如 `.None`、`dyn(...)` 之外的闭包字面量、旧调用按上下文定型的数字字面量），它会写出旧调用绑定的类型实参：`(o : Rc(Option(i32))) = rc(.None)` 改为 `Rc(Option(i32)).new(.None)`。需要类型实参但位于泛型函数体中、或类型无法写出（闭包的类型）的位置，会连同位置列出并保持原样。
+`yo fix <path> --migrate handle-ctors` 把 prelude 的句柄内建函数改为句柄的构造函数（静态实参推断，第 B 代）：`rc(x)` → `Rc.new(x)`，`box(x)` → `Box.new(x)`，`arc(x)` → `Arc.new(x)`，实参（包括 `alloc :`）保持原样。它对每个文件求值，只改写名字解析为 prelude 函数的调用，因此名为 `rc` 的形参或局部变量保持不变。推断不读取值实参的地方（枚举简写如 `.None`、`dyn(...)` 之外的闭包字面量、`dyn(...)` 值、旧调用按上下文定型的数字字面量），它会写出旧调用绑定的类型实参：`(o : Rc(Option(i32))) = rc(.None)` 改为 `Rc(Option(i32)).new(.None)`。需要类型实参但位于泛型函数体中、或类型无法写出（闭包或 `Dyn` 的类型）的位置，会连同位置列出并保持原样。
 
 `yo fix <path> --migrate mutable-globals` 是决策 47 的迁移：在该决策下，模块级或 `thread_local` 运行期绑定是不可变的（Rust 的 `static`），除非它的名字被包在 `mut(...)` 里（`static mut`）。写入不可变的全局变量是 E0917：重新赋值、写入它所持有的值的字段或元素、把该值的位置以 `&mut` 借出，或在它上面调用 `&mut self` 方法。经由全局变量持有的 `ref` 句柄写入（`ArrayList` 上的 `g.push(x)`、`ref(struct)` 上的 `h.name = …`）不是对绑定的写入，不需要标记；只有对绑定本身重新赋值才需要。迁移对每个文件求值，并给每个这样被写入的全局变量的声明名包上 `mut(...)`：`G := v` 改为 `mut(G) := v`，`(G : T) = v` 改为 `(mut(G) : T) = v`，`thread_local(G)` 改为 `thread_local(mut(G))`。
 

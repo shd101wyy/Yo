@@ -54,7 +54,7 @@ test("sleep suspends the task instead of blocking the loop", {
   // develop@b8a24016e with `350 ms (order=11)` on a box where a 60ms sleep
   // measured 198ms, while ubuntu on the same run measured `200 ms (order=11)`
   // (issues/fixed/sleep-overlap-test-measured-runner-load.md).
-  order := rc(RefCell(i32).new(0));
+  order := Rc.new(RefCell(i32).new(0));
   slow := io.async({ order : Rc.clone(order) }(io : Io) => {
     order.with_mut(cur => {
       cur = (cur + i32(100));

@@ -97,7 +97,8 @@ on develop `54e94f11e` with the v0.2.68 seed.
      `Rc.new(ArrayList(HashMap(String, TypeValue)).new())` binds `T := ArrayList(HashMap(String, TypeValue))`.
    - A comptime integer or float literal binds its default type (`i32`, `f64`), as a generic function's binder
      does: `Rc.new(42)` is `Rc(i32)`, like `rc(42)`.
-   - **Not consulted:** a closure literal, an enum shorthand `.X`, an argument left to its default (`alloc`), and a
+   - **Not consulted:** a closure literal, an enum shorthand `.X`, a `dyn(...)` value (added 2026-10-30 by B2: its
+     type is the expected `Dyn`, so evaluated alone it is E0605), an argument left to its default (`alloc`), and a
      parameter whose type mentions only the method's own `generic(...)` binders. These arguments are evaluated
      afterwards, under the instantiated parameter type, as the written `G(A…).m(…)` evaluates them. A method's own
      binders are inferred afterwards, as today.

@@ -246,7 +246,7 @@ impl(
       rbio := unsafe(__yo_tls_rbio(ssl));
       wbio := unsafe(__yo_tls_wbio(ssl));
       t := _TlsIo(_fd : tcp.fd(), _ssl : ssl, _rbio : rbio, _wbio : wbio);
-      s := TlsStream(_cell : box(_TlsState(_tcp : tcp, _ctx : ctx, _ssl : ssl, _rbio : rbio, _wbio : wbio, _closed : false)));
+      s := TlsStream(_cell : Box.new(_TlsState(_tcp : tcp, _ctx : ctx, _ssl : ssl, _rbio : rbio, _wbio : wbio, _closed : false)));
       // 3. Handshake pump. Awaits sit ONE branch under the while — deeper
       // nesting is an unsupported async shape (the closure FTTs to an abort
       // stub; see issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md).

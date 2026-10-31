@@ -116,7 +116,7 @@ consume :: (fn(sink(box) : Rc(i32)) -> unit)({
   // box 在函数末尾被 drop
 });
 
-b := rc(42); // b 拥有所有权
+b := Rc.new(42); // b 拥有所有权
 consume(b); // 此后 b 不可再使用
 call_consume :: (fn(p : Rc(i32)) -> unit)({
   // p 默认借用
@@ -157,10 +157,10 @@ assert(ref_count(b) == usize(1), "one owner");
 
 该计数反映编译器的 dup/drop 优化结果，被优化器抵消的复制不会体现出来；它用于唯一性检查（写时复制）和测试，而不是程序逻辑。
 
-`rc` 不是计数。它是一个普通的 prelude 函数，用来分配一个引用计数单元：`rc(v)` 取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 是 Yo 的共享单元；它以前写作 `Box(T)`。`Box(T)` 现在是唯一所有、不计数的单元（`plans/VALUES_BY_DEFAULT.md`，V1 第 2 步）：一个带有释放其单元的 `Drop` 的仅可移动值，通过 `Box.clone(b)` 显式复制，因此该机制像追踪其他仅可移动值一样追踪它，从不为它生成计数操作。
+计数由 `ref_count(x)` 读取；`Rc.new(v)` 分配一个引用计数单元：它取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 是 Yo 的共享单元；它以前写作 `Box(T)`。`Box(T)` 现在是唯一所有、不计数的单元（`plans/VALUES_BY_DEFAULT.md`，V1 第 2 步）：一个带有释放其单元的 `Drop` 的仅可移动值，通过 `Box.clone(b)` 显式复制，因此该机制像追踪其他仅可移动值一样追踪它，从不为它生成计数操作。
 
 ```yo
-a := rc(i32(42));
+a := Rc.new(i32(42));
 assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 ```
 
@@ -202,9 +202,9 @@ use_point(point); // 不调用 ___dup，p 借用 point
 **关键问题**：不经过生命周期分析的朴素借用会导致释放后使用（use-after-free）错误！
 
 ```yo
-x := rc(12); // x 拥有 rc(12)，RC = 1
+x := Rc.new(12); // x 拥有 Rc.new(12)，RC = 1
 {
-  y := rc(13); // y 拥有 rc(13)，RC = 1
+  y := Rc.new(13); // y 拥有 Rc.new(13)，RC = 1
   x = y; // 如果 x 只是从 y 借用的话就危险了...
   // 内层作用域结束
   ___drop(y); // RC = 0，内存释放
@@ -218,16 +218,16 @@ printf("%d\n", x.*); // BUG：x 会指向已释放的内存！
 使用我们的模型（赋值始终拥有所有权）：
 
 ```yo
-x := rc(12); // x 拥有 rc(12)，RC = 1
+x := Rc.new(12); // x 拥有 Rc.new(12)，RC = 1
 {
-  y := rc(13); // y 拥有 rc(13)，RC = 1
+  y := Rc.new(13); // y 拥有 Rc.new(13)，RC = 1
   x = y; // ___dup(y)，___drop(旧 x)，x 拥有新值
-  // rc(13)：RC = 2；旧 rc(12)：RC = 0，已释放
-  ___drop(y); // rc(13)：RC = 1
+  // Rc.new(13)：RC = 2；旧 Rc.new(12)：RC = 0，已释放
+  ___drop(y); // Rc.new(13)：RC = 1
 };
 
-printf("%d\n", x.*); // ✅ 安全：x 拥有 rc(13)，RC = 1
-___drop(x); // rc(13)：RC = 0，已释放
+printf("%d\n", x.*); // ✅ 安全：x 拥有 Rc.new(13)，RC = 1
+___drop(x); // Rc.new(13)：RC = 0，已释放
 ```
 
 ## 我们的方案：简洁的所有权模型与优化
@@ -242,9 +242,9 @@ Yo 优先保证**安全性和简洁性**，同时为优化留有空间：
 **示例——简洁且安全：**
 
 ```yo
-x := rc(12);
+x := Rc.new(12);
 {
-  y := rc(13);
+  y := Rc.new(13);
   x = y; // 始终安全：___dup(y)，___drop(旧 x)
 };
 printf("%d\n", x.*); // 始终有效：x 拥有一个有效引用
@@ -339,7 +339,7 @@ create :: (fn() -> Point)({
 **begin 块：**
 
 ```yo
-x := rc(1);
+x := Rc.new(1);
 y := {
   ();
   x // 从 begin 块返回时调用 ___dup(x)
@@ -350,13 +350,13 @@ y := {
 **match 表达式：**
 
 ```yo
-optional := Option(Rc(i32)).Some(rc(42)); // optional 拥有所有权
+optional := Option(Rc(i32)).Some(Rc.new(42)); // optional 拥有所有权
 x := match(
   optional,
   // 这里的 `value` 是借用的，不拥有所有权
   // 此处插入 ___dup(value)
   .Some(value) => value,
-  .None => rc(0)
+  .None => Rc.new(0)
 );
 ```
 
@@ -390,7 +390,7 @@ consume :: (fn(sink(box) : Rc(i32)) -> unit)({
   // box 在函数末尾被 drop
 });
 
-b := rc(42); // b 拥有所有权
+b := Rc.new(42); // b 拥有所有权
 consume(b); // b 被消费
 // 此后 b 不可再使用
 // 如果实参是借用/非拥有的，编译器会插入 ___dup。

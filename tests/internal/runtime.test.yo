@@ -22,12 +22,12 @@ import("std/fmt");
 mk_token :: (fn(value : str) -> Token)(
   Token(
     kind : TokenKind.Identifier,
-    value : rc(String.from(value)),
+    value : Rc.new(String.from(value)),
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : rc(String.from("test")),
-    input : rc(String.from(""))
+    module_path : Rc.new(String.from("test")),
+    input : Rc.new(String.from(""))
   )
 );
 // Helper: build a runtime(arg_atom) FnCall expression.
@@ -36,7 +36,7 @@ mk_runtime_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstE
   callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_RUNTIME));
   args := ArrayList(AstExpr).new();
   args.push(arg_atom);
-  AstExpr.FnCall(call_id, callee, args, false, mk_token(BF_RUNTIME))
+  AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_RUNTIME))
 });
 // Stub evaluator: claims every input is `comptime_int`. After runtime(_),
 // the expression should be retyped to i32.
@@ -74,7 +74,7 @@ test("evaluate_runtime: converts comptime_int argument to i32", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  env := Environment.new(rc(String.from("test")));
+  env := Environment.new(Rc.new(String.from("test")));
   call := mk_runtime_call(usize(11), "42", usize(12));
   result := evaluate_runtime(&call, &env, &ctx, exn);
   // Outer call's ExprInfo must be present, with i32 type and no value.

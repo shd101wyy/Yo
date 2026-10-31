@@ -24,12 +24,12 @@ import("std/fmt");
 mk_token :: (fn(value : str) -> Token)(
   Token(
     kind : TokenKind.Identifier,
-    value : rc(String.from(value)),
+    value : Rc.new(String.from(value)),
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : rc(String.from("test")),
-    input : rc(String.from(""))
+    module_path : Rc.new(String.from("test")),
+    input : Rc.new(String.from(""))
   )
 );
 // Helper: build a typeof(arg_atom) FnCall expression with stable ids.
@@ -38,7 +38,7 @@ mk_typeof_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstEx
   callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_TYPE_OF));
   args := ArrayList(AstExpr).new();
   args.push(arg_atom);
-  AstExpr.FnCall(call_id, callee, args, false, mk_token(BF_TYPE_OF))
+  AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_TYPE_OF))
 });
 // A stub `evaluate_expression` used by tests (its modes are `EvaluateExprFn`'s:
 // it only borrows, as the evaluator does). It pretends every input
@@ -70,7 +70,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  env := Environment.new(rc(String.from("test")));
+  env := Environment.new(Rc.new(String.from("test")));
   call := mk_typeof_call(usize(7), "x", usize(42));
   result := evaluate_typeof(&call, &env, &ctx, exn);
   // Side-effect: typeof's own ExprInfo is set with TypeVal(i32) and meta-type Type.

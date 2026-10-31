@@ -186,7 +186,7 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   // watch its prefix (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
   cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => exn.throw(dyn(IoError.InvalidInput)));
   w := Watcher(
-    _cell : box(
+    _cell : Box.new(
       _WatcherState(
         _handle : events.fs_event_init(),
         _root : path,

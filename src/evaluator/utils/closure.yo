@@ -756,7 +756,7 @@ validate_send_closure_global_reach :: (
   wants_send := !thread_marker.is_empty();
   // The closure is walked HERE, with its defining env, whether or not this
   // slot is `Send`: the verdict is memoized by fid, and a later judgement of
-  // the closure's type (`arc(k)`, `where(T <: Send)`, an `Impl(Fn, Send)`
+  // the closure's type (`Arc.new(k)`, `where(T <: Send)`, an `Impl(Fn, Send)`
   // parameter) reads it through `g_closure_fids_by_some`. Walking it there,
   // with no defining env, would not resolve the local closures it calls.
   _note_fid_for_some_id(_some_id_of(wrapper_type), closure_fid.clone());
@@ -1242,7 +1242,7 @@ create_capture_type_and_value :: (
       // Build the capture struct TypeValue.
       field_labels_s := shared_list(field_labels);
       field_types_s := shared_list(field_types);
-      capture_ty := rc(
+      capture_ty := Rc.new(
         TypeValueNode.Struct(
           struct_id.clone(),
           String.from(""),
@@ -1566,7 +1566,7 @@ _clone_receiver_is_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   match(
     e,
     .Atom(_, _) => true,
-    .FnCall(_, cr_callee, cr_args, cr_infix, _) => cond(
+    .FnCall(_, cr_callee, Rc(cr_args), cr_infix, _) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => (
         match(cr_args.get(usize(1)), .Some(.Atom(_, _)) => true, _ => false) && match(cr_args.get(usize(0)), .Some(cr_base) => recur(&cr_base, ctx), .None => false)
       ),
@@ -1594,14 +1594,14 @@ _clone_subst_receiver :: (fn(e : &AstExpr, recv : &AstExpr) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => if(ast_expr_is_atom_of(e, _CLONE_RECV_HOLE), clone_expr_fresh_ids(recv), e.clone()),
-    .FnCall(cs_id, cs_func, cs_args, cs_infix, cs_tok) => {
+    .FnCall(cs_id, cs_func, Rc(cs_args), cs_infix, cs_tok) => {
       new_args := ArrayList(AstExpr).new();
       (i : usize) = usize(0);
       while(i < cs_args.len(), {
         new_args.push(recur(match(cs_args.get(i), .Some(a) => a, .None => make_err_expr()), recv));
         i = (i + usize(1));
       });
-      AstExpr.FnCall(cs_id, recur(&cs_func, recv), new_args, cs_infix, cs_tok.clone())
+      AstExpr.FnCall(cs_id, recur(&cs_func, recv), Rc.new(new_args), cs_infix, cs_tok.clone())
     }
   )
 );
@@ -1768,7 +1768,7 @@ structural_clone_expansion :: (
 /// record. The read is in place: a clone template passes it to the field
 /// type's `clone`, or copies a `Copy` field.
 evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
-  cf_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  cf_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   ev_recv := evaluate_expression_raw(&recv, env, ctx, exn);
