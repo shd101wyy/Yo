@@ -33,7 +33,7 @@ _visited_contains :: (fn(visited : &ArrayList(String), key : &String) -> bool)({
   i := usize(0);
   n := visited.len();
   while(i < n, {
-    s := match(visited.get(i), .Some(v) => v, .None => ``);
+    s := match(visited.get_cloned(i), .Some(v) => v, .None => ``);
     if(s == key, {
       return(true);
     });
@@ -194,7 +194,7 @@ _alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_alpha_pairs.with(xs => xs.get(i)),
+      g_alpha_pairs.with(xs => xs.get_cloned(i)),
       .Some(p) => if((p.a_name == a_name) && (p.a_level == a_level) && (p.e_name == e_name) && (p.e_level == e_level), {
         return(true);
       }),
@@ -235,8 +235,8 @@ _push_alpha_pairs :: (fn(a_labels : &ArrayList(String), a_types : &ArrayList(Typ
   (pushed : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < a_labels.len(), {
-    an := match(a_labels.get(i), .Some(l) => l, .None => String.new());
-    en := match(e_labels.get(i), .Some(l) => l, .None => String.new());
+    an := match(a_labels.get_cloned(i), .Some(l) => l, .None => String.new());
+    en := match(e_labels.get_cloned(i), .Some(l) => l, .None => String.new());
     match(
       _binder_level(a_types, an.clone()),
       .Some(al) => match(
@@ -451,7 +451,7 @@ _compat_impl :: (
   if(!identity && is_some_type(actual) && is_dyn_type(expected), {
     artt := match(
       actual,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt,
+      Rc(.SomeT(required_trait_types : rtt)) => rtt.clone(),
       _ => ArrayList(TypeValue).new()
     );
     drtt := match(
@@ -493,7 +493,7 @@ _compat_impl :: (
   if(!identity && is_dyn_type(actual) && is_some_type(expected), {
     erts := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt,
+      Rc(.SomeT(required_trait_types : rtt)) => rtt.clone(),
       _ => ArrayList(TypeValue).new()
     );
     adrtt := match(

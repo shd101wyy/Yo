@@ -2057,7 +2057,14 @@ impl(
   get_cloned : (fn(self : &Self, index : usize) -> Option(T))(
     cond(
       (index >= self._length) => .None,
-      true => .Some(self(index).clone())
+      // Clone straight off the buffer: `self(index)` routes through the
+      // `Index` impl, whose element read is a copy of a move-only `T`
+      // (B8) — this fn exists to BE that one copy.
+      true => match(
+        self._ptr,
+        .None => .None,
+        .Some(p) => .Some((p.add(index)).*.clone())
+      )
     )
   ),
   /// A clone of the first element, or `.None` when empty.
