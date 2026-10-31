@@ -446,7 +446,18 @@ test("the build's default C compiler is probed, not the literal clang", {
     .None => ()
   );
   // Parent mode — drive the default resolution against controlled PATHs.
-  exn := Exception(
+  // One handler per resume type: the io awaits resume unit, a
+  // `_resolve_c_compiler` throw resumes String (the tests/internal/
+  // formatter.test.yo `_fmt` pattern).
+  io_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  loud_cc_exn := Exception(
     throw : (
       err -> {
         assert(false, `unexpected error while resolving the default cc: ${err.to_string()}`);
@@ -469,26 +480,26 @@ test("the build's default C compiler is probed, not the literal clang", {
   _svm := env.set(String.from("YO_FAKE_BUILD_CC_MODE"), String.from("1"));
   scratch := `/tmp/yo_build_cc_probe_fixture`;
   empty := `/tmp/yo_build_cc_probe_fixture_empty`;
-  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
-  io.await(create_dir_all(Path.new(empty.clone()), io), IoExn(io : io, exn : exn));
+  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : io_exn));
+  io.await(create_dir_all(Path.new(empty.clone()), io), IoExn(io : io, exn : io_exn));
   self_argv := args();
   exe_suffix := if(platform == Platform.Windows, String.from(".exe"), String.new());
   // A `cc` but NO `clang`: the clang-less box the issue was filed from.
   io.await(
     copy(Path.new(&self_argv(usize(0))), Path.new(`${scratch}/cc${exe_suffix}`), io),
-    IoExn(io : io, exn : exn)
+    IoExn(io : io, exn : io_exn)
   );
   cur_path := match(env.get(`PATH`), .Some(pv) => pv, .None => String.new());
   _sp := env.set(String.from("PATH"), scratch.clone());
-  cc_only := _resolve_c_compiler(&Option(String).None, io, exn);
+  cc_only := _resolve_c_compiler(&Option(String).None, io, loud_cc_exn);
   // clang present again: the probe's first candidate must win over cc.
   io.await(
     copy(Path.new(&self_argv(usize(0))), Path.new(`${scratch}/clang${exe_suffix}`), io),
-    IoExn(io : io, exn : exn)
+    IoExn(io : io, exn : io_exn)
   );
-  clang_first := _resolve_c_compiler(&Option(String).None, io, exn);
+  clang_first := _resolve_c_compiler(&Option(String).None, io, loud_cc_exn);
   // An explicit --cc wins without probing: gcc is NOT on the masked PATH.
-  explicit := _resolve_c_compiler(&Option(String).Some(String.from("gcc")), io, exn);
+  explicit := _resolve_c_compiler(&Option(String).Some(String.from("gcc")), io, loud_cc_exn);
   // No compiler anywhere: the same named error `yo compile` raises, not a
   // bare ENOENT from the first child spawn.
   _sp2 := env.set(String.from("PATH"), empty.clone());
