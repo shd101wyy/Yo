@@ -72,7 +72,7 @@ _stars :: (fn(n : usize) -> String)({
   out
 });
 /// The C function name for a func id (registered cName, else the id itself).
-_c_function_name :: (fn(context : &FunctionGenerationContext, func_id : &String) -> String)(
+_c_function_name :: (fn(context : &FunctionGenerationContext, func_id : String) -> String)(
   match(context.base.get_function_entry(func_id.clone()), .Some(e) => e.c_name.clone(), .None => func_id)
 );
 /// Whether `object_value` is a TypeValue wrapping an enum type.
@@ -328,7 +328,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
     ei.value,
     .Some(v) => if(is_func_val(&v), {
       fid := match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
-      return(_c_function_name(context, &fid));
+      return(_c_function_name(context, fid));
     }),
     .None => ()
   );

@@ -1168,7 +1168,7 @@ sanitize_for_c_identifier :: (fn(s : &String, is_extern_c : bool) -> String)({
     prefixed.push_string(&sanitized);
     return(prefixed);
   });
-  _avoid_c_reserved_word(&sanitized)
+  _avoid_c_reserved_word(sanitized)
 });
 /// The C spelling of a symbol whose name is an ABI or a compiler-generated
 /// fragment rather than a Yo local: an exported or extern "Yo" function's
@@ -1178,10 +1178,10 @@ sanitize_for_c_identifier :: (fn(s : &String, is_extern_c : bool) -> String)({
 c_symbol_name :: (fn(s : &String) -> String)(
   _avoid_c_reserved_word(_mangle_c_identifier_bytes(s))
 );
-_avoid_c_reserved_word :: (fn(sanitized : &String) -> String)({
-  if(_c_reserved_words.contains(sanitized), {
+_avoid_c_reserved_word :: (fn(sanitized : String) -> String)({
+  if(_c_reserved_words.contains(&sanitized), {
     prefixed := String.from("__yo_c_reserved_");
-    prefixed.push_string(sanitized);
+    prefixed.push_string(&sanitized);
     return(prefixed);
   });
   sanitized
