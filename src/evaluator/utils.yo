@@ -1031,12 +1031,14 @@ _throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &E
     exn
   );
 });
-/// `v` is captured IMPLICITLY by the closure whose body is being evaluated:
-/// it is bound in a frame below the body's own frames, and not in a capture
-/// list's frame (an `Fn` closure's by-value entries are checked first; an
-/// `FnOnce` closure's, which the body owns, are excluded here).
-/// `io.async` bodies are excluded: their state machine owns its captures.
-_is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
+/// Where the closure whose body is being evaluated binds `v`: 1 when it
+/// captures `v` IMPLICITLY (bound in a frame below the body's own frames, and
+/// not in this closure's capture-list frame or parameter frame), 2 when `v` is
+/// a binding of this closure's own `FnOnce` capture-list frame, which the body
+/// owns (decision 37), and 0 otherwise (a body local, an own parameter, or no
+/// closure body). `io.async` bodies answer 0: their state machine owns its
+/// captures.
+_closure_binding_site :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> u8)(
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
@@ -1044,7 +1046,7 @@ _is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &Ev
       .FunctionBody => {
         fid := match(sub.func_value, .Some(fv) => match(fv, .FuncVal(fvd, _) => fvd.*.func_id.clone(), _ => String.from("")), .None => String.from(""));
         if((fid.len() == usize(0)) || !is_closure_fn(fid.clone()) || is_io_async_sm_closure(fid.clone()), {
-          return(false);
+          return(u8(0));
         });
         body_level := sub.eval_env.frame_count();
         // The first closure parameter frame below the body, walking down, is
@@ -1073,7 +1075,13 @@ _is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &Ev
                 match(
                   fr.variables.get(vi),
                   .Some(fv2) => if(fv2.id == v.id, {
-                    return((fi < body_level) && !is_own_capture && !is_own_params);
+                    return(
+                      cond(
+                        ((fi >= body_level) || is_own_params) => u8(0),
+                        is_own_capture => u8(2),
+                        true => u8(1)
+                      )
+                    );
                   }),
                   .None => ()
                 );
@@ -1086,12 +1094,24 @@ _is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &Ev
             .None => ()
           );
         });
-        false
+        u8(0)
       },
-      _ => false
+      _ => u8(0)
     ),
-    .None => false
+    .None => u8(0)
   )
+);
+/// `v` is captured IMPLICITLY by the closure whose body is being evaluated
+/// (an `Fn` closure's by-value entries are checked first; an `FnOnce`
+/// closure's, which the body owns, are not implicit captures).
+_is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
+  _closure_binding_site(v, env, ctx) == u8(1)
+);
+/// `v` is a by-value entry of the capture list of the `FnOnce(...)` closure
+/// whose body is being evaluated: the body owns it (decision 37), so it is
+/// released where the body moves or consumes it, like a local.
+is_own_fnonce_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
+  _closure_binding_site(v, env, ctx) == u8(2)
 );
 /// `v` is the non-owning re-bind that shadows a `sink(f) : Impl(...)`
 /// closure parameter inside a SPECIALIZED body (calls/helper.yo's re-bind
@@ -6560,7 +6580,7 @@ in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
 export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_report_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
