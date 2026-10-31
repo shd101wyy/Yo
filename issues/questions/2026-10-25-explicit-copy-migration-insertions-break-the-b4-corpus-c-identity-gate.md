@@ -70,3 +70,20 @@ noise classes (sorting the forward-declaration block; normalizing `__yo_m<N>` an
 `src/codegen` hand-edit half of B4-2 as a follow-up PR converted in ≤10-site steps, each step
 gated by the normalized emit-diff — the miscompile and ICE classes observed here show a
 one-shot directory conversion cannot be reviewed against a byte-identity bar.
+
+
+## Evidence from the stepwise conversion (2026-10-31)
+
+B4-2's `src/codegen` hand edits were converted as recommended: 34 steps of at most 10 sites
+each, every step gated by a base-vs-head emit-diff of `src/main.yo` (the base worktree's
+source as the fixed input, so the diff measures what the compiler does rather than what its
+edited source says; one pinned std; both binaries built by the same builder).
+The normalizer (sorted forward declarations, `__yo_m<N>`/`_u<N>` renamed) was ready but was
+never needed: every step and both PR heads (`804905bd0`, `846b3afcb`, on develop
+`a1d517719`) emitted C byte-IDENTICAL to the base, and so did a 45-file corpus of the
+copy-sensitive and async tests. That includes steps 1–3, which apply the tool's own
+`.clone()` insertions (23 on develop `0c4e67db5`), so the noise classes above did not reproduce
+on this base. Whether the earlier diff came from the 53-insertion set on `fb43ea19b` or from
+comparing each binary's output for its own edited source is not established. The recommendation stands with one refinement: keep
+byte-identity as the first bar for every step, and use the normalized comparison only for a
+step that is not byte-identical, reading its normalized diff before accepting it.
