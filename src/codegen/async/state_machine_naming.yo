@@ -212,19 +212,11 @@ sm_capture_move_flag_name :: (fn(label : String) -> String)(`__yo_mv___capture_$
 sm_temp_slot_of :: (fn(temp_var : &String, smv : &HashMap(String, CapturedVariable)) -> Option(String))({
   (found : Option(CapturedVariable)) = smv.get(temp_var.clone());
   if(found.is_none(), {
-    vals := smv.values();
-    (go : bool) = true;
-    while(go, {
-      match(
-        vals.next(),
-        .Some(cv) => if(cv.base.name == temp_var, {
-          found = Option(CapturedVariable).Some(cv);
-          go = false;
-        }),
-        .None => {
-          go = false;
-        }
-      );
+    for(&smv, (_k, cv) => {
+      if(cv.base.name == temp_var, {
+        found = Option(CapturedVariable).Some(cv);
+        break;
+      });
     });
   });
   match(
