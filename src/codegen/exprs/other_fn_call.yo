@@ -1921,7 +1921,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       // the call IS the place, as on the direct-call path: `(*slot(...))`.
       if(match(
         context.base.get_expr_info(&recv_expr),
-        .Some(rvi) => dyn_vtable_slot_result_is_ref(&rvi.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value),
+        .Some(rvi) => dyn_vtable_slot_result_is_ref(&rvi.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
         .None => false
       ), {
         return(Option(String).Some(`(*${dm_call})`));
