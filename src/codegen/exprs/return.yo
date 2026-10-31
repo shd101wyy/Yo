@@ -235,7 +235,9 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
   if(match(context.local_shadowed_variables, .Some(ls) => ls.contains(sanitize_for_c_identifier(var_name, false)), .None => false), {
     return(false);
   });
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(false));
+  if(context.state_machine_variables.is_none(), {
+    return(false);
+  });
   (var_id : String) = match(v.is_owning_the_same_rc_value_as, .Some(owner_box) => owner_box.id.to_string(), .None => v.id.to_string());
   match(
     context.variable_id_remapping,
@@ -248,7 +250,7 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
     ),
     .None => ()
   );
-  match(smv.get(&var_id), .Some(cv) => match(cv.kind, .Local => true, .Outer => false), .None => false)
+  match(context.state_machine_variables, .Some(smv) => match(smv.get(&var_id), .Some(cv) => match(cv.kind, .Local => true, .Outer => false), .None => false), .None => false)
 });
 _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &HashSet(String), additional_skip : &Option(HashSet(String)), use_env : bool, context : &FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr), .Some(vn) => vn, .None => return(false));
