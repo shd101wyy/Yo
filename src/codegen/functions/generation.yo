@@ -47,6 +47,7 @@
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 { codegen_fatal, codegen_report_error } :: import("../constants.yo");
+{ replace } :: import("std/mem");
 
 // Insert `attr_line` on its own line immediately before the FIRST declaration
 // of `c_name` (clang requires the GNU error attribute on the first
@@ -1468,8 +1469,8 @@ emit_thread_local_accessors :: (
   });
   // Same deferred-drop reset as the module-init helper: the initializer's
   // result is MOVED into the thread-local storage, never dropped.
-  saved_pending := context.pending_deferred_drops;
-  saved_consumed := context.consumed_var_pending_drops;
+  saved_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+  saved_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
   context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
   em.emit_string(String.from("\n// Thread-local lazy accessors (one first touch per thread).\n"));
@@ -1633,8 +1634,8 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
   // fresh empty list so the initializer's result is MOVED into the global (never
   // dropped — module globals outlive the program body).
   if(has_module_vars, {
-    saved_pending := context.pending_deferred_drops;
-    saved_consumed := context.consumed_var_pending_drops;
+    saved_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+    saved_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     em.emit_string(
