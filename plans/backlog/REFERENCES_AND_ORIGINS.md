@@ -101,6 +101,13 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   (`self._buf`) are designed (§7) and phased with the access clause. A
   local's place is an origin **inside bodies only** (flow-inferred, O2);
   it can never appear in a signature (O3's return rule rejects it).
+  **Where a parameter's place may stand** (decided 2026-10-29, decision 43
+  step 2 consultation Q5): in the RESULT type (and, flow-inferred, in
+  bodies), never in another parameter's type — two parameters that must
+  share an origin declare one origin parameter, as Rust writes one named
+  lifetime. A parameter type naming a parameter is E0922; allowing an
+  earlier reference parameter there is an additive extension if a counted
+  need appears.
 - **An origin parameter is declared before use** (maintainer, 2026-10-20):
   an abstract origin named in a signature must be declared in the
   `generic(...)` clause (`generic(q : Origin, r : Origin)`), exactly as a
@@ -110,12 +117,18 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   (`self`, `a`, `b`) needs no declaration — it names a parameter the way
   a field path names a field.
 - **The parse.** `&(A, B)` in type position is an origin-qualified reference
-  iff `B` resolves to an `Origin`-kinded name; if both `A` and `B` resolve
-  to types it is a reference to a tuple, exactly as today. The two readings
-  never compete: an origin is not a type, so `&(i32, p)` with `p : Origin`
-  has exactly one well-formed parse. The rule will be stated in the syntax
-  documentation with the example when N1 lands it. (`&mut(A, B)` is the
-  same rule.) If
+  iff `B` resolves to an `Origin`-kinded name. If `B` resolves to a type it
+  is error E0922 naming `&Tuple(A, B)` (amended 2026-10-29, decision 43
+  step 2 consultation Q3: the first text said "a reference to a tuple,
+  exactly as today", but Yo spells a tuple type `Tuple(A, B)`, `(A, B)` in
+  type position was never a type, and `&(i32, i32)` failed on the v0.2.72
+  seed, so there was no reading to preserve; a misspelled origin that
+  happens to name a type must not silently become a tuple reference). An
+  origin is not a type, so `&(i32, p)` with `p : Origin` has exactly one
+  well-formed parse. The rule is stated in the syntax documentation
+  (`docs/*/DESIGN.md`, `docs/*/GRAMMAR.md`) since N1a. (`&mut(A, B)` is the
+  same rule.) In value position `&(a, b)` stays the operator-call form of
+  `a & b`. If
   parsing the pair ever proves friction in practice, the reserved fallback
   is a named slot (`&(i32, origin : p)`); it is designed, not adopted.
 - **The pointee comes first** (`&(i32, p)`, not `&(p, i32)`): every other

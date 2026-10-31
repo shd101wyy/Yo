@@ -21,7 +21,7 @@
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom }
 :: import("../context.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_origin_kind } :: import("../../types/definitions.yo");
 { t_str, t_unit, t_bool, t_void, t_never, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
 { is_some_type, is_function_type } :: import("../../types/guards.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -108,6 +108,8 @@ evaluate_identifier_and_operator :: (
     ),
     (id_len == usize(6)) => cond(
       (identifier == "ushort") => Option(TypeValue).Some(t_c_ushort()),
+      // The `Origin` kind (decision 43 step 2): `generic(p : Origin)`.
+      (identifier == "Origin") => Option(TypeValue).Some(t_origin_kind()),
       true => Option(TypeValue).None
     ),
     (id_len == usize(8)) => cond(
