@@ -624,7 +624,7 @@ _materialize_owned_rc_comptime_value :: (
 /// Without it a `cond`/`if` whose condition is a `match` or `cond` read the
 /// zeroed slot and took the wrong branch whenever the branch awaited
 /// (issues/fixed/a-match-or-cond-condition-inside-io-async-takes-the-wrong-branch-when-the-branch-awaits.md).
-_store_result_temp_in_task :: (fn(expr : &AstExpr, code : &String, indent : &String, context : &FunctionGenerationContext) -> String)({
+_store_result_temp_in_task :: (fn(expr : &AstExpr, code : String, indent : &String, context : &FunctionGenerationContext) -> String)({
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -634,7 +634,7 @@ _store_result_temp_in_task :: (fn(expr : &AstExpr, code : &String, indent : &Str
     ),
     .None => ()
   );
-  code.clone()
+  code
 });
 /// Generate a function-call expression.
 /// A local `x :: <expr>` emits nothing when its value is a known constant:
@@ -1099,7 +1099,7 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
             .None => String.new()
           )
         },
-        true => _sm_arg_temp_read(expr, &code, context)
+        true => _sm_arg_temp_read(expr, code, context)
       )
     },
     // A bare `return` outside a state machine is the unit return
@@ -1119,13 +1119,13 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
 /// enclosing call suspends: the enclosing call reads it after the task
 /// resumed, when the C local no longer holds it, so the read is the temp's
 /// task slot (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
-_sm_arg_temp_read :: (fn(expr : &AstExpr, code : &String, context : &FunctionGenerationContext) -> String)({
-  if(context.in_async_state_machine.is_none(), return(code.clone()));
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code.clone()));
-  tn := match(ei.variable_name, .Some(n) => n.clone(), .None => return(code.clone()));
-  if(!is_arg_temp_across_suspension(tn.clone()) || !(code == tn), return(code.clone()));
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(code.clone()));
-  match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code.clone())
+_sm_arg_temp_read :: (fn(expr : &AstExpr, code : String, context : &FunctionGenerationContext) -> String)({
+  if(context.in_async_state_machine.is_none(), return(code));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code));
+  tn := match(ei.variable_name, .Some(n) => n.clone(), .None => return(code));
+  if(!is_arg_temp_across_suspension(tn.clone()) || !(code == tn), return(code));
+  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(code));
+  match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code)
 });
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.
