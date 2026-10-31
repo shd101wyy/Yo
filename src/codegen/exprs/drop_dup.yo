@@ -35,6 +35,7 @@
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
+{ replace } :: import("std/mem");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
 _method_c_name :: (fn(type : &TypeValue, method_name : str, context : &FunctionGenerationContext) -> Option(String))({
@@ -1385,7 +1386,7 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &Fu
   // NOT-YET-DECLARED name — and the `btv != raw_code` declaration below is
   // skipped. Same phantom-temp class as the stage-2 fixpoint blocker in
   // cond.yo; see issues/fixed/stage2-match-if-else-value-phantom-temp.md.
-  saved_arm_vn := bei.variable_name;
+  saved_arm_vn := replace(&mut bei.variable_name, Option(String).None);
   bei.variable_name = Option(String).None;
   raw_code := _call_generate_expr(body_expr, indent.clone(), context);
   bei.variable_name = saved_arm_vn;
