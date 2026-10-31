@@ -1137,7 +1137,7 @@ lookup_explain :: (fn(code : &String) -> Option(Explain))({
   (i : usize) = usize(0);
   while(i < entries.len(), {
     match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(e) => {
         if(e.code == code, {
           return(Option(Explain).Some(e));
@@ -1156,7 +1156,7 @@ all_registry_codes :: (fn() -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < entries.len(), {
     match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(e) => {
         out.push(e.code.clone());
       },

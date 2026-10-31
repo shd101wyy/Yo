@@ -23,7 +23,9 @@ pragma(Pragma.AllowUnsafe);
 (g_type_decl_modules : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_decl_module :: (fn(type_id : &String, module_path : &String) -> unit)({
   if((type_id.len() > usize(0)) && (module_path.len() > usize(0)), {
-    g_type_decl_modules.with_mut(m => m.insert(type_id.clone(), module_path.clone()));
+    type_id_owned := type_id.clone();
+    module_path_owned := module_path.clone();
+    g_type_decl_modules.with_mut({ type_id_owned, module_path_owned }(m) => m.insert(type_id_owned.clone(), module_path_owned));
   });
   ()
 });
