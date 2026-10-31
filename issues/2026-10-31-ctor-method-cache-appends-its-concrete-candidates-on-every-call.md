@@ -14,7 +14,7 @@ is pre-existing on develop (`fd206efe7`).
 `impls_of_constructor_method` (`src/evaluator/values/impl.yo`) serves the
 cached generic half and then appends the concrete half:
 
-```yo
+```yo ignore
 out := match(g_ctor_method_cache.with(m => m.get(&key)), .Some(ce) => ce.impls, .None => ArrayList(CtorMethodImpl).new());
 ...
 while(ci < n_conc, ci = (ci + usize(1)), {
@@ -39,7 +39,7 @@ cached beside it).
 
 ## Fix (not applied here)
 
-```yo
+```yo ignore
 out := match(
   g_ctor_method_cache.with(m => m.get(&key)),
   .Some(ce) => ce.impls.clone(),

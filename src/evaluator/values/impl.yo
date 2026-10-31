@@ -2991,9 +2991,9 @@ _find_methods_from_generic_impls_scan :: (
 /// that window, so nothing computed inside it may be cached or served.
 _fmg_cache_usable :: (fn() -> bool)(
   !visibility_report_enabled()
-    && debug_knob(`YO_DEBUG_DISPATCH`).is_none()
-    && debug_knob(`YO_DEBUG_WARM`).is_none()
-    && (_currently_registering_concrete_impls.with(m => m.len()) == usize(0))
+  && debug_knob(`YO_DEBUG_DISPATCH`).is_none()
+  && debug_knob(`YO_DEBUG_WARM`).is_none()
+  && (_currently_registering_concrete_impls.with(m => m.len()) == usize(0))
 );
 /// The composed slow-map key: structural type key, method name, owner, joined
 /// on 0x01 (no type key or file path contains it).
@@ -3035,10 +3035,9 @@ _fmg_cache_get :: (
   });
   // Front: same receiver handle, same name, same owner.
   slot := g_fmg_fast.with(xs => type_identity_slot(xs, resolved));
-  if(
-    g_fmg_fast.with(xs => type_identity_slot_holds(xs, slot, resolved))
-      && match(g_fmg_fast_names.with(xs => xs.get(slot)), .Some(n) => (n == method_name), .None => false)
-      && match(g_fmg_fast_owners.with(xs => xs.get(slot)), .Some(o) => (o == owner), .None => false), {
+  if(g_fmg_fast.with(xs => type_identity_slot_holds(xs, slot, resolved))
+  && match(g_fmg_fast_names.with(xs => xs.get(slot)), .Some(n) => (n == method_name), .None => false)
+  && match(g_fmg_fast_owners.with(xs => xs.get(slot)), .Some(o) => (o == owner), .None => false), {
     return(g_fmg_fast_lists.with(xs => xs.get(slot)));
   });
   // Slow: structural key. A map from a previous epoch is cleared wholesale —
