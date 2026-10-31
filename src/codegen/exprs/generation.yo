@@ -157,7 +157,7 @@
 { panic, assert } :: import("std/assert");
 /// The callee name of a FnCall (empty for an Atom).
 _func_name :: (fn(expr : &AstExpr) -> String)(
-  match(expr, .FnCall(_, func, _, _, _) => ast_expr_text(&func).*, .Atom(_, _) => String.from(""))
+  match(expr, .FnCall(_, func, _, _, _) => ast_expr_text(&func).*.clone(), .Atom(_, _) => String.from(""))
 );
 /// Map an infix operator SYMBOL (`+`, `==`, …) to the builtin-inline function
 /// name (`__yo_op_add`, `__yo_op_eq`, …) that generate_yo_inline_function_call
