@@ -69,7 +69,7 @@ evaluate_tuple_elements_type :: (
         dup_idx = (dup_idx + usize(1));
       });
       if(has_dup, {
-        arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+        arg_args := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         err_tok := if(
           ast_expr_is_fn_call(&arg),
           match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
@@ -107,7 +107,7 @@ evaluate_tuple_type :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit type.
   if(args.len() == usize(0), {
     unit_val := create_type_value(Rc.new(TypeValueNode.Unit));

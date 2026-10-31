@@ -51,7 +51,7 @@ evaluate_subtype_of :: (
   // Extract args.
   lhs_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
@@ -60,7 +60,7 @@ evaluate_subtype_of :: (
   );
   rhs_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(1)),
       .Some(a) => a,
       .None => make_err_expr()
@@ -139,7 +139,7 @@ evaluate_subtype_of :: (
     // Tuple form: (Trait1, Trait2, ...).
     rhs_args := match(
       rhs_expr,
-      .FnCall(_, _, args, _, _) => args,
+      .FnCall(_, _, Rc(args), _, _) => args,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     (i : usize) = usize(0);
@@ -154,7 +154,7 @@ evaluate_subtype_of :: (
         is_neg,
         match(
           trait_expr,
-          .FnCall(_, _, inner_args, _, _) => match(
+          .FnCall(_, _, Rc(inner_args), _, _) => match(
             inner_args.get(usize(0)),
             .Some(a) => a,
             .None => make_err_expr()
@@ -174,7 +174,7 @@ evaluate_subtype_of :: (
       rhs_is_neg,
       match(
         rhs_expr,
-        .FnCall(_, _, inner_args, _, _) => match(
+        .FnCall(_, _, Rc(inner_args), _, _) => match(
           inner_args.get(usize(0)),
           .Some(a) => a,
           .None => make_err_expr()

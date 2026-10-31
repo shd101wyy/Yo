@@ -40,7 +40,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     // codegen/functions/generation.yo.
     .None => return(`// Error: No type information for pointer/reference expression ${ast_expr_to_string(expr)}`)
   );
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   arg := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("address-of requires an argument"))));
   arg_ei_opt := context.base.get_expr_info(&arg);
   // Compile-time literals need a compound literal to be addressable.
@@ -93,7 +93,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     callee_is_array := match(context.base.get_expr_info(&callee_expr), .Some(cei) => is_array_type(&cei.ty), .None => false);
     if(callee_is_array, {
       callee_code := _call_generate_expr(&callee_expr, indent.clone(), context);
-      index_arg_opt := match(arg, .FnCall(_, _, a2, _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+      index_arg_opt := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
       index_code := match(index_arg_opt, .Some(ia) => _call_generate_expr(&ia, indent.clone(), context), .None => String.from("0"));
       // Safe mode Phase 1: bounds-checked even when only the element's
       // address is taken — an OOB address is already UB.
@@ -145,7 +145,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               .None => ()
             );
           });
-          index_arg_opt := match(arg, .FnCall(_, _, a2, _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+          index_arg_opt := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
           // A by-value `idx` carries its caller-side share as a deferred dup
           // (the Index trait's contract since 2026-10-11); emit it and pass
           // the dup result, exactly as the dispatch path does

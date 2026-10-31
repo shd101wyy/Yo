@@ -64,7 +64,7 @@ evaluate_downcast :: (
   // First argument: the dyn value (runtime).
   dyn_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -103,7 +103,7 @@ evaluate_downcast :: (
   // Second argument: the target type T (comptime).
   type_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -182,7 +182,7 @@ evaluate_upcast :: (
   expect_expr_to_be_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2)), exn);
   dyn_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -223,7 +223,7 @@ evaluate_upcast :: (
   });
   type_expr := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {

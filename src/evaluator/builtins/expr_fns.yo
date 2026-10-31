@@ -52,7 +52,7 @@ evaluate_yo_expr_is_atom :: (
 )({
   arg_e := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -127,7 +127,7 @@ evaluate_yo_expr_is_fn_call :: (
 )({
   arg_e := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -202,7 +202,7 @@ evaluate_yo_expr_get_callee :: (
 )({
   arg_e := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -298,7 +298,7 @@ evaluate_yo_expr_get_args :: (
 )({
   arg_e := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -346,7 +346,7 @@ evaluate_yo_expr_get_args :: (
       .ExprVal(e_box) => {
         if(ast_expr_is_fn_call(&e_box), match(
           e_box,
-          .FnCall(_, _, fn_args, _, _) => {
+          .FnCall(_, _, Rc(fn_args), _, _) => {
             elems := ArrayList(EvalValue).new();
             (i : usize) = usize(0);
             while(i < fn_args.len(), {
@@ -401,7 +401,7 @@ evaluate_yo_expr_to_string :: (
 )({
   arg_e := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -480,7 +480,7 @@ evaluate_yo_expr_eq :: (
 )({
   first_e := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -493,7 +493,7 @@ evaluate_yo_expr_eq :: (
   );
   second_e := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
