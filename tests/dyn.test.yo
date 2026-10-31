@@ -190,8 +190,10 @@ test("Test downcast type check via is_some", {
 // wraps used to fall back to the object cast — `((StructType)__yo_incr_rc(...))`
 // — which is not valid C ("used type … where arithmetic or pointer type is
 // required"), so the whole build died inside the C compiler. Nothing in this
-// file boxes a `NeverDynnedValue` or a `String` into a Dyn, so no vtable carries
-// their type ids and both answers are statically `.None`.
+// file boxes a `NeverDynnedValue` or a `NeverDynnedPoint` into a Dyn, so no
+// vtable carries their type ids and both answers are statically `.None`. (The
+// second was `String` until B8 made it move-only: a downcast to a move-only type
+// needs a Dyn that lists `Clone`, E0901.)
 test("Test downcast to a value type that no dyn() in the program wraps", {
   Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
@@ -203,7 +205,8 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
-  assert(downcast(animal, String).is_none(), "a never-dyn'd String can never be inside a Dyn");
+  NeverDynnedPoint :: struct(x : i32, y : i32);
+  assert(downcast(animal, NeverDynnedPoint).is_none(), "a never-dyn'd value struct can never be inside a Dyn");
   // Over-rejection canary in the same batch: the target that IS wrapped here
   // must still be found.
   assert(downcast(animal, Cat).is_some(), "Expected animal to still be a Cat");
@@ -224,13 +227,13 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
-  comptime_expect_error(downcast(dyn(Cat(`shadow`)), String), "cannot infer the Dyn type");
+  comptime_expect_error(downcast(dyn(Cat(`shadow`)), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
   (animal : Animal) = dyn(Cat(`shadow`));
-  assert(downcast(animal, String).is_none(), "the annotated-binding spelling supplies the Dyn");
+  assert(downcast(animal, Cat).is_some(), "the annotated-binding spelling supplies the Dyn");
   make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
-  assert(downcast(make_animal(), String).is_none(), "the declared-return spelling supplies the Dyn");
+  assert(downcast(make_animal(), Cat).is_some(), "the declared-return spelling supplies the Dyn");
 });
 test("Test downcast with multiple concrete types", {
   Cat :: ref(struct(name : String));
