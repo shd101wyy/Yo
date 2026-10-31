@@ -1721,10 +1721,12 @@ check_if_function_parameter_matches_argument :: (
   // N2b (decision 43 step 3, T9): a by-value parameter whose type is a
   // reference takes a LEND — the marker was peeled
   // (`apply_call_site_borrow_markers`), so the evaluated argument is the
-  // PLACE. Its type is the parameter's reference over that place: the origin
-  // names the place's root, which the binding freeze reads. A reference
-  // passed ON (a composite field read is N1e's, so this is a place or
-  // nothing) keeps its own type.
+  // PLACE. The ARGUMENT's type is the parameter's reference over that place
+  // (the origin names the place's root, which the binding freeze reads); the
+  // PLACE's own ExprInfo keeps its pointee type. A reference passed ON (a
+  // composite field read is N1e's, so this is a place or nothing) keeps its
+  // own type.
+  (t9_lend_ty : Option(TypeValue)) = Option(TypeValue).None;
   if(!param_is_ref && !is_ct_only, {
     match(
       &resolved_pt,
@@ -1736,8 +1738,7 @@ check_if_function_parameter_matches_argument :: (
           .Some(t9_root) => {
             t9_names := ArrayList(String).new();
             t9_names.push(t9_root.clone());
-            arg_info.ty = t_reference_with_origin(&arg_info.ty, t9_mut, t_origin_named(&shared_list(t9_names)));
-            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
+            t9_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9_mut, t_origin_named(&shared_list(t9_names))));
           },
           .None => ()
         )
@@ -1747,8 +1748,13 @@ check_if_function_parameter_matches_argument :: (
   });
   // Steps 3a–3c and the comptime-argument gate: the shared rule
   // (`check_argument_for_parameter`), which also lowers a comptime literal to
-  // the runtime type it takes as this parameter's value.
-  (arg_type : TypeValue) = check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty, &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn);
+  // the runtime type it takes as this parameter's value. A T9 lend skips it:
+  // its check IS the peel's mode match and the pointee compatibility below.
+  (arg_type : TypeValue) = match(
+    t9_lend_ty,
+    .Some(t9_w) => t9_w,
+    .None => check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty, &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn)
+  );
   // Record the runtime type a comptime literal lowered to, so codegen renders
   // the right C form (comptime_str → `*(char)` emits a bare string literal,
   // not a `__yo_str` struct). Only the codegen reads this field.

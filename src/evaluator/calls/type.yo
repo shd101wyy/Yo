@@ -326,9 +326,11 @@ try_to_call_type_with_arguments :: (
       );
     });
     arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, &member_element.ty));
-    // N2b (decision 43 step 3, T9): the lent place's type becomes the
+    // N2b (decision 43 step 3, T9): the lent place's ARGUMENT type is the
     // field's reference over that place — the origin names the place's root,
-    // which the binding freeze reads.
+    // which the binding freeze reads. The place's own ExprInfo keeps its
+    // pointee type.
+    (t9w_lend_ty : Option(TypeValue)) = Option(TypeValue).None;
     match(
       &member_element.ty,
       Rc(.Reference(_, t9w_mut, _)) => match(
@@ -346,8 +348,7 @@ try_to_call_type_with_arguments :: (
           if(ast_expr_is_atom(&t9w_cur), {
             t9w_names := ArrayList(String).new();
             t9w_names.push(ast_expr_token(&t9w_cur).value.clone());
-            arg_info.ty = t_reference_with_origin(&arg_info.ty, t9w_mut, t_origin_named(&shared_list(t9w_names)));
-            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
+            t9w_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9w_mut, t_origin_named(&shared_list(t9w_names))));
           });
         }
       ),
@@ -372,6 +373,14 @@ try_to_call_type_with_arguments :: (
         .Some(fct) => fct,
         .None => convert_comptime_type_to_runtime_type(&arg_info.ty, &env)
       )
+    );
+    // A T9 lend's argument type is the field's reference over the place.
+    match(
+      t9w_lend_ty,
+      .Some(t9w_w) => {
+        arg_type = t9w_w;
+      },
+      .None => ()
     );
     // Type compatibility check. A site `yo fix --migrate dyn-spelling`
     // recorded stands for the rewrite's `dyn(value)`, which the field takes.
