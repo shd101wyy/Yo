@@ -13,7 +13,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, t_slot_pointee, t_slot_is_borrow } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name, set_counted_handle_std_generic } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
@@ -3500,7 +3500,7 @@ create_function_body_evaluation_context :: (
       block.kind,
       .FunctionBody => match(
         &block.func_type,
-        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(Rc.clone(ret_box)),
+        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box)),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -3514,9 +3514,9 @@ create_function_body_evaluation_context :: (
   // (e.g. `match(opt, .Some(b) => &(b(i)), .None => __yo_panic(...))`).
   return_type := match(
     function_type,
-    Rc(.Func({ result : ret_box, meta : __fm1 })) => cond(
-      __fm1.*.result_is_ref => t_ptr(&ret_box),
-      true => Rc.clone(ret_box)
+    Rc(.Func({ result : ret_slot })) => cond(
+      t_slot_is_borrow(&ret_slot) => t_ptr(&t_slot_pointee(&ret_slot)),
+      true => Rc.clone(t_slot_pointee(&ret_slot))
     ),
     _ => t_unit()
   );
