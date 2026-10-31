@@ -691,7 +691,7 @@ test("a consumer loop over incoming serves each connection in turn", {
   ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   bound := listener.local_addr();
-  fds := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  fds := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   task_fds := Rc.clone(fds);
   mut(conns) := listener.incoming().take(usize(2));
   // The accepted streams are dropped by the loop body; `TcpStream`'s Drop

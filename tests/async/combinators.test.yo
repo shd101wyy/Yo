@@ -688,7 +688,7 @@ test("Test a Stream combinator chain", {
 test("Test Stream for_each from main", {
   // The body runs inside the stream's future, which owns it, so the list it
   // fills is a shared cell (a list is a value since B8).
-  seen := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  seen := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   h := Rc.clone(seen);
   io.await(
     Countdown(_n : i32(3)).for_each({ h }(x) => {
@@ -700,7 +700,7 @@ test("Test Stream for_each from main", {
   assert(seen.with(l => l(usize(0))) == i32(3), "in order");
 });
 test("Test Stream for_each inside a spawned task", {
-  seen := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  seen := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   // The chain is built OUTSIDE the task body on purpose: a closure argument
   // written inside an `io.async` body loses the future's result type
   // (issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md).

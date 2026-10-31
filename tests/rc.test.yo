@@ -617,7 +617,7 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
 CondMoveHolder :: struct(items : Rc(ArrayList(i32)));
 (g_cond_move_seen : RefCell(ArrayList(Rc(ArrayList(i32))))) = RefCell(ArrayList(Rc(ArrayList(i32)))).new(ArrayList(Rc(ArrayList(i32))).new());
 cond_move_make_fresh :: (fn() -> Rc(ArrayList(i32)))({
-  l := rc(ArrayList(i32).new());
+  l := Rc.new(ArrayList(i32).new());
   seen := Rc.clone(&l);
   g_cond_move_seen.with_mut({ seen }(xs) => xs.push(seen));
   l
@@ -691,7 +691,7 @@ test("Loop traversal keeps ownership when the loop mutates the structure", {
 // count to observe.
 (g_discard_seen : RefCell(ArrayList(Rc(ArrayList(i32))))) = RefCell(ArrayList(Rc(ArrayList(i32)))).new(ArrayList(Rc(ArrayList(i32))).new());
 discard_make_tracked :: (fn() -> Rc(ArrayList(i32)))({
-  l := rc(ArrayList(i32).new());
+  l := Rc.new(ArrayList(i32).new());
   seen := Rc.clone(&l);
   g_discard_seen.with_mut({ seen }(xs) => xs.push(seen));
   l

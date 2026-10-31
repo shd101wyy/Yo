@@ -505,8 +505,8 @@ impl(
     prop_args := ArrayList(AstExpr).new();
     prop_args.push(recv);
     prop_args.push(.Atom(self.alloc_id(), m_tok));
-    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), d_tok), prop_args, true, d_tok);
-    .FnCall(self.alloc_id(), prop, args, false, outer_tok)
+    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), d_tok), Rc.new(prop_args), true, d_tok);
+    .FnCall(self.alloc_id(), prop, Rc.new(args), false, outer_tok)
   }),
   /// `part.append_to(&mut <name_tok>)`: one interpolated part of a template
   /// appended to the builder local (D10).
@@ -516,7 +516,7 @@ impl(
     borrow_args := ArrayList(AstExpr).new();
     borrow_args.push(.Atom(self.alloc_id(), name_tok));
     call_args := ArrayList(AstExpr).new();
-    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), borrow_tok), borrow_args, false, borrow_tok));
+    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), borrow_tok), Rc.new(borrow_args), false, borrow_tok));
     self._template_method_call(part, d_tok, append_tok, call_args, outer_tok)
   }),
   parse_template_string : (fn(self : &mut Self, tok : &Token, index : usize, exn : Exception) -> ParseResult)({
@@ -882,10 +882,10 @@ impl(
         mut_args := ArrayList(AstExpr).new();
         mut_args.push(.Atom(self.alloc_id(), tpl_name_tok));
         bind_args := ArrayList(AstExpr).new();
-        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_mut_tok), mut_args, false, tpl_mut_tok));
+        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_mut_tok), Rc.new(mut_args), false, tpl_mut_tok));
         bind_args.push(empty_str);
         block_args := ArrayList(AstExpr).new();
-        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_bind_tok), bind_args, true, tpl_bind_tok));
+        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_bind_tok), Rc.new(bind_args), true, tpl_bind_tok));
         si := usize(0);
         while(si < tpl_stmts.len(), {
           match(tpl_stmts.get(si), .Some(st) => block_args.push(st), .None => ());
@@ -893,7 +893,7 @@ impl(
         });
         block_args.push(.Atom(self.alloc_id(), tpl_name_tok));
         begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
-        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), block_args, false, begin_tok)
+        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(block_args), false, begin_tok)
       }
     );
     ParseResult(expr : final_expr, index : (index + usize(1)))

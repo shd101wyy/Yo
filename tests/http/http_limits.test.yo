@@ -132,7 +132,7 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19985)), io), IoExn(io : io, exn : exn));
   // The handler and the test both read the count: a shared cell, since a
   // list is a value (B8) and the handler owns what it captures.
-  served := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  served := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   seen := Rc.clone(served);
   task := io.spawn(
     server.serve(req => {

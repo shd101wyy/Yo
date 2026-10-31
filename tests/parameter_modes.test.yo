@@ -349,7 +349,7 @@ impl(
 );
 impl(_PmHeld, LogicalNot((!) : (fn(self : Self) -> bool)(self.n == i32(0))));
 test("a by-value self called through a Dyn gets a copy of the payload", {
-  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : rc(String.from("abc"))));
+  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : Rc.new(String.from("abc"))));
   assert(!!e.clone(), "first call, on a clone: the name is non-empty");
   assert(!!e.clone(), "second call reads the payload the first call did not free");
   assert(!!e, "third call, on the original");

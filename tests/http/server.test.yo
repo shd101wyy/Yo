@@ -197,7 +197,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
-  called := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  called := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   seen := Rc.clone(called);
   task := io.spawn(
     server.serve_once(req => {
@@ -228,7 +228,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19974)), io), IoExn(io : io, exn : exn));
   assert(server.local_addr().port == u16(19974), `local_addr port ${server.local_addr().port}`);
-  hits := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  hits := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   seen := Rc.clone(hits);
   task := io.spawn(
     server.serve(req => {
@@ -407,7 +407,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
-  hits := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  hits := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   seen := Rc.clone(hits);
   task := io.spawn(
     server.serve(req => {

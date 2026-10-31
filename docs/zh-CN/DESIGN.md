@@ -1267,7 +1267,7 @@ export(main);
 
 - **复制是 E0901。** `g := f` 移动文件，之后再使用 `f` 是 E0901（使用已移动的值）。把一个句柄存两次、或在两个闭包中捕获它，同样是 E0901。在这次改动之前，`File` 是引用句柄，副本共享它的描述符和位置。
 - **借出它。** 每个方法都取 `self : &Self`，所以 `f.read_to_string(io)` 借用 `f`。只使用资源的函数取 `&File`。
-- **通过引用类型共享。** 在单个线程内，`rc(f)` 得到 `Rc(File)`，它的所有句柄都指向同一个文件（`h.*.read_to_string(io)`）。跨线程时用 `Arc(Mutex(TcpStream))`；这要求资源是 `Send` 的：各种套接字、`File`、临时文件、`Child` 及其管道和 `Thread`（`File`、临时文件和 `UnixListener` 持有 `String` 路径，自 B8 起它是值类型）。`Watcher`、`TlsStream` 和 `HttpClient` 留在自己的线程上。持有资源的 `ref` 结构体出于同样的原因把它存为 `Rc` 字段，就像 `HttpServer` 持有它的监听器那样。
+- **通过引用类型共享。** 在单个线程内，`Rc.new(f)` 得到 `Rc(File)`，它的所有句柄都指向同一个文件（`h.*.read_to_string(io)`）。跨线程时用 `Arc(Mutex(TcpStream))`；这要求资源是 `Send` 的：各种套接字、`File`、临时文件、`Child` 及其管道和 `Thread`（`File`、临时文件和 `UnixListener` 持有 `String` 路径，自 B8 起它是值类型）。`Watcher`、`TlsStream` 和 `HttpClient` 留在自己的线程上。持有资源的 `ref` 结构体出于同样的原因把它存为 `Rc` 字段，就像 `HttpServer` 持有它的监听器那样。
 - **把它移出来。** `Option(T).unwrap` 通过借用读取，不能把只能移动的载荷移出来。改用消耗型 match：`f := match(opt, .Some(x) => x, .None => …)`。
 - **交出所有权。** `BufReader(File).new(f)` 和 `TcpListener.incoming()` 取得所有权（`sink`）；`get_ref()` 和 `Incoming.listener()` 把它借回来，`BufReader.into_inner()` / `BufWriter.into_parts()` 按值把它交还。要在派生的任务中服务一个套接字，把它移入该任务。
 - **丢弃即释放。** 未经 `wait()` 就被丢弃的 `Child` 会关闭它仍持有的管道端（但不等待进程）。
