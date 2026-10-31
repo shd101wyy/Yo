@@ -111,7 +111,7 @@ comptime_expect_error({
 // Over-rejection canary: a Dyn(Trait, Send) does cross it.
 _spawn_send_dyn :: (fn() -> i32)({
   (d : Dyn(SsSpeak, Send)) = dyn(SsDog(n : i32(4)));
-  hits := AtomicI32(i32(0));
+  hits := AtomicI32.new(i32(0));
   t := Thread(unit).spawn(io => {
     hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
     ()
@@ -295,9 +295,9 @@ _ss_run_on_thread :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T, Send), wh
 _ss_take :: (fn(generic(U : Type), sink(f) : Impl(Fn() -> U)) -> U)(f());
 _ss_relay :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T)) -> T)(_ss_take(() => cb()));
 test("a generic function's move-only closure parameter moves into a closure it passes on", {
-  progress := AtomicI32(i32(7));
+  progress := AtomicI32.new(i32(7));
   assert(_ss_run_on_thread(() => progress.load(MemoryOrder.Acquire)) == i32(7), "the thread ran the moved closure");
-  seen := AtomicI32(i32(9));
+  seen := AtomicI32.new(i32(9));
   assert(_ss_relay(() => seen.load(MemoryOrder.Acquire)) == i32(9), "the relay ran the moved closure");
 });
 // ============================================================================

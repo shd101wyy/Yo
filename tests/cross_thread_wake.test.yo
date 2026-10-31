@@ -34,7 +34,7 @@
 test("a waker fired from another OS thread resumes its task on the owning loop", {
   p := Park.new();
   w := p.waker();
-  stamped := AtomicI32(i32(0));
+  stamped := AtomicI32.new(i32(0));
   resumed_on := AtomicUsize.new(usize(0));
   main_tid := get_thread_id();
   h := io.spawn(
@@ -68,9 +68,9 @@ test("two parks woken from two different threads", {
   p2 := Park.new();
   w1 := p1.waker();
   w2 := p2.waker();
-  order := AtomicI32(i32(0));
+  order := AtomicI32.new(i32(0));
   main_tid := get_thread_id();
-  both_on_main := AtomicI32(i32(0));
+  both_on_main := AtomicI32.new(i32(0));
   h1 := io.spawn(
     io.async({ p1, main_tid, both_on_main, order }(io : Io) => {
       io.await(p1.wait(io), io);
@@ -122,7 +122,7 @@ test("a wake that arrives BEFORE the task suspends is not lost", {
     ()
   });
   t.join();
-  ran := AtomicI32(i32(0));
+  ran := AtomicI32.new(i32(0));
   h := io.spawn(
     io.async({ p, ran }(io : Io) => {
       io.await(p.wait(io), io);
@@ -199,7 +199,7 @@ test("the common ordering — owner drops its waker handle first, worker wakes l
 // drain failed to consume would now hang the loop instead of leaking silently
 // (issues/fixed/a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md).
 test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outlives the release posted into it", {
-  total := AtomicI32(i32(0));
+  total := AtomicI32.new(i32(0));
   (mut(i) : i32) = i32(0);
   while(i < i32(2000), {
     t := Thread(unit).spawn((io : Io) => {

@@ -81,7 +81,7 @@ every such claim auditable.
 local_data := MyList.new();
 
 // Atomic object — can be sent across threads
-shared_counter := AtomicBool(false);
+shared_counter := AtomicBool.new(false);
 Thread(unit).spawn(io => {
   shared_counter.store(true, MemoryOrder.Release);
 });
@@ -145,22 +145,22 @@ back into it. Every operation takes an explicit `MemoryOrder`:
 ```yo
 { AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 
-flag := AtomicBool(false);
+flag := AtomicBool.new(false);
 flag.store(true, MemoryOrder.Release);
 if(flag.load(MemoryOrder.Acquire), {
   println("flag is set!");
 });
 
-counter := AtomicI32(i32(0));
+counter := AtomicI32.new(i32(0));
 counter.fetch_add(i32(1), MemoryOrder.Relaxed);
 println(`count = ${counter.load(MemoryOrder.Acquire)}`);
 
 // The whole read-modify-write family, on every integer atomic:
-bits := AtomicU32(u32(0));
+bits := AtomicU32.new(u32(0));
 bits.fetch_or(u32(4), MemoryOrder.AcqRel); // set a bit
 bits.fetch_and(u32(4294967291), MemoryOrder.AcqRel); // clear it again
 bits.fetch_xor(u32(1), MemoryOrder.AcqRel); // flip a bit
-high_water := AtomicUsize(usize(0));
+high_water := AtomicUsize.new(usize(0));
 high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
 
@@ -258,7 +258,7 @@ local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In sa
 
 ```yo
 LIMIT :: i32(5); // a constant: fine from any thread
-hits := AtomicI32(i32(0)); // an atomic object: shared state, fine
+hits := AtomicI32.new(i32(0)); // an atomic object: shared state, fine
 (thread_local(mut(scratch)) : i32) = i32(0); // per-thread mutable state: fine
 g := ArrayList(i32).new(); // fine on the main thread only
 fill :: (fn() -> unit)({
@@ -303,7 +303,7 @@ converted into that type (an argument, a return, a declared binding).
 
 ```yo
 g := ArrayList(i32).new(); // main thread only
-hits := AtomicI32(i32(0));
+hits := AtomicI32.new(i32(0));
 fill :: (fn(io : Io) -> unit)({
   g.push(i32(1));
 });

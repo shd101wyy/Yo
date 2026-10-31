@@ -3,11 +3,12 @@
 //! # Receiver convention
 //!
 //! Every method on every `Atomic*` type takes `self : Self`, the same
-//! convention the rest of `std/sync` uses for `atomic(ref(...))` types
-//! (`Mutex`, `RwLock`, `Cond`, `Channel`, `Once`, `WaitGroup`). An atomic
-//! IS a shared handle — mutation goes through the C11 atomic operation, not
-//! through a Yo place-write — so a `mut` receiver would only demand a
-//! mutable binding at every call site without buying any extra guarantee.
+//! convention the rest of `std/sync` uses for its cell-backed shared-handle
+//! types (`Mutex`, `RwLock`, `Cond`, `Channel`, `Once`, `WaitGroup`). An
+//! atomic IS a shared handle — mutation goes through the C11 atomic
+//! operation, not through a Yo place-write — so a `mut` receiver would only
+//! demand a mutable binding at every call site without buying any extra
+//! guarantee.
 //! `compare_exchange` keeps `expected : &mut T`, which really is written back:
 //! on failure it is updated to the value the object actually held.
 //!
@@ -201,30 +202,30 @@ _read_order :: (fn(order : MemoryOrder) -> MemoryOrder)(
 // ============================================================================
 // AtomicBool
 // ============================================================================
-AtomicBool :: atomic(ref(struct((*) : atomic_bool)));
+AtomicBool :: struct(_cell : __yo_atomic_cell(atomic_bool));
 impl(
   AtomicBool,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : bool) -> Self)({
-    v := Self(false);
-    cond(value => unsafe(atomic_store_explicit(addr_of(v.*), true, memory_order_release)), true => ());
+    v := Self(_cell : __yo_atomic_cell(atomic_bool)(false, .None));
+    cond(value => unsafe(atomic_store_explicit(addr_of(v._cell.*), true, memory_order_release)), true => ());
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> bool)(
-    unsafe(atomic_load_explicit(addr_of(self.*), _load_order(order).to_c_order())) == true
+    unsafe(atomic_load_explicit(addr_of(self._cell.*), _load_order(order).to_c_order())) == true
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : bool, order : MemoryOrder) -> unit)(
-    unsafe(atomic_store_explicit(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(atomic_store_explicit(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : bool, order : MemoryOrder) -> bool)(
-    unsafe(atomic_exchange_explicit(addr_of(self.*), value, order.to_c_order())) == true
+    unsafe(atomic_exchange_explicit(addr_of(self._cell.*), value, order.to_c_order())) == true
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -245,7 +246,7 @@ impl(
   )(
     unsafe(
       atomic_compare_exchange_strong_explicit(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -258,30 +259,30 @@ impl(
 // ============================================================================
 // AtomicI8
 // ============================================================================
-AtomicI8 :: atomic(ref(struct((*) : atomic_schar)));
+AtomicI8 :: struct(_cell : __yo_atomic_cell(atomic_schar));
 impl(
   AtomicI8,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : i8) -> Self)({
-    v := Self(i8(0));
-    unsafe(__yo_atomic_store_schar(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_schar)(i8(0), .None));
+    unsafe(__yo_atomic_store_schar(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> i8)(
-    unsafe(i8(__yo_atomic_load_schar(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(i8(__yo_atomic_load_schar(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : i8, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_schar(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_schar(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)(
-    unsafe(i8(__yo_atomic_exchange_schar(addr_of(self.*), value, order.to_c_order())))
+    unsafe(i8(__yo_atomic_exchange_schar(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -302,7 +303,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_schar(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -391,30 +392,30 @@ impl(
 // ============================================================================
 // AtomicI16
 // ============================================================================
-AtomicI16 :: atomic(ref(struct((*) : atomic_short)));
+AtomicI16 :: struct(_cell : __yo_atomic_cell(atomic_short));
 impl(
   AtomicI16,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : i16) -> Self)({
-    v := Self(i16(0));
-    unsafe(__yo_atomic_store_short(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_short)(i16(0), .None));
+    unsafe(__yo_atomic_store_short(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> i16)(
-    unsafe(i16(__yo_atomic_load_short(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(i16(__yo_atomic_load_short(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : i16, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_short(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_short(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)(
-    unsafe(i16(__yo_atomic_exchange_short(addr_of(self.*), value, order.to_c_order())))
+    unsafe(i16(__yo_atomic_exchange_short(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -435,7 +436,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_short(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -524,30 +525,30 @@ impl(
 // ============================================================================
 // AtomicI32
 // ============================================================================
-AtomicI32 :: atomic(ref(struct((*) : atomic_int)));
+AtomicI32 :: struct(_cell : __yo_atomic_cell(atomic_int));
 impl(
   AtomicI32,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : i32) -> Self)({
-    v := Self(i32(0));
-    unsafe(__yo_atomic_store_int(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_int)(i32(0), .None));
+    unsafe(__yo_atomic_store_int(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> i32)(
-    unsafe(i32(__yo_atomic_load_int(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(i32(__yo_atomic_load_int(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : i32, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_int(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_int(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(__yo_atomic_exchange_int(addr_of(self.*), value, order.to_c_order())))
+    unsafe(i32(__yo_atomic_exchange_int(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -568,7 +569,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_int(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -579,23 +580,23 @@ impl(
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
   fetch_add : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(atomic_fetch_add_explicit(addr_of(self.*), int(value), order.to_c_order())))
+    unsafe(i32(atomic_fetch_add_explicit(addr_of(self._cell.*), int(value), order.to_c_order())))
   ),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
   fetch_sub : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(atomic_fetch_sub_explicit(addr_of(self.*), int(value), order.to_c_order())))
+    unsafe(i32(atomic_fetch_sub_explicit(addr_of(self._cell.*), int(value), order.to_c_order())))
   ),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
   fetch_and : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(atomic_fetch_and_explicit(addr_of(self.*), int(value), order.to_c_order())))
+    unsafe(i32(atomic_fetch_and_explicit(addr_of(self._cell.*), int(value), order.to_c_order())))
   ),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
   fetch_or : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(atomic_fetch_or_explicit(addr_of(self.*), int(value), order.to_c_order())))
+    unsafe(i32(atomic_fetch_or_explicit(addr_of(self._cell.*), int(value), order.to_c_order())))
   ),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
   fetch_xor : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(atomic_fetch_xor_explicit(addr_of(self.*), int(value), order.to_c_order())))
+    unsafe(i32(atomic_fetch_xor_explicit(addr_of(self._cell.*), int(value), order.to_c_order())))
   ),
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
@@ -627,30 +628,30 @@ impl(
 // ============================================================================
 // AtomicI64
 // ============================================================================
-AtomicI64 :: atomic(ref(struct((*) : atomic_llong)));
+AtomicI64 :: struct(_cell : __yo_atomic_cell(atomic_llong));
 impl(
   AtomicI64,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : i64) -> Self)({
-    v := Self(i64(0));
-    unsafe(__yo_atomic_store_llong(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_llong)(i64(0), .None));
+    unsafe(__yo_atomic_store_llong(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> i64)(
-    unsafe(i64(__yo_atomic_load_llong(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(i64(__yo_atomic_load_llong(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : i64, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_llong(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_llong(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)(
-    unsafe(i64(__yo_atomic_exchange_llong(addr_of(self.*), value, order.to_c_order())))
+    unsafe(i64(__yo_atomic_exchange_llong(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -671,7 +672,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_llong(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -760,30 +761,30 @@ impl(
 // ============================================================================
 // AtomicU8
 // ============================================================================
-AtomicU8 :: atomic(ref(struct((*) : atomic_uchar)));
+AtomicU8 :: struct(_cell : __yo_atomic_cell(atomic_uchar));
 impl(
   AtomicU8,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : u8) -> Self)({
-    v := Self(u8(0));
-    unsafe(__yo_atomic_store_uchar(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_uchar)(u8(0), .None));
+    unsafe(__yo_atomic_store_uchar(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> u8)(
-    unsafe(u8(__yo_atomic_load_uchar(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(u8(__yo_atomic_load_uchar(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : u8, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_uchar(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_uchar(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)(
-    unsafe(u8(__yo_atomic_exchange_uchar(addr_of(self.*), value, order.to_c_order())))
+    unsafe(u8(__yo_atomic_exchange_uchar(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -804,7 +805,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_uchar(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -893,30 +894,30 @@ impl(
 // ============================================================================
 // AtomicU16
 // ============================================================================
-AtomicU16 :: atomic(ref(struct((*) : atomic_ushort)));
+AtomicU16 :: struct(_cell : __yo_atomic_cell(atomic_ushort));
 impl(
   AtomicU16,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : u16) -> Self)({
-    v := Self(u16(0));
-    unsafe(__yo_atomic_store_ushort(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_ushort)(u16(0), .None));
+    unsafe(__yo_atomic_store_ushort(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> u16)(
-    unsafe(u16(__yo_atomic_load_ushort(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(u16(__yo_atomic_load_ushort(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : u16, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_ushort(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_ushort(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)(
-    unsafe(u16(__yo_atomic_exchange_ushort(addr_of(self.*), value, order.to_c_order())))
+    unsafe(u16(__yo_atomic_exchange_ushort(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -937,7 +938,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_ushort(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -1026,30 +1027,30 @@ impl(
 // ============================================================================
 // AtomicU32
 // ============================================================================
-AtomicU32 :: atomic(ref(struct((*) : atomic_uint)));
+AtomicU32 :: struct(_cell : __yo_atomic_cell(atomic_uint));
 impl(
   AtomicU32,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : u32) -> Self)({
-    v := Self(u32(0));
-    unsafe(__yo_atomic_store_uint(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_uint)(u32(0), .None));
+    unsafe(__yo_atomic_store_uint(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> u32)(
-    unsafe(u32(__yo_atomic_load_uint(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(u32(__yo_atomic_load_uint(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : u32, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_uint(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_uint(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)(
-    unsafe(u32(__yo_atomic_exchange_uint(addr_of(self.*), value, order.to_c_order())))
+    unsafe(u32(__yo_atomic_exchange_uint(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -1070,7 +1071,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_uint(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -1159,30 +1160,30 @@ impl(
 // ============================================================================
 // AtomicU64
 // ============================================================================
-AtomicU64 :: atomic(ref(struct((*) : atomic_ullong)));
+AtomicU64 :: struct(_cell : __yo_atomic_cell(atomic_ullong));
 impl(
   AtomicU64,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : u64) -> Self)({
-    v := Self(u64(0));
-    unsafe(__yo_atomic_store_ullong(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_ullong)(u64(0), .None));
+    unsafe(__yo_atomic_store_ullong(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> u64)(
-    unsafe(u64(__yo_atomic_load_ullong(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(u64(__yo_atomic_load_ullong(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : u64, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_ullong(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_ullong(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)(
-    unsafe(u64(__yo_atomic_exchange_ullong(addr_of(self.*), value, order.to_c_order())))
+    unsafe(u64(__yo_atomic_exchange_ullong(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -1203,7 +1204,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_ullong(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -1292,30 +1293,30 @@ impl(
 // ============================================================================
 // AtomicUsize
 // ============================================================================
-AtomicUsize :: atomic(ref(struct((*) : atomic_size_t)));
+AtomicUsize :: struct(_cell : __yo_atomic_cell(atomic_size_t));
 impl(
   AtomicUsize,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : usize) -> Self)({
-    v := Self(usize(0));
-    unsafe(__yo_atomic_store_size_t(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_size_t)(usize(0), .None));
+    unsafe(__yo_atomic_store_size_t(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> usize)(
-    unsafe(usize(__yo_atomic_load_size_t(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(usize(__yo_atomic_load_size_t(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : usize, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_size_t(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_size_t(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)(
-    unsafe(usize(__yo_atomic_exchange_size_t(addr_of(self.*), value, order.to_c_order())))
+    unsafe(usize(__yo_atomic_exchange_size_t(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -1336,7 +1337,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_size_t(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
@@ -1425,30 +1426,30 @@ impl(
 // ============================================================================
 // AtomicIsize
 // ============================================================================
-AtomicIsize :: atomic(ref(struct((*) : atomic_ptrdiff_t)));
+AtomicIsize :: struct(_cell : __yo_atomic_cell(atomic_ptrdiff_t));
 impl(
   AtomicIsize,
   /// A new atomic holding `value`. The initializing store is `release`,
   /// so the value is visible to any thread that acquires the handle.
   new : (fn(value : isize) -> Self)({
-    v := Self(isize(0));
-    unsafe(__yo_atomic_store_ptrdiff(addr_of(v.*), value, memory_order_release));
+    v := Self(_cell : __yo_atomic_cell(atomic_ptrdiff_t)(isize(0), .None));
+    unsafe(__yo_atomic_store_ptrdiff(addr_of(v._cell.*), value, memory_order_release));
     v
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
   load : (fn(self : &Self, order : MemoryOrder) -> isize)(
-    unsafe(isize(__yo_atomic_load_ptrdiff(addr_of(self.*), _load_order(order).to_c_order())))
+    unsafe(isize(__yo_atomic_load_ptrdiff(addr_of(self._cell.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
   store : (fn(self : &Self, value : isize, order : MemoryOrder) -> unit)(
-    unsafe(__yo_atomic_store_ptrdiff(addr_of(self.*), value, _store_order(order).to_c_order()))
+    unsafe(__yo_atomic_store_ptrdiff(addr_of(self._cell.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
   swap : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)(
-    unsafe(isize(__yo_atomic_exchange_ptrdiff(addr_of(self.*), value, order.to_c_order())))
+    unsafe(isize(__yo_atomic_exchange_ptrdiff(addr_of(self._cell.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
   /// report whether it did — C11 `atomic_compare_exchange_strong`.
@@ -1469,7 +1470,7 @@ impl(
   )(
     unsafe(
       __yo_atomic_compare_exchange_ptrdiff(
-        addr_of(self.*),
+        addr_of(self._cell.*),
         addr_of(expected),
         new_value,
         success.to_c_order(),
