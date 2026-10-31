@@ -1,0 +1,12 @@
+# Static-argument inference B3 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5)
+# deleted the prelude's `rc`/`box`/`arc`. A call of one is E0401, whose help
+# names the handle's constructor (`rc(x)` is `Rc.new(x)`, pinned by the language tests
+# tests/handle_constructors and tests/rc_binding_gives_way) and points at
+# v0.2.73's `yo fix --migrate handle-ctors`; its structured repair rewrites
+# the token, `rc` → `Rc.new`, `box` → `Box.new`, `arc` → `Arc.new`, with the
+# arguments (`alloc :` included) kept. A rewritten `dyn(Rc.new(<closure>))` is
+# the recognized form, so the closure is still typed from the `Dyn`. The
+# expected_tree pins the rewritten file and the trailing `check` proves it
+# evaluates. This case replaces fix-migrate-handle-ctors: the tree's mode
+# can no longer type an old call once the builtins are gone.
+timeout=240

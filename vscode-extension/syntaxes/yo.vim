@@ -53,7 +53,7 @@ syn match yoOperator /[-=+*\/<>@$~&%|!?^.:\\#]\+/
 syn keyword yoKeyword if cond match while for return unwind recur break continue
 
 " Declarations and type constructors
-syn keyword yoKeyword fn ctl unsafe_fn type struct union enum newtype trait impl ref atomic box dyn
+syn keyword yoKeyword fn ctl unsafe_fn type struct union enum newtype trait impl ref atomic dyn
 syn keyword yoKeyword export import extern c_include test thread_local
 
 " Parameter label modifiers, signature clauses, ghost/contract surface

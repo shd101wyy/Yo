@@ -93,6 +93,7 @@ The repairs the compiler computes today:
 | diagnostic | repair |
 | --- | --- |
 | E0401 name not found, one close candidate in scope | rename the token (`countr` → `counter`) |
+| E0401 on `rc`/`box`/`arc`, the prelude builtins static-argument inference B3 deleted | rewrite the name to the handle's constructor (`rc` → `Rc.new`, `box` → `Box.new`, `arc` → `Arc.new`); a closure or `.None` argument then needs its type written, E0613 |
 | E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
 | E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
 | E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | wrap the name: `run(f)` → `run(dyn(f))` (a longer value gives help only; `--migrate dyn-spelling` wraps it) |
@@ -200,7 +201,10 @@ argument (an enum shorthand such as `.None`, a closure literal outside
 the type argument the old call bound: `(o : Rc(Option(i32))) = rc(.None)`
 becomes `Rc(Option(i32)).new(.None)`. A site that needs the type argument but
 sits in a generic body, or whose type has no spelling (a closure's, a
-`Dyn`'s), is listed with its position and left as written.
+`Dyn`'s), is listed with its position and left as written. Static-argument
+inference B3 (v0.2.74) deleted the builtins, so only v0.2.73's mode can type
+an old call; with a later compiler a call of `rc`/`box`/`arc` is E0401, whose
+repair rewrites the name (`rc` → `Rc.new`) and keeps the arguments.
 
 `yo fix <path> --migrate mutable-globals` is the migration for decision 47,
 under which a module-level or `thread_local` runtime binding is immutable

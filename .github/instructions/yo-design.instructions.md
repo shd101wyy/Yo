@@ -128,7 +128,7 @@ it, through the prelude's `__yo_scope_set` extern: no codegen, and the default p
 unchanged. That swap is the stopgap until V5's `__yo_cell`/`__yo_atomic_cell` take the
 allocator themselves (VALUES_BY_DEFAULT §3.2). Both bind that `match` (`cell := match(…); cell`)
 instead of ending in it: a tail `match` is typed by the declared `Rc(V)`/`Arc(V)`, and for the
-`rc`/`arc` call that `dyn(...)` synthesizes around a closure capturing a generic function's
+cell call that `dyn(...)` synthesizes around a closure capturing a generic function's
 `Impl(Fn)` parameter that `V` is unbound, a second C type for the result
 (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
 the evaluator gap is open as `issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
@@ -155,34 +155,35 @@ the prelude function `rc(v)` is its old spelling until STATIC_ARGUMENT_INFERENCE
 (VALUES_BY_DEFAULT §6 V1 step 1, Generation B part 1 renamed every site to it); the
 legacy `Box(T)` keeps the same definition and impls until part 2 deletes it.
 The compiler recognises the shared cell BY NAME in a few places (the instance-name
-stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(<ctor>(<closure>))`);
+stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(Rc.new(<closure>))`);
 every such check reads the one list `shared_cell_names_at` (`src/types/guards.yo`),
 never a literal `"Box"`. **`Rc(T).new(v, alloc :)`, `Box(T).new` and `Arc(T).new` are the
-handle constructors** (plans/backlog/STATIC_ARGUMENT_INFERENCE.md A2). `box` forwards to `Box(V).new`;
-`rc` and `arc` keep a copy of the body until a seed carries A3, because the v0.2.70 seed's `dyn`
-synthesizes `rc(<closure>)` and a forwarded `Rc(V).new(...)` result has a second C type (the open
-`issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
+handle constructors** (plans/backlog/STATIC_ARGUMENT_INFERENCE.md A2). B3 deleted the prelude's
+`rc`/`box`/`arc`: a call of one is E0401, whose help says `rc(x)` is `Rc.new(x)` and whose
+structured repair rewrites the token (`_deleted_handle_ctor`, `exprs/identifer_and_operator.yo`).
 `Rc.new`/`Arc.new` declare `-> Rc(T)`/`-> Arc(T)`, not `-> Self`: a written return type is
 evaluated again per specialization, which types the capture-struct cell `dyn` builds; the baked
 `Self` did not.
 `dyn(v)` on a non-object synthesizes `Rc(T).new(v)` (`Arc(T).new` for a Send Dyn) with a
 receiver node preset to the cell type (`_synthesized_cell_call`, `values/dyn.yo`). A payload whose
 type mentions a type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) is boxed by the
-prelude's `__yo_rc_cell`/`__yo_arc_cell` FUNCTION VALUE bound to the callee node (copies of `rc`/`arc`
-that outlive them at B3, so a seed never looks `rc` up; plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5 H1): an unresolved variable other than an
+prelude's `__yo_rc_cell`/`__yo_arc_cell` FUNCTION VALUE bound to the callee node (copies of
+`Rc.new`/`Arc.new`'s bodies that survive B3, so no name is looked up; they and dyn.yo's three helpers
+go once the open S3 above is fixed, Fable consultation #7;
+plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5 H1): an unresolved variable other than an
 `Impl(Fn(...))` parameter's type cannot dispatch `new` outside a def-time trial (the parameter's can,
 `_is_open_fn_param_slot` in `values/impl.yo`,
 `issues/fixed/2026-10-27-a-static-method-on-an-instantiation-over-an-open-type-parameter-does-not-dispatch.md`),
 and a cell built as `Rc(T).new` keeps the variable in its type (a second C type, measured by the
 emit-diff; over the still-open wrapper of `dyn(Rc.new(<closure>))` its payload lowers to `void*`),
 where the generic function's binder binds the capture struct. Either way no
-name is looked up and a parameter named `rc` cannot capture the call. `dyn(Rc.new(<closure>))` is
-recognized beside `dyn(rc(<closure>))`; the applied `Rc(T).new(<closure>)` is not (a closure's type
-cannot be written as `T`). The recognized cell is `Rc(W)` over the Dyn's Fn-carrying wrapper `W`, an
+name is looked up and a parameter named `rc` cannot capture the call. `dyn(Rc.new(<closure>))` and
+`dyn(Arc.new(<closure>))` are recognized, with or without an `alloc` argument, which the rebuilt
+`__yo_rc_cell`/`__yo_arc_cell` call forwards (`_dyn_cell_args_recognized`); the applied
+`Rc(T).new(<closure>)` is not (a closure's type cannot be written as `T`). The recognized cell is `Rc(W)` over the Dyn's Fn-carrying wrapper `W`, an
 type variable, so that call too becomes the prelude `__yo_rc_cell` value bound to the callee; its receiver is
-preset to `.TypeVal(Rc(W))` only when `W` mentions no type variable. As a prelude name `rc` cannot be redefined: a module-level or local
-binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
-named `rc` shadows it in its scope. `ref_count` is not in
+preset to `.TypeVal(Rc(W))` only when `W` mentions no type variable. `rc` is an ordinary name since
+B3: a local, a parameter or a match-pattern binding may use it. `ref_count` is not in
 `is_reserved_builtin_binding_name`: the `markdown-yo` dependency binds a local
 `ref_count` counter, so reserving it breaks the build.
 

@@ -1,0 +1,13 @@
+//! The prelude's handle builtins, deleted by static-argument inference B3.
+{ String } :: import("std/string");
+run :: (fn(d : Dyn(Fn(x : i32) -> i32)) -> i32)(d(i32(1)));
+main :: (fn() -> unit)({
+  a := rc(i32(1));
+  b := box(String.from("b"));
+  c := arc(i32(3), alloc : .None);
+  n := i32(5);
+  e := run(dyn(rc(x => (x + n))));
+  _s := ((a.* + c.*) + e);
+  _l := b.*.len();
+});
+export(main);
