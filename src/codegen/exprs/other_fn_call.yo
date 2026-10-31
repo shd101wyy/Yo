@@ -2255,7 +2255,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         match(
           _c_func_name(rm_fid.clone(), context),
           .Some(rmcn) => {
-            rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+            rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
             // The C pointer flags (a projection's `&T` parameters too); the
             // borrow acquires keep `rm_pir`.
             rm_abi_ft := get_func_type(rm_fid.clone());
@@ -2447,7 +2447,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         wrapped := _constructed_struct_type(&wrapped_box, &ei.ty);
         if(is_reference_struct_type(&wrapped), {
           cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_obj"));
-          obj_fncall_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+          obj_fncall_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           // Prefer the recorded runtime arg exprs; fall back to reconstructing
           // them from the FnCall's labeled args when empty (ctor inside a
           // specialized body — see _ctor_args_from_labeled).
@@ -2473,10 +2473,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           ctor_args := match(
             ei.runtime_arg_exprs_in_order,
             .Some(ra) => cond(
-              is_cell => ra,
+              is_cell => ra.clone(),
               (ra.len() == usize(0)) => ctor_labeled,
               ((ra.len() > ctor_rt_n) && (ctor_labeled.len() == ctor_rt_n)) => ctor_labeled,
-              true => ra
+              true => ra.clone()
             ),
             .None => ctor_labeled
           );
@@ -2572,7 +2572,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // union but never construct one (tests/basic.test.yo arm 14).
         if(is_union_type(&wrapped), {
           u_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_union"));
-          u_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+          u_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           match(
             u_args.get(usize(0)),
             .Some(u_arg) => if(ast_expr_is_fn_call_of(&u_arg, ":", Option(usize).Some(usize(2))), {
@@ -2619,7 +2619,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
           vs_is_newtype := match(&wrapped, Rc(.Struct({ is_newtype : nt })) => nt, _ => false);
           rt_fields := get_runtime_struct_fields(wrapped.clone());
-          vs_args_raw := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+          vs_args_raw := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
           // `runtime_arg_exprs_in_order` records a slot for EVERY field, including
           // COMPTIME-ONLY ones (`tag :: "..."`); for a struct with a comptime field
           // it has MORE entries than the runtime-field list, so the per-runtime-
@@ -2628,7 +2628,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // ("unexpected type name '__yo_tN'"). When the counts disagree, re-derive
           // the runtime-field values by matching the ctor call's labeled args to the
           // runtime fields by name (the same matcher as the empty-args fallback).
-          vs_fncall_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+          vs_fncall_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           vs_args := if(vs_args_raw.len() == rt_fields.len(), vs_args_raw, _ctor_args_from_labeled(wrapped.clone(), &vs_fncall_args));
           vs_value := cond(
             (vs_is_newtype && (rt_fields.len() == usize(1)) && (vs_args.len() == usize(1))) => {
@@ -2741,7 +2741,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // generic Index trait.
   if(is_array_type(&function_type), {
     arr_code := _call_generate_expr(&func_expr, indent.clone(), context);
-    idx_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+    idx_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     match(
       idx_args.get(usize(0)),
       .Some(idx_expr) => {
@@ -2778,14 +2778,14 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   if(!is_function_type(&function_type) && !cc_early_hit, {
     return(Option(String).None);
   });
-  (runtime_args : ArrayList(AstExpr)) = match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => return(Option(String).None));
+  (runtime_args : ArrayList(AstExpr)) = match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(Option(String).None));
   // cc_early_hit fallback: a closure-field call inside a SPECIALIZED body can
   // reach codegen with an EMPTY recorded runtime-arg list (the re-evaluated
   // body's call route never populated it — same gap as the reference-struct
   // ctor `_ctor_args_from_labeled` fallback above). Reconstruct from the
   // FnCall's own arg exprs so the closure call keeps its runtime arguments.
   if(cc_early_hit && (runtime_args.len() == usize(0)), {
-    cc_ast_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+    cc_ast_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     if(cc_ast_args.len() > usize(0), {
       runtime_args = cc_ast_args;
     });
