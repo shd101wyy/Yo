@@ -1380,7 +1380,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, .FnCall(_, func, Rc(args), _, _) => match(func, .Atom(_, tok) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, Rc(fargs), _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value.* == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, Rc(args), _, _) => match(func, .Atom(_, tok) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, Rc(fargs), _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value.* == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -2100,7 +2100,7 @@ _element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
     e,
     .FnCall(_, _, Rc(args), _, _) => if(
       ast_expr_is_fn_call_of(e, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None),
-      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0).*), Option(String).None), .None => Option(String).None),
+      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0).*.clone()), Option(String).None), .None => Option(String).None),
       Option(String).None
     ),
     .Atom(_, _) => Option(String).None
