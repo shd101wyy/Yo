@@ -552,7 +552,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
 compute_cross_boundary_variables :: (
   fn(body_expr : &AstExpr, analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> CrossBoundaryResult
 )({
-  captured_variables := analysis.captured_variables;
+  captured_variables := &analysis.captured_variables;
   body_tok := ast_expr_token(body_expr.clone());
   w := _LiveWalk(
     module_path : body_tok.module_path.*.clone(),
@@ -1067,18 +1067,10 @@ resolve_effect_field_from_sm_scope :: (
   match(
     context.current_evidence_params,
     .Some(eps) => {
-      it := eps.into_iter();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(b) => if(b.value.field_label == field_label, {
-            return(Option(String).Some(b.value.c_param_name.clone()));
-          }),
-          .None => {
-            go = false;
-          }
-        );
+      for(&eps, (_k, ep) => {
+        if(ep.field_label == field_label, {
+          return(Option(String).Some(ep.c_param_name.clone()));
+        });
       });
     },
     .None => ()
@@ -1086,24 +1078,13 @@ resolve_effect_field_from_sm_scope :: (
   match(
     context.state_machine_variables,
     .Some(svm) => {
-      it2 := svm.into_iter();
-      (go2 : bool) = true;
-      while(go2, {
-        match(
-          it2.next(),
-          .Some(b) => {
-            cv := b.value;
-            is_outer := match(cv.kind, .Outer => true, .Local => false);
-            if((cv.base.name == field_label) && is_outer, {
-              s := `sm->${context.sm_capture_slot}.`;
-              s.push_string(sanitize_for_c_identifier(field_label.clone(), false));
-              return(Option(String).Some(s));
-            });
-          },
-          .None => {
-            go2 = false;
-          }
-        );
+      for(&svm, (_k, cv) => {
+        is_outer := match(cv.kind, .Outer => true, .Local => false);
+        if((cv.base.name == field_label) && is_outer, {
+          s := `sm->${context.sm_capture_slot}.`;
+          s.push_string(sanitize_for_c_identifier(field_label.clone(), false));
+          return(Option(String).Some(s));
+        });
       });
     },
     .None => ()
@@ -1193,32 +1174,21 @@ find_bundle_field_name :: (
       state_machine_variables,
       .Some(svm) => {
         (fallback : Option(String)) = Option(String).None;
-        it := svm.into_iter();
-        (go : bool) = true;
-        while(go, {
-          match(
-            it.next(),
-            .Some(b) => {
-              smvar := b.value;
-              is_outer := match(smvar.kind, .Outer => true, .Local => false);
-              if(!is_outer, {
-                svid := match(&smvar.base.ty, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
-                if(svid == target_id, {
-                  aliased := match(state_machine_field_aliases, .Some(al) => al.get_cloned(smvar.base.id.to_string()), .None => Option(String).None);
-                  match(
-                    aliased,
-                    .Some(a) => return(Option(String).Some(a)),
-                    .None => if(fallback.is_none(), {
-                      fallback = Option(String).Some(sm_local_field_name(smvar.base.id.to_string()));
-                    })
-                  );
-                });
-              });
-            },
-            .None => {
-              go = false;
-            }
-          );
+        for(&svm, (_k, smvar) => {
+          is_outer := match(smvar.kind, .Outer => true, .Local => false);
+          if(!is_outer, {
+            svid := match(&smvar.base.ty, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
+            if(svid == target_id, {
+              aliased := match(state_machine_field_aliases, .Some(al) => al.get_cloned(smvar.base.id.to_string()), .None => Option(String).None);
+              match(
+                aliased,
+                .Some(a) => return(Option(String).Some(a)),
+                .None => if(fallback.is_none(), {
+                  fallback = Option(String).Some(sm_local_field_name(smvar.base.id.to_string()));
+                })
+              );
+            });
+          });
         });
         fallback
       },
@@ -1253,24 +1223,14 @@ emit_effect_record_injection_for_sm :: (
       match(
         context.state_machine_variables,
         .Some(svm) => {
-          it := svm.into_iter();
-          (go : bool) = true;
-          while(go && member_code.is_none(), {
-            match(
-              it.next(),
-              .Some(b) => {
-                cv := b.value;
-                is_outer := match(cv.kind, .Outer => true, .Local => false);
-                if((cv.base.name == flabel) && is_outer, {
-                  s := `sm->${context.sm_capture_slot}.`;
-                  s.push_string(sanitize_for_c_identifier(flabel.clone(), false));
-                  member_code = Option(String).Some(s);
-                });
-              },
-              .None => {
-                go = false;
-              }
-            );
+          for(&svm, (_k, cv) => {
+            is_outer := match(cv.kind, .Outer => true, .Local => false);
+            if((cv.base.name == flabel) && is_outer, {
+              s := `sm->${context.sm_capture_slot}.`;
+              s.push_string(sanitize_for_c_identifier(flabel.clone(), false));
+              member_code = Option(String).Some(s);
+              break;
+            });
           });
         },
         .None => ()
@@ -1318,18 +1278,11 @@ emit_effect_record_injection_for_sm :: (
         match(
           context.current_evidence_params,
           .Some(eps) => {
-            it := eps.into_iter();
-            (go : bool) = true;
-            while(go && member_code.is_none(), {
-              match(
-                it.next(),
-                .Some(b) => if(b.value.field_label == flabel, {
-                  member_code = Option(String).Some(b.value.c_param_name.clone());
-                }),
-                .None => {
-                  go = false;
-                }
-              );
+            for(&eps, (_k, ep) => {
+              if(ep.field_label == flabel, {
+                member_code = Option(String).Some(ep.c_param_name.clone());
+                break;
+              });
             });
           },
           .None => ()
