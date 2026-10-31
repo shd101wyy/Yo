@@ -27,6 +27,7 @@ import("std/fmt");
 { Environment } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
 { declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at, push_declared_scope, scope_stack_contains, element_wise_dup_target } :: import("../utils/index.yo");
+{ replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -226,8 +227,8 @@ _emit_value_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
   vei_pending := context.base.get_expr_info(value);
   cur_drops := match(vei_pending, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
   cur_consumed := match(vei_pending, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
-  prev_pending := context.pending_deferred_drops;
-  prev_consumed := context.consumed_var_pending_drops;
+  prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+  prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_drops, &prev_pending));
   context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
   note_line_position(&context.base.emitter, value);
@@ -285,7 +286,7 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   // blocker. ExprInfo is a ref struct, so this mutates the table entry in
   // place and restores it.
   // See issues/fixed/stage2-match-if-else-value-phantom-temp.md.
-  saved_arm_vn := vei.variable_name;
+  saved_arm_vn := replace(&mut vei.variable_name, Option(String).None);
   vei.variable_name = Option(String).None;
   raw_code := _call_generate_expr(value, value_indent.clone(), context);
   vei.variable_name = saved_arm_vn;
@@ -436,8 +437,8 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
   vei_opt := context.base.get_expr_info(value);
   cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
   cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
-  prev_pending := context.pending_deferred_drops;
-  prev_consumed := context.consumed_var_pending_drops;
+  prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+  prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_drops, &prev_pending));
   context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
   n := begin_args.len();
@@ -631,7 +632,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
 _emit_cond_if_head :: (fn(condition : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
-  cnd_prev := context.pending_deferred_drops;
+  cnd_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
   cc := _call_generate_expr(condition, indent.clone(), context);
   context.pending_deferred_drops = cnd_prev;
