@@ -1625,8 +1625,9 @@ impl(
       HashMap(K, V).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &MapEntry(K, V)) -> Self)({
-      acc.insert(item.key, item.value);
-      acc
+      mut(out) := acc;
+      out.insert(item.key, item.value);
+      out
     })
   )
 );
