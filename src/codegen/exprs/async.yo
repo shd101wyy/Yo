@@ -2240,7 +2240,7 @@ _fused_sm_aliases :: (fn(site : &FusedAwaitSite) -> HashMap(String, String))({
 });
 /// The statements of a block expression.
 _fused_statements :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), emitted_block_statements(match(e, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new())), {
+  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), emitted_block_statements(match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new())), {
     one := ArrayList(AstExpr).new();
     one.push(e);
     one
@@ -2351,7 +2351,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // so does an argument carrying a call-scoped share, which the call's own
   // drops below release
   // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
-  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
+  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
   // Each argument is sequenced against the later ones (`sequence_operand`,
   // other_fn_call.yo), as at an ordinary call: the parameters below are
@@ -3541,7 +3541,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
     .None => ()
   );
   match(expr, .FnCall(_, callee, _, _, _) => recur(&callee, context), _ => ());
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < args.len(), {
     match(args.get(i), .Some(arg) => recur(&arg, context), .None => ());
