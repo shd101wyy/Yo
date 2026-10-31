@@ -102,7 +102,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
   implicit_labels := match(func_type, Rc(.Func({ meta : __fm3 })) => Rc.clone(__fm3.*.implicit_labels), _ => no_labels());
   implicit_types := match(func_type, Rc(.Func({ implicit_types : it })) => Rc.clone(it), _ => no_types());
   where_types := match(func_type, Rc(.Func({ where_types : wt })) => Rc.clone(wt), _ => no_types());
-  result_box := match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => t_unit());
+  result_box := match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => t_unit());
   match(
     _to_comptime_type(&result_box),
     .None => Option(TypeValue).None,
@@ -121,7 +121,6 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
               implicit_labels : implicit_labels,
               result_is_comptime_only : true,
               // preserve the original's metadata below
-              result_is_ref : false,
               has_variadic : match(func_type, Rc(.Func({ meta : m })) => m.*.has_variadic, _ => false),
               is_extern : match(func_type, Rc(.Func({ meta : m })) => m.*.is_extern.clone(), _ => Option(String).None),
               extern_name : match(func_type, Rc(.Func({ meta : m })) => m.*.extern_name.clone(), _ => Option(String).None),
@@ -415,7 +414,7 @@ analyze_ctfe_capability :: (
   // Skip generic functions — they need specialisation first.
   forall_labels := match(func_type, Rc(.Func({ meta : m })) => Rc.clone(m.*.forall_labels), _ => no_labels());
   param_types := match(func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
-  result_box := match(func_type, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => t_unit());
+  result_box := match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => t_unit());
   // Any param type or the return type prohibiting the comptime modifier
   // (runtime-only types like Ptr, Slice, Void) rules CTFE out.
   (prohibited : bool) = type_prohibits_comptime_modifier(&result_box);

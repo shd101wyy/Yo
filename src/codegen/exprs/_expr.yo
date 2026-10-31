@@ -13,7 +13,7 @@
 { String } :: import("std/string");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { expr_info_index_trait_ptr_type, lookup_method_callee_type } :: import("../../expr_info.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, fn_result_is_ref, fn_result_is_mut_ref } :: import("../../types/definitions.yo");
 { is_function_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { panic, assert } :: import("std/assert");
@@ -56,7 +56,7 @@ call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContex
           .Some(cei) => if(is_function_type(&cei.ty), Option(TypeValue).Some(Rc.clone(cei.ty)), lookup_method_callee_type(ast_expr_id(expr))),
           .None => lookup_method_callee_type(ast_expr_id(expr))
         ),
-        .Some(pc_ty) => match(pc_ty, Rc(.Func({ meta : pc_m })) => if(pc_m.*.result_is_ref, Option(bool).Some(pc_m.*.result_is_mut_ref), Option(bool).None), _ => Option(bool).None),
+        .Some(pc_ty) => if(fn_result_is_ref(&pc_ty), Option(bool).Some(fn_result_is_mut_ref(&pc_ty)), Option(bool).None),
         .None => Option(bool).None
       )
     ),

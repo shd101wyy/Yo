@@ -335,8 +335,11 @@ Placement rules for `&` and `&mut`:
   `x : &T` whose origin is `p`, an origin parameter declared with
   `generic(p : Origin)`, or a union `(p, q)` of them. The second argument is
   read by its kind: a type there is E0922 (a reference to a tuple is
-  `&Tuple(A, B)`). In value position `&(a, b)` stays the operator-call form of
-  `a & b`.
+  `&Tuple(A, B)`). As a projection's result type, `-> &(T, o)` names the
+  origin the result borrows from: an origin parameter, a reference
+  parameter's place (`-> &(T, xs)`), or a union of them; a by-value
+  parameter there is E0912. In value position `&(a, b)` stays the
+  operator-call form of `a & b`.
 - In **return-type position** (`-> &T`, `-> &mut T`, `-> (name : &mut T)`)
   they declare a **projection** (decision 24): the body yields a place written
   with the result's sigil (`&self.a`, `&mut self.rows(i)`), rooted at one of

@@ -34,7 +34,7 @@
   Environment,
   get_variables_from_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -1051,7 +1051,8 @@ closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
         csk_i = (csk_i + usize(1));
       });
       out.push_str(")->");
-      out.push_string(type_key(&csk_ret));
+      out.push_string(type_key(&t_slot_pointee(&csk_ret)));
+
       out
     },
     _ => String.new()
