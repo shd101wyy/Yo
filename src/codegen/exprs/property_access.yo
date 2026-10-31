@@ -84,7 +84,7 @@ _is_typevalue_enum :: (fn(object_value : &Option(EvalValue)) -> bool)(
 _enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_name : &String, context : &FunctionGenerationContext) -> String)(
   match(
     can_optimize_as_nullable_pointer(object_type),
-    .Some(_) => object_code,
+    .Some(_) => object_code.clone(),
     .None => match(
       object_type,
       Rc(.EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename })) => {
