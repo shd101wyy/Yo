@@ -8128,9 +8128,9 @@ _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, 
 /// registers the contract with the E0911 access machinery exactly as a
 /// `y := &x` binding does.
 freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(!local_borrows_active(), {
-    return(());
-  });
+  // Not gated on `local_borrows_active()`: that is false until SOME borrow
+  // registers, and the FIRST holder binding in a body must freeze all the
+  // same (the caller gates on a function-body context).
   roots := origin_carrying_value_roots(rhs, env, ctx);
   range := local_borrow_range_of(binding, var_name.clone(), name_tok);
   (ri : usize) = usize(0);
@@ -8147,9 +8147,6 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
 /// result tail; each of its frozen roots that is a plain LOCAL of this
 /// function is rejected, naming the place (E0912).
 reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(!local_borrows_active(), {
-    return(());
-  });
   stripped := ast_expr_strip_borrow_marker(e);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
