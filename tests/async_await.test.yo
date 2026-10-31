@@ -6004,6 +6004,30 @@ _field_named_local :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
     log
   })
 );
+/// A block's result lent to a call after an await: the block's result temp
+/// is stored in its task slot, so its scope-end drop releases it
+/// (issues/fixed/2026-10-30-a-block-result-lent-to-a-call-after-an-await-leaks.md).
+_block_lent_after_await :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (mut(log) : String) = String.new();
+    (mut(k) : usize) = usize(0);
+    while(k < usize(2), {
+      e.io.await(yield(e.io), e.io);
+      log.push_string({
+        t := String.from("x;");
+        t
+      });
+      k = (k + usize(1));
+    });
+    log
+  })
+);
+test("a block's result lent to a call after an await is released", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  got := io.await(_block_lent_after_await(io), IoExn(io : io, exn : exn));
+  assert(got == "x;x;", `both blocks appended (got ${got})`);
+});
 test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -8205,4 +8229,17 @@ test("an aliased call in a wrapper's prologue compiles at each fused site of one
   );
   assert(n == usize(2), `each prologue's borrowed list survived the writes, got ${n.to_string()}`);
   assert(g_alias_disposed == (before + i32(8)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+});
+// A template of several parts lowers to one builder block (D10): an await in
+// a later part sits in a statement of that block, after the builder local is
+// bound, so the local crosses the suspension.
+_d10_after :: (fn(n : i32, rio : Io) -> Impl(Future(i32, Io)))(
+  rio.async({ n }(aio : Io) => {
+    aio.await(yield(aio), aio);
+    n
+  })
+);
+test("Test an await inside a later template part", {
+  s := `a${io.await(_d10_after(i32(1), io), io)}b${io.await(_d10_after(i32(2), io), io)}c`;
+  assert(s == `a1b2c`, "both awaits resolve, in order");
 });

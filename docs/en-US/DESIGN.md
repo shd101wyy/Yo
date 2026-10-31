@@ -2872,6 +2872,8 @@ greeting := `Hello, ${name}!, age: ${age}`;
 // value "Hello, Alice!, age: 16"
 ```
 
+A template of two or more parts builds one `String` and appends its parts to it in order: a literal part with `push_str`, an interpolated one with `ToString.append_to(self, out : &mut String)`. The default `append_to` appends `self.to_string()`; `String` and `str` append their bytes by borrow, so a `String` part is never copied first. A type can override `append_to` to write its text straight into the result. A one-part template (`${s}`) is just `s.to_string()`.
+
 ##### Format specifications — `${value:spec}`
 
 An interpolation may carry a format spec after a colon, using Rust's and Python's
