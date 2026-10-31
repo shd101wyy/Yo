@@ -79,6 +79,20 @@ _deps1 :: (fn(a : &String) -> ArrayList(String))({
   l.push(a);
   l
 });
+/// Drive `_resolve_c_compiler`'s default (no explicit `--cc`) expecting the
+/// no-compiler error: effect handlers are capture-free
+/// (docs/en-US/ALGEBRAIC_EFFECTS.md), so the handler cannot record into an
+/// outer variable — it UNWINDS past this helper with the error string, which
+/// becomes the helper's result (the loud handlers in the test below unwind
+/// unit for the same reason).
+_resolve_default_or_error :: (fn(io : Io) -> Result(String, String))({
+  catch_exn := Exception(
+    throw : (
+      err -> unwind(Result(String, String).Err(err.to_string()))
+    )
+  );
+  Result(String, String).Ok(_resolve_c_compiler(&Option(String).None, io, catch_exn))
+});
 test("build_dag: empty step produces a single-node DAG", {
   // The registries' duplicate-name checks take an Exception; a test that is
   // not exercising them wants one that fails loudly.
@@ -447,10 +461,10 @@ test("the build's default C compiler is probed, not the literal clang", {
   );
   // Parent mode — drive the default resolution against controlled PATHs.
   // The helper throws in statement position, so every handler here resumes
-  // unit (the io awaits' handlers too): the catch handler RESUMES, the
-  // helper then returns its trailing empty String and the asserts below
-  // still run (statement-position throws are `_resolve_workspace_member`'s
-  // pattern, not a value-position `parser.yo` throw).
+  // unit (the io awaits' handlers too): the loud handlers unwind unit out of
+  // this test body; the expecting-failure call goes through
+  // `_resolve_default_or_error`, whose handler unwinds past IT with the
+  // error string.
   io_exn := Exception(
     throw : (
       err -> {
@@ -464,14 +478,6 @@ test("the build's default C compiler is probed, not the literal clang", {
       err -> {
         assert(false, `unexpected error while resolving the default cc: ${err.to_string()}`);
         unwind(());
-      }
-    )
-  );
-  thrown := ArrayList(String).new();
-  catch_exn := Exception(
-    throw : (
-      err -> {
-        thrown.push(err.to_string());
       }
     )
   );
@@ -504,15 +510,14 @@ test("the build's default C compiler is probed, not the literal clang", {
   // No compiler anywhere: the same named error `yo compile` raises, not a
   // bare ENOENT from the first child spawn.
   _sp2 := env.set(String.from("PATH"), empty.clone());
-  _nothing := _resolve_c_compiler(&Option(String).None, io, catch_exn);
+  no_cc := _resolve_default_or_error(io);
   _sp3 := env.set(String.from("PATH"), cur_path);
   assert(cc_only == `cc`, `a PATH with cc but no clang resolves cc, got "${cc_only}"`);
   assert(clang_first == `clang`, `clang wins when present, got "${clang_first}"`);
   assert(explicit == `gcc`, `an explicit --cc wins without probing, got "${explicit}"`);
-  assert(thrown.len() == usize(1), "an empty toolchain throws the named no-compiler error");
   match(
-    thrown.get_cloned(usize(0)),
-    .Some(msg) => assert(msg.contains(`No C compiler found`), `the error names the missing toolchain, got "${msg}"`),
-    .None => assert(false, "the empty-toolchain error was thrown")
+    no_cc,
+    .Err(msg) => assert(msg.contains(`No C compiler found`), `the error names the missing toolchain, got "${msg}"`),
+    .Ok(found) => assert(false, `an empty toolchain must fail, resolved "${found}"`)
   );
 });
