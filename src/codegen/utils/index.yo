@@ -30,7 +30,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64, stable_id_module_path } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref, fn_param_slots, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
 {
   is_reference_struct_type,
   is_pointer_type,
@@ -40,6 +40,7 @@
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ fn_abi_param_is_ptr } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
@@ -2533,6 +2534,27 @@ dyn_slot_param_type_string :: (fn(t : &Option(TypeValue), context : &CodeGenCont
     .None => String.from("void*")
   )
 );
+/// Parameter `i`'s C type in a `Dyn` vtable slot or wrapper for the method
+/// type `ft`, by its C ABI (`fn_abi_param_is_ptr`): a `&mut T`, or a `&T` of
+/// a projection (`-> &T`, decision 34), is `T*`; every other parameter its
+/// value type. Decision 43 step 2 (N1c): a `Dyn` call maps from the trait's
+/// signature, projections included.
+dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &CodeGenContext) -> String)({
+  pts := match(fn_param_slots(ft).get(i), .Some(s) => get_type_string(&t_slot_pointee(&s), context), .None => String.from("void*"));
+  if(match(fn_abi_param_is_ptr(ft).get(i), .Some(b) => b, .None => false), {
+    pts.push_str("*");
+  });
+  pts
+});
+/// The C result type of the method type `ft` in a `Dyn` vtable slot or
+/// wrapper: a projection's (`-> &T`) is `T*`.
+dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &CodeGenContext) -> String)({
+  rs := get_type_string(&fn_result_pointee(ft), context);
+  if(fn_result_is_ref(ft), {
+    rs.push_str("*");
+  });
+  rs
+});
 /// [`#line` directives, plans/reference/LINE_DIRECTIVES.md] The statement
 /// flush point helper: attribute the C about to be emitted for `expr` to the
 /// `.yo` position of its token. A no-op unless the compile ran with
@@ -2575,6 +2597,8 @@ export(
   erased_future_result_type_string,
   get_storage_type_string,
   dyn_slot_param_type_string,
+  dyn_slot_param_abi_string,
+  dyn_slot_result_abi_string,
   dyn_concrete_func_type,
   dyn_concrete_c_name,
   get_variable_type_string,
