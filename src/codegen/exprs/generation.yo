@@ -649,11 +649,7 @@ _store_result_temp_in_task :: (fn(expr : &AstExpr, code : String, indent : &Stri
 /// Scalars and pointers only: a type- or function-valued `::` binding is never
 /// read at run time.
 _generate_comptime_binding :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-<<<<<<<
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-=======
-  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
->>>>>>>
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(String.new()));
   rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(String.new()));
   if(!ast_expr_is_atom(&lhs), {
