@@ -29,7 +29,7 @@
 } :: import("./model.yo");
 { DocExtractionResult } :: import("./extractor.yo");
 { parse_doc_comment } :: import("./sections.yo");
-{ TypeValue, no_types, no_labels, SharedList, slot_pointee_at } :: import("../types/definitions.yo");
+{ TypeValue, no_types, no_labels, SharedList, slot_pointee_at, t_slot_pointee } :: import("../types/definitions.yo");
 {
   is_struct_type,
   is_enum_type,
@@ -2876,8 +2876,9 @@ _resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeV
         registered := get_func_type(&data.*.func_id);
         match(
           registered,
-          Rc(.Func({ result })) => {
-            is_type_uni_result := match(result, Rc(.TypeUni(_)) => true, _ => false);
+          Rc(.Func({ result : rit_slot })) => {
+            result := t_slot_pointee(&rit_slot);
+            is_type_uni_result := match(&result, Rc(.TypeUni(_)) => true, _ => false);
             if(!is_type_uni_result, {
               return(Rc.clone(result));
             });
@@ -3057,7 +3058,7 @@ build_doc_function :: (
       match(
         func_type,
         Rc(.Func({ result, meta })) => {
-          return_type = type_to_string(&result);
+          return_type = type_to_string(&t_slot_pointee(&result));
           if(meta.*.forall_labels.len() > usize(0), {
             type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
           });
@@ -4063,7 +4064,7 @@ build_doc_module :: (
             // to the unresolvable generic type constructor.
             is_hierarchy := match(
               &field_type,
-              Rc(.Func({ result : fn_result })) => match(fn_result, Rc(.TypeUni(lvl)) => (lvl >= usize(1)), _ => false),
+              Rc(.Func({ result : fn_result })) => match(t_slot_pointee(&fn_result), Rc(.TypeUni(lvl)) => (lvl >= usize(1)), _ => false),
               _ => false
             );
             if(is_hierarchy, {

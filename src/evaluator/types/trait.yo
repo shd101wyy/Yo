@@ -42,7 +42,7 @@ import("std/fmt");
 { Environment, get_variables_from_env, add_variable_to_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -1311,7 +1311,9 @@ evaluate_trait_type :: (
     if(is_function_type(&vf_ty), {
       match(
         vf_ty,
-        Rc(.Func(_, _, _, _, vf_ret, vf_meta, _)) => {
+        Rc(.Func(_, _, _, _, vf_ret_slot, vf_meta, _)) => {
+          vf_ret := t_slot_pointee(&vf_ret_slot);
+
           // Deep contains-SomeT check: `type_contains_some_type` is
           // SHALLOW (bare SomeT / TypeAppT only) — `*(Output)` walks right
           // past it. The deep equivalent here is get_all_some_types (whose

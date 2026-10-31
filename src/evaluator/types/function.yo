@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_reference_with_origin, is_origin_kind } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -79,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
   get_trait_type_from_env
 } :: import("../../types/env_lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED } :: import("../../diagnostics.yo");
+{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
@@ -1065,6 +1065,104 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, 
 evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
   names := ArrayList(String).new();
   _origin_names_into(e, env, ctx, &mut names, exn);
+  t_origin_named(&shared_list(names))
+});
+/// Collect the origin names a RESULT type `-> &(T, o)` spells into `out`
+/// (decision 43 step 2, N1b; plans/backlog/REFERENCES_AND_ORIGINS.md O1): an
+/// origin parameter of the signature's `generic(o : Origin)`, a REFERENCE
+/// parameter's place (`-> &(T, xs)` for `xs : &T`), or a union `(p, xs)` of
+/// them. A by-value parameter's place is the callee's own frame, which the
+/// call ends: E0912. Anything else is E0922.
+_result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, out : &mut ArrayList(String), exn : Exception) -> unit)({
+  if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
+    r_args := _fn_call_args(e);
+    (ri : usize) = usize(0);
+    while(ri < r_args.len(), {
+      match(r_args.get(ri), .Some(ra) => _result_origin_names_into(&ra, params, out, exn), .None => ());
+      ri = (ri + usize(1));
+    });
+    return(());
+  });
+  r_text := ast_expr_to_string(e);
+  if(!ast_expr_is_atom(e) || !is_valid_variable_name(e), {
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `\`${r_text}\` is not an origin: the second argument of a result \`-> &(T, o)\` names an origin parameter, a reference parameter, or a union of them, \`(p, xs)\`.`,
+          String.from("name a reference parameter, `-> &(T, xs)` for `xs : &T`, or an origin parameter declared with `generic(p : Origin)`")
+        )
+      )
+    );
+  });
+  r_name := ast_expr_text(e).*;
+  match(
+    params.origin_params,
+    .Some(r_ops) => if(_names_contain(&r_ops, &r_name), {
+      if(!_names_contain(out, &r_name), {
+        out.push(r_name);
+      });
+      return(());
+    }),
+    .None => ()
+  );
+  (rpi : usize) = usize(0);
+  while(rpi < params.params.len(), {
+    match(
+      params.params.get(rpi),
+      .Some(rp) => if(rp.label == r_name, {
+        if(!t_slot_is_borrow(&rp.ty), {
+          exn.throw(
+            dyn(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(e),
+                  `The result borrows from \`${r_text}\`, a by-value parameter: its place is the callee's own frame, which the call ends, so no reference into it outlives the call.`,
+                  Option(String).Some(`take it by reference, \`${r_text} : &T\`, and return \`-> &(T, ${r_text})\`, or return the value, \`-> T\``)
+                ),
+                E_LOCAL_BORROW_ESCAPES
+              )
+            )
+          );
+        });
+        if(!_names_contain(out, &r_name), {
+          out.push(r_name.clone());
+        });
+        return(());
+      }),
+      .None => ()
+    );
+    rpi = (rpi + usize(1));
+  });
+  (rfi : usize) = usize(0);
+  while(rfi < params.forall_params.len(), {
+    if(match(params.forall_params.get(rfi), .Some(fp) => (fp.label == r_name), .None => false), {
+      exn.throw(
+        dyn(
+          _origin_error(
+            e,
+            `\`${r_text}\` is a type parameter, not an origin: the second argument of a result \`-> &(T, o)\` is an origin.`,
+            String.from("name a reference parameter, `-> &(T, xs)` for `xs : &T`, or declare an origin, `generic(p : Origin)`")
+          )
+        )
+      );
+    });
+    rfi = (rfi + usize(1));
+  });
+  exn.throw(
+    dyn(
+      _origin_error(
+        e,
+        `The origin \`${r_text}\` is not declared.`,
+        `declare it in the signature, \`generic(${r_text} : Origin)\`, or name a reference parameter, \`-> &(T, xs)\` for \`xs : &T\``
+      )
+    )
+  );
+});
+/// The origin a result type `-> &(T, o)` spells, as an `OriginSet` of names.
+evaluate_result_origin :: (fn(e : &AstExpr, params : &FuncParamsResult, exn : Exception) -> TypeValue)({
+  names := ArrayList(String).new();
+  _result_origin_names_into(e, params, &mut names, exn);
   t_origin_named(&shared_list(names))
 });
 /// The origin parameter `name` as an origin value: the set naming it.
@@ -2391,7 +2489,7 @@ use_id :: (fn(generic(T : Type),
                     if(
                       match(
                         &final_param_type,
-                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
+                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&t_slot_pointee(&result))),
                         _ => false
                       ),
                       Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
@@ -4264,6 +4362,8 @@ evaluate_function_type :: (
   (is_return_unquote : bool) = false;
   (is_return_type_ref : bool) = false;
   (is_return_type_mut_ref : bool) = false;
+  // A spelled result origin, `-> &(T, o)` (decision 43 step 2, N1b).
+  (return_origin : Option(TypeValue)) = Option(TypeValue).None;
   (return_type_expr : AstExpr) = return_expr;
   // -> (ret : i32) or -> (comptime(ret) : i32) or -> (unquote(ret) : Expr)
   if(ast_expr_is_fn_call_of(&return_type_expr, ":", .Some(usize(2))), {
@@ -4288,6 +4388,13 @@ evaluate_function_type :: (
       is_return_type_ref = true;
       is_return_type_mut_ref = ast_expr_is_inout_mode_call(&return_type_expr, Option(usize).None);
       return_type_expr = _borrow_result_inner(&return_type_expr);
+    });
+    if(!is_return_type_ref && is_origin_qualified_reference_expr(&return_type_expr), {
+      is_return_type_ref = true;
+      is_return_type_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_BORROW_MUT, Option(usize).None);
+      ro_args := _fn_call_args(&return_type_expr);
+      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, exn));
+      return_type_expr = match(ro_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     // comptime modifier
     if(ast_expr_is_fn_call_of(&rl_expr, BK_COMPTIME, Option(usize).None), {
@@ -4378,6 +4485,14 @@ evaluate_function_type :: (
       is_return_type_ref = true;
       is_return_type_mut_ref = ast_expr_is_inout_mode_call(&return_type_expr, Option(usize).None);
       return_type_expr = _borrow_result_inner(&return_type_expr);
+    });
+    // `-> &(T, o)` / `-> &mut(T, o)`: a projection whose origin is spelled.
+    if(!is_return_type_ref && is_origin_qualified_reference_expr(&return_type_expr), {
+      is_return_type_ref = true;
+      is_return_type_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_BORROW_MUT, Option(usize).None);
+      ro_args2 := _fn_call_args(&return_type_expr);
+      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, exn));
+      return_type_expr = match(ro_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(ast_expr_is_fn_call_of(&return_type_expr, BK_COMPTIME, Option(usize).None), {
       is_return_comptime_only = true;
@@ -4880,7 +4995,18 @@ evaluate_function_type :: (
       shared_list(param_types),
       shared_list(implicit_types),
       shared_list(where_types),
-      return_type,
+      // The result slot (decision 43 step 2, N1b): a projection's `-> &T` /
+      // `-> &mut T` is a `Reference` (its origin elided unless spelled,
+      // `-> &(T, o)`), every other result the bare type — the encoding
+      // parameter slots use.
+      cond(
+        is_return_type_ref => match(
+          return_origin,
+          .Some(ro) => t_reference_with_origin(&return_type, is_return_type_mut_ref, &ro),
+          .None => t_reference(&return_type, is_return_type_mut_ref)
+        ),
+        true => return_type
+      ),
       Rc.new(
         FuncMeta(
           forall_labels : shared_list(forall_labels),
@@ -4889,10 +5015,6 @@ evaluate_function_type :: (
           // result_is_comptime_only — set from the `comptime(...)` wrapper on
           // the declared return.
           result_is_comptime_only : is_return_comptime_only,
-          // result_is_ref — the return ref flag (the parameters' modes are
-          // their slots in `param_types`).
-          result_is_ref : is_return_type_ref,
-          result_is_mut_ref : is_return_type_mut_ref,
           // has_variadic — set from the trailing `...` marker (C-style
           // variadic externs).
           has_variadic : params_result.has_variadic,
@@ -5474,7 +5596,8 @@ _collect_type_arg_somes :: (
         match(slot_pointee_at(&cta_pts, cta_p), .Some(cta_pt) => recur(&cta_pt, acc, visited_ids), .None => ());
         cta_p = (cta_p + usize(1));
       });
-      recur(&cta_res, acc, visited_ids);
+      recur(&t_slot_pointee(&cta_res), acc, visited_ids);
+
     },
     Rc(.Tuple(_, field_types : cta_tfs)) => {
       (cta_t : usize) = usize(0);
@@ -5650,7 +5773,7 @@ export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
 function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(m => m.len()) + g_macro_return_is_unquote.with(m => m.len()) + g_func_param_defaults.with(m => m.len()) + g_func_variadic_params.with(m => m.len()) + g_func_param_assigned_values.with(m => m.len()) + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.with(m => m.len()) + g_func_param_type_exprs.with(m => m.len()) + g_func_where_constraints.with(m => m.len()) + g_func_where_clause_exprs.with(m => m.len()) + g_func_requires_exprs.with(m => m.len()) + g_func_ensures_exprs.with(m => m.len()) + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.with(m => m.len()) + g_func_return_label.with(m => m.len()));
 export(purge_function_side_tables, function_side_table_entry_count);
-export(evaluate_function_parameters);
+export(evaluate_function_parameters, is_origin_qualified_reference_expr);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);
