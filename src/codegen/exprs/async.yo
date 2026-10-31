@@ -521,7 +521,7 @@ _find_capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionG
     found,
     .Some(name) => name,
     .None => {
-      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       o := String.from("async_capture_");
       o.push_string(&cap_id);
       o
@@ -1096,7 +1096,7 @@ _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &Function
 /// The labels and the effect-parameter flags come from the registry; each
 /// type comes from `capture_type` itself.
 _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(ArrayList(TypeField).new()));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => return(ArrayList(TypeField).new()));
   fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
   (labels, types) := match(
     capture_type,
@@ -1133,7 +1133,7 @@ _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField)
 /// generated (e.g. it holds unresolved SomeType fields).
 _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
   fields := _capture_struct_fields(capture_type);
   owns_captures := is_fnonce_capture_struct(&struct_id);
   (i : usize) = usize(0);
@@ -1174,7 +1174,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
 /// any other capture struct, whose fields the dispose drops unconditionally.
 _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
   out := ArrayList(TypeField).new();
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(out));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => return(out));
   if(!is_fnonce_capture_struct(&struct_id), {
     return(out);
   });
@@ -1200,7 +1200,7 @@ _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))
 /// nothing, so nothing drops it.
 _lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
   out := ArrayList(TypeField).new();
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(out));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => return(out));
   borrows := match(capture_struct_borrows(&struct_id), .Some(bs) => bs, .None => return(out));
   // Each field's type from the instantiated capture type, not the registry:
   // a generic body's capture struct id is shared by its instantiations, so the
@@ -2116,7 +2116,7 @@ _emit_fused_site_releases :: (
   match(
     &site.block.capture_type,
     .Some(ct) => {
-      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (fi : usize) = usize(0);
       while(fi < fields.len(), fi = (fi + usize(1)), {
@@ -2206,7 +2206,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
   match(
     &site.block.capture_type,
     .Some(ct) => {
-      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (fi : usize) = usize(0);
       while(fi < fields.len(), fi = (fi + usize(1)), {
