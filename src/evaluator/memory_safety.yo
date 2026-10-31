@@ -235,7 +235,7 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
     .None => {
       b := _is_std_module_path(mp.clone(), std_path);
       mp_owned := mp.clone();
-      g_std_path_memo.with_mut({ mp_owned, &b }(m) => m.insert(mp_owned.clone(), b));
+      g_std_path_memo.with_mut({ mp_owned, b : b.clone() }(m) => m.insert(mp_owned.clone(), b));
       b
     }
   )
@@ -273,7 +273,8 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
       b := (
         mp.starts_with(String.from("auto-generated://")) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store))))
       );
-      g_mut_rule_exempt_memo.with_mut(m => m.insert(mp.clone(), b));
+      mp_owned_ := mp.clone();
+      g_mut_rule_exempt_memo.with_mut({ mp_owned_, b : b.clone() }(m) => m.insert(mp_owned_.clone(), b));
       b
     }
   )

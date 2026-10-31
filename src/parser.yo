@@ -61,7 +61,7 @@ FnArgsResult :: struct(
 extract_source_line :: (fn(input : &String, row : usize) -> String)({
   lines_list := input.split(String.from("\n"));
   match(
-    lines_list.get(row),
+    lines_list.get_cloned(row),
     .None => String.from(""),
     .Some(line) => line
   )
@@ -125,7 +125,7 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
       true => match(
         hf,
         .Atom(_, ht) => cond(
-          ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT)) => ht.value.*,
+          ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT)) => ht.value.*.clone(),
           true => String.new()
         ),
         .FnCall(_, _, _, _, _) => String.new()
@@ -318,7 +318,7 @@ impl(
       next_expr_id : usize(0)
     )
   }),
-  get_tokens : (fn(self : &Self) -> ArrayList(Token))(self.tokens),
+  get_tokens : (fn(self : &Self) -> ArrayList(Token))(self.tokens.clone()),
   alloc_id : (fn(self : &mut Self) -> ExprId)({
     id := alloc_global_expr_id();
     self.next_expr_id = (self.next_expr_id + usize(1));
@@ -748,7 +748,7 @@ impl(
     pi := usize(0);
     while(pi < num_parts, {
       is_expr := match(part_is_expr.get(pi), .Some(b) => b, .None => false);
-      content := match(part_content.get(pi), .Some(s) => s, .None => String.from(""));
+      content := match(part_content.get_cloned(pi), .Some(s) => s, .None => String.from(""));
       (part_expr : AstExpr) = cond(
         is_expr => {
           // Peel a `:spec` suffix BEFORE parsing, so the spec text never reaches
@@ -894,27 +894,6 @@ impl(
         block_args.push(.Atom(self.alloc_id(), tpl_name_tok));
         begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
         .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(block_args), false, begin_tok)
-      }
-    );
-    (final_expr : AstExpr) = cond(
-      (tpl_stmts.len() == usize(0)) => first_expr,
-      true => {
-        // `mut(__yo_tpl_N) := p0`
-        mut_args := ArrayList(AstExpr).new();
-        mut_args.push(.Atom(self.alloc_id(), tpl_name_tok));
-        bind_args := ArrayList(AstExpr).new();
-        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_mut_tok), mut_args, false, tpl_mut_tok));
-        bind_args.push(first_expr);
-        block_args := ArrayList(AstExpr).new();
-        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_bind_tok), bind_args, true, tpl_bind_tok));
-        si := usize(0);
-        while(si < tpl_stmts.len(), {
-          match(tpl_stmts.get(si), .Some(st) => block_args.push(st), .None => ());
-          si = (si + usize(1));
-        });
-        block_args.push(.Atom(self.alloc_id(), tpl_name_tok));
-        begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
-        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), block_args, false, begin_tok)
       }
     );
     ParseResult(expr : final_expr, index : (index + usize(1)))
@@ -2231,7 +2210,7 @@ impl(
   /// (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
   get_expression_program : (fn(self : &mut Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
-    self.program
+    self.program.clone()
   }),
   get_program : (fn(self : &mut Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
@@ -2283,7 +2262,7 @@ impl(
       });
       return(result);
     });
-    self.program
+    self.program.clone()
   })
 );
 /// Parse Yo source code and return the top-level expression list.

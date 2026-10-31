@@ -32,7 +32,7 @@ register_type_decl_module :: (fn(type_id : &String, module_path : &String) -> un
 /// The module that declared the type with id `type_id`, if recorded (a clone —
 /// never the registry's own String).
 type_decl_module :: (fn(type_id : &String) -> Option(String))(
-  match(g_type_decl_modules.with(m => m.get(type_id)), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
+  match(g_type_decl_modules.with(m => m.get_cloned(type_id)), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
 );
 // ---------------------------------------------------------------------------
 // enum id → DECLARATION identity (`stable_decl_key` of the `enum(...)` node),
@@ -51,7 +51,9 @@ type_decl_module :: (fn(type_id : &String) -> Option(String))(
 (g_enum_decl_identities : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
   if((enum_id.len() > usize(0)) && (decl.len() > usize(0)), {
-    g_enum_decl_identities.with_mut(m => m.insert(enum_id.clone(), decl.clone()));
+    enum_id_owned := enum_id.clone();
+    decl_owned := decl.clone();
+    g_enum_decl_identities.with_mut({ enum_id_owned, decl_owned }(m) => m.insert(enum_id_owned.clone(), decl_owned));
   });
   ()
 });
@@ -63,7 +65,8 @@ register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
 (g_prelude_enum_decls : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 register_prelude_enum_decl :: (fn(decl : &String) -> unit)({
   if(decl.len() > usize(0), {
-    g_prelude_enum_decls.with_mut(m => m.insert(decl.clone(), true));
+    decl_owned_ := decl.clone();
+    g_prelude_enum_decls.with_mut({ decl_owned_ }(m) => m.insert(decl_owned_.clone(), true));
   });
   ()
 });
@@ -73,7 +76,7 @@ is_prelude_enum_decl :: (fn(decl : &String) -> bool)(
 );
 /// The declaration identity recorded for enum id `enum_id` (a clone).
 enum_decl_identity :: (fn(enum_id : &String) -> Option(String))(
-  match(g_enum_decl_identities.with(m => m.get(enum_id)), .Some(d) => Option(String).Some(d.clone()), .None => Option(String).None)
+  match(g_enum_decl_identities.with(m => m.get_cloned(enum_id)), .Some(d) => Option(String).Some(d.clone()), .None => Option(String).None)
 );
 /// Whether two enum ids are renditions of two DIFFERENT recorded declarations.
 /// An id without a recorded declaration answers `false` (no evidence).
@@ -81,8 +84,8 @@ enum_decls_differ :: (fn(a_id : &String, e_id : &String) -> bool)(
   cond(
     (a_id == e_id) => false,
     true => match(
-      g_enum_decl_identities.with(m => m.get(a_id)),
-      .Some(ad) => match(g_enum_decl_identities.with(m => m.get(e_id)), .Some(ed) => (ad != ed), .None => false),
+      g_enum_decl_identities.with(m => m.get_cloned(a_id)),
+      .Some(ad) => match(g_enum_decl_identities.with(m => m.get_cloned(e_id)), .Some(ed) => (ad != ed), .None => false),
       .None => false
     )
   )
@@ -142,7 +145,11 @@ register_adopted_extern_c_type :: (
   fn(decl_id : &String, c_name : &String, header : &String) -> unit
 )({
   if((decl_id.len() > usize(0)) && (c_name.len() > usize(0)), {
-    g_adopted_extern_c_types.with_mut(m => m.insert(decl_id.clone(), AdoptedExternCType(c_name : c_name.clone(), c_header : header.clone())));
+    // Owned captures (`with_mut`'s callback is a sink parameter).
+    ae_key := decl_id.clone();
+    ae_name := c_name.clone();
+    ae_header := header.clone();
+    g_adopted_extern_c_types.with_mut({ ae_key, ae_name, ae_header }(m) => m.insert(ae_key, AdoptedExternCType(c_name : ae_name, c_header : ae_header)));
   });
   ()
 });

@@ -500,7 +500,9 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
     });
     i = (i + usize(1));
   });
-  g_capture_borrows.with_mut(m => m.insert(struct_id.clone(), borrows));
+  borrows_owned := borrows.clone();
+  struct_id_owned := struct_id.clone();
+  g_capture_borrows.with_mut({ borrows_owned, struct_id_owned }(m) => m.insert(struct_id_owned, borrows_owned.clone()));
 });
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
