@@ -58,6 +58,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { fn_value_c_name } :: import("../functions/declarations.yo");
 { unwind_catch_condition } :: import("./async_completion.yo");
+{ replace } :: import("std/mem");
 /// One effect on a Future trait (the first — `FutureTraitT` carries effect
 /// arrays).
 _FutureEffect :: ref(struct(label : String, ty : TypeValue));
@@ -439,7 +440,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // already-aborted future, and for every abort of a bundle-less one.
   {
     // Drop in-scope locals (excluding the not-yet-declared await result var).
-    saved_drops := context.pending_deferred_drops;
+    saved_drops := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     match(
       saved_drops,
       .Some(drops) => {
