@@ -19,7 +19,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { profile_enabled, fnv1a64 } :: import("../../utils.yo");
 { TypeValue, TypeValueNode, no_types, slot_pointee_at } :: import("../../types/definitions.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST, ast_rewritten_view } :: import("../../expr.yo");
 { ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings, expr_info_capture_type, expr_info_capture_field_inits, expr_info_closure_function_value, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
 { is_control_fn, get_func_type } :: import("../../function_value.yo");
@@ -536,7 +536,10 @@ _fv_body :: (fn(v : &EvalValue) -> AstExpr)(
 /// no Func type; signature types are picked up by walking the body. The
 /// SomeType-Future-resolved-concrete skip and the captureType.trait
 /// function-collection are also omitted (corpus-safe).
-collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
+collect_types_from_expr :: (fn(expr_in : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
+  // A node an evaluator rewrite replaced is walked as rewritten
+  // (`ast_rewritten_view`).
+  expr := ast_rewritten_view(expr_in);
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   match(
     ei_opt,

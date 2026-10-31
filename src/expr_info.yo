@@ -2011,28 +2011,6 @@ register_mut_global :: (fn(module_path : &String, name : &String) -> unit)({
 is_mut_global :: (fn(module_path : &String, name : &String) -> bool)(
   g_mut_globals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
 );
-/// The bindings below module level declared mutable with `mut(name)`
-/// (decision 47 step 2, plans/VALUES_BY_DEFAULT.md): locals, pattern and
-/// destructuring bindings, `mut(x) ::` and `comptime(mut(x)) :=`. Keyed by
-/// the declared name's token, which every copy of the binding's `Variable`
-/// keeps (a reassignment mints a new `Variable` with the same `token`), so
-/// the marker survives env copies and generic re-evaluation of a body whose
-/// tree already had the marker stripped.
-(g_mut_bindings : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-_mut_binding_key :: (fn(decl : &Token, name : &String) -> String)(`${_mg_canon(&decl.module_path.*)}|${decl.row.to_string()}:${decl.column.to_string()}|${name}`);
-/// Record that the binding `name` declared at `decl` is `mut(name)`.
-register_mut_binding :: (fn(decl : &Token, name : &String) -> unit)({
-  g_mut_bindings.with_mut(s => s.insert(_mut_binding_key(decl, name)));
-  ()
-});
-/// True if the binding `name` declared at `decl` was declared `mut(name)`.
-is_mut_binding :: (fn(decl : &Token, name : &String) -> bool)({
-  if(g_mut_bindings.with(s => s.len()) == usize(0), {
-    return(false);
-  });
-  key := _mut_binding_key(decl, name);
-  g_mut_bindings.with(s => s.contains(&key))
-});
 /// True if module `module_path` declared `name` as a thread-local.
 is_thread_local :: (fn(module_path : &String, name : &String) -> bool)(
   g_thread_locals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
@@ -2772,7 +2750,7 @@ export(record_method_callee_value, lookup_method_callee_value, record_local_borr
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
-export(register_thread_local, is_thread_local, register_mut_global, is_mut_global, register_mut_binding, is_mut_binding);
+export(register_thread_local, is_thread_local, register_mut_global, is_mut_global);
 export(module_global_recording_mark, rollback_module_level_globals_to);
 export(some_resolution);
 export(

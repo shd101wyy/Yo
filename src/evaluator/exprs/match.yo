@@ -86,7 +86,8 @@ pragma(Pragma.AllowUnsafe);
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ migrate_match_scrutinee_on, record_migrate_edit, is_mut_binding } :: import("../../expr_info.yo");
+{ migrate_match_scrutinee_on, record_migrate_edit } :: import("../../expr_info.yo");
+{ is_mut_binding } :: import("../../expr.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
@@ -95,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl } :: import("../utils.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows, _subtree_assigns_variable } :: import("./begin.yo");
@@ -1190,16 +1191,17 @@ evaluate_match :: (
   });
   scrutinee_expr := match(all_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   // Decision 47: a pattern binds `mut(name)` to make the binding mutable
-  // (`.Some(mut(v)) => { v = (v + 1); v }`). The markers are stripped from the
-  // arm patterns before anything reads them, and the names recorded.
+  // (`.Some(mut(v)) => { v = (v + 1); v }`). `desugar_if_calls` stripped the
+  // well-formed markers from the arm patterns and recorded the names
+  // (`is_mut_binding`); a malformed one (`.Some(mut(x.f))`) is rejected here,
+  // before anything reads the pattern.
   (mk_i : usize) = usize(1);
   while(mk_i < all_args.len(), mk_i = (mk_i + usize(1)), {
     match(
       all_args.get(mk_i),
       .Some(mk_arm) => if(ast_expr_is_fn_call_of(&mk_arm, "=>", Option(usize).Some(usize(2))), {
-        if(strip_mut_marker(&mk_arm, usize(0), exn).is_none(), {
-          match(mk_arm, .FnCall(_, _, Rc(mk_args), _, _) => match(mk_args.get(usize(0)), .Some(mk_pat) => strip_pattern_mut_markers(&mk_pat, exn), .None => ()), .Atom(_, _) => ());
-        });
+        reject_malformed_mut_marker(&mk_arm, usize(0), exn);
+        match(mk_arm, .FnCall(_, _, Rc(mk_args), _, _) => match(mk_args.get(usize(0)), .Some(mk_pat) => reject_malformed_pattern_mut_markers(&mk_pat, exn), .None => ()), .Atom(_, _) => ());
       }),
       .None => ()
     );

@@ -44,7 +44,9 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   ast_expr_is_address_of_call,
   BK_BORROW_MUT,
-  BF_ADDR_OF
+  BF_ADDR_OF,
+  is_mut_binding,
+  ast_rewritten_node
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -123,7 +125,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -741,7 +743,7 @@ migrate_borrowed_match_at :: (fn(moved_tok : &Token) -> bool)(
 /// the source rendering without the one pair of parentheses the printer
 /// wraps a call in.
 _place_text :: (fn(e : &AstExpr) -> String)({
-  (s : AstExpr) = ast_expr_strip_borrow_marker(e);
+  (s : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(e));
   cond(
     ast_expr_is_fn_call_of(&s, BF_DOT, Option(usize).Some(usize(2))) => match(
       s,
@@ -1371,6 +1373,8 @@ place_cell_hops :: (fn(ev : &AstExpr, ctx : &EvalContext) -> PlaceCellHops)({
   (cur : AstExpr) = ev;
   (walking : bool) = true;
   while(walking, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
       recv := match(cur, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       fld := match(cur, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
@@ -1449,6 +1453,8 @@ place_rc_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
   (cur : AstExpr) = ast_expr_strip_borrow_marker(ev);
   (walking : bool) = true;
   while(walking, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     // A label (`name : place`) is read through; its value is not a step.
     (label_value : Option(AstExpr)) = Option(AstExpr).None;
     (base : Option(AstExpr)) = match(
@@ -1838,6 +1844,8 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
   (walking : bool) = true;
   (is_place : bool) = true;
   while(walking, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         cur,
@@ -2194,6 +2202,8 @@ global_place_path :: (fn(place : &AstExpr, ctx : &EvalContext) -> GlobalPlacePat
   (through : bool) = false;
   (cur : AstExpr) = place;
   while(!ast_expr_is_atom(&cur), {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .FnCall(_, gp_callee, Rc(gp_args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
@@ -2420,42 +2430,33 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
 /// not write the binding and is not listed.
 (g_audit_mut_bindings : bool) = debug_knob(`YO_AUDIT_MUT_BINDINGS`).is_some();
 mut_binding_audit_enabled :: (fn() -> bool)(g_audit_mut_bindings);
-/// Strip the marker `mut(name)` that `holder`'s argument `idx` is, rewriting
-/// the tree in place (the argument list is shared with it), and record the
-/// binding as mutable (`register_mut_binding`). Returns the bare name, or
-/// `.None` when that argument is not a `mut(...)` call. `mut` takes the NAME
-/// only: `mut(x.f)` or `mut(1)` is an error.
-strip_mut_marker :: (fn(holder : &AstExpr, idx : usize, exn : Exception) -> Option(AstExpr))(
+/// Reject a malformed binder marker: `holder`'s argument `idx` is a
+/// `mut(...)` call whose argument is not a NAME (`mut(x.f)`, `mut(1)`).
+/// `desugar_if_calls` strips every well-formed `mut(name)` in a binder
+/// position while it builds the tree and records the name
+/// (`register_mut_binding`, `src/expr.yo`); a malformed one stays in the tree
+/// and is reported here, where the binding is evaluated. Reads only.
+reject_malformed_mut_marker :: (fn(holder : &AstExpr, idx : usize, exn : Exception) -> unit)(
   match(
     holder,
-    .FnCall(_, _, Rc(sm_args), _, _) => {
-      arg := match(sm_args.get(idx), .Some(a) => a, .None => return(Option(AstExpr).None));
-      if(!ast_expr_is_fn_call_of(&arg, "mut", Option(usize).Some(usize(1))), {
-        return(Option(AstExpr).None);
-      });
-      name := match(arg, .FnCall(_, _, Rc(ma), _, _) => match(ma.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      if(!ast_expr_is_atom(&name) || (ast_expr_token(&name).kind != TokenKind.Identifier), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&arg), `"mut" takes the binding's NAME: write \`mut(name) := init\`, \`(mut(name) : T) = init\`, \`.Some(mut(name))\` in a pattern or \`{ a, mut(name) }\` in a destructuring; got \`${ast_expr_to_string(&arg)}\` (plans/VALUES_BY_DEFAULT.md decision 47).`)));
-      });
-      // The holder's list is the payload of the call's `Rc` (V4). This write
-      // reaches it through the `ArrayList` handle the `Rc(sm_args)` binder
-      // copies, which works only while `ArrayList` is a `ref` type; B8
-      // needs a write-free form
-      // (issues/questions/2026-10-30-how-should-the-mut-marker-strip-stop-writing-the-ast.md).
-      list := sm_args;
-      list(idx) = name;
-      name_tok := ast_expr_token(&name);
-      register_mut_binding(&name_tok, &name_tok.value.*);
-      Option(AstExpr).Some(name)
-    },
-    .Atom(_, _) => Option(AstExpr).None
+    .FnCall(_, _, Rc(sm_args), _, _) => match(
+      sm_args.get(idx),
+      .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "mut", Option(usize).Some(usize(1))), {
+        name := match(arg, .FnCall(_, _, Rc(ma), _, _) => match(ma.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+        if(!ast_expr_is_atom(&name) || (ast_expr_token(&name).kind != TokenKind.Identifier), {
+          exn.throw(dyn(format_error_message(ast_expr_token(&arg), `"mut" takes the binding's NAME: write \`mut(name) := init\`, \`(mut(name) : T) = init\`, \`.Some(mut(name))\` in a pattern or \`{ a, mut(name) }\` in a destructuring; got \`${ast_expr_to_string(&arg)}\` (plans/VALUES_BY_DEFAULT.md decision 47).`)));
+        });
+      }),
+      .None => ()
+    ),
+    .Atom(_, _) => ()
   )
 );
-/// Strip every `mut(name)` binder in the `match` arm pattern `pat`, in place
-/// (`strip_mut_marker`): a variant payload, a tuple or struct field, an
-/// or-pattern alternative, the name of `(name := p)`. A guard
+/// Reject a malformed binder marker anywhere in the `match` arm pattern `pat`
+/// (`reject_malformed_mut_marker`): a variant payload, a tuple or struct
+/// field, an or-pattern alternative, the name of `(name := p)`. A guard
 /// (`(p && (g))`) is an expression, not a pattern, and is left alone.
-strip_pattern_mut_markers :: (fn(pat : &AstExpr, exn : Exception) -> unit)(
+reject_malformed_pattern_mut_markers :: (fn(pat : &AstExpr, exn : Exception) -> unit)(
   match(
     pat,
     .FnCall(_, pf, Rc(pargs), p_infix, _) => {
@@ -2465,9 +2466,8 @@ strip_pattern_mut_markers :: (fn(pat : &AstExpr, exn : Exception) -> unit)(
       });
       (pi : usize) = usize(0);
       while(pi < pargs.len(), pi = (pi + usize(1)), {
-        if(strip_mut_marker(pat, pi, exn).is_none(), {
-          match(pargs.get(pi), .Some(a) => recur(&a, exn), .None => ());
-        });
+        reject_malformed_mut_marker(pat, pi, exn);
+        match(pargs.get(pi), .Some(a) => recur(&a, exn), .None => ());
       });
     },
     .Atom(_, _) => ()
@@ -3391,6 +3391,8 @@ _ic_dying_temp_source :: (fn(rhs : &AstExpr, ctx : &EvalContext) -> String)({
   (e : AstExpr) = rhs.clone();
   (element : bool) = false;
   while(true, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    e = ast_rewritten_node(&e);
     container := cond(
       ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))) => {
         if(_is_deref_place(&e), {
@@ -4801,6 +4803,8 @@ arg_is_rc_projection_place :: (fn(e : &AstExpr, env : &Environment) -> bool)(
 borrowed_place_read_only_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
   (cur : AstExpr) = ev;
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     d_args := match(cur, .FnCall(_, _, Rc(__bh_a), _, _) => __bh_a, .Atom(_, _) => ArrayList(AstExpr).new());
     base := match(d_args.get(usize(0)), .Some(b) => b, .None => return(Option(AstExpr).None));
     fld := match(d_args.get(usize(1)), .Some(f) => f, .None => return(Option(AstExpr).None));
@@ -6811,6 +6815,8 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
   recvs := ArrayList(AstExpr).new();
   (walking : bool) = true;
   while(walking, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    e = ast_rewritten_node(&e);
     match(
       e,
       .Atom(_, _) => {
@@ -8038,4 +8044,4 @@ export(
 );
 export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
 export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);
-export(mut_binding_audit_enabled, strip_mut_marker, strip_pattern_mut_markers, binding_require_mut, place_require_mut);
+export(mut_binding_audit_enabled, reject_malformed_mut_marker, reject_malformed_pattern_mut_markers, binding_require_mut, place_require_mut);

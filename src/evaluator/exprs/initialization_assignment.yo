@@ -88,7 +88,8 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, strip_mut_marker, place_require_mut, reject_write_through_rc } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc } :: import("../utils.yo");
+{ is_mut_binding, is_thread_local_binding } :: import("../../expr.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -1019,22 +1020,13 @@ evaluate_initialization_assignment :: (
   // and `thread_local(mut(name)) := init` (a module-level one is Rust's
   // `static mut`, `register_mut_global` below), `mut(name) :: v` and
   // `comptime(mut(name)) := v` (mutable at compile time). An unmarked binding
-  // is immutable. The marker is stripped from the tree (`strip_mut_marker`,
-  // which records the declared name in the `register_mut_binding` registry).
-  // `imm(name) :=` and `inout(name) :=` stay the deleted local-borrow
-  // spellings (E0009, below).
-  (is_mut_decl : bool) = false;
-  mut_holder := if(ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .Some(usize(1))), lhs.clone(), expr.clone());
-  match(
-    strip_mut_marker(&mut_holder, usize(0), exn),
-    .Some(mut_name) => {
-      is_mut_decl = true;
-      if(!(ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .Some(usize(1)))), {
-        lhs = mut_name;
-      });
-    },
-    .None => ()
-  );
+  // is immutable. `desugar_if_calls` strips the marker (and lowers
+  // `thread_local(name)`) while it builds the tree, recording the declared
+  // name (`is_mut_binding`, `is_thread_local_binding`); a malformed marker
+  // stays and is rejected here. `imm(name) :=` and `inout(name) :=` stay the
+  // deleted local-borrow spellings (E0009, below).
+  mut_wrapped := (ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .Some(usize(1))));
+  if(mut_wrapped, reject_malformed_mut_marker(&lhs, usize(0), exn), reject_malformed_mut_marker(expr, usize(0), exn));
   reject_old_mode_spelling(&lhs, exn);
   is_comptime_wrapped := ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .Some(usize(1)));
   if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(&lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
@@ -1122,16 +1114,15 @@ evaluate_initialization_assignment :: (
   });
   // `thread_local(name) := init;` — the inferred form of a module-level
   // thread-local. The modifier wraps the NAME, like `given(name)` directly
-  // above and like `comptime(v)` on a parameter; the typed form
-  // `(thread_local(name) : T) = init` is stripped in
-  // evaluator/exprs/assignment.yo.
-  //
-  // The AST is rewritten, not just `actual_lhs`: `anonymous_module.yo` records
-  // a module-level init expr only when the `:=` LHS is an ATOM, and
-  // `_module_init_var_atom` (codegen) resolves the declared atom the same way,
-  // so leaving the modifier in the tree emits reads through an accessor that
-  // nothing declares.
-  (is_thread_local_decl : bool) = false;
+  // above and like `comptime(v)` on a parameter (the typed form is
+  // `(thread_local(name) : T) = init`). `desugar_if_calls` lowers it to the
+  // bare name and records it (`is_thread_local_binding`): the tree must not
+  // keep the modifier, because `anonymous_module.yo` records a module-level
+  // init expr only when the `:=` LHS is an ATOM, and `_module_init_var_atom`
+  // (codegen) resolves the declared atom the same way, so a modifier left in
+  // the tree emits reads through an accessor that nothing declares. A
+  // modifier still here is malformed and is rejected below.
+  (is_thread_local_decl : bool) = (ast_expr_is_atom(&lhs) && is_thread_local_binding(&ast_expr_token(&lhs), &ast_expr_token(&lhs).value.*));
   if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .None), {
     n_tl_args := match(lhs, .FnCall(_, _, Rc(targs), _, _) => targs.len(), .Atom(_, _) => usize(0));
     if(n_tl_args != usize(1), {
@@ -1159,18 +1150,6 @@ evaluate_initialization_assignment :: (
         )
       );
     });
-    is_thread_local_decl = true;
-    actual_lhs = tl_atom;
-    match(
-      expr,
-      .FnCall(_, _, Rc(ia_args), _, _) => {
-        // A pattern binding below a cell is a read-only copy; the write goes
-        // through an owned handle to the same list.
-        tl_args := ia_args;
-        tl_args(usize(0)) = tl_atom;
-      },
-      .Atom(_, _) => ()
-    );
   });
   // Prevent declaring variable type using :: or :=.
   if(ast_expr_is_fn_call(&actual_lhs) && ast_expr_is_fn_call_of(&actual_lhs, BK_COLON, .None), {
@@ -1770,10 +1749,8 @@ Use \`::\` for compile-time definitions inside impl.`
         if(is_module_level, {
           register_module_level_global(&actual_lhs_tok.module_path.*, var_name.clone());
         });
-        if(is_mut_decl, {
-          if(is_module_level, {
-            register_mut_global(&actual_lhs_tok.module_path.*, var_name.clone());
-          });
+        if(is_module_level && is_mut_binding(&actual_lhs_tok, &actual_lhs_tok.value.*), {
+          register_mut_global(&actual_lhs_tok.module_path.*, var_name.clone());
         });
         // A thread-local is a module-level global PLUS the registry entry that
         // tells codegen to route its reads through the lazy accessor. Option 1

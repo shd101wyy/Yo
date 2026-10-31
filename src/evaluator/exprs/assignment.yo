@@ -25,7 +25,9 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BK_COMPTIME,
   BF_DOT,
-  ast_expr_strip_borrow_marker
+  ast_expr_strip_borrow_marker,
+  is_mut_binding,
+  is_thread_local_binding
 } :: import("../../expr.yo");
 { ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
@@ -123,7 +125,7 @@ pragma(Pragma.AllowUnsafe);
   global_require_mut,
   binding_require_mut,
   place_require_mut,
-  strip_mut_marker,
+  reject_malformed_mut_marker,
   in_compile_time_fn_body,
   migrate_explicit_copy_on,
   record_copy_write,
@@ -1338,37 +1340,32 @@ evaluate_assignment :: (
   // parameter; it is not a wrapper around the whole binding.
   //
   // NOT a new parser form: the LHS is already an ordinary `:` pair whose name
-  // position happens to be a call, which the grammar accepts. So the work is
-  // to STRIP the modifier here and let the typed-binding path below run
-  // unchanged, with the registry alone carrying the thread-local-ness
-  // (plans/reference/THREAD_LOCAL_STORAGE.md).
+  // position happens to be a call, which the grammar accepts.
+  // `desugar_if_calls` lowers the modifier to the bare name while it builds
+  // the tree and records it (`is_thread_local_binding`), so the typed-binding
+  // path below runs unchanged, with the registry alone carrying the
+  // thread-local-ness (plans/reference/THREAD_LOCAL_STORAGE.md).
   //
-  // Stripping rewrites the AST, not just a local: `anonymous_module.yo`
-  // records a module-level init only when the `=` LHS is a `:` pair whose own
-  // LHS is an ATOM, and `_module_init_var_atom` (codegen) resolves the declared
-  // atom the same way. Measured 2026-09-17 on the earlier spelling: rebinding
-  // only the local left reads substituted to `(*name__tl_get())` with nothing
+  // The tree must not keep the modifier: `anonymous_module.yo` records a
+  // module-level init only when the `=` LHS is a `:` pair whose own LHS is an
+  // ATOM, and `_module_init_var_atom` (codegen) resolves the declared atom the
+  // same way. Measured 2026-09-17 on the earlier spelling: rebinding only the
+  // local left reads substituted to `(*name__tl_get())` with nothing
   // declaring them, and clang reported "indirection requires pointer operand
-  // ('int' invalid)". Rebinding one variable is not the same as rewriting the
-  // tree.
+  // ('int' invalid)".
   // Decision 47: `(mut(name) : T) = init`, `(thread_local(mut(name)) : T) =
   // init` and `(comptime(mut(name)) : T) = init` declare a MUTABLE binding
   // (a module-level runtime one is Rust's `static mut`). The marker is
-  // stripped exactly like `thread_local` below (`strip_mut_marker`, which
-  // records the declared name), and `register_mut_global` carries a global's.
-  (is_mut_lhs : bool) = false;
-  if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))), {
-    mut_name_pos := match(lhs, .FnCall(_, _, Rc(mn_cargs), _, _) => match(mn_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-    mut_holder := if(ast_expr_is_fn_call_of(&mut_name_pos, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&mut_name_pos, BK_COMPTIME, .Some(usize(1))), mut_name_pos.clone(), lhs.clone());
-    is_mut_lhs = strip_mut_marker(&mut_holder, usize(0), exn).is_some();
-  });
-  (is_thread_local_lhs : bool) = false;
-  if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))), {
+  // stripped at desugar like `thread_local` (`is_mut_binding` carries it),
+  // and `register_mut_global` carries a global's. A malformed marker or
+  // modifier stays in the tree and is rejected here.
+  if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
     tl_name_pos := match(
       lhs,
       .FnCall(_, _, Rc(tl_cargs), _, _) => match(tl_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
+    if(ast_expr_is_fn_call_of(&tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&tl_name_pos, BK_COMPTIME, .Some(usize(1))), reject_malformed_mut_marker(&tl_name_pos, usize(0), exn), reject_malformed_mut_marker(&lhs, usize(0), exn));
     if(ast_expr_is_fn_call_of(&tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))), {
       tl_atom := match(
         tl_name_pos,
@@ -1385,17 +1382,6 @@ evaluate_assignment :: (
           )
         );
       });
-      is_thread_local_lhs = true;
-      match(
-        lhs,
-        .FnCall(_, _, Rc(tl_cargs2), _, _) => {
-          // A pattern binding below a cell is a read-only copy; the write
-          // goes through an owned handle to the same list.
-          tl_args := tl_cargs2;
-          tl_args(usize(0)) = tl_atom;
-        },
-        .Atom(_, _) => ()
-      );
     });
   });
   is_atom_lhs := ast_expr_is_atom(&lhs);
@@ -2015,7 +2001,8 @@ evaluate_assignment :: (
   // this case) branches on the SAME condition, so this check is the shape it
   // will reuse, not a temporary shim.
   // -----------------------------------------------------------------------
-  if(is_thread_local_lhs, {
+  lr_tok := ast_expr_token(&lhs_resolved);
+  if(is_typed_binding_lhs && is_thread_local_binding(&lr_tok, &lr_tok.value.*), {
     tl_tok := ast_expr_token(&lhs_resolved);
     tl_vars := get_variables_from_env(&env, variable_name.clone());
     if(tl_vars.len() == usize(0), {
@@ -2062,7 +2049,7 @@ evaluate_assignment :: (
   // binding outlives every call frame, so it cannot hold a `ctl` handler —
   // one invoked later would unwind into a frame that no longer exists
   // (issues/fixed/module-level-control-bound-binding-not-rejected.md).
-  if(is_mut_lhs, {
+  if(is_typed_binding_lhs && is_mut_binding(&lr_tok, &lr_tok.value.*), {
     mut_tok := ast_expr_token(&lhs_resolved);
     match(
       get_variables_from_env(&env, variable_name.clone()).last(),
