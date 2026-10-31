@@ -8914,7 +8914,7 @@ stage-2 RSS):
     - **Clone.** `AstExpr`'s `Clone` shares the list with `Rc.clone(fargs)`, so
       it stays O(1) once `ArrayList` is a value. This was the 173-file root of
       the B8 flip probe.
-    - **Arms.** The 930 arms that bind the list (928 in `src/`) spell the
+    - **Arms.** The 937 arms that bind the list (935 in `src/`) spell the
       wrapper pattern, `.FnCall(_, _, Rc(args), _, _)`. The binder is the
       payload, so no arm body changed.
     - **Constructions.** The 119 other constructions (92 in `src/`, 27 in
