@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -11265,6 +11265,35 @@ Fix: wrap the call:
             fa_bound_names.push(fve_name);
             fa_bound_types.push(fve_ty);
           });
+        });
+        // `generic(p : Origin)` binders (decision 43 step 2) are not foralls:
+        // each binds as the origin naming itself, as the definition-time
+        // body env binds it, so the body may name `p` in a type
+        // (`Option(&(T, p))`, step 3, N2a).
+        fv_o_labels := match(
+          &fv_callee_ty,
+          Rc(.Func({ meta : fv_o_m })) => match(&fv_o_m.*.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels()),
+          _ => no_labels()
+        );
+        (fv_o_i : usize) = usize(0);
+        while(fv_o_i < fv_o_labels.len(), {
+          fv_o_name := match(fv_o_labels.get(fv_o_i), .Some(n) => n, .None => String.new());
+          if(fv_o_name.len() > usize(0), {
+            fv_o_names := ArrayList(String).new();
+            fv_o_names.push(fv_o_name.clone());
+            _add_origin := add_variable_to_env(
+              &fresh_env,
+              fv_o_name.clone(),
+              t_origin_kind(),
+              Option(EvalValue).Some(EvalValue.TypeVal(t_origin_named(&shared_list(fv_o_names)))),
+              true,
+              false,
+              false,
+              false,
+              synthetic_token(fv_o_name.clone(), &env.module_path.*)
+            );
+          });
+          fv_o_i = (fv_o_i + usize(1));
         });
         // Validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved); this inline FuncVal

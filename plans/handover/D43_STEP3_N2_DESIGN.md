@@ -85,6 +85,27 @@ same program over `struct(a : i32, n : usize)` with E0901). §5 route 3's "all-`
 | docs/instructions naming "a borrow mode, not a type" | `docs/{en-US,zh-CN}/{DESIGN,GRAMMAR}.md`, `.github/instructions/yo-syntax.instructions.md`, `.github/skills/yo-syntax/syntax-cheatsheet.md` | N2a (docs + instructions); the skills cheatsheet with N2b, when values exist (a skills edit moves seven cli-case goldens) |
 | tests pinning the old messages | `tests/borrow_spelling.test.yo` (13 "borrow mode" lines across the tree, most there), `tests/internal/parser.test.yo` | N2a |
 
+### 2.3 Decision 44: borrowed trait objects (`&Dyn(Trait)`)
+
+Decision 44 (`plans/VALUES_BY_DEFAULT.md`, "`Dyn(Trait)` stays the owned, boxed trait object")
+gives decision 43 one more reference type: `&Dyn(Trait)` / `&mut Dyn(Trait)`, Rust's `&dyn
+Trait`, a fat reference (data pointer, vtable) over the payload, with no allocation. It is N2's,
+not step 2's: every piece but the parameter slot is a reference VALUE (N2b) or a write through
+`.*` (N1e), and the corpus has no row for it yet. The pieces, each with its test:
+
+| Rule | Test (accept / reject) | Needs |
+| --- | --- | --- |
+| `dyn(&v)` / `dyn(&mut v)` over a borrow of a concrete value is `&Dyn(Trait)` / `&mut Dyn(Trait)`, no cell | ACCEPT: call a trait method through it; the emitted C allocates nothing | N2b |
+| `&x` / `&mut x` with `x : Dyn(Trait)` lends the PAYLOAD (Rust's `&dyn`, never `&Box<dyn>`) | ACCEPT: `use(&x)` for `use : fn(r : &Dyn(T))` calls through the payload; a `&mut x` lend mutates the payload `x` keeps | N2b (the `&mut Dyn(T)` slot's lowering: Q6) |
+| `r.* = dyn(other)` through `r : &mut Dyn(T)` is an error (write the owning slot) | REJECT naming the owning binding | N1e (`.*`) |
+| `&dyn(v)` is a call-argument temporary only | ACCEPT `use(&dyn(v))`; REJECT `r := &dyn(v)` and `{ r : &dyn(v) }` (a borrow of a temporary, as `t : &make_name()`) | N2b |
+| trait-set narrowing is `upcast(r, Dyn(A))` | ACCEPT `upcast(r, Dyn(A))` over `r : &Dyn(A, B)`; the result keeps `r`'s origin | N2b, N2d |
+| a borrowed trait object is origin-carrying | REJECT storing `dyn(&v)` past `v` (E0912 / O3); REJECT it at a no-origin position (E0909) | N2b, N2d |
+
+These land as **N2g** (§3), after N2b and N1e, beside N2d. AnyError's follow-up (§3.2) needs
+the payload lend and `&Dyn` results (`Error.source -> Option(&Dyn(SelfTrait))`), so N2g is on
+the v0.2.75 critical path, not v0.2.74's.
+
 ## 3. The PR split
 
 All of N2 is Generation A (the compiler; no std or `src/` file spells a reference type until N3).
@@ -97,6 +118,7 @@ Every PR keeps every existing program's C byte-identical unless it says otherwis
 | **N2c** containers | a std generic body at `T := &U` (buffer of pointers, no element drop, `may_dangle`), O6 declared unions (E0925) and the `yo fix` widening repair, flow sets grown by `push`, element writes and `&mut` lends (§7 of the plan), the loop fixpoint, user-`Drop` liveness | the 17 N2c rows | N2b, N1e |
 | **N2d** cells and `Dyn` | `Box`/`RefCell` payload origins (the `RefCell` payload invariant, O3-3), `Dyn(Trait, p)` and `Dyn(Trait)` = `Dyn(Trait, ∅)` (a `DynT` origin), a `Dyn(Fn(...), p)` closure whose captures lie within `p`, spawn/`Send` as no-origin positions | the 5 N2d rows | N2b, N1d; N1e for `store-widen-refcell` |
 | **N2e** closures × containers | a literal's `&mut` capture of a flow-inferred container (§7), per-call parameter origins against a captured union | the 3 N2e rows | N2c, N2d |
+| **N2g** `&Dyn(Trait)` (decision 44) | the §2.3 rules: `dyn(&v)`/`dyn(&mut v)`, the payload lend of an owned `Dyn`, the `&dyn(v)` temporary rule, `upcast(r, Dyn(A))` over a reference, the whole-value write error; the `&mut Dyn(T)` slot lowering (Q6) | the §2.3 tests (new corpus rows) | N2b, N1e; beside N2d |
 | **N2f** `ctl` handlers origin-carrying | step 2's Q1 verdict: the handler's origin is its defining frame's hidden origin plus its captures'; the 25 `type_is_control_bound` sites deleted one by one, each with a row (the three retired patches, `io.spawn` capturing an outer bundle E0909, a bundle passed down and returned ACCEPT); diagnostics say "the frame of `f`" | the new rows | N2b; LAST, fallback v0.2.75 (the `Copy` derive at v0.2.76) |
 
 ### 3.1 What N3 needs from N2 (the seed boundary)
@@ -234,3 +256,18 @@ id, 41 sites) rather than in their types.
 N2a + N2b; N2c, N2d, N2e and N2f land in v0.2.74 if ready and otherwise in v0.2.75 as
 Generation A beside N3 (none of them is seed-gated). This keeps "step 3 in v0.2.74" true for
 everything N3 consumes.
+
+### Q6. Decision 44's payload lend and the existing `&Dyn(T)` / `&mut Dyn(T)` slots
+
+A `&T` parameter is passed as a copy (decision 33's lowering), so a `&Dyn(T)` slot already
+receives the fat pair, which is the payload lend. A `&mut Dyn(T)` slot passes a pointer to the
+caller's owning slot, which is exactly what makes `r.* = dyn(other)` expressible. Decision 44
+makes `&mut x` lend the payload too, so the `&mut Dyn(T)` lowering changes (to be measured on
+the tree first: the count of `&mut Dyn` slots in `src/` and `std/`).
+
+- **A. Lower `&mut Dyn(T)` as the fat pair in N2g, Generation A** (recommended): the whole-value
+  write becomes the rejection of §2.3 instead of a lowering choice; the emit-diff names exactly
+  the `&mut Dyn` sites; no source changes, since the spelling is unchanged.
+- **B. Keep the pointer-to-slot lowering for `&mut Dyn(T)` slots** and give only `dyn(&mut v)`
+  values the fat-pair form. Pro: no C change. Con: two representations of one type, and the
+  rejected write stays reachable through the slot.
