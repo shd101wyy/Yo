@@ -206,7 +206,7 @@ _stable_id_module_stem :: (fn(module_path : &String) -> String)({
       if(out.len() > usize(0), {
         out.push_str("__");
       });
-      seg := match(segments.get(si), .Some(s) => s, .None => String.new());
+      seg := match(segments.get_cloned(si), .Some(s) => s, .None => String.new());
       bytes := seg;
       (bi : usize) = usize(0);
       while(bi < bytes.len(), {
@@ -300,7 +300,7 @@ stable_occurrence_key :: (fn(key : &String) -> usize)({
     .Some(n) => n,
     .None => usize(0)
   );
-  g_stable_occurrence.with_mut(m => m.insert(key.clone(), next + usize(1)));
+  g_stable_occurrence.with_mut({ &key }(m) => m.insert(key.clone(), next + usize(1)));
   next
 });
 /// Memo of `canonical_module_path` for type-id owners and identity anchors: a

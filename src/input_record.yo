@@ -95,7 +95,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
   // A replay's records are already named by the `@<key>` entry that
   // triggered it.
   if(g_input_hashing && !g_replaying, {
-    g_touches.with_mut(xs => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
+    g_touches.with_mut({ &content_sha256, &fs }(xs) => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
   });
   (i : usize) = usize(0);
   while(i < g_input_files.with(xs => xs.len()), {

@@ -510,7 +510,7 @@ _find_available_compiler :: (fn(io : Io) -> Option(String))({
   candidates.push(String.from("zig"));
   (fci : usize) = usize(0);
   while(fci < candidates.len(), {
-    c := match(candidates.get(fci), .Some(x) => x, .None => String.from(""));
+    c := match(candidates.get_cloned(fci), .Some(x) => x, .None => String.from(""));
     if(_check_compiler_available(c.clone(), io), {
       return(Option(String).Some(c));
     });
