@@ -4,7 +4,10 @@
 /// indirectly, so pin the key's determinism and distinctness here.
 { String } :: import("std/string");
 import("std/fmt");
-{ TypeValue, TypeValueNode, shared_list, no_types, t_reference, t_slot, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, t_reference, t_reference_with_origin, t_origin_named, t_slot, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("../../src/types/definitions.yo");
+{ are_types_compatible_exact } :: import("../../src/types/compatibility.yo");
+{ type_intern_key } :: import("../../src/types/intern.yo");
+{ HashSet } :: import("std/collections/hash_set");
 {
   t_func_simple,
   t_some_t,
@@ -83,6 +86,68 @@ test("type_key: a reference slot keys as its spelling, without its origin", {
   ts := ArrayList(TypeValue).new();
   ts.push(t_i32());
   assert(type_key(t_func_simple(ps.clone(), ts.clone(), t_bool())) == `fn(a : &i32) -> bool`, "fn(a : &i32) -> bool");
+});
+// `fn(v : <slot>) -> i32`, the slot as given.
+_fn_one_slot :: (fn(slot : &TypeValue) -> TypeValue)({
+  labels := ArrayList(String).new();
+  labels.push(`v`);
+  slots := ArrayList(TypeValue).new();
+  slots.push(slot.clone());
+  Rc.new(
+    TypeValueNode.Func(
+      no_types(),
+      shared_list(slots),
+      no_types(),
+      no_types(),
+      t_i32(),
+      Rc.new(
+        FuncMeta(
+          forall_labels : no_labels(),
+          param_labels : shared_list(labels),
+          implicit_labels : no_labels(),
+          result_is_comptime_only : false,
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      no_types()
+    )
+  )
+});
+_named_origin :: (fn(name : str) -> TypeValue)({
+  names := ArrayList(String).new();
+  names.push(String.from(name));
+  t_origin_named(&shared_list(names))
+});
+// Decision 43 step 2 (N1a): a parameter typed `&(T, p)` carries a spelled
+// origin in its slot. The specialization cache (`_find_specialization_cache`)
+// reuses a specialization when the runtime parameter types are
+// `are_types_compatible_exact` and, for an instantiation, `type_key`-equal:
+// two function types that differ only in a slot's origin pass both, so an
+// origin never mints a specialization. The intern key keeps the origin, so
+// the checker still tells the two nodes apart.
+test("type_key: a slot's origin is erased from the specialization identity", {
+  f_elided := _fn_one_slot(t_reference(t_i32(), false));
+  f_p := _fn_one_slot(t_reference_with_origin(t_i32(), false, _named_origin("p")));
+  f_q := _fn_one_slot(t_reference_with_origin(t_i32(), false, _named_origin("q")));
+  assert(type_key(&f_p) == `fn(v : &i32) -> i32`, "a spelled origin prints as the elided form");
+  assert(type_key(&f_p) == type_key(&f_elided), "named vs elided origin: one type_key");
+  assert(type_key(&f_p) == type_key(&f_q), "two named origins: one type_key");
+  assert(are_types_compatible_exact(&f_p, &f_elided) && are_types_compatible_exact(&f_elided, &f_p), "named vs elided origin: exact-compatible both ways");
+  assert(are_types_compatible_exact(&f_p, &f_q), "two named origins: exact-compatible");
+  // The mode is still part of the identity.
+  f_mut := _fn_one_slot(t_reference_with_origin(t_i32(), true, _named_origin("p")));
+  assert(!(type_key(&f_mut) == type_key(&f_p)), "&mut(i32, p) vs &(i32, p): distinct keys");
+  assert(!are_types_compatible_exact(&f_mut, &f_p), "&mut(i32, p) vs &(i32, p): not exact-compatible");
+  // Storage, not identity: the intern key renders the origin.
+  mut(seen_p) := HashSet(String).new();
+  mut(seen_e) := HashSet(String).new();
+  assert(!(type_intern_key(&f_p, usize(0), &mut seen_p) == type_intern_key(&f_elided, usize(0), &mut seen_e)), "the intern key keeps the origin");
 });
 test("type_key: SomeT distinct from concrete", {
   st := t_some_t(`T`, usize(0));
