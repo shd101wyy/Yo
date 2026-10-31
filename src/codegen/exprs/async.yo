@@ -637,7 +637,7 @@ emit_async_block_struct_definition :: (
   // names here too (idempotent: same list, same names).
   register_sm_captured_names(&info.analysis.captured_variables);
   local_variables := ArrayList(CapturedVariable).new();
-  cvs := info.analysis.captured_variables;
+  cvs := &info.analysis.captured_variables;
   (ci : usize) = usize(0);
   while(ci < cvs.len(), {
     match(
@@ -777,7 +777,7 @@ _build_deferred_deps :: (
   fn(b : &DeferredAsyncBlock, by_struct_name : &HashMap(String, DeferredAsyncBlock), dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), context : &FunctionGenerationContext) -> unit
 )({
   // Local variable fields.
-  cvs := b.analysis.captured_variables;
+  cvs := &b.analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
@@ -798,7 +798,7 @@ _build_deferred_deps :: (
     i = (i + usize(1));
   });
   // await_future_X fields.
-  aps := b.analysis.await_points;
+  aps := &b.analysis.await_points;
   (j : usize) = usize(0);
   while(j < aps.len(), {
     match(
@@ -1340,7 +1340,7 @@ generate_async_block_state_dispose_function :: (
   // Drop cross-boundary locals when unwind aborted the SM (state == -2). Normal
   // completion drops locals inline in the final state.
   local_drop_lines := ArrayList(String).new();
-  cvs := analysis.captured_variables;
+  cvs := &analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
@@ -2180,7 +2180,7 @@ _emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero :
 /// state machine) and its capture fields, all aliased into the site's fields.
 _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVariable))({
   vars := HashMap(String, CapturedVariable).new();
-  cvs := site.block.analysis.captured_variables;
+  cvs := &site.block.analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
@@ -2801,7 +2801,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
         is_capture_field_binding(cap_id, v.base.name.clone(), v.base.decl_site.clone())
       );
       remapped_cvs := ArrayList(CapturedVariable).new();
-      src_kcvs := analysis_kinded.captured_variables;
+      src_kcvs := &analysis_kinded.captured_variables;
       // The analysis records the OWNER of every local that shares an owner's
       // RC value (`sb := s`) as a body local, so that the alias is read
       // through the owner's slot (`sm_storage_id`). When the alias is a
@@ -3105,7 +3105,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   );
   if(param_sites.len() > usize(0), {
     (pci : usize) = usize(0);
-    pcvs := block.analysis.captured_variables;
+    pcvs := &block.analysis.captured_variables;
     while(pci < pcvs.len(), {
       match(
         pcvs.get(pci),
@@ -3179,7 +3179,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   overlapping_slot_aliases := osr.slot_aliases.clone();
   // Filter capturedVariables to those that need SM fields (or stay for drops).
   filtered := ArrayList(CapturedVariable).new();
-  src_cvs := block.analysis.captured_variables;
+  src_cvs := &block.analysis.captured_variables;
   (ci : usize) = usize(0);
   while(ci < src_cvs.len(), {
     match(
@@ -3219,7 +3219,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   // SM var map: filtered vars + capture-struct fields (as outer vars).
   sm_var_map := HashMap(String, CapturedVariable).new();
   (fi : usize) = usize(0);
-  fcvs := filtered_analysis.captured_variables;
+  fcvs := &filtered_analysis.captured_variables;
   while(fi < fcvs.len(), {
     match(
       fcvs.get(fi),
