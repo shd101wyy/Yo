@@ -8099,8 +8099,8 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
 });
 /// The frozen places of the holder named by the atom `a`: its local-borrow
 /// entries' places (an N2b holder binding registers one per root).
-_holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)(
-  a_name := ast_expr_text(a);
+_holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
+  a_name := ast_expr_token(a).value.clone();
   match(
     get_variables_from_env(env, a_name.clone()).last(),
     .Some(hv) => match(
@@ -8120,7 +8120,7 @@ _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, 
     ),
     .None => ()
   )
-);
+});
 /// N2b's binding freeze (decision 43 step 3, T8/T9): a local bound to a
 /// value whose type carries an origin freezes, from its initialization to
 /// its last use, every place those origins name — a `&` root read-only, a
@@ -8165,7 +8165,8 @@ reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx
               with_code(
                 format_error_message_with_help(
                   ast_expr_token(e),
-                  `Cannot return a value holding \`${_lb_place_text(&root.place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`
+                  `Cannot return a value holding \`${_lb_place_text(&root.place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                  Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
                 ),
                 E_LOCAL_BORROW_ESCAPES
               ),

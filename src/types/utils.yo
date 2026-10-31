@@ -874,7 +874,7 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
     ),
     _ => false
   )
-);
+});
 /// N2b's narrowed wall message (decision 43 step 3): the origin sits in a
 /// container (N2c) or a cell (N2d, N1d's `Escapable`), not an inline
 /// composite. Used where N2a's wall (`origin_value_phase_message`) said
@@ -1237,7 +1237,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : 
     // copies of one exclusive borrow would alias, so a value holding one is
     // move-only. A `&` reference shares, so it copies (the holder still
     // declares `Copy`; the reference itself is Copy structurally).
-    Rc(.Reference(_, true, _)) => true,
+    match(&ty, Rc(.Reference(_, true, _)) => true, _ => false) => true,
     // A closure with a `mut` capture (decision 35): two copies of one
     // exclusive borrow would alias.
     _capture_struct_declares_mut(&ty) => true,

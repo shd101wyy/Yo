@@ -1880,11 +1880,10 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // slot reaching here remains an internal error at its own call sites.
     Rc(.Reference(ref_pointee, ref_mut, _)) => {
       pt := get_type_string(&ref_pointee, context);
-      if(ref_mut, {
-        `${pt} *`
-      }, {
-        `${pt} const *`
-      })
+      cond(
+        ref_mut => `${pt} *`,
+        true => `${pt} const *`
+      )
     },
     // Comptime-only / type-level types should not reach codegen.
     _ => {
