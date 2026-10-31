@@ -12,7 +12,8 @@
 //! - a VALUE/newtype target was auto-boxed at `dyn()` creation — read the value
 //!   out of the Rc found in `dyn_impls` (`wasBoxed`; the
 //!   old note calling this branch unreachable predates
-//!   `issues/fixed/yo-self-downcast-value-type.md`);
+//!   `issues/fixed/yo-self-downcast-value-type.md`); a move-only value is
+//!   copied with the `clone` of the Dyn's `Clone` evidence, never bitwise;
 //! - a VALUE target with NO `dyn_impls` entry for this (Dyn, target) pair — no
 //!   vtable in the program carries its type id, so the is-check can never hold
 //!   and the whole downcast is a constant `.None`
@@ -20,16 +21,18 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("../../expr.yo");
-{ EvalValue } :: import("../../value.yo");
-{ is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
+{ EvalValue, is_func_val } :: import("../../value.yo");
+{ is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view, is_pointer_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
-{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, type_is_move_only, is_clone_trait_type } :: import("../../types/utils.yo");
+{ get_func_type } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { bind_owning_result_temp } :: import("./other_fn_call.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, t_slot_pointee, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// Generate code for `downcast(dyn_value, T)`.
 generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   bind_owning_result_temp(expr, _downcast_value(expr, indent, context), indent, context)
@@ -104,6 +107,9 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     tkey := type_key(&target_type);
     dyn_tkey := type_key(&dyn_ei.ty);
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
+    // The payload's `clone`, when the Dyn lists `Clone`: a move-only payload
+    // is copied out through it (below).
+    (clone_fid : String) = String.new();
     for(&context.base.dyn_impls, (_dk, de) => {
       // The entry's concrete is resolved through the SomeType's resolution before
       // keying — exactly like `generate_dyn_box_types` — so an entry whose
@@ -114,6 +120,8 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         // A cell handle's data is its cell (`cell_handle_view`): the
         // handle is a C-transparent newtype over the cell pointer.
         box_opt = Option(TypeValue).Some(match(cell_handle_view(&de.data_type), .Some(v) => Rc.clone(v.cell), .None => Rc.clone(de.data_type)));
+        de_traits := match(&de.dyn_type, Rc(.DynT({ required_trait_types })) => Rc.clone(required_trait_types), _ => no_types());
+        clone_fid = dyn_impl_clone_fid(&de_traits.items, &de.trait_values);
         break;
       });
     });
@@ -163,13 +171,27 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
               em.emit_string_line(`${indent.clone()}int ${ok_var} = (${is_check.clone()}) ? 1 : 0;`);
               em.emit_string_line(`${indent.clone()}${target_type_c_name.clone()} ${val_var} = (${target_type_c_name.clone()}){0};`);
               em.emit_string_line(`${indent.clone()}if (${ok_var}) {`);
-              em.emit_string_line(`${indent.clone()}  ${val_var} = ${extract};`);
-              dup_code := generate_dup_code_for_value(val_var.clone(), &target_type, context);
-              // The nullable-pointer and no-RC arms emit their own statement
-              // (or nothing) and hand the value straight back; only a real
-              // dup EXPRESSION needs assigning.
-              if((dup_code.len() > usize(0)) && !(dup_code == val_var), {
-                em.emit_string_line(`${indent.clone()}  ${val_var} = ${dup_code};`);
+              if(type_is_move_only(&target_type), {
+                // A move-only payload has no structural dup: a bitwise copy
+                // would leave the Dyn's box and the result owning one value,
+                // dropped twice. It is copied out through its `Clone` impl,
+                // which the evaluator requires the Dyn to list.
+                clone_c := match(
+                  if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone())),
+                  .Some(entry) => entry.c_name.clone(),
+                  .None => codegen_fatal_expr(`downcast to the move-only ${target_type_c_name.clone()}: no Clone impl in the Dyn's evidence`)
+                );
+                receiver := if(clone_fn_takes_self_by_ptr(&clone_fid), `&(${extract})`, extract.clone());
+                em.emit_string_line(`${indent.clone()}  ${val_var} = ${clone_c}(${receiver});`);
+              }, {
+                em.emit_string_line(`${indent.clone()}  ${val_var} = ${extract};`);
+                dup_code := generate_dup_code_for_value(val_var.clone(), &target_type, context);
+                // The nullable-pointer and no-RC arms emit their own statement
+                // (or nothing) and hand the value straight back; only a real
+                // dup EXPRESSION needs assigning.
+                if((dup_code.len() > usize(0)) && !(dup_code == val_var), {
+                  em.emit_string_line(`${indent.clone()}  ${val_var} = ${dup_code};`);
+                });
               });
               em.emit_string_line(`${indent.clone()}}`);
               cond_expr = ok_var.clone();
@@ -300,4 +322,44 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGener
   });
   `((${tgt_c}){ .data = __yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable), .vtable = ${src}.vtable->__yo_up_${tgt_c} })`
 });
-export(generate_downcast, generate_upcast);
+/// The function id of the `clone` in a Dyn impl's `Clone` evidence (the
+/// trait value at `Clone`'s position among the Dyn's required traits), or
+/// empty when the Dyn does not list `Clone`.
+dyn_impl_clone_fid :: (fn(req_traits : &ArrayList(TypeValue), trait_values : &ArrayList(EvalValue)) -> String)({
+  (ti : usize) = usize(0);
+  while(ti < req_traits.len(), {
+    if(match(req_traits.get(ti), .Some(rt) => is_clone_trait_type(&rt), .None => false), {
+      match(
+        trait_values.get(ti),
+        .Some(.TraitVal(_, cl_names, cl_vals)) => {
+          (fi : usize) = usize(0);
+          while(fi < cl_names.len(), {
+            if(match(cl_names.get_cloned(fi), .Some(l) => (l == "clone"), .None => false), {
+              match(
+                cl_vals.get(fi),
+                .Some(.Some(fv)) => if(is_func_val(&fv), {
+                  return(match(fv, .FuncVal(fvd, _) => fvd.*.func_id, _ => String.new()));
+                }),
+                _ => ()
+              );
+            });
+            fi = (fi + usize(1));
+          });
+        },
+        _ => ()
+      );
+    });
+    ti = (ti + usize(1));
+  });
+  String.new()
+});
+/// Whether the `clone` with function id `fid` takes its `self : &Self` as a
+/// pointer (`fn_abi_param_is_ptr`) rather than as the value.
+clone_fn_takes_self_by_ptr :: (fn(fid : &String) -> bool)(
+  match(
+    get_func_type(fid.clone()),
+    Rc(.Func({ param_types : cpts })) => match(cpts.get(usize(0)), .Some(p0) => (is_pointer_type(&t_slot_pointee(&p0)) || t_slot_is_mut_ref(&p0)), .None => false),
+    _ => false
+  )
+);
+export(generate_downcast, generate_upcast, dyn_impl_clone_fid, clone_fn_takes_self_by_ptr);

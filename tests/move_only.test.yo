@@ -3408,3 +3408,30 @@ test("move-only: a generic function moves a match binding out of a compile-time-
   assert(g_mo_disposed == (before + i32(2)), "each payload disposed once, by its result");
   assert(g_mo_sum == (sum_before + i32(11)), "the disposed payloads are the moved ones");
 });
+// A wrapper whose body holds a consuming `match`, fused at two awaits of one
+// task, gets its own C labels at each site
+// (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
+// The drop count is not asserted here: a consuming match whose arm moves a
+// `Drop` payload out of a call result before an await drops it twice
+// (issues/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
+_mo_res :: (fn(n : i32) -> Result(_MoFd, i32))(
+  if(n > i32(0), Result(_MoFd, i32).Ok(_MoFd(n : n)), Result(_MoFd, i32).Err(n))
+);
+_mo_fused_match :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(String.from("not positive"))));
+    e.io.await(yield(e.io), e.io);
+    fd.n
+  })
+);
+_mo_fused_twice :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    a := e.io.await(_mo_fused_match(i32(1), e.io), e);
+    b := e.io.await(_mo_fused_match(i32(2), e.io), e);
+    a + b
+  })
+);
+test("move-only: a wrapper's consuming match fused at two awaits of one task", {
+  r := io.await(_mo_fused_twice(io), IoExn(io : io, exn : Exception(throw : (_err -> unwind(())))));
+  assert(r == i32(3), "both fused sites ran");
+});

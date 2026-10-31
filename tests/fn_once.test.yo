@@ -662,3 +662,23 @@ test("FnOnce: a generic free function calls its sink or by-value FnOnce paramete
   assert(_gen_take_sink({ t }() => _once_take(t)) == i32(6), "a capture-list move through the sink parameter");
   assert(g_once_disposed == (before + i32(1)), "the moved capture disposed once, by _once_take");
 });
+// A single-expression body that calls its `FnOnce` parameter releases the
+// closure's captures after the call, not before it
+// (issues/fixed/2026-10-31-a-single-expression-body-releases-an-fnonce-parameters-captures-before-calling-it.md).
+_once_call_tail :: (fn(sink(body) : Impl(FnOnce() -> i32)) -> i32)(
+  body()
+);
+_once_call_tail_generic :: (fn(generic(R : Type), sink(body) : Impl(FnOnce() -> R)) -> R)(
+  body()
+);
+test("FnOnce: a single-expression body releases its parameter's captures after the call", {
+  before := g_once_disposed;
+  t := _OnceTok(n : i32(4));
+  seen := _once_call_tail(() => ((t.n * i32(10)) + (g_once_disposed - before)));
+  assert(seen == i32(40), `the capture is alive while the body runs, got ${seen.to_string()}`);
+  assert(g_once_disposed == (before + i32(1)), "and released once, after it");
+  u := _OnceTok(n : i32(5));
+  seen_g := _once_call_tail_generic(() => ((u.n * i32(10)) + (g_once_disposed - before)));
+  assert(seen_g == i32(51), `a generic callee's capture is alive while the body runs, got ${seen_g.to_string()}`);
+  assert(g_once_disposed == (before + i32(2)), "and released once, after it");
+});

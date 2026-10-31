@@ -936,3 +936,31 @@ test("a closure typed Impl(Fn(...), Clone) clones structurally", {
   d := c.clone();
   assert((c() + d()) == i32(8), "a closure of Copy captures clones by copy");
 });
+// A `&mut` receiver reached through a captured `ref` handle is written in
+// place, not through a spilled copy
+// (issues/fixed/2026-10-31-a-mut-receiver-reached-through-a-captured-ref-handle-is-written-to-a-copy.md).
+_SpillCounter :: struct(n : i32);
+impl(
+  _SpillCounter,
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+_SpillBag :: ref(struct(c : _SpillCounter, xs : ArrayList(i32)));
+_spill_run :: (fn(act : &Impl(Fn() -> unit)) -> unit)({
+  act();
+});
+test("a mut receiver reached through a captured ref handle is written in place", {
+  b := _SpillBag(c : _SpillCounter(n : i32(0)), xs : ArrayList(i32).new());
+  h := b;
+  _spill_run(
+    &(
+      () => {
+        h.c.bump();
+        h.xs.push(i32(7));
+      }
+    )
+  );
+  assert(b.c.n == i32(1), "the closure's bump reached the handle's counter");
+  assert(b.xs.len() == usize(1), "the closure's push reached the handle's list");
+});
