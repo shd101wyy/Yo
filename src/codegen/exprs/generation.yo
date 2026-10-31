@@ -1127,8 +1127,7 @@ _sm_arg_temp_read :: (fn(expr : &AstExpr, code : String, context : &FunctionGene
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code));
   tn := match(ei.variable_name, .Some(n) => n.clone(), .None => return(code));
   if(!is_arg_temp_across_suspension(tn.clone()) || !(code == tn), return(code));
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(code));
-  match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code)
+  match(context.state_machine_variables, .Some(smv) => match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code), .None => code)
 });
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.

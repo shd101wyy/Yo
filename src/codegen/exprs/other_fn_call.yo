@@ -309,30 +309,24 @@ bind_owning_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String,
 /// compiler — see issues/fixed/seed-built-stage1-miscompiles-current-source.md.
 _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
   if(context.in_async_state_machine.is_none(), return(()));
-  smv := match(
-    context.state_machine_variables,
-    .Some(m) => m,
-    .None => return(())
-  );
   // Lookup by id key first, then FIRST-MATCH-BY-NAME reading ENTRY fields
   // (never derive emitted names from map keys — the PR #92 capture lesson).
-  (found : Option(CapturedVariable)) = smv.get(temp_var);
-  if(found.is_none(), {
-    vals := smv.values();
-    (go : bool) = true;
-    while(go, {
-      match(
-        vals.next(),
-        .Some(cv) => if(cv.base.name == temp_var, {
-          found = Option(CapturedVariable).Some(cv);
-          go = false;
-        }),
-        .None => {
-          go = false;
-        }
-      );
-    });
-  });
+  (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
+  match(
+    context.state_machine_variables,
+    .Some(smv) => {
+      found = smv.get(temp_var);
+      if(found.is_none(), {
+        for(&smv, (_k, cv) => {
+          if(cv.base.name == temp_var, {
+            found = Option(CapturedVariable).Some(cv);
+            break;
+          });
+        });
+      });
+    },
+    .None => return(())
+  );
   match(
     found,
     .None => (),
@@ -358,20 +352,17 @@ _sm_lent_temp_slot :: (fn(code : &String, context : &FunctionGenerationContext) 
   if(context.in_async_state_machine.is_none() || !is_any_temp_variable_name(code), {
     return(Option(String).None);
   });
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
-  vals := smv.values();
-  (go : bool) = true;
-  while(go, {
-    match(
-      vals.next(),
-      .Some(cv) => if((cv.base.name == code) && match(cv.kind, .Local => true, .Outer => false), {
-        return(Option(String).Some(`sm->${sm_local_field_name(cv.base.id.to_string())}`));
-      }),
-      .None => {
-        go = false;
-      }
-    );
-  });
+  match(
+    context.state_machine_variables,
+    .Some(smv) => {
+      for(&smv, (_k, cv) => {
+        if((cv.base.name == code) && match(cv.kind, .Local => true, .Outer => false), {
+          return(Option(String).Some(`sm->${sm_local_field_name(cv.base.id.to_string())}`));
+        });
+      });
+    },
+    .None => ()
+  );
   Option(String).None
 });
 /// The container-pointer C code for an interior `ref` argument (an Index-trait
