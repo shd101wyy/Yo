@@ -41,6 +41,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW } :: import("../../pattern.yo");
 { arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
+{ replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -372,8 +373,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     vei_opt := context.base.get_expr_info(body_expr);
     cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
-    prev_pending := context.pending_deferred_drops;
-    prev_consumed := context.consumed_var_pending_drops;
+    prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+    prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_drops, &prev_pending));
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
     n := begin_args.len();
@@ -462,8 +463,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     vei_opt := context.base.get_expr_info(body_expr);
     cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
-    prev_pending := context.pending_deferred_drops;
-    prev_consumed := context.consumed_var_pending_drops;
+    prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+    prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_drops, &prev_pending));
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
     // When the arm value carries deferred `___dup`s (returning a borrowed
@@ -2456,7 +2457,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
 generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   subject_opt := _args(expr).get(usize(0));
   subj_drops := match(subject_opt, .Some(sj) => match(context.base.get_expr_info(&sj), .Some(sj_ei) => sj_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None), .None => Option(ArrayList(AstExpr)).None);
-  subj_prev := context.pending_deferred_drops;
+  subj_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&subj_drops, &subj_prev));
   code := _generate_match_expression_body(expr, indent, context);
   context.pending_deferred_drops = subj_prev;
