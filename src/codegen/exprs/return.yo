@@ -812,7 +812,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
 /// Generate a `return` statement.
 generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
   match(
     args.get(usize(0)),

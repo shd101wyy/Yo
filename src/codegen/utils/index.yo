@@ -1295,7 +1295,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
   )
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
-  args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(false));
+  args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(false));
   params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params, _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
@@ -1405,7 +1405,7 @@ arm_params :: (fn(case_value : &AstExpr) -> ArrayList(AstExpr))(
         });
         out
       },
-      .FnCall(_, _, _, _, _) => args
+      .FnCall(_, _, _, _, _) => args.clone()
     ),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
