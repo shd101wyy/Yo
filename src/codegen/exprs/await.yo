@@ -441,7 +441,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // variable name, fall back to the call's unique expr id so multiple `io.await`
   // calls in one function don't collide on the fixed `__sync_future` /
   // `__pre_await_state` defaults (C "redefinition" errors).
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => ast_expr_id(expr).to_string());
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => ast_expr_id(expr).to_string());
   sync_future_var := if(name_suffix.len() > usize(0), `__sync_future_${name_suffix.clone()}`, String.from("__sync_future"));
   pre_await_state_var := if(name_suffix.len() > usize(0), `__pre_await_state_${name_suffix.clone()}`, String.from("__pre_await_state"));
   em.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
