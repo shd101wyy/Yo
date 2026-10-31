@@ -29,7 +29,7 @@ test("ThreadPool with_hardware_threads sizes itself from the runtime", {
 test("ThreadPool spawn runs the task", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(2));
-  ran := AtomicI32(i32(0));
+  ran := AtomicI32.new(i32(0));
   spawn(&pool, io => {
     ran.store(i32(7), MemoryOrder.Release);
     ()
@@ -41,7 +41,7 @@ test("ThreadPool spawn with i32 capture", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(2));
   value := 42;
-  seen := AtomicI32(i32(0));
+  seen := AtomicI32.new(i32(0));
   spawn(&pool, io => {
     assert(value == 42, "captured value visible on the worker thread");
     seen.store(value, MemoryOrder.Release);
@@ -55,7 +55,7 @@ test("ThreadPool spawn with multiple captures", {
   pool := ThreadPool.new(usize(2));
   x := 100;
   y := 200;
-  sum := AtomicI32(i32(0));
+  sum := AtomicI32.new(i32(0));
   spawn(&pool, io => {
     sum.store(x + y, MemoryOrder.Release);
     ()
@@ -66,7 +66,7 @@ test("ThreadPool spawn with multiple captures", {
 test("ThreadPool join_all waits for every submitted task", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(4));
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   mut(i) := i32(0);
   while(i < i32(32), {
     spawn(&pool, io => {
@@ -81,7 +81,7 @@ test("ThreadPool join_all waits for every submitted task", {
 test("ThreadPool join_all is reusable across batches", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(4));
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   mut(round) := i32(0);
   while(round < i32(3), {
     mut(i) := i32(0);
@@ -110,7 +110,7 @@ test("ThreadPool join_all on an unused pool returns immediately", {
 test("ThreadPool shared with another OS thread that submits into it", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(4));
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   // Submit from the main thread...
   mut(i) := i32(0);
   while(i < i32(4), {
@@ -141,7 +141,7 @@ test("ThreadPool shared with another OS thread that submits into it", {
 test("ThreadPool shutdown drains outstanding work", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(4));
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   mut(i) := i32(0);
   while(i < i32(16), {
     spawn(&pool, io => {
@@ -167,7 +167,7 @@ test("ThreadPool shutdown is idempotent", {
 test("ThreadPool tasks of several async shapes in one program", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(4));
-  out := AtomicI32(i32(0));
+  out := AtomicI32.new(i32(0));
   // Shape 1: no io use at all.
   spawn(&pool, io => {
     out.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -246,7 +246,7 @@ test("a task may spawn on its own pool: the nested task runs and join_all return
   // the lock it already held. With worker threads this shape exercises the
   // same re-entrancy bookkeeping.
   pool := ThreadPool.new(usize(2));
-  count := AtomicI32(i32(0));
+  count := AtomicI32.new(i32(0));
   done := Channel(i32).new(usize(1));
   spawn(&pool, io => {
     count.fetch_add(i32(1), MemoryOrder.SeqCst);
@@ -271,7 +271,7 @@ test("a second pool submitting concurrently cannot make join_all return early", 
   // worker slot.
   a := ThreadPool.new(usize(2));
   b := ThreadPool.new(usize(2));
-  hits := AtomicI32(i32(0));
+  hits := AtomicI32.new(i32(0));
   (mut(i) : i32) = i32(0);
   while(i < i32(4), {
     spawn(&a, io => {
@@ -311,7 +311,7 @@ test("join_all waits for its own pool's tasks only", {
     _o := opened.recv();
     ()
   });
-  done := AtomicI32(i32(0));
+  done := AtomicI32.new(i32(0));
   spawn(&a, (io : Io) => {
     _d := done.fetch_add(i32(1), MemoryOrder.AcqRel);
     ()
@@ -326,7 +326,7 @@ test("join_all waits for its own pool's tasks only", {
 // (plans/VALUES_BY_DEFAULT.md decision 37, Generation B): a task runs once, so
 // a capture-list task may move a captured value out; it is disposed exactly
 // once, by its new owner.
-(g_pool_once_disposed : AtomicI32) = AtomicI32(i32(0));
+(g_pool_once_disposed : AtomicI32) = AtomicI32.new(i32(0));
 _PoolOnceTok :: struct(n : i32);
 impl(
   _PoolOnceTok,
@@ -341,7 +341,7 @@ test("ThreadPool spawn: a call-once task moves its captured value out", {
   if(arch == Arch.Wasm32, return(()));
   before := g_pool_once_disposed.load(MemoryOrder.Acquire);
   pool := ThreadPool.new(usize(2));
-  got := AtomicI32(i32(0));
+  got := AtomicI32.new(i32(0));
   t := _PoolOnceTok(n : i32(9));
   spawn(&pool, { t, got }(io : Io) => {
     got.store(_pool_take(t), MemoryOrder.Release);

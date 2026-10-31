@@ -146,30 +146,29 @@ impl(
 /// Uses atomic reference counting — implements `Send` and can be
 /// safely shared across threads without `Arc` wrapping.
 /// T must implement `Send` (values transfer between threads).
-Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic(
-    ref(
-      struct(
-        _data : *T,
-        _head : usize,
-        _len : AtomicUsize,
-        _capacity : usize,
-        _mutex : Mutex(bool),
-        _not_empty : Cond,
-        _not_full : Cond,
-        _closed : AtomicBool,
-        /// How many live `Sender(T)` handles share this queue. Zero for a
-        /// `Channel` created with `new` and used directly: nothing counts
-        /// down, so nothing auto-closes. `receiver()` and `pair()` start it
-        /// at one, and every `Sender.clone()` adds another.
-        _senders : AtomicUsize,
-        /// Set once the `Receiver(T)` handle has been dropped, which makes
-        /// every further `send` fail instead of blocking on a queue nobody
-        /// will drain. False forever for a directly-used `Channel`.
-        _recv_dropped : AtomicBool
-      )
-    )
+_ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _data : *T,
+    _head : usize,
+    _len : AtomicUsize,
+    _capacity : usize,
+    _mutex : Mutex(bool),
+    _not_empty : Cond,
+    _not_full : Cond,
+    _closed : AtomicBool,
+    /// How many live `Sender(T)` handles share this queue. Zero for a
+    /// `Channel` created with `new` and used directly: nothing counts
+    /// down, so nothing auto-closes. `receiver()` and `pair()` start it
+    /// at one, and every `Sender.clone()` adds another.
+    _senders : AtomicUsize,
+    /// Set once the `Receiver(T)` handle has been dropped, which makes
+    /// every further `send` fail instead of blocking on a queue nobody
+    /// will drain. False forever for a directly-used `Channel`.
+    _recv_dropped : AtomicBool
   )
+);
+Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  struct(_cell : __yo_atomic_cell(_ChannelState(T)))
 );
 // SAFETY: `_data` is the ring buffer the channel owns. Every slot access
 // happens under `_mutex`, and a value is moved in by `send` and out by `recv`,
@@ -193,16 +192,21 @@ impl(
     (ptr : *T) = (*T)(malloc(capacity * size_of(T)).expect("Channel.new: out of memory"));
     return(
       Self(
-        _data : ptr,
-        _head : usize(0),
-        _len : AtomicUsize(usize(0)),
-        _capacity : capacity,
-        _mutex : Mutex(bool).new(false),
-        _not_empty : Cond.new(),
-        _not_full : Cond.new(),
-        _closed : AtomicBool(false),
-        _senders : AtomicUsize(usize(0)),
-        _recv_dropped : AtomicBool(false)
+        _cell : __yo_atomic_cell(_ChannelState(T))(
+          _ChannelState(T)(
+            _data : ptr,
+            _head : usize(0),
+            _len : AtomicUsize.new(usize(0)),
+            _capacity : capacity,
+            _mutex : Mutex(bool).new(false),
+            _not_empty : Cond.new(),
+            _not_full : Cond.new(),
+            _closed : AtomicBool.new(false),
+            _senders : AtomicUsize.new(usize(0)),
+            _recv_dropped : AtomicBool.new(false)
+          ),
+          .None
+        )
       )
     );
   }),
@@ -213,52 +217,52 @@ impl(
   /// caller instead of being silently dropped (Rust's `SendError(T)`;
   /// plans/archive/STD_API_AUDIT.md C8).
   send : (fn(self : &Self, value : T) -> Result(unit, T))({
-    self._mutex._raw_lock();
+    self._cell.*._mutex._raw_lock();
     // Wait while the buffer is full and there is still a point in waiting:
     // a closed channel takes no more values, and a channel whose `Receiver`
     // has been dropped will never be drained, so blocking on either would
     // block forever.
-    while((self._len.load(MemoryOrder.Relaxed) >= self._capacity)
-    && !self._closed.load(MemoryOrder.Relaxed)
-    && !self._recv_dropped.load(MemoryOrder.Relaxed), {
-      self._not_full.wait_with(&self._mutex);
+    while((self._cell.*._len.load(MemoryOrder.Relaxed) >= self._cell.*._capacity)
+    && !self._cell.*._closed.load(MemoryOrder.Relaxed)
+    && !self._cell.*._recv_dropped.load(MemoryOrder.Relaxed), {
+      self._cell.*._not_full.wait_with(&self._cell.*._mutex);
     });
     cond(
       (
-        self._closed.load(MemoryOrder.Relaxed)
-        || self._recv_dropped.load(MemoryOrder.Relaxed)
+        self._cell.*._closed.load(MemoryOrder.Relaxed)
+        || self._cell.*._recv_dropped.load(MemoryOrder.Relaxed)
       ) => {
-        self._mutex._raw_unlock();
+        self._cell.*._mutex._raw_unlock();
         return(.Err(value));
       },
       true => ()
     );
     // Write value at tail position
-    (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
-    (tail : usize) = ((self._head + current_len) % self._capacity);
+    (current_len : usize) = self._cell.*._len.load(MemoryOrder.Relaxed);
+    (tail : usize) = ((self._cell.*._head + current_len) % self._cell.*._capacity);
     // SAFETY: `tail` indexes a slot past the live run `[_head, _head + len)`,
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
-    __yo_ptr_write(self._data.add(tail), value);
-    self._len.store(current_len + usize(1), MemoryOrder.Release);
-    self._not_empty.signal();
-    self._mutex._raw_unlock();
+    __yo_ptr_write(self._cell.*._data.add(tail), value);
+    self._cell.*._len.store(current_len + usize(1), MemoryOrder.Release);
+    self._cell.*._not_empty.signal();
+    self._cell.*._mutex._raw_unlock();
     return(.Ok(()));
   }),
   /// Receive a value from the channel.
   /// Blocks if the channel is empty until a value is available.
   /// Returns .Some(value) on success, .None if the channel is closed and empty.
   recv : (fn(self : &Self) -> Option(T))({
-    self._mutex._raw_lock();
+    self._cell.*._mutex._raw_lock();
     // Wait while buffer is empty and channel is not closed
-    while((self._len.load(MemoryOrder.Relaxed) == usize(0))
-    && !self._closed.load(MemoryOrder.Relaxed), {
-      self._not_empty.wait_with(&self._mutex);
+    while((self._cell.*._len.load(MemoryOrder.Relaxed) == usize(0))
+    && !self._cell.*._closed.load(MemoryOrder.Relaxed), {
+      self._cell.*._not_empty.wait_with(&self._cell.*._mutex);
     });
     cond(
-      (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {
-        self._mutex._raw_unlock();
+      (self._cell.*._len.load(MemoryOrder.Relaxed) == usize(0)) => {
+        self._cell.*._mutex._raw_unlock();
         return(.None);
       },
       true => ()
@@ -267,11 +271,11 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._data.add(self._head));
-    self._head = ((self._head + usize(1)) % self._capacity);
-    self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
-    self._not_full.signal();
-    self._mutex._raw_unlock();
+    (val : T) = __yo_ptr_read(self._cell.*._data.add(self._cell.*._head));
+    self._cell.*._head = ((self._cell.*._head + usize(1)) % self._cell.*._capacity);
+    self._cell.*._len.store(self._cell.*._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
+    self._cell.*._not_full.signal();
+    self._cell.*._mutex._raw_unlock();
     return(.Some(val));
   }),
   /// Try to send a value without blocking.
@@ -279,41 +283,41 @@ impl(
   /// value is handed back to the caller (use `is_closed()` to tell the
   /// two failure causes apart).
   try_send : (fn(self : &Self, value : T) -> Result(unit, T))({
-    self._mutex._raw_lock();
+    self._cell.*._mutex._raw_lock();
     cond(
       (
-        self._closed.load(MemoryOrder.Relaxed)
-        || self._recv_dropped.load(MemoryOrder.Relaxed)
-        || (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
+        self._cell.*._closed.load(MemoryOrder.Relaxed)
+        || self._cell.*._recv_dropped.load(MemoryOrder.Relaxed)
+        || (self._cell.*._len.load(MemoryOrder.Relaxed) >= self._cell.*._capacity)
       ) => {
-        self._mutex._raw_unlock();
+        self._cell.*._mutex._raw_unlock();
         return(.Err(value));
       },
       true => ()
     );
-    (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
-    (tail : usize) = ((self._head + current_len) % self._capacity);
+    (current_len : usize) = self._cell.*._len.load(MemoryOrder.Relaxed);
+    (tail : usize) = ((self._cell.*._head + current_len) % self._cell.*._capacity);
     // SAFETY: `tail` indexes a slot past the live run `[_head, _head + len)`,
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
-    __yo_ptr_write(self._data.add(tail), value);
-    self._len.store(current_len + usize(1), MemoryOrder.Release);
-    self._not_empty.signal();
-    self._mutex._raw_unlock();
+    __yo_ptr_write(self._cell.*._data.add(tail), value);
+    self._cell.*._len.store(current_len + usize(1), MemoryOrder.Release);
+    self._cell.*._not_empty.signal();
+    self._cell.*._mutex._raw_unlock();
     return(.Ok(()));
   }),
   /// Try to receive a value without blocking.
   /// Returns .Some(value) if available, .None if empty.
   try_recv : (fn(self : &Self) -> Result(T, TryRecvError))({
-    self._mutex._raw_lock();
+    self._cell.*._mutex._raw_lock();
     cond(
-      (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {
+      (self._cell.*._len.load(MemoryOrder.Relaxed) == usize(0)) => {
         // Empty vs Disconnected is the whole reason this returns a Result:
         // a closed AND drained channel will never produce a value, and a
         // polling caller has to be able to stop.
-        closed := self._closed.load(MemoryOrder.Relaxed);
-        self._mutex._raw_unlock();
+        closed := self._cell.*._closed.load(MemoryOrder.Relaxed);
+        self._cell.*._mutex._raw_unlock();
         return(
           cond(
             closed => Result(T, TryRecvError).Err(TryRecvError.Disconnected),
@@ -327,22 +331,22 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._data.add(self._head));
-    self._head = ((self._head + usize(1)) % self._capacity);
-    self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
-    self._not_full.signal();
-    self._mutex._raw_unlock();
+    (val : T) = __yo_ptr_read(self._cell.*._data.add(self._cell.*._head));
+    self._cell.*._head = ((self._cell.*._head + usize(1)) % self._cell.*._capacity);
+    self._cell.*._len.store(self._cell.*._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
+    self._cell.*._not_full.signal();
+    self._cell.*._mutex._raw_unlock();
     return(Result(T, TryRecvError).Ok(val));
   }),
   /// Close the channel. No more values can be sent.
   /// Pending recv() calls will return .None once the buffer is drained.
   /// Pending send() calls will return .Err(value).
   close : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    self._closed.store(true, MemoryOrder.Release);
-    self._not_empty.broadcast();
-    self._not_full.broadcast();
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_lock();
+    self._cell.*._closed.store(true, MemoryOrder.Release);
+    self._cell.*._not_empty.broadcast();
+    self._cell.*._not_full.broadcast();
+    self._cell.*._mutex._raw_unlock();
   }),
   /// Record that this queue's `Receiver` handle is gone: every further
   /// `send` fails, and senders parked on a full buffer wake up to find out.
@@ -353,31 +357,32 @@ impl(
   /// yet parked still holds the mutex, so a broadcast issued outside it could
   /// land before the park and be lost.
   _mark_receiver_dropped : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    self._recv_dropped.store(true, MemoryOrder.Release);
-    self._not_full.broadcast();
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_lock();
+    self._cell.*._recv_dropped.store(true, MemoryOrder.Release);
+    self._cell.*._not_full.broadcast();
+    self._cell.*._mutex._raw_unlock();
   }),
   /// Check if the channel is closed (lock-free atomic load).
   is_closed : (fn(self : &Self) -> bool)(
-    self._closed.load(MemoryOrder.Acquire)
+    self._cell.*._closed.load(MemoryOrder.Acquire)
   ),
   /// Return the number of values currently buffered (lock-free atomic load).
   /// Snapshot semantics: the value may be stale by the time the caller acts on it,
   /// matching Rust's `mpsc::channel` idiom.
   len : (fn(self : &Self) -> usize)(
-    self._len.load(MemoryOrder.Acquire)
+    self._cell.*._len.load(MemoryOrder.Acquire)
   ),
   /// Check if the channel buffer is empty (lock-free atomic load).
   is_empty : (fn(self : &Self) -> bool)(
-    self._len.load(MemoryOrder.Acquire) == usize(0)
+    self._cell.*._len.load(MemoryOrder.Acquire) == usize(0)
   )
 );
-// Drop: drop remaining elements and free the buffer
+// Drop: drop remaining elements and free the buffer. The impl lives on the
+// cell's state (V5's shape), so it fires exactly once, when the last handle
+// to the queue goes away.
 impl(
   generic(T : Type),
-  Channel(T),
-  where(T <: Send),
+  _ChannelState(T),
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
@@ -402,11 +407,12 @@ impl(
 /// no more values are coming without anyone remembering to call `close()`,
 /// and a blocked `recv` wakes up rather than parking forever.
 ///
-/// `atomic(ref(...))` for the same reason `Channel` is: the handle is meant
-/// to be moved into another thread, and its reference count has to be atomic
-/// for that to be sound.
+/// An atomically counted cell for the same reason `Channel` is: the handle
+/// is meant to be moved into another thread, and its reference count has to
+/// be atomic for that to be sound.
+_SenderState :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_ch : Channel(T)));
 Sender :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic(ref(struct(_ch : Channel(T))))
+  struct(_cell : __yo_atomic_cell(_SenderState(T)))
 );
 export(Sender);
 /// The receiving half of a `Channel(T).receiver`/`pair` split — Rust's
@@ -416,8 +422,9 @@ export(Sender);
 /// sender can act on. (The underlying `Channel` is MPMC and a second consumer
 /// is expressible by sharing the `Channel` itself; what a `Receiver` adds is
 /// the single-owner lifetime, and cloning it would take that away.)
+_ReceiverState :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_ch : Channel(T)));
 Receiver :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic(ref(struct(_ch : Channel(T))))
+  struct(_cell : __yo_atomic_cell(_ReceiverState(T)))
 );
 export(Receiver);
 impl(
@@ -431,8 +438,8 @@ impl(
   /// no data, and the handle it produces cannot be used by another thread
   /// until it has been moved there, which is itself a synchronizing transfer.
   _attach : (fn(ch : &Channel(T)) -> Self)({
-    _prev := ch._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
-    Self(_ch : ch)
+    _prev := ch._cell.*._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
+    Self(_cell : __yo_atomic_cell(_SenderState(T))(_SenderState(T)(_ch : ch), .None))
   }),
   /// Send a value, blocking while the buffer is full.
   ///
@@ -440,27 +447,27 @@ impl(
   /// the `Receiver` has been dropped; the value that could not be sent comes
   /// back rather than being dropped on the floor.
   send : (fn(self : &Self, value : T) -> Result(unit, T))(
-    self._ch.send(value)
+    self._cell.*._ch.send(value)
   ),
   /// Send without blocking: `.Err(value)` if the buffer is full, the channel
   /// is closed, or the `Receiver` is gone.
   try_send : (fn(self : &Self, value : T) -> Result(unit, T))(
-    self._ch.try_send(value)
+    self._cell.*._ch.try_send(value)
   ),
   /// True once the channel is closed — by an explicit `close()`, or by the
   /// last `Sender` being dropped.
   is_closed : (fn(self : &Self) -> bool)(
-    self._ch.is_closed()
+    self._cell.*._ch.is_closed()
   ),
   /// Number of values currently buffered (a snapshot, like `Channel.len`).
   len : (fn(self : &Self) -> usize)(
-    self._ch.len()
+    self._cell.*._ch.len()
   ),
   /// Close the channel now, without waiting for the other senders to go.
   /// Every `Sender`'s subsequent `send` fails and the `Receiver` drains what
   /// is buffered and then reports `Disconnected`.
   close : (fn(self : &Self) -> unit)(
-    self._ch.close()
+    self._cell.*._ch.close()
   )
 );
 impl(
@@ -470,15 +477,14 @@ impl(
   /// Another producer over the same queue, counted.
   Clone(
     clone : (fn(self : &Self) -> Self)({
-      _prev := self._ch._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
-      Self(_ch : self._ch)
+      _prev := self._cell.*._ch._cell.*._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
+      Self(_cell : __yo_atomic_cell(_SenderState(T))(_SenderState(T)(_ch : self._cell.*._ch), .None))
     })
   )
 );
 impl(
   generic(T : Type),
-  Sender(T),
-  where(T <: Send),
+  _SenderState(T),
   /// Dropping a `Sender` gives up its stake in the queue; dropping the LAST
   /// one closes the channel.
   ///
@@ -498,7 +504,7 @@ impl(
   /// forever.
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      (prev : usize) = self._ch._senders.fetch_sub(usize(1), MemoryOrder.AcqRel);
+      (prev : usize) = self._ch._cell.*._senders.fetch_sub(usize(1), MemoryOrder.AcqRel);
       if(prev == usize(1), {
         self._ch.close();
       });
@@ -512,7 +518,7 @@ impl(
   /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
   /// `Channel.pair` are the only callers.
   _attach : (fn(ch : &Channel(T)) -> Self)(
-    Self(_ch : ch)
+    Self(_cell : __yo_atomic_cell(_ReceiverState(T))(_ReceiverState(T)(_ch : ch), .None))
   ),
   /// Mint a producer for this queue, counted like every other `Sender`.
   ///
@@ -524,7 +530,7 @@ impl(
   /// — `_closed` is one-way — so its sends fail; mint the producers while the
   /// previous ones are still alive.
   sender : (fn(self : &Self) -> Sender(T))(
-    Sender(T)._attach(&self._ch)
+    Sender(T)._attach(&self._cell.*._ch)
   ),
   /// Receive the oldest value, blocking while the channel is empty.
   ///
@@ -539,7 +545,7 @@ impl(
   /// must not lose what it already accepted (Rust guarantees the same).
   recv : (fn(self : &Self) -> Result(T, TryRecvError))(
     match(
-      self._ch.recv(),
+      self._cell.*._ch.recv(),
       .Some(v) => Result(T, TryRecvError).Ok(v),
       .None => Result(T, TryRecvError).Err(TryRecvError.Disconnected)
     )
@@ -548,32 +554,31 @@ impl(
   /// open but has nothing buffered, `Disconnected` once it is closed and
   /// drained.
   try_recv : (fn(self : &Self) -> Result(T, TryRecvError))(
-    self._ch.try_recv()
+    self._cell.*._ch.try_recv()
   ),
   /// True once the channel is closed — including by the last `Sender` being
   /// dropped. Buffered values may still be waiting; `try_recv` answering
   /// `Disconnected` is the closed-AND-drained test.
   is_closed : (fn(self : &Self) -> bool)(
-    self._ch.is_closed()
+    self._cell.*._ch.is_closed()
   ),
   /// Number of values currently buffered (a snapshot, like `Channel.len`).
   len : (fn(self : &Self) -> usize)(
-    self._ch.len()
+    self._cell.*._ch.len()
   ),
   /// True while nothing is buffered (a snapshot).
   is_empty : (fn(self : &Self) -> bool)(
-    self._ch.is_empty()
+    self._cell.*._ch.is_empty()
   ),
   /// Stop accepting values now. Buffered values still come out of `recv`,
   /// then it reports `Disconnected`.
   close : (fn(self : &Self) -> unit)(
-    self._ch.close()
+    self._cell.*._ch.close()
   )
 );
 impl(
   generic(T : Type),
-  Receiver(T),
-  where(T <: Send),
+  _ReceiverState(T),
   /// Dropping the consumer disconnects the queue from the sending side:
   /// there is nobody left to drain it, so a `send` that would block on a full
   /// buffer fails instead, and senders already parked are woken to find out.

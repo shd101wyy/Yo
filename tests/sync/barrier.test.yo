@@ -41,8 +41,8 @@ test("Barrier of zero parties never blocks", {
 test("Barrier holds every party until the last one arrives", {
   if(arch == Arch.Wasm32, return(()));
   b := Barrier.new(i32(4));
-  arrived := AtomicI32(i32(0));
-  passed := AtomicI32(i32(0));
+  arrived := AtomicI32.new(i32(0));
+  passed := AtomicI32.new(i32(0));
   t1 := Thread(unit).spawn(io => {
     arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
     b.wait();
@@ -100,9 +100,9 @@ test("Barrier holds every party until the last one arrives", {
 test("Barrier reused across generations releases exactly one leader per round", {
   if(arch == Arch.Wasm32, return(()));
   b := Barrier.new(i32(4));
-  arrivals := AtomicI32(i32(0));
-  leaders := AtomicI32(i32(0));
-  early := AtomicI32(i32(0));
+  arrivals := AtomicI32.new(i32(0));
+  leaders := AtomicI32.new(i32(0));
+  early := AtomicI32.new(i32(0));
   t1 := Thread(unit).spawn(io => {
     mut(r) := i32(0);
     while(r < i32(5), {
@@ -203,8 +203,8 @@ test("Barrier reused across generations releases exactly one leader per round", 
 test("Barrier survives a party re-entering before its partner leaves", {
   if(arch == Arch.Wasm32, return(()));
   b := Barrier.new(i32(2));
-  leaders := AtomicI32(i32(0));
-  rounds := AtomicI32(i32(0));
+  leaders := AtomicI32.new(i32(0));
+  rounds := AtomicI32.new(i32(0));
   t := Thread(unit).spawn(io => {
     mut(i) := i32(0);
     while(i < i32(500), {

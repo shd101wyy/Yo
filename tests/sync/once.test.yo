@@ -88,7 +88,7 @@ test("Once call with side effects", {
 test("Once call from multiple threads executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   t1 := Thread(unit).spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
@@ -117,7 +117,7 @@ test("Once call from multiple threads executes only once", {
 test("Once is_done visible across threads after call", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   // Main thread calls first
   o.call(() => {
     counter.fetch_add(i32(1), MemoryOrder.Relaxed);
@@ -135,7 +135,7 @@ test("Once is_done visible across threads after call", {
 test("Once multiple threads race to call", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   // All threads start at the same time (no sleep)
   t1 := Thread(unit).spawn(io => {
     o.call(() => {
@@ -176,7 +176,7 @@ test("Once multiple threads race to call", {
 test("Once with pool tasks executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
@@ -228,7 +228,7 @@ test("OnceCell get_or_init stores and returns the value", {
 });
 test("OnceCell get_or_init runs the initializer exactly once", {
   cell := OnceCell(i32).new();
-  runs := AtomicI32(i32(0));
+  runs := AtomicI32.new(i32(0));
   first := cell.get_or_init(() => {
     runs.fetch_add(i32(1), MemoryOrder.AcqRel);
     i32(1)
@@ -258,8 +258,8 @@ test("OnceCell holds a value struct", {
 test("OnceCell get_or_init from multiple threads initializes exactly once", {
   if(arch == Arch.Wasm32, return(()));
   cell := OnceCell(i32).new();
-  inits := AtomicI32(i32(0));
-  mismatches := AtomicI32(i32(0));
+  inits := AtomicI32.new(i32(0));
+  mismatches := AtomicI32.new(i32(0));
   (racer : Impl(Fn() -> unit)) = (
     () => {
       got := cell.get_or_init(() => {

@@ -44,24 +44,26 @@ pragma(Pragma.AllowUnsafe);
 /// acquiring the mutex (matches Rust's mpsc query-method idiom). Writes
 /// to the counter still happen under the mutex so the `_count == 0`
 /// observation that triggers `broadcast()` is serialized with `wait()`.
-WaitGroup :: atomic(
-  ref(
-    struct(
-      _count : AtomicI32,
-      _mutex : Mutex(bool),
-      _cv : Cond
-    )
-  )
+_WaitGroupState :: struct(
+  _count : AtomicI32,
+  _mutex : Mutex(bool),
+  _cv : Cond
 );
+WaitGroup :: struct(_cell : __yo_atomic_cell(_WaitGroupState));
 impl(
   WaitGroup,
   /// Create an empty group — counter zero, no waiters. A `wait()` on it
   /// returns immediately until something is added.
   new : (fn() -> Self)(
     Self(
-      _count : AtomicI32(i32(0)),
-      _mutex : Mutex(bool).new(false),
-      _cv : Cond.new()
+      _cell : __yo_atomic_cell(_WaitGroupState)(
+        _WaitGroupState(
+          _count : AtomicI32.new(i32(0)),
+          _mutex : Mutex(bool).new(false),
+          _cv : Cond.new()
+        ),
+        .None
+      )
     )
   ),
   /// Add `delta` to the counter, waking every waiter if it reaches zero —
@@ -81,18 +83,18 @@ impl(
   /// against another `add` or the bookkeeping of `wait`, never for the
   /// length of the tasks themselves.
   add : (fn(self : &Self, delta : i32) -> unit)({
-    self._mutex._raw_lock();
-    new_count := (self._count.load(MemoryOrder.Relaxed) + delta);
+    self._cell.*._mutex._raw_lock();
+    new_count := (self._cell.*._count.load(MemoryOrder.Relaxed) + delta);
     cond(
       (new_count <= i32(0)) => {
-        self._count.store(i32(0), MemoryOrder.Release);
-        self._cv.broadcast();
+        self._cell.*._count.store(i32(0), MemoryOrder.Release);
+        self._cell.*._cv.broadcast();
       },
       true => {
-        self._count.store(new_count, MemoryOrder.Release);
+        self._cell.*._count.store(new_count, MemoryOrder.Release);
       }
     );
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_unlock();
   }),
   /// Mark one counted task finished — Go's `WaitGroup.Done`, and exactly
   /// `add(-1)`, including the clamp at zero.
@@ -112,11 +114,11 @@ impl(
   /// async task in the program. Use it from a thread that owns its own
   /// work.
   wait : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    while(self._count.load(MemoryOrder.Acquire) > i32(0), {
-      self._cv.wait_with(&self._mutex);
+    self._cell.*._mutex._raw_lock();
+    while(self._cell.*._count.load(MemoryOrder.Acquire) > i32(0), {
+      self._cell.*._cv.wait_with(&self._cell.*._mutex);
     });
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_unlock();
   }),
   /// How many counted tasks are still outstanding, as a lock-free Acquire
   /// load — no mutex is taken.
@@ -125,7 +127,7 @@ impl(
   /// next line, so branching on `count() == 0` instead of calling `wait()`
   /// is a race. It exists for diagnostics and progress reporting.
   count : (fn(self : &Self) -> i32)(
-    self._count.load(MemoryOrder.Acquire)
+    self._cell.*._count.load(MemoryOrder.Acquire)
   )
 );
 export(WaitGroup);

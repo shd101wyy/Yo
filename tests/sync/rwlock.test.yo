@@ -110,8 +110,8 @@ test("RwLock with_read admits several readers at the same time", {
   // its bound expires and `all_in` would stay 0 — the test fails, it does not
   // hang.
   lock := RwLock(i32).new(i32(5));
-  entered := AtomicI32(i32(0));
-  all_in := AtomicI32(i32(0));
+  entered := AtomicI32.new(i32(0));
+  all_in := AtomicI32.new(i32(0));
   (reader : Impl(Fn() -> unit)) = (
     () => {
       lock.with_read(v => {
@@ -191,11 +191,11 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
   READERS :: i32(3);
   WRITERS :: i32(2);
   lock := RwLock(i32).new(i32(0));
-  active_readers := AtomicI32(i32(0));
-  active_writers := AtomicI32(i32(0));
-  violations := AtomicI32(i32(0));
-  reads_done := AtomicI32(i32(0));
-  writes_done := AtomicI32(i32(0));
+  active_readers := AtomicI32.new(i32(0));
+  active_writers := AtomicI32.new(i32(0));
+  violations := AtomicI32.new(i32(0));
+  reads_done := AtomicI32.new(i32(0));
+  writes_done := AtomicI32.new(i32(0));
   (writer : Impl(Fn() -> unit)) = (
     () => {
       mut(i) := i32(0);
@@ -269,10 +269,10 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
 test("RwLock readers blocked behind a held writer are woken on release", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock(i32).new(i32(0));
-  writer_inside := AtomicI32(i32(0));
-  arrived := AtomicI32(i32(0));
-  done := AtomicI32(i32(0));
-  done_while_held := AtomicI32(i32(-1));
+  writer_inside := AtomicI32.new(i32(0));
+  arrived := AtomicI32.new(i32(0));
+  done := AtomicI32.new(i32(0));
+  done_while_held := AtomicI32.new(i32(-1));
   // The writer holds the lock for the whole window in which the readers
   // arrive, so all three park in `_read_cv.wait`.
   w := Thread(unit).spawn(io => {
@@ -323,7 +323,7 @@ test("RwLock with pool tasks concurrent reads", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock(i32).new(i32(4));
   wg := WaitGroup.new();
-  seen := AtomicI32(i32(0));
+  seen := AtomicI32.new(i32(0));
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
   spawn(&pool, io => {
@@ -372,7 +372,7 @@ test("RwLock with_write body may end in a statement (unit R)", {
 });
 test("RwLock with_read body may end in a statement (unit R)", {
   lock := RwLock(i32).new(i32(5));
-  seen := AtomicI32(i32(0));
+  seen := AtomicI32.new(i32(0));
   lock.with_read(v => {
     seen.store(v, MemoryOrder.Release);
   });

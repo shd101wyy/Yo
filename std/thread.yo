@@ -197,14 +197,11 @@ impl(
 /// pool.join_all(); // wait for everything submitted so far
 /// pool.shutdown(); // refuse new work, then drain
 /// ```
-ThreadPool :: atomic(
-  ref(
-    struct(
-      _tasks : WaitGroup,
-      _closed : AtomicBool
-    )
-  )
+_ThreadPoolState :: struct(
+  _tasks : WaitGroup,
+  _closed : AtomicBool
 );
+ThreadPool :: struct(_cell : __yo_atomic_cell(_ThreadPoolState));
 /// The submission lock. It orders a submission's `_closed` check and its
 /// task-count increment against `shutdown` setting `_closed`, so a drain can
 /// never return with a task that passed the check still uncounted
@@ -224,8 +221,13 @@ impl(
     assert(num_threads > usize(0), "ThreadPool.new: num_threads must be > 0");
     __yo_worker_set_num_threads(num_threads);
     Self(
-      _tasks : WaitGroup.new(),
-      _closed : AtomicBool(false)
+      _cell : __yo_atomic_cell(_ThreadPoolState)(
+        _ThreadPoolState(
+          _tasks : WaitGroup.new(),
+          _closed : AtomicBool.new(false)
+        ),
+        .None
+      )
     )
   }),
   /// Create a pool sized to the runtime pool's current thread count, which
@@ -251,7 +253,7 @@ impl(
   /// Must not be called from inside a task of this pool: the task would be
   /// waiting for itself.
   join_all : (fn(self : &Self) -> unit)({
-    self._tasks.wait();
+    self._cell.*._tasks.wait();
   }),
   /// Refuse new work, then block until every outstanding task has finished.
   ///
@@ -265,13 +267,13 @@ impl(
     // Under the submission lock, so a `spawn` that has not yet taken the lock
     // sees `_closed` once it does and cannot queue behind the drain.
     took := _lock_for_submission(self);
-    self._closed.store(true, MemoryOrder.Release);
+    self._cell.*._closed.store(true, MemoryOrder.Release);
     _unlock_after_submission(self, took);
     self.join_all();
   }),
   /// Whether `shutdown` has been called (lock-free atomic load).
   is_shutdown : (fn(self : &Self) -> bool)(
-    self._closed.load(MemoryOrder.Acquire)
+    self._cell.*._closed.load(MemoryOrder.Acquire)
   )
 );
 /// Hand a task to `pool`. Returns immediately; the task runs on one of the
@@ -332,13 +334,13 @@ spawn :: (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send))
   // be re-entrant for the task's own spawns.
   took := _lock_for_submission(pool);
   cond(
-    pool._closed.load(MemoryOrder.Acquire) => {
+    pool._cell.*._closed.load(MemoryOrder.Acquire) => {
       _unlock_after_submission(pool, took);
       __yo_panic("thread.spawn: pool has been shut down");
     },
     true => ()
   );
-  tasks := pool._tasks;
+  tasks := pool._cell.*._tasks;
   tasks.add(i32(1));
   (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tasks }(io : Io) => {
     cb(io);
