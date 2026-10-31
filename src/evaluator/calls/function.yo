@@ -1047,14 +1047,22 @@ _structural_clone_precedes_lookup :: (fn(callee : &AstExpr, arg_count : usize, c
 });
 _try_find_receiver_method :: (
   fn(
-    callee_in : &AstExpr,
+    callee : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
+  ) -> Option(ReceiverMethodResult)
+)(
+  // A callee the payload retry below rewrote reads as rewritten
+  // (`ast_rewritten_node`).
+  _find_receiver_method_of(&ast_rewritten_node(callee), env, ctx)
+);
+_find_receiver_method_of :: (
+  fn(
+    callee : &AstExpr,
     env : &Environment,
     ctx : &EvalContext
   ) -> Option(ReceiverMethodResult)
 )({
-  // A callee the payload retry below rewrote reads as rewritten
-  // (`ast_rewritten_node`).
-  callee := ast_rewritten_node(callee_in);
   // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(ReceiverMethodResult).None);

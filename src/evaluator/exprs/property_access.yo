@@ -436,15 +436,24 @@ _try_resolve_associated_type :: (
 // ---------------------------------------------------------------------------
 evaluate_property_access :: (
   fn(
-    expr_in : &AstExpr,
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)(
+  // A field read the auto-dereference below rewrote reads as rewritten
+  // (`ast_rewritten_node`), so a re-evaluation does not rewrite it again.
+  _evaluate_property_access_node(&ast_rewritten_node(expr), env_in, ctx, exn)
+);
+_evaluate_property_access_node :: (
+  fn(
+    expr : &AstExpr,
     env_in : &Environment,
     ctx : &EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
-  // A field read the auto-dereference below rewrote reads as rewritten
-  // (`ast_rewritten_node`), so a re-evaluation does not rewrite it again.
-  expr := ast_rewritten_node(expr_in);
   (env : Environment) = env_in;
   // The receiver of an enclosing `.` place chain reports no access of its
   // own (local borrows, plans/VALUES_BY_DEFAULT.md decision 18).

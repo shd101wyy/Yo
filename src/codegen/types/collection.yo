@@ -535,11 +535,11 @@ _fv_body :: (fn(v : &EvalValue) -> AstExpr)(
 /// The per-function SIGNATURE-type collection is omitted — `FuncVal` carries
 /// no Func type; signature types are picked up by walking the body. The
 /// SomeType-Future-resolved-concrete skip and the captureType.trait
-/// function-collection are also omitted (corpus-safe).
-collect_types_from_expr :: (fn(expr_in : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
-  // A node an evaluator rewrite replaced is walked as rewritten
-  // (`ast_rewritten_view`).
-  expr := ast_rewritten_view(expr_in);
+/// function-collection are also omitted (corpus-safe). The walk takes each
+/// node as an evaluator rewrite left it (`ast_rewritten_view`): every child
+/// goes through here.
+collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)(_collect_types_from_node(&ast_rewritten_view(expr), context, info));
+_collect_types_from_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   match(
     ei_opt,
@@ -571,7 +571,7 @@ collect_types_from_expr :: (fn(expr_in : &AstExpr, context : &CodeGenContext, in
           nd := drops.len();
           (di : usize) = usize(0);
           while(di < nd, {
-            match(drops.get(di), .Some(de) => recur(&de, context, info), .None => ());
+            match(drops.get(di), .Some(de) => collect_types_from_expr(&de, context, info), .None => ());
             di = (di + usize(1));
           });
         },
@@ -585,10 +585,10 @@ collect_types_from_expr :: (fn(expr_in : &AstExpr, context : &CodeGenContext, in
       // were never collected → get_type_string panic).
       match(
         expr_info_macro_expansion(&ei),
-        .Some(me) => recur(&me, context, info),
+        .Some(me) => collect_types_from_expr(&me, context, info),
         .None => match(
           lookup_macro_expansion(ast_expr_id(expr)),
-          .Some(me) => recur(&me, context, info),
+          .Some(me) => collect_types_from_expr(&me, context, info),
           .None => ()
         )
       );
@@ -617,7 +617,7 @@ collect_types_from_expr :: (fn(expr_in : &AstExpr, context : &CodeGenContext, in
           .Some(cinits) => {
             (cii : usize) = usize(0);
             while(cii < cinits.len(), {
-              match(cinits.get_cloned(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
+              match(cinits.get_cloned(cii), .Some(cfi) => collect_types_from_expr(&cfi.init, context, info), .None => ());
               cii = (cii + usize(1));
             });
           },
@@ -634,11 +634,11 @@ collect_types_from_expr :: (fn(expr_in : &AstExpr, context : &CodeGenContext, in
       if(ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
         return(());
       });
-      recur(&func_box, context, info);
+      collect_types_from_expr(&func_box, context, info);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
-        match(args.get(i), .Some(a) => recur(&a, context, info), .None => ());
+        match(args.get(i), .Some(a) => collect_types_from_expr(&a, context, info), .None => ());
         i = (i + usize(1));
       });
     },

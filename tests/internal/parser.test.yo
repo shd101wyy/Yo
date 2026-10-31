@@ -5,7 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { StringBuilder } :: import("std/string/string_builder");
-{ AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import("../../src/expr.yo");
+{ AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr, ast_expr_token, is_mut_binding, is_thread_local_binding } :: import("../../src/expr.yo");
 { parse, extract_source_line, make_parse_error, generate_expr_from_code } :: import("../../src/parser.yo");
 { render_diagnostics_human } :: import("../../src/diagnostics.yo");
 { Token, TokenKind } :: import("../../src/token.yo");
@@ -1069,6 +1069,84 @@ test("decision 42: `&&T` is rejected: a borrow of a borrow does not exist", {
   );
   parse(`f :: (fn(x : &&i32) -> unit)(());`, `test.yo`, exn);
   assert(false, "expected the `&&T` parse error");
+});
+// ─── Decision 47: `mut(name)` and `thread_local(name)` are stripped at desugar ───
+// The desugar strips each well-formed binder marker while it builds the tree
+// and records the declared name by its token (`is_mut_binding`,
+// `is_thread_local_binding`), so no later pass writes the tree; a parameter, a
+// closure parameter, a named argument, a guard, a quoted body and a malformed
+// marker keep it (plans/VALUES_BY_DEFAULT.md decision 47).
+_d47_at :: (fn(src : &String, path : &String) -> AstExpr)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected parse error");
+        unwind(make_err_expr());
+      }
+    )
+  );
+  only_expr(parse(src, path, exn))
+});
+_d47_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
+  match(e, .FnCall(_, _, Rc(a), _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
+);
+_d47_marked :: (fn(name : &AstExpr) -> bool)({
+  t := ast_expr_token(name);
+  is_mut_binding(&t, &t.value.*)
+});
+_d47_thread_local :: (fn(name : &AstExpr) -> bool)({
+  t := ast_expr_token(name);
+  is_thread_local_binding(&t, &t.value.*)
+});
+test("decision 47: a binder's mut(name) is stripped at desugar", {
+  assert_str_eq(_d42(`mut(x) := 1`), _d42(`x := 1`), "mut(x) := v");
+  assert_str_eq(_d42(`mut(x) :: 1`), _d42(`x :: 1`), "mut(x) :: v");
+  assert_str_eq(_d42(`comptime(mut(x)) := 1`), _d42(`comptime(x) := 1`), "comptime(mut(x)) := v");
+  assert_str_eq(_d42(`(mut(x) : i32) = 1`), _d42(`(x : i32) = 1`), "(mut(x) : T) = v");
+  assert_str_eq(_d42(`(comptime(mut(x)) : i32) = 1`), _d42(`(comptime(x) : i32) = 1`), "(comptime(mut(x)) : T) = v");
+  assert_str_eq(_d42(`(mut(g) : i32)`), _d42(`(g : i32)`), "a module-level (mut(G) : T); statement");
+  assert_str_eq(_d42(`{ (mut(u) : i32); u = 1; u }`), _d42(`{ (u : i32); u = 1; u }`), "a (mut(x) : T); statement in a block");
+  assert_str_eq(_d42(`{ a, mut(b) } := s`), _d42(`{ a, b } := s`), "a destructuring field");
+  assert_str_eq(_d42(`{ x : a, y : mut(b) } := s`), _d42(`{ x : a, y : b } := s`), "a renamed destructuring field");
+  assert_str_eq(_d42(`(a, mut(b)) := t`), _d42(`(a, b) := t`), "a tuple destructuring field");
+  assert_str_eq(_d42(`match(o, .Some(mut(v)) => v, .None => 0)`), _d42(`match(o, .Some(v) => v, .None => 0)`), "a variant payload");
+  assert_str_eq(_d42(`match(o, (mut(w) := .Some(_)) => w, mut(z) => z)`), _d42(`match(o, (w := .Some(_)) => w, z => z)`), "a named pattern and a whole-arm binding");
+  assert_str_eq(_d42(`match(o, ((a, mut(b)) && (a == 1)) => b, _ => 0)`), _d42(`match(o, ((a, b) && (a == 1)) => b, _ => 0)`), "a guarded tuple pattern");
+  assert_str_eq(_d42(`match(&o, .Some(mut(v)) => v, .None => 0)`), _d42(`match(&o, .Some(v) => v, .None => 0)`), "a borrowed match");
+});
+test("decision 47: thread_local(name) is lowered at desugar", {
+  assert_str_eq(_d42(`thread_local(g) := 0`), _d42(`g := 0`), "thread_local(g) := v");
+  assert_str_eq(_d42(`thread_local(mut(g)) := 0`), _d42(`g := 0`), "thread_local(mut(g)) := v");
+  assert_str_eq(_d42(`(thread_local(g) : i32) = 0`), _d42(`(g : i32) = 0`), "(thread_local(g) : T) = v");
+  assert_str_eq(_d42(`(thread_local(mut(g)) : i32) = 0`), _d42(`(g : i32) = 0`), "(thread_local(mut(g)) : T) = v");
+});
+test("decision 47: the stripped names are recorded by their token", {
+  d := _d47_at(`mut(x) := 1`, `d47_a.yo`);
+  assert(_d47_marked(&_d47_arg(&d, usize(0))), "mut(x) := v records x");
+  u := _d47_at(`y := 1`, `d47_b.yo`);
+  assert(!_d47_marked(&_d47_arg(&u, usize(0))), "an unmarked binding is not recorded");
+  tl := _d47_at(`(thread_local(mut(g)) : i32) = 0`, `d47_c.yo`);
+  g := _d47_arg(&_d47_arg(&tl, usize(0)), usize(0));
+  assert(_d47_marked(&g), "thread_local(mut(g)) records g as mut");
+  assert(_d47_thread_local(&g), "thread_local(mut(g)) records g as a thread-local");
+  tl2 := _d47_at(`thread_local(h) := 0`, `d47_d.yo`);
+  h := _d47_arg(&tl2, usize(0));
+  assert(_d47_thread_local(&h) && !_d47_marked(&h), "thread_local(h) records h as a thread-local only");
+  m := _d47_at(`match(o, .Some(mut(v)) => v, .None => 0)`, `d47_e.yo`);
+  v := _d47_arg(&_d47_arg(&_d47_arg(&m, usize(1)), usize(0)), usize(0));
+  assert(_d47_marked(&v), "a pattern's mut(v) records v");
+  ds := _d47_at(`{ x : a, y : mut(b) } := s`, `d47_f.yo`);
+  b := _d47_arg(&_d47_arg(&_d47_arg(&ds, usize(0)), usize(1)), usize(1));
+  assert(_d47_marked(&b), "a renamed destructuring field records its new name");
+});
+test("decision 47: a parameter, a closure, a named argument, a guard, a quote and a malformed marker keep mut(...)", {
+  assert(_d42(`(fn(mut(x) : i32) -> i32)(x)`).contains("mut("), "a parameter is the deleted spelling (E0009), not a binder");
+  assert(_d42(`(mut(x) : i32) => x`).contains("mut("), "a closure parameter");
+  assert(_d42(`f(mut(x) : 1)`).contains("mut("), "a named argument");
+  assert(_d42(`match(o, (.Some(v) && (mut(v) == 1)) => v, _ => 0)`).contains("mut("), "a guard is an expression");
+  assert(_d42(`quote(mut(x) := 1)`).contains("mut("), "a quoted body stays raw");
+  assert(_d42(`mut(x.f) := 1`).contains("mut("), "a malformed marker is left for the evaluator's error");
+  assert(_d42(`(mut(x) : i32)`).contains("mut(") == false, "a statement declaration is stripped");
 });
 // ─── `=>>` is not an operator ───────────────────────────────────────────────
 // The "async closure" arrow `=>>` was removed (maintainer decision 2026-10-22):

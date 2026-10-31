@@ -8932,7 +8932,7 @@ stage-2 RSS):
         fused-await wrapper.
       - `strip_mut_marker` (decision 47) still writes through the `ref` list
         it copies, which B8 breaks
-        (`issues/questions/2026-10-30-how-should-the-mut-marker-strip-stop-writing-the-ast.md`).
+        (`issues/retired/2026-10-30-how-should-the-mut-marker-strip-stop-writing-the-ast.md`).
     - **Measured** (base `908ef0295` against this tree, each stage 1 built by
       the v0.2.73 seed):
       - The C that the two stage 1 binaries emit for this tree's
