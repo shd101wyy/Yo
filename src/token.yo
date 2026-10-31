@@ -330,7 +330,7 @@ intern_token_str :: (fn(s : &String) -> Rc(String))(
     .Some(canonical) => canonical,
     .None => {
       c := Rc.new(s.clone());
-      g_token_intern.with_mut({ c : Rc.clone(c), s }(m) => m.insert(s.clone(), Rc.clone(c)));
+      g_token_intern.with_mut({ c : Rc.clone(c), &s }(m) => m.insert(s.clone(), Rc.clone(c)));
       c
     }
   )
