@@ -2,7 +2,9 @@
 
 **Severity:** S2 — a valid program is rejected. `match(&make().fd, x => x.n)` reports E0901 "cannot copy `make().fd` … it is a field of another value", though the scrutinee only lends the field. The same match over a local (`t := make(); match(&t.fd, …)`) is accepted.
 
-**Status:** OPEN — found 2026-10-31 on `vbd/b8-arraylist-string-flip`: `tests/match_structs.test.yo`'s "a scrutinee over a field of a call result releases the result once per evaluation" (`match(&_scr_tok(i).s, x => x.len())`) stopped compiling once `String` became a value; that test now matches on a `.clone()` and names this issue. Develop `9c78fdaf0` and the v0.2.73 seed reject the same shape with any move-only field.
+**Status:** OPEN — found 2026-10-31 on `vbd/b8-arraylist-string-flip`: `tests/match_structs.test.yo`'s "a scrutinee over a field of a call result releases the result once per evaluation" (`match(&_scr_tok(i).s, x => x.len())`) stopped compiling once `String` became a value; that test now matches on a `.clone()` and names this issue. Develop `9c78fdaf0` and the v0.2.73 seed rejected the same shape with any move-only field at the time of filing.
+
+**Re-measured 2026-10-31 on the rebased branch** (`vbd/b8-arraylist-string-flip-r2`, develop `40ba307f2` + the flip): the v0.2.73 seed now ACCEPTS every repro shape under `check --test-bodies` — `match(&_mk().fd, x => x.n)` over a `Drop` struct field, `match(&_mk().s, x => x.len())` over a value `String` field, and the exact `_scr_tok(i).s` borrowed-literal shape with the drop-counting global (`tmp/scrut-repro*.test.yo` in the worktree). Something in develop's 10-31 evaluator fixes (#1692 V4 AstExpr era, #1694's `match.yo` false-E0901 fix) covers it. Pending: the same shapes under the TREE binary and a real `yo test` run of `match_structs`; if they pass, restore `match(&_scr_tok(i).s, ...)` in the test and move this doc to `fixed/`.
 
 ## Reproducer
 
