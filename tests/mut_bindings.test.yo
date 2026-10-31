@@ -299,3 +299,40 @@ test("a `&mut` match scrutinee and a `&mut` capture need mut(...)", {
 mut(_MB_MODULE_COUNTER) :: 1;
 _MB_MODULE_COUNTER = 2;
 comptime_assert(_MB_MODULE_COUNTER == 2);
+
+// The desugar strips a well-formed `mut(name)` and records the name; a
+// malformed marker stays in the tree and the binding's evaluation rejects it,
+// wherever it stands (plans/VALUES_BY_DEFAULT.md decision 47).
+test("mut takes the binding's NAME, in every binder position", {
+  pt := _MbPoint(x : i32(1), y : i32(2));
+  comptime_expect_error({
+    mut(pt.x) := i32(1);
+  }, "\"mut\" takes the binding's NAME");
+  comptime_expect_error({
+    (mut(pt.x) : i32) = i32(1);
+  }, "\"mut\" takes the binding's NAME");
+  comptime_expect_error({
+    { x : mut(pt.y) } := pt;
+  }, "\"mut\" takes the binding's NAME");
+  comptime_expect_error(
+    match(
+      Option(i32).Some(i32(1)),
+      .Some(mut(pt.x)) => i32(1),
+      .None => i32(0)
+    ),
+    "\"mut\" takes the binding's NAME"
+  );
+});
+
+// A module-level thread-local declared `mut`: the desugar lowers
+// `thread_local(mut(name))` to the bare name and records it as both, and the
+// write is accepted.
+(thread_local(mut(_mb_tl_count)) : i32) = i32(0);
+thread_local(mut(_mb_tl_inferred)) := i32(5);
+test("a module-level thread_local(mut(g)) is written", {
+  _mb_tl_count = (_mb_tl_count + i32(1));
+  _mb_tl_count = (_mb_tl_count + i32(1));
+  assert(_mb_tl_count == i32(2), "(thread_local(mut(g)) : T) = v is reassigned");
+  _mb_tl_inferred = (_mb_tl_inferred * i32(2));
+  assert(_mb_tl_inferred == i32(10), "thread_local(mut(g)) := v is reassigned");
+});

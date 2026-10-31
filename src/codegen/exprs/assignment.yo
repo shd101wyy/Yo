@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT, BF_YO_ARRAY_INDEX } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT, BF_YO_ARRAY_INDEX, ast_rewritten_node } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
@@ -60,7 +60,7 @@ _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGener
       return(cur);
     });
     match(
-      cur,
+      ast_rewritten_node(&cur),
       .Atom(_, _) => {
         return(if(ast_expr_token(&cur).value.* == name, cur, lhs));
       },
@@ -83,7 +83,7 @@ _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGener
 /// (issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md).
 _place_evaluation_runs_a_call :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   runs := match(
-    e,
+    ast_rewritten_node(e),
     .Atom(_, _) => false,
     .FnCall(_, callee, Rc(args), _, _) => {
       // A field or deref step (`x.f`, `x.*`) renders its base plus a C

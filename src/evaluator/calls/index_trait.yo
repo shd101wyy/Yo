@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT, ast_rewritten_node } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
 { TypeValue, TypeValueNode, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
@@ -1923,6 +1923,8 @@ _record_index_unchecked_twin :: (
 _index_receiver_root :: (fn(recv : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
   (cur : AstExpr) = recv;
   while(true, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .Atom(_, rr_tok) => {
@@ -2051,6 +2053,8 @@ promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx 
   (cur : AstExpr) = place;
   (walking : bool) = true;
   while(walking, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     (next : Option(AstExpr)) = match(
       cur,
       .FnCall(_, pw_callee, Rc(pw_args), pw_infix, _) => cond(
