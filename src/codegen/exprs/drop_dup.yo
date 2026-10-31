@@ -164,7 +164,7 @@ resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValu
     return(Rc.clone(value_type));
   });
   ft := match(&context.current_function_type, .Some(t) => Rc.clone(t), .None => return(Rc.clone(value_type)));
-  var_name := ast_expr_text(value_arg).*;
+  var_name := ast_expr_text(value_arg).*.clone();
   match(
     ft,
     Rc(.Func({ param_types : pts, meta : __fm1 })) => {
