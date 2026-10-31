@@ -339,36 +339,25 @@ resolve_var_name_in_context :: (
     .Some(vars) => {
       (result : String) = var_name.clone();
       (found : bool) = false;
-      key_iter := vars.keys();
-      (more : bool) = true;
-      while(more && !found, {
-        match(
-          key_iter.next(),
-          .None => {
-            more = false;
-          },
-          .Some(k) => match(
-            vars.get(k.clone()),
-            .None => (),
-            .Some(cv) => if(cv.base.name == var_name, {
-              found = true;
-              // Outer captures are named by the variable's NAME
-              // (`__capture.<name>`),
-              // NEVER the map key: the same outer capture is registered both
-              // under its numeric variable id (the re-kinded analysis entry)
-              // and under its capture-struct label, and which one this name
-              // scan hits first is HashMap-order — platform-dependent. Keying
-              // the field off `k` emitted `sm->__capture.9087782` on the
-              // Linux runner while macOS happened to hit the label entry.
-              // See issues/fixed/fixpoint-linux-only-capture-field-numeric-name.md.
-              result = match(
-                cv.kind,
-                .Outer => `sm->${context.sm_capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
-                .Local => `sm->${get_state_machine_field_name(k.clone(), &context.state_machine_field_aliases)}`
-              );
-            })
-          )
-        );
+      for(&vars, (k, cv) => {
+        if(cv.base.name == var_name, {
+          found = true;
+          // Outer captures are named by the variable's NAME
+          // (`__capture.<name>`),
+          // NEVER the map key: the same outer capture is registered both
+          // under its numeric variable id (the re-kinded analysis entry)
+          // and under its capture-struct label, and which one this name
+          // scan hits first is HashMap-order — platform-dependent. Keying
+          // the field off `k` emitted `sm->__capture.9087782` on the
+          // Linux runner while macOS happened to hit the label entry.
+          // See issues/fixed/fixpoint-linux-only-capture-field-numeric-name.md.
+          result = match(
+            cv.kind,
+            .Outer => `sm->${context.sm_capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
+            .Local => `sm->${get_state_machine_field_name(k.clone(), &context.state_machine_field_aliases)}`
+          );
+          break;
+        });
       });
       result
     }
