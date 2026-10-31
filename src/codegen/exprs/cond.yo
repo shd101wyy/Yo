@@ -130,12 +130,12 @@ _cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(
 );
 /// Wrap `code` in `&(...)` when the enclosing function returns `-> &mut T` and
 /// this arm value is not already a pointer.
-_maybe_address_of :: (fn(value_expr : &AstExpr, code : &String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)(
-  if(!cond_outer_is_ptr, code.clone(), {
+_maybe_address_of :: (fn(value_expr : &AstExpr, code : String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)(
+  if(!cond_outer_is_ptr, code, {
     arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(&ei.ty), .None => true);
-    if(arm_is_ptr, code.clone(), {
+    if(arm_is_ptr, code, {
       out := String.from("&(");
-      out.push_string(code);
+      out.push_string(&code);
       out.push_str(")");
       out
     })
