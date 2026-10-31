@@ -42,6 +42,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_key } :: import("../../types/type_key.yo");
+{ bump_trait_impl_epoch } :: import("../../types/utils.yo");
 { set_lookup_assoc_const } :: import("../../types/substitution.yo");
 { EvalValue } :: import("../../value.yo");
 { AstExpr } :: import("../../expr.yo");
@@ -401,6 +402,10 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
+  // An invalidation changes what the impl registries answer — move the
+  // trait-impl epoch beside impl.yo's purges so the dispatch caches
+  // (find_methods_from_generic_impls, g_ctor_method_cache) re-derive.
+  bump_trait_impl_epoch();
   // The filtered lists are collected first and stored back after the walk:
   // a `get` copy is not the stored list once collections are values, and the
   // maps are not written while their keys are being iterated.

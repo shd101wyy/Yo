@@ -602,6 +602,12 @@ purge_generic_impls_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
+  // A purge changes what the registries answer: move the trait-impl epoch so
+  // the dispatch caches (`g_ctor_method_cache`,
+  // `find_methods_from_generic_impls`) re-derive. This purge is LSP-only in
+  // practice, but the bump is what keeps a cached lookup from before the
+  // invalidation from surviving it.
+  bump_trait_impl_epoch();
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_entry_lists.with(xs => xs.len()), {
     if(ki < g_impl_registry_entry_owners.with(xs => xs.len()), {
@@ -641,6 +647,9 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
+  // Same epoch move as `purge_generic_impls_owned_by`: an invalidation
+  // changes what the registries answer.
+  bump_trait_impl_epoch();
   (i : usize) = g_concrete_trait_impl_owners.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
@@ -2663,12 +2672,14 @@ _inject_forall_captures :: (
     )
   )
 );
-/// Search ALL registered generic impls for matching entries that have a field
-/// with `method_name`. Returns candidates, with the impl's `generic` bindings
-/// injected into each `FuncVal` method's captures (see `_inject_forall_captures`).
-find_methods_from_generic_impls :: (
+/// The uncached scan behind `find_methods_from_generic_impls`: every registry
+/// bucket, the name prefilter, `try_match_generic_impl`, visibility judged
+/// among the MATCHING candidates, per-field specialization and the
+/// where-clause tie-break. `resolved` is the receiver with its SomeT already
+/// resolved by the cached entry point.
+_find_methods_from_generic_impls_scan :: (
   fn(
-    concrete_type : &TypeValue,
+    resolved : &TypeValue,
     method_name : &String,
     env : &Environment
   ) -> ArrayList(MethodCandidate)
@@ -2678,14 +2689,6 @@ find_methods_from_generic_impls :: (
   // back by the where-clause tie-break below.
   result_slots := ArrayList(Tuple(usize, usize)).new();
   result_bindings := ArrayList(ArrayList(TypeValue)).new();
-  // Resolve SomeT.
-  (resolved : TypeValue) = Rc.clone(concrete_type);
-  if(is_some_type(concrete_type), {
-    r := get_value_of_some_type_from_env(env, concrete_type);
-    if(!is_some_type(&r), {
-      resolved = r;
-    });
-  });
   // Iterate all key buckets.
   n_keys := g_impl_registry_keys.with(xs => xs.len());
   // An empty no-op guard (was `if(method_name == "index", { });`, an empty
@@ -2748,9 +2751,9 @@ find_methods_from_generic_impls :: (
       if(!has_field_with_name, {
         ei = (ei + usize(1));
       }, {
-        mb_opt := try_match_generic_impl(&resolved, &entry, env, false);
+        mb_opt := try_match_generic_impl(resolved, &entry, env, false);
         if(in_def_time_trial() && debug_knob(`YO_DEBUG_DISPATCH`).is_some() && (method_name == "add"), {
-          eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(&resolved)} pat=${type_to_string(&entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
+          eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(resolved)} pat=${type_to_string(&entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
         });
         // Visibility is decided among MATCHING candidates only: an impl the
         // current module cannot reach through its imports is not a candidate
@@ -2890,13 +2893,13 @@ find_methods_from_generic_impls :: (
               // substituting it, so substituting the key first makes the
               // exact-equality test compare EnumT(id, Some(T)) against
               // EnumT(id, Some(Node)) and silently never fire.
-              subst_set_self(&spec_s, &entry.receiver_type_pattern, &resolved);
+              subst_set_self(&spec_s, &entry.receiver_type_pattern, resolved);
               fmg_spec_ty := substitute(&spec_s, &ftype);
               if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-                eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(&resolved)} raw=${type_to_string(&ftype)} spec=${type_to_string(&fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
+                eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(resolved)} raw=${type_to_string(&ftype)} spec=${type_to_string(&fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
               });
               if(debug_knob(`YO_DEBUG_WARM`).is_some() && (method_name == "get"), {
-                eprintln(`[fmg-get] recv_key=${type_key(&resolved)} spec_key=${type_key(&fmg_spec_ty)} pattern=${type_key(&entry.receiver_type_pattern)}`);
+                eprintln(`[fmg-get] recv_key=${type_key(resolved)} spec_key=${type_key(&fmg_spec_ty)} pattern=${type_key(&entry.receiver_type_pattern)}`);
               });
               results.push(
                 MethodCandidate(
@@ -2906,7 +2909,7 @@ find_methods_from_generic_impls :: (
                     &entry.forall_names,
                     &match_bindings,
                     &match_binding_vals,
-                    Option(TypeValue).Some(resolved.clone())
+                    Option(TypeValue).Some(Rc.clone(resolved))
                   ),
                   source_trait_id : entry.trait_key.clone(),
                   owner : fmg_owner.clone()
@@ -2924,6 +2927,184 @@ find_methods_from_generic_impls :: (
     ki = (ki + usize(1));
   });
   _drop_where_failed_candidates(results, &result_slots, &result_bindings, env)
+});
+// ---------------------------------------------------------------------------
+// find_methods_from_generic_impls cache (VBD v0.2.74): the registry scan above
+// is ~58% of `Rc.new`'s evaluation cost after the B2 handle-ctors sweep
+// (#1690), and repeated lookups with an unchanged registry recompute it whole.
+// The cache keys the lookup on EVERY dimension its answer reads:
+//
+//   receiver      the SomeT-RESOLVED receiver's structural identity
+//                 (`type_key` — the memo key `g_ifc_memo` and
+//                 `g_move_only_memo` already use on this same path), with an
+//                 identity FRONT cache (handle → entry, the
+//                 `type_identity_slot` idiom) so repeat receivers skip the
+//                 key render;
+//   method name   part of the key;
+//   epoch         `trait_impl_epoch` — bumped by every generic-impl
+//                 registration/undo, every concrete TRAIT registration
+//                 (`register_type_trait_value`) and (since this cache) every
+//                 LSP purge of the impl registries. The MethodEntry registry
+//                 (`register_type_trait_method`) needs NO bump:
+//                 `type_implements_trait(_full)` never reads it, and an
+//                 inherent method cannot satisfy a where-clause trait bound;
+//   visibility    the CURRENT registration owner (loading-stack top) is part
+//                 of the key, so a `yo test` batch compiling many files in
+//                 one process never serves file A's import-closure answer to
+//                 file B — a stale hit across modules would be a correctness
+//                 bug, not a slowdown. A closure growth that changes any
+//                 visibility verdict implies module loads, and any module
+//                 carrying impls bumps the epoch, so (owner, epoch) pins the
+//                 verdict.
+//
+// The caller's env is NOT part of the key: the receiver's SomeT resolution is
+// folded into the resolved-type key, the unify/given synthesis runs in fresh
+// scratch frames whose binding extraction reads only frames at or above the
+// fresh base, and the where-clause passes run on CONCRETE bounds — the
+// env-evidence step of `type_implements_trait` is consulted for SomeT targets
+// only. `g_ctor_method_cache` and `g_ifc_memo` already cache this family of
+// results across envs with weaker keys.
+//
+// A hit returns the STORED list: read-only by contract. Every caller was
+// audited when this landed (property_access.yo ×4, collection.yo ×2, and the
+// env.yo adapter, which projects into a fresh `MethodEntry` list) — none
+// mutates it.
+(g_fmg_method_cache : RefCell(HashMap(String, ArrayList(MethodCandidate)))) = RefCell(HashMap(String, ArrayList(MethodCandidate))).new(HashMap(String, ArrayList(MethodCandidate)).new());
+(mut(g_fmg_method_cache_epoch) : u64) = u64(0);
+/// The front cache: receiver handles sorted by address, with the method name
+/// and owner each slot answers and the shared result list. Cleared whenever
+/// the trait-impl epoch moves (all slots then hold pre-bump answers) and
+/// capped at TYPE_IDENTITY_CACHE_CAP (whole-clear, as `type_identity_cacheable`
+/// does). Only `type_identity_cacheable` receivers are recorded: a type
+/// mentioning a SomeT can grow in place, so its handle alone does not pin its
+/// identity.
+(g_fmg_fast : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_fmg_fast_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_fmg_fast_owners : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_fmg_fast_lists : RefCell(ArrayList(ArrayList(MethodCandidate)))) = RefCell(ArrayList(ArrayList(MethodCandidate))).new(ArrayList(ArrayList(MethodCandidate)).new());
+(mut(g_fmg_fast_epoch) : u64) = u64(0);
+/// Whether the cache may be consulted in the current state. The visibility
+/// REPORT must keep enumerating every would-be miss, the YO_DEBUG_DISPATCH /
+/// YO_DEBUG_WARM traces must keep printing per lookup, and while a concrete
+/// impl is mid-registration `type_implements_trait`'s step 7.5 answers true
+/// for the pair being registered — an answer that does not reproduce outside
+/// that window, so nothing computed inside it may be cached or served.
+_fmg_cache_usable :: (fn() -> bool)(
+  !visibility_report_enabled()
+    && debug_knob(`YO_DEBUG_DISPATCH`).is_none()
+    && debug_knob(`YO_DEBUG_WARM`).is_none()
+    && (_currently_registering_concrete_impls.with(m => m.len()) == usize(0))
+);
+/// The composed slow-map key: structural type key, method name, owner, joined
+/// on 0x01 (no type key or file path contains it).
+_fmg_cache_key :: (fn(resolved : &TypeValue, method_name : &String, owner : &String) -> String)({
+  key := type_key(resolved);
+  key.push_byte(u8(1));
+  key.push_string(method_name.clone());
+  key.push_byte(u8(1));
+  key.push_string(owner.clone());
+  key
+});
+_fmg_cache_clear_fast :: (fn() -> unit)({
+  g_fmg_fast.with_mut(xs => xs.clear());
+  g_fmg_fast_names.with_mut(xs => xs.clear());
+  g_fmg_fast_owners.with_mut(xs => xs.clear());
+  g_fmg_fast_lists.with_mut(xs => xs.clear());
+});
+_fmg_cache_record_fast :: (
+  fn(resolved : &TypeValue, method_name : &String, owner : &String, cands : ArrayList(MethodCandidate)) -> unit
+)({
+  if(!type_identity_cacheable(resolved), {
+    return(());
+  });
+  if(g_fmg_fast.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+    _fmg_cache_clear_fast();
+  });
+  at := g_fmg_fast.with(xs => type_identity_slot(xs, resolved));
+  g_fmg_fast.with_mut({ at, resolved : Rc.clone(resolved) }(xs) => xs.insert(at, Rc.clone(resolved)));
+  g_fmg_fast_names.with_mut(xs => xs.insert(at, method_name.clone()));
+  g_fmg_fast_owners.with_mut(xs => xs.insert(at, owner.clone()));
+  g_fmg_fast_lists.with_mut(xs => xs.insert(at, cands));
+});
+_fmg_cache_get :: (
+  fn(resolved : &TypeValue, method_name : &String, owner : &String, epoch : u64) -> Option(ArrayList(MethodCandidate))
+)({
+  if(g_fmg_fast_epoch != epoch, {
+    _fmg_cache_clear_fast();
+    g_fmg_fast_epoch = epoch;
+  });
+  // Front: same receiver handle, same name, same owner.
+  slot := g_fmg_fast.with(xs => type_identity_slot(xs, resolved));
+  if(
+    g_fmg_fast.with(xs => type_identity_slot_holds(xs, slot, resolved))
+      && match(g_fmg_fast_names.with(xs => xs.get(slot)), .Some(n) => (n == method_name), .None => false)
+      && match(g_fmg_fast_owners.with(xs => xs.get(slot)), .Some(o) => (o == owner), .None => false), {
+    return(g_fmg_fast_lists.with(xs => xs.get(slot)));
+  });
+  // Slow: structural key. A map from a previous epoch is cleared wholesale —
+  // every entry in it predates a registration change.
+  if(g_fmg_method_cache_epoch != epoch, {
+    g_fmg_method_cache.with_mut(m => m.clear());
+    g_fmg_method_cache_epoch = epoch;
+  });
+  key := _fmg_cache_key(resolved, method_name, owner);
+  match(
+    g_fmg_method_cache.with(m => m.get(&key)),
+    .Some(cands) => {
+      _fmg_cache_record_fast(resolved, method_name, owner, cands);
+      Option(ArrayList(MethodCandidate)).Some(cands)
+    },
+    .None => Option(ArrayList(MethodCandidate)).None
+  )
+});
+_fmg_cache_put :: (
+  fn(resolved : &TypeValue, method_name : &String, owner : &String, epoch : u64, cands : ArrayList(MethodCandidate)) -> unit
+)({
+  if(g_fmg_method_cache_epoch != epoch, {
+    g_fmg_method_cache.with_mut(m => m.clear());
+    g_fmg_method_cache_epoch = epoch;
+  });
+  g_fmg_method_cache.with_mut(m => m.insert(_fmg_cache_key(resolved, method_name, owner), cands));
+  _fmg_cache_record_fast(resolved, method_name, owner, cands);
+});
+/// Search ALL registered generic impls for matching entries that have a field
+/// with `method_name`. Returns candidates, with the impl's `generic` bindings
+/// injected into each `FuncVal` method's captures (see `_inject_forall_captures`).
+///
+/// Results are cached per (resolved receiver, method name, trait-impl epoch,
+/// registration owner) — see the cache block above for the key's proof. A hit
+/// hands back the STORED list; callers must treat it as read-only (they did
+/// when this landed: the only consumers read `.len()`/`.get()` and project
+/// into their own records).
+find_methods_from_generic_impls :: (
+  fn(
+    concrete_type : &TypeValue,
+    method_name : &String,
+    env : &Environment
+  ) -> ArrayList(MethodCandidate)
+)({
+  // Resolve SomeT.
+  (resolved : TypeValue) = Rc.clone(concrete_type);
+  if(is_some_type(concrete_type), {
+    r := get_value_of_some_type_from_env(env, concrete_type);
+    if(!is_some_type(&r), {
+      resolved = r;
+    });
+  });
+  epoch := trait_impl_epoch();
+  owner := registration_owner();
+  if(_fmg_cache_usable(), {
+    match(
+      _fmg_cache_get(&resolved, method_name, &owner, epoch),
+      .Some(cached) => return(cached),
+      .None => ()
+    );
+  });
+  results := _find_methods_from_generic_impls_scan(&resolved, method_name, env);
+  if(_fmg_cache_usable(), {
+    _fmg_cache_put(&resolved, method_name, &owner, epoch, results);
+  });
+  results
 });
 /// When several generic impls declare the method for one receiver, the ones
 /// whose where-clause demonstrably fails for their bindings drop out, as long
