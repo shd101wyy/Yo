@@ -260,3 +260,17 @@ test("auto-deref: a miss through Box names the payload", {
   b := Box.new(_mk(i32(1)));
   comptime_expect_error(b.nn, "has no field \"nn\" either");
 });
+// The auto-dereference does not write the tree: it records the rewritten
+// field read and method callee (`note_rewritten_node`, src/expr.yo), which a
+// re-evaluation of the same node reads back instead of rewriting again.
+test("auto-deref: a rewritten field read and method call evaluated again in a loop", {
+  b := Rc.new(_mk(i32(7)));
+  (mut(total) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
+  while(i < i32(3), {
+    total = (total + b.n + b.get());
+    i = (i + i32(1));
+  });
+  assert(total == i32(42), "b.n and b.get() read the payload on every iteration");
+  assert(_read_n(&b) == i32(7), "a generic body over the Rc");
+});

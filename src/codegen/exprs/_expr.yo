@@ -11,7 +11,7 @@
 //! dispatch module registers the real `_generate_expr` via `set_generate_expr_fn`
 //! at init.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_rewritten_view } :: import("../../expr.yo");
 { expr_info_index_trait_ptr_type, lookup_method_callee_type } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type } :: import("../../types/guards.yo");
@@ -29,10 +29,12 @@ set_generate_expr_fn :: (fn(f : GenerateExprFn) -> unit)({
 });
 /// Dispatch an expression through the registered emitter (panics if
 /// unregistered). Per-node emitters call this for sub-expression recursion.
+/// A node an evaluator rewrite replaced is emitted as rewritten
+/// (`ast_rewritten_view`).
 _call_generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     g_generate_expr,
-    .Some(f) => f(expr, indent, context),
+    .Some(f) => f(&ast_rewritten_view(expr), indent, context),
     .None => __yo_panic("generate_expr called before set_generate_expr_fn")
   )
 );

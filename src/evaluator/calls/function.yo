@@ -18,6 +18,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
+  ast_rewritten_node,
+  note_rewritten_node,
   next_global_expr_id,
   alloc_global_expr_id,
   ast_expr_is_fn_call_of,
@@ -1049,6 +1051,17 @@ _try_find_receiver_method :: (
     env : &Environment,
     ctx : &EvalContext
   ) -> Option(ReceiverMethodResult)
+)(
+  // A callee the payload retry below rewrote reads as rewritten
+  // (`ast_rewritten_node`).
+  _find_receiver_method_of(&ast_rewritten_node(callee), env, ctx)
+);
+_find_receiver_method_of :: (
+  fn(
+    callee : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
+  ) -> Option(ReceiverMethodResult)
 )({
   // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
@@ -1181,10 +1194,11 @@ _try_find_receiver_method :: (
     // retry with the receiver `w.*`, recursively through nested wrappers.
     // Reached only after the wrapper's own lookup (and its lazy-impl force)
     // missed, so the wrapper's members always win (`b.clone()` stays the
-    // Rc's). On a hit the callee's receiver argument is replaced IN PLACE by
-    // the `w.*` chain, so the call is the explicit `w.*.m(...)` to every later
-    // reader (codegen, the inout/D3/E0908 root walks); on a miss the callee
-    // is left as written for the E0610 message.
+    // Rc's). On a hit the callee is recorded as rewritten with the receiver
+    // the `w.*` chain (`note_rewritten_node`, same id), so the call is the
+    // explicit `w.*.m(...)` to every later reader (codegen, the inout/D3/E0908
+    // root walks, through `ast_rewritten_node`); on a miss the callee is left
+    // as written for the E0610 message.
     if(!is_static && !is_pointer_type(&receiver_type), {
       match(
         deref_target_type(resolve_struct_shell(&receiver_type), env),
@@ -1199,7 +1213,7 @@ _try_find_receiver_method :: (
             .Some(deref_node) => {
               dc_args := ArrayList(AstExpr).new();
               dc_args.push(deref_node);
-              dc_args.push(method_name_expr);
+              dc_args.push(method_name_expr.clone());
               deref_callee := match(
                 callee,
                 .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb, Rc.new(dc_args), dc_infix, dc_tok),
@@ -1208,7 +1222,14 @@ _try_find_receiver_method :: (
               match(
                 recur(&deref_callee, env, ctx),
                 .Some(deref_hit) => {
-                  prop_args(usize(0)) = deref_hit.receiver_expr;
+                  rw_args := ArrayList(AstExpr).new();
+                  rw_args.push(deref_hit.receiver_expr.clone());
+                  rw_args.push(method_name_expr.clone());
+                  match(
+                    callee,
+                    .FnCall(rw_id, rw_fb, _, rw_infix, rw_tok) => note_rewritten_node(&AstExpr.FnCall(rw_id, rw_fb, Rc.new(rw_args), rw_infix, rw_tok)),
+                    _ => ()
+                  );
                   return(Option(ReceiverMethodResult).Some(deref_hit));
                 },
                 .None => ()
@@ -3361,6 +3382,8 @@ _check_awaited_future :: (fn(args : &ArrayList(AstExpr), env : &Environment, ctx
 _is_plain_place_expr :: (fn(e : &AstExpr) -> bool)({
   (cur : AstExpr) = e;
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .FnCall(_, _, Rc(d_args), _, _) => {
@@ -3924,6 +3947,8 @@ _lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
   rev := ArrayList(String).new();
   (cur : AstExpr) = e;
   while(!ast_expr_is_atom(&cur), {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .FnCall(_, callee, Rc(c_args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
@@ -4184,6 +4209,8 @@ _check_call_value_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Envi
 _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
   (cur : AstExpr) = e;
   while(true, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .Atom(_, _) => return(true),
@@ -4287,6 +4314,8 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
 _global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
   (cur : AstExpr) = place;
   while(true, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .Atom(_, root_tok) => {
@@ -12426,6 +12455,9 @@ Fix: wrap the call:
         );
       });
       method_info_opt0 := _try_find_receiver_method(&evaluated_callee, &callee_env, ctx);
+      // A payload retry records the callee as rewritten (`w.m` → `w.*.m`,
+      // `note_rewritten_node`): the rest of the call reads it so.
+      m_callee := ast_rewritten_node(&evaluated_callee);
       // Overload resolution: when the method name has multiple candidate
       // overloads, pick the one whose parameters match the arguments (the first
       // hit may not — e.g. `s.starts_with("-")` must select the `StrPattern`
@@ -12433,15 +12465,15 @@ Fix: wrap the call:
       method_info_opt := match(
         method_info_opt0,
         .Some(mi0) => cond(
-          (mi0.all_hits.len() > usize(1)) => Option(ReceiverMethodResult).Some(_select_matching_overload(&mi0, &args, &evaluated_callee, &callee_env, ctx, exn)),
+          (mi0.all_hits.len() > usize(1)) => Option(ReceiverMethodResult).Some(_select_matching_overload(&mi0, &args, &m_callee, &callee_env, ctx, exn)),
           true => Option(ReceiverMethodResult).Some(mi0.clone())
         ),
         .None => Option(ReceiverMethodResult).None
       );
-      _reject_private_method_call(&method_info_opt, &evaluated_callee, ctx, exn);
-      _reject_class1_panic_method_call(&method_info_opt, &evaluated_callee, ctx, exn);
-      _reject_dyn_uncallable_method_call(&method_info_opt, &evaluated_callee, ctx, exn);
-      _reject_wrapper_payload_clash(&method_info_opt, &evaluated_callee, args.len(), &callee_env, ctx, exn);
+      _reject_private_method_call(&method_info_opt, &m_callee, ctx, exn);
+      _reject_class1_panic_method_call(&method_info_opt, &m_callee, ctx, exn);
+      _reject_dyn_uncallable_method_call(&method_info_opt, &m_callee, ctx, exn);
+      _reject_wrapper_payload_clash(&method_info_opt, &m_callee, args.len(), &callee_env, ctx, exn);
       match(
         method_info_opt,
         // Method found: build the arg list and call it. Instance methods
@@ -12586,7 +12618,7 @@ Fix: wrap the call:
             &method_info.method_val_opt,
             &m_callee_ty,
             expr,
-            &evaluated_callee,
+            &m_callee,
             &all_args,
             &callee_env,
             ctx,
@@ -12764,7 +12796,7 @@ Fix: wrap the call:
               _ => ()
             );
             m_ctfe := evaluate_comptime_fn_call(
-              Option(AstExpr).Some(evaluated_callee),
+              Option(AstExpr).Some(m_callee.clone()),
               &method_info.method_ty,
               &m_fv,
               &call_result_m.arg_values,

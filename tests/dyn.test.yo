@@ -1217,3 +1217,17 @@ test("a downcast to a move-only type needs a Dyn that lists Clone", {
     downcast(d, _DcFd)
   }, "the Dyn must list `Clone`");
 });
+
+// The auto-box does not write the tree: it records `dyn(v)` as
+// `dyn(Rc.new(v))` (`note_rewritten_node`, src/expr.yo), which a
+// re-evaluation of the same node reads back instead of boxing again.
+test("an auto-boxed dyn evaluated again in a loop", {
+  (mut(total) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
+  while(i < i32(3), {
+    total = (total + use_test_dyn(dyn(i32(5))));
+    i = (i + i32(1));
+  });
+  assert(total == i32(15), "boxed on every iteration");
+  assert(_generic_show(i32(6)) == `6`, "a generic body boxes per specialization");
+});
