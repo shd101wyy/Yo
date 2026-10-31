@@ -920,7 +920,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // exact.
       (stub_found_ftt : bool) = false;
       {
-        sb := em.code;
+        sb := &em.code;
         total_b := sb.len();
         needle := String.from("// Failed to transpile");
         nb := needle;
@@ -1049,8 +1049,8 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
         // Truncate at the marker, in place. stub_mark_b is a byte offset taken
         // at an emission point (a char boundary), so this is byte-exact with
         // the former `substring(0, stub_mark)` and copies nothing.
-        pb := em.code;
         if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
+          pb := &em.code;
           // The rewrite below TRUNCATES the body at the marker, destroying the
           // evidence of WHICH expression failed — print a window AROUND the
           // marker here (the warm in-process campaign's FTT triage probe).
