@@ -1758,11 +1758,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // the callee source text (`.Some`) as a final fallback. All may carry a
     // leading `.`, which _generate_runtime_enum_construct strips.
     from_val := match(ei.value, .Some(ev) => match(ev, .EnumVal(vr, _) => vr.clone(), _ => String.new()), .None => String.new());
-    from_ty := match(&ei.ty, Rc(.EnumT({ selected_variant_name })) => match(selected_variant_name, .Some(v) => v, .None => String.new()), _ => String.new());
+    from_ty := match(&ei.ty, Rc(.EnumT({ selected_variant_name })) => match(selected_variant_name, .Some(v) => v.clone(), .None => String.new()), _ => String.new());
     from_callee := match(expr, .FnCall(_, f, _, _, _) => ast_expr_to_string(&f), .Atom(_, _) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
     if(variant_raw.len() > usize(0), {
-      rt_e := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+      rt_e := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
       enum_code := _generate_runtime_enum_construct(&ei.ty, &variant_raw, &rt_e, indent.clone(), context);
       match(
         ei.variable_name,
@@ -1791,7 +1791,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // explicit...)`.
   if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
     dmethod_args := match(func_expr, .FnCall(_, _, Rc(da), _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-    dm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+    dm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
     // `recv_is_dyn` = is the prepended runtime-arg[0] itself a Dyn? Used ONLY by
     // the concrete-dispatch branch below to exclude a `ctl`-FIELD effect call like
     // `exn.throw(dyn(err))`, whose receiver `exn` is NOT prepended so the dyn
