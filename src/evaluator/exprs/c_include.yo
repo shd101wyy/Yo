@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
 { Environment, Frame, new_frame, add_variable_to_env, get_variables_from_env, frame_truncate_variables, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name } :: import("../../value.yo");
+{ EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name, value_cell_new } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types } :: import("../../types/definitions.yo");
 { t_unit, t_extern_opaque, t_type } :: import("../../types/creators.yo");
@@ -498,7 +498,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     )
   );
   mod_info := new_expr_info(&env, &module_type);
-  mod_info.value = .Some(EvalValue.StructVal(sns_id, field_labels, field_vals));
+  mod_info.value = .Some(EvalValue.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "c_include" func node) with same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);

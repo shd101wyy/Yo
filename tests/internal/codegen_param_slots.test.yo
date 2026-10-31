@@ -13,7 +13,7 @@
 { assert } :: import("std/assert");
 { Token, TokenKind } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
-{ EvalValue, FuncValData } :: import("../../src/value.yo");
+{ EvalValue, FuncValData, no_values } :: import("../../src/value.yo");
 { TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { t_func_simple, t_expr_t, t_some_t, t_unit } :: import("../../src/types/creators.yo");
 { register_func_type } :: import("../../src/function_value.yo");
@@ -45,7 +45,7 @@ _mk_func_val :: (fn(fid : str, label : str, param : TypeValue) -> EvalValue)({
     cap_tys : ArrayList(TypeValue).new(),
     func_id : String.from(fid)
   );
-  EvalValue.FuncVal(Rc.new(data), ArrayList(EvalValue).new())
+  EvalValue.FuncVal(Rc.new(data), no_values())
 });
 test("a `K : &Type` parameter slot makes the original unemittable", {
   fv := _mk_func_val("fn_yo_id_test_slot_type_param", "K", Rc.new(TypeValueNode.TypeUni(usize(0))));

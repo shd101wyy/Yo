@@ -100,7 +100,9 @@ pragma(Pragma.AllowUnsafe);
 {
   EvalValue,
   FuncValData,
-  create_unknown_val
+  create_unknown_val,
+  no_values,
+  shared_values
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -1937,7 +1939,7 @@ evaluate_anonymous_function_implementation :: (
         env_key : fv_env_key
       )
     ),
-    cap_vals
+    shared_values(cap_vals)
   );
   // Phase A of an impl member written as a literal (context.yo
   // `publish_pending_member_phase_a`), before the body trial below.
@@ -2236,7 +2238,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           func_id : func_id.clone()
         )
       ),
-      ArrayList(EvalValue).new()
+      no_values()
     );
     // The body evaluates against a SNAPSHOT of the live env (the param frame
     // is in scope; frame-list mutations during body eval cannot corrupt the
@@ -2788,7 +2790,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
             func_id : stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
           )
         ),
-        ArrayList(EvalValue).new()
+        no_values()
       );
       dgc_env := snapshot_env(env);
       dgc_ctx := create_function_body_evaluation_context(&function_type, &dgc_fv, &dgc_env, ctx);

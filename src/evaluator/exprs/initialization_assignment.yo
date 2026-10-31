@@ -507,7 +507,7 @@ _evaluate_inout_local_binding :: (
       if(hops.len() == usize(0), {
         // Whole-variable place: alias the root's value cell so compile-time
         // reads through the binding observe the root (§9 H27).
-        bound.value = root_var.value;
+        bound.value = Rc.clone(root_var.value);
       });
     },
     .None => ()
@@ -1722,9 +1722,9 @@ Use \`::\` for compile-time definitions inside impl.`
         match(
           lhs_value_opt,
           .Some(pb_v) => if(pb.value.len() > usize(0), {
-            pb.value(usize(0)) = pb_v;
+            pb.value.set(usize(0), pb_v);
           }, {
-            // An EMPTY cell is the shared `g_empty_value_cell` (env.yo):
+            // An EMPTY cell is the shared `empty_value_cell()` (value.yo):
             // never push into it — mint the variable its own cell.
             pb.value = value_cell_of(Option(EvalValue).Some(pb_v));
           }),

@@ -41,7 +41,8 @@ pragma(Pragma.AllowUnsafe);
   create_unknown_val,
   create_runtime_unknown_val,
   type_of_eval_value,
-  is_type_value
+  is_type_value,
+  no_values
 } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -591,7 +592,7 @@ evaluate_property_access :: (
                 if(!has_fields_1, {
                   // Fieldless variant: Color.Red
                   dot_vname_1 := `.${ variant_name_1 }`;
-                  ev_1 := EvalValue.EnumVal(dot_vname_1, ArrayList(EvalValue).new());
+                  ev_1 := EvalValue.EnumVal(dot_vname_1, no_values());
                   out_1 := new_expr_info(&env, &new_en_ty_1);
                   out_1.value = Option(EvalValue).Some(ev_1);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_1);
@@ -823,11 +824,11 @@ Raw pointer operations may dereference invalid memory.`
                     target0,
                     .ArrayVal(deref_elems) => {
                       deref_val = match(deref_elems.get(ptr_tgt_idx), .Some(de) => de, .None => target0);
-                      deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(deref_elems, ptr_tgt_idx));
+                      deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(deref_elems), ptr_tgt_idx));
                     },
                     _ => {
                       deref_val = match(target_cell.get(ptr_tgt_idx), .Some(dt) => dt, .None => target0);
-                      deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(target_cell, ptr_tgt_idx));
+                      deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(target_cell), ptr_tgt_idx));
                     }
                   );
                   out_ptr := new_expr_info(&env, &resolved_base);
@@ -1179,7 +1180,7 @@ Raw pointer operations may dereference invalid memory.`
               );
               if(!has_fields_tv, {
                 dot_tv_vname := `.${ variant_name_tv }`;
-                ev_tv_en := EvalValue.EnumVal(dot_tv_vname, ArrayList(EvalValue).new());
+                ev_tv_en := EvalValue.EnumVal(dot_tv_vname, no_values());
                 out_tv_en := new_expr_info(&env, &new_en_tv);
                 out_tv_en.value = Option(EvalValue).Some(ev_tv_en);
                 out_tv_en.is_accessing_property = Option(bool).Some(true);
@@ -2081,7 +2082,7 @@ Raw pointer operations may dereference invalid memory.`
                           expr_info_set_comptime_ref(
                             &out_lbl,
                             Option(ComptimeRef).Some(
-                              ComptimeRef.TupleRef(flds_l, fi_lbl)
+                              ComptimeRef.TupleRef(Rc.clone(flds_l), fi_lbl)
                             )
                           );
                         });
@@ -2101,7 +2102,7 @@ Raw pointer operations may dereference invalid memory.`
                           expr_info_set_comptime_ref(
                             &out_lbl,
                             Option(ComptimeRef).Some(
-                              ComptimeRef.StructRef(sflds_l, fi_lbl)
+                              ComptimeRef.StructRef(Rc.clone(sflds_l), fi_lbl)
                             )
                           );
                         });

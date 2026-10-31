@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ EvalValue, create_unknown_val_with_name, value_to_string } :: import("../../value.yo");
+{ EvalValue, create_unknown_val_with_name, value_to_string, value_cell_new } :: import("../../value.yo");
 { EvalContext } :: import("../context.yo");
 {
   ExprInfo,
@@ -309,10 +309,10 @@ call_registered_derive_rule :: (
       .Some(i) => i,
       .None => new_expr_info(caller_env, t_unit())
     );
-    list_val := match(list_info.value, .Some(v) => v, .None => EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
+    list_val := match(list_info.value, .Some(v) => v, .None => EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
     add_comptime_var(caller_env, tps_var.clone(), &list_info.ty, &list_val);
   }, {
-    add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
+    add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
   });
   // 7. Call the rule via a generated call expression, under the guarded
   //    evaluator so the RULE'S OWN error reaches the user. See

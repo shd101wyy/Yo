@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ EvalValue, create_type_value } :: import("../../value.yo");
+{ EvalValue, create_type_value, value_cell_new } :: import("../../value.yo");
 { EvalContext } :: import("../context.yo");
 { TypeField, register_struct_fields } :: import("../types/field.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
@@ -274,7 +274,7 @@ evaluate_anonymous_struct_value :: (
         );
         si = (si + usize(1));
       });
-      Option(EvalValue).Some(EvalValue.StructVal(struct_id.clone(), sv_names, sv_vals))
+      Option(EvalValue).Some(EvalValue.StructVal(struct_id.clone(), shared_list(sv_names), value_cell_new(sv_vals)))
     },
     true => Option(EvalValue).None
   );

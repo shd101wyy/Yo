@@ -63,7 +63,8 @@ pragma(Pragma.AllowUnsafe);
   create_unknown_val,
   is_runtime_only_unknown_val,
   is_enum_val,
-  is_unknown_val
+  is_unknown_val,
+  ValueCell
 } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_bool, t_never, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -232,7 +233,7 @@ _is_literal_val :: (fn(v : &EvalValue) -> bool)(
     _ => false
   )
 );
-_all_literal_vals :: (fn(vals : &ArrayList(EvalValue)) -> bool)({
+_all_literal_vals :: (fn(vals : &ValueCell) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < vals.len()) && ok, {
