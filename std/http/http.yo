@@ -30,6 +30,7 @@
 //! `get_header` among its D2 violations. Removing the pair is breaking, so
 //! it waits for a window; the multimap and `StatusCode` themselves are
 //! expected to stay.
+pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { ToString } :: import("../fmt");
@@ -120,7 +121,7 @@ impl(
     lower := name.to_lowercase();
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
-      h := self._entries(i);
+      h := self._entries(i).clone();
       cond(
         (h.name.to_lowercase() == lower) => {
           return(.Some(h.value.clone()));
@@ -137,7 +138,7 @@ impl(
     mut(out) := ArrayList(String).new();
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
-      h := self._entries(i);
+      h := self._entries(i).clone();
       cond(
         (h.name.to_lowercase() == lower) => {
           out.push(h.value.clone());
@@ -172,7 +173,7 @@ impl(
     (mut(removed) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
-      h := self._entries(i);
+      h := self._entries(i).clone();
       cond(
         (h.name.to_lowercase() == lower) => {
           removed = (removed + usize(1));
@@ -187,7 +188,7 @@ impl(
   }),
   /// The field lines in order — for serialization and iteration. The list is a
   /// snapshot: pushing to it does not change the map.
-  entries : (fn(self : &Self) -> &ArrayList(HttpHeader))(self._entries)
+  entries : (fn(self : &Self) -> &ArrayList(HttpHeader))(addr_of(self._entries))
 );
 impl(
   HeaderMap,
@@ -199,7 +200,7 @@ impl(
       mut(out) := String.new();
       (mut(i) : usize) = usize(0);
       while(i < self._entries.len(), i = (i + usize(1)), {
-        h := self._entries(i);
+        h := self._entries.get_cloned(i).unwrap();
         out = `${out}${h.name}: ${h.value}\r\n`;
       });
       out
