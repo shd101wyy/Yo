@@ -8,7 +8,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT, BK_BORROW_MUT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT, BK_BORROW_MUT, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -1284,9 +1284,11 @@ evaluate_dyn_value :: (
   ) -> AstExpr
 )({
   expr_tok := ast_expr_token(expr);
-  // Extract the args ArrayList and the single value argument.
+  // Extract the args ArrayList and the single value argument. A `dyn(v)` the
+  // auto-box below rewrote reads as rewritten (`ast_rewritten_node`), so a
+  // re-evaluation does not box it again.
   args := match(
-    expr,
+    ast_rewritten_node(expr),
     .FnCall(_, _, Rc(a), _, _) => a,
     _ => {
       exn.throw(
@@ -1661,9 +1663,20 @@ evaluate_dyn_value :: (
     match(
       boxed_info_opt,
       .Some((boxed_expr, bi)) => {
-        // Update the dyn(...) call's first arg to point at the boxed expression,
-        // so that C codegen sees inner rather than the bare inner expression.
-        args(usize(0)) = boxed_expr;
+        // Record the dyn(...) call as rewritten with the boxed expression as
+        // its argument (`note_rewritten_node`, same id), so C codegen reads the
+        // box rather than the bare inner expression.
+        bx_args := ArrayList(AstExpr).new();
+        bx_args.push(boxed_expr.clone());
+        (bx_i : usize) = usize(1);
+        while(bx_i < args.len(), bx_i = (bx_i + usize(1)), {
+          match(args.get(bx_i), .Some(bx_a) => bx_args.push(bx_a), .None => ());
+        });
+        match(
+          expr,
+          .FnCall(bx_id, bx_f, _, bx_infix, bx_tok) => note_rewritten_node(&AstExpr.FnCall(bx_id, bx_f, Rc.new(bx_args), bx_infix, bx_tok)),
+          _ => ()
+        );
         final_value_type = Rc.clone(bi.ty);
         cur_env = expr_info_adopt_env(&bi);
         final_value_expr_ex = boxed_expr;

@@ -16,7 +16,7 @@ pragma(Pragma.AllowUnsafe);
 { env : warm_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR, BF_UPCAST } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR, BF_UPCAST, ast_rewritten_view } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
 { ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global, extern_c_global_c_name, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_capture_field_inits, expr_info_dyn_call_trait_values, get_module_level_init_exprs, expr_info_deferred_dup_expressions, expr_info_index_method_value, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
@@ -635,8 +635,10 @@ collect_module_level_init_functions :: (fn(context : &CodeGenContext, info : &Ex
 });
 /// Find function calls in an expression and collect the reachable functions.
 /// (Phase-3 specialization/dyn-data branches
-/// deferred — see file header). All self-recursion uses `recur`.
-find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
+/// deferred — see file header). The walk takes each node as an evaluator
+/// rewrite left it (`ast_rewritten_view`): every child goes through here.
+find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)(_find_function_calls_in_node(&ast_rewritten_view(expr), context, info));
+_find_function_calls_in_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   // Effect-handler functions living inside compile-time struct-namespace values.
   match(
@@ -690,15 +692,15 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       // same fallback in collect_types_from_expr (types/collection.yo).
       match(
         expr_info_macro_expansion(&ei),
-        .Some(me) => recur(&me, context, info),
-        .None => match(lookup_macro_expansion(ast_expr_id(expr)), .Some(me) => recur(&me, context, info), .None => ())
+        .Some(me) => find_function_calls_in_expr(&me, context, info),
+        .None => match(lookup_macro_expansion(ast_expr_id(expr)), .Some(me) => find_function_calls_in_expr(&me, context, info), .None => ())
       );
       match(
         expr_info_effect_analysis(&ei),
         .Some(ea) => match(
           ea.handler_value,
           .Some(hv) => if(is_func_val(&hv), {
-            recur(_func_val_body(&hv), context, info);
+            find_function_calls_in_expr(_func_val_body(&hv), context, info);
           }),
           .None => ()
         ),
@@ -710,7 +712,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           cid := _func_val_id(&cfv);
           if(!context.has_function(cid.clone()), {
             context.register_function(cid.clone(), &cfv, function_c_name(&cid));
-            recur(_func_val_body(&cfv), context, info);
+            find_function_calls_in_expr(_func_val_body(&cfv), context, info);
           });
         }),
         .None => ()
@@ -722,7 +724,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           mark_as_index_entry_method(iid.clone());
           if(!context.has_function(iid.clone()), {
             context.register_function(iid.clone(), &imv, function_c_name(&iid));
-            recur(_func_val_body(&imv), context, info);
+            find_function_calls_in_expr(_func_val_body(&imv), context, info);
           });
         }),
         .None => ()
@@ -738,7 +740,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           mark_as_index_entry_method(twid.clone());
           if(!context.has_function(twid.clone()), {
             context.register_function(twid.clone(), &tw, function_c_name(&twid));
-            recur(_func_val_body(&tw), context, info);
+            find_function_calls_in_expr(_func_val_body(&tw), context, info);
           });
         }),
         .None => ()
@@ -798,7 +800,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                   mfid := _func_val_id(&mv);
                   if(!context.has_function(mfid.clone()), {
                     context.register_function(mfid.clone(), &mv, function_c_name(&mfid));
-                    recur(_func_val_body(&mv), context, info);
+                    find_function_calls_in_expr(_func_val_body(&mv), context, info);
                   });
                 }),
                 .None => ()
@@ -836,7 +838,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                         rm_fid := _func_val_id(&rmv2);
                         if(!context.has_function(rm_fid.clone()) && !is_control_fn(rm_fid.clone()), {
                           context.register_function(rm_fid.clone(), &rmv2, function_c_name(&rm_fid));
-                          recur(_func_val_body(&rmv2), context, info);
+                          find_function_calls_in_expr(_func_val_body(&rmv2), context, info);
                         });
                       }),
                       .None => ()
@@ -869,7 +871,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           sfid := _func_val_id(&scv);
           if(!context.has_function(sfid.clone()), {
             context.register_function(sfid.clone(), &scv, function_c_name(&sfid));
-            recur(_func_val_body(&scv), context, info);
+            find_function_calls_in_expr(_func_val_body(&scv), context, info);
           });
         }),
         .None => ()
@@ -883,7 +885,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
             .Some(fv) => cond(
               // ctl handler: inlined at the call site; recurse body, don't collect.
               (is_func_val(&fv) && is_control_fn(_func_val_id(&fv))) => {
-                recur(_func_val_body(&fv), context, info);
+                find_function_calls_in_expr(_func_val_body(&fv), context, info);
               },
               is_func_val(&fv) => cond(
                 // Skip CTFE (compile-time-only return) functions.
@@ -893,7 +895,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                 (expr_contains_unknown_value(_func_val_body(&fv), info) && _func_has_some_param(_func_val_id(&fv))) => (),
                 true => {
                   context.register_function(_func_val_id(&fv), &fv, function_c_name(_func_val_id(&fv)));
-                  recur(_func_val_body(&fv), context, info);
+                  find_function_calls_in_expr(_func_val_body(&fv), context, info);
                 }
               ),
               // Callee value present but not a function value (UnknownVal —
@@ -907,11 +909,11 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
         }),
         .None => ()
       );
-      recur(&callee, context, info);
+      find_function_calls_in_expr(&callee, context, info);
       na := args.len();
       (ai : usize) = usize(0);
       while(ai < na, {
-        match(args.get(ai), .Some(a) => recur(&a, context, info), .None => ());
+        match(args.get(ai), .Some(a) => find_function_calls_in_expr(&a, context, info), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -940,14 +942,14 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
             if(!context.has_function(_func_val_id(&v)), {
               context.register_function(_func_val_id(&v), &v, function_c_name(_func_val_id(&v)));
             });
-            recur(_func_val_body(&v), context, info);
+            find_function_calls_in_expr(_func_val_body(&v), context, info);
           },
           _is_generic_unspecialized_func(&v) => (),
           context.has_function(_func_val_id(&v)) => (),
           (expr_contains_unknown_value(_func_val_body(&v), info) && _func_has_some_param(_func_val_id(&v))) => (),
           true => {
             context.register_function(_func_val_id(&v), &v, function_c_name(_func_val_id(&v)));
-            recur(_func_val_body(&v), context, info);
+            find_function_calls_in_expr(_func_val_body(&v), context, info);
           }
         );
       }),
@@ -973,7 +975,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           nd := dups.len();
           (di : usize) = usize(0);
           while(di < nd, {
-            match(dups.get(di), .Some(de) => recur(&de, context, info), .None => ());
+            match(dups.get(di), .Some(de) => find_function_calls_in_expr(&de, context, info), .None => ());
             di = (di + usize(1));
           });
         },
@@ -985,7 +987,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           nr := drops.len();
           (ri : usize) = usize(0);
           while(ri < nr, {
-            match(drops.get(ri), .Some(re) => recur(&re, context, info), .None => ());
+            match(drops.get(ri), .Some(re) => find_function_calls_in_expr(&re, context, info), .None => ());
             ri = (ri + usize(1));
           });
         },
@@ -1000,7 +1002,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           .Some(cinits) => {
             (cii : usize) = usize(0);
             while(cii < cinits.len(), {
-              match(cinits.get_cloned(cii), .Some(cfi) => recur(&cfi.init, context, info), .None => ());
+              match(cinits.get_cloned(cii), .Some(cfi) => find_function_calls_in_expr(&cfi.init, context, info), .None => ());
               cii = (cii + usize(1));
             });
           },
@@ -1039,7 +1041,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
             match(
               varg_opt,
               .Some(varg) => {
-                recur(&varg, context, info);
+                find_function_calls_in_expr(&varg, context, info);
                 match(
                   expr_info_table_get(info, ast_expr_id(&varg)),
                   .Some(vei) => {

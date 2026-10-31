@@ -10,6 +10,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_token,
   ast_expr_text,
   ast_expr_id,
+  ast_rewritten_node,
+  note_rewritten_node,
   ast_expr_to_string,
   ast_expr_is_atom,
   ast_expr_is_atom_of,
@@ -434,6 +436,18 @@ _try_resolve_associated_type :: (
 // evaluate_property_access
 // ---------------------------------------------------------------------------
 evaluate_property_access :: (
+  fn(
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)(
+  // A field read the auto-dereference below rewrote reads as rewritten
+  // (`ast_rewritten_node`), so a re-evaluation does not rewrite it again.
+  _evaluate_property_access_node(&ast_rewritten_node(expr), env_in, ctx, exn)
+);
+_evaluate_property_access_node :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
@@ -1871,10 +1885,12 @@ Raw pointer operations may dereference invalid memory.`
             });
             // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): on a
             // `Deref` wrapper (`Box`, `Rc`, `Arc`) whose own fields lack the label,
-            // `w.field` means `w.*.field`. The object argument is replaced
-            // IN PLACE by `w.*` and the access re-evaluated, so every later
+            // `w.field` means `w.*.field`. The access is rebuilt with the
+            // object `w.*` (same id), recorded as the node's rewrite
+            // (`note_rewritten_node`) and re-evaluated, so every later
             // reader — codegen, the root-of-place walks (D3, E0908, inout),
-            // the dup/drop passes — sees the ordinary explicit chain; nested
+            // the dup/drop passes — reads the ordinary explicit chain through
+            // `ast_rewritten_node`; nested
             // wrappers recurse through the same arm. `w` itself was already
             // evaluated: it is marked so the re-evaluation reuses its
             // ExprInfo. A pointer object is left alone (`p.*` there is the
@@ -1896,10 +1912,14 @@ Raw pointer operations may dereference invalid memory.`
                     .Some(a) => cond(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)).is_some() => a, true => object_expr),
                     .None => object_expr
                   );
-                  all_args(usize(0)) = make_deref_expr(&orig_obj, ast_expr_token(expr), ast_expr_token(&property_expr));
+                  pa_deref_args := ArrayList(AstExpr).new();
+                  pa_deref_args.push(make_deref_expr(&orig_obj, ast_expr_token(expr), ast_expr_token(&property_expr)));
+                  pa_deref_args.push(property_expr.clone());
+                  pa_rewritten := match(expr, .FnCall(pa_id, pa_f, _, pa_infix, pa_tok) => AstExpr.FnCall(pa_id, pa_f, Rc.new(pa_deref_args), pa_infix, pa_tok), .Atom(_, _) => expr.clone());
+                  note_rewritten_node(&pa_rewritten);
                   obj_id := ast_expr_id(&orig_obj);
                   mark_node_preevaluated(obj_id);
-                  rewritten := recur(expr, env_in, ctx, exn);
+                  rewritten := recur(&pa_rewritten, env_in, ctx, exn);
                   unmark_node_preevaluated(obj_id);
                   return(rewritten);
                 }, if(!(ctx.currently_specializing_function.is_some() || ctx.is_evaluating_generic_impl_specialization), {

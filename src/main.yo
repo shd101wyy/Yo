@@ -11697,7 +11697,12 @@ run_test :: (
     });
     src_bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
-    prog := parse(&src, file.clone(), exn);
+    // The RAW parse: the batch is source text rendered from this tree and
+    // parsed again, so it must keep what the desugar strips and records by
+    // token (decision 47's `mut(name)` and `thread_local(name)`,
+    // `desugar_if_calls`); the batch's own parse desugars it.
+    batch_parser := Parser.new(&src, &file, exn);
+    prog := batch_parser.get_program(exn);
     tests := ArrayList(TestDecl).new();
     non_test := ArrayList(String).new();
     (pi : usize) = usize(0);

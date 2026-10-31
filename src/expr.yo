@@ -6,6 +6,7 @@ pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { TokenKind, Token, intern_token_str, empty_token_text } :: import("./token.yo");
 { format_error_message, with_code, YoError } :: import("./error.yo");
 { E_DELETED_SPELLING } :: import("./diagnostics.yo");
@@ -29,6 +30,46 @@ borrowed_match_scrutinee_kind :: (fn(tok : &Token) -> u8)(
   )
 );
 export(borrowed_match_scrutinee_kind);
+/// The bindings declared mutable with `mut(name)` (decision 47 step 2,
+/// plans/VALUES_BY_DEFAULT.md): locals, pattern and destructuring bindings,
+/// `mut(x) ::`, `comptime(mut(x)) :=` and the module-level `static mut`
+/// forms. `desugar_if_calls` strips the marker while it builds the tree, as
+/// it peels a `match(&x, …)` scrutinee, and records the declared name here,
+/// keyed by the name's token, which every copy of the binding's `Variable`
+/// keeps (a reassignment mints a new `Variable` with the same `token`), so
+/// the marker survives env copies, clones and generic re-evaluation.
+(g_mut_binder_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The names declared with `thread_local(name)` / `thread_local(mut(name))`,
+/// lowered to the bare name by the same desugar branch and keyed the same way.
+(g_thread_local_binder_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+_binder_site_key :: (fn(decl : &Token, name : &String) -> String)(`${decl.module_path.*}|${decl.row.to_string()}:${decl.column.to_string()}|${name}`);
+/// Record that the binding `name` declared at `decl` is `mut(name)`.
+register_mut_binding :: (fn(decl : &Token, name : &String) -> unit)({
+  g_mut_binder_sites.with_mut(s => s.insert(_binder_site_key(decl, name)));
+  ()
+});
+/// True if the binding `name` declared at `decl` was declared `mut(name)`.
+is_mut_binding :: (fn(decl : &Token, name : &String) -> bool)({
+  if(g_mut_binder_sites.with(s => s.len()) == usize(0), {
+    return(false);
+  });
+  key := _binder_site_key(decl, name);
+  g_mut_binder_sites.with(s => s.contains(&key))
+});
+/// Record that the binding `name` declared at `decl` was `thread_local(name)`.
+register_thread_local_binding :: (fn(decl : &Token, name : &String) -> unit)({
+  g_thread_local_binder_sites.with_mut(s => s.insert(_binder_site_key(decl, name)));
+  ()
+});
+/// True if the binding `name` declared at `decl` was `thread_local(name)`.
+is_thread_local_binding :: (fn(decl : &Token, name : &String) -> bool)({
+  if(g_thread_local_binder_sites.with(s => s.len()) == usize(0), {
+    return(false);
+  });
+  key := _binder_site_key(decl, name);
+  g_thread_local_binder_sites.with(s => s.contains(&key))
+});
+export(register_mut_binding, is_mut_binding, register_thread_local_binding, is_thread_local_binding);
 /// The Yo builtin keyword strings used by the parser.
 BK_TUPLE :: "tuple";
 BK_TUPLE_TYPE :: "Tuple";
@@ -485,6 +526,89 @@ alloc_global_expr_id :: (fn() -> ExprId)({
 /// mints one id per node, consecutively, so reading this before and after a
 /// clone brackets exactly the ids that clone made (`purge_expr_infos_in_id_range`).
 next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
+/// The nodes a type-directed evaluator rewrite replaced. An `AstExpr` is not
+/// written after it is built (V4: a call's `args` is the payload of an `Rc`,
+/// read-only through the handle, decision 46), so a rewrite records the node
+/// as rewritten, under the node's own id, instead of writing its argument
+/// list. Three rewrites replace a node's argument 0 once the types are known:
+/// - a field read on a `Deref` wrapper (`Box`, `Rc`, `Arc`) whose own fields
+///   lack the label, `w.f` → `w.*.f` (`evaluator/exprs/property_access.yo`);
+/// - a method only the wrapper's payload has, the callee `w.m` → `w.*.m`
+///   (`_try_find_receiver_method`, `evaluator/calls/function.yo`);
+/// - a `dyn(v)` of a value that is not a box, `dyn(v)` → `dyn(Rc.new(v))`
+///   (`evaluate_dyn_value`, `evaluator/values/dyn.yo`).
+/// The rewritten node keeps the id, so its `ExprInfo` is the node's. Every
+/// later reader of such a node — a re-evaluation, `clone_expr_fresh_ids`,
+/// codegen and the evaluator's place walks — reads it through
+/// `ast_rewritten_node`.
+(g_rewritten_nodes : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
+/// Record `rewritten` as the node its id names, as an evaluator rewrite left
+/// it (`g_rewritten_nodes`).
+note_rewritten_node :: (fn(rewritten : &AstExpr) -> unit)({
+  _old := g_rewritten_nodes.with_mut(m => m.insert(ast_expr_id(rewritten), rewritten.clone()));
+  ()
+});
+/// The node an evaluator rewrite recorded for `e`'s id, if any.
+_recorded_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(rn_id, _, _, _, _) => g_rewritten_nodes.with(m => m.get(&rn_id))
+  )
+);
+/// `e` as the evaluator rewrote it (`note_rewritten_node`), or `e` itself.
+/// Its children are as built; a walk that recurses reads each through here.
+ast_rewritten_node :: (fn(e : &AstExpr) -> AstExpr)({
+  if(g_rewritten_nodes.with(m => m.len()) == usize(0), {
+    return(e);
+  });
+  match(_recorded_rewrite(e), .Some(r) => r, .None => e)
+});
+/// `e` as the evaluator rewrote it with its callee and arguments read the
+/// same way (`ast_rewritten_node`, one level down), for a reader that looks
+/// into a child without recursing through here: an emitter that takes a
+/// call's `.` callee apart, a field access's object, an assignment's place.
+ast_rewritten_view :: (fn(e : &AstExpr) -> AstExpr)({
+  if(g_rewritten_nodes.with(m => m.len()) == usize(0), {
+    return(e);
+  });
+  _view_children(&ast_rewritten_node(e))
+});
+/// `base` with its callee and arguments read through `ast_rewritten_node`.
+_view_children :: (fn(base : &AstExpr) -> AstExpr)(
+  match(
+    base,
+    .Atom(_, _) => base,
+    .FnCall(rv_id, rv_f, Rc(rv_args), rv_infix, rv_tok) => {
+      (changed : bool) = false;
+      (rv_f2 : AstExpr) = match(
+        _recorded_rewrite(&rv_f),
+        .Some(fr) => {
+          changed = true;
+          fr
+        },
+        .None => rv_f.clone()
+      );
+      out := ArrayList(AstExpr).new();
+      (i : usize) = usize(0);
+      while(i < rv_args.len(), i = (i + usize(1)), {
+        match(
+          rv_args.get(i),
+          .Some(a) => match(
+            _recorded_rewrite(&a),
+            .Some(ar) => {
+              changed = true;
+              out.push(ar);
+            },
+            .None => out.push(a)
+          ),
+          .None => ()
+        );
+      });
+      if(changed, AstExpr.FnCall(rv_id, rv_f2, Rc.new(out), rv_infix, rv_tok), base)
+    }
+  )
+);
 /// Deep-clone an expression giving every node a FRESH id. The derived
 /// `AstExpr` Clone keeps ids, so a
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
@@ -497,8 +621,10 @@ next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
 cloned_expr_node_count :: (fn() -> usize)(g_cloned_expr_nodes);
 clone_expr_fresh_ids :: (fn(e : &AstExpr) -> AstExpr)({
   g_cloned_expr_nodes = (g_cloned_expr_nodes + usize(1));
+  // A node an evaluator rewrite replaced is cloned as rewritten
+  // (`ast_rewritten_node`).
   match(
-    e,
+    ast_rewritten_node(e),
     .Atom(_, tok) => AstExpr.Atom(alloc_global_expr_id(), tok.clone()),
     .FnCall(_, func_box, Rc(args), is_infix, tok) => {
       new_args := ArrayList(AstExpr).new();
@@ -1787,6 +1913,235 @@ _is_borrowed_match_scrutinee :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+// ---------------------------------------------------------------------------
+// Decision 47: the `mut(name)` binder marker and `thread_local(name)`
+// ---------------------------------------------------------------------------
+// Both wrap the NAME a binding declares. `desugar_if_calls` lowers them to the
+// bare name while it builds the tree and records the name by its token
+// (`register_mut_binding`, `register_thread_local_binding`), so no later pass
+// sees the wrapper and none writes the tree. The binder positions are
+// syntactic (plans/VALUES_BY_DEFAULT.md decision 47's "As built"): the left
+// side of `:=` / `::` (bare, `thread_local(·)`, `comptime(·)`), the name of a
+// `(… : T) = v` declaration or a `(… : T);` statement, a destructuring field
+// of a `:=` / `::` left side, and a binding inside a `match` arm pattern. A
+// closure's or a `fn(...)`'s parameter is never one: `mut(x) : T` there is the
+// deleted parameter spelling (E0009). A malformed marker (`mut(x.f)`,
+// `mut(1)`) is left in place for the evaluator's `reject_malformed_mut_marker`.
+/// The bare name of the binder marker `mut(name)`, or `.None` when `e` is not
+/// a `mut(...)` call around one identifier.
+_mut_marker_name :: (fn(e : &AstExpr) -> Option(AstExpr))({
+  if(!ast_expr_is_fn_call_of(e, "mut", Option(usize).Some(usize(1))), {
+    return(Option(AstExpr).None);
+  });
+  n := _bs_arg(e, usize(0));
+  if(ast_expr_is_atom(&n) && (ast_expr_token(&n).kind == TokenKind.Identifier), Option(AstExpr).Some(n), Option(AstExpr).None)
+});
+_register_mut_name :: (fn(n : &AstExpr) -> unit)({
+  t := ast_expr_token(n);
+  register_mut_binding(&t, &t.value.*);
+});
+/// The declared-name position `b` of a binding without its markers:
+/// `mut(x)` → `x`, `comptime(mut(x))` → `comptime(x)` and, when
+/// `with_thread_local`, `thread_local(x)` / `thread_local(mut(x))` → `x`.
+/// Records each stripped name when `reg`; `.None` when `b` has no marker.
+_strip_binder :: (fn(b : &AstExpr, with_thread_local : bool, reg : bool) -> Option(AstExpr))({
+  match(
+    _mut_marker_name(b),
+    .Some(n) => {
+      if(reg, _register_mut_name(&n));
+      return(Option(AstExpr).Some(n));
+    },
+    .None => ()
+  );
+  if(ast_expr_is_fn_call_of(b, BK_COMPTIME, Option(usize).Some(usize(1))), {
+    match(
+      _mut_marker_name(&_bs_arg(b, usize(0))),
+      .Some(n) => {
+        if(reg, _register_mut_name(&n));
+        return(Option(AstExpr).Some(_with_arg(b, usize(0), &n)));
+      },
+      .None => ()
+    );
+    return(Option(AstExpr).None);
+  });
+  if(with_thread_local && ast_expr_is_fn_call_of(b, BK_THREAD_LOCAL, Option(usize).Some(usize(1))), {
+    inner := _bs_arg(b, usize(0));
+    (tl_name : Option(AstExpr)) = match(
+      _mut_marker_name(&inner),
+      .Some(n) => {
+        if(reg, _register_mut_name(&n));
+        Option(AstExpr).Some(n)
+      },
+      .None => if(ast_expr_is_atom(&inner), Option(AstExpr).Some(inner), Option(AstExpr).None)
+    );
+    match(
+      tl_name,
+      .Some(n) => {
+        if(reg, {
+          t := ast_expr_token(&n);
+          register_thread_local_binding(&t, &t.value.*);
+        });
+        return(Option(AstExpr).Some(n));
+      },
+      .None => ()
+    );
+  });
+  Option(AstExpr).None
+});
+/// A `:=` / `::` destructuring left side (`{ a, mut(b) }`, `{ x : mut(b) }`,
+/// `(a, mut(b))`, `.V(mut(b))`) with its field markers stripped. The record
+/// (`_`) and tuple forms and a variant callee; never a wrapper call
+/// (`given(x)`, `__yo_mut(y)`, a malformed `mut(...)`).
+_strip_destructuring_fields :: (fn(lhs : &AstExpr, reg : bool) -> Option(AstExpr))(
+  match(
+    lhs,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, callee, Rc(fields), _, _) => {
+      if(!(ast_expr_is_fn_call(&callee) || ast_expr_is_atom_of(&callee, BK_ANON_STRUCT) || ast_expr_is_atom_of(&callee, BK_TUPLE)), {
+        return(Option(AstExpr).None);
+      });
+      out := ArrayList(AstExpr).new();
+      (changed : bool) = false;
+      (i : usize) = usize(0);
+      while(i < fields.len(), i = (i + usize(1)), {
+        match(
+          fields.get(i),
+          .Some(f) => {
+            (nf : Option(AstExpr)) = match(
+              _mut_marker_name(&f),
+              .Some(n) => Option(AstExpr).Some(n),
+              .None => if(ast_expr_is_fn_call_of(&f, BK_COLON, Option(usize).Some(usize(2))), match(_mut_marker_name(&_bs_arg(&f, usize(1))), .Some(n) => Option(AstExpr).Some(_with_arg(&f, usize(1), &n)), .None => Option(AstExpr).None), Option(AstExpr).None)
+            );
+            match(
+              nf,
+              .Some(g) => {
+                if(reg, {
+                  _register_mut_name(&if(ast_expr_is_fn_call_of(&g, BK_COLON, Option(usize).Some(usize(2))), _bs_arg(&g, usize(1)), g.clone()));
+                });
+                changed = true;
+                out.push(g);
+              },
+              .None => out.push(f)
+            );
+          },
+          .None => ()
+        );
+      });
+      if(changed, Option(AstExpr).Some(_bs_with_args(lhs, &out)), Option(AstExpr).None)
+    }
+  )
+);
+/// A `match` arm pattern with its binder markers stripped: the whole pattern
+/// (`mut(v) => …`), a variant payload, a tuple or struct field, an
+/// or-pattern alternative, the name of `(name := p)`. A guard (`(p && (g))`)
+/// is an expression, not a pattern, and is left alone.
+_strip_pattern_binders :: (fn(pat : &AstExpr, reg : bool) -> Option(AstExpr))(
+  match(
+    pat,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, pf, Rc(pargs), p_infix, _) => {
+      if(p_infix && ast_expr_is_atom_of(&pf, "&&"), {
+        return(match(_strip_pattern_binders(&_bs_arg(pat, usize(0)), reg), .Some(np) => Option(AstExpr).Some(_with_arg(pat, usize(0), &np)), .None => Option(AstExpr).None));
+      });
+      out := ArrayList(AstExpr).new();
+      (changed : bool) = false;
+      (pi : usize) = usize(0);
+      while(pi < pargs.len(), pi = (pi + usize(1)), {
+        match(
+          pargs.get(pi),
+          .Some(a) => {
+            (na : Option(AstExpr)) = match(
+              _mut_marker_name(&a),
+              .Some(n) => {
+                if(reg, _register_mut_name(&n));
+                Option(AstExpr).Some(n)
+              },
+              .None => _strip_pattern_binders(&a, reg)
+            );
+            match(
+              na,
+              .Some(b) => {
+                changed = true;
+                out.push(b);
+              },
+              .None => out.push(a)
+            );
+          },
+          .None => ()
+        );
+      });
+      if(changed, Option(AstExpr).Some(_bs_with_args(pat, &out)), Option(AstExpr).None)
+    }
+  )
+);
+/// The statement `(mut(x) : T);` or `(comptime(mut(x)) : T);` with its
+/// marker stripped.
+_strip_statement_decl :: (fn(s : &AstExpr, reg : bool) -> Option(AstExpr))({
+  if(!ast_expr_is_fn_call_of(s, BK_COLON, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  match(_strip_binder(&_bs_arg(s, usize(0)), false, reg), .Some(nb) => Option(AstExpr).Some(_with_arg(s, usize(0), &nb)), .None => Option(AstExpr).None)
+});
+/// `e` with the decision-47 binder markers in its own binder positions
+/// stripped (the children are `desugar_if_calls`'s to visit), or `.None`
+/// when it has none. Records the stripped names when `reg`; with `reg` off it
+/// is `_contains_desugar_target`'s test.
+_strip_mut_binders :: (fn(e : &AstExpr, reg : bool) -> Option(AstExpr))({
+  if(ast_expr_is_fn_call_of(e, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_CONST, Option(usize).Some(usize(2))), {
+    lhs := _bs_arg(e, usize(0));
+    match(_strip_binder(&lhs, true, reg), .Some(nl) => return(Option(AstExpr).Some(_with_arg(e, usize(0), &nl))), .None => ());
+    return(match(_strip_destructuring_fields(&lhs, reg), .Some(nl) => Option(AstExpr).Some(_with_arg(e, usize(0), &nl)), .None => Option(AstExpr).None));
+  });
+  if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))), {
+    lhs := _bs_arg(e, usize(0));
+    if(!ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
+      return(Option(AstExpr).None);
+    });
+    return(match(_strip_binder(&_bs_arg(&lhs, usize(0)), true, reg), .Some(nb) => Option(AstExpr).Some(_with_arg(e, usize(0), &_with_arg(&lhs, usize(0), &nb))), .None => Option(AstExpr).None));
+  });
+  is_begin := ast_expr_is_fn_call_of(e, BK_BEGIN, .None);
+  is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
+  if(!(is_begin || is_match), {
+    return(Option(AstExpr).None);
+  });
+  // A block's statements, or a `match`'s arms (argument 0 is the scrutinee).
+  src := _bs_args(e);
+  out := ArrayList(AstExpr).new();
+  (changed : bool) = false;
+  (i : usize) = usize(0);
+  while(i < src.len(), i = (i + usize(1)), {
+    match(
+      src.get(i),
+      .Some(a) => {
+        (na : Option(AstExpr)) = cond(
+          is_begin => _strip_statement_decl(&a, reg),
+          ((i > usize(0)) && ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2)))) => {
+            arm_pat := _bs_arg(&a, usize(0));
+            match(
+              _mut_marker_name(&arm_pat),
+              .Some(n) => {
+                if(reg, _register_mut_name(&n));
+                Option(AstExpr).Some(_with_arg(&a, usize(0), &n))
+              },
+              .None => match(_strip_pattern_binders(&arm_pat, reg), .Some(np) => Option(AstExpr).Some(_with_arg(&a, usize(0), &np)), .None => Option(AstExpr).None)
+            )
+          },
+          true => Option(AstExpr).None
+        );
+        match(
+          na,
+          .Some(b) => {
+            changed = true;
+            out.push(b);
+          },
+          .None => out.push(a)
+        );
+      },
+      .None => ()
+    );
+  });
+  if(changed, Option(AstExpr).Some(_bs_with_args(e, &out)), Option(AstExpr).None)
+});
 _contains_desugar_target :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
@@ -1809,6 +2164,9 @@ _contains_desugar_target :: (fn(e : &AstExpr) -> bool)(
         return(true);
       });
       if(_is_borrow_spelling_target(e), {
+        return(true);
+      });
+      if(_strip_mut_binders(e, false).is_some(), {
         return(true);
       });
       if(recur(&func_box), {
@@ -1918,6 +2276,13 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
           .None => ()
         );
       });
+      // `mut(name)` / `thread_local(name)` in a binder position (decision
+      // 47): the bare name, recorded by its token.
+      match(
+        _strip_mut_binders(e, true),
+        .Some(mb) => return(recur(&mb)),
+        .None => ()
+      );
       n_args := args.len();
       if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
         cond_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -2068,8 +2433,8 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
 );
 /// Desugar every top-level statement of a freshly parsed program: `if` →
 /// `cond` throughout, `return(x.await(...))` → `begin(t := x.await(...),
-/// return(t))`, and a bare `c_include(...)` / `extern(...)` statement → its
-/// glob destructure. Returns a new statement list (ArrayList has no
+/// return(t))`, the decision-47 binder markers stripped, and a bare
+/// `c_include(...)` / `extern(...)` statement → its glob destructure. Returns a new statement list (ArrayList has no
 /// in-place `set`).
 desugar_program_if_calls :: (fn(program : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
@@ -2079,7 +2444,8 @@ desugar_program_if_calls :: (fn(program : &ArrayList(AstExpr)) -> ArrayList(AstE
     match(
       program.get(pi),
       .Some(s) => {
-        ds := desugar_if_calls(&s);
+        // A module-level `(mut(G) : T);` statement (decision 47).
+        ds := desugar_if_calls(match(_strip_statement_decl(&s, true), .Some(sd) => sd, .None => s.clone()));
         out.push(if(_is_extern_decl_call(&s), _wrap_glob_destructure(&ds), ds));
       },
       .None => ()
@@ -2095,7 +2461,7 @@ export(desugar_if_calls, desugar_program_if_calls, borrow_mode_not_a_type_messag
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
-export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count);
+export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, ast_rewritten_node, ast_rewritten_view);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
 /// machinery — in particular the begin-tail ownership pass, so a
