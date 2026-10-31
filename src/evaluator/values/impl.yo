@@ -7135,7 +7135,29 @@ impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> Arra
     collected := _collect_generic_ctor_method_impls(ctor_fid, method);
     g_ctor_method_cache.with_mut(m => m.insert(key.clone(), _CtorMethodCacheEntry(epoch : epoch, impls : collected)));
   });
-  out := match(g_ctor_method_cache.with(m => m.get(&key)), .Some(ce) => ce.impls, .None => ArrayList(CtorMethodImpl).new());
+  // The cached entry is the cache's STORAGE (generic half only): copy its
+  // elements into a fresh per-call list before the concrete half is appended,
+  // or every call within one epoch pushes its concrete candidates into the
+  // STORED list again — k calls handed back `generic + k × concrete` entries
+  // (issues/fixed/2026-10-31-ctor-method-cache-appends-its-concrete-candidates-on-every-call.md).
+  // Element copies are shallow (the binder/pattern handles are what callers
+  // already read through), and the cached list itself is never written after
+  // its miss-time collect.
+  out := ArrayList(CtorMethodImpl).new();
+  match(
+    g_ctor_method_cache.with(m => m.get(&key)),
+    .Some(ce) => {
+      (gi : usize) = usize(0);
+      while(gi < ce.impls.len(), gi = (gi + usize(1)), {
+        match(
+          ce.impls.get(gi),
+          .Some(g) => out.push(g),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
   n_conc := g_ctor_concrete_methods.with(xs => xs.len());
   (ci : usize) = usize(0);
   while(ci < n_conc, ci = (ci + usize(1)), {
