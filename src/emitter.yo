@@ -557,9 +557,11 @@ impl(
   /// early exit inside a branch (before the assignment) still skips the temp
   /// and every exit after it releases the value
   /// (issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md).
-  mark_declared_in_scope : (fn(self : &mut Self, name : &String) -> unit)(
-    match(&self.scope_ref, .Some(st) => st.with_mut(stack => stack.push(name.clone())), .None => ())
-  ),
+  mark_declared_in_scope : (fn(self : &mut Self, name : &String) -> unit)({
+    // Owned capture (`with_mut`'s callback is a sink parameter).
+    scope_name := name.clone();
+    match(&self.scope_ref, .Some(st) => st.with_mut({ scope_name }(stack) => stack.push(scope_name)), .None => ())
+  }),
   /// A `#line` directive must start a physical line: an `emit`/`emit_string`
   /// fragment with no trailing newline gets its newline first, so a directive
   /// is never spliced mid-line.
@@ -589,7 +591,7 @@ impl(
       return(());
     });
     match(
-      self.line_last_path,
+      &self.line_last_path,
       .Some(last) => if((last == path) && (self.line_last_row == usize(row)), {
         return(());
       }),
@@ -621,7 +623,7 @@ impl(
       return(());
     });
     match(
-      self.line_last_path,
+      &self.line_last_path,
       .Some(_) => {
         self._ensure_code_line_start();
         line := line_restore_marker();

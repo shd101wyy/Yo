@@ -108,8 +108,11 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_input_files.with_mut(xs => xs.push(fs.clone()));
-  g_input_hashes.with_mut(xs => xs.push(content_sha256.clone()));
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  fs_entry := fs.clone();
+  hash_entry := content_sha256.clone();
+  g_input_files.with_mut({ fs_entry }(xs) => xs.push(fs_entry));
+  g_input_hashes.with_mut({ hash_entry }(xs) => xs.push(hash_entry));
 });
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
 /// long-lived process (the LSP, `check --watch`) does not accumulate.
@@ -160,7 +163,10 @@ module_load_end :: (fn(key : &String, mark : usize) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_module_touches.with_mut(m => m.insert(key.clone(), out.clone()));
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  mt_key := key.clone();
+  mt_val := out.clone();
+  g_module_touches.with_mut({ mt_key, mt_val }(m) => m.insert(mt_key, mt_val));
 });
 /// Module `key` was found in the module cache: note it in the touch log (so an
 /// enclosing load's slice names it) and replay its inputs into this compile's
@@ -169,7 +175,8 @@ module_cache_hit :: (fn(key : &String) -> unit)({
   if(!g_input_hashing, {
     return(());
   });
-  g_touches.with_mut(xs => xs.push(`@${key}`));
+  key_owned := key.clone();
+  g_touches.with_mut({ key_owned }(xs) => xs.push(`@${key_owned}`));
   g_replaying = true;
   _replay_module(key);
   g_replaying = false;
@@ -178,7 +185,8 @@ _replay_module :: (fn(key : &String) -> unit)({
   if(g_replayed_modules.with(s => s.contains(key)), {
     return(());
   });
-  g_replayed_modules.with_mut(s => s.insert(key.clone()));
+  key_owned_ := key.clone();
+  g_replayed_modules.with_mut({ key_owned_ }(s) => s.insert(key_owned_.clone()));
   match(
     g_module_touches.with(m => m.get_cloned(key)),
     .Some(list) => {

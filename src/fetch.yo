@@ -601,30 +601,31 @@ ensure_commit :: (
 )({
   __probe_mirror := mirror.clone();
   __probe_url := url.clone();
+  __probe_commit := commit.clone();
   io.async((e : IoExn) => {
-    has := e.io.await(_mirror_has_commit(__probe_mirror.clone(), commit.clone(), e.io, e.exn), e);
+    has := e.io.await(_mirror_has_commit(__probe_mirror.clone(), __probe_commit.clone(), e.io, e.exn), e);
     if(has, {
       return(());
     });
     if(offline, {
-      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: commit ${commit} of ${__probe_url} is not in the cache`)));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: __probe_commit ${__probe_commit} of ${__probe_url} is not in the cache`)));
     });
     if(verbose, {
       println(`  fetching ${__probe_url}...`);
     });
     e.io.await(_mirror_fetch(__probe_mirror.clone(), Option(String).None, e.io, e.exn), e);
-    has_after_fetch := e.io.await(_mirror_has_commit(__probe_mirror.clone(), commit.clone(), e.io, e.exn), e);
+    has_after_fetch := e.io.await(_mirror_has_commit(__probe_mirror.clone(), __probe_commit.clone(), e.io, e.exn), e);
     if(has_after_fetch, {
       return(());
     });
-    e.io.await(_mirror_fetch(__probe_mirror.clone(), Option(String).Some(commit.clone()), e.io, e.exn), e);
-    has_after_direct := e.io.await(_mirror_has_commit(__probe_mirror.clone(), commit.clone(), e.io, e.exn), e);
+    e.io.await(_mirror_fetch(__probe_mirror.clone(), Option(String).Some(__probe_commit.clone()), e.io, e.exn), e);
+    has_after_direct := e.io.await(_mirror_has_commit(__probe_mirror.clone(), __probe_commit.clone(), e.io, e.exn), e);
     if(!has_after_direct, {
       e.exn.throw(
         dyn(
           format_coded_error(
             E_DEP_FETCH_FAILED,
-            `commit ${commit} of ${__probe_url} could not be fetched (not reachable from any ref, and the remote refuses direct commit fetches)`
+            `__probe_commit ${__probe_commit} of ${__probe_url} could not be fetched (not reachable from any ref, and the remote refuses direct __probe_commit fetches)`
           )
         )
       );
@@ -641,19 +642,22 @@ _extract_tree :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  __probe_mirror := mirror.clone();
+  __probe_dest := dest.clone();
+  __probe_commit := commit.clone();
   io.async((e : IoExn) => {
-    e.io.await(create_dir_all(Path.new(dest.clone()), e.io), e);
-    index := `${dest}.index`;
+    e.io.await(create_dir_all(Path.new(__probe_dest.clone()), e.io), e);
+    index := `${__probe_dest}.index`;
     cmd := git_command();
     cmd.env(String.from("GIT_INDEX_FILE"), index.clone());
     cmd.arg(String.from("--git-dir"));
-    cmd.arg(mirror);
+    cmd.arg(&__probe_mirror);
     cmd.arg(String.from("--work-tree"));
-    cmd.arg(dest.clone());
+    cmd.arg(__probe_dest.clone());
     cmd.arg(String.from("checkout"));
     cmd.arg(String.from("--quiet"));
-    cmd.arg(commit.clone());
+    cmd.arg(__probe_commit.clone());
     cmd.arg(String.from("--"));
     cmd.arg(String.from("."));
     status := e.io.await(cmd.status(e.io), e);
@@ -662,10 +666,10 @@ _extract_tree :: (
       e.io.await(remove_file(Path.new(&index), e.io), e);
     });
     if(!status.success(), {
-      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `git checkout of ${commit} failed`)));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `git checkout of ${__probe_commit} failed`)));
     });
   })
-);
+});
 // ---------------------------------------------------------------------------
 // The tag index
 // ---------------------------------------------------------------------------
@@ -677,16 +681,18 @@ read_tags_index :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
-    path := tags_index_path(cache_root, url);
+    path := tags_index_path(&__probe_cache_root, &__probe_url);
     present := e.io.await(exists(Path.new(path.clone()), e.io), e.io);
     if(!present, Option(String).None, {
       text := e.io.await(read_to_string(Path.new(&path), e.io), e);
       Option(String).Some(text)
     })
   })
-);
+});
 /// Record `url`'s `git ls-remote --tags` answer for `--offline` runs.
 write_tags_index :: (
   fn(
@@ -696,12 +702,15 @@ write_tags_index :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
+  __probe_text := text.clone();
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
-    e.io.await(create_dir_all(Path.new(get_index_dir(cache_root.clone())), e.io), e);
-    e.io.await(write_string(Path.new(tags_index_path(cache_root, url)), text, e.io), e);
+    e.io.await(create_dir_all(Path.new(get_index_dir(__probe_cache_root.clone())), e.io), e);
+    e.io.await(write_string(Path.new(tags_index_path(&__probe_cache_root, &__probe_url)), &__probe_text, e.io), e);
   })
-);
+});
 // ---------------------------------------------------------------------------
 // The projects registry
 // ---------------------------------------------------------------------------
@@ -712,9 +721,10 @@ _read_projects :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
   io.async((e : IoExn) => {
-    path := projects_registry_path(cache_root);
+    path := projects_registry_path(&__probe_cache_root);
     out := ArrayList(String).new();
     present := e.io.await(exists(Path.new(path.clone()), e.io), e.io);
     if(!present, {
@@ -732,7 +742,7 @@ _read_projects :: (
     });
     out
   })
-);
+});
 _write_projects :: (
   fn(
     cache_root : &String,
@@ -740,18 +750,20 @@ _write_projects :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
+  __probe_projects := projects.clone();
   io.async((e : IoExn) => {
     text := String.new();
     (i : usize) = usize(0);
-    while(i < projects.len(), {
-      text.push_string(projects(i).clone());
+    while(i < __probe_projects.len(), {
+      text.push_string(__probe_projects(i).clone());
       text.push_str("\n");
       i = (i + usize(1));
     });
-    e.io.await(write_string(Path.new(projects_registry_path(cache_root)), &text, e.io), e);
+    e.io.await(write_string(Path.new(projects_registry_path(&__probe_cache_root)), &text, e.io), e);
   })
-);
+});
 _contains_string :: (fn(list : &ArrayList(String), item : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < list.len(), {
@@ -771,16 +783,18 @@ record_project :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
+  __probe_project_dir := project_dir.clone();
   io.async((e : IoExn) => {
-    projects := e.io.await(_read_projects(cache_root.clone(), e.io, e.exn), e);
-    if(_contains_string(&projects, project_dir.clone()), {
+    projects := e.io.await(_read_projects(__probe_cache_root.clone(), e.io, e.exn), e);
+    if(_contains_string(&projects, __probe_project_dir.clone()), {
       return(());
     });
-    projects.push(project_dir.clone());
-    e.io.await(_write_projects(cache_root, &projects, e.io, e.exn), e);
+    projects.push(__probe_project_dir.clone());
+    e.io.await(_write_projects(&__probe_cache_root, &projects, e.io, e.exn), e);
   })
-);
+});
 // ---------------------------------------------------------------------------
 // Fetching one package
 // ---------------------------------------------------------------------------
@@ -835,38 +849,44 @@ fetch_package :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(FetchedPackage, IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
+  __probe_name := name.clone();
+  __probe_url := url.clone();
+  __probe_ref := ref.clone();
+  __probe_locked_commit := locked_commit.clone();
+  __probe_expected_integrity := expected_integrity.clone();
   io.async((e : IoExn) => {
-    (commit : String) = match(locked_commit, .Some(c) => if(refresh, String.new(), c.clone()), .None => String.new());
+    (commit : String) = match(&__probe_locked_commit, .Some(c) => if(refresh, String.new(), c.clone()), .None => String.new());
     needs_ls_remote := (commit.len() == usize(0));
-    mirror_dir := git_mirror_dir(cache_root.clone(), url.clone());
+    mirror_dir := git_mirror_dir(__probe_cache_root.clone(), __probe_url.clone());
     mirror_present := e.io.await(exists(Path.new(mirror_dir.clone()), e.io), e.io);
-    // Offline, the mirror is the only place a ref can be resolved.
+    // Offline, the mirror is the only place a __probe_ref can be resolved.
     if(needs_ls_remote && offline && mirror_present, {
-      from_mirror := e.io.await(mirror_rev_parse(mirror_dir.clone(), ref.clone(), e.io, e.exn), e);
+      from_mirror := e.io.await(mirror_rev_parse(mirror_dir.clone(), __probe_ref.clone(), e.io, e.exn), e);
       commit = match(from_mirror, .Some(c) => c.clone(), .None => String.new());
     });
     if(needs_ls_remote && offline && (commit.len() == usize(0)), {
       e.exn.throw(
-        dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${name}" (${url} @ ${ref}) to a commit needs the network`))
+        dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${__probe_name}" (${__probe_url} @ ${__probe_ref}) to a commit needs the network`))
       );
     });
     if(needs_ls_remote && !offline, {
       if(verbose, {
-        println(`  ${name}: resolving ${ref} at ${url}...`);
+        println(`  ${__probe_name}: resolving ${__probe_ref} at ${__probe_url}...`);
       });
-      resolved := e.io.await(resolve_git_ref(url.clone(), ref.clone(), e.io, e.exn), e);
+      resolved := e.io.await(resolve_git_ref(__probe_url.clone(), __probe_ref.clone(), e.io, e.exn), e);
       commit = resolved;
     });
-    expected := match(expected_integrity, .Some(h) => h.clone(), .None => String.new());
+    expected := match(&__probe_expected_integrity, .Some(h) => h.clone(), .None => String.new());
     // The fast path: the lock names the tree and the store has it.
     (known_dir : String) = String.new();
     if(expected.len() > usize(0), {
       known_dir = match(
-        store_tree_dir(cache_root.clone(), expected.clone()),
+        store_tree_dir(__probe_cache_root.clone(), expected.clone()),
         .Ok(d) => d,
         .Err(msg) => {
-          e.exn.throw(dyn(format_coded_error(E_LOCK_MISMATCH, `yo.lock entry for "${name}": ${msg}`)));
+          e.exn.throw(dyn(format_coded_error(E_LOCK_MISMATCH, `yo.lock entry for "${__probe_name}": ${msg}`)));
           String.new()
         }
       );
@@ -891,24 +911,24 @@ fetch_package :: (
       verified = true;
     });
     if(have_tree && (!verified && !rehash_matches), {
-      println(`  ${name}: the stored tree ${expected} does not hash to its name — re-fetching`);
+      println(`  ${__probe_name}: the stored tree ${expected} does not hash to its __probe_name — re-fetching`);
       e.io.await(remove_dir_all(Path.new(known_dir.clone()), e.io), e);
       have_tree = false;
     });
     if(have_tree && verified, {
       if(verbose, {
-        println(`  ${name}: in the store`);
+        println(`  ${__probe_name}: in the store`);
       });
       return(FetchedPackage(commit : commit, integrity : expected, dir : known_dir));
     });
     // The slow path: mirror, extract, hash, land — under the store lock.
     if(offline && !mirror_present, {
-      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: "${name}" (${url} @ ${commit}) is not in the cache`)));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: "${__probe_name}" (${__probe_url} @ ${commit}) is not in the cache`)));
     });
-    lock := e.io.await(acquire_store_lock(cache_root.clone(), e.io, e.exn), e);
-    mirror := e.io.await(ensure_mirror(cache_root.clone(), url.clone(), offline, verbose, e.io, e.exn), e);
-    e.io.await(ensure_commit(mirror.clone(), url.clone(), commit.clone(), offline, verbose, e.io, e.exn), e);
-    tmp := `${get_store_dir(cache_root.clone())}/.tmp-${commit.substring(usize(0), usize(12))}-${_random_suffix()}`;
+    lock := e.io.await(acquire_store_lock(__probe_cache_root.clone(), e.io, e.exn), e);
+    mirror := e.io.await(ensure_mirror(__probe_cache_root.clone(), __probe_url.clone(), offline, verbose, e.io, e.exn), e);
+    e.io.await(ensure_commit(mirror.clone(), __probe_url.clone(), commit.clone(), offline, verbose, e.io, e.exn), e);
+    tmp := `${get_store_dir(__probe_cache_root.clone())}/.tmp-${commit.substring(usize(0), usize(12))}-${_random_suffix()}`;
     e.io.await(_extract_tree(mirror.clone(), commit.clone(), tmp.clone(), e.io, e.exn), e);
     integrity := e.io.await(compute_content_hash(tmp.clone(), e.io, e.exn), e);
     mismatch := ((expected.len() > usize(0)) && (expected != integrity));
@@ -919,13 +939,13 @@ fetch_package :: (
         dyn(
           format_coded_error(
             E_STORE_INTEGRITY_MISMATCH,
-            `integrity mismatch for "${name}" at ${commit}: yo.lock records ${expected}, the fetched tree hashes to ${integrity}. If the dependency's history was rewritten, run \`yo update ${name}\`.`
+            `integrity mismatch for "${__probe_name}" at ${commit}: yo.lock records ${expected}, the fetched tree hashes to ${integrity}. If the dependency's history was rewritten, run \`yo update ${__probe_name}\`.`
           )
         )
       );
     });
     final_dir := match(
-      store_tree_dir(cache_root.clone(), integrity.clone()),
+      store_tree_dir(__probe_cache_root.clone(), integrity.clone()),
       .Ok(d) => d,
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${msg}`));
@@ -942,11 +962,11 @@ fetch_package :: (
     e.io.await(write_string(Path.new(store_verified_marker(final_dir.clone())), `${integrity}\n`, e.io), e);
     e.io.await(release_store_lock(&lock, e.io, e.exn), e);
     if(verbose, {
-      println(`  ${name}: stored as ${integrity}`);
+      println(`  ${__probe_name}: stored as ${integrity}`);
     });
     FetchedPackage(commit : commit, integrity : integrity, dir : final_dir)
   })
-);
+});
 // ---------------------------------------------------------------------------
 // yo cache gc
 // ---------------------------------------------------------------------------
@@ -996,22 +1016,25 @@ _sweep_dir :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(usize, IoExn))
-)(
+)({
+  __probe_strip := strip.clone();
+  __probe_dir := dir.clone();
+  __probe_keep := keep.clone();
   io.async((e : IoExn) => {
-    present := e.io.await(exists(Path.new(dir.clone()), e.io), e.io);
+    present := e.io.await(exists(Path.new(__probe_dir.clone()), e.io), e.io);
     if(!present, {
       return(usize(0));
     });
-    entries := e.io.await(read_dir(Path.new(dir.clone()), e.io), e);
+    entries := e.io.await(read_dir(Path.new(__probe_dir.clone()), e.io), e);
     (removed : usize) = usize(0);
     (i : usize) = usize(0);
     while(i < entries.len(), {
       name := entries(i).name.clone();
       is_dir := match(entries(i).file_type, .Directory => true, _ => false);
       i = (i + usize(1));
-      base := if((strip.len() > usize(0)) && name.ends_with(strip.clone()), name.substring(usize(0), name.len() - strip.len()), name.clone());
-      keep_it := _contains_string(keep, &base);
-      full := `${dir}/${name}`;
+      base := if((__probe_strip.len() > usize(0)) && name.ends_with(__probe_strip.clone()), name.substring(usize(0), name.len() - __probe_strip.len()), name.clone());
+      keep_it := _contains_string(&__probe_keep, &base);
+      full := `${__probe_dir}/${name}`;
       if(!keep_it && is_dir, {
         e.io.await(remove_dir_all(Path.new(full.clone()), e.io), e);
       });
@@ -1024,7 +1047,7 @@ _sweep_dir :: (
     });
     removed
   })
-);
+});
 /// Count the entries of `dir` whose name is in `keep`.
 _count_kept :: (
   fn(
@@ -1033,25 +1056,27 @@ _count_kept :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(usize, IoExn))
-)(
+)({
+  __probe_dir := dir.clone();
+  __probe_keep := keep.clone();
   io.async((e : IoExn) => {
-    present := e.io.await(exists(Path.new(dir.clone()), e.io), e.io);
+    present := e.io.await(exists(Path.new(__probe_dir.clone()), e.io), e.io);
     if(!present, {
       return(usize(0));
     });
-    entries := e.io.await(read_dir(Path.new(dir.clone()), e.io), e);
+    entries := e.io.await(read_dir(Path.new(__probe_dir.clone()), e.io), e);
     (kept : usize) = usize(0);
     (i : usize) = usize(0);
     while(i < entries.len(), {
       is_dir := match(entries(i).file_type, .Directory => true, _ => false);
-      if(is_dir && _contains_string(keep, entries(i).name.clone()), {
+      if(is_dir && _contains_string(&__probe_keep, entries(i).name.clone()), {
         kept = (kept + usize(1));
       });
       i = (i + usize(1));
     });
     kept
   })
-);
+});
 /// `yo cache gc`: every recorded project's `yo.lock` is read (a project whose
 /// directory or lock is gone is forgotten); every store tree, mirror and tag
 /// index none of them references is removed. Runs under the store lock.
@@ -1068,10 +1093,12 @@ gc_store :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(GcReport, IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
+  __probe_context_keep := context_keep.clone();
   io.async((e : IoExn) => {
-    lock := e.io.await(acquire_store_lock(cache_root.clone(), e.io, e.exn), e);
-    projects := e.io.await(_read_projects(cache_root.clone(), e.io, e.exn), e);
+    lock := e.io.await(acquire_store_lock(__probe_cache_root.clone(), e.io, e.exn), e);
+    projects := e.io.await(_read_projects(__probe_cache_root.clone(), e.io, e.exn), e);
     kept_projects := ArrayList(String).new();
     tree_names := ArrayList(String).new();
     remote_keys := ArrayList(String).new();
@@ -1097,13 +1124,13 @@ gc_store :: (
         );
       });
     });
-    e.io.await(_write_projects(cache_root.clone(), &kept_projects, e.io, e.exn), e);
-    store_dir := get_store_dir(cache_root.clone());
+    e.io.await(_write_projects(__probe_cache_root.clone(), &kept_projects, e.io, e.exn), e);
+    store_dir := get_store_dir(__probe_cache_root.clone());
     trees_kept := e.io.await(_count_kept(store_dir.clone(), &tree_names, e.io, e.exn), e);
     trees_removed_dirs := e.io.await(_sweep_dir(store_dir.clone(), String.from(".verified"), &tree_names, true, e.io, e.exn), e);
-    mirrors_removed := e.io.await(_sweep_dir(get_git_mirrors_dir(cache_root.clone()), String.from(".git"), &remote_keys, true, e.io, e.exn), e);
-    indexes_removed := e.io.await(_sweep_dir(get_index_dir(cache_root.clone()), String.from(".tags"), &remote_keys, false, e.io, e.exn), e);
-    context_removed := e.io.await(_sweep_dir(get_context_dir(cache_root.clone()), String.new(), context_keep, true, e.io, e.exn), e);
+    mirrors_removed := e.io.await(_sweep_dir(get_git_mirrors_dir(__probe_cache_root.clone()), String.from(".git"), &remote_keys, true, e.io, e.exn), e);
+    indexes_removed := e.io.await(_sweep_dir(get_index_dir(__probe_cache_root.clone()), String.from(".tags"), &remote_keys, false, e.io, e.exn), e);
+    context_removed := e.io.await(_sweep_dir(get_context_dir(__probe_cache_root.clone()), String.new(), &__probe_context_keep, true, e.io, e.exn), e);
     e.io.await(release_store_lock(&lock, e.io, e.exn), e);
     GcReport(
       projects_kept : kept_projects.len(),
@@ -1115,7 +1142,7 @@ gc_store :: (
       context_dirs_removed : context_removed
     )
   })
-);
+});
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------

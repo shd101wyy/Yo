@@ -41,13 +41,16 @@ type_key_epoch :: (fn() -> u64)(g_type_key_epoch);
 /// first registration wins — one id is minted by one constructor call.
 register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)({
   if(!g_type_display_names.with(m => m.contains_key(type_id.clone())), {
-    _prev := g_type_display_names.with_mut(m => m.insert(type_id.clone(), display.clone()));
+    // Owned captures (`with_mut`'s callback is a sink parameter).
+    tdn_key := type_id.clone();
+    tdn_val := display.clone();
+    _prev := g_type_display_names.with_mut({ tdn_key, tdn_val }(m) => m.insert(tdn_key, tdn_val));
     bump_type_key_epoch();
   });
 });
 /// The registered display name for `type_id`, if any.
 type_display_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_display_names.with(m => m.get(type_id))
+  g_type_display_names.with(m => m.get_cloned(type_id))
 );
 /// Drop every registered display name (a reset of the evaluator universe).
 clear_type_display_names :: (fn() -> unit)({
@@ -63,7 +66,7 @@ _tts_seen :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
     // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
     // shape required — the bool-valued match form miscompiles self-hosted).
     match(
-      xs.get(i),
+      xs.get_cloned(i),
       .Some(e) => if(e == s, {
         found = true;
       }),
@@ -266,13 +269,17 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
             body = `${body}${fl} : ${ft}`;
             i = (i + usize(1));
           });
-          `module ${name}(${body})`
+          // Hoisted: `name` is a match-bound borrow of the payload; the
+          // template's tail read copies it (generic body, so the clone is
+          // spelled here rather than by the sweep).
+          mod_name := name.clone();
+          `module ${mod_name}(${body})`
         },
-        true => if(name.len() > usize(0), name, match(type_display_name(id.clone()), .Some(d) => d, .None => `<struct:${id}>`))
+        true => if(name.len() > usize(0), name.clone(), match(type_display_name(id.clone()), .Some(d) => d, .None => `<struct:${id}>`))
       ),
       Rc(.EnumT(id, name, _, _, _, _, _, _, _, _)) => if(
         name.len() > usize(0),
-        name,
+        name.clone(),
         match(
           type_display_name(id.clone()),
           .Some(d) => d,
@@ -280,16 +287,16 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           .None => cond(id.ends_with(`__self_shell`) => String.from("Self"), true => `<enum:${id}>`)
         )
       ),
-      Rc(.Union(name, _, _)) => if(name.len() > usize(0), match(type_display_name(name.clone()), .Some(d) => d, .None => name), `<union>`),
+      Rc(.Union(name, _, _)) => if(name.len() > usize(0), match(type_display_name(name.clone()), .Some(d) => d, .None => name.clone()), `<union>`),
       Rc(.TraitT(id : t_id, name : n, field_labels : fls, field_types : fts)) => {
         // Prefer the trait's NAME whenever it has one (print "Send", not the
         // trait's field dump) — the
         // field dump is the fallback for genuinely anonymous traits only.
         if(n.len() > usize(0), {
-          return(n);
+          return(n.clone());
         });
         if(fls.len() == usize(0), {
-          return(n);
+          return(n.clone());
         });
         // See the Struct arm: an anonymous trait's field dump is its method
         // signatures, which mention the constrained type variable again.
@@ -305,23 +312,23 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           if(i > usize(0), {
             body = `${body}, `;
           });
-          fl := match(fls.get(i), .Some(s) => s, .None => `""`);
+          fl := match(fls.get_cloned(i), .Some(s) => s, .None => `""`);
           ft := match(fts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${fl} : ${ft}`;
           i = (i + usize(1));
         });
-        `${n}(${body})`
+        `${n.clone()}(${body})`
       },
       Rc(.SomeT(id : sm_id, name : n, required_trait_types : rts, negative_trait_types : nts)) => {
         if((rts.len() == usize(0)) && (nts.len() == usize(0)), {
-          return(n);
+          return(n.clone());
         });
         // See the Struct arm. This is the arm that closes the loop: a trait
         // constraint's method signatures mention the very type variable being
         // constrained (`T : (Ord)` where `Ord.cmp : fn(self : T, ...)`), so
         // `T` → `Ord` → `cmp` → `T` … expands without this.
         if((sm_id.len() > usize(0)) && _tts_seen(visited, sm_id.clone()), {
-          return(n);
+          return(n.clone());
         });
         if(sm_id.len() > usize(0), {
           visited.push(sm_id.clone());

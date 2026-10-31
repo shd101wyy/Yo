@@ -65,7 +65,7 @@ _append_string_vec :: (fn(sb : &mut StringBuilder, xs : &ArrayList(String)) -> u
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    match(xs.get(i), .Some(s) => sb.write_string(&s), .None => ());
+    match(xs.get_cloned(i), .Some(s) => sb.write_string(&s), .None => ());
     sb.write_str(",");
     i = (i + usize(1));
   });
@@ -840,7 +840,7 @@ purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < keys.len(), {
     match(
-      keys.get(i),
+      keys.get_cloned(i),
       .Some(k) => {
         _r := g_type_intern.with_mut(m => m.remove(&k));
       },
@@ -857,7 +857,7 @@ intern_type :: (fn(t : &TypeValue) -> TypeValue)({
     .Some(canon) => canon,
     .None => {
       owned_keys_record(&g_type_intern_owned, key.clone());
-      g_type_intern.with_mut({ key, t : Rc.clone(t) }(m) => m.insert(key.clone(), Rc.clone(t)));
+      g_type_intern.with_mut({ key : key.clone(), t : Rc.clone(t) }(m) => m.insert(key.clone(), Rc.clone(t)));
       match(g_type_intern.with(m => m.get(&key)), .Some(c) => c, .None => Rc.new(TypeValueNode.Unit))
     }
   )
