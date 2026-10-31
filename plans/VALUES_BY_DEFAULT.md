@@ -8930,9 +8930,18 @@ stage-2 RSS):
         emitters read a block through `emitted_block_statements`: the
         function body, `{ … }` blocks, the async state machine's body and the
         fused-await wrapper.
-      - `strip_mut_marker` (decision 47) still writes through the `ref` list
-        it copies, which B8 breaks
+      - `strip_mut_marker` (decision 47) wrote through the `ref` list it
+        copies, which B8 breaks
         (`issues/retired/2026-10-30-how-should-the-mut-marker-strip-stop-writing-the-ast.md`).
+        Fixed 2026-10-31 (`fix/ast-immutable-before-b8`), together with four
+        more writes of the same kind the consultation on it found: the
+        marker and `thread_local(name)` are stripped at desugar, and the
+        three type-directed evaluator rewrites codegen reads (a field read's
+        auto-dereference `w.f` → `w.*.f`, the payload-method retry
+        `w.m(…)` → `w.*.m(…)` and the `dyn(v)` auto-box) record the
+        rewritten node under its own id (`note_rewritten_node`,
+        `src/expr.yo`); its readers go through `ast_rewritten_node` /
+        `ast_rewritten_view`.
     - **Measured** (base `908ef0295` against this tree, each stage 1 built by
       the v0.2.73 seed):
       - The C that the two stage 1 binaries emit for this tree's
@@ -9606,14 +9615,20 @@ once `SEED_VERSION` parses it.
      `for`-element classification, std/time's read-only receivers still
      `&mut Self`).
    - **As built (Generation A, `feat/vbd-d47-locals-gena`).**
-     - `mut(name)` is stripped in place wherever a binding is evaluated
-       (`strip_mut_marker`; `strip_pattern_mut_markers` for `match` arms) and
+     - `mut(name)` is stripped at desugar (`desugar_if_calls`,
+       `_strip_mut_binders`, `src/expr.yo`; until 2026-10-31 it was stripped
+       in place where the binding was evaluated, a write B8 would break) and
        recorded by the declared name's token (`register_mut_binding`), which
        every copy of the `Variable` keeps: `mut(x) :=`, `mut(x) ::`,
        `comptime(mut(x)) :=`, `(mut(x) : T) = v`, `(mut(x) : T);`,
        `.Some(mut(v))`, `(mut(w) := p)`, `{ a, mut(b) }`,
        `{ x : mut(b) }`, `(a, mut(b))`. A marked pattern or destructuring
-       binding becomes reassignable.
+       binding becomes reassignable. `thread_local(name)` is lowered in the
+       same branch (`register_thread_local_binding`). A parameter, a closure
+       parameter, a named argument, a guard and a `quote` body keep the
+       marker; a malformed one (`mut(x.f)`) stays in the tree and the
+       evaluator rejects it where the binding is evaluated
+       (`reject_malformed_mut_marker`), with the message it always had.
      - The write error reuses E0917, renamed `E_IMMUTABLE_BINDING_WRITE`
        (`binding_require_mut`, `place_require_mut`): reassignment (a
        `(x : T);` declaration's first assignment on each branch is its
