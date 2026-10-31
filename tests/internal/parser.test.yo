@@ -1106,7 +1106,13 @@ test("decision 47: a binder's mut(name) is stripped at desugar", {
   assert_str_eq(_d42(`(comptime(mut(x)) : i32) = 1`), _d42(`(comptime(x) : i32) = 1`), "(comptime(mut(x)) : T) = v");
   assert_str_eq(_d42(`(mut(g) : i32)`), _d42(`(g : i32)`), "a module-level (mut(G) : T); statement");
   assert_str_eq(_d42(`{ (mut(u) : i32); u = 1; u }`), _d42(`{ (u : i32); u = 1; u }`), "a (mut(x) : T); statement in a block");
-  assert_str_eq(_d42(`{ a, mut(b) } := s`), _d42(`{ a, b } := s`), "a destructuring field");
+  // A BARE marked field stays POSITIONAL: the parser pair-ifies only bare
+  // atoms (`{ x, y: 2 }` → `_(x: x, y: 2)`, parser.yo's anon-struct build), so
+  // `mut(b)` — a call — is never pair-ified and the stripped `b` keeps index
+  // binding. That is the tree the old in-place `strip_mut_marker` left, while
+  // `{ a, b }` binds `b` by its LABEL — the two renders were never equal
+  // (issues/2026-10-31-a-mut-marked-bare-field-in-a-record-destructure-binds-positionally.md).
+  assert_str_eq(_d42(`{ a, mut(b) } := s`), String.from(`_(a : a, b) := s`), "a destructuring field");
   assert_str_eq(_d42(`{ x : a, y : mut(b) } := s`), _d42(`{ x : a, y : b } := s`), "a renamed destructuring field");
   assert_str_eq(_d42(`(a, mut(b)) := t`), _d42(`(a, b) := t`), "a tuple destructuring field");
   assert_str_eq(_d42(`match(o, .Some(mut(v)) => v, .None => 0)`), _d42(`match(o, .Some(v) => v, .None => 0)`), "a variant payload");
@@ -1138,6 +1144,9 @@ test("decision 47: the stripped names are recorded by their token", {
   ds := _d47_at(`{ x : a, y : mut(b) } := s`, `d47_f.yo`);
   b := _d47_arg(&_d47_arg(&_d47_arg(&ds, usize(0)), usize(1)), usize(1));
   assert(_d47_marked(&b), "a renamed destructuring field records its new name");
+  dsb := _d47_at(`{ a, mut(b) } := s`, `d47_g.yo`);
+  bb := _d47_arg(&_d47_arg(&dsb, usize(0)), usize(1));
+  assert(_d47_marked(&bb), "a bare destructuring field records its name");
 });
 test("decision 47: a parameter, a closure, a named argument, a guard, a quote and a malformed marker keep mut(...)", {
   assert(_d42(`(fn(mut(x) : i32) -> i32)(x)`).contains("mut("), "a parameter is the deleted spelling (E0009), not a binder");
