@@ -446,9 +446,11 @@ test("the build's default C compiler is probed, not the literal clang", {
     .None => ()
   );
   // Parent mode — drive the default resolution against controlled PATHs.
-  // One handler per resume type: the io awaits resume unit, a
-  // `_resolve_c_compiler` throw resumes String (the tests/internal/
-  // formatter.test.yo `_fmt` pattern).
+  // The helper throws in statement position, so every handler here resumes
+  // unit (the io awaits' handlers too): the catch handler RESUMES, the
+  // helper then returns its trailing empty String and the asserts below
+  // still run (statement-position throws are `_resolve_workspace_member`'s
+  // pattern, not a value-position `parser.yo` throw).
   io_exn := Exception(
     throw : (
       err -> {
@@ -461,7 +463,7 @@ test("the build's default C compiler is probed, not the literal clang", {
     throw : (
       err -> {
         assert(false, `unexpected error while resolving the default cc: ${err.to_string()}`);
-        unwind(String.new());
+        unwind(());
       }
     )
   );
@@ -470,7 +472,6 @@ test("the build's default C compiler is probed, not the literal clang", {
     throw : (
       err -> {
         thrown.push(err.to_string());
-        unwind(String.new());
       }
     )
   );
