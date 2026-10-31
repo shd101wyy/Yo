@@ -91,7 +91,7 @@ subst_add_len_var :: (fn(s : &Substitution, name : &String, value : usize) -> un
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
-    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.len_var_names.get_cloned(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       s.len_var_values(i) = value;
       return(());
@@ -119,15 +119,15 @@ _without_len_vars :: (fn(s : &Substitution) -> Substitution)(
   cond(
     (s.len_var_names.len() == usize(0)) => s,
     true => Substitution(
-      names : s.names,
-      levels : s.levels,
-      types : s.types,
-      visited_trait_ids : s.visited_trait_ids,
-      self_from : s.self_from,
-      self_to : s.self_to,
+      names : s.names.clone(),
+      levels : s.levels.clone(),
+      types : s.types.clone(),
+      visited_trait_ids : s.visited_trait_ids.clone(),
+      self_from : s.self_from.clone(),
+      self_to : s.self_to.clone(),
       len_var_names : ArrayList(String).new(),
       len_var_values : ArrayList(usize).new(),
-      own_resolution_ids : s.own_resolution_ids,
+      own_resolution_ids : s.own_resolution_ids.clone(),
       node_memo_from : ArrayList(TypeValue).new(),
       node_memo_to : ArrayList(TypeValue).new()
     )
