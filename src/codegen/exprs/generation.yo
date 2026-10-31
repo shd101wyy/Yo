@@ -594,10 +594,10 @@ _materialize_owned_rc_comptime_value :: (
   ) -> String
 )({
   var_name := match(ei.variable_name, .Some(vn) => vn, .None => String.from(""));
-  if(var_name.len() == usize(0), return(comptime_code));
+  if(var_name.len() == usize(0), return(comptime_code.clone()));
   // Only shapes that actually malloc need an owner (see the predicate's doc).
-  if(!comptime_value_allocates_rc_object(value, &ei.ty), return(comptime_code));
-  if(!is_temp_variable_name(&ei.env.module_path.*, &var_name), return(comptime_code));
+  if(!comptime_value_allocates_rc_object(value, &ei.ty), return(comptime_code.clone()));
+  if(!is_temp_variable_name(&ei.env.module_path.*, &var_name), return(comptime_code.clone()));
   vars := scope_variables(key, &ei.env, var_name.clone());
   is_owning := match(
     vars.last(),
