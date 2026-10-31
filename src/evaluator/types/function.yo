@@ -27,6 +27,8 @@ pragma(Pragma.AllowUnsafe);
   BK_COMPTIME,
   BK_QUOTE,
   BK_IMM,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
   ast_expr_is_inout_mode_call,
   reject_old_mode_spelling,
   BK_COLON,
@@ -44,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_reference_with_origin, is_origin_kind } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -77,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
   get_trait_type_from_env
 } :: import("../../types/env_lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_PARAM_DEFAULT } :: import("../../diagnostics.yo");
+{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
@@ -937,9 +939,140 @@ FuncParam :: struct(
 /// The `FuncParam.ty` of a parameter: a regular parameter's slot (its mode is
 /// its type, `t_slot`); a `generic`/`using` parameter's plain type (their
 /// lists carry no mode).
-_param_slot :: (fn(ty : &TypeValue, is_param_ref : bool, is_owning : bool, is_comptime_by_default : bool) -> TypeValue)(
-  if(is_comptime_by_default, ty.clone(), t_slot(ty, is_param_ref, is_owning))
+_param_slot :: (fn(ty : &TypeValue, is_param_ref : bool, is_owning : bool, is_comptime_by_default : bool, origin : &Option(TypeValue)) -> TypeValue)(
+  cond(
+    is_comptime_by_default => ty.clone(),
+    true => match(
+      origin,
+      // A spelled `x : &(T, o)` / `x : &mut(T, o)` (decision 43 step 2): the
+      // borrow slot carries the origin; every reader of the slot sees the
+      // same mode and pointee as the elided form.
+      .Some(o) => t_reference_with_origin(ty, is_param_ref, &o),
+      .None => t_slot(ty, is_param_ref, is_owning)
+    )
+  )
 );
+/// `&(T, o)` / `&mut(T, o)`: the two-argument (operator-call) form of the
+/// borrow sigils, an origin-qualified reference type in type position
+/// (decision 43 step 2; plans/backlog/REFERENCES_AND_ORIGINS.md O1).
+is_origin_qualified_reference_expr :: (fn(e : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(2)))
+);
+/// E0922 for an origin position at `at`.
+_origin_error :: (fn(at : &AstExpr, msg : &String, help : &String) -> YoError)(
+  with_code(format_error_message_with_help(ast_expr_token(at), msg, Option(String).Some(help.clone())), E_ORIGIN_NOT_DECLARED)
+);
+/// `names` holds `name`.
+_names_contain :: (fn(names : &ArrayList(String), name : &String) -> bool)({
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    if(match(names.get(ni), .Some(n) => (n == name), .None => false), {
+      return(true);
+    });
+    ni = (ni + usize(1));
+  });
+  false
+});
+/// `e` evaluates to a type (a soft trial: a name that does not resolve is
+/// simply not a type).
+_origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+  trial_exn := Exception(throw : (_err -> unwind(false)));
+  ev := evaluate_expression_raw(e, env, ctx, trial_exn);
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value), .None => false)
+});
+/// Collect the origin names `e` spells into `out`: an origin parameter
+/// declared by the signature's `generic(o : Origin)`, or a union `(o1, o2)`
+/// of them (decision 43 step 2, N1a). In a PARAMETER type an origin names
+/// declared origin parameters only; a parameter's own place is an origin in
+/// the result type. Anything else is E0922.
+_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
+  if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
+    o_args := _fn_call_args(e);
+    (oi : usize) = usize(0);
+    while(oi < o_args.len(), {
+      match(o_args.get(oi), .Some(oa) => _origin_names_into(&oa, env, ctx, out, exn), .None => ());
+      oi = (oi + usize(1));
+    });
+    return(());
+  });
+  o_text := ast_expr_to_string(e);
+  if(!ast_expr_is_atom(e) || !is_valid_variable_name(e), {
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `\`${o_text}\` is not an origin: the second argument of \`&(T, o)\` names an origin parameter or a union of them, \`(p, q)\`.`,
+          String.from("declare the origin in the signature, `generic(p : Origin)`, and write `x : &(T, p)`")
+        )
+      )
+    );
+  });
+  o_name := ast_expr_text(e).*;
+  o_vars := get_variables_from_env(env, &o_name);
+  o_n := o_vars.len();
+  if(o_n == usize(0), {
+    if(_origin_operand_is_type(e, env, ctx), {
+      exn.throw(
+        dyn(
+          _origin_error(
+            e,
+            `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+            `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`generic(p : Origin)\``
+          )
+        )
+      );
+    });
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `The origin \`${o_text}\` is not declared.`,
+          `declare it in the signature: \`generic(${o_text} : Origin)\``
+        )
+      )
+    );
+  });
+  o_var := match(o_vars.get(o_n - usize(1)), .Some(v) => v, .None => return(()));
+  if(is_origin_kind(&o_var.ty), {
+    if(!_names_contain(out, &o_name), {
+      out.push(o_name);
+    });
+    return(());
+  });
+  o_is_type := match(o_var.value.get(usize(0)), .Some(ov) => match(ov, .TypeVal(_) => true, _ => false), .None => false);
+  if(o_is_type, {
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+          `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`generic(p : Origin)\``
+        )
+      )
+    );
+  });
+  exn.throw(
+    dyn(
+      _origin_error(
+        e,
+        `\`${o_text}\` is not an origin parameter: a parameter's type names origins declared with \`generic(p : Origin)\`.`,
+        `a parameter's own place is an origin in the RESULT type (\`-> &(T, ${o_text})\`); in a parameter type, declare \`generic(p : Origin)\``
+      )
+    )
+  );
+});
+/// The origin a parameter type `&(T, o)` spells, as an `OriginSet` of names.
+evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
+  names := ArrayList(String).new();
+  _origin_names_into(e, env, ctx, &mut names, exn);
+  t_origin_named(&shared_list(names))
+});
+/// The origin parameter `name` as an origin value: the set naming it.
+_origin_of_name :: (fn(name : &String) -> TypeValue)({
+  names := ArrayList(String).new();
+  names.push(name.clone());
+  t_origin_named(&shared_list(names))
+});
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
   lhs_expr : AstExpr,
@@ -964,7 +1097,10 @@ FuncParamsResult :: struct(
   decreases_expr : Option(AstExpr),
   /// V6 task 5: the signature carried `assumed()` — the body is outside
   /// the verifiable subset; the contracts gate callers (no body proof).
-  (assumed_body : bool) ?= false
+  (assumed_body : bool) ?= false,
+  /// The `generic(p : Origin)` labels (decision 43 step 2): kept apart from
+  /// `forall_params`, which an origin binder never joins.
+  (origin_params : Option(ArrayList(String))) ?= Option(ArrayList(String)).None
 );
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -1712,6 +1848,42 @@ evaluate_function_parameter :: (
       )
     );
   });
+  // `x : &(T, o)` / `x : &mut(T, o)` (decision 43 step 2, N1a): the
+  // two-argument sigil as the whole type of an unwrapped label is the
+  // parameter's mode with a spelled origin. The mode is set exactly as the
+  // `x : &T` / `x : &mut T` wrappers set it, and the stored type expression
+  // is the pointee `T`, so every later reader (the specializer re-evaluates
+  // parameter type expressions) sees what it sees for the elided form.
+  (spelled_origin_expr : Option(AstExpr)) = Option(AstExpr).None;
+  match(
+    type_expr,
+    .Some(so_te) => if(is_origin_qualified_reference_expr(&so_te), {
+      so_is_mut := ast_expr_is_fn_call_of(&so_te, BK_BORROW_MUT, Option(usize).None);
+      so_args := _fn_call_args(&so_te);
+      so_phase := cond(
+        (has_imm_wrapper || is_param_ref) => Option(String).Some(String.from("a reference to a reference (`&mut &(T, p)`) arrives with references as binding types (decision 43 step 2, N1e)")),
+        is_parameter_comptime_by_default => Option(String).Some(String.from("a `generic`/`using` parameter is erased at runtime and has no place to borrow")),
+        is_compile_time_only => Option(String).Some(String.from("a `comptime` parameter cannot be an origin-qualified reference")),
+        is_sink_param => Option(String).Some(String.from("`sink(x) : T` takes ownership and `x : &(T, p)` borrows")),
+        true => Option(String).None
+      );
+      match(
+        so_phase,
+        .Some(sp) => {
+          exn.throw(dyn(format_error_message(ast_expr_token(&so_te), `\`${ast_expr_to_string(&so_te)}\` cannot be this parameter's type: ${sp}.`)));
+        },
+        .None => ()
+      );
+      if(so_is_mut, {
+        is_param_ref = true;
+      }, {
+        has_imm_wrapper = true;
+      });
+      type_expr = .Some(match(so_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
+      spelled_origin_expr = .Some(match(so_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    }),
+    .None => ()
+  );
   // Evaluate assigned value expression (generic((T : Type) = Impl(Id)) form)
   (param_type : Option(TypeValue)) = Option(TypeValue).None;
   (assigned_value : Option(EvalValue)) = Option(EvalValue).None;
@@ -1891,6 +2063,22 @@ evaluate_function_parameter :: (
       )
     );
   });
+  // `Origin` is a kind a signature declares in `generic(...)` (decision 43
+  // step 2). A type constructor's origin parameter (`comptime(p) : Origin`)
+  // makes a type carry an origin: first-class storage, N2.
+  if(is_origin_kind(&final_param_type) && !is_parameter_comptime_by_default, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          cond(
+            is_compile_time_only => `\`comptime(${match(label, .Some(l) => l.clone(), .None => String.from("?"))}) : Origin\`, a type constructor's origin parameter, arrives with first-class storage (decision 43 step 3, N2); a function declares an origin in \`generic(...)\`.`,
+            true => `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
+          )
+        )
+      )
+    );
+  });
   // Validate comptime + type compatibility
   if(is_compile_time_only &&
     !type_contains_some_type(&final_param_type) &&
@@ -2001,6 +2189,13 @@ use_id :: (fn(generic(T : Type),
       );
     });
   });
+  // The spelled origin of `x : &(T, o)`, kind-directed (E0922 unless `o`
+  // names declared origin parameters).
+  (spelled_origin : Option(TypeValue)) = match(
+    spelled_origin_expr,
+    .Some(soe) => Option(TypeValue).Some(evaluate_param_origin(&soe, env_mut, ctx, exn)),
+    .None => Option(TypeValue).None
+  );
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
   lbl_tok := match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr));
   if(migrate_param_modes_on() && !is_compile_time_only && !is_quote && label_expr.is_some(), {
@@ -2062,7 +2257,7 @@ use_id :: (fn(generic(T : Type),
       .None => return(
         FuncParam(
           label_str,
-          _param_slot(&final_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default),
+          _param_slot(&final_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin),
           is_compile_time_only,
           is_quote,
           false,
@@ -2182,22 +2377,26 @@ use_id :: (fn(generic(T : Type),
             .None =>
               if(
                 is_compile_time_only,
-                if(
-                  is_type_0(&final_param_type),
-                  Option(EvalValue).Some(create_type_value(t_some_t(&label_str, param_frame_level))),
-                  // HKT: a function-kind annotation (e.g.
-                  // `F : (fn(comptime(T) : Type) -> comptime(Type))`) binds F as
-                  // a SomeType carrying `kind_function_type`, so a later `F(A)`
-                  // can evaluate to a TypeApplication.
-                  if(
-                    match(
-                      &final_param_type,
-                      Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
-                      _ => false
-                    ),
-                    Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
-                    Option(EvalValue).Some(create_unknown_val(&final_param_type))
-                  )
+                cond(
+                  is_type_0(&final_param_type) => Option(EvalValue).Some(create_type_value(t_some_t(&label_str, param_frame_level))),
+                  // `generic(p : Origin)` (decision 43 step 2): `p` is the
+                  // origin that names itself; the checker substitutes it at
+                  // each application.
+                  is_origin_kind(&final_param_type) => Option(EvalValue).Some(create_type_value(_origin_of_name(&label_str))),
+                  true =>
+                    // HKT: a function-kind annotation (e.g.
+                    // `F : (fn(comptime(T) : Type) -> comptime(Type))`) binds F as
+                    // a SomeType carrying `kind_function_type`, so a later `F(A)`
+                    // can evaluate to a TypeApplication.
+                    if(
+                      match(
+                        &final_param_type,
+                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
+                        _ => false
+                      ),
+                      Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
+                      Option(EvalValue).Some(create_unknown_val(&final_param_type))
+                    )
                 ),
                 Option(EvalValue).None
               )
@@ -2244,7 +2443,7 @@ use_id :: (fn(generic(T : Type),
   );
   FuncParam(
     label_str,
-    _param_slot(&actual_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default),
+    _param_slot(&actual_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin),
     is_compile_time_only,
     is_quote,
     false,
@@ -3155,6 +3354,7 @@ evaluate_function_parameters :: (
   env_mut.push_frame(false);
   params := ArrayList(FuncParam).new();
   forall_params := ArrayList(FuncParam).new();
+  origin_params := ArrayList(String).new();
   implicit_params := ArrayList(FuncParam).new();
   where_clause_exprs := ArrayList(AstExpr).new();
   (has_variadic : bool) = false;
@@ -3187,8 +3387,8 @@ evaluate_function_parameters :: (
           exn.throw(dyn(format_error_message(ast_expr_token(&tp_expr), _removed_effect_row_spread_message(&tp_expr))));
         });
         param := evaluate_function_parameter(&tp_expr, env_mut, ctx, true, true, exn);
-        // Duplicate check
-        dup_found := false;
+        // Duplicate check (over the type and the origin binders: one namespace)
+        dup_found := _names_contain(&origin_params, &param.label);
         (di : usize) = usize(0);
         while(di < forall_params.len(), {
           fp := match(
@@ -3215,7 +3415,14 @@ evaluate_function_parameters :: (
             )
           );
         });
-        forall_params.push(param);
+        // `generic(p : Origin)` (decision 43 step 2, N1a) is not a type
+        // parameter: origins are erased from every identity but the borrow
+        // checker's, so an origin binder never makes a function generic.
+        if(is_origin_kind(&param.ty), {
+          origin_params.push(param.label.clone());
+        }, {
+          forall_params.push(param);
+        });
       });
     });
   });
@@ -3269,6 +3476,16 @@ evaluate_function_parameters :: (
         );
       });
       param := evaluate_function_parameter(&impl_expr, env_mut, ctx, true, true, exn);
+      if(is_origin_kind(&param.ty), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(&impl_expr),
+              `An origin parameter is declared in the signature's \`generic(...)\` clause (\`generic(${param.label} : Origin)\`), not in \`using(...)\`.`
+            )
+          )
+        );
+      });
       // Duplicate checks
       (dup_forall : bool) = false;
       (dfi : usize) = usize(0);
@@ -3948,7 +4165,22 @@ evaluate_function_parameters :: (
       _retry_errors := parse_where_clause_constraints(&one_failed, env_mut, ctx, false, exn);
     });
   });
-  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs, decreases_expr, assumed_body)
+  FuncParamsResult(
+    params,
+    forall_params,
+    implicit_params,
+    where_clause_exprs,
+    has_variadic,
+    variadic_param,
+    requires_exprs,
+    ensures_exprs,
+    decreases_expr,
+    assumed_body,
+    cond(
+      origin_params.is_empty() => Option(ArrayList(String)).None,
+      true => Option(ArrayList(String)).Some(origin_params)
+    )
+  )
 });
 // Helper to get a param expr for error reporting
 param_exprs_for_error :: (fn(arg_list : &ArrayList(AstExpr), idx : usize) -> Option(AstExpr))(
@@ -4685,7 +4917,14 @@ evaluate_function_type :: (
           // does explicitly.
           origin_id : Option(String).Some(ast_expr_id(expr).to_string()),
           // param_is_sink — the `sink(x)` flags, read by callers only.
-          param_is_sink : Option(SharedList(bool)).Some(shared_list(param_is_sink))
+          param_is_sink : Option(SharedList(bool)).Some(shared_list(param_is_sink)),
+          // origin_labels — the `generic(p : Origin)` binders (decision 43
+          // step 2), `.None` when there are none.
+          origin_labels : match(
+            params_result.origin_params,
+            .Some(ol) => Option(SharedList(String)).Some(shared_list(ol.clone())),
+            .None => Option(SharedList(String)).None
+          )
         )
       ),
       shared_list(vts_mint)

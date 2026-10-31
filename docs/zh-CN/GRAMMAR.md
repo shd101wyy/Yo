@@ -309,6 +309,11 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
   都是错误（"a borrow mode, not a type"）。决策 43（2026-10-10 确认）使
   `&T`/`&mut T` 成为二等类型，从而解除这些错误；在该阶段落地之前，它们仍是
   模式。
+- 双参数形式 `&(T, p)` / `&mut(T, p)` 是**带 origin 的引用**（决策 43 第 2 步）：
+  作为参数类型时，`x : &(T, p)` 就是 origin 为 `p` 的 `x : &T`，其中 `p` 是用
+  `generic(p : Origin)` 声明的 origin 参数，或它们的并集 `(p, q)`。第二个参数按其
+  种类解读：那里出现类型是 E0922（指向元组的引用是 `&Tuple(A, B)`）。在值位置，
+  `&(a, b)` 仍是 `a & b` 的运算符调用形式。
 - 在**返回类型位置**（`-> &T`、`-> &mut T`、`-> (name : &mut T)`）它们声明一个
   **投影**（决策 24）：函数体产出用结果符号书写的位置（`&self.a`、
   `&mut self.rows(i)`），其根是函数的某个借用参数。投影通过下标（`x(i)`）
