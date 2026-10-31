@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { Thread } :: import("std/thread");
 main :: (fn(io : Io) -> unit)({
   {
-    shared := arc(i32(42));
+    shared := Arc.new(i32(42));
     t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io : Io) => {
       assert(shared.* == 42);
     });
@@ -27,7 +27,7 @@ main :: (fn(io : Io) -> unit)({
     unsafe(printf("p1 %d\n", shared.*));
   };
   {
-    shared := arc(i32(7));
+    shared := Arc.new(i32(7));
     t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io : Io) => {
       assert(shared.* == 7);
     });

@@ -1,9 +1,8 @@
 //! `Rc(T).new`, `Box(T).new` and `Arc(T).new`, the handle constructors
 //! (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A2), and the cell `dyn(...)`
-//! synthesizes through them (A3). The prelude's `rc`/`box`/`arc` forward to
-//! these until B3 deletes them; the "rc, box and arc forward" test below and
-//! tests/rc_binding_gives_way.test.yo pin those spellings until then (B2 swept
-//! every other call in tests/ to the constructors).
+//! synthesizes through them (A3). B3 deleted the prelude's `rc`/`box`/`arc`:
+//! a call of one is E0401, whose help and `yo fix` repair name the
+//! constructor.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
@@ -89,20 +88,14 @@ test("Arc(T).new with alloc places the cell in the allocator and restores the sc
   };
   assert(counts.live == usize(0), "the last drop released the cell into the allocator");
 });
-test("rc, box and arc forward to the constructors", {
-  comptime_assert(Type.eq(type_of(rc(i32(1))), Rc(i32)), "rc builds an Rc");
-  comptime_assert(Type.eq(type_of(box(i32(1))), Box(i32)), "box builds a Box");
-  comptime_assert(Type.eq(type_of(arc(i32(1))), Arc(i32)), "arc builds an Arc");
-  counts := _Counts(live : usize(0));
-  heap := _counting(addr_of(counts));
-  {
-    a := rc(i32(1), alloc : .Some(heap));
-    b := box(i32(2), alloc : .Some(heap));
-    c := arc(i32(3), alloc : .Some(heap));
-    assert(counts.live == usize(3), "the alloc argument reaches the constructor");
-    assert(((a.* + b.*) + c.*) == i32(6), "the payloads");
-  };
-  assert(counts.live == usize(0), "every cell went back");
+// Static-argument inference B3: the prelude's `rc`, `box` and `arc` are
+// deleted, and E0401's help names the handle's constructor (its `yo fix`
+// repair rewrites the token, tests/cli-cases/fix-rewrites-a-deleted-handle-builtin).
+test("rc, box and arc are deleted: E0401 names the constructor", {
+  comptime_expect_error(rc(i32(1)), "`rc(x)` is `Rc.new(x)`");
+  comptime_expect_error(box(i32(1)), "`box(x)` is `Box.new(x)`");
+  comptime_expect_error(arc(i32(1), alloc : .None), "`arc(x)` is `Arc.new(x)`");
+  comptime_expect_error(rc(i32(1)), "--migrate handle-ctors` with yo v0.2.73");
 });
 // `dyn(...)` around a payload that is not an object builds its cell through
 // the type's `new`: `Rc(T).new(v)`, or `Arc(T).new(v)` for a Send Dyn.
@@ -113,12 +106,44 @@ test("dyn(i32(1)) boxes through Rc(i32).new", {
   assert(s.to_string() == `2`, "the Send payload, boxed through Arc(i32).new");
 });
 _Detector :: struct(detect : Dyn(Fn(x : i32) -> i32));
-test("dyn(Rc.new(<closure>)) contextually types the closure, as dyn(rc(<closure>)) does", {
+test("dyn(Rc.new(<closure>)) contextually types the closure", {
   base := i32(10);
   a := _Detector(detect : dyn(Rc.new(x => (x + base))));
-  b := _Detector(detect : dyn(rc(x => (x * base))));
   assert(a.detect(i32(1)) == i32(11), "Rc.new: the closure's x is an i32");
-  assert(b.detect(i32(2)) == i32(20), "rc: unchanged");
+});
+// `dyn(Rc.new(<closure>, alloc : a))` and its `Arc.new` twin are recognized
+// too, and the cell they build through `__yo_rc_cell`/`__yo_arc_cell` is placed
+// in `a`: the recognizer forwards the written `alloc` (Fable consultation #7).
+_SendDetector :: struct(detect : Dyn(Fn(x : i32) -> i32, Send));
+test("dyn(Rc.new(<closure>, alloc : .Some(a))) places the cell in a", {
+  counts := _Counts(live : usize(0));
+  heap := _counting(addr_of(counts));
+  base := i32(10);
+  {
+    d := _Detector(detect : dyn(Rc.new(x => (x + base), alloc : .Some(heap))));
+    assert(counts.live == usize(1), `the closure's cell is in the allocator: ${counts.live}`);
+    assert(d.detect(i32(1)) == i32(11), "the closure's x is an i32");
+    p := _Detector(detect : dyn(Rc.new(x => (x * base), .Some(heap))));
+    assert(counts.live == usize(2), "a positional allocator is forwarded too");
+    assert(p.detect(i32(2)) == i32(20), "the second closure");
+    g := _Detector(detect : dyn(Rc.new(x => (x - base))));
+    assert(counts.live == usize(2), "without alloc the cell is on the global allocator");
+    assert(g.detect(i32(11)) == i32(1), "the third closure");
+  };
+  assert(counts.live == usize(0), "the last drop released the cells into the allocator");
+});
+test("dyn(Arc.new(<closure>, alloc : .Some(a))) places the atomic cell in a", {
+  counts := _Counts(live : usize(0));
+  heap := _counting(addr_of(counts));
+  {
+    s := _SendDetector(detect : dyn(Arc.new(x => (x + i32(40)), alloc : .Some(heap))));
+    assert(counts.live == usize(1), `the closure's cell is in the allocator: ${counts.live}`);
+    assert(s.detect(i32(2)) == i32(42), "Arc.new: the closure's x is an i32");
+    t := _SendDetector(detect : dyn(Arc.new(x => (x * i32(2)))));
+    assert(counts.live == usize(1), "without alloc the cell is on the global allocator");
+    assert(t.detect(i32(4)) == i32(8), "the second closure");
+  };
+  assert(counts.live == usize(0), "the last drop released the cell into the allocator");
 });
 // `dyn(Rc.new(<closure>))` in a body checked outside a definition-time trial
 // and specialized per call: a function with an `Impl(Fn(...))` parameter (per

@@ -164,7 +164,7 @@ a := Rc.new(i32(42));
 assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 ```
 
-与所有 prelude 名称一样，`rc` 不能被重新定义：模块级或局部的名为 `rc` 的定义是遮蔽（shadowing）错误。名为 `rc` 的函数参数或 `match` 模式绑定是允许的，并在其作用域内遮蔽 prelude 的 `rc`。
+prelude 的 `rc(v)`、`box(v)` 和 `arc(v)` 已被删除（静态实参推断 B3，v0.2.74）：调用它们会得到 E0401，其帮助信息给出构造函数（`rc(x)` 即 `Rc.new(x)`），`yo fix` 的修复会改写这个名字。`rc` 现在是普通名字，可以用作局部变量、形参或模式绑定。
 
 ### 赋值创建所有权
 
