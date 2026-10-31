@@ -1119,6 +1119,10 @@ _move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environme
     .None => false
   )
 });
+/// `_owning_param_binding_beside` and `_move_through_sink_shadow` for the
+/// match-mode decision (exprs/match.yo `_decide_match_mode`).
+owning_param_binding_beside :: (fn(env : &Environment, v : &Variable) -> Option(Variable))(_owning_param_binding_beside(env, v));
+move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environment) -> bool)(_move_through_sink_shadow(v, rhs, env));
 /// E0913 for a move out of an implicit capture (Generation A of decision 37,
 /// as amended 2026-10-07): a closure body owns, and so may move out, only the
 /// by-value entries of a capture list, in a closure typed `FnOnce(...)`.
@@ -3299,7 +3303,7 @@ take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
   g_copy_loop_ids.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, _rc_clone_spelling, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var);
+export(owning_param_binding_beside, move_through_sink_shadow, ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, _rc_clone_spelling, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.

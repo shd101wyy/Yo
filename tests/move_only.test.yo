@@ -3385,3 +3385,26 @@ test("move-only: an aborted task drops a consuming match's moved-out payload onc
   _mo_run_take_then_throw(io);
   assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, by its binding, dropped ${(g_mo_disposed - before).to_string()}`);
 });
+// A generic function's by-value parameter whose argument is a compile-time-
+// known constructor is still the callee's own value: a `match` arm moves its
+// payload on, and the payload is disposed once
+// (issues/fixed/2026-10-30-a-generic-functions-match-binding-cannot-move-out-of-a-compile-time-known-argument.md).
+_mo_err_map :: (fn(generic(B : Type), o : Result(i32, _MoFd), b : B) -> Result(B, _MoFd))(
+  match(o, .Ok(_) => Result(B, _MoFd).Ok(b), .Err(e) => Result(B, _MoFd).Err(e))
+);
+_mo_some_keep :: (fn(generic(B : Type), o : Option(_MoFd), b : B) -> Option(_MoFd))(
+  match(o, .Some(e) => Option(_MoFd).Some(e), .None => Option(_MoFd).None)
+);
+test("move-only: a generic function moves a match binding out of a compile-time-known argument", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  {
+    r := _mo_err_map(Result(i32, _MoFd).Err(_MoFd(n : i32(5))), i64(1));
+    assert(match(&r, .Err(e) => (e.n == i32(5)), .Ok(_) => false), "the Err payload arrived");
+    k := _mo_some_keep(Option(_MoFd).Some(_MoFd(n : i32(6))), u8(1));
+    assert(match(&k, .Some(e) => (e.n == i32(6)), .None => false), "the Some payload arrived");
+    assert(g_mo_disposed == before, "nothing disposed while the results hold the payloads");
+  };
+  assert(g_mo_disposed == (before + i32(2)), "each payload disposed once, by its result");
+  assert(g_mo_sum == (sum_before + i32(11)), "the disposed payloads are the moved ones");
+});
