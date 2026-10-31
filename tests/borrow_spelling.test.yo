@@ -139,6 +139,17 @@ test("`Fn(v : &T)` slots and `(v : &T) => …` closure parameters", {
   assert(k == i32(10), "a &mut closure parameter wrote the caller's place");
   assert(s.len() == usize(5), "s is still usable");
 });
+bs_apply_named :: (fn(f : Impl(Fn(t : &i32) -> i32), x : &i32) -> i32)(f(&x));
+bs_bump_named :: (fn(f : Impl(Fn(n : &mut i32) -> unit), v : &mut i32) -> unit)(f(&mut v));
+test("a `&T` / `&mut T` closure parameter keeps its own name under a differently labelled `Fn` slot", {
+  k := i32(3);
+  assert(bs_apply_named((s : &i32) => (s + i32(1)), &k) == i32(4), "the closure reads its own `s`, not the slot's `t`");
+  (mut(m) : i32) = i32(1);
+  bs_bump_named((q : &mut i32) => {
+    q = (q + i32(1));
+  }, &mut m);
+  assert(m == i32(2), "the closure writes through its own `q`, not the slot's `n`");
+});
 
 // --- Local borrows and re-points ------------------------------------------------
 test("`y := &place` reads through and `y := &mut place` writes through", {
@@ -429,8 +440,8 @@ comptime_expect_error(
   "is not an origin"
 );
 comptime_expect_error(
-  bs_fn_trait_ref_result :: (fn(f : Impl(Fn(x : &i32) -> &i32)) -> unit)(()),
-  "A closure trait's result is a value"
+  bs_fn_trait_spelled_result :: (fn(f : Impl(Fn(x : &i32) -> &(i32, x))) -> unit)(()),
+  "A closure trait's result origin is elided"
 );
 // Decision 43 step 2 (N1c; plans/backlog/REFERENCES_AND_ORIGINS.md O3): a
 // call of a projection whose result origin is spelled freezes only the
@@ -519,6 +530,100 @@ test("a Dyn over a trait with an elided-origin projection method", {
   r := d.pk(&o);
   assert(bs_ret_read(r) == i32(23), "the Dyn projection call reads the payload's field");
 });
+// A projection called through a value (decision 43 step 2, N1c): a
+// `fn(...) -> &T` parameter or field, an `Impl(Fn(...) -> &T)` or
+// `Dyn(Fn(...) -> &T)` holding a named projection or a closure whose body
+// yields `&place`, and an effect operation `ctl(...) -> &T`. The call is the
+// place, its `&T` arguments are passed by address, and its result origin is
+// O2's per-call default: every reference argument.
+bs_first :: (fn(t : &BsTrio) -> &i32)(&t.a);
+bs_third_mut :: (fn(t : &mut BsTrio) -> &mut i32)(&mut t.c);
+BsProj :: struct(get : (fn(t : &BsTrio) -> &i32), put : (fn(t : &mut BsTrio) -> &mut i32));
+bs_via_fn :: (fn(f : (fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
+  r := f(&t);
+  bs_ret_read(r)
+});
+bs_via_impl :: (fn(f : Impl(Fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
+  r := f(&t);
+  bs_ret_read(r)
+});
+bs_poke_impl :: (fn(f : Impl(Fn(t : &mut BsTrio) -> &mut i32), t : &mut BsTrio) -> unit)({
+  r := f(&mut t);
+  r = i32(70);
+});
+bs_via_dyn :: (fn(f : Dyn(Fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
+  r := f(&t);
+  bs_ret_read(r)
+});
+BsAsk :: (ctl(key : &i32) -> &(i32, key));
+bs_ask_use :: (fn(ask : BsAsk) -> i32)({
+  k := i32(31);
+  r := ask(&k);
+  bs_ret_read(r)
+});
+test("a projection is called through a function value, a closure trait and an effect operation", {
+  mut(t) := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+  assert(bs_via_fn(bs_first, &t) == i32(1), "a `fn(...) -> &T` parameter");
+  h := BsProj(get : bs_first, put : bs_third_mut);
+  g := h.get(&t);
+  assert(bs_ret_read(g) == i32(1), "a `fn(...) -> &T` field");
+  m := (h.put)(&mut t);
+  m = i32(30);
+  assert(t.c == i32(30), "a `&mut` projection through a field writes the place");
+  assert(bs_via_impl(bs_first, &t) == i32(1), "a named projection in an `Impl(Fn(...) -> &T)` slot");
+  assert(bs_via_impl((s : &BsTrio) => &s.b, &t) == i32(2), "a closure literal yielding `&place`");
+  bs_poke_impl((s : &mut BsTrio) => &mut s.a, &mut t);
+  assert(t.a == i32(70), "a `&mut` closure projection writes through");
+  (d : Dyn(Fn(s : &BsTrio) -> &i32)) = dyn((s : &BsTrio) => &s.c);
+  assert(bs_via_dyn(d, &t) == i32(30), "a `Dyn(Fn(...) -> &T)` closure");
+  (e : Dyn(Fn(s : &BsTrio) -> &i32)) = dyn(bs_first);
+  assert(bs_via_dyn(e, &t) == i32(70), "a `Dyn(Fn(...) -> &T)` named projection");
+  (ask : BsAsk) = (fn(key : &i32) -> &(i32, key))({
+    return(&key);
+  });
+  assert(bs_ask_use(ask) == i32(31), "a `ctl` handler resumes with a place of its key");
+});
+comptime_expect_error(
+  bs_fn_value_freezes :: (fn(f : (fn(t : &BsTrio) -> &i32), t : &mut BsTrio) -> i32)({
+    r := f(&t);
+    t.a = i32(9);
+    bs_ret_read(r)
+  }),
+  "Cannot write"
+);
+comptime_expect_error(
+  bs_closure_ret_capture :: (fn(t : &BsTrio) -> i32)({
+    y := i32(9);
+    bs_via_impl((s : &BsTrio) => &y, &t)
+  }),
+  "which the closure captures"
+);
+comptime_expect_error(
+  bs_closure_ret_outer_param :: (fn(t : &BsTrio, u : &BsTrio) -> i32)(bs_via_impl((s : &BsTrio) => &u.a, &t)),
+  "which the closure captures"
+);
+comptime_expect_error(
+  bs_handler_ret_local :: (fn() -> i32)({
+    (ask : BsAsk) = (fn(key : &i32) -> &(i32, key))({
+      y := i32(2);
+      return(&y);
+    });
+    bs_ask_use(ask)
+  }),
+  "its storage ends with the call"
+);
+comptime_expect_error(
+  bs_handler_ret_capture :: (fn() -> i32)({
+    x := i32(5);
+    (ask : BsAsk) = (
+      key -> {
+        return(&x);
+      }
+    );
+    bs_ask_use(ask)
+  }),
+  "which the closure captures"
+);
 BsTwo :: struct(v : i32);
 comptime_expect_error(
   impl(BsTwo, BsPick(pick : (fn(self : &Self, other : &i32) -> &i32)(&self.v))),
