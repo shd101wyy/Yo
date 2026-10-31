@@ -39,6 +39,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   ast_place_text,
   BF_ADDRESS_OF,
+  BF_DOT,
   BK_BORROW_MUT
 } :: import("../../expr.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
@@ -79,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -164,6 +165,7 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_get,
   expr_info_set_converted_runtime_type,
+  expr_info_table_set,
   adopt_receiver_struct_instance,
   push_active_where_trait_ids,
   pop_active_where_trait_ids,
@@ -910,6 +912,51 @@ check_call_site_borrow_marker :: (
 /// path applies this to its argument list before any rule reads it, so the
 /// place checks, the `inout` alias roots, D3 and codegen's
 /// `runtime_arg_exprs_in_order` all see the place.
+/// The root binding's name of a LENT PLACE (`x`, `v.f.g` → `x`, `v`), or
+/// `.None` when `e` is not a name or a field path (decision 43 step 3, T9:
+/// the origin of a lend names the place's root).
+_lend_place_root_name :: (fn(e : &AstExpr) -> Option(String))({
+  (cur : AstExpr) = e.clone();
+  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    cur = match(
+      cur,
+      .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+  });
+  cond(
+    ast_expr_is_atom(&cur) => Option(String).Some(ast_expr_token(&cur).value.clone()),
+    true => Option(String).None
+  )
+});
+/// N2b (decision 43 step 3, T9): the parameter's type is a by-value
+/// reference (an inline composite's `&`/`&mut` field) and the marker's mode
+/// matches it, so the marker lends. A mode mismatch is the marker-mismatch
+/// error; a non-reference parameter answers false (the caller's later arms
+/// report it).
+_t9_reference_param_takes_lend :: (fn(p_ty : &TypeValue, is_mut_marker : bool, p_label : &String, bare : &AstExpr, place_text : &String, exn : Exception) -> bool)(
+  match(
+    p_ty,
+    Rc(.Reference(_, pr_mut, _)) => cond(
+      (is_mut_marker == pr_mut) => true,
+      true => {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message(
+                ast_expr_token(bare),
+                `Parameter "${p_label}" takes \`${type_to_string(p_ty)}\` by value: lend the place with \`${if(pr_mut, "&mut ", "&")}${place_text}\`.`
+              ),
+              E_BORROW_MARKER_MISMATCH
+            )
+          )
+        );
+        false
+      }
+    ),
+    _ => false
+  )
+);
 apply_call_site_borrow_markers :: (
   fn(
     args : &ArrayList(AstExpr),
@@ -957,6 +1004,15 @@ apply_call_site_borrow_markers :: (
         (is_mut_marker && p_is_ref) => {
           peel = true;
         },
+        // N2b (decision 43 step 3, T9): a by-value parameter whose type is a
+        // reference — an inline composite's `&`/`&mut` field, a function's
+        // reference-typed parameter — takes a LEND: the marker is peeled and
+        // the argument's type is the parameter's reference over that place.
+        // The mode must match the parameter's (the helper throws the
+        // marker-mismatch error when it does not).
+        _t9_reference_param_takes_lend(&p_ty, is_mut_marker, &p_label, &bare, &place_text, exn) => {
+          peel = true;
+        },
         is_mut_marker => {
           // Name the marker the parameter does take: `addr_of(x)` for a raw
           // pointer, the value for a by-value parameter, `&x` for an `imm` one.
@@ -991,8 +1047,8 @@ apply_call_site_borrow_markers :: (
           );
         },
         // `yo fix --migrate addr-of` evaluates old code: there a `&x` that
-        // does not lend keeps the address-of reading it had before decision
-        // 33 took it away, so the recorder sees it.
+        // does not lend keeps the address-of reading it had before decision 33
+        // took it away, so the recorder sees it.
         ((p_is_owning || is_pointer_type(&p_ty)) && migrate_addr_of_on()) => (),
         // A raw-pointer parameter receives an address, whatever its mode.
         is_pointer_type(&p_ty) => {
@@ -1662,6 +1718,33 @@ check_if_function_parameter_matches_argument :: (
     }
   );
   (caller_env_r : Environment) = expr_info_adopt_env(&arg_info);
+  // N2b (decision 43 step 3, T9): a by-value parameter whose type is a
+  // reference takes a LEND — the marker was peeled
+  // (`apply_call_site_borrow_markers`), so the evaluated argument is the
+  // PLACE. Its type is the parameter's reference over that place: the origin
+  // names the place's root, which the binding freeze reads. A reference
+  // passed ON (a composite field read is N1e's, so this is a place or
+  // nothing) keeps its own type.
+  if(!param_is_ref && !is_ct_only, {
+    match(
+      &resolved_pt,
+      Rc(.Reference(_, t9_mut, _)) => match(
+        &arg_info.ty,
+        Rc(.Reference(_, _, _)) => (),
+        _ => match(
+          _lend_place_root_name(&actual_arg),
+          .Some(t9_root) => {
+            t9_names := ArrayList(String).new();
+            t9_names.push(t9_root.clone());
+            arg_info.ty = t_reference_with_origin(&arg_info.ty, t9_mut, t_origin_named(&shared_list(t9_names)));
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
+          },
+          .None => ()
+        )
+      ),
+      _ => ()
+    );
+  });
   // Steps 3a–3c and the comptime-argument gate: the shared rule
   // (`check_argument_for_parameter`), which also lowers a comptime literal to
   // the runtime type it takes as this parameter's value.
