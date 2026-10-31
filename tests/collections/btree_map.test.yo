@@ -10,7 +10,7 @@ test("BTreeMap.new creates empty map", {
 });
 // ===== Set / Get Tests =====
 test("BTreeMap.insert inserts single entry", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(10), i32(100));
   assert(m.len() == usize(1), "len should be 1");
   assert(!m.is_empty(), "should not be empty");
@@ -19,7 +19,7 @@ test("BTreeMap.insert inserts single entry", {
   assert(v.unwrap() == i32(100), "value should be 100");
 });
 test("BTreeMap.insert inserts multiple entries in order", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   m.insert(i32(3), i32(30));
@@ -29,7 +29,7 @@ test("BTreeMap.insert inserts multiple entries in order", {
   assert(m(i32(3)) == i32(30), "key 3 => 30");
 });
 test("BTreeMap.insert inserts entries in reverse order", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(30), i32(3));
   m.insert(i32(20), i32(2));
   m.insert(i32(10), i32(1));
@@ -39,14 +39,14 @@ test("BTreeMap.insert inserts entries in reverse order", {
   assert(m(i32(30)) == i32(3), "key 30 => 3");
 });
 test("BTreeMap.insert updates existing key", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(5), i32(50));
   m.insert(i32(5), i32(99));
   assert(m.len() == usize(1), "len should still be 1");
   assert(m(i32(5)) == i32(99), "value should be updated to 99");
 });
 test("BTreeMap.insert handles many entries", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   mut(i) := i32(0);
   while(i < i32(20), i = (i + i32(1)), {
     m.insert(i, i * i32(10));
@@ -59,7 +59,7 @@ test("BTreeMap.insert handles many entries", {
 });
 // ===== Get Tests =====
 test("BTreeMap.get returns None for missing key", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   r := m.get(i32(99));
   assert(r.is_none(), "key 99 should not exist");
@@ -71,7 +71,7 @@ test("BTreeMap.get returns None for empty map", {
 });
 // ===== Remove Tests =====
 test("BTreeMap.remove removes existing key", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   m.insert(i32(3), i32(30));
@@ -82,14 +82,14 @@ test("BTreeMap.remove removes existing key", {
   assert(m.get(i32(2)).is_none(), "key 2 should be gone");
 });
 test("BTreeMap.remove returns None for missing key", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   removed := m.remove(i32(99));
   assert(removed.is_none(), "should return None for missing key");
   assert(m.len() == usize(1), "len should be unchanged");
 });
 test("BTreeMap.remove all entries", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   m.remove(i32(1));
@@ -98,7 +98,7 @@ test("BTreeMap.remove all entries", {
   assert(m.is_empty(), "should be empty");
 });
 test("BTreeMap.remove preserves order of remaining keys", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(10), i32(1));
   m.insert(i32(20), i32(2));
   m.insert(i32(30), i32(3));
@@ -110,7 +110,7 @@ test("BTreeMap.remove preserves order of remaining keys", {
 });
 // ===== Min / Max Tests =====
 test("BTreeMap.first_entry returns smallest key entry", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(30), i32(3));
   m.insert(i32(10), i32(1));
   m.insert(i32(20), i32(2));
@@ -120,7 +120,7 @@ test("BTreeMap.first_entry returns smallest key entry", {
   assert(entry.unwrap().value == i32(1), "min value should be 1");
 });
 test("BTreeMap.last_entry returns largest key entry", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(30), i32(3));
   m.insert(i32(10), i32(1));
   m.insert(i32(20), i32(2));
@@ -138,14 +138,14 @@ test("BTreeMap.last_entry returns None for empty map", {
   assert(m.last_entry().is_none(), "last_entry should be None for empty map");
 });
 test("BTreeMap.first_entry and last_entry same for single entry", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(42), i32(100));
   assert(m.first_entry().unwrap().key == i32(42), "first_entry key should be 42");
   assert(m.last_entry().unwrap().key == i32(42), "last_entry key should be 42");
 });
 // ===== Mixed Operations =====
 test("BTreeMap insert then remove then insert again", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(5), i32(50));
   m.remove(i32(5));
   assert(m.get(i32(5)).is_none(), "key should be gone");
@@ -154,7 +154,7 @@ test("BTreeMap insert then remove then insert again", {
   assert(m.len() == usize(1), "len should be 1");
 });
 test("BTreeMap ordering after mixed inserts and removes", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(5), i32(50));
   m.insert(i32(3), i32(30));
   m.insert(i32(7), i32(70));
@@ -176,7 +176,7 @@ test("BTreeMap into_iter - empty map", {
   assert(count == i32(0));
 });
 test("BTreeMap into_iter - sorted order", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(3), i32(30));
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
@@ -190,7 +190,7 @@ test("BTreeMap into_iter - sorted order", {
   assert(count == i32(3));
 });
 test("BTreeMap iter - yields pointers to entries", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   mut(val_sum) := i32(0);
@@ -200,7 +200,7 @@ test("BTreeMap iter - yields pointers to entries", {
   assert(val_sum == i32(30));
 });
 test("BTreeMap iter - mutate values through pointer", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   for(m.iter(), ptr => {
@@ -210,7 +210,7 @@ test("BTreeMap iter - mutate values through pointer", {
   assert(m(i32(2)) == i32(200));
 });
 test("BTreeMap keys - yields keys in sorted order", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(3), i32(30));
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
@@ -224,7 +224,7 @@ test("BTreeMap keys - yields keys in sorted order", {
   assert(count == i32(3));
 });
 test("BTreeMap values - yields values in sorted key order", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(3), i32(30));
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
@@ -237,7 +237,7 @@ test("BTreeMap values - yields values in sorted key order", {
 // ===== insert returns the replaced value =====
 // issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md
 test("BTreeMap.insert returns None for a new key and Some(old) when it replaces", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   assert(m.insert(i32(5), i32(50)).is_none(), "new key");
   assert(m.insert(i32(7), i32(70)).is_none(), "another new key");
   old := m.insert(i32(5), i32(55));
@@ -246,7 +246,7 @@ test("BTreeMap.insert returns None for a new key and Some(old) when it replaces"
   assert(m.len() == usize(2), "replacing does not grow the map");
 });
 test("contains_key reports membership without cloning the value", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(2), i32(20));
   m.insert(i32(1), i32(10));
   assert(m.contains_key(i32(1)) == true, "present key");
@@ -256,7 +256,7 @@ test("contains_key reports membership without cloning the value", {
   assert(e.contains_key(i32(1)) == false, "empty map contains nothing");
 });
 test("pop_first/pop_last remove from the sorted ends", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(3), i32(30));
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
@@ -272,7 +272,7 @@ test("pop_first/pop_last remove from the sorted ends", {
 });
 // ===== range / FromIterator =====
 test("range yields the half-open key window in order", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(10), i = (i + i32(1)), {
     m.insert(i, i * i32(10));
@@ -297,7 +297,7 @@ test("range yields the half-open key window in order", {
   assert(seen(usize(2)) == i32(5), "end is exclusive");
 });
 test("range bounds need not be present in the map", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   m.insert(i32(10), i32(1));
   m.insert(i32(20), i32(2));
   m.insert(i32(30), i32(3));
@@ -326,7 +326,7 @@ test("range bounds need not be present in the map", {
   assert(count(&m, i32(30), i32(31)) == usize(1), "the last key is reachable");
 });
 test("adjacent ranges partition without overlap", {
-  m := BTreeMap(i32, i32).new();
+  mut(m) := BTreeMap(i32, i32).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(6), i = (i + i32(1)), {
     m.insert(i, i);
@@ -354,25 +354,25 @@ test("adjacent ranges partition without overlap", {
   assert(b(usize(0)) == i32(3), "the second half starts at it");
 });
 test("collect builds a BTreeMap through FromIterator", {
-  src := BTreeMap(i32, i32).new();
+  mut(src) := BTreeMap(i32, i32).new();
   src.insert(i32(3), i32(30));
   src.insert(i32(1), i32(10));
   src.insert(i32(2), i32(20));
-  out := src.into_iter().collect(BTreeMap(i32, i32));
+  mut(out) := src.into_iter().collect(BTreeMap(i32, i32));
   assert(out.len() == usize(3), "every entry arrived");
   assert(out.get(i32(1)).unwrap() == i32(10), "first entry");
   assert(out.get(i32(3)).unwrap() == i32(30), "last entry");
   assert(match(out.pop_first(), .Some(e) => (e.key == i32(1)), .None => false), "and the collection is SORTED");
 });
 test("BTreeMap Default is the empty map", {
-  m := BTreeMap(i32, i32).default();
+  mut(m) := BTreeMap(i32, i32).default();
   assert(m.len() == usize(0), "default map is empty");
   m.insert(i32(1), i32(10));
   assert(m.get(i32(1)).unwrap() == i32(10), "the default map is a usable map");
 });
 // ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
 test("get_cloned, first_entry_cloned and last_entry_cloned clone in place", {
-  m := BTreeMap(i32, ArrayList(i32)).new();
+  mut(m) := BTreeMap(i32, ArrayList(i32)).new();
   assert(m.first_entry_cloned().is_none() && m.last_entry_cloned().is_none(), "empty: none");
   mut(one) := ArrayList(i32).new();
   one.push(i32(1));
