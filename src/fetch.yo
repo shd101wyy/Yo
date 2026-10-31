@@ -193,11 +193,12 @@ compute_content_hash :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(String, IoExn))
-)(
+)({
+  __probe_dir_path := dir_path.clone();
   io.async((e : IoExn) => {
     hasher := Sha256.new();
     // Bootstrap: push root entries in reversed sorted order so LIFO pop gives forward order
-    root_entries := e.io.await(read_dir(Path.new(dir_path), e.io), e);
+    root_entries := e.io.await(read_dir(Path.new(&__probe_dir_path), e.io), e);
     root_sorted := sort_dir_entries(&root_entries);
     stack := ArrayList(_HashWorkItem).new();
     // Push root entries in reversed sorted order
@@ -212,7 +213,7 @@ compute_content_hash :: (
           {
             stack.push(
               _HashWorkItem(
-                abs_path : dir_path.clone(),
+                abs_path : __probe_dir_path.clone(),
                 rel_path : de.name.clone(),
                 is_dir : is_dir
               )
@@ -319,7 +320,7 @@ compute_content_hash :: (
     result.push_string(&hex_str);
     result
   })
-);
+});
 // ---------------------------------------------------------------------------
 // Git children
 // ---------------------------------------------------------------------------
@@ -383,21 +384,23 @@ resolve_git_ref :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(String, IoExn))
-)(
+)({
+  __probe_url := url.clone();
+  __probe_ref := ref.clone();
   io.async((e : IoExn) => {
     cmd := git_command();
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--"));
-    cmd.arg(url);
-    cmd.arg(ref.clone());
-    // Ask for the PEELED ref too: without a pattern matching it, git omits the
-    // `<ref>^{}` line and an annotated tag answers with its tag OBJECT alone.
-    cmd.arg(`${ref}^{}`);
+    cmd.arg(&__probe_url);
+    cmd.arg(__probe_ref.clone());
+    // Ask for the PEELED __probe_ref too: without a pattern matching it, git omits the
+    // `<__probe_ref>^{}` line and an annotated tag answers with its tag OBJECT alone.
+    cmd.arg(`${__probe_ref}^{}`);
     out := e.io.await(cmd.output(e.io), e);
     text := String.from_bytes(out.stdout.clone()).trim();
     if(text.len() == usize(0), {
-      // Assume ref is already a commit SHA
-      return(ref.clone());
+      // Assume __probe_ref is already a commit SHA
+      return(__probe_ref.clone());
     });
     sha := match(
       commit_from_ls_remote(&text),
@@ -409,7 +412,7 @@ resolve_git_ref :: (
     );
     sha
   })
-);
+});
 // ---------------------------------------------------------------------------
 // The store lock
 // ---------------------------------------------------------------------------
@@ -425,9 +428,10 @@ acquire_store_lock :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(StoreLock, IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
   io.async((e : IoExn) => {
-    lock_path := store_lock_path(cache_root);
+    lock_path := store_lock_path(&__probe_cache_root);
     file := e.io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, e.io), e);
     status := flock(file.fd(), LOCK_EX);
     if(status < i32(0), {
@@ -435,7 +439,7 @@ acquire_store_lock :: (
     });
     StoreLock(file : file)
   })
-);
+});
 /// Release the store lock and close its file.
 release_store_lock :: (
   fn(
@@ -469,18 +473,20 @@ ensure_mirror :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(String, IoExn))
-)(
+)({
+  __probe_cache_root := cache_root.clone();
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
-    mirror := git_mirror_dir(cache_root.clone(), url.clone());
+    mirror := git_mirror_dir(__probe_cache_root.clone(), __probe_url.clone());
     present := e.io.await(exists(Path.new(mirror.clone()), e.io), e.io);
     if(present, {
       return(mirror);
     });
     if(offline, {
-      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: ${url} has no mirror in the cache`)));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: ${__probe_url} has no mirror in the cache`)));
     });
     if(verbose, {
-      println(`  mirroring ${url}...`);
+      println(`  mirroring ${__probe_url}...`);
     });
     tmp := `${mirror}.tmp-${_random_suffix()}`;
     cmd := git_command();
@@ -488,16 +494,16 @@ ensure_mirror :: (
     cmd.arg(String.from("--mirror"));
     cmd.arg(String.from("--quiet"));
     cmd.arg(String.from("--"));
-    cmd.arg(url.clone());
+    cmd.arg(__probe_url.clone());
     cmd.arg(tmp.clone());
     status := e.io.await(cmd.status(e.io), e);
     if(!status.success(), {
-      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `git clone --mirror failed for ${url}`)));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `git clone --mirror failed for ${__probe_url}`)));
     });
     e.io.await(rename(Path.new(&tmp), Path.new(mirror.clone()), e.io), e);
     mirror
   })
-);
+});
 /// `ref` resolved to a commit by the mirror alone (`rev-parse <ref>^{commit}`),
 /// or `.None` when the mirror does not know it — the `--offline` answer to
 /// "which commit is v1.2.0".
@@ -508,20 +514,22 @@ mirror_rev_parse :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
-)(
+)({
+  __probe_ref := ref.clone();
+  __probe_mirror := mirror.clone();
   io.async((e : IoExn) => {
     cmd := git_command();
     cmd.arg(String.from("--git-dir"));
-    cmd.arg(mirror);
+    cmd.arg(&__probe_mirror);
     cmd.arg(String.from("rev-parse"));
     cmd.arg(String.from("--verify"));
     cmd.arg(String.from("--quiet"));
-    cmd.arg(`${ref}^{commit}`);
+    cmd.arg(`${__probe_ref}^{commit}`);
     out := e.io.await(cmd.output(e.io), e);
     text := String.from_bytes(out.stdout.clone()).trim();
     if(!out.status.success() || (text.len() == usize(0)), Option(String).None, Option(String).Some(text))
   })
-);
+});
 /// Does the mirror hold `commit`?
 _mirror_has_commit :: (
   fn(
@@ -530,21 +538,23 @@ _mirror_has_commit :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
-)(
+)({
+  __probe_mirror := mirror.clone();
+  __probe_commit := commit.clone();
   io.async((e : IoExn) => {
     cmd := git_command();
     cmd.arg(String.from("--git-dir"));
-    cmd.arg(mirror);
+    cmd.arg(&__probe_mirror);
     cmd.arg(String.from("cat-file"));
     cmd.arg(String.from("-e"));
-    cmd.arg(`${commit}^{commit}`);
+    cmd.arg(`${__probe_commit}^{__probe_commit}`);
     // `.output()`, not `.status()`: a MISS is the normal pre-fetch answer, and
     // `.status()` inherits stderr, so git's `fatal: Not a valid object name`
     // printed straight into the install output.
     out := e.io.await(cmd.output(e.io), e);
     out.status.success()
   })
-);
+});
 /// Run one `git --git-dir <mirror> fetch --quiet origin [what]`; the exit
 /// status is not an error by itself (the commit check afterwards decides).
 _mirror_fetch :: (
@@ -554,16 +564,18 @@ _mirror_fetch :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  __probe_what := what.clone();
+  __probe_mirror := mirror.clone();
   io.async((e : IoExn) => {
     cmd := git_command();
     cmd.arg(String.from("--git-dir"));
-    cmd.arg(mirror);
+    cmd.arg(&__probe_mirror);
     cmd.arg(String.from("fetch"));
     cmd.arg(String.from("--quiet"));
     cmd.arg(String.from("origin"));
     match(
-      what,
+      &__probe_what,
       .Some(w) => {
         cmd.arg(w.clone());
       },
@@ -571,7 +583,7 @@ _mirror_fetch :: (
     );
     _ := e.io.await(cmd.status(e.io), e);
   })
-);
+});
 /// Bring `commit` into the mirror: nothing when it is already there, else a
 /// full `fetch origin` (every ref, incremental), else a direct fetch of the
 /// commit for one no ref reaches. Under `offline` a missing commit is an
@@ -586,37 +598,39 @@ ensure_commit :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  __probe_mirror := mirror.clone();
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
-    has := e.io.await(_mirror_has_commit(mirror.clone(), commit.clone(), e.io, e.exn), e);
+    has := e.io.await(_mirror_has_commit(__probe_mirror.clone(), commit.clone(), e.io, e.exn), e);
     if(has, {
       return(());
     });
     if(offline, {
-      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: commit ${commit} of ${url} is not in the cache`)));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: commit ${commit} of ${__probe_url} is not in the cache`)));
     });
     if(verbose, {
-      println(`  fetching ${url}...`);
+      println(`  fetching ${__probe_url}...`);
     });
-    e.io.await(_mirror_fetch(mirror.clone(), Option(String).None, e.io, e.exn), e);
-    has_after_fetch := e.io.await(_mirror_has_commit(mirror.clone(), commit.clone(), e.io, e.exn), e);
+    e.io.await(_mirror_fetch(__probe_mirror.clone(), Option(String).None, e.io, e.exn), e);
+    has_after_fetch := e.io.await(_mirror_has_commit(__probe_mirror.clone(), commit.clone(), e.io, e.exn), e);
     if(has_after_fetch, {
       return(());
     });
-    e.io.await(_mirror_fetch(mirror.clone(), Option(String).Some(commit.clone()), e.io, e.exn), e);
-    has_after_direct := e.io.await(_mirror_has_commit(mirror.clone(), commit.clone(), e.io, e.exn), e);
+    e.io.await(_mirror_fetch(__probe_mirror.clone(), Option(String).Some(commit.clone()), e.io, e.exn), e);
+    has_after_direct := e.io.await(_mirror_has_commit(__probe_mirror.clone(), commit.clone(), e.io, e.exn), e);
     if(!has_after_direct, {
       e.exn.throw(
         dyn(
           format_coded_error(
             E_DEP_FETCH_FAILED,
-            `commit ${commit} of ${url} could not be fetched (not reachable from any ref, and the remote refuses direct commit fetches)`
+            `commit ${commit} of ${__probe_url} could not be fetched (not reachable from any ref, and the remote refuses direct commit fetches)`
           )
         )
       );
     });
   })
-);
+});
 /// Write the tree at `commit` into `dest` (created here) through a throwaway
 /// index, so the bare mirror stays untouched. `.git` never enters the store.
 _extract_tree :: (

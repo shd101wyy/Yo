@@ -452,7 +452,7 @@ format_error_messages :: (fn(token_and_error_list : &ArrayList(TokenAndError)) -
   (i : usize) = usize(0);
   while(i < token_and_error_list.len(), {
     match(
-      token_and_error_list.get(i),
+      token_and_error_list.get_cloned(i),
       .Some(entry) => {
         if(i == usize(0), {
           entries.push(_diagnostic_of_token(&entry.token, Severity.Error, &entry.error_message));
@@ -473,7 +473,7 @@ format_error_messages_with_help :: (
 )({
   err := format_error_messages(token_and_error_list);
   match(
-    err.diagnostics.get(usize(0)),
+    err.diagnostics.get_cloned(usize(0)),
     .Some(first) => {
       // `first` borrows a copy of the element: write an owned copy back, or
       // the help never reaches the diagnostic (and the old help would be
@@ -578,7 +578,7 @@ error_message_text :: (fn(err : &AnyError) -> String)(
           ye.diagnostics.get_cloned(i),
           .Some(d) => {
             parts.push(d.message.clone());
-            match(d.help, .Some(h) => parts.push(h.clone()), .None => ());
+            match(&d.help, .Some(h) => parts.push(h.clone()), .None => ());
           },
           .None => ()
         );
@@ -671,7 +671,7 @@ yo_error_from_diagnostics :: (fn(entries : &ArrayList(Diagnostic)) -> YoError)(
 take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
   taken := g_last_error_diagnostics.clone();
   if(debug_knob(`YO_DEBUG_DIAGSTASH`).is_some(), {
-    eprintln(`[diagstash] TAKE ${match(taken, .Some(d) => d.len().to_string(), .None => String.from("none"))}`);
+    eprintln(`[diagstash] TAKE ${match(&taken, .Some(d) => d.len().to_string(), .None => String.from("none"))}`);
   });
   g_last_error_diagnostics = Option(ArrayList(Diagnostic)).None;
   taken
@@ -708,7 +708,7 @@ _with_primary_help :: (fn(err : &YoError, more : &String) -> YoError)({
               span : hd.span.clone(),
               source_line : hd.source_line.clone(),
               help : Option(String).Some(
-                match(hd.help, .Some(h) => `${h} ${more}`, .None => more.clone())
+                match(&hd.help, .Some(h) => `${h} ${more}`, .None => more.clone())
               ),
               repair : hd.repair.clone(),
               generic_independent : hd.generic_independent
@@ -884,7 +884,7 @@ format_warning_messages :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      token_and_warning_list.get(i),
+      token_and_warning_list.get_cloned(i),
       .Some(entry) => {
         line := get_line_at_token(&entry.token);
         parts.push(`Warning: ${entry.warning_message}\n${line}`);

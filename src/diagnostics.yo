@@ -586,8 +586,12 @@ edit_distance :: (fn(a : &String, b : &String) -> usize)({
 (g_std_export_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (g_std_export_modules : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 register_std_export :: (fn(name : &String, module_spec : &String) -> unit)({
-  g_std_export_names.with_mut(xs => xs.push(name.clone()));
-  g_std_export_modules.with_mut(xs => xs.push(module_spec.clone()));
+  // Hoisted owned clones: `with_mut` takes its callback by value, and a
+  // closure capturing a borrow (`&name`) is second-class (E0909).
+  n_ := name.clone();
+  m_ := module_spec.clone();
+  g_std_export_names.with_mut({ n_ }(xs) => xs.push(n_));
+  g_std_export_modules.with_mut({ m_ }(xs) => xs.push(m_));
 });
 std_export_index_size :: (fn() -> usize)(g_std_export_names.with(xs => xs.len()));
 /// Every std module spec exporting `name`, in registration (sorted-walk) order.
@@ -682,7 +686,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
       .Some(line) => {
         if(mi == usize(0), {
           match(
-            d.code,
+            &d.code,
             .Some(c) => out.push(`${_colorize(`${prefix}[${c}]`, sev_ansi, color)}: ${line}`),
             .None => out.push(`${_colorize(&prefix, sev_ansi, color)}: ${line}`)
           );
@@ -717,7 +721,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   });
   if(d.help.is_some(), {
     h := match(
-      d.help,
+      &d.help,
       .Some(hh) => hh.clone(),
       .None => String.new()
     );
@@ -725,7 +729,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   });
   if(d.code.is_some(), {
     c := match(
-      d.code,
+      &d.code,
       .Some(cc) => cc.clone(),
       .None => String.new()
     );
@@ -788,7 +792,7 @@ render_diagnostics_short :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
         prefix := _severity_prefix(d.severity);
         head := _first_message_line(&d.message);
         match(
-          d.code,
+          &d.code,
           .Some(c) => out.push(
             `${_display_path(&d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
           ),
@@ -835,7 +839,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("code"));
         vals.push(
           match(
-            d.code,
+            &d.code,
             .Some(c) => JsonValue.Str(value : c.clone()),
             .None => JsonValue.Null
           )
@@ -853,7 +857,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("repair"));
         vals.push(
           match(
-            d.repair,
+            &d.repair,
             .Some(r) => {
               rk := ArrayList(String).new();
               rv := ArrayList(JsonValue).new();
@@ -877,7 +881,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("help"));
         vals.push(
           match(
-            d.help,
+            &d.help,
             .Some(h) => JsonValue.Str(value : h.clone()),
             .None => JsonValue.Null
           )
@@ -923,13 +927,13 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
     match(
       diagnostics.get_cloned(ri),
       .Some(d) => match(
-        d.code,
+        &d.code,
         .Some(c) => {
           (seen : bool) = false;
           (ki : usize) = usize(0);
           while(ki < rule_ids.len(), {
             match(
-              rule_ids.get(ki),
+              rule_ids.get_cloned(ki),
               .Some(k) => if(k == c, {
                 seen = true;
               }),
@@ -972,7 +976,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
         keys := ArrayList(String).new();
         vals := ArrayList(JsonValue).new();
         match(
-          d.code,
+          &d.code,
           .Some(c) => {
             keys.push(String.from("ruleId"));
             vals.push(JsonValue.Str(value : c.clone()));
@@ -1018,7 +1022,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
           vals.push(JsonValue.Array(items : locs));
         });
         match(
-          d.repair,
+          &d.repair,
           .Some(r) => {
             fkeys := ArrayList(String).new();
             fvals := ArrayList(JsonValue).new();

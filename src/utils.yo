@@ -300,7 +300,7 @@ stable_occurrence_key :: (fn(key : &String) -> usize)({
     .Some(n) => n,
     .None => usize(0)
   );
-  g_stable_occurrence.with_mut({ &key }(m) => m.insert(key.clone(), next + usize(1)));
+  g_stable_occurrence.with_mut({ &key, next }(m) => m.insert(key.clone(), next + usize(1)));
   next
 });
 /// Memo of `canonical_module_path` for type-id owners and identity anchors: a
@@ -324,7 +324,11 @@ derive(TopLevelAnchor, Clone);
 (g_top_level_anchors : RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor))))) = RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor)))).new(HashMap(String, Rc(ArrayList(TopLevelAnchor))).new());
 register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
   owner := _stable_type_id_owner_key(module_path);
-  g_top_level_anchors.with_mut(m => m.insert(owner.*.clone(), Rc.new(anchors.clone())));
+  // Hoisted owned copies: `with_mut`'s callback is by-value (E0901/E0909 on
+  // borrow captures).
+  own_key := owner.*.clone();
+  own_anchors := anchors.clone();
+  g_top_level_anchors.with_mut({ own_key, own_anchors }(m) => m.insert(own_key, Rc.new(own_anchors)));
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -348,7 +352,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
       while(lo < hi, {
         mid := ((lo + hi) / usize(2));
         at_or_before := match(
-          list.get(mid),
+          list.get_cloned(mid),
           .Some(a) => ((a.row < row) || ((a.row == row) && (a.column <= column))),
           .None => false
         );
@@ -359,7 +363,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
         });
       });
       match(
-        if(lo > usize(0), list.get(lo - usize(1)), Option(TopLevelAnchor).None),
+        if(lo > usize(0), list.get_cloned(lo - usize(1)), Option(TopLevelAnchor).None),
         .Some(a) => {
           drow := (row - a.row);
           (`@${a.label}:${drow.to_string()}:${column.to_string()}`, `_${a.label}_r${drow.to_string()}c${column.to_string()}`)
@@ -429,14 +433,19 @@ stable_type_id :: (
       g_stable_type_id_owner.with(m => m.get(&candidate)),
       .Some(prev) => {
         if(prev.* == owner.*, {
-          return(candidate);
+          // A clone: the loop body's closure owns `candidate` for its next
+          // iteration (the value stays live past the return path).
+          return(candidate.clone());
         });
         suffix = (suffix + usize(1));
         candidate = `${base}_x${suffix.to_string()}`;
       },
       .None => {
-        g_stable_type_id_owner.with_mut(m => m.insert(candidate.clone(), Rc.clone(owner)));
-        return(candidate);
+        // Owned captures only: `with_mut`'s callback is a sink parameter, so
+        // a closure borrowing `candidate` is second-class (E0909).
+        cand_key := candidate.clone();
+        g_stable_type_id_owner.with_mut({ cand_key, owner : Rc.clone(owner) }(m) => m.insert(cand_key, owner));
+        return(candidate.clone());
       }
     );
   });
@@ -448,7 +457,11 @@ _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(module_path));
-      g_stable_type_id_owner_memo.with_mut({ c : Rc.clone(c), module_path }(m) => m.insert(module_path.clone(), Rc.clone(c)));
+      // Hoisted owned key: `with_mut`'s callback is by-value, and a closure
+      // capturing the `&String` parameter (bare or as `&module_path`) is a
+      // copy or second-class (E0901/E0909) — one clone per memo miss.
+      key := module_path.clone();
+      g_stable_type_id_owner_memo.with_mut({ c : Rc.clone(c), key }(m) => m.insert(key, Rc.clone(c)));
       c
     }
   )
@@ -469,17 +482,21 @@ stable_position_id :: (
   (suffix : usize) = usize(1);
   while(true, {
     match(
-      g_stable_id_owner.with(m => m.get(&candidate)),
+      g_stable_id_owner.with(m => m.get_cloned(&candidate)),
       .Some(owner) => {
         if(owner == src_key, {
-          return(candidate);
+          return(candidate.clone());
         });
         suffix = (suffix + usize(1));
         candidate = `${base}_x${suffix.to_string()}`;
       },
       .None => {
-        g_stable_id_owner.with_mut(m => m.insert(candidate.clone(), src_key.clone()));
-        return(candidate);
+        // Owned captures only: `with_mut`'s callback is a sink parameter
+        // (E0909 on a closure that borrows `candidate`).
+        id_key := candidate.clone();
+        id_val := src_key.clone();
+        g_stable_id_owner.with_mut({ id_key, id_val }(m) => m.insert(id_key, id_val));
+        return(candidate.clone());
       }
     );
   });
@@ -493,11 +510,11 @@ stable_position_id :: (
 /// three or two `:` segments.
 stable_id_module_path :: (fn(id : &String) -> Option(String))(
   match(
-    g_stable_id_owner.with(m => m.get(id)),
+    g_stable_id_owner.with(m => m.get_cloned(id)),
     .Some(key) => {
       segs := key.split(":");
       n := segs.len();
-      anchored := ((n >= usize(4)) && match(segs.get(n - usize(3)), .Some(s) => s.starts_with("@"), .None => false));
+      anchored := ((n >= usize(4)) && match(segs.get_cloned(n - usize(3)), .Some(s) => s.starts_with("@"), .None => false));
       keep := cond(anchored => (n - usize(3)), (n >= usize(3)) => (n - usize(2)), true => usize(0));
       if(keep == usize(0), {
         return(Option(String).None);
@@ -505,7 +522,7 @@ stable_id_module_path :: (fn(id : &String) -> Option(String))(
       head := ArrayList(String).new();
       (si : usize) = usize(0);
       while(si < keep, {
-        match(segs.get(si), .Some(s) => head.push(s), .None => ());
+        match(segs.get_cloned(si), .Some(s) => head.push(s), .None => ());
         si = (si + usize(1));
       });
       Option(String).Some(String.from(":").join(&head))
@@ -681,7 +698,7 @@ profile_memory_mark :: (fn(label : str) -> unit)({
 });
 profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.with(xs => xs.len()));
 profile_mark_line_at :: (fn(i : usize) -> String)(
-  `profile: mark ${match(g_prof_mark_labels.with(xs => xs.get(i)), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB`
+  `profile: mark ${match(g_prof_mark_labels.with(xs => xs.get_cloned(i)), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB`
 );
 _prof_sample :: (fn(probe : Option((fn() -> usize))) -> usize)(
   match(probe, .Some(f) => f(), .None => usize(0))
@@ -711,7 +728,9 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
     });
     i = (i + usize(1));
   });
-  g_prof_phase_names.with_mut(xs => xs.push(name.clone()));
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  phase_name := name.clone();
+  g_prof_phase_names.with_mut({ phase_name }(xs) => xs.push(phase_name));
   g_prof_phase_nanos.with_mut(xs => xs.push(nanos));
   g_prof_phase_rss_mb.with_mut(xs => xs.push(rss));
   g_prof_phase_table_entries.with_mut(xs => xs.push(entries));
@@ -719,7 +738,7 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
 profile_phase_count :: (fn() -> usize)(g_prof_phase_names.with(xs => xs.len()));
 profile_phase_name_at :: (fn(i : usize) -> String)(
   match(
-    g_prof_phase_names.with(xs => xs.get(i)),
+    g_prof_phase_names.with(xs => xs.get_cloned(i)),
     .Some(n) => n.clone(),
     .None => String.new()
   )
@@ -762,14 +781,18 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
     });
     i = (i + usize(1));
   });
-  g_prof_mod_paths.with_mut(xs => xs.push(path.clone()));
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+
+  path_owned := path.clone();
+
+  g_prof_mod_paths.with_mut({ path_owned }(xs) => xs.push(path_owned));
   g_prof_mod_parse_ns.with_mut(xs => xs.push(parse_ns));
   g_prof_mod_eval_ns.with_mut(xs => xs.push(eval_ns));
 });
 profile_module_count :: (fn() -> usize)(g_prof_mod_paths.with(xs => xs.len()));
 profile_module_path_at :: (fn(i : usize) -> String)(
   match(
-    g_prof_mod_paths.with(xs => xs.get(i)),
+    g_prof_mod_paths.with(xs => xs.get_cloned(i)),
     .Some(p) => p.clone(),
     .None => String.new()
   )
@@ -989,11 +1012,14 @@ export(str_lit_unquote_bytes);
 /// The value of the `YO_DEBUG_*` knob `name`, read from the environment once.
 debug_knob :: (fn(name : &String) -> Option(String))(
   match(
-    g_debug_knobs.with(m => m.get(name)),
+    g_debug_knobs.with(m => m.get_cloned(name)),
     .Some(cached) => cached,
     .None => {
       fresh := env.get(name);
-      _prev := g_debug_knobs.with_mut(m => m.insert(name.clone(), fresh.clone()));
+      // Owned captures (`with_mut`'s callback is a sink parameter).
+      name_key := name.clone();
+      fresh_val := fresh.clone();
+      _prev := g_debug_knobs.with_mut({ name_key, fresh_val }(m) => m.insert(name_key, fresh_val));
       fresh
     }
   )
