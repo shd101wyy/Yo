@@ -579,7 +579,7 @@ _compat_impl :: (
     });
     erts2 := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt2)) => rtt2,
+      Rc(.SomeT(required_trait_types : rtt2)) => rtt2.clone(),
       _ => ArrayList(TypeValue).new()
     );
     if(erts2.len() == usize(0), {
@@ -648,7 +648,7 @@ _compat_impl :: (
           // such pairs one level up without looking inside
           // (plans/reference/TYPE_IDENTITY.md).
           .None => if(!require_exact, {
-            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq, _ => ArrayList(TypeValue).new());
+            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq.clone(), _ => ArrayList(TypeValue).new());
             if(a_reqs.len() == usize(0), {
               return(true);
             });
@@ -1297,7 +1297,7 @@ _compat_impl :: (
         // `Result(unit, HashMapError)` instance
         // (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
         ((aname.len() > usize(0)) && (ename.len() > usize(0)) && (aname != ename)) => false, (avns.len() != evns.len()) => false, true => {
-          vkey := (aid + String.from("=>") + eid);
+          vkey := (aid.clone() + String.from("=>") + eid.clone());
           cond(
             _visited_contains(visited, &vkey) => true,
             true => {
@@ -1479,8 +1479,8 @@ _compat_impl :: (
         if(!acid_valid || !ecid_valid, {
           return(false);
         });
-        acid := match(acon, Rc(.SomeT(id : cid)) => cid, _ => ``);
-        ecid := match(econ, Rc(.SomeT(id : cid)) => cid, _ => ``);
+        acid := match(acon, Rc(.SomeT(id : cid)) => cid.clone(), _ => ``);
+        ecid := match(econ, Rc(.SomeT(id : cid)) => cid.clone(), _ => ``);
         if(acid != ecid, {
           return(false);
         });
