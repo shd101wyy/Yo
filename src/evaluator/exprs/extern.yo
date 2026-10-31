@@ -49,9 +49,13 @@ _reject_extern_origin :: (fn(ty : &TypeValue, at : &AstExpr, exn : Exception) ->
       (found : Option(TypeValue)) = Option(TypeValue).None;
       (i : usize) = usize(0);
       while((i < ps.len()) && found.is_none(), {
-        match(ps.get(i), .Some(p) => if(type_carries_origin(&t_slot_pointee(&p)), {
-          found = Option(TypeValue).Some(t_slot_pointee(&p));
-        }), .None => ());
+        match(
+          ps.get(i),
+          .Some(p) => if(type_carries_origin(&t_slot_pointee(&p)), {
+            found = Option(TypeValue).Some(t_slot_pointee(&p));
+          }),
+          .None => ()
+        );
         i = (i + usize(1));
       });
       if(found.is_none() && type_carries_origin(&t_slot_pointee(&r)), {
