@@ -791,9 +791,9 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       stub_mark_b := em.code.len();
       em.emit_string_line(&open);
       _maybe_emit_method_entry_borrow_assert(&function_type, func_id.clone(), &body_box, &em, context);
-      prev_name := context.base.current_function_name;
+      prev_name := replace(&mut context.base.current_function_name, String.new());
       prev_type := context.current_function_type.clone();
-      prev_override := context.override_return_type_str;
+      prev_override := replace(&mut context.override_return_type_str, Option(String).None);
       context.base.current_function_name = c_function_name.clone();
       context.current_function_type = Option(TypeValue).Some(Rc.clone(function_type));
       // Thread the async return-type override into `return` statements (return.yo
@@ -806,8 +806,8 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       prev_is_erm := context.is_effect_record_member_function;
       // Unwind identity: what this function's own `unwind`s target (its body's
       // origin), and which unwinds it catches (the handlers written in it).
-      prev_unwind_origin := context.current_unwind_origin;
-      prev_unwind_catches := context.unwind_catches;
+      prev_unwind_origin := replace(&mut context.current_unwind_origin, Option(String).None);
+      prev_unwind_catches := replace(&mut context.unwind_catches, Option(ArrayList(String)).None);
       context.current_unwind_origin = Option(String).Some(unwind_origin_id(&body_box));
       context.unwind_catches = Option(ArrayList(String)).Some(unwind_catches_of_body(&body_box));
       if(is_effect_record_member(func_id.clone()), {
@@ -817,15 +817,15 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // struct C name + captured field names + defining frame level so the atom
       // emitter rewrites captured vars (e.g. `base`) to
       // `((<cap>*)closure_context)->base`. Restored after the body.
-      prev_caps := context.current_closure_captures;
+      prev_caps := context.current_closure_captures.clone();
       prev_cap_level := context.current_closure_capture_frame_level;
-      prev_cap_cname := context.current_closure_capture_type_c_name;
+      prev_cap_cname := context.current_closure_capture_type_c_name.clone();
       if(is_closure_fn(func_id.clone()), {
         match(
           get_closure_capture_info(func_id.clone()),
           .Some(ci) => {
             cap_labels := match(&ci.capture_type, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
-            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items);
+            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items.clone());
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
             context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(&ci.capture_type, &context.base));
           },
