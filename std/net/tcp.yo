@@ -190,7 +190,7 @@ _close_stream_in_place :: (fn(s : &TcpStream, io : Io) -> Impl(Future(unit, IoEx
 );
 /// A stream owning the connected socket `fd`.
 _new_stream :: (fn(fd : i32, peer : SocketAddr, local : SocketAddr) -> TcpStream)(
-  TcpStream(_cell : box(_TcpStreamState(_fd : fd, _peer_addr : peer, _local_addr : local, _is_closed : false)))
+  TcpStream(_cell : Box.new(_TcpStreamState(_fd : fd, _peer_addr : peer, _local_addr : local, _is_closed : false)))
 );
 /// Ask the kernel which address `fd` is bound to. Used to fill in a socket's
 /// local address once, at connect / accept / bind time, so the accessors are
@@ -381,7 +381,7 @@ impl(
       // from the kernel; echoing the bind argument reported port 0
       // (plans/archive/STD_API_AUDIT.md C2). The bind argument IS a meaningful
       // fallback here, unlike on a connected socket.
-      return(TcpListener(_cell : box(_TcpListenerState(_fd : fd, _local_addr : _read_local_addr(fd, addr), _is_closed : false))));
+      return(TcpListener(_cell : Box.new(_TcpListenerState(_fd : fd, _local_addr : _read_local_addr(fd, addr), _is_closed : false))));
     })
   ),
   /// Accept an incoming connection, returning a new `TcpStream`.

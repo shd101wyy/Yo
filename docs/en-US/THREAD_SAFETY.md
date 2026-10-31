@@ -94,9 +94,9 @@ assignment, and any `&mut` route into it (an argument to a `&mut T` parameter, o
 receiver is `self : &mut Self`) whose callee may write through that parameter:
 
 ```yo
-a := arc(i32(0));
+a := Arc.new(i32(0));
 a.* = i32(5); // ERROR: cannot write to atomic object field
-c := arc(Counter(n : i32(0)));
+c := Arc.new(Counter(n : i32(0)));
 c.*.bump(); // ERROR: cannot call a &mut self method on atomic object 'c'
 bump_by_ten(c.*); // ERROR: cannot pass a &mut argument rooted in atomic object 'c'
 ```
@@ -289,7 +289,7 @@ wherever it can see it:
 - **Function values passed in.** A named function or a closure passed to an
   `Impl(Fn(...), Send)` parameter is judged at the call.
 - **Generic bounds.** A function bound to a `where(T <: Send)` or `where(T <: Sync)` parameter
-  is judged too: `arc(f)` (both), `Channel(type_of(f))`, a generic `g(f)`.
+  is judged too: `Arc.new(f)` (both), `Channel(type_of(f))`, a generic `g(f)`.
 - **Captured functions.** A closure captured by another thread's closure is judged by the
   captured value.
 - **`Sync` slots.** An `Impl(Fn(...), Sync)` parameter runs the same checks for `Sync`: a
@@ -318,7 +318,7 @@ Thread(unit).spawn(fill); // ERROR: fill's code reaches g
     g.push(i32(2));
   }
 );
-a := arc(k); // ERROR: k's code reaches g
+a := Arc.new(k); // ERROR: k's code reaches g
 Holder :: struct(f : (fn(io : Io) -> unit));
 h := Holder(f : count);
 Thread(unit).spawn((io : Io) => {

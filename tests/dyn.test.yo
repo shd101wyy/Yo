@@ -86,8 +86,8 @@ add :: (fn(x : i32, y : i32) -> i32)({
   return(x + y);
 });
 test("Test simple dynamic dispatch with `box`", {
-  assert(use_test_dyn(dyn(rc(i32(42)))) == 42);
-  assert(use_test_dyn(dyn(rc(true))) == 1);
+  assert(use_test_dyn(dyn(Rc.new(i32(42)))) == 42);
+  assert(use_test_dyn(dyn(Rc.new(true))) == 1);
   bi := MyBox(100);
   assert(use_test_dyn(dyn(bi)) == 200);
 });
@@ -1098,7 +1098,7 @@ test("a Dyn(Fn(...), Clone) clones its closure", {
 test("a Dyn listing Send and Sync compiles one member per name", {
   (k : Impl(Fn() -> i32)) = (() => i32(4));
   (d : Dyn(Fn() -> i32, Send, Sync)) = dyn(k);
-  (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = arc(dyn(() => i32(5)));
+  (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = Arc(Dyn(Fn() -> i32, Send, Sync)).new(dyn(() => i32(5)));
   b := Arc.clone(a);
   assert((d() + (a.*() + b.*())) == i32(14), "a Send and Sync Dyn calls through its vtable, and through an Arc");
 });

@@ -248,7 +248,7 @@ _push_variant :: (
     (sparts : String) = String.new();
     (i : usize) = usize(0);
     while(i < fields.len(), {
-      ft := match(fields.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+      ft := match(fields.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       flabel := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
       ph := cond(
         (flabel.len() > usize(0)) => flabel.clone(),
@@ -280,7 +280,7 @@ _type_member_items :: (
       (i : usize) = usize(0);
       while(i < field_labels.len(), {
         label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
-        fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         hidden := ((label.len() == usize(0)) || _hidden_name(label.clone()));
         if(!hidden && !seen.contains(label.clone()), {
           seen.insert(label.clone());
@@ -313,7 +313,7 @@ _type_member_items :: (
       (i : usize) = usize(0);
       while(i < u_labels.len(), {
         label := match(u_labels.get(i), .Some(l) => l, .None => String.new());
-        fty := match(u_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(u_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if((label.len() > usize(0)) && !seen.contains(label.clone()), {
           seen.insert(label.clone());
           out.push(_ci(label.clone(), K_FIELD, type_to_string(&fty), String.from("0_") + label.clone(), String.new()));
@@ -325,7 +325,7 @@ _type_member_items :: (
       (i : usize) = usize(0);
       while(i < t_labels.len(), {
         label := match(t_labels.get_cloned(i), .Some(l) => l, .None => String.new());
-        fty := match(t_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(t_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         keep := ((label.len() > usize(0)) && _is_ident_name(label.clone()));
         if(keep && !_hidden_name(label.clone()) && !seen.contains(label.clone()), {
           seen.insert(label.clone());
@@ -401,7 +401,7 @@ _add_methods :: (
         (mi : usize) = usize(0);
         while(mi < ge.method_names.len(), {
           mname := match(ge.method_names.get_cloned(mi), .Some(n) => n, .None => String.new());
-          mty := match(ge.method_types.get(mi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          mty := match(ge.method_types.get(mi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(mname.len() > usize(0), {
             _push_method(&mname, &mty, out, seen);
           });
@@ -520,7 +520,7 @@ _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
     .FnCall(
       _,
       func_box,
-      args,
+      Rc(args),
       _,
       tok2
     ) => {
@@ -558,7 +558,7 @@ _expected_enum_at :: (
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       head := match(func_box, .Atom(_, ht) => ht.value.*.clone(), _ => String.new());
       if((head == "=") && (args.len() >= usize(2)), {
         // NB: not named `near` — that is a legacy Windows macro (windef.h
@@ -573,7 +573,7 @@ _expected_enum_at :: (
             args.get(usize(0)),
             .Some(lhs) => match(
               lhs,
-              .FnCall(_, lhs_func, lhs_args, _, _) => {
+              .FnCall(_, lhs_func, Rc(lhs_args), _, _) => {
                 lhs_head := match(lhs_func, .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
                 if((lhs_head == ":") && (lhs_args.len() >= usize(2)), {
                   match(
@@ -719,7 +719,7 @@ _scan_idents :: (
         );
       });
     },
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       recur(&func_box, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -983,7 +983,7 @@ _module_type_at :: (fn(abs : &String, std_path : &String, io : Io) -> TypeValue)
   });
   load_exn := Exception(
     throw : (
-      _err -> unwind(rc(TypeValueNode.Unit))
+      _err -> unwind(Rc.new(TypeValueNode.Unit))
     )
   );
   Rc.clone(mm_load_file(uri_to_fs_path(abs), std_path, false, io, load_exn).module_type)
@@ -1028,7 +1028,7 @@ _import_member_items :: (
       (i : usize) = usize(0);
       while(i < field_labels.len(), {
         label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
-        fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         (already : bool) = false;
         (li : usize) = usize(0);
         while(li < listed.len(), {

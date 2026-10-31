@@ -506,7 +506,7 @@ test("FnOnce: a closure-field call through a nested field, an Rc holder or a gen
   };
   {
     g_once_order = i32(0);
-    h := rc(_once_holder());
+    h := Rc.new(_once_holder());
     assert(h.cb1(i32(1)) < _once_eat_rc_holder(h), "Rc holder");
     assert(g_once_order == i32(12), "h.cb1(1) ran before eat(h)");
   };
@@ -523,7 +523,7 @@ test("FnOnce: a closure-field call through a nested field, an Rc holder or a gen
 });
 test("FnOnce: a fn-pointer field call on an Rc holder runs before a later argument releases the holder", {
   g_once_order = i32(0);
-  h := rc(_OnceFp(f : _once_log, tag : i32(1)));
+  h := Rc.new(_OnceFp(f : _once_log, tag : i32(1)));
   assert(h.f(i32(1)) < _once_eat_fp(h), "1 < 2");
   assert(g_once_order == i32(12), "h.f(1) ran before eat(h)");
 });
@@ -552,7 +552,7 @@ test("FnOnce: a closure-field call lends the holder to its own arguments", {
     h.cb1(_once_eat_holder(h))
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
-    h := rc(_once_holder());
+    h := Rc.new(_once_holder());
     h.cb1(_once_eat_rc_holder(h))
   }, "an earlier argument of the same call lends to it");
 });

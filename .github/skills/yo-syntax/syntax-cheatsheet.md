@@ -189,7 +189,7 @@ impl(
 - Bare `Module` is not a type alias. Use `Type` for comptime type values; type
   reflection reports source-module namespaces as `TypeInfo.Struct(...)`.
 - Wrap `fn` types in parentheses when they appear after `:`
-- A method can be called on its type with the receiver first: `Point.norm(p)` is `p.norm()`. On a generic type the type arguments may be left out and are inferred from that first argument (`Rc.clone(w)` is `Rc(i32).clone(w)` for `w : Rc(i32)`; decision 32 of `plans/VALUES_BY_DEFAULT.md`). A static method (first parameter not `Self`) infers them from every argument whose parameter mentions them: `Pair.make(i32(1), true)` is `Pair(i32, bool).make(...)`, `Rc.new(x)` is `Rc(X).new(x)`; a closure, `.X` or a call with no arguments (`ArrayList.new()`) binds nothing (E0613: write the arguments). `src/`/`std/` must not use the inferred form until `SEED_VERSION` carries it.
+- A method can be called on its type with the receiver first: `Point.norm(p)` is `p.norm()`. On a generic type the type arguments may be left out and are inferred from that first argument (`Rc.clone(w)` is `Rc(i32).clone(w)` for `w : Rc(i32)`; decision 32 of `plans/VALUES_BY_DEFAULT.md`). A static method (first parameter not `Self`) infers them from every argument whose parameter mentions them: `Pair.make(i32(1), true)` is `Pair(i32, bool).make(...)`, `Rc.new(x)` is `Rc(X).new(x)`; a closure, `.X`, a `dyn(...)` value or a call with no arguments (`ArrayList.new()`) binds nothing (E0613: write the arguments).
 - **Module-level `::` definitions and `impl(...)` registrations are order-independent** (`docs/en-US/DEFINITION_ORDER.md`; see "Definition order" below for what stays ordered and the SEED GATE that still binds `std/` and `src/`). Sibling methods inside one `impl` block reference each other through `self.method()` / `Self.method(...)`, never by bare name.
 
 ### Named arguments and default values
@@ -1318,7 +1318,7 @@ These features are powerful but less commonly used. Consult the linked docs for 
 | Metaprogramming            | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`     | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
 | Effect bundle polymorphism | `generic(E : Type.Struct)` over a bundle struct           | [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md)                   |
 | Custom derive rules        | `derive_rule(MyTrait, (fn(...) -> unquote(Expr)){...})`   | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md#user-defined-derive-rules) |
-| Arc (atomic ref count)     | `arc(value)`, `shared.(*)` for cross-thread sharing       | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
+| Arc (atomic ref count)     | `Arc.new(value)`, `shared.(*)` for cross-thread sharing       | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
 | Parallelism                | Thread pool, `io.spawn` for parallel work                 | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
 
 ---
@@ -1364,21 +1364,21 @@ result := `${parts}, `;
 result := `${parts}${item}`;
 ```
 
-### `rc(val)` is a move — cannot wrap the same value twice
+### `Rc.new(val)` is a move — cannot wrap the same value twice
 
 ```yo
-// ❌ Move error: target is moved by first rc(target)
-p1 := PtrVal(rc(target), usize(0));
-p2 := PtrVal(rc(target), usize(0)); // ERROR: target already moved
+// ❌ Move error: target is moved by first Rc.new(target)
+p1 := PtrVal(Rc.new(target), usize(0));
+p2 := PtrVal(Rc.new(target), usize(0)); // ERROR: target already moved
 
 // ✅ Create separate instances
-p1 := PtrVal(rc(EvalValue.IntLit(String.from("42"))), usize(0));
-p2 := PtrVal(rc(EvalValue.IntLit(String.from("42"))), usize(0));
+p1 := PtrVal(Rc.new(EvalValue.IntLit(String.from("42"))), usize(0));
+p2 := PtrVal(Rc.new(EvalValue.IntLit(String.from("42"))), usize(0));
 ```
 
-### `rc` is a prelude constructor; the count is `ref_count(x)`
+### `Rc.new(v)` builds a cell; the count is `ref_count(x)`
 
-`rc(v)` allocates a reference-counted `Rc(T)` cell (the shared cell; `Box(T)`/`box(v)`
+`Rc.new(v)` allocates a reference-counted `Rc(T)` cell (the shared cell; `Box(T)`/`Box.new(v)`
 is now the unique, uncounted cell: move-only, copied with `Box.clone(b)`, no
 `ref_count`); it does NOT read a count. Read the count with the `ref_count(x)` builtin. Like any
 prelude name, `rc` cannot be redefined, so a return code needs another name:

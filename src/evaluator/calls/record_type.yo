@@ -94,7 +94,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     field_label_opt := field_labels.get(i);
     field_type_opt := field_types.get(i);
     field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
-    field_type := match(field_type_opt, .Some(t) => Rc.clone(t), .None => rc(TypeValueNode.Unit));
+    field_type := match(field_type_opt, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
     (found_arg : bool) = false;
     (j : usize) = usize(0);
     while(j < n_args, {
@@ -112,8 +112,8 @@ try_to_implement_module_with_arguments_by_module_type :: (
         );
       });
       // Extract label_sub and value_sub from the `:` call.
-      label_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-      value_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+      label_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
+      value_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(
         label_sub_opt,
         .Some(s) => s,

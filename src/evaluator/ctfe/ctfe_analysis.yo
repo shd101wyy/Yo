@@ -67,13 +67,13 @@ CtfeComptimeFn :: struct(value : EvalValue, ty : TypeValue);
 _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
-    Rc(.Int(_, _)) => .Some(rc(TypeValueNode.ComptimeInt)),
-    Rc(.Usize) => .Some(rc(TypeValueNode.ComptimeInt)),
-    Rc(.Isize) => .Some(rc(TypeValueNode.ComptimeInt)),
-    Rc(.Float(_)) => .Some(rc(TypeValueNode.ComptimeFloat)),
-    Rc(.ComptimeInt) => .Some(rc(TypeValueNode.ComptimeInt)),
-    Rc(.ComptimeFloat) => .Some(rc(TypeValueNode.ComptimeFloat)),
-    Rc(.ComptimeString) => .Some(rc(TypeValueNode.ComptimeString)),
+    Rc(.Int(_, _)) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
+    Rc(.Usize) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
+    Rc(.Isize) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
+    Rc(.Float(_)) => .Some(Rc.new(TypeValueNode.ComptimeFloat)),
+    Rc(.ComptimeInt) => .Some(Rc.new(TypeValueNode.ComptimeInt)),
+    Rc(.ComptimeFloat) => .Some(Rc.new(TypeValueNode.ComptimeFloat)),
+    Rc(.ComptimeString) => .Some(Rc.new(TypeValueNode.ComptimeString)),
     _ => Option(TypeValue).None
   )
 );
@@ -107,14 +107,14 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
     _to_comptime_type(&result_box),
     .None => Option(TypeValue).None,
     .Some(comptime_result_ty) => .Some(
-      rc(
+      Rc.new(
         TypeValueNode.Func(
           forall_types,
           shared_list(ct_slots),
           implicit_types,
           where_types,
           comptime_result_ty,
-          rc(
+          Rc.new(
             FuncMeta(
               forall_labels : forall_labels,
               param_labels : param_labels,
@@ -378,7 +378,7 @@ _build_comptime_clone :: (
     copy_func_variadic_param(ct_fid.clone(), ct_new_id.clone());
     copy_func_where_constraints(ct_fid.clone(), ct_new_id.clone());
     copy_func_contract_exprs(ct_fid.clone(), ct_new_id.clone());
-    out_val = EvalValue.FuncVal(rc(ct_new_data), cap_vals);
+    out_val = EvalValue.FuncVal(Rc.new(ct_new_data), cap_vals);
   });
   out_val
 });

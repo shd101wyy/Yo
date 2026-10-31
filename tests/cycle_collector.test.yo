@@ -440,7 +440,7 @@ test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
 // The common cons-list shape had the same defect: `Rc` is itself a
 // ref(struct), so `Cons`'s `Rc(Self)` tail is the only edge back to the enum,
 // and the walk re-roots at the `Rc` before it meets the enum again.
-// `a.tail = rc(a)` closes a cycle that used to stay tracked (100 of 100 with
+// `a.tail = Rc.new(a)` closes a cycle that used to stay tracked (100 of 100 with
 // the v0.2.67 seed)
 // (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
 (mut(g_rcons_disposed) : i32) = i32(0);
@@ -461,8 +461,8 @@ impl(
 test("A cons-list cycle closed through its Rc(Self) tail is collected", {
   base := Gc.tracked_count();
   do_test :: (fn() -> unit)({
-    a := RCons.Cons(i32(1), rc(RCons.RNil));
-    a.tail = rc(a); // a -> Rc -> a : the only edge back to the enum is the Rc's payload
+    a := RCons.Cons(i32(1), Rc.new(RCons.RNil));
+    a.tail = Rc.new(a); // a -> Rc -> a : the only edge back to the enum is the Rc's payload
   });
   do_test();
   // The replaced `RNil` tail is dropped by the store; only the collector can
@@ -639,8 +639,8 @@ impl(
 test("A cycle closed through Box payloads is collected", {
   base := Gc.tracked_count();
   do_test :: (fn() -> unit)({
-    a := BNode(1, box(Option(BNode).None));
-    b := BNode(2, box(Option(BNode).None));
+    a := BNode(1, Box.new(Option(BNode).None));
+    b := BNode(2, Box.new(Option(BNode).None));
     a.hold.* = .Some(b); // a -> Box -> b
     b.hold.* = .Some(a); // b -> Box -> a : a cycle
   });
@@ -818,7 +818,7 @@ test("a cycle closed through a Weak is untracked and frees itself", {
   before := g_weak_loop_dropped;
   live_before := counting_live();
   {
-    a := rc(RefCell(_WeakLoop).new(_WeakLoop(me : Weak(RefCell(_WeakLoop)).new(), tag : i32(1))), alloc : .Some(counting_allocator()));
+    a := Rc.new(RefCell(_WeakLoop).new(_WeakLoop(me : Weak(RefCell(_WeakLoop)).new(), tag : i32(1))), alloc : .Some(counting_allocator()));
     w := Rc.downgrade(&a);
     a.with_mut({ w }(v) => {
       v.me = Weak.clone(&w);
@@ -844,7 +844,7 @@ impl(
   )
 );
 _weak_tree_node :: (fn(parent : Weak(RefCell(_WeakTree)), tag : i32) -> Rc(RefCell(_WeakTree)))(
-  rc(RefCell(_WeakTree).new(_WeakTree(parent : parent, children : ArrayList(Rc(RefCell(_WeakTree))).new(), tag : tag)))
+  Rc.new(RefCell(_WeakTree).new(_WeakTree(parent : parent, children : ArrayList(Rc(RefCell(_WeakTree))).new(), tag : tag)))
 );
 test("a tree with Weak parent pointers frees itself without the collector", {
   before := g_weak_tree_dropped;
@@ -895,7 +895,7 @@ test("an upgrade from a Drop the collector runs is .None for a cell of the same 
   mut(outside) := Weak(Option(_WhiteNode)).new();
   {
     n := _WhiteNode(cell : .None, peer : Weak(Option(_WhiteNode)).new());
-    h := rc(Option(_WhiteNode).Some(n), alloc : .Some(counting_allocator()));
+    h := Rc.new(Option(_WhiteNode).Some(n), alloc : .Some(counting_allocator()));
     n.peer = Rc.downgrade(&h);
     outside = Rc.downgrade(&h);
     n.cell = .Some(h);

@@ -37,7 +37,7 @@
   type_id_or_empty
 } :: import("../../src/evaluator/values/type_trait_methods.yo");
 _synth_struct :: (fn(id : &String, name : &String) -> TypeValue)(
-  rc(
+  Rc.new(
     TypeValueNode.Struct(
       id : id.clone(),
       name : name.clone(),
@@ -71,7 +71,7 @@ test("type_id_or_empty: extracts struct id", {
 test("type_id_or_empty: synthetic id for primitive types", {
   // Primitives carry stable synthetic ids so `impl(unit, ...)` etc. can
   // register methods in the trait-methods registry.
-  id := type_id_or_empty(rc(TypeValueNode.Unit));
+  id := type_id_or_empty(Rc.new(TypeValueNode.Unit));
   assert(id == "__yo_t_unit", "Unit has the synthetic unit id");
 });
 test("register + get_type_trait_methods_for_type: appends entries", {
@@ -124,7 +124,7 @@ test("get_type_trait_methods_by_name_from_env: registry hit", {
     String.from("ty_d"),
     _entry(String.from("greet"))
   );
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_type_trait_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -134,11 +134,11 @@ test("get_type_trait_methods_by_name_from_env: registry hit", {
 });
 test("get_type_trait_methods_by_name_from_env: empty id short-circuits", {
   clear_type_trait_methods();
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_type_trait_methods_by_name_from_env(
     &env,
     String.from("anything"),
-    rc(TypeValueNode.Unit)
+    Rc.new(TypeValueNode.Unit)
   );
   assert(hits.len() == usize(0), "no hits for Unit");
 });
@@ -154,7 +154,7 @@ test("get_receiver_methods_by_name_from_env: direct receiver", {
     String.from("ty_recv"),
     _entry(String.from("greet"))
   );
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -171,8 +171,8 @@ test("get_receiver_methods_by_name_from_env: through pointer deref", {
     _entry(String.from("foo"))
   );
   // Pointer to struct s.
-  ptr_ty := rc(TypeValueNode.Pointer(s));
-  env := Environment.new(rc(String.from("")));
+  ptr_ty := Rc.new(TypeValueNode.Pointer(s));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("foo"),
@@ -184,7 +184,7 @@ test("get_receiver_methods_by_name_from_env: through pointer deref", {
 test("get_receiver_methods_by_name_from_env: empty when nothing matches", {
   clear_type_trait_methods();
   s := _synth_struct(String.from("ty_none"), String.from("N"));
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("missing"),
@@ -201,7 +201,7 @@ test("get_receiver_methods_by_name_from_env: comptime receiver does not crash", 
   // comptime literal shapes. The asserts pin the no-crash + zero
   // results contract that the larger evaluator will rely on.
   clear_type_trait_methods();
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits_int := get_receiver_methods_by_name_from_env(
     &env,
     String.from("anything"),
@@ -231,14 +231,14 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(
+  fn_ty := Rc.new(
     TypeValueNode.Func(
       no_types(),
       shared_list(param_types),
       no_types(),
       no_types(),
       t_i32(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : shared_list(param_labels),
@@ -260,7 +260,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   trait_field_labels.push(String.from("greet"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  greeter_trait := rc(
+  greeter_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Greeter"),
       assoc_type_names : ArrayList(String).new(),
@@ -279,12 +279,12 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   required_traits.push(greeter_trait);
   required_levels := ArrayList(usize).new();
   required_levels.push(usize(0));
-  some_t := rc(
+  some_t := Rc.new(
     TypeValueNode.SomeT(
       id : String.from("st_t"),
       name : String.from("T"),
       frame_level : usize(0),
-      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
       required_trait_types : required_traits,
       required_trait_levels : required_levels,
       negative_trait_types : ArrayList(TypeValue).new(),
@@ -293,7 +293,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
       resolution : Option(TypeValue).None
     )
   );
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -318,14 +318,14 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(
+  fn_ty := Rc.new(
     TypeValueNode.Func(
       no_types(),
       shared_list(param_types),
       no_types(),
       no_types(),
       t_i32(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : shared_list(param_labels),
@@ -347,7 +347,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   trait_field_labels.push(String.from("greet"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  greeter_trait := rc(
+  greeter_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Greeter"),
       assoc_type_names : ArrayList(String).new(),
@@ -365,7 +365,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   required_traits.push(greeter_trait);
   required_levels := ArrayList(usize).new();
   required_levels.push(usize(0));
-  dyn_ty := rc(
+  dyn_ty := Rc.new(
     TypeValueNode.DynT(
       required_trait_types : shared_list(required_traits),
       required_trait_levels : shared_list(required_levels),
@@ -373,7 +373,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
       negative_trait_levels : no_levels()
     )
   );
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -397,14 +397,14 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(
+  fn_ty := Rc.new(
     TypeValueNode.Func(
       no_types(),
       shared_list(param_types),
       no_types(),
       no_types(),
       t_i32(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : shared_list(param_labels),
@@ -427,7 +427,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   trait_field_labels.push(String.from("fmap"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  functor_trait := rc(
+  functor_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Functor"),
       assoc_type_names : ArrayList(String).new(),
@@ -442,12 +442,12 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     )
   );
   // SomeT constructor `F` and arg `A`.
-  ctor_some_t := rc(
+  ctor_some_t := Rc.new(
     TypeValueNode.SomeT(
       id : String.from("st_f"),
       name : String.from("F"),
       frame_level : usize(0),
-      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
       required_trait_types : ArrayList(TypeValue).new(),
       required_trait_levels : ArrayList(usize).new(),
       negative_trait_types : ArrayList(TypeValue).new(),
@@ -456,12 +456,12 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
       resolution : Option(TypeValue).None
     )
   );
-  arg_some_t := rc(
+  arg_some_t := Rc.new(
     TypeValueNode.SomeT(
       id : String.from("st_a"),
       name : String.from("A"),
       frame_level : usize(0),
-      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
       required_trait_types : ArrayList(TypeValue).new(),
       required_trait_levels : ArrayList(usize).new(),
       negative_trait_types : ArrayList(TypeValue).new(),
@@ -472,7 +472,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   );
   args_list := ArrayList(TypeValue).new();
   args_list.push(arg_some_t);
-  type_app := rc(
+  type_app := Rc.new(
     TypeValueNode.TypeAppT(
       constructor : ctor_some_t,
       args : shared_list(args_list)
@@ -481,7 +481,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   // Push a frame so the where-clause-constraint setter has somewhere
   // to record the entry, then register the constraint
   // `F(A) <: Functor`.
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   add_where_clause_constraint_for_type_application(
     &env,
     &type_app,
@@ -515,16 +515,16 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
   param_labels.push(String.from("self"));
   param_labels.push(String.from("other"));
   param_types := ArrayList(TypeValue).new();
-  param_types.push(rc(TypeValueNode.Pointer(Rc.clone(s))));
+  param_types.push(Rc.new(TypeValueNode.Pointer(Rc.clone(s))));
   param_types.push(Rc.clone(s));
-  fn_ty := rc(
+  fn_ty := Rc.new(
     TypeValueNode.Func(
       no_types(),
       shared_list(param_types),
       no_types(),
       no_types(),
       t_i32(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : shared_list(param_labels),
@@ -554,7 +554,7 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
       owner : String.new()
     )
   );
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   // Non-infix call → keep the method.
   hits_normal := get_receiver_methods_by_name_from_env(
     &env,
@@ -586,15 +586,15 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
   param_labels := ArrayList(String).new();
   param_labels.push(String.from("self"));
   param_types := ArrayList(TypeValue).new();
-  param_types.push(rc(TypeValueNode.Pointer(Rc.clone(s))));
-  fn_ty := rc(
+  param_types.push(Rc.new(TypeValueNode.Pointer(Rc.clone(s))));
+  fn_ty := Rc.new(
     TypeValueNode.Func(
       no_types(),
       shared_list(param_types),
       no_types(),
       no_types(),
       t_i32(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : shared_list(param_labels),
@@ -624,7 +624,7 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
       owner : String.new()
     )
   );
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("incr"),
@@ -646,14 +646,14 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(
+  fn_ty := Rc.new(
     TypeValueNode.Func(
       no_types(),
       shared_list(param_types),
       no_types(),
       no_types(),
       t_i32(),
-      rc(
+      Rc.new(
         FuncMeta(
           forall_labels : no_labels(),
           param_labels : shared_list(param_labels),
@@ -675,7 +675,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
   trait_field_labels.push(String.from("greet"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  greeter_trait := rc(
+  greeter_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Greeter"),
       assoc_type_names : ArrayList(String).new(),
@@ -695,12 +695,12 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
   // `_self_t` should still surface when the call site queries
   // `output_t` (same id, different name — like Output aliased
   // to _Self during overload resolution).
-  _self_t := rc(
+  _self_t := Rc.new(
     TypeValueNode.SomeT(
       id : String.from("st_shared"),
       name : String.from("_Self"),
       frame_level : usize(0),
-      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
       required_trait_types : ArrayList(TypeValue).new(),
       required_trait_levels : ArrayList(usize).new(),
       negative_trait_types : ArrayList(TypeValue).new(),
@@ -709,12 +709,12 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
       resolution : Option(TypeValue).None
     )
   );
-  output_t := rc(
+  output_t := Rc.new(
     TypeValueNode.SomeT(
       id : String.from("st_shared"),
       name : String.from("Output"),
       frame_level : usize(0),
-      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
       required_trait_types : ArrayList(TypeValue).new(),
       required_trait_levels : ArrayList(usize).new(),
       negative_trait_types : ArrayList(TypeValue).new(),
@@ -723,7 +723,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
       resolution : Option(TypeValue).None
     )
   );
-  env := Environment.new(rc(String.from("")));
+  env := Environment.new(Rc.new(String.from("")));
   add_where_clause_constraint_to_env(&env, &_self_t, &greeter_trait, false);
   hits := get_receiver_methods_by_name_from_env(
     &env,

@@ -9,7 +9,7 @@
 _Node :: struct(name : i32, kids : ArrayList(i32));
 // The one placement spelling: a defaulted `Option(Allocator)` passed on.
 _make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(_Node))(
-  rc(_Node(name : name, kids : ArrayList(i32).new()), alloc : alloc)
+  Rc.new(_Node(name : name, kids : ArrayList(i32).new()), alloc : alloc)
 );
 // A bare `Allocator` parameter.
 _place_in :: (fn(a : Allocator, name : i32) -> Rc(_Node))(_make_node(name, alloc : .Some(a)));

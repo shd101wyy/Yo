@@ -849,11 +849,11 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
 _dd_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
   match(
     drop_expr,
-    .FnCall(_, func, args, _, _) => if(
+    .FnCall(_, func, Rc(args), _, _) => if(
       args.len() == usize(0),
       match(
         func,
-        .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))), {
+        .FnCall(_, _, Rc(fargs), _, _) => if(ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))), {
           a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
           if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),

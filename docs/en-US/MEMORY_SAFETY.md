@@ -141,12 +141,12 @@ An explicit allocator decides **where** a block lives. Reference counting still 
 Point :: struct(x : i32, y : i32);
 
 a := Allocator.global(); // or any other `Allocator` value, such as your own
-p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // placed in `a`
+p := Rc.new(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // placed in `a`
 xs := ArrayList(i32).new(alloc : .Some(a)); // the buffer lives in `a`
 ys := ArrayList(i32).new(); // no argument: the global allocator
 ```
 
-- **Global by default, placement by argument.** A creation with no allocator argument goes to the global allocator, so what a call does never depends on its caller. `box`, `rc` and `arc` take `alloc : .Some(a)`, and so do the containers' `new` / `with_capacity`; `clone_in(a)` places a copy. Every growth of a buffer stays with the allocator it was created in. `ref` constructors, `dyn` boxes, interpolated strings, closure environments, task state machines and the runtime's own bookkeeping are global.
+- **Global by default, placement by argument.** A creation with no allocator argument goes to the global allocator, so what a call does never depends on its caller. `Box.new`, `Rc.new` and `Arc.new` take `alloc : .Some(a)`, and so do the containers' `new` / `with_capacity`; `clone_in(a)` places a copy. Every growth of a buffer stays with the allocator it was created in. `ref` constructors, `dyn` boxes, interpolated strings, closure environments, task state machines and the runtime's own bookkeeping are global.
 - **Passing placement on is safe code.** `Allocator`, `Option(Allocator)` and a struct holding one are opaque handles: a safe file may declare `(alloc : Option(Allocator)) ?= .None` and pass it on. Using the handle's raw words (`a.alloc(n, align)`) still needs the pragma.
 - **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`, so one allocator may serve several threads as long as its own callbacks are thread-safe.
 - **The allocator must outlive its blocks.** Yo does not check this: a user-written allocator's context and vtable must stay valid until every block it handed out is released.

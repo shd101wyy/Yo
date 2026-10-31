@@ -82,7 +82,7 @@ ci_eval_arg :: (
           )
         )
       );
-      new_expr_info(env, rc(TypeValueNode.TypeUni(usize(0))))
+      new_expr_info(env, Rc.new(TypeValueNode.TypeUni(usize(0))))
     }
   )
 });
@@ -251,7 +251,7 @@ ci_eval_list_index :: (
 )({
   self_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -264,7 +264,7 @@ ci_eval_list_index :: (
   );
   idx_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -384,7 +384,7 @@ ci_eval_list_range_index :: (
 )({
   self_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -397,7 +397,7 @@ ci_eval_list_range_index :: (
   );
   range_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -532,7 +532,7 @@ ci_eval_array_index :: (
 )({
   self_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -545,7 +545,7 @@ ci_eval_array_index :: (
   );
   idx_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -675,7 +675,7 @@ ci_eval_string_index :: (
 )({
   self_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -688,7 +688,7 @@ ci_eval_string_index :: (
   );
   idx_arg := match(
     expr,
-    .FnCall(_, _, fargs, _, _) => match(
+    .FnCall(_, _, Rc(fargs), _, _) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {

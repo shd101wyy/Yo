@@ -54,7 +54,7 @@ test("a static method binds the constructor's parameters from its arguments", {
 });
 _Lists :: struct(xs : ArrayList(String), h : Rc(ArrayList(i32)));
 test("a field read is an argument like any other, for a static method and for decision 32", {
-  ls := _Lists(xs : ArrayList(String).new(), h : rc(ArrayList(i32).new()));
+  ls := _Lists(xs : ArrayList(String).new(), h : Rc.new(ArrayList(i32).new()));
   comptime_assert(Type.eq(type_of(_Wrap.of_list(&ls.xs)), _Wrap(String)), "the field's type binds T");
   Rc.make_mut(&mut ls.h).push(i32(2));
   assert(ls.h.len() == usize(1), "the receiver is the field");
@@ -80,7 +80,7 @@ test("an instance argument of a static method is a payload, not the receiver", {
   q := _Box1(i32)(a : i32(1));
   p := _Box1.mk(q);
   comptime_assert(Type.eq(type_of(p), _Box1(_Box1(i32))), "_Box1.mk(q) is _Box1(_Box1(i32)); decision 32 alone made it E0601");
-  r := Rc.new(rc(i32(1)));
+  r := Rc.new(Rc.new(i32(1)));
   comptime_assert(Type.eq(type_of(r), Rc(Rc(i32))), "Rc.new(some_rc) is Rc(Rc(i32)), as Rust's Rc::new(rc)");
 });
 test("two arguments binding one parameter to different types are E0601", {
@@ -91,6 +91,8 @@ test("a parameter no consulted argument mentions is E0613 naming it", {
   comptime_expect_error(_Pair.left(i32(1)), "write the type arguments: `_Pair(...).left(...)`");
   comptime_expect_error(Rc.new(.None), "Cannot infer the type parameter `T` of `Rc`");
   comptime_expect_error(Rc.new(.None), "write the type arguments: `Rc(...).new(...)`");
+  // A `dyn(...)` value takes its type from the parameter like a closure; consulted, it was E0605.
+  comptime_expect_error(Rc.new(dyn(i32(1))), "Cannot infer the type parameter `T` of `Rc`");
   comptime_expect_error(_Wrap.lazy(() => i32(1)), "Cannot infer the type parameter `T` of `_Wrap`");
   w := _Wrap(i32).lazy(() => i32(1));
   assert(w.n == usize(0), "the written type arguments call it");

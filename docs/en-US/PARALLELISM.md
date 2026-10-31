@@ -260,7 +260,7 @@ Thread(unit).spawn(io => {
 ```
 
 `Channel` is implemented as an `atomic(ref(struct(...)))`, so it is directly shareable across
-threads. No extra `arc()` wrapper is needed.
+threads. No extra `Arc.new()` wrapper is needed.
 
 Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
@@ -327,7 +327,7 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs/enums/tuples composed of Send
   fields, atomic objects whose fields are all Sync (`Arc`, `Mutex`, `Channel`, the `Atomic*`
   wrappers), `Dyn(Trait, Send)` (the concrete type is checked at `dyn(...)`, and its payload is
-  atomically counted: `dyn(v)` boxes a value type with `arc`), and function values (a named function or a closure) whose captures are
+  atomically counted: `dyn(v)` boxes a value type with `Arc.new`), and function values (a named function or a closure) whose captures are
   all Send and whose code reaches no non-Send module global — judged from the value where the
   compiler can see it: a spawn body, an `Impl(Fn(...), Send)` or `Impl(FnOnce(...), Send)` argument, a generic
   `where(T <: Send)` argument, a captured variable

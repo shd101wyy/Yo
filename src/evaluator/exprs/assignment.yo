@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
   BF_DOT,
   ast_expr_strip_borrow_marker
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -270,8 +270,8 @@ make_variable_with_value :: (
 /// unchanged.
 get_root_expr_of_field_access :: (fn(expr : &AstExpr) -> AstExpr)(
   if(
-    ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (match(expr, .FnCall(_, _, args, _, _) => args.len(), .Atom(_, _) => usize(0)) >= usize(2)),
-    recur(match(expr, .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => expr), .Atom(_, _) => expr)),
+    ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (match(expr, .FnCall(_, _, Rc(args), _, _) => args.len(), .Atom(_, _) => usize(0)) >= usize(2)),
+    recur(match(expr, .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => expr), .Atom(_, _) => expr)),
     expr
   )
 );
@@ -318,7 +318,7 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
   while(!done, {
     (next : Option(AstExpr)) = match(
       cur,
-      .FnCall(_, callee, args, _, _) => cond(
+      .FnCall(_, callee, Rc(args), _, _) => cond(
         ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => args.get(usize(0)),
         // An index write `a(i)`: the callee is the place.
         true => Option(AstExpr).Some(callee)
@@ -473,7 +473,7 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
   while(walking, {
     match(
       cur,
-      .FnCall(_, w_callee, w_args, _, _) => {
+      .FnCall(_, w_callee, Rc(w_args), _, _) => {
         cur = if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), match(w_args.get(usize(0)), .Some(r) => r, .None => cur), w_callee);
       },
       .Atom(_, _) => {
@@ -775,7 +775,7 @@ _COPY_WRITE_NOUN :: "copy-write";
 get_root_expr_of_place :: (fn(expr : &AstExpr) -> AstExpr)(
   match(
     expr,
-    .FnCall(_, callee, args, _, _) => cond(
+    .FnCall(_, callee, Rc(args), _, _) => cond(
       (ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (args.len() >= usize(2))) => recur(
         match(args.get(usize(0)), .Some(a) => a, .None => expr)
       ),
@@ -1322,12 +1322,12 @@ evaluate_assignment :: (
   });
   (lhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   (rhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   // -----------------------------------------------------------------------
@@ -1358,7 +1358,7 @@ evaluate_assignment :: (
   // records the declared name), and `register_mut_global` carries a global's.
   (is_mut_lhs : bool) = false;
   if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))), {
-    mut_name_pos := match(lhs, .FnCall(_, _, mn_cargs, _, _) => match(mn_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+    mut_name_pos := match(lhs, .FnCall(_, _, Rc(mn_cargs), _, _) => match(mn_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
     mut_holder := if(ast_expr_is_fn_call_of(&mut_name_pos, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&mut_name_pos, BK_COMPTIME, .Some(usize(1))), mut_name_pos.clone(), lhs.clone());
     is_mut_lhs = strip_mut_marker(&mut_holder, usize(0), exn).is_some();
   });
@@ -1366,13 +1366,13 @@ evaluate_assignment :: (
   if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))), {
     tl_name_pos := match(
       lhs,
-      .FnCall(_, _, tl_cargs, _, _) => match(tl_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(tl_cargs), _, _) => match(tl_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     if(ast_expr_is_fn_call_of(&tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))), {
       tl_atom := match(
         tl_name_pos,
-        .FnCall(_, _, tl_margs, _, _) => match(tl_margs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+        .FnCall(_, _, Rc(tl_margs), _, _) => match(tl_margs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
         .Atom(_, _) => make_err_expr()
       );
       if(!ast_expr_is_atom(&tl_atom), {
@@ -1388,7 +1388,7 @@ evaluate_assignment :: (
       is_thread_local_lhs = true;
       match(
         lhs,
-        .FnCall(_, _, tl_cargs2, _, _) => {
+        .FnCall(_, _, Rc(tl_cargs2), _, _) => {
           // A pattern binding below a cell is a read-only copy; the write
           // goes through an owned handle to the same list.
           tl_args := tl_cargs2;
@@ -2207,6 +2207,11 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   // (`(x : T);`) is its initialization, not a write, on each branch that
   // makes it (`has_dominating_branch_init`).
   if(!variable.is_module_level && !d1_is_decl_init, {
+    // `yo fix --migrate mut-bindings`: this assignment is judged here, a
+    // write or a branch's initialization.
+    if(migrate_mut_bindings_on(), {
+      record_mut_judged(&d1_lhs_tok);
+    });
     rb_inited_at_decl := match(variable.initialized_at_token, .Some(it) => ((it.row == variable.token.row) && ((it.column == variable.token.column) && (it.module_path == variable.token.module_path))), .None => false);
     rb_is_write := cond(
       rb_inited_at_decl => true,

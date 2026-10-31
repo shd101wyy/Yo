@@ -65,7 +65,7 @@ evaluate_union_type :: (
   register_type_decl_module(union_id.clone(), decl_tok.module_path.*.clone());
   // Temporarily set SelfType so fields can reference Self.
   old_self_type := ctx.self_type.clone();
-  prelim_ty := rc(
+  prelim_ty := Rc.new(
     TypeValueNode.Union(
       union_id.clone(),
       no_labels(),
@@ -74,7 +74,7 @@ evaluate_union_type :: (
   );
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
   // Collect fields.
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   fields := ArrayList(TypeField).new();
@@ -94,7 +94,7 @@ evaluate_union_type :: (
       dup_idx = (dup_idx + usize(1));
     });
     if(has_dup, {
-      arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+      arg_args := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
@@ -153,7 +153,7 @@ evaluate_union_type :: (
   // Restore SelfType.
   ctx.self_type = old_self_type;
   // Build final Union TypeValue.
-  union_ty := rc(
+  union_ty := Rc.new(
     TypeValueNode.Union(
       union_id.clone(),
       shared_list(field_labels),

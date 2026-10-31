@@ -81,7 +81,7 @@ evaluate_anonymous_struct_value :: (
       )
     );
   });
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // Generate unique struct id. Phase 2: occurrence-indexed at this literal's
   // source position — every evaluation still mints a FRESH id (distinct
   // anonymous-struct instantiations must never share, see struct.yo's twin),
@@ -91,7 +91,7 @@ evaluate_anonymous_struct_value :: (
   // Member visibility: an anonymous struct literal is declared where it is written.
   register_type_decl_module(struct_id.clone(), as_tok.module_path.*.clone());
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
-  prelim_ty := rc(
+  prelim_ty := Rc.new(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
@@ -118,7 +118,7 @@ evaluate_anonymous_struct_value :: (
     // `__yo_imm(y)` / `__yo_mut(z)` (the puns `&y` / `&mut z`, or the label
     // of `y : &p`) is a capture-list borrow entry (decision 35): it means
     // something only before a closure's parameters.
-    entry_label := if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), match(arg, .FnCall(_, _, ea, _, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), .Atom(_, _) => arg), arg);
+    entry_label := if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), match(arg, .FnCall(_, _, Rc(ea), _, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), .Atom(_, _) => arg), arg);
     if(ast_expr_is_capture_mode_entry(&arg) || ast_expr_is_capture_mode_entry(&entry_label), {
       exn.throw(
         dyn(
@@ -139,7 +139,7 @@ evaluate_anonymous_struct_value :: (
     (value_expr : AstExpr) = arg;
     (label_arg_expr : AstExpr) = make_err_expr();
     if(is_labeled, {
-      fa := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
+      fa := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
       lae := match(fa.get(usize(0)), .Some(a2) => a2, .None => make_err_expr());
       label_arg_expr = lae;
       value_expr = match(fa.get(usize(1)), .Some(a2) => a2, .None => make_err_expr());
@@ -178,7 +178,7 @@ evaluate_anonymous_struct_value :: (
             )
           )
         );
-        new_expr_info(&cur_env, rc(TypeValueNode.Unit))
+        new_expr_info(&cur_env, Rc.new(TypeValueNode.Unit))
       }
     );
     cur_env = expr_info_adopt_env(&arg_info);
@@ -216,7 +216,7 @@ evaluate_anonymous_struct_value :: (
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForStructType — no-op stub.
   // Build final struct TypeValue
   field_labels_s := shared_list(field_labels);
-  struct_ty := rc(
+  struct_ty := Rc.new(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),

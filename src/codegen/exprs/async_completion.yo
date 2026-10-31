@@ -105,7 +105,7 @@ unwind_origin_id :: (fn(body : &AstExpr) -> String)({
 _boundary_body :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(
     e,
-    .FnCall(_, func_box, args, _, _) => match(
+    .FnCall(_, func_box, Rc(args), _, _) => match(
       func_box,
       .Atom(_, _) => if(args.len() > usize(0), args.last(), Option(AstExpr).None),
       .FnCall(_, _, _, _, _) => args.get(usize(0))
@@ -120,7 +120,7 @@ _same_frame_children :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   match(
     e,
-    .FnCall(_, func_box, args, _, _) => {
+    .FnCall(_, func_box, Rc(args), _, _) => {
       out.push(func_box);
       is_branching := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
       (i : usize) = usize(0);
@@ -130,7 +130,7 @@ _same_frame_children :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
           .Some(a) => if(is_branching && ast_expr_is_fn_call_of(&a, "=>", .None), {
             match(
               a,
-              .FnCall(_, _, parts, _, _) => {
+              .FnCall(_, _, Rc(parts), _, _) => {
                 (j : usize) = usize(0);
                 while(j < parts.len(), {
                   match(parts.get(j), .Some(pa) => out.push(pa), .None => ());

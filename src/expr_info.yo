@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count, ast_expr_token } :: import("./expr.yo");
-{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats, Frame, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames } :: import("./env.yo");
+{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats, Frame, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames, mut_census_trusted, mut_census_key } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -1015,6 +1015,45 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 (g_extern_c_globals : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
 /// Method-call expr id → resolved method FuncVal (see `record_method_callee_value`).
 (g_method_callee_values : RefCell(HashMap(ExprId, EvalValue))) = RefCell(HashMap(ExprId, EvalValue)).new(HashMap(ExprId, EvalValue).new());
+/// Statements a `verify+` build leaves out of the emitted code: the spliced
+/// `ensures failed` asserts whose obligations proved
+/// (`strip_proved_ensures_asserts`, evaluator/builtins/contracts.yo). The
+/// strip does not rewrite the function body, because an `AstExpr` is not
+/// written after it is built (V4: a call's `args` is the payload of an `Rc`,
+/// read-only through the handle, decision 46). The emitters read a block's
+/// statements through `emitted_block_statements` instead.
+(g_stripped_statement_ids : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+/// Leave the statement `id` out of the emitted code (`g_stripped_statement_ids`).
+note_stripped_statement :: (fn(id : ExprId) -> unit)({
+  g_stripped_statement_ids.with_mut(s => s.insert(id));
+  ()
+});
+/// Whether a `verify+` strip left the statement `id` out of the emitted code.
+is_stripped_statement :: (fn(id : ExprId) -> bool)(
+  g_stripped_statement_ids.with(s => s.contains(&id))
+);
+/// The statements of a block that codegen emits: `stmts` without the ones a
+/// `verify+` strip recorded (`note_stripped_statement`). With no stripped
+/// statement it returns `stmts` itself.
+emitted_block_statements :: (fn(stmts : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  if(g_stripped_statement_ids.with(s => s.is_empty()), {
+    return(stmts);
+  });
+  kept := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while(i < stmts.len(), i = (i + usize(1)), {
+    match(
+      stmts.get(i),
+      .Some(st) => {
+        if(!is_stripped_statement(ast_expr_id(&st)), {
+          kept.push(st);
+        });
+      },
+      .None => ()
+    );
+  });
+  kept
+});
 /// Local borrow binding's `imm(y)`/`mut(y)` node id → the hidden owning local
 /// that holds the reference cell its re-points step into (plans/VALUES_BY_DEFAULT.md
 /// decision 25; see `record_local_borrow_step_pin`).
@@ -1130,10 +1169,10 @@ _drop_target_atom_of :: (fn(d : &AstExpr) -> Option(AstExpr))(
   match(
     d,
     .Atom(_, _) => Option(AstExpr).None,
-    .FnCall(_, func, args, _, _) => cond(
+    .FnCall(_, func, Rc(args), _, _) => cond(
       (args.len() == usize(0)) => match(
         func,
-        .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(a0) => match(a0, .Atom(_, _) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
+        .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(a0) => match(a0, .Atom(_, _) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
         .Atom(_, _) => Option(AstExpr).None
       ),
       true => match(args.get(usize(0)), .Some(a0) => match(a0, .Atom(_, _) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None)
@@ -1208,7 +1247,7 @@ _scope_keeps_env :: (fn(id : ExprId, info : &ExprInfo) -> bool)(
   _scope_type_installs(&info.ty) || _scope_value_installs(&info.value) || _scope_value_installs(lookup_method_callee_value(id))
 );
 scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
-  husk := Environment(frames : rc(copy_env_frames(entry)), module_path : Rc.clone(entry.module_path), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
+  husk := Environment(frames : Rc.new(copy_env_frames(entry)), module_path : Rc.clone(entry.module_path), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.with(xs => xs.len()), {
     id := g_scope_log_ids.with(xs => xs.get(i)).unwrap();
@@ -1515,7 +1554,7 @@ scope_release_report :: (fn() -> unit)(
 export(scope_release_note_query, scope_release_mode, scope_release_note_mismatch, scope_release_note_hard, scope_release_note_binding, scope_release_set_table, scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, scope_release_report);
 /// Create a new empty ExprInfoTable.
 expr_info_table_new :: (fn() -> ExprInfoTable)(
-  ExprInfoTable(data : rc(RefCell(HashMap(ExprId, ExprInfo)).new(HashMap(ExprId, ExprInfo).new())))
+  ExprInfoTable(data : Rc.new(RefCell(HashMap(ExprId, ExprInfo)).new(HashMap(ExprId, ExprInfo).new())))
 );
 /// Store an ExprInfo for the given expression id.
 /// Copy-on-write accessor for `ExprInfo.path_collection`: every ExprInfo starts
@@ -2120,7 +2159,7 @@ record_branch_init :: (
 );
 /// A move of a user-named variable.
 record_branch_consume :: (fn(var_id : usize, token : &Token, before_init : &Option(Token), before_consumed : &Option(Token)) -> unit)(
-  record_flow_event(var_id, rc(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
+  record_flow_event(var_id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
 );
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.with(xs => xs.len()));
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.with(xs => xs.get(i)));
@@ -2437,7 +2476,7 @@ struct_fully_concrete_instance :: (fn(ty : &TypeValue) -> bool)({
     Rc(.Struct({ type_arguments : fc_tas })) => {
       (fci : usize) = usize(0);
       while(fci < fc_tas.len(), {
-        ta := match(fc_tas.get(fci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        ta := match(fc_tas.get(fci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if(is_some_type(&ta) || (get_all_some_types(&ta).len() > usize(0)), {
           return(false);
         });
@@ -2483,8 +2522,8 @@ adopt_receiver_struct_instance :: (
     });
     (ai_ti : usize) = usize(0);
     while(ai_ti < ret_tas.len(), {
-      (rta : TypeValue) = match(ret_tas.get(ai_ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-      vta := match(recv_tas.get(ai_ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+      (rta : TypeValue) = match(ret_tas.get(ai_ti), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      vta := match(recv_tas.get(ai_ti), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       if(is_some_type(&rta), {
         match(
           Rc.clone(rta),
@@ -2664,6 +2703,7 @@ scope_variables :: (fn(key : ExprId, env : &Environment, name : &String) -> Arra
   )
 );
 export(scope_variables);
+export(note_stripped_statement, is_stripped_statement, emitted_block_statements);
 export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
@@ -3059,7 +3099,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
   _purge_expr_side_tables_at(id);
   match(
     root,
-    .FnCall(_, callee, args, _, _) => {
+    .FnCall(_, callee, Rc(args), _, _) => {
       purge_executed_clone_metadata(table, &callee, lo, hi);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
@@ -3439,4 +3479,21 @@ take_mut_param_sites :: (fn() -> ArrayList(MutableGlobalSite))({
   g_mut_param_site_keys.with_mut(s => s.clear());
   out
 });
-export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites);
+/// The writes evaluation JUDGED, by the census key of the write's token
+/// (`mut_census_key`): a reassignment's target name, a stored place, a lent
+/// argument as written, a method call's receiver. `yo fix --migrate
+/// mut-bindings` leaves a write found here to evaluation's verdict, recorded
+/// or not, and judges the rest lexically (`_mbl_*`, main.yo). A judgment
+/// inside a generic body's specialization is not recorded
+/// (`mut_census_trusted`): the instantiation evaluated may hold a handle
+/// where another holds a value.
+(g_mut_judged : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+record_mut_judged :: (fn(tok : &Token) -> unit)({
+  if(!mut_census_trusted(), {
+    return(());
+  });
+  key := mut_census_key(tok);
+  g_mut_judged.with_mut(s => s.insert(key));
+});
+take_mut_judged :: (fn() -> HashSet(String))(g_mut_judged.replace(HashSet(String).new()));
+export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites, record_mut_judged, take_mut_judged);

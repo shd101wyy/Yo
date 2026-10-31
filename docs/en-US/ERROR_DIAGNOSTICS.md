@@ -196,11 +196,11 @@ the arguments, `alloc :` included, kept as written. It evaluates each file and
 rewrites only the calls whose name resolves to the prelude's function, so a
 parameter or local named `rc` stays. Where inference does not read the value
 argument (an enum shorthand such as `.None`, a closure literal outside
-`dyn(...)`, a number literal the old call typed from its context) it writes
+`dyn(...)`, a `dyn(...)` value, a number literal the old call typed from its context) it writes
 the type argument the old call bound: `(o : Rc(Option(i32))) = rc(.None)`
 becomes `Rc(Option(i32)).new(.None)`. A site that needs the type argument but
-sits in a generic body, or whose type has no spelling (a closure's), is listed
-with its position and left as written.
+sits in a generic body, or whose type has no spelling (a closure's, a
+`Dyn`'s), is listed with its position and left as written.
 
 `yo fix <path> --migrate mutable-globals` is the migration for decision 47,
 under which a module-level or `thread_local` runtime binding is immutable

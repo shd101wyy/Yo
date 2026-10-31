@@ -348,7 +348,7 @@ evaluate_import :: (
   // Get the path argument (first arg of the import call).
   module_arg := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => {
@@ -505,7 +505,7 @@ evaluate_import :: (
     .Some(load_fn) => load_fn(module_abs_path.clone()),
     .None => LoadModuleResult(
       module_value : _build_module_val_from_env(&env),
-      module_type : rc(TypeValueNode.Unit),
+      module_type : Rc.new(TypeValueNode.Unit),
       module_error : .None
     )
   );

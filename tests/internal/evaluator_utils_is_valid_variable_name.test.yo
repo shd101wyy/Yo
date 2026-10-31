@@ -8,12 +8,12 @@
 mk_tok :: (fn(value : str, kind : TokenKind) -> Token)(
   Token(
     kind : kind,
-    value : rc(String.from(value)),
+    value : Rc.new(String.from(value)),
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : rc(String.from("")),
-    input : rc(String.from(""))
+    module_path : Rc.new(String.from("")),
+    input : Rc.new(String.from(""))
   )
 );
 mk_atom :: (fn(value : str, kind : TokenKind) -> AstExpr)(
@@ -24,7 +24,7 @@ mk_call :: (fn(func_value : str, func_kind : TokenKind) -> AstExpr)({
   AstExpr.FnCall(
     usize(0),
     mk_atom(func_value, func_kind),
-    args,
+    Rc.new(args),
     false,
     mk_tok(func_value, func_kind)
   )

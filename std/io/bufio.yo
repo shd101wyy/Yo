@@ -104,7 +104,7 @@ impl(
   ),
   /// Wrap `inner` (moved in) with a `capacity`-byte buffer.
   with_capacity : (fn(sink(inner) : R, capacity : usize) -> Self)(
-    Self(_inner : inner, _st : box(_BufReaderState(_buf : _zeroed(capacity), _pos : usize(0), _filled : usize(0), _capacity : capacity)))
+    Self(_inner : inner, _st : Box.new(_BufReaderState(_buf : _zeroed(capacity), _pos : usize(0), _filled : usize(0), _capacity : capacity)))
   ),
   /// The inner reader, lent.
   get_ref : (fn(self : &Self) -> &R)(&self._inner),
@@ -271,7 +271,7 @@ impl(
   ),
   /// Wrap `inner` (moved in) with a `capacity`-byte buffer.
   with_capacity : (fn(sink(inner) : W, capacity : usize) -> Self)(
-    Self(_inner : inner, _st : box(_BufWriterState(_buf : ArrayList(u8).with_capacity(capacity), _capacity : capacity)))
+    Self(_inner : inner, _st : Box.new(_BufWriterState(_buf : ArrayList(u8).with_capacity(capacity), _capacity : capacity)))
   ),
   /// The inner writer, lent.
   get_ref : (fn(self : &Self) -> &W)(&self._inner),

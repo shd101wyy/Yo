@@ -2,12 +2,12 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 test("Test basic Arc with primitive type", {
-  a := arc(i32(42));
+  a := Arc.new(i32(42));
   val := a.*;
   assert(val == 42);
 });
 test("Test Arc copy shares value", {
-  a := arc(i32(100));
+  a := Arc.new(i32(100));
   b := Arc.clone(a);
   assert(a.* == 100);
   assert(b.* == 100);
@@ -18,12 +18,12 @@ test("Test Arc with direct constructor", {
 });
 test("Test Arc with struct type", {
   Counter :: struct(count : i32);
-  c := arc(Counter(i32(10)));
+  c := Arc.new(Counter(i32(10)));
   assert(c.*.count == 10);
 });
 test("Test Arc copy of struct type", {
   Counter :: struct(count : i32);
-  c := arc(Counter(i32(20)));
+  c := Arc.new(Counter(i32(20)));
   d := Arc.clone(c);
   assert(c.*.count == 20);
   assert(d.*.count == 20);
@@ -34,13 +34,13 @@ test("Test Arc with method delegation through deref", {
     Counter,
     get_count : (fn(self : &Self) -> i32)(self.count)
   );
-  c := arc(Counter(i32(30)));
+  c := Arc.new(Counter(i32(30)));
   assert(c.*.get_count() == 30);
 });
 test("Test Arc passed to function", {
   Counter :: struct(count : i32);
   read_arc :: (fn(a : &Arc(Counter)) -> i32)(a.*.count);
-  c := arc(Counter(i32(50)));
+  c := Arc.new(Counter(i32(50)));
   result := read_arc(&c);
   assert(result == 50);
   // c is still valid after passing to function (Arc copies on pass)
@@ -49,10 +49,10 @@ test("Test Arc passed to function", {
 test("Test Arc rejects non-Send object type", {
   Counter :: ref(struct(count : i32));
   comptime_expect_error(Arc(Counter));
-  comptime_expect_error(arc(Counter(i32(1))));
+  comptime_expect_error(Arc.new(Counter(i32(1))));
 });
 test("Test Arc multiple copies", {
-  a := arc(i32(7));
+  a := Arc.new(i32(7));
   b := Arc.clone(a);
   c := Arc.clone(a);
   d := Arc.clone(b);
@@ -67,7 +67,7 @@ test("Test Arc implements Send", {
 });
 test("Test Arc of struct type", {
   Point :: struct(x : i32, y : i32);
-  p := arc(Point(i32(3), i32(4)));
+  p := Arc.new(Point(i32(3), i32(4)));
   assert(p.*.x == 3);
   assert(p.*.y == 4);
 });
@@ -75,7 +75,7 @@ test("Test Arc scope cleanup", {
   // Arc should be properly cleaned up when going out of scope
   // ASAN will detect any leaks
   {
-    a := arc(i32(42));
+    a := Arc.new(i32(42));
     b := a;
     c := b;
     ()
@@ -126,10 +126,10 @@ test("arc alloc : .Some(a) places the cell in a, and the default does not", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    a := arc(i32(5), alloc : .Some(heap));
+    a := Arc.new(i32(5), alloc : .Some(heap));
     assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
-    g := arc(i32(6));
+    g := Arc.new(i32(6));
     assert(counts.live == usize(1), "a default arc is on the global allocator");
     assert((a.* + g.*) == i32(11), "the payloads");
   };
@@ -139,7 +139,7 @@ test("arc alloc : .Some(a) shared across a thread is released into a", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    shared := arc(i32(42), alloc : .Some(heap));
+    shared := Arc.new(i32(42), alloc : .Some(heap));
     t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
       assert(shared.* == i32(42), "the worker reads the placed cell");
     });
@@ -163,7 +163,7 @@ test("a Send dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes 
   assert(_arc_dyn_run((x : i32) => (x + n)) == i32(13), "the closure, called through the Dyn");
 });
 test("Test Arc shared across thread", {
-  shared := arc(i32(42));
+  shared := Arc.new(i32(42));
   t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
     assert(shared.* == 42);
   });
@@ -172,7 +172,7 @@ test("Test Arc shared across thread", {
 });
 test("Test Arc of struct shared across thread", {
   Counter :: struct(count : i32);
-  shared := arc(Counter(i32(99)));
+  shared := Arc.new(Counter(i32(99)));
   t := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
     assert(shared.*.count == 99);
   });
@@ -180,7 +180,7 @@ test("Test Arc of struct shared across thread", {
   assert(shared.*.count == 99);
 });
 test("Test Arc shared across multiple threads", {
-  shared := arc(i32(7));
+  shared := Arc.new(i32(7));
   t1 := Thread(unit).spawn({ shared : Arc.clone(shared) }(io) => {
     assert(shared.* == 7);
   });
@@ -196,7 +196,7 @@ test("Test Arc shared across multiple threads", {
 _ArcPair :: struct(a : i32, b : i32);
 derive(_ArcPair, Copy, Clone);
 test("Arc.try_unwrap on the only handle moves the payload out", {
-  h := arc(_ArcPair(a : i32(1), b : i32(2)));
+  h := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
   match(
     Arc.try_unwrap(h),
     .Ok(p) => assert((p.a == i32(1)) && (p.b == i32(2)), "the payload came out"),
@@ -204,7 +204,7 @@ test("Arc.try_unwrap on the only handle moves the payload out", {
   );
 });
 test("Arc.try_unwrap on a handle another thread holds returns it", {
-  a := arc(i32(5));
+  a := Arc.new(i32(5));
   b := Arc.clone(a);
   t := Thread(unit).spawn(io => {
     assert(b.* == i32(5));
@@ -214,7 +214,7 @@ test("Arc.try_unwrap on a handle another thread holds returns it", {
     Arc.try_unwrap(c),
     .Ok(_) => {
       assert(false, "a still shares the cell");
-      arc(i32(0))
+      Arc.new(i32(0))
     },
     .Err(h) => h
   );
@@ -223,7 +223,7 @@ test("Arc.try_unwrap on a handle another thread holds returns it", {
   assert(a.* == i32(5), "the payload is untouched");
 });
 test("Arc.make_mut clones a shared payload and writes a unique one in place", {
-  a := arc(_ArcPair(a : i32(1), b : i32(2)));
+  a := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
   b := Arc.clone(a);
   Arc.make_mut(&mut b).a = i32(10);
   assert(a.a == i32(1), "the other handle does not see the write");
@@ -245,7 +245,7 @@ impl(
   )
 );
 test("ArcWeak.upgrade on another thread is .Some while an Arc is alive, .None after", {
-  a := arc(i32(7));
+  a := Arc.new(i32(7));
   w := Arc.downgrade(&a);
   w2 := ArcWeak.clone(&w);
   assert(w.weak_count() == usize(2), "two weak handles");
@@ -268,7 +268,7 @@ test("the last Arc dropped on another thread leaves the cell to the last ArcWeak
   heap := _counting(addr_of(counts));
   before := g_arc_weak_dropped;
   w := {
-    a := arc(_ArcWeakProbe(n : i32(1)), alloc : .Some(heap));
+    a := Arc.new(_ArcWeakProbe(n : i32(1)), alloc : .Some(heap));
     w0 := Arc.downgrade(&a);
     t := Thread(unit).spawn({ a : Arc.clone(a) }(io) => {
       assert(a.n == i32(1), "the worker holds the last Arc");
@@ -288,7 +288,7 @@ test("ArcWeak handles upgraded and dropped on several threads while the last Arc
   heap := _counting(addr_of(counts));
   before := g_arc_weak_dropped;
   {
-    a := arc(_ArcWeakProbe(n : i32(3)), alloc : .Some(heap));
+    a := Arc.new(_ArcWeakProbe(n : i32(3)), alloc : .Some(heap));
     w1 := Arc.downgrade(&a);
     w2 := Arc.downgrade(&a);
     t1 := Thread(unit).spawn({ w1 }(io) => {
@@ -317,7 +317,7 @@ test("ArcWeak handles upgraded and dropped on several threads while the last Arc
 // `Arc.make_mut` disassociates `ArcWeak` handles, as `Rc.make_mut` does `Weak`
 // ones.
 test("Arc.make_mut on the only Arc with an ArcWeak alive moves to a fresh cell", {
-  a := arc(_ArcPair(a : i32(1), b : i32(2)));
+  a := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
   w := Arc.downgrade(&a);
   before := addr_of(a.*);
   Arc.make_mut(&mut a).a = i32(10);
@@ -327,7 +327,7 @@ test("Arc.make_mut on the only Arc with an ArcWeak alive moves to a fresh cell",
     assert(w.upgrade().is_none(), "the ArcWeak upgrades to .None on another thread");
   });
   t.join();
-  b := arc(_ArcPair(a : i32(3), b : i32(4)));
+  b := Arc.new(_ArcPair(a : i32(3), b : i32(4)));
   w2 := Arc.downgrade(&b);
   consume(w2);
   before_b := addr_of(b.*);
@@ -347,7 +347,7 @@ _arc_unique :: extern(
   __yo_arc_release_locked : (fn(slot : *void) -> unit)
 );
 test("a locked Arc cell refuses ArcWeak.upgrade on another thread, and its weak count still reads", {
-  a := arc(_ArcPair(a : i32(1), b : i32(2)));
+  a := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
   cell := (*void)(unsafe.cast(&a, *_ArcPair));
   w := Arc.downgrade(&a);
   w2 := ArcWeak.clone(&w);
@@ -375,7 +375,7 @@ test("a locked cell whose payload moved out goes to its ArcWeak handles as dead"
   counts := _counts();
   heap := _counting(addr_of(counts));
   before := g_arc_weak_dropped;
-  a := arc(_ArcWeakProbe(n : i32(4)), alloc : .Some(heap));
+  a := Arc.new(_ArcWeakProbe(n : i32(4)), alloc : .Some(heap));
   cell := (*void)(unsafe.cast(&a, *_ArcWeakProbe));
   w := Arc.downgrade(&a);
   assert(_arc_unique.__yo_arc_lock_unique(cell), "the only Arc locks its cell");
@@ -389,7 +389,7 @@ test("a locked cell whose payload moved out goes to its ArcWeak handles as dead"
   assert(counts.live == usize(0), "the last ArcWeak, dropped on the worker, freed the cell");
   consume(p);
   assert(g_arc_weak_dropped == (before + i32(1)), "the payload was dropped once, by its new owner");
-  b := arc(_ArcWeakProbe(n : i32(5)), alloc : .Some(heap));
+  b := Arc.new(_ArcWeakProbe(n : i32(5)), alloc : .Some(heap));
   cell_b := (*void)(unsafe.cast(&b, *_ArcWeakProbe));
   assert(_arc_unique.__yo_arc_lock_unique(cell_b), "the only Arc locks its cell");
   q := __yo_ptr_read(addr_of(b.*));
@@ -490,8 +490,8 @@ test("Arc.make_mut and Arc.try_unwrap against an ArcWeak upgrade on another thre
 // issues/fixed/2026-10-27-a-generic-method-returning-rc-of-its-parameter-over-a-recursive-struct-gets-a-second-c-type.md).
 _ArcWeakNode :: struct(parent : ArcWeak(Self), tag : i32);
 test("an ArcWeak parent pointer in a recursive payload upgrades on another thread", {
-  root := arc(_ArcWeakNode(parent : ArcWeak(_ArcWeakNode).new(), tag : i32(1)));
-  leaf := arc(_ArcWeakNode(parent : Arc.downgrade(&root), tag : i32(2)));
+  root := Arc.new(_ArcWeakNode(parent : ArcWeak(_ArcWeakNode).new(), tag : i32(1)));
+  leaf := Arc.new(_ArcWeakNode(parent : Arc.downgrade(&root), tag : i32(2)));
   t := Thread(unit).spawn({ leaf : Arc.clone(leaf) }(io) => {
     n := match(leaf.parent.upgrade(), .Some(p) => p.tag, .None => i32(0));
     assert(n == i32(1), "the leaf reaches its parent");
@@ -502,7 +502,7 @@ test("an ArcWeak parent pointer in a recursive payload upgrades on another threa
 // Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Arc` needs
 // `.clone()`, as in Rust.
 test("Arc.clone is a second handle, and an implicit copy whose source is used again is E0901", {
-  a := arc(i32(8));
+  a := Arc.new(i32(8));
   b := Arc.clone(a);
   assert(ref_count(a) == usize(2), "two handles to one cell");
   comptime_expect_error({

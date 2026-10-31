@@ -325,7 +325,7 @@ comptime_expect_error(
       victim.* = Holder(s : String.from("replacement"), n : i32(7));
       v = i32(99);
     });
-    b := rc(Holder(s : String.from("orig"), n : i32(1)));
+    b := Rc.new(Holder(s : String.from("orig"), n : i32(1)));
     evil(&mut b.*.n, &b);
   })
 );
@@ -338,10 +338,10 @@ test("box deref is allowed when the box is unreachable", {
   read_n :: (fn(v : &mut i32) -> unit)({
     v = (v + i32(1));
   });
-  b := box(Holder(s : String.from("x"), n : i32(5)));
+  b := Box.new(Holder(s : String.from("x"), n : i32(5)));
   read_n(&mut b.*.n);
   assert(b.*.n == i32(6), "write landed through the deref place");
-  r := rc(Holder(s : String.from("x"), n : i32(5)));
+  r := Rc.new(Holder(s : String.from("x"), n : i32(5)));
   comptime_expect_error(read_n(&mut r.*.n), "read-only through the handle");
 });
 
@@ -492,7 +492,7 @@ test("an element borrow beside a &Dyn is rejected", {
   dyn_beside :: (fn(dst : &mut String, other : &Dyn(_AreaT)) -> unit)(());
   xs := ArrayList(String).new();
   xs.push(String.from("a"));
-  (d : Dyn(_AreaT)) = dyn(rc(_SquareT(s : i32(2))));
+  (d : Dyn(_AreaT)) = dyn(Rc.new(_SquareT(s : i32(2))));
   comptime_expect_error(dyn_beside(&mut xs(usize(0)), &d), "could hold a handle");
   assert(xs.len() == usize(1), "nothing ran");
 });

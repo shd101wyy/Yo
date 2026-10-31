@@ -3,7 +3,7 @@
 //! Builds the fat-pointer literal `(<DynT>){ .data = <value>, .vtable =
 //! &__yo_vtable_<implKey> }` into the result temp, and registers the
 //! (concrete, dyn) impl pair so its vtable is emitted later. The wrapped value
-//! must be an object type (value types use `rc()`); the inner value is dup'd
+//! must be an object type (value types use `Rc.new()`); the inner value is dup'd
 //! so both the Dyn wrapper's drop and the scope-exit drop can each decrement RC.
 //!
 //! Box-type unwrap is limited (is_boxed_type ≡ false — Box not modeled);
@@ -91,7 +91,7 @@ _concrete_c_name :: (fn(concrete_type : &TypeValue, context : &FunctionGeneratio
 generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
   trait_values := match(expr_info_dyn_call_trait_values(&ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
-  args0 := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+  args0 := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
   value_expr := match(ei.runtime_arg_exprs_in_order, .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   dyn_type := Rc.clone(ei.ty);
   if(!is_dyn_type(&dyn_type), {
@@ -99,10 +99,10 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   });
   value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := Rc.clone(value_ei.ty);
-  // dyn() requires an object type (value types must use rc()). Box is not
+  // dyn() requires an object type (value types must use Rc.new()). Box is not
   // modeled (is_boxed_type ≡ false), so the Box branch is dead.
   if(!is_counted_handle_type(&value_type) && !is_boxed_type(&value_type), {
-    return(String.from("/* Error: dyn() requires an object type (use rc() for value types) */"));
+    return(String.from("/* Error: dyn() requires an object type (use Rc.new() for value types) */"));
   });
   // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
   // type = `Rc(Sq)`.

@@ -10,7 +10,7 @@
 generate_sizeof :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(arg) => {
         out := String.from("sizeof(");
@@ -33,7 +33,7 @@ generate_sizeof :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
 generate_alignof :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   arg := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(
+    .FnCall(_, _, Rc(args), _, _) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => return(codegen_fatal_expr(String.from("align_of requires exactly 1 argument")))

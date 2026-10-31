@@ -24,7 +24,7 @@ test("level filtering incl. Off", {
 });
 test("lazy closures run only when the level admits them", {
   log.set_level(log.Level.Error);
-  filtered := rc(RefCell(bool).new(false));
+  filtered := Rc.new(RefCell(bool).new(false));
   log.info_lazy(() => {
     filtered.with_mut(cur => {
       cur = true;
@@ -32,7 +32,7 @@ test("lazy closures run only when the level admits them", {
     `should not build`.to_string()
   });
   assert(!filtered.with(cur => cur), "below-level lazy closure is skipped");
-  emitted := rc(RefCell(bool).new(false));
+  emitted := Rc.new(RefCell(bool).new(false));
   log.error_lazy(() => {
     emitted.with_mut(cur => {
       cur = true;

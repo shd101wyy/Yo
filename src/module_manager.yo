@@ -182,8 +182,8 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
   ModuleLoadOutcome(
     ok : false,
     module_value : EvalValue.UnitVal,
-    module_type : rc(TypeValueNode.Unit),
-    env : Environment.new(rc(String.from(""))),
+    module_type : Rc.new(TypeValueNode.Unit),
+    env : Environment.new(Rc.new(String.from(""))),
     ctx : eval_context_new(String.from(""), String.from(""))
   )
 );
@@ -461,9 +461,9 @@ mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
     .None => ()
   );
   env := clone_env(
-    match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(rc(module_path.clone())))
+    match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(Rc.new(module_path.clone())))
   );
-  env.module_path = rc(module_path.clone());
+  env.module_path = Rc.new(module_path.clone());
   env
 });
 /// Resolve `input_path` (as written on the command line) to the `file://`
@@ -811,7 +811,7 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
 _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
   match(
     def.expr,
-    .FnCall(_, _, cargs, _, _) => cargs.get(usize(1)),
+    .FnCall(_, _, Rc(cargs), _, _) => cargs.get(usize(1)),
     .Atom(_, _) => Option(AstExpr).None
   )
 );
@@ -820,7 +820,7 @@ _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
 _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
   match(
     rhs,
-    .FnCall(_, callee, cargs, _, _) => {
+    .FnCall(_, callee, Rc(cargs), _, _) => {
       // The fn-type head renders as `fn(...) -> T` (a leading source paren
       // is not part of the callee). `fn(` specifically — not any `fn…` name.
       head := ast_expr_to_string(&callee);
@@ -883,7 +883,7 @@ _expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
     .FnCall(
       _,
       func,
-      args,
+      Rc(args),
       _,
       _
     ) => {
@@ -935,7 +935,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
       .Some(e) => if(ast_expr_is_fn_call_of(&e, BK_EXPORT, .None), {
         match(
           e,
-          .FnCall(_, _, eargs, _, _) => {
+          .FnCall(_, _, Rc(eargs), _, _) => {
             (ai : usize) = usize(0);
             while((ai < eargs.len()) && !hit, {
               match(
@@ -943,7 +943,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
                 .Some(arg) => if(ast_expr_is_fn_call_of(&arg, BK_COLON, .Some(usize(2))), {
                   match(
                     arg,
-                    .FnCall(_, _, pair, _, _) => match(
+                    .FnCall(_, _, Rc(pair), _, _) => match(
                       pair.get(usize(1)),
                       .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name), {
                         hit = true;
@@ -2256,7 +2256,7 @@ _scan_import_literals :: (
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, func, args, _, _) => {
+    .FnCall(_, func, Rc(args), _, _) => {
       is_import := match(func, .Atom(_, ft) => (ft.value.* == BK_IMPORT), _ => false);
       if(is_import && (args.len() == usize(1)), {
         match(
@@ -2400,7 +2400,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       register_module(abs.clone(), &mv, &reg_ty);
       module_load_end(abs, touch_mark);
       Option(String).None
@@ -2495,7 +2495,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
       return(
         LoadModuleResult(
           module_value : _build_module_val_from_env(&env),
-          module_type : rc(TypeValueNode.Unit),
+          module_type : Rc.new(TypeValueNode.Unit),
           module_error : Option(String).None
         )
       );
@@ -2508,7 +2508,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
       return(
         LoadModuleResult(
           module_value : EvalValue.UnitVal,
-          module_type : rc(TypeValueNode.Unit),
+          module_type : Rc.new(TypeValueNode.Unit),
           module_error : Option(String).Some(load_err)
         )
       );
@@ -2545,7 +2545,7 @@ mm_load_prelude_file :: (
     local_exn : Exception
   ) -> bool
 )({
-  prelude_env := Environment.new(rc(input_path.clone()));
+  prelude_env := Environment.new(Rc.new(input_path.clone()));
   prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
   prelude_ctx.is_executing = true;
   // Route the prelude's per-expression metadata into the shared codegen table
@@ -2808,7 +2808,7 @@ mm_eval_entry_exprs :: (
       ModuleLoadOutcome(
         ok : true,
         module_value : mv,
-        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)),
         env : env,
         ctx : ctx
       )
@@ -2822,7 +2822,7 @@ mm_eval_entry_exprs :: (
     .None => ModuleLoadOutcome(
       ok : false,
       module_value : EvalValue.UnitVal,
-      module_type : rc(TypeValueNode.Unit),
+      module_type : Rc.new(TypeValueNode.Unit),
       env : env,
       ctx : ctx
     )
@@ -2856,7 +2856,7 @@ _prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> Module
   prelude_env := match(
     g_cached_prelude_env,
     .Some(pe) => pe,
-    .None => Environment.new(rc(input_path.clone()))
+    .None => Environment.new(Rc.new(input_path.clone()))
   );
   prelude_val := match(
     g_cached_prelude_module_value,
@@ -2941,7 +2941,7 @@ mm_load_file :: (
         ok : true,
         module_value : mm_hit.module_value,
         module_type : Rc.clone(mm_hit.module_type),
-        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(rc(input_path.clone()))),
+        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(Rc.new(input_path.clone()))),
         ctx : eval_context_new(std_path.clone(), input_path.clone())
       )
     );

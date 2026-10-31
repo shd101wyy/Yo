@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl } :: import("../utils.yo");
+{ migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl, owning_param_binding_beside, move_through_sink_shadow } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
@@ -152,7 +152,7 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   });
   outer_field_is_atom := match(
     e,
-    .FnCall(_, _, eargs, _, _) =>
+    .FnCall(_, _, Rc(eargs), _, _) =>
       match(eargs.get(usize(1)), .Some(a1) => ast_expr_is_atom(&a1), .None => false),
     .Atom(_, _) => false
   );
@@ -162,14 +162,14 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   // Walk to the root of the `a.b.c` chain.
   (root : AstExpr) = match(
     e,
-    .FnCall(_, _, eargs0, _, _) => match(eargs0.get(usize(0)), .Some(a0) => a0, .None => e),
+    .FnCall(_, _, Rc(eargs0), _, _) => match(eargs0.get(usize(0)), .Some(a0) => a0, .None => e),
     .Atom(_, _) => e
   );
   walking := true;
   while(walking, {
     nxt := match(
       root,
-      .FnCall(_, _, rargs, _, _) =>
+      .FnCall(_, _, Rc(rargs), _, _) =>
         if(
           ast_expr_is_fn_call_of(&root, ".", .Some(usize(2)))
           && match(rargs.get(usize(1)), .Some(a1) => ast_expr_is_atom(&a1), .None => false),
@@ -282,7 +282,7 @@ _gadt_refined_expected :: (
   (refined : Option(TypeValue)) = Option(TypeValue).None;
   (k : usize) = usize(0);
   while((k < tca.len()) && refined.is_none(), {
-    tk := match(tca.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    tk := match(tca.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid, _ => String.new());
     if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
       match(
@@ -302,7 +302,7 @@ _gadt_refined_expected :: (
 (g_guard_block_err : RefCell(ArrayList(AnyError))) = RefCell(ArrayList(AnyError)).new(ArrayList(AnyError).new());
 /// Evaluate a non-atom guard as a one-expression block, the way `cond`
 /// evaluates a condition: a temporary the guard creates (`h.mk(n)` in
-/// `(n && (h.mk(n).peek() > i32(1)))`, the `rc(n)` in `(n && (rc(n).* > 1))`)
+/// `(n && (h.mk(n).peek() > i32(1)))`, the `Rc.new(n)` in `(n && (Rc.new(n).* > 1))`)
 /// lives in the guard's own frame, so its drop is the guard's, which codegen
 /// emits right after the guard's bool inside the arm block that declares the
 /// temp. Evaluated in the enclosing block, the drop landed at that block's
@@ -412,7 +412,7 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
   while(walking, {
     cond(
       ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
-        cur = match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => cur);
+        cur = match(cur, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => cur);
       },
       true => {
         walking = false;
@@ -435,7 +435,7 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
   match(
     e,
     .Atom(_, _) => (),
-    .FnCall(_, _, args, _, _) => {
+    .FnCall(_, _, Rc(args), _, _) => {
       // A scrutinee already spelled `&x`/`&mut x` (an earlier pass's
       // output: the parser keeps the marker beside the match, not in it)
       // borrows already.
@@ -482,7 +482,7 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
 _scrutinee_mentioned_in_arms :: (fn(whole : &AstExpr, name : &String) -> bool)(
   match(
     whole,
-    .FnCall(_, _, args, _, _) => {
+    .FnCall(_, _, Rc(args), _, _) => {
       (ai : usize) = usize(1);
       while(ai < args.len(), ai = (ai + usize(1)), {
         match(
@@ -509,7 +509,7 @@ _record_nested_scrutinee_borrows :: (fn(body : &AstExpr, name : &String, var_id 
   match(
     body,
     .Atom(_, _) => (),
-    .FnCall(_, callee, args, _, _) => {
+    .FnCall(_, callee, Rc(args), _, _) => {
       // One already spelled `&name` (an earlier pass's output) borrows.
       if(ast_expr_is_fn_call_of(body, BK_MATCH, Option(usize).None) && (borrowed_match_scrutinee_kind(ast_expr_token(body)) == u8(0)), {
         match(
@@ -543,7 +543,7 @@ _record_nested_scrutinee_borrows :: (fn(body : &AstExpr, name : &String, var_id 
 _scrutinee_written_in_arms :: (fn(whole : &AstExpr, name : &String, ctx : &EvalContext) -> bool)(
   match(
     whole,
-    .FnCall(_, _, args, _, _) => {
+    .FnCall(_, _, Rc(args), _, _) => {
       (ai : usize) = usize(1);
       while(ai < args.len(), ai = (ai + usize(1)), {
         if(_subtree_assigns_variable(&args(ai), name.clone(), ctx), {
@@ -612,7 +612,7 @@ _leftmost_token :: (fn(e : &AstExpr) -> Token)(
   match(
     e,
     .Atom(_, t) => t,
-    .FnCall(_, callee, args, is_infix, tok) => cond(
+    .FnCall(_, callee, Rc(args), is_infix, tok) => cond(
       is_infix => match(args.get(usize(0)), .Some(a0) => recur(&a0), .None => tok),
       true => recur(&callee)
     )
@@ -633,6 +633,15 @@ _leftmost_token :: (fn(e : &AstExpr) -> Token)(
 ///   is consumed (a later use is E0901 naming `match(&x, …)`), an owned
 ///   temporary is consumed, and a module-level binding, a closure capture or
 ///   a projection (no partial moves) is E0901.
+/// Whether a by-value match of `rv` moves the owning parameter beside it: a
+/// specialized generic body re-binds a parameter whose argument folded to a
+/// constant as a non-owning shadow (calls/helper.yo), and the owning binding
+/// the caller's move bound sits in the same frame. A move-only scrutinee is
+/// then matched by value, moving that binding, as a run-time argument's is
+/// (issues/fixed/2026-10-30-a-generic-functions-match-binding-cannot-move-out-of-a-compile-time-known-argument.md).
+_scrutinee_moves_through_param_shadow :: (fn(rv : &Variable, ty : &TypeValue, env : &Environment) -> bool)(
+  type_requires_explicit_copy(ty) && (rv.is_parameter && (!rv.is_owning_the_rc_value && (!rv.is_ref && owning_param_binding_beside(env, rv).is_some())))
+);
 _decide_match_mode :: (
   fn(
     scr_raw : &AstExpr,
@@ -693,7 +702,7 @@ _decide_match_mode :: (
         if(_variable_is_mut_borrow(&rv), {
           return(MATCH_MODE_MUT);
         });
-        if(_variable_is_imm_borrow(&rv), {
+        if(_variable_is_imm_borrow(&rv) && !_scrutinee_moves_through_param_shadow(&rv, &ty, env), {
           return(MATCH_MODE_BORROW);
         });
       },
@@ -803,6 +812,10 @@ _decide_match_mode :: (
           return(MATCH_MODE_BORROW);
         },
         rv.is_compile_time_only => (),
+        _scrutinee_moves_through_param_shadow(&rv, &ty, env) => {
+          _moved := move_through_sink_shadow(&rv, &scr, env);
+          note_consuming_match_scrutinee(&stok);
+        },
         true => {
           set_expr_as_consumed(evaluated, env, false, ctx, exn);
           note_consuming_match_scrutinee(&stok);
@@ -867,7 +880,7 @@ _ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Envi
   tok := own.tok;
   name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*));
   own.counter = (own.counter + usize(1));
-  atok := Token(kind : TokenKind.Identifier, value : rc(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
+  atok := Token(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
   BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
 });
 _ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
@@ -878,7 +891,7 @@ _ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environm
 _ownership_keep :: (fn(own : &_ArmOwnership, ty : &TypeValue, p : Pattern, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
   own.keeps.push(b);
-  Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : box(p))
+  Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p))
 });
 /// A part with a drop of its own (a counted cell or a move-only value).
 _part_has_drop :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_cell_or_move_only(ty));
@@ -920,7 +933,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (own.add_hidden && !in_cell && _part_has_drop(ty)) => {
         b := _ownership_hidden_bind(own, ty, env);
         own.unbound.push(b);
-        Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : box(p.clone()))
+        Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p.clone()))
       },
       true => p.clone()
     ),
@@ -933,7 +946,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_idx.push(fi);
         new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
@@ -949,7 +962,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          fty := match(ftys.get(f), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -1028,10 +1041,10 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         });
         si = (si + usize(1));
       });
-      Pattern.At(name : name.clone(), token : atok, atom : aatom, sub : box(new_sub))
+      Pattern.At(name : name.clone(), token : atok, atom : aatom, sub : Box.new(new_sub))
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
-      tb := Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : box(recur(&sub, &inner_ty, true, own, env, exn)));
+      tb := Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : Box.new(recur(&sub, &inner_ty, true, own, env, exn)));
       cond(
         (own.add_hidden && !in_cell && _part_has_drop(ty)) => _ownership_keep(own, ty, tb, env),
         true => tb
@@ -1042,7 +1055,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_subs.push(recur(&subs(i), &ety, cell, own, env, exn));
         i = (i + usize(1));
       });
@@ -1056,7 +1069,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_idx.push(fi);
         new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
@@ -1072,7 +1085,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+          fty := match(ftys.get(f), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -1174,7 +1187,7 @@ evaluate_match :: (
   });
   all_args := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(all_args.len() < usize(2), {
@@ -1198,7 +1211,7 @@ evaluate_match :: (
       all_args.get(mk_i),
       .Some(mk_arm) => if(ast_expr_is_fn_call_of(&mk_arm, "=>", Option(usize).Some(usize(2))), {
         if(strip_mut_marker(&mk_arm, usize(0), exn).is_none(), {
-          match(mk_arm, .FnCall(_, _, mk_args, _, _) => match(mk_args.get(usize(0)), .Some(mk_pat) => strip_pattern_mut_markers(&mk_pat, exn), .None => ()), .Atom(_, _) => ());
+          match(mk_arm, .FnCall(_, _, Rc(mk_args), _, _) => match(mk_args.get(usize(0)), .Some(mk_pat) => strip_pattern_mut_markers(&mk_pat, exn), .None => ()), .Atom(_, _) => ());
         });
       }),
       .None => ()
@@ -1448,12 +1461,12 @@ evaluate_match :: (
     });
     (pattern_ast : AstExpr) = match(
       arm_expr,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(pargs), _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     body_ast := match(
       arm_expr,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, Rc(pargs), _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     // `{ x, y } => …` is a record pattern; `{ … }(params) => …` is a closure
@@ -1472,7 +1485,7 @@ evaluate_match :: (
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(&pattern_ast, "&&", .Some(usize(2))), {
-      gargs := match(pattern_ast, .FnCall(_, _, ga, _, _) => ga, .Atom(_, _) => ArrayList(AstExpr).new());
+      gargs := match(pattern_ast, .FnCall(_, _, Rc(ga), _, _) => ga, .Atom(_, _) => ArrayList(AstExpr).new());
       guard_ast = gargs.get(usize(1));
       pattern_ast = match(gargs.get(usize(0)), .Some(a) => a, .None => pattern_ast);
     });
@@ -1777,7 +1790,7 @@ evaluate_match :: (
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
-            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(vname.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
+            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => Rc.new(TypeValueNode.EnumT(id.clone(), n.clone(), Rc.clone(vn), Rc.clone(vf), Option(String).Some(vname.clone()), Rc.clone(vfl), Rc.clone(discs), eirs, eiar, Rc.clone(etas))),
             _ => Rc.clone(venum)
           );
           cond(is_ptr_match => t_ptr(&sel), true => sel)
@@ -1814,7 +1827,7 @@ evaluate_match :: (
           ptok := ast_expr_token(&arm_expr);
           begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : Rc.clone(ptok.module_path), input : Rc.clone(ptok.input)));
           arm_info := new_expr_info(&env, t_unit());
-          expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, tests, false, ptok)));
+          expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(tests), false, ptok)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&arm_expr), &arm_info);
         });
       });
@@ -2178,7 +2191,7 @@ evaluate_match :: (
       (vname : String) = String.new();
       (varity : usize) = usize(0);
       (vptr : bool) = false;
-      (vety : TypeValue) = rc(TypeValueNode.Unit);
+      (vety : TypeValue) = Rc.new(TypeValueNode.Unit);
       grows := ArrayList(Pattern).new();
       (has_unguarded_group_arm : bool) = false;
       (ai3 : usize) = usize(0);
