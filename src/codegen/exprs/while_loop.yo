@@ -359,13 +359,16 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       // pending while it renders, for an early exit inside it. A block step's
       // drops are its own begin generator's.
       step_is_block := ast_expr_is_fn_call_of(&step_expr, BK_BEGIN, .None);
-      step_prev := context.pending_deferred_drops;
+      (step_prev : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
       if(!step_is_block, {
         step_drops := match(context.base.get_expr_info(&step_expr), .Some(st_ei) => st_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+        step_prev = replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
         context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&step_drops, &step_prev));
       });
       step_code := generate_step_expression(&step_expr, body_indent.clone(), context);
-      context.pending_deferred_drops = step_prev;
+      if(!step_is_block, {
+        context.pending_deferred_drops = step_prev;
+      });
       if(step_code.len() > usize(0), {
         _emit_line(&em, body_indent.clone(), {
           s := step_code;
