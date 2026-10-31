@@ -76,3 +76,35 @@ have the child compile's `--cc` validate availability and name the compiler
 in the error. Deferred to a develop fix-forward PR; the test to add with it:
 a `build test` suite run with clang masked off PATH succeeds through the
 discovered compiler.
+
+## Fix (2026-10-31)
+
+The default is now routed through the same discovery `yo compile` uses:
+
+- `_find_available_compiler` and its `--version` probe
+  `_check_compiler_available` moved from `src/main.yo` to `src/target.yo`
+  (both probe consumers already import that module) and the finder is
+  exported; `run_compile`'s own resolution is unchanged — it imports the
+  moved fn, so `yo build` and `yo compile` cannot drift apart again.
+- `src/build_runner.yo` gains `_resolve_c_compiler`: an explicit
+  `--cc`/`--c-compiler` wins, otherwise `_find_available_compiler` decides,
+  and a box with no compiler at all gets the SAME named error `yo compile`
+  raises ("No C compiler found. Please install a C compiler (cc, gcc, clang,
+  or zig) or specify one using the -cc/--c-compiler flag.") instead of a bare
+  ENOENT from the first child spawn. `run_build` resolves `ctx.c_compiler`
+  through it, so `run_test_suite` forwards a compiler that exists and
+  `compile_artifact` forwards an explicit or non-clang probed one (its
+  clang-skip is unchanged: on a clang-ful box the probed default still IS
+  clang and forwarding it would be redundant).
+
+Test: `tests/internal/build_runner.test.yo` "the build's default C compiler
+is probed, not the literal clang" — PATH masked to a scratch dir holding a
+fake `cc` (this batch binary re-exec'd, the `tests/internal/compile.test.yo`
+pattern): resolves `cc` with clang absent, `clang` when both exist, an
+explicit `gcc` without probing, and the named error on an empty PATH.
+End-to-end, `yo build test` on this WSL box (cc present, no clang) passes
+with the tree binary and fails with the pre-fix seed. The three
+clang-on-PATH-dependent cli-diff cases above are unchanged inside the nix
+shell (they discover clang first, as before). Also closes
+`issues/fixed/2026-10-25-yo-build-test-without-clang-on-path-dies-with-a-bare-enoent.md`
+(the same defect, filed first from the v3-std re-record).
