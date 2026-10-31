@@ -21,7 +21,6 @@
   RuntimeStructField,
   get_type_string,
   get_storage_type_string,
-  dyn_slot_param_type_string,
   dyn_slot_param_abi_string,
   dyn_slot_result_abi_string,
   dyn_concrete_c_name,
@@ -1702,9 +1701,10 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
         tt := match(required_trait_types.get(ti), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         cond(
           is_fn_trait_type(&tt) => match(
-            tt,
+            Rc.clone(tt),
             Rc(.FnTraitT({ call_param_labels, call_param_types, call_result })) => {
-              ret_str := get_type_string(&call_result, context);
+              // `Fn(...) -> &T` (N1c): the slot has the projection's ABI.
+              ret_str := dyn_slot_result_abi_string(&tt, context);
               plist := String.new();
               np := call_param_labels.len();
               (pi : usize) = usize(0);
@@ -1712,7 +1712,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
                 if(pi > usize(0), {
                   plist.push_str(", ");
                 });
-                pty := dyn_slot_param_type_string(call_param_types.get(pi), context);
+                pty := dyn_slot_param_abi_string(&tt, pi, context);
                 pn := match(call_param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(&l, false), .None => String.from("arg"));
                 plist.push_string(&pty);
                 plist.push_str(" ");
