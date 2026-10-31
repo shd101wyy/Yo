@@ -1112,7 +1112,7 @@ test("decision 47: a binder's mut(name) is stripped at desugar", {
   // binding. That is the tree the old in-place `strip_mut_marker` left, while
   // `{ a, b }` binds `b` by its LABEL — the two renders were never equal
   // (issues/2026-10-31-a-mut-marked-bare-field-in-a-record-destructure-binds-positionally.md).
-  assert_str_eq(_d42(`{ a, mut(b) } := s`), String.from(`_(a : a, b) := s`), "a destructuring field");
+  assert_str_eq(_d42(`{ a, mut(b) } := s`), `_(a : a, b) := s`, "a destructuring field");
   assert_str_eq(_d42(`{ x : a, y : mut(b) } := s`), _d42(`{ x : a, y : b } := s`), "a renamed destructuring field");
   assert_str_eq(_d42(`(a, mut(b)) := t`), _d42(`(a, b) := t`), "a tuple destructuring field");
   assert_str_eq(_d42(`match(o, .Some(mut(v)) => v, .None => 0)`), _d42(`match(o, .Some(v) => v, .None => 0)`), "a variant payload");
