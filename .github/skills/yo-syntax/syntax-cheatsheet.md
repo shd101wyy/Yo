@@ -1380,19 +1380,18 @@ p2 := PtrVal(Rc.new(EvalValue.IntLit(String.from("42"))), usize(0));
 
 `Rc.new(v)` allocates a reference-counted `Rc(T)` cell (the shared cell; `Box(T)`/`Box.new(v)`
 is now the unique, uncounted cell: move-only, copied with `Box.clone(b)`, no
-`ref_count`); it does NOT read a count. Read the count with the `ref_count(x)` builtin. Like any
-prelude name, `rc` cannot be redefined, so a return code needs another name:
+`ref_count`); it does NOT read a count. Read the count with the `ref_count(x)` builtin. The old
+builtins `rc(v)`/`box(v)`/`arc(v)` are deleted:
 
 ```yo
-// ❌ shadowing error: "rc" is the prelude's constructor
-rc := clock_gettime(CLOCK_REALTIME, addr_of(sec), addr_of(nsec));
+// ❌ E0401: `rc(x)` is `Rc.new(x)` (`yo fix` rewrites the name)
+cell := rc(i32(1));
 // ✅
-status := clock_gettime(CLOCK_REALTIME, addr_of(sec), addr_of(nsec));
+cell := Rc.new(i32(1));
 assert(ref_count(cell) == usize(1), "one owner");
 ```
 
-A parameter or a `match` pattern binding named `rc` is allowed and shadows the
-prelude's `rc` in its scope.
+`rc` is an ordinary name now: a local, a parameter or a `match` pattern binding may use it.
 
 ### Self-recursion: call the name; `recur(...)` for anonymous functions
 

@@ -179,9 +179,10 @@ language**, so the regression test works everywhere:
   `tests/error.test.yo` (`g_thrown_payload_disposed`).
 - **`ref_count(x)`** reads a reference count directly (`tests/rc.test.yo`),
   including through a field or an `Rc` deref: `assert(ref_count(b.*) == 1, ...)`.
-  `rc` is NOT the count: it is the old spelling of the cell constructor `Rc.new(v)` (an `Rc(T)`;
-  `Box.new(x)` builds the unique, uncounted `Box(T)`, and `ref_count` rejects a `Box`), so `Rc.new(x)` in a test builds a new cell instead of reading
-  one. A local named `rc` is a shadowing error; name a return code `status`.
+  `Rc.new(x)` is NOT the count: it builds a new `Rc(T)` cell instead of reading one
+  (`Box.new(x)` builds the unique, uncounted `Box(T)`, and `ref_count` rejects a `Box`). The old
+  spelling `rc(x)` was deleted by static-argument inference B3 and is E0401, whose `yo fix` repair
+  writes `Rc.new`; `rc` is an ordinary name now.
 
 Do **not** use `comptime_assert` for this — it is inert inside a function body,
 so a `comptime_assert` in a `test(...)` body verifies nothing
