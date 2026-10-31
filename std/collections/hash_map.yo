@@ -280,7 +280,7 @@ impl(
   /// (`std/crypto/random`) to defeat collision flooding. `new()` uses fixed
   /// keys so iteration order is reproducible.
   with_keys : (fn(k0 : u64, k1 : u64) -> Self)({
-    map := Self.new();
+    mut(map) := Self.new();
     map.k0 = k0;
     map.k1 = k1;
     map
@@ -502,7 +502,7 @@ impl(
   _resize : (fn(self : &mut Self, new_capacity : usize) -> Result(unit, HashMapError))({
     // The new table lives where the old one does. Bound to a local, not a
     // `match` binding: its fields are written below.
-    new_map := match(
+    mut(new_map) := match(
       Self._alloc_with_capacity(new_capacity, self._alloc_of()),
       .Ok(m) => m,
       .Err(err) => return(.Err(err))
@@ -1536,7 +1536,7 @@ impl(
   clone_in : (fn(self : &Self, a : Allocator) -> Self)(self._clone_placed(.Some(a))),
   // A deep copy whose buffers live in `alloc` (`.None`: the global allocator).
   _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
-    result := Self.new(alloc : alloc);
+    mut(result) := Self.new(alloc : alloc);
     result.k0 = self.k0;
     result.k1 = self.k1;
     mut(it) := self.iter();
@@ -1625,8 +1625,9 @@ impl(
       HashMap(K, V).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &MapEntry(K, V)) -> Self)({
-      acc.insert(item.key, item.value);
-      acc
+      mut(out) := acc;
+      out.insert(item.key, item.value);
+      out
     })
   )
 );
