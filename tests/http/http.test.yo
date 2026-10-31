@@ -842,7 +842,7 @@ test("StatusCode reason, to_string, Eq and Ord", {
 // HeaderMap
 // ============================================================================
 test("HeaderMap lookup is case-insensitive but storage is verbatim", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Content-Type`, `text/plain`);
   assert(h.get(`content-type`).unwrap() == `text/plain`, "lower-case lookup finds it");
   assert(h.get(`CONTENT-TYPE`).unwrap() == `text/plain`, "upper-case too");
@@ -852,7 +852,7 @@ test("HeaderMap lookup is case-insensitive but storage is verbatim", {
   assert(h.to_string() == `Content-Type: text/plain\r\n`, "the stored spelling is preserved");
 });
 test("HeaderMap append keeps repeats, insert replaces them", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Set-Cookie`, `a=1`);
   h.append(`Set-Cookie`, `b=2`);
   h.append(`set-cookie`, `c=3`);
@@ -870,7 +870,7 @@ test("HeaderMap append keeps repeats, insert replaces them", {
   assert(h.insert(`X-New`, `v`).is_none(), "inserting a fresh name reports nothing previous");
 });
 test("HeaderMap remove reports how many lines went", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Accept`, `a`);
   h.append(`X-Keep`, `k`);
   h.append(`accept`, `b`);
@@ -883,7 +883,7 @@ test("HeaderMap remove reports how many lines went", {
   assert(h.is_empty(), "and reports empty once drained");
 });
 test("HeaderMap entries is a snapshot, not the map itself", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`A`, `1`);
   mut(e) := h.entries();
   assert(e.len() == usize(1), "one entry");
