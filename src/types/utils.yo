@@ -508,7 +508,7 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
     (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
-    true => g_capture_borrows.with(m => m.get(struct_id))
+    true => g_capture_borrows.with(m => m.get_cloned(struct_id))
   )
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
@@ -520,7 +520,7 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   (i : usize) = usize(0);
   while(i < b.path.len(), {
     out.push_str(".");
-    out.push_string(match(b.path.get(i), .Some(f) => f, .None => String.new()));
+    out.push_string(match(b.path.get_cloned(i), .Some(f) => f, .None => String.new()));
     i = (i + usize(1));
   });
   out
@@ -548,11 +548,11 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     &ty,
     Rc(.SomeT({ id : st_id, resolution : f_res })) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
       match(
-        g_capture_borrows.with(m => m.get(&st_id)),
+        g_capture_borrows.with(m => m.get_cloned(&st_id)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
-            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            match(bs.get_cloned(bi), .Some(b) => out.push(b), .None => ());
             bi = (bi + usize(1));
           });
         },
@@ -578,11 +578,11 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     },
     Rc(.Struct({ id : sid, field_types : fields })) => {
       match(
-        g_capture_borrows.with(m => m.get(&sid)),
+        g_capture_borrows.with(m => m.get_cloned(&sid)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
-            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            match(bs.get_cloned(bi), .Some(b) => out.push(b), .None => ());
             bi = (bi + usize(1));
           });
         },
@@ -702,7 +702,7 @@ type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
   (i : usize) = usize(0);
   while(i < bs.len(), {
     match(
-      bs.get(i),
+      bs.get_cloned(i),
       .Some(b) => if(b.is_mut, {
         return(Option(CaptureBorrow).Some(b));
       }),
@@ -720,12 +720,12 @@ _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
     true => match(
       ty,
       Rc(.Struct({ id : sid })) => match(
-        g_capture_borrows.with(m => m.get(&sid)),
+        g_capture_borrows.with(m => m.get_cloned(&sid)),
         .Some(bs) => {
           (found : bool) = false;
           (i : usize) = usize(0);
           while(i < bs.len(), {
-            if(match(bs.get(i), .Some(b) => b.is_mut, .None => false), {
+            if(match(bs.get_cloned(i), .Some(b) => b.is_mut, .None => false), {
               found = true;
             });
             i = (i + usize(1));
@@ -1356,7 +1356,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     match(
       cond(type_is_move_only(&c) => recur(&c, depth + u32(1)), true => Option(String).None),
       .Some(inner) => {
-        lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
+        lbl := match(labels.get_cloned(ci), .Some(l) => l, .None => String.new());
         return(Option(String).Some(`\`${type_to_string_for_message(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string_for_message(&c)}\`): ${inner}`));
       },
       .None => ()
@@ -1796,7 +1796,7 @@ _id_already_visited :: (fn(visited : &ArrayList(String), id : &String) -> bool)(
   (found : bool) = false;
   while((i < n) && !found, {
     match(
-      visited.get(i),
+      visited.get_cloned(i),
       .Some(v) => if(v == id, {
         found = true;
       }),
@@ -1896,7 +1896,8 @@ value_type_owns_buffer_outright :: (fn(ty : &TypeValue) -> bool)(
 /// trait registry, so the declaration is kept here.
 (g_declared_acyclic_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 declare_acyclic_type_id :: (fn(id : &String) -> unit)({
-  _ := g_declared_acyclic_ids.with_mut(s => s.insert(id.clone()));
+  id_owned := id.clone();
+  _ := g_declared_acyclic_ids.with_mut({ id_owned }(s) => s.insert(id_owned.clone()));
 });
 /// Is `ty` a struct or enum whose `Acyclic` impl is declared?
 _declared_acyclic :: (fn(ty : &TypeValue) -> bool)(
@@ -1938,7 +1939,7 @@ _type_refs_back_to_cyclic :: (
         _id_already_visited(visited, &sid) => true,
         true => {
           v2 := visited.clone();
-          v2.push(sid);
+          v2.push(sid.clone());
           (found : bool) = false;
           (i : usize) = usize(0);
           while((i < sfields.len()) && !found, {
@@ -2043,7 +2044,7 @@ _type_refs_back_to_cyclic :: (
       _id_already_visited(visited, &eid) => false,
       true => {
         v2 := visited.clone();
-        v2.push(eid);
+        v2.push(eid.clone());
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {
@@ -2361,7 +2362,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(st_id.len() > usize(0), {
-        visited_ids.push(st_id);
+        visited_ids.push(st_id.clone());
       });
       (i : usize) = usize(0);
       while(i < ftys.len(), {
@@ -2375,7 +2376,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(en_id.len() > usize(0), {
-        visited_ids.push(en_id);
+        visited_ids.push(en_id.clone());
       });
       (vi : usize) = usize(0);
       while(vi < vfs.len(), {
@@ -2570,7 +2571,7 @@ enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -
           if(field_somes.is_none(), {
             field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
           });
-          ta_id := match(&ta, Rc(.SomeT({ id : x })) => x, _ => String.from(""));
+          ta_id := match(&ta, Rc(.SomeT({ id : x })) => x.clone(), _ => String.from(""));
           fs := field_somes.unwrap();
           (in_field : bool) = false;
           (j : usize) = usize(0);
@@ -2779,7 +2780,7 @@ resolution_chain_end :: (fn(t_in : &TypeValue) -> TypeValue)({
         (ri : usize) = usize(0);
         while(ri < seen.len(), {
           match(
-            seen.get(ri),
+            seen.get_cloned(ri),
             .Some(rs) => if(rs == rcc_id, {
               revisit = true;
             }),
