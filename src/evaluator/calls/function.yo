@@ -3374,6 +3374,8 @@ _check_awaited_future :: (fn(args : &ArrayList(AstExpr), env : &Environment, ctx
 _is_plain_place_expr :: (fn(e : &AstExpr) -> bool)({
   (cur : AstExpr) = e;
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .FnCall(_, _, Rc(d_args), _, _) => {
@@ -3937,6 +3939,8 @@ _lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
   rev := ArrayList(String).new();
   (cur : AstExpr) = e;
   while(!ast_expr_is_atom(&cur), {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .FnCall(_, callee, Rc(c_args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
@@ -4197,6 +4201,8 @@ _check_call_value_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Envi
 _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
   (cur : AstExpr) = e;
   while(true, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .Atom(_, _) => return(true),
@@ -4300,6 +4306,8 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
 _global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
   (cur : AstExpr) = place;
   while(true, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    cur = ast_rewritten_node(&cur);
     match(
       cur,
       .Atom(_, root_tok) => {

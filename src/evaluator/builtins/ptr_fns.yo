@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, ast_expr_is_auto_ref_receiver } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, ast_expr_is_auto_ref_receiver, ast_rewritten_node } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -82,7 +82,7 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
 /// result needs a `&mut` parameter. Returns the error, or `.None`.
 _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(String))(
   match(
-    place,
+    ast_rewritten_node(place),
     .Atom(_, pr_tok) => match(
       get_variables_from_env(env, pr_tok.value.*.clone()).last(),
       .Some(v) => cond(
@@ -197,7 +197,7 @@ _holds_its_places_inline :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 /// `Index` element of a collection reach storage the parameter does not hold.
 _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))(
   match(
-    place,
+    ast_rewritten_node(place),
     .Atom(_, br_tok) => match(
       get_variables_from_env(env, br_tok.value.*.clone()).last(),
       .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),

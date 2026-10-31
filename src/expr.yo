@@ -553,7 +553,7 @@ _recorded_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(
     e,
     .Atom(_, _) => Option(AstExpr).None,
-    .FnCall(rn_id, _, _, _, _) => g_rewritten_nodes.with(m => m.get(rn_id))
+    .FnCall(rn_id, _, _, _, _) => g_rewritten_nodes.with(m => m.get(&rn_id))
   )
 );
 /// `e` as the evaluator rewrote it (`note_rewritten_node`), or `e` itself.
@@ -575,7 +575,7 @@ ast_rewritten_view :: (fn(e : &AstExpr) -> AstExpr)({
   _view_children(&ast_rewritten_node(e))
 });
 /// `base` with its callee and arguments read through `ast_rewritten_node`.
-_view_children :: (fn(base : &AstExpr) -> AstExpr)({
+_view_children :: (fn(base : &AstExpr) -> AstExpr)(
   match(
     base,
     .Atom(_, _) => base,
@@ -608,7 +608,7 @@ _view_children :: (fn(base : &AstExpr) -> AstExpr)({
       if(changed, AstExpr.FnCall(rv_id, rv_f2, Rc.new(out), rv_infix, rv_tok), base)
     }
   )
-});
+);
 /// Deep-clone an expression giving every node a FRESH id. The derived
 /// `AstExpr` Clone keeps ids, so a
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
@@ -1935,21 +1935,6 @@ _mut_marker_name :: (fn(e : &AstExpr) -> Option(AstExpr))({
   });
   n := _bs_arg(e, usize(0));
   if(ast_expr_is_atom(&n) && (ast_expr_token(&n).kind == TokenKind.Identifier), Option(AstExpr).Some(n), Option(AstExpr).None)
-});
-/// `e` with its argument `idx` replaced by `a`: a new list, the node's id,
-/// callee and token kept.
-_with_arg :: (fn(e : &AstExpr, idx : usize, a : &AstExpr) -> AstExpr)({
-  src := _bs_args(e);
-  out := ArrayList(AstExpr).new();
-  (i : usize) = usize(0);
-  while(i < src.len(), i = (i + usize(1)), {
-    match(
-      src.get(i),
-      .Some(x) => out.push(if(i == idx, a.clone(), x)),
-      .None => ()
-    );
-  });
-  _bs_with_args(e, &out)
 });
 _register_mut_name :: (fn(n : &AstExpr) -> unit)({
   t := ast_expr_token(n);
