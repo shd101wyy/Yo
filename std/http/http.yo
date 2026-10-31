@@ -73,7 +73,9 @@ impl(
   )
 );
 /// An HTTP header as a name-value pair.
-HttpHeader :: ref(struct(name : String, value : String));
+HttpHeader :: struct(name : String, value : String);
+// A value since B11 (plans/VALUES_BY_DEFAULT.md D26): both fields are values.
+derive(HttpHeader, Clone);
 impl(
   HttpHeader,
   /// Create a new header with the given name and value.
@@ -95,7 +97,10 @@ impl(
 /// `insert` replaces every existing value for a name, `append` adds one — the
 /// same split Rust draws, and the reason `set_header` on a request used to
 /// silently accumulate duplicates.
-HeaderMap :: ref(struct(_entries : ArrayList(HttpHeader)));
+HeaderMap :: struct(_entries : ArrayList(HttpHeader));
+// A value since B11 (plans/VALUES_BY_DEFAULT.md D26): cloning clones every
+// field line, through `ArrayList(HttpHeader)`'s `Clone`.
+derive(HeaderMap, Clone);
 impl(
   HeaderMap,
   /// An empty header section.
@@ -182,14 +187,7 @@ impl(
   }),
   /// The field lines in order — for serialization and iteration. The list is a
   /// snapshot: pushing to it does not change the map.
-  entries : (fn(self : &Self) -> ArrayList(HttpHeader))({
-    mut(out) := ArrayList(HttpHeader).new();
-    (mut(i) : usize) = usize(0);
-    while(i < self._entries.len(), i = (i + usize(1)), {
-      out.push(self._entries(i));
-    });
-    out
-  })
+  entries : (fn(self : &Self) -> &ArrayList(HttpHeader))(self._entries)
 );
 impl(
   HeaderMap,
