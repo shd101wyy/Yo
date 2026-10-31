@@ -1847,7 +1847,7 @@ _store_await_result_into_temp_slot :: (fn(expr : &AstExpr, out : &String, indent
     return(());
   });
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(()));
-  vn := match(ei.variable_name, .Some(v) => v, .None => return(()));
+  vn := match(ei.variable_name, .Some(v) => v.clone(), .None => return(()));
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(()));
   match(
     sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),

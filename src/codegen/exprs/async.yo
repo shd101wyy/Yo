@@ -2716,7 +2716,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // State-machine struct name (this struct IS the Future implementation).
   async_block_id := match(
     ei.variable_name,
-    .Some(n) => n,
+    .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived with MERGE semantics — see the twin above.
       ab2_tok := ast_expr_token(expr);
@@ -3005,7 +3005,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   blocks.push(dab);
   context.deferred_async_blocks = Option(ArrayList(DeferredAsyncBlock)).Some(blocks);
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
-  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => String.from("async_result")), false);
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n.clone(), .None => String.from("async_result")), false);
   constructor_call := match(
     fsm_capture_type,
     .Some(cap_ty) => {
@@ -3233,7 +3233,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   match(
     &block.capture_type,
     .Some(cap_ty) => {
-      cap_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       cap_fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (cfi : usize) = usize(0);
       while(cfi < cap_fields.len(), {
@@ -3428,7 +3428,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
           .Some(_) => {
             async_block_id := match(
               ei.variable_name,
-              .Some(n) => n,
+              .Some(n) => n.clone(),
               .None => {
                 // Phase 2: the unnamed block's identity is its source
                 // position — file-scope SM names must not follow the
@@ -3461,7 +3461,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
           .Some(_) => {
             async_block_id := match(
               ei.variable_name,
-              .Some(n) => n,
+              .Some(n) => n.clone(),
               .None => {
                 // Phase 2: position-derived, MERGE semantics (two passes
                 // must agree on the struct name).
@@ -3607,7 +3607,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // types → "assigning from incompatible type" C errors.
   ab_id := match(
     cei.variable_name,
-    .Some(n) => n,
+    .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived, MERGE semantics — see the twin above.
       io2_tok := ast_expr_token(expr);
@@ -3988,7 +3988,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   em.emit_declaration_line("}");
   em.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &context.base);
   em.emit_string_line(`${indent.clone()}__yo_alloc_scope_t ${result_var.clone()}__sc = __yo_scope_current();`);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);
