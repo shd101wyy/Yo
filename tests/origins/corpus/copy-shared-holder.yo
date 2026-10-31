@@ -1,7 +1,11 @@
 // N0 corpus row `copy-shared-holder` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
 // manifest tests/origins/corpus.tsv): POSITIVE: a value holding only `&` references is `Copy`; both copies stay usable (§5 route 3; the superseded design's "`f(v)` copying an all-`&` view").
 // Expected once decision 43's rules land: accepted.
+// Q4 (Fable consult #12, VERDICTS-12): `Copy` is DECLARED, never implicit — the
+// holder derives it over its origin parameter (the fixture's pre-Q4 form copied
+// `v` with no derive and leaned on a `Copy` no composite had).
 _View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+derive(generic(p : Origin), _View(p), Copy, Clone);
 main :: (fn() -> unit)({
   x := i32(1);
   v := _View(x)(r : &x, n : i32(0));

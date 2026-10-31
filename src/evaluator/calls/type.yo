@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, env_adopt } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ same_name_note, type_carries_origin, origin_value_phase_message } :: import("../../types/utils.yo");
+{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -102,21 +102,23 @@ try_to_call_type_with_arguments :: (
       )
     );
   });
-  // A type holding a reference (a `&T` field, decision 43 step 3, N2a) is
-  // named but not built until N2b; stop here, before an argument such as
-  // `&mut x` meets a by-value field's rule. A std body is reached only
-  // through a user call, which is walled itself.
+  // A type holding a reference beyond N2b (a container or a cell, decision
+  // 43 step 3) is named but not built; stop here, before an argument such as
+  // `&mut x` meets a by-value field's rule. An INLINE composite (O4 row 2)
+  // is N2b's: its constructor lends run (T9) and its result freezes the
+  // origins it spells. A std body is reached only through a user call, which
+  // is walled itself.
   (o_fi : usize) = usize(0);
   while(o_fi < n_fields, {
     match(
       type_fields.get(o_fi),
-      .Some(o_f) => if(type_carries_origin(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
+      .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
           .Some(ci) => match(&ci.value, .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
-        exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_value_phase_message(&o_shown))));
+        exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown))));
       }),
       .None => ()
     );

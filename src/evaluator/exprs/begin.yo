@@ -130,6 +130,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_set_lookahead,
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow,
+  reject_composite_result_local_roots,
   reject_bare_callable_into_dyn_fn,
   bare_callable_recorded_into_dyn_fn
 } :: import("../utils.yo");
@@ -2941,6 +2942,10 @@ _evaluate_begin_expression_impl :: (
               .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&ret_arg), ctx, exn),
               .None => ()
             );
+            // N2b's return rule over composite results (decision 43, O3): an
+            // origin-carrying result may name origin parameters or reference
+            // parameters' places, never a local's.
+            reject_composite_result_local_roots(&ret_arg, &env, ctx, exn);
           });
           // Pass the function-body's return type as the expected type for the
           // return argument: for a
@@ -3344,6 +3349,9 @@ _evaluate_begin_expression_impl :: (
                   .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&chain_tail), ctx, exn),
                   .None => ()
                 );
+                // N2b's return rule over composite results (decision 43,
+                // O3), the body-tail form.
+                reject_composite_result_local_roots(&chain_tail, &env, ctx, exn);
               });
             }
           );

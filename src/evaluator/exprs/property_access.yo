@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
@@ -69,15 +69,29 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-/// N2a's value wall at a fieldless variant of an enum whose type holds a
-/// reference (`Option(&i32).None`, decision 43 step 3): no value of such a
-/// type is built until N2b (`origin_value_phase_message`).
+/// The value wall at a fieldless variant of an enum whose type holds a
+/// reference (decision 43 step 3): an INLINE composite (O4 row 2) is N2b's
+/// and builds; a container or a cell stays named-only
+/// (`origin_beyond_n2b_message`).
 _reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
   // In a std body (specialized for a type holding a reference) the user's
   // call that reached it is walled instead, naming the user's type.
-  if(type_carries_origin(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
-    exn.throw(dyn(format_error_message(ast_expr_token(at), origin_value_phase_message(en_ty))));
+  if(origin_beyond_n2b(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
+    exn.throw(dyn(format_error_message(ast_expr_token(at), origin_beyond_n2b_message(en_ty))));
   })
+);
+/// N2b (decision 43 step 3; design doc §5 Q1 verdict A): a read of a
+/// reference-typed FIELD produces a reference VALUE — binding it,
+/// dereferencing it or calling through it is N1e's (references as binding
+/// types). The holder is N2b's; the reference out of it is not.
+_reject_reference_value_field_read :: (fn(ft : &TypeValue, at : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(
+    ft,
+    Rc(.Reference(_, _, _)) => if(!is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
+      exn.throw(dyn(format_error_message(ast_expr_token(at), reference_value_phase_message(ft))));
+    }),
+    _ => ()
+  )
 );
 /// A payload-free variant of a reference-semantics enum (`ref(enum(UnitVal, …))`)
 /// still heap-allocates: `generate_comptime_value` emits
@@ -1229,12 +1243,14 @@ Raw pointer operations may dereference invalid memory.`
         return(expr);
       });
       prop_name_su := ast_expr_text(&property_expr);
-      // A member of a type holding a reference (`RefCell(&i32).new`,
-      // decision 43 step 3, N2a) builds or reads a value of it, which arrives
-      // with N2b: stop at the user's member access, before a std body
-      // specialized for it.
-      if(type_carries_origin(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), origin_value_phase_message(&type_val_inner))));
+      // A member of a type holding a reference beyond N2b (a container or a
+      // cell: `RefCell(&i32).new`, `ArrayList(&i32).new` — decision 43 step
+      // 3) would run or build a value of it; stop at the user's member
+      // access, before a std body specialized for it. A member of an INLINE
+      // composite is N2b's and passes (a variant constructor, a user
+      // static).
+      if(origin_beyond_n2b(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), origin_beyond_n2b_message(&type_val_inner))));
       });
       su_labels := match(
         &type_val_inner,
@@ -1819,6 +1835,7 @@ Raw pointer operations may dereference invalid memory.`
               return(expr);
             });
             ft_idx := match(fields_types.get(idx), .Some(t) => t, .None => t_unit());
+            _reject_reference_value_field_read(&ft_idx, expr, ctx, exn);
             field_origin_idx := match(
               match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,
@@ -2020,6 +2037,7 @@ Raw pointer operations may dereference invalid memory.`
               });
             });
             ft_lbl := match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit());
+            _reject_reference_value_field_read(&ft_lbl, expr, ctx, exn);
             field_origin_lbl := match(
               match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,

@@ -37,7 +37,7 @@
   is_array_type,
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_carries_origin } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_carries_origin, origin_beyond_n2b } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { stable_type_identity } :: import("../../types/type_key.yo");
 {
@@ -203,10 +203,12 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // registers the C struct decl under the same type_key as the final, and the
   // final is then deduped away — emitting `struct { header; }` with no members.
   type := resolve_struct_shell(resolve_enum_shell(type_in));
-  // A type holding a reference (`&T` itself, a `&T` field or type argument,
-  // decision 43 step 3, N2a) has no value until N2b, so it needs no C type.
-  // `type_carries_origin` is false until a program names a reference type.
-  if(type_carries_origin(&type), {
+  // A type holding a reference BEYOND an inline composite (a container, a
+  // cell — decision 43 step 3) has no value until N2c/N2d, so it needs no C
+  // type. An inline composite holding references (N2b) collects normally:
+  // its reference fields lower as `const T*` / `T*`.
+  // `origin_beyond_n2b` is false until a program names a reference type.
+  if(origin_beyond_n2b(&type), {
     return(());
   });
   // Otherwise a `&T` / `&mut T` is a parameter slot's mode (decision 43 step
