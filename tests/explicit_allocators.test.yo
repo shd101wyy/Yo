@@ -186,7 +186,7 @@ test("A HashMap and a StringBuilder placed by their alloc argument live there; a
     m := HashMap(i32, i32).new(alloc : .Some(heap));
     m.insert(i32(1), i32(10));
     assert(m.allocator().is_some(), "the map's tables");
-    sb := StringBuilder.new(alloc : .Some(heap));
+    mut(sb) := StringBuilder.new(alloc : .Some(heap));
     sb.write_str("placed");
     placed := counts.live;
     assert(placed >= usize(2), `the map's tables and the builder's bytes: ${placed}`);
@@ -311,12 +311,12 @@ test("clone_in places a copy in the allocator it names, wherever the source live
     m := HashMap(i32, i32).new();
     m.insert(i32(1), i32(10));
     s := String.from("placed text");
-    sb := StringBuilder.new();
+    mut(sb) := StringBuilder.new();
     sb.write_str("built");
     xs_c := xs.clone_in(heap);
     m_c := m.clone_in(heap);
     s_c := s.clone_in(heap);
-    sb_c := sb.clone_in(heap);
+    mut(sb_c) := sb.clone_in(heap);
     assert(xs_c.allocator().unwrap().same(heap), "ArrayList.clone_in");
     assert(m_c.allocator().unwrap().same(heap), "HashMap.clone_in");
     assert(xs.allocator().is_none() && m.allocator().is_none(), "the sources stay global");
@@ -463,7 +463,7 @@ test("Every release tells the allocator the size and alignment the block was all
       q.push_back(j);
       j = (j + i32(1));
     });
-    sb := StringBuilder.with_capacity(usize(4), alloc : placed);
+    mut(sb) := StringBuilder.with_capacity(usize(4), alloc : placed);
     sb.write_str("grows past its first buffer");
     assert((p.x + p.y) == i32(7), "rc of a struct");
     assert(b.* == i64(9), "rc");

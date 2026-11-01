@@ -2587,7 +2587,7 @@ _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), 
 // issues/fixed/string-clone-ignores-the-source-buffers-allocator.md
 // A string whose buffer lives in `a`: a placed builder hands its buffer over.
 _placed_string :: (fn(a : Allocator, text : str) -> String)({
-  sb := StringBuilder.new(alloc : .Some(a));
+  mut(sb) := StringBuilder.new(alloc : .Some(a));
   sb.write_str(text);
   sb.to_string()
 });
