@@ -20,6 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { SocketAddr } :: import("std/net/addr");
 { TcpListener } :: import("std/net/tcp");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { Exception, IoExn } :: import("std/error");
 { Duration } :: import("std/time/duration");
 // println is used by the no-egress fallback handlers below. Without this import
@@ -59,7 +60,7 @@ test("with_timeout drives a too-short deadline to HttpError.Timeout", {
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(19988)), io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1)));
   err := _fetch_error(`http://127.0.0.1:19988/`, &opts, io);
-  assert(match(err, .Some(m) => m.contains(`timed out`), .None => false), `fetch must throw Timeout under a 1ms deadline against a silent peer, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
+  assert(match(&err, .Some(m) => m.contains(`timed out`), .None => false), `fetch must throw Timeout under a 1ms deadline against a silent peer, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
   io.await(listener.close(io), ioe);
 });
 test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
@@ -83,7 +84,7 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
   );
   opts := FetchOptions.new().with_max_response_bytes(usize(16));
   err := _fetch_error(`http://127.0.0.1:19989/`, &opts, io);
-  assert(match(err, .Some(m) => m.contains(`too large`), .None => false), `fetch must throw ResponseTooLarge over a 16-byte cap, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
+  assert(match(&err, .Some(m) => m.contains(`too large`), .None => false), `fetch must throw ResponseTooLarge over a 16-byte cap, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
   task.await(io);
   io.await(server.close(io), ioe);
 });
@@ -129,12 +130,15 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19985)), io), IoExn(io : io, exn : exn));
-  served := ArrayList(i32).new();
+  // The handler and the test both read the count: a shared cell, since a
+  // list is a value (B8) and the handler owns what it captures.
+  served := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  seen := Rc.clone(served);
   task := io.spawn(
     server.serve(req => {
-      served.push(i32(1));
+      seen.with_mut(l => l.push(i32(1)));
       cond(
-        (served.len() >= usize(11)) => {
+        (seen.with(l => l.len()) >= usize(11)) => {
           server.stop();
         },
         true => ()
@@ -146,7 +150,8 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   threw := _fetch_throws_too_many_redirects(`http://127.0.0.1:19985/r/15`, io);
   assert(threw, "a 15-hop redirect must throw TooManyRedirects");
   task.await(io);
-  assert(served.len() == usize(11), `the client must stop after the eleventh 302, served ${served.len()}`);
+  n_served := served.with(l => l.len());
+  assert(n_served == usize(11), `the client must stop after the eleventh 302, served ${n_served}`);
   io.await(server.close(io), ioe);
 });
 test("a redirect chain under the cap is followed to its 200", {

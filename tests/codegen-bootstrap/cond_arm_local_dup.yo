@@ -10,21 +10,22 @@
 { ArrayList } :: import("std/collections/array_list");
 
 Item :: ref(struct(name : String));
+derive(Item, Clone);
 
 pick :: (fn(flag : bool, xs : &ArrayList(Item)) -> ArrayList(Item))({
   r := cond(
     flag => {
-      kept := ArrayList(Item).new();
+      mut(kept) := ArrayList(Item).new();
       kept.push(Item(name : String.from("kept")));
       kept
     },
-    true => xs
+    true => xs.clone()
   );
   r
 });
 
 main :: (fn() -> unit)({
-  xs := ArrayList(Item).new();
+  mut(xs) := ArrayList(Item).new();
   xs.push(Item(name : String.from("alpha")));
   got := pick(false, &xs);
   match(got.get(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));

@@ -8,7 +8,7 @@ The `Index` trait provides a unified interface for accessing elements of a colle
 // Built-in arrays and custom types use the same syntax:
 (arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
 v := arr(usize(1)); // 20
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
 ```
@@ -193,7 +193,7 @@ T* result = Index_index(&collection, idx);  // ← direct pointer
 This is critical for correctness — the pointer remains valid and points directly into the collection's storage. You can use it for mutation:
 
 ```yo
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(100));
 
 // Mutate via call-syntax assignment
@@ -271,7 +271,7 @@ The following standard library types implement the `Index` trait:
 ### ArrayList(T) — `Index(usize)`
 
 ```yo
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
 addr_of(list(usize(0))).* = i32(99); // mutate in place
@@ -330,7 +330,7 @@ c := s.get_byte(usize(9)); // .None — the checked form
 Out-of-bounds access through the Index trait causes a **panic** at runtime. This is consistent with Rust's behavior. For checked access that returns `Option(T)`, use the `get` method on `ArrayList`:
 
 ```yo
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 
 // Panics on OOB:

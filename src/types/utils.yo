@@ -501,13 +501,15 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
     });
     i = (i + usize(1));
   });
-  g_capture_borrows.with_mut(m => m.insert(struct_id.clone(), borrows));
+  borrows_owned := borrows.clone();
+  struct_id_owned := struct_id.clone();
+  g_capture_borrows.with_mut({ borrows_owned, struct_id_owned }(m) => m.insert(struct_id_owned, borrows_owned.clone()));
 });
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
     (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
-    true => g_capture_borrows.with(m => m.get(struct_id))
+    true => g_capture_borrows.with(m => m.get_cloned(struct_id))
   )
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
@@ -519,7 +521,7 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   (i : usize) = usize(0);
   while(i < b.path.len(), {
     out.push_str(".");
-    out.push_string(match(b.path.get(i), .Some(f) => f, .None => String.new()));
+    out.push_string(match(b.path.get_cloned(i), .Some(f) => f, .None => String.new()));
     i = (i + usize(1));
   });
   out
@@ -547,11 +549,11 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     &ty,
     Rc(.SomeT({ id : st_id, resolution : f_res })) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
       match(
-        g_capture_borrows.with(m => m.get(&st_id)),
+        g_capture_borrows.with(m => m.get_cloned(&st_id)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
-            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            match(bs.get_cloned(bi), .Some(b) => out.push(b), .None => ());
             bi = (bi + usize(1));
           });
         },
@@ -577,11 +579,11 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     },
     Rc(.Struct({ id : sid, field_types : fields })) => {
       match(
-        g_capture_borrows.with(m => m.get(&sid)),
+        g_capture_borrows.with(m => m.get_cloned(&sid)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
-            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            match(bs.get_cloned(bi), .Some(b) => out.push(b), .None => ());
             bi = (bi + usize(1));
           });
         },
@@ -832,7 +834,7 @@ type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
   (i : usize) = usize(0);
   while(i < bs.len(), {
     match(
-      bs.get(i),
+      bs.get_cloned(i),
       .Some(b) => if(b.is_mut, {
         return(Option(CaptureBorrow).Some(b));
       }),
@@ -850,12 +852,12 @@ _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
     true => match(
       ty,
       Rc(.Struct({ id : sid })) => match(
-        g_capture_borrows.with(m => m.get(&sid)),
+        g_capture_borrows.with(m => m.get_cloned(&sid)),
         .Some(bs) => {
           (found : bool) = false;
           (i : usize) = usize(0);
           while(i < bs.len(), {
-            if(match(bs.get(i), .Some(b) => b.is_mut, .None => false), {
+            if(match(bs.get_cloned(i), .Some(b) => b.is_mut, .None => false), {
               found = true;
             });
             i = (i + usize(1));
@@ -1486,7 +1488,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     match(
       cond(type_is_move_only(&c) => recur(&c, depth + u32(1)), true => Option(String).None),
       .Some(inner) => {
-        lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
+        lbl := match(labels.get_cloned(ci), .Some(l) => l, .None => String.new());
         return(Option(String).Some(`\`${type_to_string_for_message(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string_for_message(&c)}\`): ${inner}`));
       },
       .None => ()
@@ -1926,7 +1928,7 @@ _id_already_visited :: (fn(visited : &ArrayList(String), id : &String) -> bool)(
   (found : bool) = false;
   while((i < n) && !found, {
     match(
-      visited.get(i),
+      visited.get_cloned(i),
       .Some(v) => if(v == id, {
         found = true;
       }),
@@ -2026,7 +2028,8 @@ value_type_owns_buffer_outright :: (fn(ty : &TypeValue) -> bool)(
 /// trait registry, so the declaration is kept here.
 (g_declared_acyclic_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 declare_acyclic_type_id :: (fn(id : &String) -> unit)({
-  _ := g_declared_acyclic_ids.with_mut(s => s.insert(id.clone()));
+  id_owned := id.clone();
+  _ := g_declared_acyclic_ids.with_mut({ id_owned }(s) => s.insert(id_owned.clone()));
 });
 /// Is `ty` a struct or enum whose `Acyclic` impl is declared?
 _declared_acyclic :: (fn(ty : &TypeValue) -> bool)(
@@ -2068,7 +2071,7 @@ _type_refs_back_to_cyclic :: (
         _id_already_visited(visited, &sid) => true,
         true => {
           v2 := visited.clone();
-          v2.push(sid);
+          v2.push(sid.clone());
           (found : bool) = false;
           (i : usize) = usize(0);
           while((i < sfields.len()) && !found, {
@@ -2173,7 +2176,7 @@ _type_refs_back_to_cyclic :: (
       _id_already_visited(visited, &eid) => false,
       true => {
         v2 := visited.clone();
-        v2.push(eid);
+        v2.push(eid.clone());
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {
@@ -2491,7 +2494,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(st_id.len() > usize(0), {
-        visited_ids.push(st_id);
+        visited_ids.push(st_id.clone());
       });
       (i : usize) = usize(0);
       while(i < ftys.len(), {
@@ -2505,7 +2508,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(en_id.len() > usize(0), {
-        visited_ids.push(en_id);
+        visited_ids.push(en_id.clone());
       });
       (vi : usize) = usize(0);
       while(vi < vfs.len(), {
@@ -2700,8 +2703,10 @@ enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -
           if(field_somes.is_none(), {
             field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
           });
-          ta_id := match(&ta, Rc(.SomeT({ id : x })) => x, _ => String.from(""));
-          fs := field_somes.unwrap();
+          ta_id := match(&ta, Rc(.SomeT({ id : x })) => x.clone(), _ => String.from(""));
+          // Borrow the cached list: `unwrap()` moves it out of the
+          // option, and the next iteration would unwrap a moved value.
+          fs := match(&field_somes, .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
           (in_field : bool) = false;
           (j : usize) = usize(0);
           while((j < fs.len()) && !in_field, {
@@ -2840,7 +2845,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
           (si : usize) = usize(0);
           while(si < seen.len(), {
             match(
-              seen.get(si),
+              seen.get_cloned(si),
               .Some(sid) => if(sid == sarc_id, {
                 revisit = true;
               }),
@@ -2909,7 +2914,7 @@ resolution_chain_end :: (fn(t_in : &TypeValue) -> TypeValue)({
         (ri : usize) = usize(0);
         while(ri < seen.len(), {
           match(
-            seen.get(ri),
+            seen.get_cloned(ri),
             .Some(rs) => if(rs == rcc_id, {
               revisit = true;
             }),
@@ -3413,7 +3418,7 @@ _size_walk_stack_has :: (fn(id : &String) -> bool)({
   (i : usize) = usize(0);
   while((i < g_size_walk_stack.with(xs => xs.len())) && !found, {
     match(
-      g_size_walk_stack.with(xs => xs.get(i)),
+      g_size_walk_stack.with(xs => xs.get_cloned(i)),
       .Some(x) => if(x == id, {
         found = true;
       }),
@@ -3567,7 +3572,8 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
         _size_walk_stack_has(s_sz_id.clone()) => Option(usize).None,
         true => {
-          g_size_walk_stack.with_mut(xs => xs.push(s_sz_id.clone()));
+          s_sz_id_owned := s_sz_id.clone();
+          g_size_walk_stack.with_mut({ s_sz_id_owned }(xs) => xs.push(s_sz_id_owned.clone()));
           out := cond(
             (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
             true => _c_aggregate_size(&sfts.items)
@@ -3605,7 +3611,11 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // payload, with alignment. The `e_ref` short-circuit matches the struct
     // branch — without it the variant-field walk
     // recurses forever on a recursive ref-enum (variant field typed `Self`).
-    Rc(.EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref })) => cond(
+    Rc(.EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref })) => {
+      // The stack test runs BEFORE the cond: an arm is a closure, and
+      // capturing `e_sz_id` (a `&String`) to clone it inside one is a copy.
+      sz_in_stack := _size_walk_stack_has(e_sz_id.clone());
+      cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
       // Lowered to the bare pointer (NULL = the empty variant), as codegen emits
       // it: `sizeof(Option(*(i32)))` is a pointer, not a tag plus a pointer.
@@ -3614,14 +3624,16 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
       // a VALUE enum re-entered on the walk stack is an infinite-size type the
       // definition-time check should have rejected — yield unknown rather than
       // overflow the stack.
-      _size_walk_stack_has(e_sz_id.clone()) => Option(usize).None,
+      sz_in_stack => Option(usize).None,
       true => {
-        g_size_walk_stack.with_mut(xs => xs.push(e_sz_id.clone()));
+        e_sz_id_owned := e_sz_id.clone();
+        g_size_walk_stack.with_mut({ e_sz_id_owned }(xs) => xs.push(e_sz_id_owned));
         out := _enum_value_size(&evf);
         g_size_walk_stack.with_mut(xs => xs.pop());
         out
       }
-    ),
+      )
+    },
     _ => .None
   )
 });
@@ -3667,7 +3679,7 @@ _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   false
 });
 _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
-  bucket := match(g_repr_memo.with(m => m.get(key)), .Some(b) => b, .None => return(Option(bool).None));
+  bucket := match(g_repr_memo.with(m => m.get_cloned(key)), .Some(b) => b, .None => return(Option(bool).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
@@ -3682,9 +3694,11 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   Option(bool).None
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
-  bucket := match(g_repr_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
+  bucket := match(g_repr_memo.with(m => m.get_cloned(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : Rc.clone(ty), answer : answer));
-  _ := g_repr_memo.with_mut(m => m.insert(key.clone(), bucket));
+  key_owned := key.clone();
+  bucket_owned := bucket.clone();
+  _ := g_repr_memo.with_mut({ key_owned, bucket_owned }(m) => m.insert(key_owned.clone(), bucket_owned));
 });
 /// Start a top-level predicate call: an empty memo, no cut, no opaque
 /// handle. Clearing `g_repr_allocator_opaque` here (not only in the wrapper's
@@ -4113,7 +4127,7 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
             (found : bool) = false;
             (j : usize) = usize(0);
             while((j < fls.len()) && !found, {
-              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
+              if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
                 ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 found = (dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none());
               });
@@ -4188,7 +4202,7 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
           Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
             (j : usize) = usize(0);
             while((j < fls.len()) && out.is_empty(), {
-              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
+              if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
                 ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
                   match(
@@ -4328,7 +4342,7 @@ unknown_field_message :: (fn(label : &String, base_ty : &TypeValue, fields : &Ar
     if(fi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(fields.get(fi), .Some(f) => f, .None => String.new()));
+    list.push_string(match(fields.get_cloned(fi), .Some(f) => f, .None => String.new()));
     fi = (fi + usize(1));
   });
   // A module is a source-namespace struct: name what it exports, not its
@@ -4369,7 +4383,7 @@ unknown_field_through_deref_message :: (
     if(fi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(payload_fields.get(fi), .Some(f) => f, .None => String.new()));
+    list.push_string(match(payload_fields.get_cloned(fi), .Some(f) => f, .None => String.new()));
     fi = (fi + usize(1));
   });
   fields_note := cond(
@@ -4388,7 +4402,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
     if(vi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(variants.get(vi), .Some(v) => v, .None => String.new()));
+    list.push_string(match(variants.get_cloned(vi), .Some(v) => v, .None => String.new()));
     vi = (vi + usize(1));
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
@@ -4448,7 +4462,7 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
   (i : usize) = usize(0);
   while(i < err.diagnostics.len(), {
     match(
-      err.diagnostics.get(i),
+      err.diagnostics.get_cloned(i),
       .Some(d) => entries.push(
         cond(
           (i == usize(0)) => Diagnostic(

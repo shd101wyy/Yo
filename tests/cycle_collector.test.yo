@@ -415,6 +415,7 @@ KNode :: ref(
     Kids(k : ArrayList(Self))
   )
 );
+impl(KNode, Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(
   KNode,
   Drop(
@@ -426,8 +427,8 @@ impl(
 test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
   base := Gc.tracked_count();
   do_test :: (fn() -> unit)({
-    k := ArrayList(KNode).new();
-    e := KNode.Kids(k);
+    mut(k) := ArrayList(KNode).new();
+    e := KNode.Kids(k.clone());
     k.push(e); // e -> k -> e : the only edge back to the enum is the list's slot
   });
   do_test();
@@ -708,6 +709,7 @@ RTermTwin :: ref(
 // Holders: `SuspensionPoint`'s shape (a node and an optional node list) and
 // `VcQuery`'s (a term list and a term). The list field matters: a twin
 // holder with only the node field reads false (measured on #1486's binary).
+// Since B8 the list is a value, no rc node, so the twin holders read false too.
 RPoint :: ref(struct(index : usize, expr : RExpr, branch_exprs : Option(ArrayList(RExpr))));
 RPointTwin :: ref(struct(index : usize, expr : RExprTwin, branch_exprs : Option(ArrayList(RExprTwin))));
 RQuery :: ref(struct(name : String, assumptions : ArrayList(RTerm), goal : RTerm));
@@ -721,16 +723,18 @@ test("declared-Acyclic compiler trees keep their containers and holders off the 
   comptime_assert(!Type.can_form_rc_cycle(RPoint), "SuspensionPoint");
   comptime_assert(!Type.can_form_rc_cycle(ArrayList(RPoint)), "ArrayList(SuspensionPoint)");
   comptime_assert(Type.can_form_rc_cycle(RExprTwin), "the undeclared twin can form a cycle");
-  comptime_assert(Type.can_form_rc_cycle(ArrayList(RExprTwin)), "and its list sits on that cycle (AstExpr shape)");
-  comptime_assert(Type.can_form_rc_cycle(RPointTwin), "and so does its holder");
+  // An `ArrayList` is a value since B8: it is no rc node, so it sits on no
+  // cycle itself; the twin node it holds still does (above).
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RExprTwin)), "a value list is not on the cycle (AstExpr shape)");
+  comptime_assert(!Type.can_form_rc_cycle(RPointTwin), "its holder is on no cycle: nothing it holds reaches back to it once the list is a value");
   // VcSort's and VcTerm's shapes.
   comptime_assert(!Type.can_form_rc_cycle(RSort), "VcSort");
   comptime_assert(!Type.can_form_rc_cycle(RTerm), "VcTerm");
   comptime_assert(!Type.can_form_rc_cycle(ArrayList(RTerm)), "ArrayList(VcTerm)");
   comptime_assert(!Type.can_form_rc_cycle(RQuery), "VcQuery");
   comptime_assert(Type.can_form_rc_cycle(RTermTwin), "the undeclared term twin can form a cycle");
-  comptime_assert(Type.can_form_rc_cycle(ArrayList(RTermTwin)), "and its list sits on that cycle (VcTerm shape)");
-  comptime_assert(Type.can_form_rc_cycle(RQueryTwin), "and so does its query");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RTermTwin)), "a value list is not on the cycle (VcTerm shape)");
+  comptime_assert(!Type.can_form_rc_cycle(RQueryTwin), "its query is on no cycle either (VcTerm shape)");
   // At run time a declared node and its list never register.
   before := Gc.tracked_count();
   e := RExpr.FnCall(RExpr.Atom(1), ArrayList(RExpr).new());

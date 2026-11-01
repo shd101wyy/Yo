@@ -266,7 +266,7 @@ export(random_u32, random_u64, random_f64, random_range);
 /// fixed. Returns a `String`, not a `Uuid` value — std has no UUID type —
 /// so a caller that needs the bytes must decode the hex again.
 uuid_v4 :: (fn(exn : Exception) -> String)({
-  bytes := ArrayList(u8).with_capacity(usize(16));
+  mut(bytes) := ArrayList(u8).with_capacity(usize(16));
   mut(buf) := Array(u8, usize(16)).fill(u8(0));
   random_bytes(RawSlice(u8)(ptr : addr_of(buf(usize(0))), len : usize(16)), exn);
   // Set version bits (v4)
@@ -280,7 +280,7 @@ uuid_v4 :: (fn(exn : Exception) -> String)({
   hex_str := hex.encode(&bytes);
   hex_bytes := hex_str;
   // Insert dashes: 8-4-4-4-12
-  out := ArrayList(u8).with_capacity(usize(36));
+  mut(out) := ArrayList(u8).with_capacity(usize(36));
   positions := Array(usize, usize(4))(usize(8), usize(12), usize(16), usize(20));
   mut(j) := usize(0);
   mut(dash_idx) := usize(0);

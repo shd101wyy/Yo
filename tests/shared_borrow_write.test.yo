@@ -126,8 +126,9 @@ test("a field write through a `&T` parameter is E0908", {
   assert(b.n == i32(0), "unchanged");
 });
 // The writes that stay legal: a by-value parameter is the callee's own
-// value, a `&mut T` parameter writes the caller's place, and a `ref` handle
-// reached through a `&T` borrow is shared by design.
+// value, and a `&mut T` parameter writes the caller's place. A collection is
+// a value since B8 (decision 46), so it is written through a `&mut` borrow
+// only: through a `&T` it is E0908 like any field.
 _own :: (fn(p : _P) -> i32)({
   mut(q) := p;
   q.n = i32(5);
@@ -143,7 +144,10 @@ _through_mut :: (fn(p : &mut _P) -> unit)({
   p.inc();
 });
 _H :: struct(xs : ArrayList(i32));
-_push_through_handle :: (fn(h : &_H) -> unit)({
+_push_through_imm :: (fn(h : &_H) -> unit)({
+  comptime_expect_error(h.xs.push(i32(1)), "is a `&T` parameter");
+});
+_push_through_mut :: (fn(h : &mut _H) -> unit)({
   h.xs.push(i32(1));
 });
 test("by-value and `&mut T` parameters stay writable", {
@@ -154,9 +158,10 @@ test("by-value and `&mut T` parameters stay writable", {
   assert(x.n == i32(6), "a `&mut` parameter writes the caller's place");
   assert(x.inner.m == i32(6), "nested field");
   assert(x.arr(usize(1)) == i32(7), "element");
-  h := _H(xs : ArrayList(i32).new());
-  _push_through_handle(&h);
-  assert(h.xs.len() == usize(1), "a collection handle reached through `&T`");
+  mut(h) := _H(xs : ArrayList(i32).new());
+  _push_through_imm(&h);
+  _push_through_mut(&mut h);
+  assert(h.xs.len() == usize(1), "a collection is written through `&mut T` only");
 });
 test("a field write through a closure's `&T` parameter is E0908", {
   (f : Impl(Fn(p : &_P) -> unit)) = (

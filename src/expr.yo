@@ -45,7 +45,9 @@ export(borrowed_match_scrutinee_kind);
 _binder_site_key :: (fn(decl : &Token, name : &String) -> String)(`${decl.module_path.*}|${decl.row.to_string()}:${decl.column.to_string()}|${name}`);
 /// Record that the binding `name` declared at `decl` is `mut(name)`.
 register_mut_binding :: (fn(decl : &Token, name : &String) -> unit)({
-  g_mut_binder_sites.with_mut(s => s.insert(_binder_site_key(decl, name)));
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  site_key := _binder_site_key(decl, name);
+  g_mut_binder_sites.with_mut({ site_key }(s) => s.insert(site_key));
   ()
 });
 /// True if the binding `name` declared at `decl` was declared `mut(name)`.
@@ -58,7 +60,9 @@ is_mut_binding :: (fn(decl : &Token, name : &String) -> bool)({
 });
 /// Record that the binding `name` declared at `decl` was `thread_local(name)`.
 register_thread_local_binding :: (fn(decl : &Token, name : &String) -> unit)({
-  g_thread_local_binder_sites.with_mut(s => s.insert(_binder_site_key(decl, name)));
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  tl_key := _binder_site_key(decl, name);
+  g_thread_local_binder_sites.with_mut({ tl_key }(s) => s.insert(tl_key));
   ()
 });
 /// True if the binding `name` declared at `decl` was `thread_local(name)`.
@@ -734,7 +738,7 @@ ast_expr_is_infix_op_fn_call :: (fn(e : &AstExpr) -> bool)(
 ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, _) => ast_expr_text(e).*,
+    .Atom(_, _) => ast_expr_text(e).*.clone(),
     .FnCall(_, func_box, Rc(args), is_infix, _) => {
       n := args.len();
       func_is_op_or_dot := match(
@@ -749,7 +753,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
       );
       cond(
         func_is_op_or_dot => {
-          func_tok_val := ast_expr_text(&func_box).*;
+          func_tok_val := ast_expr_text(&func_box).*.clone();
           cond(
             (n == usize(1)) => {
               arg0_str := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
@@ -1061,7 +1065,7 @@ ast_call_args_unmarked :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 ast_place_text :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, _) => ast_expr_text(e).*,
+    .Atom(_, _) => ast_expr_text(e).*.clone(),
     .FnCall(_, pf, Rc(pargs), _, _) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => {
         base := recur(match(pargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()));
@@ -1403,7 +1407,7 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
   });
   pair_args := match(
     arg,
-    .FnCall(_, _, Rc(pa), _, _) => pa,
+    .FnCall(_, _, Rc(pa), _, _) => pa.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   label_matches := match(
@@ -1548,7 +1552,7 @@ _bs_with_args :: (fn(e : &AstExpr, args : &ArrayList(AstExpr)) -> AstExpr)(
   )
 );
 _bs_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// An identifier atom: the only name a local borrow or a capture pun binds.
 _bs_is_name :: (fn(e : &AstExpr) -> bool)(
@@ -1675,7 +1679,7 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
             changed = true;
             np
           },
-          .None => cl_params
+          .None => cl_params.clone()
         );
         cond(
           changed => Option(AstExpr).Some(AstExpr.FnCall(lid, _bs_with_args(&cl_callee, &new_entries), Rc.new(new_params), cl_infix, ltok)),

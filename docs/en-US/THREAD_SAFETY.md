@@ -50,12 +50,14 @@ only for `Send`: `Mutex(T)` and `Channel(T)` need `T <: Send`. So a type that is
 but opts out of `Sync` with `impl(T, !(Sync()))` can go in a `Mutex` or through a `Channel`, but
 not in an `Arc`.
 
-`String` and the collections are not `Send` yet: today their buffer is a shared, non-atomically
-counted cell, so a copy left on the sending thread would race on its count. Once their buffers
-become uniquely owned (`plans/VALUES_BY_DEFAULT.md` V2b), moving one hands over its only owner and
-`Channel(String)` works with no compiler change. Until then, a `String` or a collection does not
-cross a thread: share data that is `Send` and `Sync` through an `Arc`, rebuild the value on the
-receiving thread from `Send` parts, or serialize it. An `Rc` graph stays on its thread (Rust's
+`String` and `ArrayList(T)` own their buffers uniquely: they are values, so moving one hands over
+its only owner. `String` is `Send` and `Sync`, and `ArrayList(T)` is `Send` (`Sync`) when `T` is.
+A `String` or an `ArrayList(String)` moves into a `Thread(...).spawn` body, comes back through
+`join()`, and travels through a `Channel(String)`; using it on the sending side after the move is
+E0901. The other collections (`HashMap`, `HashSet`, `Deque`, ...) are still shared, non-atomically
+counted cells until their own flips, so they do not cross a thread yet: share data that is `Send`
+and `Sync` through an `Arc`, rebuild the value on the receiving thread from `Send` parts, or
+serialize it. An `Rc` graph stays on its thread (Rust's
 rule); `Rc.try_unwrap` takes the value out of a uniquely held `Rc`, and that value moves when it
 is `Send`. The one-shot isolated handoff that used to cover this case was removed in v0.2.68
 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`).
@@ -246,7 +248,7 @@ local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In sa
   `spawn_blocking` callback — anything bound to `Impl(FnOnce(...), Send)`, `Impl(Fn(...), Send)` or `Impl(Fn(...), Sync)`)
   may not reach a global whose type is not `Sync`, directly or through any function it calls. A
   global is shared by every thread, so sharing is the question. A non-atomic
-  reference-counted global (`ArrayList`, `String`, any `ref(struct)`) stays legal for the main
+  reference-counted global (`HashMap`, any `ref(struct)`) stays legal for the main
   thread, but reading a field through such a handle updates a reference count, so no other
   thread may touch it;
 - a `Sync` value global (a scalar or a struct with no reference inside) that is WRITTEN
@@ -260,7 +262,7 @@ local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In sa
 LIMIT :: i32(5); // a constant: fine from any thread
 hits := AtomicI32.new(i32(0)); // an atomic object: shared state, fine
 (thread_local(mut(scratch)) : i32) = i32(0); // per-thread mutable state: fine
-g := ArrayList(i32).new(); // fine on the main thread only
+mut(g) := ArrayList(i32).new(); // fine on the main thread only
 fill :: (fn() -> unit)({
   g.push(i32(1));
 });
@@ -302,7 +304,7 @@ write `(f : Impl(Fn(Io) -> unit, Send)) = count`. A value is checked once, where
 converted into that type (an argument, a return, a declared binding).
 
 ```yo
-g := ArrayList(i32).new(); // main thread only
+mut(g) := ArrayList(i32).new(); // main thread only
 hits := AtomicI32.new(i32(0));
 fill :: (fn(io : Io) -> unit)({
   g.push(i32(1));

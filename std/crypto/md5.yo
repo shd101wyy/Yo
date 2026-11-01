@@ -310,7 +310,7 @@ impl(
     block_size : (fn() -> usize)(usize(64)),
     finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
       d := self.finish();
-      out := ArrayList(u8).with_capacity(usize(16));
+      mut(out) := ArrayList(u8).with_capacity(usize(16));
       (mut(fbi) : usize) = usize(0);
       while(fbi < usize(16), fbi = (fbi + usize(1)), {
         out.push(d(fbi));
@@ -403,7 +403,7 @@ export(md5);
 /// publish. Same "broken, legacy interop only" caveat as `md5`.
 md5_hex :: (fn(data : &ArrayList(u8)) -> String)({
   digest := md5(data);
-  bytes := ArrayList(u8).with_capacity(usize(16));
+  mut(bytes) := ArrayList(u8).with_capacity(usize(16));
   mut(i) := usize(0);
   while(i < usize(16), i = (i + usize(1)), {
     bytes.push(digest(i));

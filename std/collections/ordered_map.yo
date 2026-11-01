@@ -123,30 +123,28 @@ impl(
   /// place — a `&K` is all a lookup ever needs, so a move-only key is found.
   _find_pos : (fn(self : &Self, key : &K) -> Option(usize))({
     h := self._hash_key(key);
-    match(
-      self._index.get(&h),
-      .Some(positions) => {
-        (mut(found) : Option(usize)) = Option(usize).None;
-        mut(i) := usize(0);
-        while((i < positions.len()) && found.is_none(), i = (i + usize(1)), {
-          match(
-            positions.get(i),
-            .Some(pos) => {
-              ep := self._entries_ptr().add(pos);
-              cond(
-                (ep.*.key == key) => {
-                  found = Option(usize).Some(pos);
-                },
-                true => ()
-              );
-            },
-            .None => ()
-          );
-        });
-        found
-      },
-      .None => Option(usize).None
+    cond(
+      // The position list is lent where the index holds it: `get` would
+      // copy the list, which is a value since B8.
+      self._index.contains_key(&h) => self._find_among(&self._index(h), key),
+      true => Option(usize).None
     )
+  }),
+  /// The entry among `positions` whose key is `key`, compared in place.
+  _find_among : (fn(self : &Self, positions : &ArrayList(usize), key : &K) -> Option(usize))({
+    (mut(found) : Option(usize)) = Option(usize).None;
+    mut(i) := usize(0);
+    while((i < positions.len()) && found.is_none(), i = (i + usize(1)), {
+      pos := positions(i);
+      ep := self._entries_ptr().add(pos);
+      cond(
+        (ep.*.key == key) => {
+          found = Option(usize).Some(pos);
+        },
+        true => ()
+      );
+    });
+    found
   }),
   /// Record that `pos` holds an entry whose key hashes to `h`.
   ///
@@ -160,7 +158,7 @@ impl(
       self._index.get_entry_ptr(&h),
       .Some(ep) => ep.*.value.push(pos),
       .None => {
-        fresh := ArrayList(usize).new();
+        mut(fresh) := ArrayList(usize).new();
         fresh.push(pos);
         self._index.insert(h, fresh);
         ()
@@ -329,7 +327,8 @@ impl(
   /// The `(key, value)` pair at position `i` in the iteration order, or
   /// `.None` when `i` is out of range — Rust's `IndexMap::get_index`.
   get_index : (fn(self : &Self, i : usize) -> Option(MapEntry(K, V)))(
-    self._entries.get(i)
+    // A clone (`MapEntry(K, V) <: Clone`): the list keeps its entry (B8).
+    self._entries.get_cloned(i)
   ),
   /// Remove all entries.
   clear : (fn(self : &mut Self) -> unit)({
@@ -381,12 +380,13 @@ OrderedMapKeys :: (
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
+  where(K <: (Eq(K), Hash, Clone)),
   OrderedMapKeys(K, V),
   /// Next key in INSERTION order, or `.None` at the end — O(1), straight off
   /// the entry list.
   ///
-  /// The keys are yielded by value (dup'd for a refcounted `K`). Inserting a
+  /// Each key is yielded as a clone (`K <: Clone`), as `HashMapKeys` does:
+  /// the entry list keeps its own (B8). Inserting a
   /// new key during the walk appends to that list and so extends the walk;
   /// removing one shifts everything after the removed entry.
   next : (fn(self : &mut Self) -> Option(K))({
@@ -396,11 +396,7 @@ impl(
       },
       true => ()
     );
-    k := match(
-      self._map._entries.get(self._index),
-      .Some(e) => Option(K).Some(e.key),
-      .None => Option(K).None
-    );
+    k := Option(K).Some(self._map._entries(self._index).key.clone());
     self._index = (self._index + usize(1));
     return(k);
   })
@@ -422,10 +418,10 @@ OrderedMapValues :: (
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
+  where(K <: (Eq(K), Hash), V <: Clone),
   OrderedMapValues(K, V),
   /// Next value in the KEYS' insertion order, or `.None` at the end — O(1),
-  /// a plain array read off the entry list.
+  /// a clone (`V <: Clone`) read off the entry list.
   next : (fn(self : &mut Self) -> Option(V))({
     cond(
       (self._index >= self._map._entries.len()) => {
@@ -433,16 +429,9 @@ impl(
       },
       true => ()
     );
-    match(
-      self._map._entries.get(self._index),
-      .Some(e) => {
-        self._index = (self._index + usize(1));
-        return(Option(V).Some(e.value));
-      },
-      .None => {
-        return(Option(V).None);
-      }
-    );
+    v := self._map._entries(self._index).value.clone();
+    self._index = (self._index + usize(1));
+    Option(V).Some(v)
   })
 );
 /// Iterator over `(key, value)` pairs of an `OrderedMap` in insertion order.
@@ -462,7 +451,7 @@ OrderedMapIter :: (
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
+  where(K <: (Eq(K), Hash, Clone), V <: Clone),
   OrderedMapIter(K, V),
   Iterator(
     Item : MapEntry(K, V),
@@ -473,16 +462,10 @@ impl(
         },
         true => ()
       );
-      match(
-        self._map._entries.get(self._index),
-        .Some(e) => {
-          self._index = (self._index + usize(1));
-          return(Option(MapEntry(K, V)).Some(e));
-        },
-        .None => {
-          return(Option(MapEntry(K, V)).None);
-        }
-      );
+      // A clone of the entry (`K`, `V` <: Clone): the list keeps its own (B8).
+      e := self._map._entries(self._index).clone();
+      self._index = (self._index + usize(1));
+      Option(MapEntry(K, V)).Some(e)
     })
   )
 );

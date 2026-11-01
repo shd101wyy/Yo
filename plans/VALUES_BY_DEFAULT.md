@@ -6910,7 +6910,7 @@ compiler; the std shapes are plain structs the seed lowers):
         remaining errors by hand, then add decision 27's lint.
       - **It closes an S1.** A write through a `String` copy reaches the
         original only when the original was non-empty
-        (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
+        (`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
         re-triaged 2026-10-14: the local, by-value-parameter and field-copy
         shapes all still split). It closes with the flip. Each of those
         copies then moves or is E0901, and Generation B carries its test.
@@ -8309,7 +8309,7 @@ heavy run, the command is given in item 2.
        `_bytes` sites rewritten; whatever the probe left; the tests that
        assert sharing (`ref_count` of a list or string, e.g.
        `tests/collections/array_list_convenience.test.yo`); the S1's test
-       (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
+       (`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
        moves to `fixed/`); docs in both languages, the instructions and
        the skills cheatsheets; `plans/STRING_VALUE_SEMANTICS.md`'s status.
      - Flips: every implicit copy of a `String`, an `ArrayList` or a value

@@ -177,7 +177,7 @@ test("Test an uncontended lock still costs no suspension", {
 // ---------------------------------------------------------------------------
 test("Test with_lock runs a body that borrows the caller's locals", {
   m := Mutex(i64).new(i64(1));
-  s := ArrayList(i64).new();
+  mut(s) := ArrayList(i64).new();
   s.push(i64(41));
   r := io.await(
     m.with_lock({ &s }(v : &mut i64) => {

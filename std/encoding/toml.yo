@@ -258,6 +258,7 @@ TomlValue :: enum(
   /// A TOML table, keys in insertion order.
   Table(keys : ArrayList(String), values : ArrayList(Self))
 );
+derive(TomlValue, Clone);
 impl(
   TomlValue,
   /// Create a new empty table.
@@ -277,7 +278,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(Option(TomlValue).Some(values(i)));
+              return(Option(TomlValue).Some(values(i).clone()));
             },
             true => ()
           );
@@ -307,7 +308,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              old := values(i);
+              old := values(i).clone();
               values(i) = value;
               return(Option(TomlValue).Some(old));
             },
@@ -341,7 +342,7 @@ impl(
   at : (fn(self : &Self, index : usize) -> Option(TomlValue))(
     match(
       self,
-      .Array(items) => items.get(index),
+      .Array(items) => items.get_cloned(index),
       _ => Option(TomlValue).None
     )
   ),
@@ -367,7 +368,7 @@ impl(
   ),
   /// Extract the array items, or `.None` if not an `Array`.
   as_array : (fn(self : &Self) -> Option(ArrayList(TomlValue)))(
-    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items), _ => Option(ArrayList(TomlValue)).None)
+    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items.clone()), _ => Option(ArrayList(TomlValue)).None)
   ),
   /// True for a TOML string.
   is_string : (fn(self : &Self) -> bool)(
@@ -475,7 +476,7 @@ impl(
   _Parser,
   new : (fn(src : &ArrayList(u8)) -> Self)({
     p := Self(
-      src : src,
+      src : src.clone(),
       pos : usize(0),
       cur : ArrayList(_Step).new(),
       cur_path : String.new(),
@@ -805,7 +806,7 @@ _parse_quoted_string :: (
     },
     true => p.advance()
   );
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   (mut(closed) : bool) = false;
   while(!closed, {
     cond(
@@ -912,7 +913,7 @@ _parse_simple_key :: (fn(p : &_Parser) -> Result(String, TomlError))({
     (b == _QUOTE) => _parse_basic_string(p),
     (b == _APOS) => _parse_literal_string(p),
     _is_bare_key_byte(b) => {
-      bytes := ArrayList(u8).new();
+      mut(bytes) := ArrayList(u8).new();
       while(_is_bare_key_byte(p.cur_byte()), {
         bytes.push(p.cur_byte());
         p.advance();
@@ -926,7 +927,7 @@ _parse_simple_key :: (fn(p : &_Parser) -> Result(String, TomlError))({
 /// optional spaces around the dots. `a.b.c` is three keys, never one key
 /// containing dots.
 _parse_key_path :: (fn(p : &_Parser) -> Result(ArrayList(String), TomlError))({
-  keys := ArrayList(String).new();
+  mut(keys) := ArrayList(String).new();
   (mut(going) : bool) = true;
   while(going, {
     p.skip_spaces();
@@ -989,7 +990,7 @@ _Decimal :: struct(
 /// and handing the span to `atof`, which is how the old parser turned
 /// `99999999999999999999` into a wrapped `Int`.
 _clean_decimal :: (fn(src : &ArrayList(u8), from : usize, to : usize) -> Option(_Decimal))({
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   (mut(k) : usize) = from;
   (mut(bad) : bool) = false;
   (mut(is_float) : bool) = false;
@@ -1158,7 +1159,7 @@ _clean_decimal :: (fn(src : &ArrayList(u8), from : usize, to : usize) -> Option(
 /// A prefixed integer's digits (`0x`, `0o`, `0b`): at least one digit of the
 /// radix, underscores only between digits. Returns the underscore-free text.
 _clean_radix :: (fn(src : &ArrayList(u8), from : usize, to : usize, radix : u32) -> Option(String))({
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   (mut(bad) : bool) = false;
   (mut(count) : usize) = usize(0);
   (mut(prev_us) : bool) = false;
@@ -1198,7 +1199,7 @@ _clean_radix :: (fn(src : &ArrayList(u8), from : usize, to : usize, radix : u32)
 /// of input). Date-times are detected by lookahead BEFORE this is called,
 /// because the `1979-05-27 07:32:00` form contains a space.
 _scan_token :: (fn(p : &_Parser) -> String)({
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   while(!_is_value_terminator(p.cur_byte()), {
     bytes.push(p.cur_byte());
     p.advance();
@@ -1757,7 +1758,7 @@ _insert_inline :: (
     pos : usize
   ) -> Result(unit, TomlError)
 )({
-  steps := ArrayList(_Step).new();
+  mut(steps) := ArrayList(_Step).new();
   (mut(path) : String) = String.new();
   last := (keys.len() - usize(1));
   mut(i) := usize(0);
@@ -1828,7 +1829,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       // brackets, a trailing comma is allowed, and the element types need
       // not agree (TOML v1.0.0 dropped that restriction).
       p.advance();
-      items := ArrayList(TomlValue).new();
+      mut(items) := ArrayList(TomlValue).new();
       (mut(closed) : bool) = false;
       while(!closed, {
         _sk := match(
@@ -1889,7 +1890,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       // the braces) and no trailing comma.
       p.advance();
       mut(tbl) := TomlValue.new_table();
-      dotted := ArrayList(String).new();
+      mut(dotted) := ArrayList(String).new();
       (mut(closed) : bool) = false;
       (mut(after_comma) : bool) = false;
       while(!closed, {
@@ -2101,7 +2102,7 @@ _parse_header :: (fn(p : &_Parser, root : &mut TomlValue) -> Result(unit, TomlEr
     true => ()
   );
   last := (keys.len() - usize(1));
-  steps := ArrayList(_Step).new();
+  mut(steps) := ArrayList(_Step).new();
   table_path := match(
     _walk_header_path(p, root, &keys, last, &mut steps, pos),
     .Ok(s) => s,
@@ -2116,7 +2117,7 @@ _parse_header :: (fn(p : &_Parser, root : &mut TomlValue) -> Result(unit, TomlEr
     is_array => match(
       slot,
       .Missing => {
-        items := ArrayList(TomlValue).new();
+        mut(items) := ArrayList(TomlValue).new();
         items.push(TomlValue.new_table());
         _store_at(root, &steps, usize(0), Option(String).Some(k.clone()), TomlValue.Array(items));
         p.set_kind(&child_path, _TableKind.ArrayOfTables);
@@ -2202,7 +2203,7 @@ _parse_header :: (fn(p : &_Parser, root : &mut TomlValue) -> Result(unit, TomlEr
 _insert_keyval :: (
   fn(p : &_Parser, root : &mut TomlValue, keys : &ArrayList(String), value : TomlValue, pos : usize) -> Result(unit, TomlError)
 )({
-  steps := p.cur.clone();
+  mut(steps) := p.cur.clone();
   (mut(path) : String) = p.cur_path.clone();
   last := (keys.len() - usize(1));
   mut(i) := usize(0);
@@ -2439,7 +2440,7 @@ _write_key :: (fn(key : &String, out : &mut ArrayList(u8)) -> unit)(
   )
 );
 _key_string :: (fn(key : &String) -> String)({
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   _write_key(key, &mut out);
   String.from_bytes(out)
 });
@@ -2667,7 +2668,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
     .Table(keys, values) => {
       mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
-        v := values(i);
+        v := values(i).clone();
         cond(
           (v.is_table() || _is_array_of_tables(&v)) => (),
           true => {
@@ -2680,7 +2681,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
       });
       mut(j) := usize(0);
       while(j < keys.len(), j = (j + usize(1)), {
-        v2 := values(j);
+        v2 := values(j).clone();
         key_text := _key_string(&keys(j));
         child_prefix := cond(
           prefix.is_empty() => key_text,
@@ -2725,7 +2726,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
 /// parser produces); any other value renders in its inline form, which is
 /// what a caller stringifying one field wants.
 stringify :: (fn(value : &TomlValue) -> String)({
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   cond(
     value.is_table() => _write_table_body(value, String.new(), &mut out),
     true => _write_inline(value, &mut out)
@@ -2748,7 +2749,7 @@ impl(
   TomlDateTime,
   ToString(
     to_string : (fn(self : &Self) -> String)({
-      out := ArrayList(u8).new();
+      mut(out) := ArrayList(u8).new();
       _write_datetime(self, &mut out);
       String.from_bytes(out)
     })

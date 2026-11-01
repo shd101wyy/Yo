@@ -133,7 +133,7 @@ test("std/log configuration and filtering are safe from several threads at once"
   // concurrently at level Off (nothing is written); it must neither crash nor
   // tear, and it ends in the state the last writer set. A canary rather than a
   // red-first witness: a data race has no deterministic observable natively.
-  threads := ArrayList(Thread(unit)).new();
+  mut(threads) := ArrayList(Thread(unit)).new();
   (mut(t) : i32) = i32(0);
   while(t < i32(4), t = (t + i32(1)), {
     threads.push(
@@ -587,3 +587,66 @@ test("Sender(V)/Receiver(V) carry a move-only value across a thread", {
   assert(_th_disposed() == (before + usize(1)), "the value is dropped once, by the receiver");
   match(rx.recv(), .Ok(_) => assert(false, "only one value was sent"), .Err(e) => assert(e == TryRecvError.Disconnected, "the last sender closed the channel"));
 });
+// ============================================================================
+// `String` and `ArrayList` are values (B8, lookahead D25's replacement probe)
+// ============================================================================
+// A value `String` or `ArrayList(String)` owns its buffer outright, so it is
+// `Send` and moves across a thread: into `Thread(...).spawn`'s body and back
+// out through `join()`, and through a `Channel`. The moved-from binding is
+// gone (E0901); an `Rc(String)` still cannot cross (E0602, `Rc` is not `Send`).
+test("a String and an ArrayList(String) move into a thread and back out through join", {
+  s := String.from("abc");
+  th := Thread(String).spawn({ s }(io : Io) => {
+    mut(t) := s;
+    t.push_str("d");
+    t
+  });
+  assert(th.join() == String.from("abcd"), "the moved String came back");
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("x"));
+  xs.push(String.from("y"));
+  th2 := Thread(ArrayList(String)).spawn({ xs }(io : Io) => {
+    mut(ys) := xs;
+    ys.push(String.from("z"));
+    ys
+  });
+  zs := th2.join();
+  assert(zs.len() == usize(3), "the moved list came back with the thread's push");
+  assert(zs(usize(2)) == String.from("z"), "the thread's element");
+});
+test("a String moves through a Channel(String) across a thread", {
+  rx := Channel(String).receiver(usize(2));
+  {
+    tx := rx.sender();
+    w := Thread(unit).spawn({ tx }(io : Io) => {
+      _ := tx.send(String.from("hello"));
+    });
+    w.join();
+  };
+  match(rx.recv(), .Ok(m) => assert(m == String.from("hello"), "the sent String"), .Err(_) => assert(false, "the String is missing"));
+});
+// Use after the move is E0901.
+comptime_expect_error({
+  _th_use_after_move :: (fn() -> usize)({
+    s := String.from("abc");
+    th := Thread(unit).spawn({ s }(io : Io) => {
+      _n := s.len();
+      ()
+    });
+    th.join();
+    s.len()
+  });
+  _th_use_after_move();
+}, "use of moved value");
+// An `Rc(String)` capture is not `Send`.
+comptime_expect_error({
+  _th_rc_string :: (fn() -> unit)({
+    r := Rc.new(String.from("abc"));
+    th := Thread(unit).spawn(io => {
+      _n := r.len();
+      ()
+    });
+    th.join();
+  });
+  _th_rc_string();
+}, "does not implement Send");

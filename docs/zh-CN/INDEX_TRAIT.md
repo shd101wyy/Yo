@@ -8,7 +8,7 @@
 // 内置数组和自定义类型使用相同的语法：
 (arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
 v := arr(usize(1)); // 20
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
 ```
@@ -193,7 +193,7 @@ T* result = Index_index(&collection, idx);  // ← 直接指针
 这对正确性至关重要——指针保持有效并直接指向集合的存储空间。你可以用它进行修改：
 
 ```yo
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(100));
 
 // 通过调用语法赋值修改
@@ -271,7 +271,7 @@ assert(sum == i32(30), "与 + 配合使用");
 ### ArrayList(T) — `Index(usize)`
 
 ```yo
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
 addr_of(list(usize(0))).* = i32(99); // 原地修改
@@ -330,7 +330,7 @@ c := s.get_byte(usize(9)); // .None — 带检查的形式
 通过 Index 特征的越界访问会在运行时导致 **panic**。这与 Rust 的行为一致。如需返回 `Option(T)` 的安全访问，请使用 `ArrayList` 的 `get` 方法：
 
 ```yo
-(list : ArrayList(i32)) = ArrayList(i32).new();
+(mut(list) : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 
 // 越界会 panic：

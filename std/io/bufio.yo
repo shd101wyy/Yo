@@ -87,7 +87,7 @@ BufWriter :: (fn(comptime(W) : Type) -> comptime(Type))(
 impl(generic(W : Type), BufWriter(W), !Sync());
 /// A `capacity`-long zeroed byte buffer (`ArrayList` used as fixed storage).
 _zeroed :: (fn(capacity : usize) -> ArrayList(u8))({
-  b := ArrayList(u8).with_capacity(capacity);
+  mut(b) := ArrayList(u8).with_capacity(capacity);
   (mut(i) : usize) = usize(0);
   while(i < capacity, i = (i + usize(1)), {
     b.push(u8(0));
@@ -140,7 +140,7 @@ impl(
   read_line : (fn(self : &Self, io : Io) -> Impl(Future(Option(String), IoExn)))(
     io.async({ &self, io }(e : IoExn) => {
       st := self._state();
-      line_bytes := ArrayList(u8).new();
+      mut(line_bytes) := ArrayList(u8).new();
       (mut(found_newline) : bool) = false;
       (mut(hit_eof) : bool) = false;
       while(!found_newline && !hit_eof, {
@@ -184,7 +184,7 @@ impl(
   read_exact : (fn(self : &Self, n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn)))(
     io.async({ &self, n, io }(e : IoExn) => {
       st := self._state();
-      result := ArrayList(u8).new();
+      mut(result) := ArrayList(u8).new();
       (mut(hit_eof) : bool) = false;
       while((result.len() < n) && !hit_eof, {
         cond(
@@ -282,13 +282,7 @@ impl(
   into_parts : (fn(sink(self) : Self) -> Tuple(W, ArrayList(u8)))(
     match(
       self,
-      Self(_inner : inner, _st : st) => {
-        // Bound first: a field copied straight into a tuple literal skips
-        // its dup, so the box would free the buffer the tuple still holds
-        // (issues/2026-10-25-a-tuple-literal-copying-a-field-out-of-a-value-skips-the-dup.md).
-        pending := st.*._buf;
-        (inner, pending)
-      }
+      Self(_inner : inner, _st : st) => match(st.into_inner(), { _buf : pending, _capacity : _ } => (inner, pending))
     )
   ),
   /// The pending bytes, written through `&Self`.

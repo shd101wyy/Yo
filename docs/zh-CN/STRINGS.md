@@ -126,8 +126,7 @@ first := s.chars().next(); // Option(rune)
 （对应 Rust 的 `s.as_bytes().get(i)`）。两者都就地读取字符串。解码用 `at(i)`。
 
 `s(i)` 读取同一个字节：`String` 实现 `Output : u8` 的 `Index(usize)`，且不实现
-`IndexMut`。`s(i) = b` 是编译错误：写入会影响所有共享该缓冲区的字符串，还可能
-留下非法的 UTF-8。区间语法糖 `s(a..b)` 构建一个新字符串。
+`IndexMut`。`s(i) = b` 是编译错误：按字节写入可能留下非法的 UTF-8。区间语法糖 `s(a..b)` 构建一个新字符串。
 
 ```yo
 { String } :: import("std/string");
@@ -142,19 +141,23 @@ s(usize(1) .. usize(3)); // "é" —— 一个新的 String
 
 每个修改方法（`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、
 `clear`、`truncate`、`insert_str`、`insert`、`remove`、`pop`）都接受
-`self : &mut Self` 并就地写入。`clone()` 复制字节（O(n)）；无论是否为空，克隆都独立于
-原值。普通的复制（`t := s`）目前仍共享非空的缓冲区，直到
-`plans/VALUES_BY_DEFAULT.md` 的 V2b 让 `String` 成为唯一所有的值（届时 `t := s`
-是移动，或报错并提示 `s.clone()`），所以只通过克隆写入。通过借用的副本（按值参数、
-`for` 或 `match` 的绑定）写入是 E0908；规则见
-[DESIGN.md](./DESIGN.md#通过-string-的副本写入)。
+`self : &mut Self` 并就地写入。`String` 独占自己的字节：它是一个值
+（`newtype(_bytes : ArrayList(u8))`），从不共享。`t := s` 会**移动**字符串，之后再使用
+`s` 是 E0901，其帮助信息会给出 `s.clone()`。`clone()` 把字节复制（O(n)）到一个独立的
+新字符串。`&String` 参数、`match(&s, ...)` 的绑定以及 `for(&xs, ...)` 的元素都借用字符串而
+不复制；要保留它就 `.clone()`。字符串是 `Send` 与 `Sync` 的，因此可以移入
+`Thread(...).spawn`，也可以经由 `Channel(String)` 传递。
+
+模板字符串以借用方式追加 `String` 部分：`` `a${s}b` `` 只构建一个新字符串，并把 `s`
+的字节复制进去一次。只有当模板的**第一个**部分是该 `String` 时，才会通过
+`to_string()`（即 `clone()`）渲染它。
 
 `String` 之外的任何东西都不能写它的缓冲区，所以字节列表只会被复制或移动，不会出借：
 
 | 方法 | 结果 |
 | --- | --- |
 | `to_bytes()` | 一个新的、独立的 `ArrayList(u8)`，O(n) |
-| `into_bytes()` | 消耗字符串并把缓冲区移出；只有另一个副本共享它时才复制 |
+| `into_bytes()` | 消耗字符串并把缓冲区移出，O(1) |
 | `String.from_bytes(sink(bytes))` | 接管列表，不检查 |
 | `String.from_utf8(sink(bytes))` | 校验后接管列表；否则返回 `Err(.InvalidUtf8(...))` |
 | `to_cstr_checked()` | 字节加上结尾的 `\0`，用于 C 边界；字符串含 NUL 字节时返回 `Err(.InteriorNul(index))` |

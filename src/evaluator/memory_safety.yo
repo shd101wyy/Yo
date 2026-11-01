@@ -57,7 +57,7 @@ file_has_pragma :: (fn(module_path : &Option(String), kind : Pragma) -> bool)(
       n := g_privileged_files.with(xs => xs.len());
       while((i < n) && !found, {
         match(
-          g_privileged_files.with(xs => xs.get(i)),
+          g_privileged_files.with(xs => xs.get_cloned(i)),
           .Some(entry) => if((entry.module_path == key) && (entry.kind == kind), {
             found = true;
           }),
@@ -90,7 +90,7 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
   n := g_privileged_files.with(xs => xs.len());
   while(i < n, {
     match(
-      g_privileged_files.with(xs => xs.get(i)),
+      g_privileged_files.with(xs => xs.get_cloned(i)),
       .Some(entry) => if(entry.module_path != key, {
         kept.push(entry);
       }),
@@ -223,17 +223,19 @@ _is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 (g_std_path_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 (g_std_path_memo_root : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
-  if(match(g_std_path_memo_root.with(xs => xs.get(usize(0))), .Some(r) => (r != std_path), .None => true), {
+  if(match(g_std_path_memo_root.with(xs => xs.get_cloned(usize(0))), .Some(r) => (r != std_path), .None => true), {
     g_std_path_memo.with_mut(m => m.clear());
     g_std_path_memo_root.with_mut(xs => xs.clear());
-    g_std_path_memo_root.with_mut(xs => xs.push(std_path.clone()));
+    std_path_owned := std_path.clone();
+    g_std_path_memo_root.with_mut({ std_path_owned }(xs) => xs.push(std_path_owned.clone()));
   });
   match(
     g_std_path_memo.with(m => m.get(mp)),
     .Some(b) => b,
     .None => {
       b := _is_std_module_path(mp.clone(), std_path);
-      g_std_path_memo.with_mut(m => m.insert(mp.clone(), b));
+      mp_owned := mp.clone();
+      g_std_path_memo.with_mut({ mp_owned, b : b.clone() }(m) => m.insert(mp_owned.clone(), b));
       b
     }
   )
@@ -271,7 +273,8 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
       b := (
         mp.starts_with(String.from("auto-generated://")) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store))))
       );
-      g_mut_rule_exempt_memo.with_mut(m => m.insert(mp.clone(), b));
+      mp_owned_ := mp.clone();
+      g_mut_rule_exempt_memo.with_mut({ mp_owned_, b : b.clone() }(m) => m.insert(mp_owned_.clone(), b));
       b
     }
   )

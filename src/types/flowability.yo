@@ -130,7 +130,8 @@ clear_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_messages.with_mut(xs => xs.clear());
 });
 record_cee_error_message :: (fn(msg : &String) -> unit)({
-  g_cee_observed_messages.with_mut(xs => xs.push(msg.clone()));
+  msg_owned := msg.clone();
+  g_cee_observed_messages.with_mut({ msg_owned }(xs) => xs.push(msg_owned.clone()));
 });
 cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.with(xs => xs.clone()));
 cee_observed_error :: (fn() -> bool)(
@@ -269,8 +270,8 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
       }
     );
     var_name := match(
-      info.variable_name,
-      .Some(n) => n,
+      &info.variable_name,
+      .Some(n) => n.clone(),
       .None => {
         return(false);
       }
@@ -344,7 +345,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     while(i < call_args.len(), {
       arm := match(call_args.get(i), .Some(a) => a, .None => make_err_expr());
       if(ast_expr_is_fn_call(&arm) && ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+        arm_args := match(arm, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
         arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
         if(!recur(&arm_body, ctx, opts), {
           return(false);
@@ -362,7 +363,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     while(i < call_args.len(), {
       arm := match(call_args.get(i), .Some(a) => a, .None => make_err_expr());
       if(ast_expr_is_fn_call(&arm) && ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+        arm_args := match(arm, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
         arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
         if(!recur(&arm_body, ctx, opts), {
           return(false);
@@ -400,7 +401,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
         fa_member := match(fa_fn, .FnCall(_, _, Rc(fa_fargs2), _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
         fa_name := match(
           fa_member,
-          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_text(&fa_m).*, String.new()),
+          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_text(&fa_m).*.clone(), String.new()),
           .None => String.new()
         );
         if((fa_name == "add") || (fa_name == "sub"), {
@@ -539,7 +540,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {
-    cf_args := match(call_func, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+    cf_args := match(call_func, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
     match(
       cf_args.get(usize(0)),
       .Some(recv) => {
@@ -683,7 +684,7 @@ require_ref_own_argument_exclusivity :: (
     if(!is_ref && !is_owning, {
       pi = (pi + usize(1));
     }, {
-      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
+      lbl := cond((pi < param_labels.len()) => match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
       match(
         args.get(pi),
         .Some(arg) => {
@@ -753,8 +754,8 @@ require_ref_own_argument_exclusivity :: (
                       ref_root_vars.get(ri),
                       .Some(ref_var) =>
                         if(alias_group_root(&ref_var) == alias_group_root(&own_var), {
-                          own_lbl := match(own_root_lbls.get(oi), .Some(l) => l, .None => String.from(""));
-                          ref_lbl := match(ref_root_lbls.get(ri), .Some(l) => l, .None => String.from(""));
+                          own_lbl := match(own_root_lbls.get_cloned(oi), .Some(l) => l, .None => String.from(""));
+                          ref_lbl := match(ref_root_lbls.get_cloned(ri), .Some(l) => l, .None => String.from(""));
                           match(
                             args.get(own_idx),
                             .Some(own_arg) =>
@@ -947,10 +948,14 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
 /// complaint is dropped. A parameter no capture names was never A2's, and
 /// the complaint is re-raised.
 _DeferredSiblingRule :: struct(call_id : usize, label : String, err : YoError);
+derive(_DeferredSiblingRule, Clone);
 (g_deferred_sibling_rules : RefCell(ArrayList(_DeferredSiblingRule))) = RefCell(ArrayList(_DeferredSiblingRule)).new(ArrayList(_DeferredSiblingRule).new());
 /// Record a deferred rule-(b) rejection (see `_DeferredSiblingRule`).
 flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoError) -> unit)({
-  g_deferred_sibling_rules.with_mut(xs => xs.push(_DeferredSiblingRule(call_id : call_id, label : label.clone(), err : err)));
+  label_owned := label.clone();
+  // Owned key; `err` is a `ref` handle, cheap to capture (`with_mut`'s
+  // callback is a sink parameter).
+  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
   ()
 });
 /// Settle the deferred rule-(b) rejections of call `call_id` now that A2 has
@@ -958,51 +963,56 @@ flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoErr
 /// the caller): drop those a capture names — A2 judged that parameter's
 /// place, both directions — and re-raise the first one no capture names.
 take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(CaptureBorrow), exn : Exception) -> unit)({
+  // Snapshot out, compute OUTSIDE the sink callback, write back: the old
+  // body mutated `first_unowned`/`remaining` inside `with_mut`'s by-value
+  // callback, which cannot carry mutable captures (B8).
+  snapshot := g_deferred_sibling_rules.with(xs => xs.clone());
   remaining := ArrayList(_DeferredSiblingRule).new();
   (first_unowned : Option(YoError)) = Option(YoError).None;
-  g_deferred_sibling_rules.with_mut(xs => {
-    (xi : usize) = usize(0);
-    while(xi < xs.len(), {
-      match(
-        xs.get(xi),
-        .Some(e) => {
-          if(e.call_id == call_id, {
-            (owned : bool) = false;
-            (bi : usize) = usize(0);
-            while(bi < borrowed.len(), {
-              match(
-                borrowed.get(bi),
-                .Some(b) => {
-                  if(b.root_name == e.label, {
-                    owned = true;
-                  });
-                },
-                .None => ()
-              );
-              bi = (bi + usize(1));
-            });
-            if(!owned && first_unowned.is_none(), {
-              first_unowned = Option(YoError).Some(e.err);
-            });
-          }, {
-            remaining.push(e);
+  (xi : usize) = usize(0);
+  while(xi < snapshot.len(), {
+    match(
+      snapshot.get_cloned(xi),
+      .Some(e) => {
+        if(e.call_id == call_id, {
+          (owned : bool) = false;
+          (bi : usize) = usize(0);
+          while(bi < borrowed.len(), {
+            match(
+              borrowed.get_cloned(bi),
+              .Some(b) => {
+                if(b.root_name == e.label, {
+                  owned = true;
+                });
+              },
+              .None => ()
+            );
+            bi = (bi + usize(1));
           });
-        },
-        .None => ()
-      );
-      xi = (xi + usize(1));
-    });
+          if(!owned && first_unowned.is_none(), {
+            first_unowned = Option(YoError).Some(e.err);
+          });
+        }, {
+          remaining.push(e);
+        });
+      },
+      .None => ()
+    );
+    xi = (xi + usize(1));
+  });
+  wb := remaining;
+  g_deferred_sibling_rules.with_mut(({ wb }(xs) => {
     xs.clear();
     (ri : usize) = usize(0);
-    while(ri < remaining.len(), {
+    while(ri < wb.len(), {
       match(
-        remaining.get(ri),
+        wb.get_cloned(ri),
         .Some(e) => xs.push(e),
         .None => ()
       );
       ri = (ri + usize(1));
     });
-  });
+  }));
   match(
     first_unowned,
     .Some(m) => exn.throw(dyn(m)),
@@ -1079,7 +1089,7 @@ _reject_if_container_reachable :: (
     return(());
   });
   cvar := match(cvars.last(), .Some(v) => v, .None => return(()));
-  cname := ast_expr_text(container_atom).*;
+  cname := ast_expr_text(container_atom).*.clone();
   fix := cond(
     (kind == "index") => String.from("Read the element into a local first (\"xs.get(i)\" copies it, std/mem's \"take(&mut xs(i))\" moves it out), or split the calls."),
     true => String.from("Bind the intermediate object to a local first (\"b := ...;\") and pass a field of \"b\" instead, or split the calls.")
@@ -1250,11 +1260,11 @@ require_valid_ref_argument_places :: (
       // (`flag_deferred_sibling_rule`); `_note_future_producing_call`
       // settles it against the future's real capture list.
       defer_id := if(
-        future_callee && param_labels.get(i).is_some(),
+        future_callee && param_labels.get_cloned(i).is_some(),
         Option(usize).Some(call_id),
         Option(usize).None
       );
-      defer_label := match(param_labels.get(i), .Some(l) => l, .None => String.new());
+      defer_label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_tok := ast_expr_token(&arg);
       if(!arg_tok.module_path.*.starts_with(String.from("auto-generated://")), {
@@ -1419,5 +1429,6 @@ export(
   record_cee_error_message,
   cee_observed_messages
 );
+derive(_DeferredSiblingRule, Clone);
 
 export(note_def_time_swallow);
