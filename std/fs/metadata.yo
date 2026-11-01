@@ -16,7 +16,9 @@
 //! ## Platform coverage
 //!
 //! The backend is `statx` on Linux, `stat`/`fstat` on macOS and wasm, and
-//! `_wstat64` plus `GetFileAttributesExW`/`GetFileInformationByHandle` on
+//! `_wstat64` (size/mode only) plus `GetFileAttributesExW`/
+//! `GetFileInformationByHandle` for every timestamp — as UTC epochs straight
+//! off the Win32 FILETIMEs, never the CRT's local wall-clock round trip — on
 //! Windows (`src/codegen/async/runtime_io_*.yo`). Everything a POSIX `stat`
 //! carries is available everywhere; the accessors that have no Windows
 //! equivalent say so at their own definition (`uid`, `gid`, `ino`,

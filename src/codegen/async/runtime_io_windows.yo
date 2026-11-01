@@ -1509,10 +1509,21 @@ static int64_t __yo_file_size(int32_t fd) {
 
 // Fill a stat buffer from an OPEN DESCRIPTOR instead of a path — the fd form
 // of __yo_async_statx_start, for a handle whose path is unknown or has since
-// been renamed/unlinked. _fstat64 supplies the size/mode/whole-second times;
-// GetFileInformationByHandle supplies what the path version also takes from
-// it — the sub-second times, the creation time and the NTFS file index that
-// stands in for the inode. Returns 0 on success, -errno on failure.
+// been renamed/unlinked. _fstat64 supplies the size/mode (and the fallback
+// times, used only when the Win32 query below fails); GetFileInformationByHandle
+// supplies every timestamp as a UTC epoch straight off the FILETIMEs, plus the
+// NTFS file index that stands in for the inode. Returns 0 on success, -errno
+// on failure.
+//
+// WHY the CRT's whole-second times are overwritten: _fstat64/_wstat64 derive
+// st_atime/st_mtime/st_ctime through FileTimeToLocalFileTime followed by
+// _mktime64(tm_isdst = -1) — a local wall-clock round trip. Around a DST
+// fall-back the two DST resolutions disagree, so a file stamped inside the
+// repeated local hour reports a time exactly 3600s off the UTC epoch that
+// GetSystemTimeAsFileTime (SystemTime.now) reports. Overwriting the seconds
+// from the same UTC FILETIMEs the nanoseconds already come from makes the
+// statx timestamps true UTC epochs on Windows, timezone- and DST-proof
+// (issues/2026-11-01-windows-stat-times-local-dst-roundtrip.md).
 static int32_t __yo_fstat(int32_t fd, void* statxbuf) {
   __yo_win_stat_t* ws = (__yo_win_stat_t*)statxbuf;
   memset(ws, 0, sizeof(__yo_win_stat_t));
@@ -1523,8 +1534,13 @@ static int32_t __yo_fstat(int32_t fd, void* statxbuf) {
     if (GetFileInformationByHandle(fh, &info)) {
       int64_t sec;
       __yo_win_filetime_to_timespec(info.ftLastAccessTime, &sec, &ws->atime_nsec);
+      ws->stat.st_atime = sec;
       __yo_win_filetime_to_timespec(info.ftLastWriteTime, &sec, &ws->mtime_nsec);
+      ws->stat.st_mtime = sec;
       __yo_win_filetime_to_timespec(info.ftCreationTime, &ws->btime_sec, &ws->btime_nsec);
+      // The CRT's st_ctime is the creation time on Windows; keep that meaning,
+      // fix only its epoch.
+      ws->stat.st_ctime = ws->btime_sec;
       ws->ctime_nsec = ws->mtime_nsec;
       ws->file_index = ((uint64_t)info.nFileIndexHigh << 32) | info.nFileIndexLow;
       ws->stat.st_nlink = (short)info.nNumberOfLinks;
@@ -3728,10 +3744,16 @@ static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path,
     if (result == 0) {
       WIN32_FILE_ATTRIBUTE_DATA fad;
       if (GetFileAttributesExW(wpath, GetFileExInfoStandard, &fad)) {
-        int64_t sec; uint32_t nsec;
+        int64_t sec;
+        // Same as __yo_fstat: the seconds come off the UTC FILETIMEs, not
+        // _wstat64's local wall-clock round trip, which is off by exactly
+        // 3600s inside a DST fall-back hour.
         __yo_win_filetime_to_timespec(fad.ftLastAccessTime, &sec, &ws->atime_nsec);
+        ws->stat.st_atime = sec;
         __yo_win_filetime_to_timespec(fad.ftLastWriteTime, &sec, &ws->mtime_nsec);
+        ws->stat.st_mtime = sec;
         __yo_win_filetime_to_timespec(fad.ftCreationTime, &ws->btime_sec, &ws->btime_nsec);
+        ws->stat.st_ctime = ws->btime_sec;
         ws->ctime_nsec = ws->mtime_nsec;
       }
       // If nofollow and it's a symlink, set mode to S_IFLNK
