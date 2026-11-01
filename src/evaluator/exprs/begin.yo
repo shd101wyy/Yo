@@ -2941,12 +2941,6 @@ _evaluate_begin_expression_impl :: (
             .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&ret_arg), ctx, exn),
             .None => ()
           );
-          // N2b's return rule over composite results (decision 43, O3): an
-          // origin-carrying result may name origin parameters or reference
-          // parameters' places, never a local's. Not gated on
-          // `local_borrows_active()` (the first holder in a body must be
-          // checked too).
-          reject_composite_result_local_roots(&ret_arg, &env, ctx, exn);
           // Pass the function-body's return type as the expected type for the
           // return argument: for a
           // FunctionBody context, `expectedType = { type:
@@ -2980,6 +2974,13 @@ _evaluate_begin_expression_impl :: (
           );
           evaluated_ret_arg := evaluate_expression_raw(&ret_arg, &env, ctx, exn);
           ctx.expected_type = old_expected;
+          // N2b's return rule over composite results (decision 43, O3): an
+          // origin-carrying result may name origin parameters or reference
+          // parameters' places, never a local's. Judged AFTER the argument
+          // is evaluated (the check reads its type), not gated on
+          // `local_borrows_active()` (the first holder in a body must be
+          // checked too).
+          reject_composite_result_local_roots(&evaluated_ret_arg, &env, ctx, exn);
           ret_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
             exn.throw(
@@ -3348,14 +3349,17 @@ _evaluate_begin_expression_impl :: (
                 .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&chain_tail), ctx, exn),
                 .None => ()
               );
-              // N2b's return rule over composite results (decision 43, O3),
-              // the body-tail form. Not gated on `local_borrows_active()`
-              // (the first holder in a body must be checked too).
-              reject_composite_result_local_roots(&chain_tail, &env, ctx, exn);
             }
           );
         });
         evaluated := evaluate_expression_raw(&expr_to_eval, &env, ctx, exn);
+        // N2b's return rule over composite results (decision 43, O3), the
+        // body-tail form: judged AFTER the tail is evaluated (the check
+        // reads its type), not gated on `local_borrows_active()` (the first
+        // holder in a body must be checked too).
+        if(is_result_chain_block && is_last_in_loop, {
+          reject_composite_result_local_roots(&evaluated, &env, ctx, exn);
+        });
         if(chain_tail_armed, {
           ctx.local_borrow_result_chain_tail = Option(ExprId).None;
         });
