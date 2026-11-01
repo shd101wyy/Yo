@@ -270,8 +270,8 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
       }
     );
     var_name := match(
-      info.variable_name,
-      .Some(n) => n,
+      &info.variable_name,
+      .Some(n) => n.clone(),
       .None => {
         return(false);
       }
@@ -401,7 +401,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
         fa_member := match(fa_fn, .FnCall(_, _, Rc(fa_fargs2), _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
         fa_name := match(
           fa_member,
-          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_text(&fa_m).*, String.new()),
+          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_text(&fa_m).*.clone(), String.new()),
           .None => String.new()
         );
         if((fa_name == "add") || (fa_name == "sub"), {
@@ -571,7 +571,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     needs_check := (p_is_ref || _slice_src);
     if(needs_check, {
       match(
-        eff_args.get(pi),
+        eff_args.get_cloned(pi),
         .Some(a) => {
           if(!recur(&a, ctx, opts), {
             all_ok = false;
@@ -676,7 +676,7 @@ require_ref_own_argument_exclusivity :: (
     // (decision 30) every plain parameter is by value.
     is_owning := (
       cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi), .Some(o) => o, .None => false), true => false) && !match(
-        args.get(pi),
+        args.get_cloned(pi),
         .Some(oa) => match(_info(ctx, &oa), .Some(oi) => type_is_bitwise_copy(Rc.clone(oi.ty)), .None => false),
         .None => false
       )
@@ -684,9 +684,9 @@ require_ref_own_argument_exclusivity :: (
     if(!is_ref && !is_owning, {
       pi = (pi + usize(1));
     }, {
-      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
+      lbl := cond((pi < param_labels.len()) => match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
       match(
-        args.get(pi),
+        args.get_cloned(pi),
         .Some(arg) => {
           root_atom_opt := match(
             _info(ctx, &arg),

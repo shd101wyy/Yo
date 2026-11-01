@@ -168,7 +168,7 @@ _is_verify_target :: (fn(module_path : &String) -> bool)({
   (i : usize) = usize(0);
   while((i < g_verify_target_paths.with(xs => xs.len())) && !found, {
     match(
-      g_verify_target_paths.with(xs => xs.get(i)),
+      g_verify_target_paths.with(xs => xs.get_cloned(i)),
       .Some(p) => if(p == module_path, {
         found = true;
       }),
@@ -293,12 +293,12 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, e
           if(ast_expr_is_fn_call_of(&first, ":=", Option(usize).Some(usize(2))), {
             ba := match(
               first,
-              .FnCall(_, _, Rc(a2), _, _) => a2,
+              .FnCall(_, _, Rc(a2), _, _) => a2.clone(),
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
             nm := match(
               ba.get(usize(0)),
-              .Some(n0) => ast_expr_text(&n0).*,
+              .Some(n0) => ast_expr_text(&n0).*.clone(),
               .None => String.new()
             );
             rhs := match(

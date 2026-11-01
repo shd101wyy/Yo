@@ -435,10 +435,11 @@ _capture_argument_temp :: (
   match(
     get_info(&value),
     .Some(vinfo) => match(
-      vinfo.variable_name,
+      &vinfo.variable_name,
       .Some(tn) => {
         // The temp is bound in the env the call was evaluated in.
-        g_arg_temps_across_suspension.with_mut(s => s.insert(tn.clone()));
+        tn_own := tn.clone();
+        g_arg_temps_across_suspension.with_mut({ tn_own }(s) => s.insert(tn_own));
         tenv := match(get_info(call), .Some(cinfo) => cinfo.env, .None => vinfo.env);
         _capture_env_variable(ast_expr_id(&value), tn.clone(), &tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
         _capture_env_variable(ast_expr_id(&value), &tn, &vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
@@ -721,7 +722,7 @@ walk_expr_ :: (
           n_saved := saved_keys.len();
           while(si < n_saved, {
             k2 := match(
-              saved_keys.get(si),
+              saved_keys.get_cloned(si),
               .None => {
                 si = n_saved;
                 return(());

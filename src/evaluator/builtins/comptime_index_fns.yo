@@ -200,15 +200,15 @@ ci_extract_range_indices :: (
         return(Option(CiRange).None);
       });
       start_raw := match(
-        start_field,
-        .IntLit(r) => r,
+        &start_field,
+        .IntLit(r) => r.clone(),
         _ => {
           return(Option(CiRange).None);
         }
       );
       end_raw := match(
-        end_field,
-        .IntLit(r) => r,
+        &end_field,
+        .IntLit(r) => r.clone(),
         _ => {
           return(Option(CiRange).None);
         }
@@ -298,7 +298,7 @@ ci_eval_list_index :: (
         idx_info.value,
         .Some(iv) => {
           if(is_int_lit(&iv), {
-            idx_raw := match(iv, .IntLit(r) => r, _ => String.from("0"));
+            idx_raw := match(&iv, .IntLit(r) => r.clone(), _ => String.from("0"));
             idx_i64 := match(
               idx_raw.parse_i64(),
               .Some(n) => n,

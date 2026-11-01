@@ -310,7 +310,7 @@ _bind_some_type :: (
       // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
         old_var.value.get(usize(0)),
-        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid, _ => variable_bound_some_id(&old_var)), _ => String.from("")),
+        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
       identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id));
@@ -1058,7 +1058,7 @@ _synthesize_types_impl :: (
     bound := get_value_of_some_type_from_env(&ee, expected_ty);
     exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
     exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``);
-    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts, _ => ArrayList(TypeValue).new());
+    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts.clone(), _ => ArrayList(TypeValue).new());
     if(is_some_type(&bound) && match(&bound, Rc(.SomeT(bid, _, _, _, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
       // Unbound — bind to given_ty
       // Occurs check

@@ -61,7 +61,7 @@
 _sync_registration_owner :: (fn() -> unit)({
   n := g_loading_keys.with(xs => xs.len());
   owner := cond(
-    (n > usize(0)) => match(g_loading_keys.with(xs => xs.get(n - usize(1))), .Some(k) => k.clone(), .None => String.new()),
+    (n > usize(0)) => match(g_loading_keys.with(xs => xs.get_cloned(n - usize(1))), .Some(k) => k, .None => String.new()),
     true => String.new()
   );
   set_registration_owner(&owner);
@@ -147,7 +147,7 @@ _canonical :: (fn(p : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(p));
-      _canonical_memo.with_mut({ c : Rc.clone(c), p }(m) => m.insert(p.clone(), Rc.clone(c)));
+      _canonical_memo.with_mut({ ck : p.clone(), cv : Rc.clone(c) }(m) => m.insert(ck, cv));
       c
     }
   )
@@ -184,7 +184,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   (ai : usize) = usize(0);
   while(ai < g_always_visible_owners.with(xs => xs.len()), {
     match(
-      g_always_visible_owners.with(xs => xs.get(ai)),
+      g_always_visible_owners.with(xs => xs.get_cloned(ai)),
       .Some(o) => {
         _ := seen.insert(o);
       },

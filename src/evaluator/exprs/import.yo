@@ -77,14 +77,18 @@ _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
 /// root file (absolute path). A name mapped twice resolves to the FIRST
 /// mapping — the resolver rejects duplicate import names before this point.
 set_import_root :: (fn(name : &String, root_file : &String) -> unit)({
-  g_import_root_names.with_mut(xs => xs.push(name.clone()));
-  g_import_root_paths.with_mut(xs => xs.push(root_file.clone()));
+  n := name.clone();
+  g_import_root_names.with_mut({ n }(xs) => xs.push(n));
+  p := root_file.clone();
+  g_import_root_paths.with_mut({ p }(xs) => xs.push(p));
 });
 /// Record that `name` is declared by the manifest but cannot be imported,
 /// with the reason the diagnostic will carry.
 set_import_unavailable :: (fn(name : &String, reason : &String) -> unit)({
-  g_import_unavailable_names.with_mut(xs => xs.push(name.clone()));
-  g_import_unavailable_reasons.with_mut(xs => xs.push(reason.clone()));
+  n := name.clone();
+  g_import_unavailable_names.with_mut({ n }(xs) => xs.push(n));
+  r := reason.clone();
+  g_import_unavailable_reasons.with_mut({ r }(xs) => xs.push(r));
 });
 clear_import_roots :: (fn() -> unit)({
   g_import_root_names.with_mut(xs => xs.clear());
@@ -95,7 +99,7 @@ clear_import_roots :: (fn() -> unit)({
 lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < g_import_unavailable_names.with(xs => xs.len()), {
-    matches := match(g_import_unavailable_names.with(xs => xs.get(i)), .Some(n) => (n == name), .None => false);
+    matches := match(g_import_unavailable_names.with(xs => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
     if(matches, {
       match(
         g_import_unavailable_reasons.with(xs => xs.get(i)),

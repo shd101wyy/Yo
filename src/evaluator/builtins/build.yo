@@ -1119,7 +1119,7 @@ evaluate_yo_build_functions :: (
         expr,
         env,
         ctx,
-        match(reg_manifest.manifest_fields.get(&field), .Some(v) => v, .None => String.new())
+        match(reg_manifest.manifest_fields.get_cloned(&field), .Some(v) => v, .None => String.new())
       )
     );
   });
@@ -1139,7 +1139,7 @@ evaluate_yo_build_functions :: (
         expr,
         env,
         ctx,
-        match(reg_opt.cli_options.get(&opt_name), .Some(v) => v, .None => default_value)
+        match(reg_opt.cli_options.get_cloned(&opt_name), .Some(v) => v, .None => default_value)
       )
     );
   });
@@ -1166,10 +1166,10 @@ evaluate_yo_build_functions :: (
         )
       );
     });
-    looked_up := proc_env.get(env_name.clone());
+    looked_up := proc_env.get_cloned(env_name.clone());
     record_env_read(env_name.clone(), match(looked_up, .Some(v) => v.clone(), .None => String.from("<unset>")));
     return(
-      _build_string_result(expr, env, ctx, match(looked_up, .Some(v) => v, .None => env_default))
+      _build_string_result(expr, env, ctx, match(&looked_up, .Some(v) => v.clone(), .None => env_default.clone()))
     );
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV_IS_SET, Option(usize).None), {
