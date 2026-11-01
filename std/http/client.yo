@@ -572,7 +572,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   mut(hi) := usize(0);
   (mut(user_close) : bool) = false;
   while(hi < user_headers.len(), {
-    h := user_headers(hi);
+    h := user_headers(hi).clone();
     req.headers.append(&h.name, &h.value);
     cond(
       ((h.name.to_lowercase() == `connection`) && _value_has_token(&h.value, `close`)) => {
@@ -844,7 +844,7 @@ _redirect_options :: (fn(opts : &FetchOptions, status : StatusCode) -> FetchOpti
   to_get := ((code == u16(303)) || (((code == u16(301)) || (code == u16(302))) && is_post));
   FetchOptions(
     method : cond(to_get => HttpMethod.GET, true => opts.method),
-    headers : opts.headers,
+    headers : opts.headers.clone(),
     body : cond(to_get => ``, true => opts.body.clone()),
     timeout : opts.timeout,
     max_redirects : opts.max_redirects,
