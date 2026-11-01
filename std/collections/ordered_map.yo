@@ -74,20 +74,22 @@ OrderedMap :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      /// The entries, in insertion order. The only home of each key.
-      _entries : ArrayList(MapEntry(K, V)),
-      /// Each key's hash -> the positions in `_entries` of the entries whose
-      /// key hashes to it. A list of positions, because a hash is not a key:
-      /// on a lookup every position is compared by key, in place. This is
-      /// what makes `swap_remove` O(1) and answers `index_of`; every write
-      /// to `_entries` must keep it in step — the sites are `insert`,
-      /// `remove` and `swap_remove` (`new` and `clear` start it empty).
-      _index : HashMap(u64, ArrayList(usize))
-    )
+  struct(
+    /// The entries, in insertion order. The only home of each key.
+    _entries : ArrayList(MapEntry(K, V)),
+    /// Each key's hash -> the positions in `_entries` of the entries whose
+    /// key hashes to it. A list of positions, because a hash is not a key:
+    /// on a lookup every position is compared by key, in place. This is
+    /// what makes `swap_remove` O(1) and answers `index_of`; every write
+    /// to `_entries` must keep it in step — the sites are `insert`,
+    /// `remove` and `swap_remove` (`new` and `clear` start it empty).
+    _index : HashMap(u64, ArrayList(usize))
   )
 );
+// A value since B10 (plans/VALUES_BY_DEFAULT.md): cloning clones the entries
+// and the position index, which needs `K <: Clone` and `V <: Clone` (through
+// `MapEntry`'s derived Clone and `HashMap`'s `Clone`).
+derive(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Clone), V <: Clone), OrderedMap(K, V), Clone);
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
@@ -371,11 +373,9 @@ OrderedMapKeys :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      _map : OrderedMap(K, V),
-      _index : usize
-    )
+  struct(
+    _map : OrderedMap(K, V),
+    _index : usize
   )
 );
 impl(
@@ -409,11 +409,9 @@ OrderedMapValues :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      _map : OrderedMap(K, V),
-      _index : usize
-    )
+  struct(
+    _map : OrderedMap(K, V),
+    _index : usize
   )
 );
 impl(
@@ -442,11 +440,9 @@ OrderedMapIter :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      _map : OrderedMap(K, V),
-      _index : usize
-    )
+  struct(
+    _map : OrderedMap(K, V),
+    _index : usize
   )
 );
 impl(
@@ -488,12 +484,10 @@ OrderedMapIterPtr :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      _ptr : ?*MapEntry(K, V),
-      _len : usize,
-      _index : usize
-    )
+  struct(
+    _ptr : ?*MapEntry(K, V),
+    _len : usize,
+    _index : usize
   )
 );
 impl(
