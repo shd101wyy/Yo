@@ -381,7 +381,9 @@ impl(
       return(());
     });
     hits := ArrayList(String).new();
-    ks := self.move_zeroes.keys();
+    // B9: `keys()` consumes the map, so the walk reads a snapshot clone while
+    // the live map takes the removes below (the pre-flip keys() shared it).
+    ks := self.move_zeroes.clone().keys();
     (more : bool) = true;
     while(more, {
       match(

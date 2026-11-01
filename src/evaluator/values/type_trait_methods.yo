@@ -256,7 +256,9 @@ record_owned_expr_id :: (fn(id : usize) -> unit)({
 /// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
 owned_id_log_entry_count :: (fn() -> usize)({
   (n : usize) = usize(0);
-  eit := g_owned_expr_ids.with(m => m.values());
+  // B9: `values()` is a consuming projection, so the walk reads a clone of
+  // the log (this probe is test-only; the clone is the accepted interim).
+  eit := g_owned_expr_ids.with(m => m.clone().values());
   enx := eit.next();
   while(enx.is_some(), {
     match(
@@ -268,7 +270,7 @@ owned_id_log_entry_count :: (fn() -> usize)({
     );
     enx = eit.next();
   });
-  fit := g_owned_func_ids.with(m => m.values());
+  fit := g_owned_func_ids.with(m => m.clone().values());
   fnx := fit.next();
   while(fnx.is_some(), {
     match(
@@ -430,7 +432,15 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   upd_keys := ArrayList(String).new();
   upd_lists := ArrayList(ArrayList(MethodEntry)).new();
   upd_owners := ArrayList(ArrayList(String)).new();
-  it := _type_trait_methods.with(m => m.keys());
+  // B9: the key walk reads the map in place through the borrowed `for` —
+  // `keys()` would consume the map, and cloning it would copy every method
+  // list. The iterator over the collected keys is independent of the cell,
+  // so the per-key reads below can re-borrow it.
+  it := _type_trait_methods.with(m => {
+    mut(ks) := ArrayList(String).new();
+    for(&m, (k, _v) => { ks.push(k.clone()); });
+    ks.into_iter()
+  });
   (go : bool) = true;
   while(go, {
     match(
@@ -488,7 +498,15 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
 /// one caller that collects them.
 type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
-  it := _type_trait_methods.with(m => m.keys());
+  // B9: the key walk reads the map in place through the borrowed `for` —
+  // `keys()` would consume the map, and cloning it would copy every method
+  // list. The iterator over the collected keys is independent of the cell,
+  // so the per-key reads below can re-borrow it.
+  it := _type_trait_methods.with(m => {
+    mut(ks) := ArrayList(String).new();
+    for(&m, (k, _v) => { ks.push(k.clone()); });
+    ks.into_iter()
+  });
   (go : bool) = true;
   while(go, {
     match(
@@ -520,7 +538,15 @@ type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue
 /// Total registered method entries across all type ids (LSP leak gate).
 type_trait_methods_entry_count :: (fn() -> usize)({
   (total : usize) = usize(0);
-  it := _type_trait_methods.with(m => m.keys());
+  // B9: the key walk reads the map in place through the borrowed `for` —
+  // `keys()` would consume the map, and cloning it would copy every method
+  // list. The iterator over the collected keys is independent of the cell,
+  // so the per-key reads below can re-borrow it.
+  it := _type_trait_methods.with(m => {
+    mut(ks) := ArrayList(String).new();
+    for(&m, (k, _v) => { ks.push(k.clone()); });
+    ks.into_iter()
+  });
   (go : bool) = true;
   while(go, {
     match(

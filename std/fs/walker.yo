@@ -203,7 +203,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
     // Canonical paths of directories entered VIA a followed symlink — the
     // cycle guard for follow_symlinks (a link to an ancestor would otherwise
     // recurse forever; the second traversal of any followed link is skipped).
-    followed := HashSet(String).new();
+    mut(followed) := HashSet(String).new();
     // Symlink entries of the CURRENT directory awaiting the follow decision
     // (stat + canonicalize need awaits; see the .Symlink arm's note).
     mut(pending_links) := ArrayList(String).new();

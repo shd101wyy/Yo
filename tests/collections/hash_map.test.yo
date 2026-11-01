@@ -33,7 +33,7 @@ test("HashMap.with_capacity with small capacity uses default", {
 // one empty map per scope frame, ~270 B each. Every operation on an unallocated
 // map must behave exactly like an empty allocated one.
 test("HashMap.new allocates nothing until the first insert", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   assert(map.capacity == usize(0), "new() allocates no buckets");
   assert(map.get(i32(1)).is_none(), "get on an unallocated map");
   assert(!map.contains_key(i32(1)), "contains_key on an unallocated map");
@@ -52,10 +52,10 @@ test("HashMap.new allocates nothing until the first insert", {
   map.insert(i32(7), i32(70));
   assert(map.capacity == usize(16), "the first insert grows to DEFAULT_CAPACITY");
   assert(map.get(i32(7)) == Option(i32).Some(i32(70)));
-  entry_map := HashMap(i32, i32).new();
+  mut(entry_map) := HashMap(i32, i32).new();
   assert(entry_map.get_or_insert(i32(3), i32(30)) == i32(30), "entry API on an unallocated map inserts");
   assert(entry_map.len() == usize(1));
-  keyed := HashMap(i32, i32).with_keys(u64(1), u64(2));
+  mut(keyed) := HashMap(i32, i32).with_keys(u64(1), u64(2));
   assert(keyed.capacity == usize(0), "with_keys is lazy too");
   keyed.insert(i32(1), i32(2));
   assert(keyed.get(i32(1)) == Option(i32).Some(i32(2)));
@@ -76,7 +76,7 @@ impl(
 );
 test("growing an unallocated map releases every RC value exactly once", {
   {
-    map := HashMap(i32, HmLazyTracked).new();
+    mut(map) := HashMap(i32, HmLazyTracked).new();
     (mut(i) : i32) = i32(0);
     while(i < i32(40), {
       map.insert(i, HmLazyTracked(tag : i));
@@ -89,13 +89,13 @@ test("growing an unallocated map releases every RC value exactly once", {
 });
 // ===== Set Tests =====
 test("HashMap.insert inserts new key-value pair", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   result := map.insert(i32(42), i32(100));
   assert(result.is_none());
   assert(map.len() == usize(1));
 });
 test("HashMap.insert updates existing key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   // `insert` returns the PREVIOUS value directly now (D9) — there is no
   // Result layer to unwrap first.
@@ -105,14 +105,14 @@ test("HashMap.insert updates existing key", {
   assert(map.len() == usize(1));
 });
 test("HashMap.insert inserts multiple key-value pairs", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
   assert(map.len() == usize(3));
 });
 test("HashMap.insert handles many insertions and triggers resize", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   // Insert enough elements to trigger resize (> 7/8 of capacity)
   mut(i) := usize(0);
   while(i < usize(20), i = (i + usize(1)), {
@@ -122,14 +122,14 @@ test("HashMap.insert handles many insertions and triggers resize", {
 });
 // ===== Get Tests =====
 test("HashMap.get returns value for existing key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(42), i32(100));
   result := map.get(i32(42));
   assert(result.is_some());
   assert(result.unwrap() == i32(100));
 });
 test("HashMap.get returns None for non-existing key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   result := map.get(i32(99));
   assert(result.is_none());
@@ -140,7 +140,7 @@ test("HashMap.get returns None for empty map", {
   assert(result.is_none());
 });
 test("HashMap.get retrieves correct values for multiple keys", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(100));
   map.insert(i32(2), i32(200));
   map.insert(i32(3), i32(300));
@@ -149,7 +149,7 @@ test("HashMap.get retrieves correct values for multiple keys", {
   assert(map(i32(3)) == i32(300));
 });
 test("HashMap.get after update returns new value", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   map.insert(i32(10), i32(999));
   result := map.get(i32(10));
@@ -158,12 +158,12 @@ test("HashMap.get after update returns new value", {
 });
 // ===== Has Tests =====
 test("HashMap.contains_key returns true for existing key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(42), i32(100));
   assert(map.contains_key(i32(42)));
 });
 test("HashMap.contains_key returns false for non-existing key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   assert(!map.contains_key(i32(99)));
 });
@@ -172,7 +172,7 @@ test("HashMap.contains_key returns false for empty map", {
   assert(!map.contains_key(i32(42)));
 });
 test("HashMap.contains_key works after multiple insertions", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
@@ -183,7 +183,7 @@ test("HashMap.contains_key works after multiple insertions", {
 });
 // ===== Remove Tests =====
 test("HashMap.remove deletes existing key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(42), i32(100));
   result := map.remove(i32(42));
   assert(result.is_some());
@@ -192,26 +192,26 @@ test("HashMap.remove deletes existing key", {
   assert(map.is_empty());
 });
 test("HashMap.remove returns None for non-existing key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   result := map.remove(i32(99));
   assert(result.is_none());
   assert(map.len() == usize(1));
 });
 test("HashMap.remove from empty map returns None", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   result := map.remove(i32(42));
   assert(result.is_none());
 });
 test("HashMap.remove and verify key no longer exists", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   map.remove(i32(10));
   assert(!map.contains_key(i32(10)));
   assert(map.get(i32(10)).is_none());
 });
 test("HashMap.remove preserves other entries", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(100));
   map.insert(i32(2), i32(200));
   map.insert(i32(3), i32(300));
@@ -224,7 +224,7 @@ test("HashMap.remove preserves other entries", {
   assert(map(i32(3)) == i32(300));
 });
 test("HashMap.remove multiple keys", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
@@ -237,7 +237,7 @@ test("HashMap.remove multiple keys", {
 });
 // ===== Clear Tests =====
 test("HashMap.clear removes all entries", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
@@ -246,13 +246,13 @@ test("HashMap.clear removes all entries", {
   assert(map.is_empty());
 });
 test("HashMap.clear on empty map", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.clear();
   assert(map.len() == usize(0));
   assert(map.is_empty());
 });
 test("HashMap can be reused after clear", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.clear();
   map.insert(i32(2), i32(20));
@@ -260,7 +260,7 @@ test("HashMap can be reused after clear", {
   assert(map(i32(2)) == i32(20));
 });
 test("HashMap.clear removes all keys", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.clear();
@@ -269,7 +269,7 @@ test("HashMap.clear removes all keys", {
 });
 // ===== Length and Empty Tests =====
 test("HashMap.len returns correct count", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   assert(map.len() == usize(0));
   map.insert(i32(1), i32(10));
   assert(map.len() == usize(1));
@@ -277,7 +277,7 @@ test("HashMap.len returns correct count", {
   assert(map.len() == usize(2));
 });
 test("HashMap.len after remove", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.remove(i32(1));
@@ -288,19 +288,19 @@ test("HashMap.is_empty on new map", {
   assert(map.is_empty());
 });
 test("HashMap.is_empty after insertions", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   assert(!map.is_empty());
 });
 test("HashMap.is_empty after clear", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.clear();
   assert(map.is_empty());
 });
 // ===== Collision Tests =====
 test("HashMap handles hash collisions", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   // Insert multiple elements that might collide
   mut(i) := usize(0);
   while(i < usize(10), i = (i + usize(1)), {
@@ -316,14 +316,14 @@ test("HashMap handles hash collisions", {
 });
 // ===== Update Tests =====
 test("HashMap.insert replaces old value", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(5), i32(50));
   map.insert(i32(5), i32(500));
   assert(map.len() == usize(1));
   assert(map(i32(5)) == i32(500));
 });
 test("HashMap multiple updates to same key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(1), i32(20));
   map.insert(i32(1), i32(30));
@@ -332,7 +332,7 @@ test("HashMap multiple updates to same key", {
 });
 // ===== Stress Tests =====
 test("HashMap handles large number of insertions", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   // Insert 100 elements
   mut(i) := usize(0);
   while(i < usize(100), i = (i + usize(1)), {
@@ -347,7 +347,7 @@ test("HashMap handles large number of insertions", {
   });
 });
 test("HashMap alternating insert and remove", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.remove(i32(1));
@@ -361,7 +361,7 @@ test("HashMap alternating insert and remove", {
   assert(map.contains_key(i32(4)));
 });
 test("HashMap remove and reinsert same key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(42), i32(100));
   map.remove(i32(42));
   map.insert(i32(42), i32(200));
@@ -370,26 +370,26 @@ test("HashMap remove and reinsert same key", {
 });
 // ===== Edge Cases =====
 test("HashMap with zero key", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(0), i32(100));
   assert(map.contains_key(i32(0)));
   assert(map(i32(0)) == i32(100));
 });
 test("HashMap with negative keys", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(-1), i32(10));
   map.insert(i32(-2), i32(20));
   assert(map(i32(-1)) == i32(10));
   assert(map(i32(-2)) == i32(20));
 });
 test("HashMap with negative values", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(-100));
   assert(map(i32(1)) == i32(-100));
 });
 // ===== Different Key-Value Types =====
 test("HashMap with u64 keys and values", {
-  map := HashMap(u64, u64).new();
+  mut(map) := HashMap(u64, u64).new();
   map.insert(u64(100), u64(200));
   map.insert(u64(300), u64(400));
   assert(map.len() == usize(2));
@@ -397,7 +397,7 @@ test("HashMap with u64 keys and values", {
   assert(map(u64(300)) == u64(400));
 });
 test("HashMap with bool keys", {
-  map := HashMap(bool, i32).new();
+  mut(map) := HashMap(bool, i32).new();
   map.insert(true, i32(1));
   map.insert(false, i32(0));
   assert(map.len() == usize(2));
@@ -406,7 +406,7 @@ test("HashMap with bool keys", {
 });
 // ===== Reference-Counted Type Tests =====
 test("HashMap with Rc key and value - basic set and get", {
-  map := HashMap(Rc(i32), Rc(i32)).new();
+  mut(map) := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(1), Rc(i32)(10));
   map.insert(Rc(i32)(2), Rc(i32)(20));
   map.insert(Rc(i32)(3), Rc(i32)(30));
@@ -416,7 +416,7 @@ test("HashMap with Rc key and value - basic set and get", {
   assert(map(Rc(i32)(3)).* == i32(30));
 });
 test("HashMap with Rc values - update existing key cleans up old value", {
-  map := HashMap(Rc(i32), Rc(i32)).new();
+  mut(map) := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(1), Rc(i32)(100));
   // Update with new value - old Rc(100) should be dropped
   result := map.insert(Rc(i32)(1), Rc(i32)(200));
@@ -426,7 +426,7 @@ test("HashMap with Rc values - update existing key cleans up old value", {
   // The old Rc(100) value should be properly dropped
 });
 test("HashMap with Rc key and value - remove cleans up both", {
-  map := HashMap(Rc(i32), Rc(i32)).new();
+  mut(map) := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(10), Rc(i32)(100));
   map.insert(Rc(i32)(20), Rc(i32)(200));
   map.insert(Rc(i32)(30), Rc(i32)(300));
@@ -440,7 +440,7 @@ test("HashMap with Rc key and value - remove cleans up both", {
   // The removed key Rc(20) should be dropped, value Rc(200) returned
 });
 test("HashMap with Rc key and value - clear cleans up all", {
-  map := HashMap(Rc(i32), Rc(i32)).new();
+  mut(map) := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(1), Rc(i32)(10));
   map.insert(Rc(i32)(2), Rc(i32)(20));
   map.insert(Rc(i32)(3), Rc(i32)(30));
@@ -450,7 +450,7 @@ test("HashMap with Rc key and value - clear cleans up all", {
   // All Rc keys and values should be properly dropped
 });
 test("HashMap with Rc key and value - stress test with resize", {
-  map := HashMap(Rc(i32), Rc(i32)).new();
+  mut(map) := HashMap(Rc(i32), Rc(i32)).new();
   // Add 100 elements to trigger multiple resizes
   mut(i) := 0;
   while(i < 100, i = (i + 1), {
@@ -472,7 +472,7 @@ test("HashMap with Rc key and value - stress test with resize", {
   // All Rc elements should be properly cleaned up including during resizes
 });
 test("HashMap with Rc values only", {
-  map := HashMap(i32, Rc(i32)).new();
+  mut(map) := HashMap(i32, Rc(i32)).new();
   map.insert(i32(1), Rc(i32)(100));
   map.insert(i32(2), Rc(i32)(200));
   // Update value
@@ -482,7 +482,7 @@ test("HashMap with Rc values only", {
   // Old Rc(100) should be dropped when updated
 });
 test("HashMap with Rc keys only", {
-  map := HashMap(Rc(i32), i32).new();
+  mut(map) := HashMap(Rc(i32), i32).new();
   map.insert(Rc(i32)(1), i32(100));
   map.insert(Rc(i32)(2), i32(200));
   assert(map(Rc(i32)(1)) == i32(100));
@@ -502,7 +502,7 @@ test("HashMap into_iter - empty map", {
   assert(count == i32(0));
 });
 test("HashMap into_iter - single entry", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(100));
   mut(result_key) := i32(0);
   mut(result_val) := i32(0);
@@ -514,7 +514,7 @@ test("HashMap into_iter - single entry", {
   assert(result_val == i32(100));
 });
 test("HashMap into_iter - multiple entries all visited", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
@@ -530,11 +530,11 @@ test("HashMap into_iter - multiple entries all visited", {
   assert(val_sum == i32(60));
   assert(count == i32(3));
 });
-/// A fresh map whose only handle is the returned value: the consuming walk of
-/// a temporary is the unique case. A named local passed by value keeps its
-/// own handle until its scope ends, so its walk copies.
+/// A fresh map whose only handle is the returned value. B9: the map is a
+/// value, so EVERY consuming walk moves — a temporary's and a named local's
+/// alike; there is no second handle to keep the entries alive for.
 _two_entry_rc_map :: (fn(a : Rc(i32), b : Rc(i32)) -> HashMap(i32, Rc(i32)))({
-  m := HashMap(i32, Rc(i32)).new();
+  mut(m) := HashMap(i32, Rc(i32)).new();
   m.insert(i32(1), a);
   m.insert(i32(2), b);
   m
@@ -551,19 +551,17 @@ test("HashMap into_iter - a unique map moves its entries out", {
   assert(counts == usize(2), `each moved value has one owner: ${counts}`);
   assert(sum == i32(30));
 });
-test("HashMap into_iter - a shared map copies its entries", {
-  // Another handle shares the map (lookahead D21), so the entries are copied
-  // and stay in the map.
-  map := HashMap(i32, Rc(i32)).new();
+test("HashMap into_iter - a named local moves its entries out", {
+  // B9: the map is a value, so a named local's consuming walk moves its
+  // entries exactly as a temporary's does (pre-flip the local's handle kept
+  // the entries alive and the walk copied them — the other-handle pin).
+  mut(map) := HashMap(i32, Rc(i32)).new();
   map.insert(i32(1), Rc(i32)(10));
-  other := map;
   mut(counts) := usize(0);
   for(map.into_iter(), e => {
     counts = (counts + ref_count(e.value));
   });
-  assert(counts == usize(2), `the copy and the map's entry: ${counts}`);
-  assert(other.len() == usize(1), "the other handle keeps the entry");
-  assert(other(i32(1)).* == i32(10));
+  assert(counts == usize(1), `the moved value has one owner: ${counts}`);
 });
 test("HashMap into_iter - a partial walk drops the entries it did not yield", {
   keep := Rc(i32)(5);
@@ -576,8 +574,34 @@ test("HashMap into_iter - a partial walk drops the entries it did not yield", {
   };
   assert(ref_count(keep) == usize(1), `every entry dropped exactly once: ${ref_count(keep)}`);
 });
+/// B9: a by-value parameter is the map's one owner — the callee's walk moves
+/// the entries out with no copy and no shared handle left behind.
+_moved_map_owner_count :: (fn(m : HashMap(i32, Rc(i32))) -> usize)({
+  mut(counts) := usize(0);
+  for(m.into_iter(), e => {
+    counts = (counts + ref_count(e.value));
+  });
+  counts
+});
+test("HashMap moved into a function - the callee is the only owner", {
+  mut(map) := HashMap(i32, Rc(i32)).new();
+  map.insert(i32(1), Rc(i32)(10));
+  map.insert(i32(2), Rc(i32)(20));
+  assert(_moved_map_owner_count(map) == usize(2), "each entry moved, none copied");
+});
+test("HashMap keys - the map's own keys move out, none cloned", {
+  // B9: `keys()` is a consuming projection (B7's D20); a key is never cloned
+  // on the way out — each yielded `Rc` is the map's own, with one owner.
+  mut(map) := HashMap(Rc(i32), i32).new();
+  map.insert(Rc(i32)(7), i32(1));
+  mut(counts) := usize(0);
+  for(map.keys(), k => {
+    counts = (counts + ref_count(k));
+  });
+  assert(counts == usize(1), `a moved key has one owner: ${counts}`);
+});
 test("HashMap iter - yields pointers to buckets", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   mut(val_sum) := i32(0);
@@ -587,7 +611,7 @@ test("HashMap iter - yields pointers to buckets", {
   assert(val_sum == i32(30));
 });
 test("HashMap iter - mutate values through pointer", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   for(map.iter(), ptr => {
@@ -597,7 +621,7 @@ test("HashMap iter - mutate values through pointer", {
   assert(map(i32(2)) == i32(200));
 });
 test("HashMap for (b) => body iterates occupied buckets by value", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   mut(val_sum) := i32(0);
@@ -611,7 +635,7 @@ test("HashMap bucket rebound in a read walk is a copy — writes do not reach th
   // the entry. In-place value mutation goes through `for(&mut map, …)`,
   // `insert` (or `iter` in privileged code). The value form `for(map, …)`
   // would consume the map (B7b), which is read again below.
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   // A `for` element takes no `mut` (decision 47): the body rebinds it.
   for(&map, b => {
@@ -623,7 +647,7 @@ test("HashMap bucket rebound in a read walk is a copy — writes do not reach th
   assert(map(i32(1)) == i32(100), "set updates the live value");
 });
 test("HashMap keys - yields all keys", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
@@ -634,7 +658,7 @@ test("HashMap keys - yields all keys", {
   assert(key_sum == i32(6));
 });
 test("HashMap values - yields all values", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
@@ -651,7 +675,7 @@ test("HashMap values - yields all values", {
 // (the update path) since capture-usage promotion in the self-hosted
 // evaluator re-sets the same key repeatedly.
 test("HashMap keys - manual next() iteration terminates", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(1), i32(11));
   map.insert(i32(2), i32(20));
@@ -675,7 +699,7 @@ test("HashMap keys - manual next() iteration terminates", {
   assert(key_sum == i32(3));
 });
 test("HashMap values - manual next() iteration terminates", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(1), i32(11));
   map.insert(i32(2), i32(20));
@@ -702,7 +726,7 @@ test("HashMap values - manual next() iteration terminates", {
 // Entry-style accessors (plans/archive/STD_API_AUDIT.md §7 collections row)
 // ============================================================================
 test("get_or_insert inserts once and reads thereafter", {
-  m := HashMap(String, i32).new();
+  mut(m) := HashMap(String, i32).new();
   a := m.get_or_insert(`hits`.to_string(), i32(1));
   assert(a == i32(1), "inserted default");
   b := m.get_or_insert(`hits`.to_string(), i32(99));
@@ -710,14 +734,14 @@ test("get_or_insert inserts once and reads thereafter", {
   assert(m.len() == usize(1), "one entry");
 });
 test("get_or_insert_with defers construction", {
-  m := HashMap(String, String).new();
+  mut(m) := HashMap(String, String).new();
   v := m.get_or_insert_with(`k`.to_string(), () => `built`.to_string());
   assert(v == `built`, "constructed on miss");
   v2 := m.get_or_insert_with(`k`.to_string(), () => `never`.to_string());
   assert(v2 == `built`, "hit skips make");
 });
 test("update_with maps present values only", {
-  m := HashMap(String, i32).new();
+  mut(m) := HashMap(String, i32).new();
   m.insert(`n`.to_string(), i32(10));
   did := m.update_with(`n`.to_string(), v => (v + i32(5)));
   assert(did, "updated");
@@ -731,14 +755,14 @@ test("update_with maps present values only", {
 // CTRL_DELETED and nothing ever counted it, so insert/remove churn filled the
 // table with tombstones until every miss probed the whole capacity.
 test("HashMap.remove of an isolated key leaves no tombstone", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   map.insert(i32(7), i32(1));
   map.remove(i32(7));
   assert(map.tombstones() == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
   assert(map.len() == usize(0));
 });
 test("HashMap insert/remove churn keeps live + tombstones under the load threshold and stays correct", {
-  map := HashMap(i32, i32).new();
+  mut(map) := HashMap(i32, i32).new();
   (mut(k) : i32) = i32(0);
   while(k < i32(2000), k = (k + i32(1)), {
     map.insert(k, k * i32(3));
@@ -766,7 +790,7 @@ test("HashMap insert/remove churn keeps live + tombstones under the load thresho
   });
 });
 test("get_key_value returns the STORED key beside the value", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   assert(match(m.get_key_value(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "present key");
@@ -775,7 +799,7 @@ test("get_key_value returns the STORED key beside the value", {
   assert(m.len() == usize(2), "lookup does not mutate");
 });
 test("remove_entry hands back the entry it removed", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   assert(match(m.remove_entry(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "returns the entry");
@@ -787,7 +811,7 @@ test("remove_entry hands back the entry it removed", {
 });
 // ===== Entry API =====
 test("entry reports occupancy and hands back the key", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.entry(i32(1), e => {
     assert(e.is_occupied() == true, "present key is occupied");
@@ -801,7 +825,7 @@ test("entry reports occupancy and hands back the key", {
   });
 });
 test("entry.or_insert returns the stored value and inserts only when vacant", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   assert(m.entry(i32(1), e => e.or_insert(i32(10))) == i32(10), "vacant inserts the default");
   assert(m.len() == usize(1), "and grew the map");
   assert(m.entry(i32(1), e => e.or_insert(i32(99))) == i32(10), "occupied keeps the stored value");
@@ -812,7 +836,7 @@ test("entry.or_insert returns the stored value and inserts only when vacant", {
 // (a capture would move it), while a `ref` handle is shared.
 _HmCalls :: ref(struct(n : i32));
 test("entry.or_insert_with only calls make on the vacant path", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   calls := _HmCalls(n : i32(0));
   assert(
     m.entry(
@@ -843,7 +867,7 @@ test("entry.or_insert_with only calls make on the vacant path", {
 // is an `FnOnce` that owns its captures.
 _hm_len_of :: (fn(sink(x) : String) -> usize)(x.len());
 test("entry's body is an FnOnce: it moves a capture out of its body", {
-  m := HashMap(i32, usize).new();
+  mut(m) := HashMap(i32, usize).new();
   s := String.from("first");
   r := m.entry(i32(1), { s }(e) => {
     n := _hm_len_of(s);
@@ -853,7 +877,7 @@ test("entry's body is an FnOnce: it moves a capture out of its body", {
   assert(m.get(i32(1)).unwrap() == usize(5), "the map holds the inserted value");
 });
 test("entry.and_modify updates in place and or_insert covers the first sighting", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.entry(i32(1), e => {
     e.and_modify(n => (n + i32(1)));
     e.or_insert(i32(1));
@@ -871,7 +895,7 @@ test("entry.and_modify updates in place and or_insert covers the first sighting"
   assert(m.len() == usize(1), "the counter idiom keeps one entry");
 });
 test("entry stays coherent after its own or_insert flips the slot", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.entry(i32(5), e => {
     assert(e.is_occupied() == false, "vacant before the insert");
     assert(e.or_insert(i32(50)) == i32(50), "or_insert returns the value it wrote");
@@ -882,14 +906,14 @@ test("entry stays coherent after its own or_insert flips the slot", {
   assert(m.get(i32(5)).unwrap() == i32(51), "the map agrees");
 });
 test("entry.remove takes the entry out of the map", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   assert(match(m.entry(i32(1), e => e.remove()), .Some(v) => (v == i32(10)), .None => false), "returns the value");
   assert(m.contains_key(i32(1)) == false, "the key is gone");
   assert(match(m.entry(i32(1), e => e.remove()), .Some(_) => false, .None => true), "a vacant entry removes nothing");
 });
 test("entry inserts correctly across the resize its own insert triggers", {
-  m := HashMap(i32, i32).with_capacity(usize(16));
+  mut(m) := HashMap(i32, i32).with_capacity(usize(16));
   // Fill to the load factor so the NEXT vacant insert has to resize, which
   // rehashes the table and invalidates the slot the probe found.
   (mut(i) : i32) = i32(0);
@@ -903,7 +927,7 @@ test("entry inserts correctly across the resize its own insert triggers", {
   });
 });
 test("entry reuses a tombstone rather than lengthening the chain", {
-  m := HashMap(i32, i32).with_capacity(usize(16));
+  mut(m) := HashMap(i32, i32).with_capacity(usize(16));
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   m.insert(i32(3), i32(30));
@@ -922,7 +946,7 @@ test("entry reuses a tombstone rather than lengthening the chain", {
   assert(m.get(i32(3)).unwrap() == i32(30), "key 3 survived");
 });
 test("entry works with an RC key and value type", {
-  m := HashMap(String, String).new();
+  mut(m) := HashMap(String, String).new();
   m.entry(`a`, e => {
     e.or_insert(`one`);
     ()
@@ -940,7 +964,7 @@ test("entry works with an RC key and value type", {
 });
 // ===== retain / extend / FromIterator =====
 test("retain keeps exactly the entries the predicate accepts", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(20), i = (i + i32(1)), {
     m.insert(i, i * i32(10));
@@ -960,7 +984,7 @@ test("retain keeps exactly the entries the predicate accepts", {
   });
 });
 test("retain can see the value and can empty the map", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(5));
   m.insert(i32(2), i32(50));
   m.retain((_k, v) => (v > i32(10)));
@@ -972,7 +996,7 @@ test("retain can see the value and can empty the map", {
   assert(m.get(i32(3)).unwrap() == i32(30), "and the map is still usable");
 });
 test("retain over an RC-typed map", {
-  m := HashMap(String, String).new();
+  mut(m) := HashMap(String, String).new();
   m.insert(`keep`, `yes`);
   m.insert(`drop`, `no`);
   m.retain((k, _v) => (k == `keep`));
@@ -981,10 +1005,10 @@ test("retain over an RC-typed map", {
   assert(m.get_cloned(`drop`).is_none(), "the other is gone");
 });
 test("extend merges another map, overwriting on duplicates", {
-  a := HashMap(i32, i32).new();
+  mut(a) := HashMap(i32, i32).new();
   a.insert(i32(1), i32(10));
   a.insert(i32(2), i32(20));
-  b := HashMap(i32, i32).new();
+  mut(b) := HashMap(i32, i32).new();
   b.insert(i32(2), i32(99));
   b.insert(i32(3), i32(30));
   a.extend(b.clone());
@@ -995,7 +1019,7 @@ test("extend merges another map, overwriting on duplicates", {
   assert(b.len() == usize(2), "the source map is unchanged");
 });
 test("extend accepts any IntoIterator over entries, not just a map", {
-  a := HashMap(i32, i32).new();
+  mut(a) := HashMap(i32, i32).new();
   a.insert(i32(1), i32(10));
   mut(entries) := ArrayList(MapEntry(i32, i32)).new();
   entries.push(MapEntry(i32, i32)(key : i32(2), value : i32(20)));
@@ -1006,14 +1030,14 @@ test("extend accepts any IntoIterator over entries, not just a map", {
   assert(a.get(i32(1)).unwrap() == i32(99), "and a duplicate overwrote");
 });
 test("extend from an empty map is a no-op", {
-  a := HashMap(i32, i32).new();
+  mut(a) := HashMap(i32, i32).new();
   a.insert(i32(1), i32(10));
   a.extend(HashMap(i32, i32).new());
   assert(a.len() == usize(1), "nothing changed");
   assert(a.get(i32(1)).unwrap() == i32(10), "value intact");
 });
 test("collect builds a HashMap through FromIterator", {
-  src := HashMap(i32, i32).new();
+  mut(src) := HashMap(i32, i32).new();
   src.insert(i32(1), i32(10));
   src.insert(i32(2), i32(20));
   out := src.into_iter().collect(HashMap(i32, i32));
@@ -1022,7 +1046,7 @@ test("collect builds a HashMap through FromIterator", {
   assert(out.get(i32(2)).unwrap() == i32(20), "second entry");
 });
 test("HashMap Default is the empty map", {
-  m := HashMap(String, i32).default();
+  mut(m) := HashMap(String, i32).default();
   assert(m.len() == usize(0), "default map is empty");
   m.insert(`k`, i32(1));
   assert(m.len() == usize(1), "the default map is a usable map");
@@ -1066,7 +1090,7 @@ test("HashMap.new(alloc : .Some(a)) keeps both tables in its allocator through r
   counts := _counts();
   a := _counting(addr_of(counts));
   {
-    m := HashMap(i32, i32).new(alloc : .Some(a));
+    mut(m) := HashMap(i32, i32).new(alloc : .Some(a));
     assert(counts.live == usize(2), "ctrl and data");
     mut(i) := i32(0);
     while(i < i32(500), {
@@ -1087,13 +1111,13 @@ test("HashMap.new(alloc : .Some(a)) keeps both tables in its allocator through r
   assert(counts.live == usize(0), "dispose released every table");
 });
 test("A default HashMap stays on the global allocator", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(2));
   assert(m.allocator().is_none(), "global");
 });
 // ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
 test("get_cloned and get_key_value_cloned clone in place", {
-  m := HashMap(String, String).new();
+  mut(m) := HashMap(String, String).new();
   assert(m.get_cloned(&`k`).is_none() && m.get_key_value_cloned(&`k`).is_none(), "empty: none");
   m.insert(`k`, `v`);
   mut(c) := m.get_cloned(&`k`).unwrap();

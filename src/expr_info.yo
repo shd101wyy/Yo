@@ -1646,7 +1646,10 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
 codegen_read_log_set :: (fn(on : bool) -> unit)({
   g_codegen_read_log_on = on;
 });
-codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.with(s => s));
+/// B9: `take()` moves the logged keys out of the cell (D11's whole-set copy
+/// per call is gone); the read log is drained once, after `codegen_c.yo`
+/// switches it off, and nothing reads the cell afterwards.
+codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.take());
 _logged_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
   _i := g_codegen_read_keys.with_mut(s => s.insert(id));
   table.data.with(m => m.get(&id))
