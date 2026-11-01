@@ -84,9 +84,10 @@
 # ── Goldens are the reference ───────────────────────────────────────────────
 # The harness runs the case under $YO_SELF_BIN and compares rc, normalized
 # stdout, the project tree and the HOME tree against the case's recorded golden
-# files. The harness injects YO_STD, so the environment is explicit rather than
-# inherited. A case with no recorded goldens is a failure (NO-GOLDEN), not a
-# skip — a silently unscored case is indistinguishable from a passing one.
+# files. The harness injects YO_STD and YO_SKILLS, so the environment is
+# explicit rather than inherited. A case with no recorded goldens is a failure
+# (NO-GOLDEN), not a skip — a silently unscored case is indistinguishable from
+# a passing one.
 #
 # Re-record ONLY for an intended behavior change, and review the golden diff in
 # the same commit as the change that caused it: that diff is the review surface.
@@ -496,7 +497,13 @@ run_case() {
     eval "argv=($line)"
     {
       echo "\$ yo ${argv[*]}"
+      # YO_SKILLS mirrors the YO_STD pin: a binary staged OUTSIDE its checkout
+      # (CI's /tmp/yo-stage1, a VBD gate's logs dir) can exe-walk-up to neither
+      # std/ nor .github/skills, so both must point at the checkout's trees
+      # (_find_bundled_skills_dir, src/skills_command.yo; issues/fixed/
+      # 2026-10-31-cli-diff-test-sh-does-not-pin-yo-skills-for-a-staged-binary.md).
       ( cd "$proj" && HOME="$home" YO_ORIGINAL_CWD="$proj" YO_STD="$REPO_ROOT/std" \
+          YO_SKILLS="$REPO_ROOT/.github/skills" \
           run_with_timeout "$tmo" env ${envkv[@]+"${envkv[@]}"} "$YO_SELF_BIN" "${argv[@]}" 2>&1 \
           < "$stdin_file" )
       rc=$?
