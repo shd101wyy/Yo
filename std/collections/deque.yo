@@ -65,7 +65,7 @@ impl(
   // A deep copy whose ring lives in `alloc` (`.None`: the global allocator).
   _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
     n := self.len();
-    result := Self.new(alloc : alloc);
+    mut(result) := Self.new(alloc : alloc);
     mut(i) := usize(0);
     while(i < n, i = (i + usize(1)), {
       result.push_back(self.get_cloned(i).unwrap());
@@ -584,8 +584,9 @@ impl(
       Deque(T).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &T) -> Self)({
-      acc.push_back(item);
-      acc
+      mut(out) := acc;
+      out.push_back(item);
+      out
     })
   )
 );
