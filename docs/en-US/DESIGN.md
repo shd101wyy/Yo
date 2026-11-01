@@ -2770,8 +2770,11 @@ NOT immutable: `push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`,
 `clear`, `truncate`, `insert_str`, `insert`, `remove` and `pop` take
 `self : &mut Self` and mutate in place. Operators like `+` still produce a new string.
 
-For a mutable builder that several owners share, use `StringBuilder`, a
-reference-semantics type.
+For incremental assembly use `StringBuilder`, a value that owns its byte
+buffer (`B11`, decision 24): `b2 := b` moves it, `b.clone()` is the
+independent copy, and `into_string()` hands the buffer over as the `String`
+without a fresh allocation. A builder several owners share is
+`Rc(RefCell(StringBuilder))`.
 
 ```yo
 s := String.new();

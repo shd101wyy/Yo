@@ -130,7 +130,7 @@ _apply_width :: (
     true => {
       padding := (width - len);
       al := match(align, .Some(a) => a, .None => dflt);
-      sb := StringBuilder.new();
+      mut(sb) := StringBuilder.new();
       match(
         al,
         .Left => {
@@ -288,7 +288,7 @@ impl(
     use_zero := (self.zero && self.align.is_none());
     cond(
       (use_zero && (self.width > total_len)) => {
-        sb := StringBuilder.new();
+        mut(sb) := StringBuilder.new();
         sb.write_string(sign);
         sb.write_string(prefix);
         _pad_runes(&mut sb, rune(u32(0x30)), self.width - total_len);

@@ -2656,8 +2656,10 @@ s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 `truncate`、`insert_str`、`insert`、`remove` 和 `pop` 接受 `self : &mut Self`
 并就地修改；而 `+` 之类的运算符仍然产生新字符串。
 
-若需要由多个所有者共享的可变构建器，请使用
-引用语义类型 `StringBuilder`。
+增量拼接请使用 `StringBuilder`：它是一个拥有自己字节缓冲区的值
+（`B11`，决策 24）——`b2 := b` 是移动，`b.clone()` 是独立副本，
+`into_string()` 把缓冲区直接交还为 `String`，不新分配。需要多个所有者
+共享的构建器写作 `Rc(RefCell(StringBuilder))`。
 
 ```yo
 s := String.new();
