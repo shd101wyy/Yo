@@ -215,6 +215,7 @@ SpecializingFunctionInfo :: ref(
     (is_generic_body : bool) ?= false
   )
 );
+impl(SpecializingFunctionInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// Point decision 17's std-generic exemption at the specialization `ctx` is
 /// in: called wherever `ctx.currently_specializing_function` is entered or
 /// restored, so an unwound specialization cannot leave it set. The
@@ -236,6 +237,7 @@ ImplConcreteTypeInfo :: ref(
     token : Token
   )
 );
+impl(ImplConcreteTypeInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
 // ---------------------------------------------------------------------------
 // CTFE cache types
 // ---------------------------------------------------------------------------
@@ -261,6 +263,7 @@ ComptimeFnCacheEntry :: ref(
     caches : ArrayList(CalledComptimeFnCache)
   )
 );
+impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self)));
 // ---------------------------------------------------------------------------
 // Specialization cache types
 // ---------------------------------------------------------------------------
@@ -696,42 +699,42 @@ FunctionToCall :: ref(
 // ---------------------------------------------------------------------------
 get_function_call_result :: (fn(ftc : &FunctionToCall) -> Option(FuncCallResult))(
   match(
-    ftc.result,
+    &ftc.result,
     .FunctionResult(r) => Option(FuncCallResult).Some(r),
     _ => Option(FuncCallResult).None
   )
 );
 get_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(TypeCallResult))(
   match(
-    ftc.result,
+    &ftc.result,
     .TypeResult(r) => Option(TypeCallResult).Some(r),
     _ => Option(TypeCallResult).None
   )
 );
 get_module_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(ModuleTypeCallResult))(
   match(
-    ftc.result,
+    &ftc.result,
     .ModuleTypeResult(r) => Option(ModuleTypeCallResult).Some(r),
     _ => Option(ModuleTypeCallResult).None
   )
 );
 get_trait_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(TraitTypeCallResult))(
   match(
-    ftc.result,
+    &ftc.result,
     .TraitTypeResult(r) => Option(TraitTypeCallResult).Some(r),
     _ => Option(TraitTypeCallResult).None
   )
 );
 get_index_call_result :: (fn(ftc : &FunctionToCall) -> Option(IndexCallResult))(
   match(
-    ftc.result,
+    &ftc.result,
     .IndexResult(r) => Option(IndexCallResult).Some(r),
     _ => Option(IndexCallResult).None
   )
 );
 get_pointer_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(PointerTypeCallResult))(
   match(
-    ftc.result,
+    &ftc.result,
     .PointerTypeResult(r) => Option(PointerTypeCallResult).Some(r),
     _ => Option(PointerTypeCallResult).None
   )
@@ -1010,10 +1013,13 @@ call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalCon
 // Accessors rather than shared-state imports: module-level mutable
 // variables are written reliably only through their OWN module's functions
 // (the g_rerun_pending_def_evals_fn pattern directly above).
-(mut(g_module_begin_exprs) : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+// A RefCell, not a mut binding: the flip made the exprs list move-only,
+// and a mutable module-level binding cannot lend itself to `.clone()`
+// (E0916, no run-time borrow flag).
+(g_module_begin_exprs : RefCell(Option(ArrayList(AstExpr)))) = RefCell(Option(ArrayList(AstExpr))).new(Option(ArrayList(AstExpr)).None);
 (mut(g_module_begin_expr_index) : usize) = usize(0);
 set_module_walk :: (fn(exprs : &ArrayList(AstExpr)) -> unit)({
-  g_module_begin_exprs = Option(ArrayList(AstExpr)).Some(exprs);
+  g_module_begin_exprs.replace(Option(ArrayList(AstExpr)).Some(exprs.clone()));
   ()
 });
 set_module_walk_index :: (fn(idx : usize) -> unit)({
@@ -1021,11 +1027,11 @@ set_module_walk_index :: (fn(idx : usize) -> unit)({
   ()
 });
 restore_module_walk :: (fn(prev : &Option(ArrayList(AstExpr)), prev_idx : usize) -> unit)({
-  g_module_begin_exprs = prev;
+  g_module_begin_exprs.replace(prev.clone());
   g_module_begin_expr_index = prev_idx;
   ()
 });
-get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs);
+get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs.with(o => o.clone()));
 get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
 /// Does this binding LHS bind `name`? (Atom head, `comptime(X) ...`, a typed
 /// `(X : T)` head — the module-global spelling `(g : T) = v` — or a
@@ -1109,7 +1115,7 @@ forward_ref_diagnostic :: (fn(msg : &String) -> Option(String))({
         .Some(me) => {
           name := msg.substring(after, me);
           match(
-            g_module_begin_exprs,
+            g_module_begin_exprs.with(o => o.clone()),
             .None => Option(String).None,
             .Some(exprs) => {
               n := exprs.len();
@@ -1274,6 +1280,7 @@ PendingDef :: ref(
     src_hash : u64
   )
 );
+impl(PendingDef, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// One active module walk. `ctx` is a COPY of the walker's context taken at
 /// walk start: a forced statement must evaluate as a module-level statement
 /// (no enclosing fn body, no expected type, no impl Self) even when the
@@ -1309,6 +1316,7 @@ ModuleWalk :: ref(
     by_index : HashMap(usize, PendingDef)
   )
 );
+impl(ModuleWalk, Clone(clone : (fn(self : &Self) -> Self)(self)));
 (g_module_walks : RefCell(ArrayList(ModuleWalk))) = RefCell(ArrayList(ModuleWalk)).new(ArrayList(ModuleWalk).new());
 /// Entries currently being forced, outermost first — the cycle chain
 /// (`a → b → a`) and the phase-A publication target.
@@ -1340,18 +1348,26 @@ set_retain_walk_contexts :: (fn(v : bool) -> unit)({
 /// Stopping also releases the context of its already-finished walk.
 set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
   canon := canonical_module_path(path);
+  // Each arm gets its OWN pre-cloned key: an arm closure captures what it
+  // reads by value, so a single `canon` cannot serve insert, remove and the
+  // loop below.
+  canon_keep := canon.clone();
+  canon_rm := canon.clone();
   if(keep, {
-    g_retained_walk_paths.with_mut(s => s.insert(canon.clone()));
+    g_retained_walk_paths.with_mut(({ canon_keep }(s) => s.insert(canon_keep)));
   }, {
-    _removed := g_retained_walk_paths.with_mut(s => s.remove(canon.clone()));
+    _removed := g_retained_walk_paths.with_mut(({ canon_rm }(s) => s.remove(&canon_rm)));
     // `ModuleWalk` is a ref struct: releasing through the value handle
     // releases the table's walk.
     walk_values := g_finished_walks.with(m => m.values());
     wopt := walk_values.next();
+    // The loop body closure captures its OWN clone once; reading `canon`
+    // itself per iteration is a move (the capture) reused per iteration.
+    canon_loop := canon.clone();
     while(wopt.is_some(), {
       match(
         wopt,
-        .Some(w) => if(canonical_module_path(&w.module_path) == canon, {
+        .Some(w) => if(canonical_module_path(&w.module_path) == &canon_loop, {
           w.ctx = Option(EvalContext).None;
         }),
         .None => ()
@@ -1373,7 +1389,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
     wi = (wi - usize(1));
     match(
       g_module_walks.with(xs => xs.get(wi)),
-      .Some(w) => if(canonical_module_path(&w.module_path) == canon, {
+      .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         match(
           _find_def_by_name(&w.defs, name.clone(), false),
           .Some(d) => {
@@ -1406,7 +1422,7 @@ finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
   while(wopt.is_some(), {
     match(
       wopt,
-      .Some(w) => if(canonical_module_path(&w.module_path) == canon, {
+      .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         return(Option(bool).Some(w.ctx.is_some()));
       }),
       .None => ()
@@ -1425,7 +1441,7 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
   while(wopt.is_some(), {
     match(
       wopt,
-      .Some(w) => if(canonical_module_path(&w.module_path) == canon, {
+      .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         return(match(w.ctx, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(m => m.len())), .None => Option(usize).None));
       }),
       .None => ()
@@ -1469,11 +1485,13 @@ walk_context_retained_for :: (fn(module_path : &String) -> bool)(
 /// member-read hooks to attribute a field access to a module.
 (g_sns_module : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_sns_module :: (fn(struct_id : &String, module_path : &String) -> unit)({
-  _ := g_sns_module.with_mut(m => m.insert(struct_id.clone(), module_path.clone()));
+  module_path_owned := module_path.clone();
+  struct_id_owned := struct_id.clone();
+  _ := g_sns_module.with_mut({ module_path_owned, struct_id_owned }(m) => m.insert(struct_id_owned, module_path_owned.clone()));
 });
 /// The module behind a source-namespace struct id, if known.
 sns_module_of :: (fn(struct_id : &String) -> Option(String))(
-  g_sns_module.with(m => m.get(struct_id))
+  g_sns_module.with(m => m.get_cloned(struct_id))
 );
 /// The stored source hash of one definition, for the parse-only differ.
 stored_def_hash :: (fn(module_path : &String, index : usize, name : &String) -> Option(u64))(
@@ -1532,19 +1550,28 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
   if(debug_knob(`YO_DEBUG_P3DIFF`).is_some(), {
     eprintln(`[p3ord] ${importer.clone()} reads ${field.clone()} of ${target_module.clone()}`);
   });
+  // Read through the cloning accessors (a plain `get` copies the map's
+  // String keys / set elements out of storage), then store back through
+  // owned captures (`with_mut`'s callback is a sink parameter).
+  // Taken out of the maps and stored back (HashSet is not Clone until its
+  // own flip): a `get` copy is not the stored set once collections are
+  // values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  mor_key := importer.clone();
   by_target := match(
-    g_module_ordered_reads.with(m => m.get(importer)),
+    g_module_ordered_reads.with_mut({ mor_key }(m) => m.remove(&mor_key)),
     .Some(existing) => existing,
     .None => HashMap(String, HashSet(String)).new()
   );
+  tm_key := target_module.clone();
   fields := match(
-    by_target.get(target_module),
+    by_target.remove(&tm_key),
     .Some(fs) => fs,
     .None => HashSet(String).new()
   );
   fields.insert(field.clone());
-  _ := by_target.insert(target_module.clone(), fields);
-  _ := g_module_ordered_reads.with_mut(m => m.insert(importer.clone(), by_target));
+  _ := by_target.insert(tm_key, fields);
+  importer_owned := importer.clone();
+  _ := g_module_ordered_reads.with_mut({ importer_owned, by_target }(m) => m.insert(importer_owned, by_target));
 });
 /// Module-member read hook shared by the property-access path: the
 /// enclosing def (forcing top) records a def-level edge when the field
@@ -1729,7 +1756,7 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
   (si : usize) = usize(0);
   while(si < seeds.len(), {
     match(
-      seeds.get(si),
+      seeds.get_cloned(si),
       .Some(s) => {
         _ := reached.insert(s.clone());
         work.push(s.clone());
@@ -1741,7 +1768,7 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
   (wi : usize) = usize(0);
   while(wi < work.len(), {
     seed := match(
-      work.get(wi),
+      work.get_cloned(wi),
       .Some(s) => s.clone(),
       .None => String.new()
     );
@@ -1788,7 +1815,7 @@ ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -
             (ni : usize) = usize(0);
             while(((ni < names.len()) && (!hit)), {
               match(
-                names.get(ni),
+                names.get_cloned(ni),
                 .Some(n) => if(fields.contains(n.clone()), {
                   hit = true;
                 }),
@@ -1927,7 +1954,7 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_lhs_of_assignment : ctx.is_lhs_of_assignment,
     is_evaluating_contract_predicate : ctx.is_evaluating_contract_predicate,
     is_ghost_context : ctx.is_ghost_context,
-    function_return_impl_concrete_type : ctx.function_return_impl_concrete_type,
+    function_return_impl_concrete_type : ctx.function_return_impl_concrete_type.clone(),
     force_compile_time_bindings : ctx.force_compile_time_bindings,
     is_analyzing_ctfe_capability : ctx.is_analyzing_ctfe_capability,
     is_in_function_call_checking_phase : ctx.is_in_function_call_checking_phase,
@@ -1935,12 +1962,12 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_inside_given_handler : ctx.is_inside_given_handler,
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
-    currently_specializing_function_stack : ctx.currently_specializing_function_stack,
+    currently_specializing_function_stack : ctx.currently_specializing_function_stack.clone(),
     doc_comment_lookup : ctx.doc_comment_lookup,
     expr_info_table : ctx.expr_info_table.clone(),
-    comptime_fn_caches : ctx.comptime_fn_caches,
-    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
-    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
+    comptime_fn_caches : ctx.comptime_fn_caches.clone(),
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types.clone(),
     pending_method_self_type : ctx.pending_method_self_type.clone()
   )
 );
@@ -2041,7 +2068,8 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
   if(!(g_pending_move_only_heads.with(m => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(m => m.contains_key(String.new()))), {
     return(false);
   });
-  g_pending_move_only_heads.with_mut(m => m.remove(type_name.clone()));
+  type_name_owned := type_name.clone();
+  g_pending_move_only_heads.with_mut({ type_name_owned }(m) => m.remove(type_name_owned.clone()));
   g_pending_move_only_heads.with_mut(m => m.remove(String.new()));
   (forced : bool) = false;
   (wi : usize) = g_module_walks.with(xs => xs.len());
@@ -2078,7 +2106,8 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
 });
 _make_pending_def :: (fn(name : &String, e : &AstExpr, index : usize, is_impl : bool) -> Option(PendingDef))({
   if(is_impl && _impl_expr_declares_move_only(e), {
-    g_pending_move_only_heads.with_mut(m => m.insert(name.clone(), true));
+    name_owned := name.clone();
+    g_pending_move_only_heads.with_mut({ name_owned }(m) => m.insert(name_owned.clone(), true));
     note_move_only_possible();
   });
   Option(PendingDef).Some(
@@ -2162,10 +2191,10 @@ _is_extern_decl_destructure :: (fn(e : &AstExpr) -> bool)(
 /// the new name for `(a : b)`. These are the statement's pending members.
 _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
   names := ArrayList(String).new();
-  dargs := match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  dargs := match(e, .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(dargs.get(usize(0)), .Some(l) => l, .None => e);
   rhs := match(dargs.get(usize(1)), .Some(r) => r, .None => e);
-  fields := match(lhs, .FnCall(_, _, Rc(fa), _, _) => fa, .Atom(_, _) => ArrayList(AstExpr).new());
+  fields := match(lhs, .FnCall(_, _, fa, _, _) => Rc.clone(fa).*.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
@@ -2430,7 +2459,7 @@ register_module_anchors :: (fn(begin_exprs : &ArrayList(AstExpr)) -> unit)({
         // Kept ordered by position for `_anchored_position`'s binary search:
         // statements arrive in source order, so this is a no-op in practice.
         (at : usize) = anchors.len();
-        while((at > usize(0)) && match(anchors.get(at - usize(1)), .Some(pa) => ((pa.row > srow) || ((pa.row == srow) && (pa.column > scol))), .None => false), {
+        while((at > usize(0)) && match(anchors.get_cloned(at - usize(1)), .Some(pa) => ((pa.row > srow) || ((pa.row == srow) && (pa.column > scol))), .None => false), {
           at = (at - usize(1));
         });
         anchors.insert(at, TopLevelAnchor(row : srow, column : scol, label : label));
@@ -2473,7 +2502,10 @@ begin_module_walk :: (
     .Some(first) => ast_expr_token(&first).module_path.*.clone(),
     .None => env.module_path.*.clone()
   );
-  g_finished_walks.with_mut(m => m.remove(module_path.clone()));
+  // Owned key (`with_mut`'s callback is a sink parameter); the walk below
+  // re-clones from `module_path` itself.
+  fw_key := module_path.clone();
+  g_finished_walks.with_mut({ fw_key }(m) => m.remove(&fw_key));
   defs := ArrayList(PendingDef).new();
   by_index := HashMap(usize, PendingDef).new();
   (i : usize) = usize(0);
@@ -2504,12 +2536,12 @@ begin_module_walk :: (
   );
   walk := ModuleWalk(
     module_path : module_path.clone(),
-    begin_exprs : begin_exprs,
+    begin_exprs : begin_exprs.clone(),
     env : env,
     module_frame_id : module_frame_id,
     module_frame : module_frame,
     ctx : Option(EvalContext).Some(copy_eval_context(ctx)),
-    defs : defs,
+    defs : defs.clone(),
     by_index : by_index
   );
   // Phase 3 (§6): record each definition's source hash as of THIS walk. A
@@ -2532,14 +2564,20 @@ begin_module_walk :: (
       );
       si = (si + usize(1));
     });
-    _ := g_module_stmt_hash.with_mut(m => m.insert(module_path.clone(), fnv1a64(&stmt_hash_state)));
+    // Owned key/value (`with_mut`'s callback is a sink parameter).
+    msh_key := module_path.clone();
+    msh_val := fnv1a64(&stmt_hash_state);
+    _ := g_module_stmt_hash.with_mut({ msh_key, msh_val }(m) => m.insert(msh_key, msh_val));
   });
   (hi : usize) = usize(0);
   while(hi < defs.len(), {
     match(
       defs.get(hi),
       .Some(d) => {
-        _ := g_def_hash.with_mut(m => m.insert(def_key(&module_path, d.index, &d.name), d.src_hash));
+        // Owned key (`with_mut`'s callback is a sink parameter).
+        dh_key := def_key(&module_path, d.index, &d.name);
+        dh_val := d.src_hash;
+        _ := g_def_hash.with_mut({ dh_key, dh_val }(m) => m.insert(dh_key, dh_val));
       },
       .None => ()
     );
@@ -2871,7 +2909,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
   );
   pop_forcing_def();
   match(
-    result,
+    &result,
     .None => {
       def.state = PendingDefState.Done;
       if((!(def.is_impl) && def.variable.is_none()), {
@@ -2993,7 +3031,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
           },
           .None => PendingResolution.NotPending
         ),
-        .Failed => PendingResolution.Error(match(def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))),
+        .Failed => PendingResolution.Error(match(&def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))),
         .Forcing => match(
           _def_variable_for(&walk, &def, name.clone()),
           .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
@@ -3168,7 +3206,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     missed,
     .Some(m) => {
       declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()), false);
-      match(declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None, in_own_impl), _ => declaring)
+      match(&declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None, in_own_impl), _ => declaring)
     },
     .None => _force_pending_impls_pass(type_name, Option(String).None, false)
   )
@@ -3573,13 +3611,13 @@ create_function_body_evaluation_context :: (
     is_inside_given_handler : ctx.is_inside_given_handler,
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
-    currently_specializing_function_stack : ctx.currently_specializing_function_stack,
+    currently_specializing_function_stack : ctx.currently_specializing_function_stack.clone(),
     doc_comment_lookup : ctx.doc_comment_lookup,
     // Shared mutable tables — same instance as parent so results are visible
     expr_info_table : ctx.expr_info_table.clone(),
-    comptime_fn_caches : ctx.comptime_fn_caches,
-    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
-    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
+    comptime_fn_caches : ctx.comptime_fn_caches.clone(),
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types.clone(),
     pending_method_self_type : Option(TypeValue).None
   )
 });

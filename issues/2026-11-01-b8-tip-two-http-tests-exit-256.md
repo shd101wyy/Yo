@@ -1,6 +1,10 @@
 # Two http tests exit 256 on the B8 branch tip (not on develop)
 
-**Status (B8 owner, 2026-11-01):** accepted onto the B8 probe branch for triage. The class is
+**Status (B8 owner, 2026-11-01, updated):** SUSPECTED SEED ARTIFACT, triage stood down per the
+coordinator: the trace was taken with the installed SEED binary (v0.2.73 codegen, pre-flip)
+against the flipped std — a frankenbuild whose ref-counted handling of now-value types is
+exactly double-free-shaped. Verify by re-running the two http tests under the first TREE
+binary of this branch; reclassify (and only then triage) if the tree run is clean. The class is
 codegen-level unwind/task dispose (#1684/#1697 family) exposed by the flip; reproduction and
 the fix verdict wait for the probe branch's first tree build (the flip probe gates it). If the
 fix turns out to be evaluator/codegen surgery beyond the flip's scope, it splits into its own
