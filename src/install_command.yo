@@ -231,9 +231,10 @@ install_dependencies :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
-)(
+)({
+  __probe_mode := mode.clone();
   io.async((e : IoExn) => {
-    options := ResolveOptions(mode : mode.clone(), locked : locked, offline : offline, verbose : verbose);
+    options := ResolveOptions(mode : __probe_mode.clone(), locked : locked, offline : offline, verbose : verbose);
     lock := e.io.await(resolve_and_fetch(manifest, &options, e.io, e.exn), e);
     (i : usize) = usize(0);
     while(i < lock.packages.len(), {
@@ -247,7 +248,7 @@ install_dependencies :: (
     });
     lock
   })
-);
+});
 // ---------------------------------------------------------------------------
 // yo add
 // ---------------------------------------------------------------------------
@@ -305,7 +306,7 @@ run_add :: (
         if(options.branch.is_some() || options.rev.is_some() || options.subdir.is_some(), {
           e.exn.throw(dyn(String.from("Error: --branch, --rev and --path apply to git dependencies only")));
         });
-        dep_name = match(options.name, .Some(n) => n.clone(), .None => p_name.clone());
+        dep_name = match(&options.name, .Some(n) => n.clone(), .None => p_name.clone());
         // Stored relative to the manifest's directory, however it was typed.
         abs := if(
           Path.new(p_rel_path.clone()).is_absolute(),
@@ -318,11 +319,11 @@ run_add :: (
         git_url = abs.to_string();
       },
       .Git(g_name, g_url, g_requirement) => {
-        dep_name = match(options.name, .Some(n) => n.clone(), .None => g_name.clone());
+        dep_name = match(&options.name, .Some(n) => n.clone(), .None => g_name.clone());
         git_url = g_url.clone();
-        git_subdir = match(options.subdir, .Some(s) => s.clone(), .None => String.new());
+        git_subdir = match(&options.subdir, .Some(s) => s.clone(), .None => String.new());
         requirement := match(
-          options.rev,
+          &options.rev,
           .Some(r) => {
             if(g_requirement.is_some(), {
               e.exn.throw(dyn(String.from("Error: --rev cannot be combined with an @version")));
@@ -330,7 +331,7 @@ run_add :: (
             Option(GitRequirement).Some(GitRequirement.Rev(r.clone()))
           },
           .None => match(
-            options.branch,
+            &options.branch,
             .Some(b) => {
               if(g_requirement.is_some(), {
                 e.exn.throw(dyn(String.from("Error: --branch cannot be combined with an @version")));
@@ -455,17 +456,18 @@ run_remove :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  __probe_name := name.clone();
   io.async((e : IoExn) => {
     manifest := load_project_manifest(e.exn);
-    if(manifest.find_dependency(name.clone()).is_none(), {
-      e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${name}"`));
+    if(manifest.find_dependency(__probe_name.clone()).is_none(), {
+      e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${__probe_name}"`));
     });
     text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
     (edited : String) = text.clone();
     (removed_from : String) = String.new();
     match(
-      remove_entry(text.clone(), String.from("dependencies"), name.clone()),
+      remove_entry(text.clone(), String.from("dependencies"), __probe_name.clone()),
       .Ok(.Some(t)) => {
         edited = t;
         removed_from = String.from("dependencies");
@@ -477,7 +479,7 @@ run_remove :: (
     );
     if(removed_from.len() == usize(0), {
       match(
-        remove_entry(text.clone(), String.from("dev-dependencies"), name.clone()),
+        remove_entry(text.clone(), String.from("dev-dependencies"), __probe_name.clone()),
         .Ok(.Some(t)) => {
           edited = t;
           removed_from = String.from("dev-dependencies");
@@ -489,10 +491,10 @@ run_remove :: (
       );
     });
     if(removed_from.len() == usize(0), {
-      e.exn.throw(dyn(`Error: ${manifest.path}: could not locate the entry for "${name}"`));
+      e.exn.throw(dyn(`Error: ${manifest.path}: could not locate the entry for "${__probe_name}"`));
     });
     e.io.await(write_string(Path.new(manifest.path.clone()), &edited, e.io), e);
-    println(`Removed ${name} from [${removed_from}] in ${MANIFEST_FILENAME}`);
+    println(`Removed ${__probe_name} from [${removed_from}] in ${MANIFEST_FILENAME}`);
     updated := match(
       load_manifest(manifest.path.clone(), e.exn),
       .Ok(m) => m,
@@ -506,7 +508,7 @@ run_remove :: (
     println("Done.");
     ()
   })
-);
+});
 // ---------------------------------------------------------------------------
 // yo install / yo update
 // ---------------------------------------------------------------------------
@@ -539,7 +541,8 @@ _bump_ranges_to_latest :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Manifest, IoExn))
-)(
+)({
+  __probe_names := names.clone();
   io.async((e : IoExn) => {
     text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
     (edited : String) = text;
@@ -555,7 +558,7 @@ _bump_ranges_to_latest :: (
       (range_text : String) = String.new();
       (subdir : String) = String.new();
       match(
-        dep.source,
+        &dep.source,
         .Git(u, r, sd) => {
           url = u.clone();
           subdir = sd.clone();
@@ -563,10 +566,10 @@ _bump_ranges_to_latest :: (
         },
         .Path(_) => ()
       );
-      (named : bool) = (names.len() == usize(0));
+      (named : bool) = (__probe_names.len() == usize(0));
       (ni : usize) = usize(0);
-      while(ni < names.len(), {
-        if(names(ni) == dep.name, {
+      while(ni < __probe_names.len(), {
+        if(__probe_names(ni) == dep.name, {
           named = true;
         });
         ni = (ni + usize(1));
@@ -631,7 +634,7 @@ _bump_ranges_to_latest :: (
       }
     )
   })
-);
+});
 /// `yo install`: resolve and fetch the dependency graph and write `yo.lock`
 /// (a lock entry that still satisfies every requirement on it is kept).
 /// `yo update [name…]`: re-resolve the named dependencies (all when `names`
@@ -670,7 +673,7 @@ run_install :: (
     while(i < manifest.dependencies.len(), {
       d := manifest.dependencies(i);
       match(
-        d.source,
+        &d.source,
         .Git(url, req, _) => {
           pin := match(
             req,
