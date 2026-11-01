@@ -2,10 +2,10 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 main :: (fn() -> unit)({
-  scores := OrderedMap(String, i32).new();
+  mut(scores) := OrderedMap(String, i32).new();
   scores.insert(String.from("a"), i32(1));
   scores.insert(String.from("b"), i32(2));
-  other := scores; // a second handle: the loop's static borrow cannot see it
+  mut(other) := scores; // since B10 a MOVE: the map is a value, so no second handle exists
   for(&mut scores, (k, v) => {
     other.insert(String.from("c"), i32(3)); // panics: mutates the inner map while `v` borrows an entry
     v = (v + i32(1));
