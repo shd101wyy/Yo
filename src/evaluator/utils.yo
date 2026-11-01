@@ -6749,6 +6749,9 @@ local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
 /// `evaluate_begin_expression`, before it evaluates `stmts(i)`, a borrow
 /// binding: hand the binding the statements after it.
 local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt : &AstExpr) -> unit)({
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] arm lookahead for stmt id=${ast_expr_id(stmt)}`);
+  });
   g_lb_lookahead_stmts = stmts.clone();
   g_lb_lookahead_index = i;
   g_lb_lookahead_id = ast_expr_id(stmt);
@@ -7182,7 +7185,10 @@ local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, what : &String, 
 );
 /// A write (an assignment target, a `mut` argument the callee writes) of the
 /// place `e`: E0908 through an `imm` borrow, E0911 against a live borrow.
-local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] write_expr ${ast_expr_to_string(e)} active=${local_borrows_active()} entries=${g_local_borrows.with(xs => xs.len()).to_string()}`);
+  });
   if(local_borrows_active(), {
     match(
       local_borrow_place_of(e, env, ctx),
@@ -7196,7 +7202,7 @@ local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env :
       .None => ()
     );
   })
-);
+});
 /// Does `e` NAME STORAGE — the result expression is a place: an identifier
 /// atom, or a field-access chain (a `.field` step whose field is a name atom)
 /// rooted at one? A call or an index on the place (`y.len()`, `xs(i)`)
@@ -7731,6 +7737,11 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) 
   (last : Token) = decl;
   (end : Token) = _last_token_of(binding, decl);
   (repoint : bool) = false;
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    (dbg_armed : bool) = g_lb_lookahead_armed;
+    dbg_have := g_lb_lookahead_id;
+    eprintln(`[n2b] range_of ${name}: armed=${dbg_armed} want=${ast_expr_id(binding)} have=${dbg_have}`);
+  });
   if(g_lb_lookahead_armed && (g_lb_lookahead_id == ast_expr_id(binding)), {
     g_lb_lookahead_armed = false;
     // Staged through a local: `.clone()` directly on the `mut(G)` global is

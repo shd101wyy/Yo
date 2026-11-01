@@ -211,12 +211,18 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   if(origin_beyond_n2b(&type), {
     return(());
   });
-  // Otherwise a `&T` / `&mut T` is a parameter slot's mode (decision 43 step
-  // 1), never a C type: a slot read without `t_slot_pointee` is an internal
-  // error.
-  if(match(&type, Rc(.Reference(_, _, _)) => true, _ => false), {
-    __yo_panic("collect_type: a reference type reached codegen (a parameter slot read without t_slot_pointee)");
-  });
+  // A `&T` / `&mut T` in VALUE STRUCTURE (decision 43 step 3, N2b: a
+  // reference field of an inline composite) lowers as `const T*` / `T*` —
+  // no C declaration of its own, but its POINTEE's is still collected (a
+  // `&Struct` field needs the struct's C type). A parameter slot's mode
+  // never reaches here (slot readers take `t_slot_pointee` first).
+  match(
+    &type,
+    Rc(.Reference(ref_pt, _, _)) => {
+      return(collect_type(&ref_pt, context));
+    },
+    _ => ()
+  );
   if(context.get_type_entry(type_key(&type)).is_some(), {
     return(()); // Already collected this type
   });
