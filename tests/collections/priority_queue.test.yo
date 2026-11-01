@@ -9,13 +9,13 @@ test("PriorityQueue.new creates empty queue", {
 });
 // ===== Push Tests =====
 test("PriorityQueue.push adds single element", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(42));
   assert(pq.len() == usize(1), "len should be 1");
   assert(!pq.is_empty(), "should not be empty");
 });
 test("PriorityQueue.push adds multiple elements", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(1));
   pq.push(i32(3));
@@ -23,7 +23,7 @@ test("PriorityQueue.push adds multiple elements", {
 });
 // ===== Peek Tests =====
 test("PriorityQueue.peek returns largest element", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(30));
   pq.push(i32(10));
   pq.push(i32(20));
@@ -37,7 +37,7 @@ test("PriorityQueue.peek returns None for empty queue", {
   assert(pq.peek().is_none(), "peek on empty should be None");
 });
 test("PriorityQueue.peek does not remove element", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(42));
   pq.peek();
   pq.peek();
@@ -45,7 +45,7 @@ test("PriorityQueue.peek does not remove element", {
 });
 // ===== Pop Tests =====
 test("PriorityQueue.pop returns largest element", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(1));
   pq.push(i32(3));
@@ -55,11 +55,11 @@ test("PriorityQueue.pop returns largest element", {
   assert(pq.len() == usize(2), "len should be 2 after pop");
 });
 test("PriorityQueue.pop returns None for empty queue", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   assert(pq.pop().is_none(), "pop on empty should be None");
 });
 test("PriorityQueue.pop returns elements in DESCENDING order", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(50));
   pq.push(i32(10));
   pq.push(i32(40));
@@ -73,14 +73,14 @@ test("PriorityQueue.pop returns elements in DESCENDING order", {
   assert(pq.pop().is_none(), "6th pop should be None");
 });
 test("PriorityQueue.pop single element", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(99));
   v := pq.pop();
   assert(v.unwrap() == i32(99), "should return 99");
   assert(pq.is_empty(), "should be empty");
 });
 test("PriorityQueue.pop two elements", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(20));
   pq.push(i32(10));
   assert(pq.pop().unwrap() == i32(20), "first pop should be 20");
@@ -89,7 +89,7 @@ test("PriorityQueue.pop two elements", {
 });
 // ===== Duplicate elements =====
 test("PriorityQueue handles duplicate elements", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(5));
   pq.push(i32(3));
@@ -101,7 +101,7 @@ test("PriorityQueue handles duplicate elements", {
 });
 // ===== Sorted input =====
 test("PriorityQueue with already sorted input", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(1));
   pq.push(i32(2));
   pq.push(i32(3));
@@ -114,7 +114,7 @@ test("PriorityQueue with already sorted input", {
   assert(pq.pop().unwrap() == i32(1), "5th should be 1");
 });
 test("PriorityQueue with reverse sorted input", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(4));
   pq.push(i32(3));
@@ -128,7 +128,7 @@ test("PriorityQueue with reverse sorted input", {
 });
 // ===== Interleaved push and pop =====
 test("PriorityQueue interleaved push and pop", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(5));
   assert(pq.pop().unwrap() == i32(10), "should get 10");
@@ -143,7 +143,7 @@ test("PriorityQueue interleaved push and pop", {
 });
 // ===== Many elements =====
 test("PriorityQueue with many elements", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   // Push 0..19 in a scrambled order
   pq.push(i32(15));
   pq.push(i32(3));
@@ -178,7 +178,7 @@ test("PriorityQueue with many elements", {
 });
 // ===== Peek after pop =====
 test("PriorityQueue.peek reflects new maximum after pop", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(5));
   pq.push(i32(15));
@@ -190,7 +190,7 @@ test("PriorityQueue.peek reflects new maximum after pop", {
 });
 // ===== Reverse(T) gives a min-heap (D11) =====
 test("PriorityQueue(Reverse(T)) is a min-heap", {
-  pq := PriorityQueue(Reverse(i32)).new();
+  mut(pq) := PriorityQueue(Reverse(i32)).new();
   pq.push(Reverse(i32)(i32(50)));
   pq.push(Reverse(i32)(i32(10)));
   pq.push(Reverse(i32)(i32(40)));
@@ -215,7 +215,7 @@ test("Reverse inverts every Ord operator and keeps Eq", {
   assert(!(a == b), "distinct values are not equal");
 });
 test("Reverse works on unsigned types, where negating keys cannot", {
-  pq := PriorityQueue(Reverse(usize)).new();
+  mut(pq) := PriorityQueue(Reverse(usize)).new();
   pq.push(Reverse(usize)(usize(3)));
   pq.push(Reverse(usize)(usize(0)));
   pq.push(Reverse(usize)(usize(7)));
@@ -233,7 +233,7 @@ test("PriorityQueue into_iter - empty queue", {
   assert(count == i32(0));
 });
 test("PriorityQueue into_iter - visits all elements", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(30));
   pq.push(i32(10));
   pq.push(i32(20));
@@ -247,7 +247,7 @@ test("PriorityQueue into_iter - visits all elements", {
   assert(count == i32(3));
 });
 test("PriorityQueue iter - yields pointers", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(20));
   mut(sum) := i32(0);
@@ -257,7 +257,7 @@ test("PriorityQueue iter - yields pointers", {
   assert(sum == i32(30));
 });
 test("PriorityQueue iter - mutate through pointer", {
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(10));
   for(pq.iter(), ptr => {
@@ -271,14 +271,14 @@ test("PriorityQueue iter - mutate through pointer", {
   assert(sum == i32(1500));
 });
 test("PriorityQueue Default is the empty queue", {
-  q := PriorityQueue(i32).default();
+  mut(q) := PriorityQueue(i32).default();
   assert(q.len() == usize(0), "default queue is empty");
   q.push(i32(5));
   assert(q.len() == usize(1), "the default queue is a usable queue");
 });
 // ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
 test("peek_cloned clones the largest element in place", {
-  q := PriorityQueue(i32).new();
+  mut(q) := PriorityQueue(i32).new();
   assert(q.peek_cloned().is_none(), "empty: none");
   q.push(i32(3));
   q.push(i32(8));
