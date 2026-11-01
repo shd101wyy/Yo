@@ -7,8 +7,9 @@
 // `{ imm(y) : &y, mut(z) : &mut z }`, and the borrowed loop
 // `for(&mut xs, x => …)` is `for(xs, mut(x) => …)`. The function-type
 // identities below pin "exact": a function declared in one spelling fills a
-// slot typed in the other. A `&T` anywhere else is a borrow mode, not a type
-// (references become types with decision 43).
+// slot typed in the other. A `&T` anywhere else is a reference TYPE
+// (decision 43 step 3, N2a): a field's type, a type argument, an alias; no
+// value of one is built until N2b.
 //
 // `&&T` is a parse error, so it is pinned by tests/internal/parser.test.yo.
 { assert } :: import("std/assert");
@@ -251,41 +252,95 @@ test("the map form `for(&mut m, (k, v) => …)` borrows the value only", {
   assert((m.get(i32(1)) == .Some(i32(11))) && (m.get(i32(2)) == .Some(i32(22))), "each value was written in place");
 });
 
-// --- A borrow is a mode, not a type ---------------------------------------------
-comptime_expect_error(
-  bs_type_alias :: (fn() -> unit)({
-    T :: &i32;
-  }),
-  "is a borrow mode, not a type"
-);
+// --- A reference type outside a slot (decision 43 step 3, N2a) ---------------
+// `&T` whose operand is a type is the type `Reference(T, ...)` in a type
+// position: an alias, a type argument, a field. N2a builds no value of a
+// type holding one: a call, a fieldless variant and a run-time signature
+// stop at the phase wall naming N2b, so no build holds a stored reference
+// the borrow checker cannot see.
+BsView :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), lo : usize));
+BsPair :: (fn(comptime(p) : Origin, comptime(q) : Origin) -> comptime(Type))(struct(a : &(i32, p), b : &mut(i32, q)));
+BsElided :: struct(f : &i32, g : &mut i32);
+test("a reference type names an alias, a type argument and a field", {
+  x := i32(1);
+  y := i32(2);
+  RefAlias :: &i32;
+  MutAlias :: &mut i32;
+  OptRef :: Option(&(i32, x));
+  ListRef :: ArrayList(&(i32, (x, y)));
+  ViewOfX :: BsView(x);
+  ViewOfXY :: BsView((x, y));
+  PairXY :: BsPair(x, y);
+  Elided :: BsElided;
+  assert((x + y) == i32(3), "the type bindings above evaluate without building a value");
+});
 comptime_expect_error(
   bs_type_argument :: (fn() -> unit)({
     _xs := ArrayList(&i32).new();
   }),
-  "is a borrow mode, not a type"
+  "a type holding a reference"
 );
 comptime_expect_error(
   bs_mut_type_argument :: (fn() -> unit)({
     _o := Option(&mut i32).None;
   }),
-  "is a borrow mode, not a type"
+  "a type holding a reference"
 );
 comptime_expect_error(
-  bs_field_type :: (fn() -> unit)({
-    S :: struct(f : &i32);
+  bs_field_value :: (fn() -> unit)({
+    x := i32(1);
+    _v := BsView(x)(at : &x, lo : usize(0));
   }),
-  "is a borrow mode, not a type"
+  "a type holding a reference"
+);
+comptime_expect_error(
+  bs_composite_signature :: (fn(generic(p : Origin), v : BsView(p)) -> usize)(v.lo),
+  "a type holding a reference"
+);
+comptime_expect_error(
+  bs_composite_result :: (fn(x : &i32) -> Option(&i32))(.None),
+  "a type holding a reference"
+);
+comptime_expect_error(
+  bs_field_self_origin :: (fn() -> unit)({
+    S :: struct(value : i32, next : &(i32, self.value));
+    _o := Option(S).None;
+  }),
+  "names the value being defined"
+);
+comptime_expect_error(
+  bs_field_undeclared_origin :: (fn() -> unit)({
+    S :: struct(next : &(i32, q));
+  }),
+  "The origin `q` is not declared"
+);
+comptime_expect_error(
+  bs_origin_ctor_not_a_type_ctor :: (fn(comptime(p) : Origin) -> i32)(i32(0)),
+  "must return `comptime(Type)`"
+);
+// `&mut &i32` in a parameter is the two mode sigils (one borrow, rejected by
+// the parser's mode rule); through an alias the pointee is a reference type.
+BsRefAlias :: &i32;
+comptime_expect_error(
+  bs_ref_to_ref_param :: (fn(v : &mut BsRefAlias) -> unit)(()),
+  "a reference to a reference"
+);
+comptime_expect_error(
+  bs_ref_to_ref_field :: (fn() -> unit)({
+    S :: struct(f : &mut&i32);
+  }),
+  "a reference to a reference"
 );
 // `&mut(T, p)` is decision 43's origin-qualified reference. Its
 // two-argument marker used to re-evaluate itself until `yo check`
 // overflowed its stack (exit 139), in every type position
 // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
 // Decision 43 step 2 spells it as a parameter's type (N1a) and as a
-// result type (N1b); a pointee, a local's annotation and a type argument
-// come later.
+// result type (N1b), step 3 as a field's type and a type argument (N2a); a
+// reference to a reference and a local's annotation are N1e's.
 comptime_expect_error(
   bs_origin_mut_pointee :: (fn(xs : &mut i32) -> &mut&mut(i32, xs))(xs),
-  "is an origin-qualified reference"
+  "a reference to a reference"
 );
 // The second argument is read by its kind: a type there is E0922, not a
 // tuple (a tuple type is `Tuple(A, B)`).
@@ -297,7 +352,7 @@ comptime_expect_error(
   bs_origin_mut_type_argument :: (fn() -> unit)({
     _o := Option(&mut(i32, i32)).None;
   }),
-  "is an origin-qualified reference"
+  "is a type, not an origin"
 );
 // A borrow result is a projection (decision 24): it yields a place spelled
 // with its sigil, never a value.
@@ -398,7 +453,7 @@ comptime_expect_error(
   bs_origin_type_argument :: (fn(generic(p : Origin)) -> unit)({
     _o := Option(&(i32, p)).None;
   }),
-  "is an origin-qualified reference"
+  "a type holding a reference"
 );
 // Decision 43 step 2 (N1b): a result `-> &(T, o)` / `-> &mut(T, o)` spells
 // the origin the projection borrows from: an origin parameter, a

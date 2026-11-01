@@ -16,6 +16,8 @@ pragma(Pragma.AllowUnsafe);
   AstExpr,
   ast_expr_token,
   ast_expr_text,
+  ast_place_text,
+  BF_DOT,
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_atom,
@@ -42,11 +44,11 @@ pragma(Pragma.AllowUnsafe);
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
+{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -67,7 +69,8 @@ pragma(Pragma.AllowUnsafe);
   type_mentions_some_type,
   fn_type_unrepresentable_impl,
   fn_type_unrepresentable_impl_message,
-  fn_type_unrepresentable_impl_help
+  fn_type_unrepresentable_impl_help,
+  note_origin_types_exist
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
@@ -79,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
   get_trait_type_from_env
 } :: import("../../types/env_lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
+{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
@@ -1066,6 +1069,193 @@ evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContex
   names := ArrayList(String).new();
   _origin_names_into(e, env, ctx, &mut names, exn);
   t_origin_named(&shared_list(names))
+});
+/// The root binding of a place written in origin position (`x`, `self` in
+/// `self.value`), or `.None` when `e` is not a name or a field path.
+_origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
+  (cur : AstExpr) = e.clone();
+  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    cur = match(cur, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+  });
+  if(ast_expr_is_atom(&cur) && is_valid_variable_name(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
+});
+/// Collect the origin names a reference TYPE outside a signature spells into
+/// `out` (decision 43 step 3, N2a; plans/backlog/REFERENCES_AND_ORIGINS.md
+/// O1): a field's type in a type definition, a type argument, an alias. A
+/// name is an origin parameter in scope (`comptime(p) : Origin` on a type
+/// constructor, `generic(p : Origin)` on a function) or a binding's place (a
+/// local, a parameter or a module-level binding: a place is an origin inside
+/// bodies and at module level); a union `(a, b)` collects both. A type
+/// definition naming its own fields (`self.f`) is E0924; anything else is
+/// E0922.
+_type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
+  if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
+    o_args := _fn_call_args(e);
+    (oi : usize) = usize(0);
+    while(oi < o_args.len(), {
+      match(o_args.get(oi), .Some(oa) => _type_origin_names_into(&oa, env, ctx, out, exn), .None => ());
+      oi = (oi + usize(1));
+    });
+    return(());
+  });
+  o_text := ast_place_text(e);
+  root := _origin_place_root(e);
+  // `self` that names no binding: a type definition naming its own value or
+  // fields (O1 well-formedness; O5: no self-reference, so no `Pin`).
+  match(
+    root,
+    .Some(r) => if((ast_expr_text(&r).* == "self") && (get_variables_from_env(env, String.from("self")).len() == usize(0)), {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(e),
+              `\`${o_text}\` names the value being defined: a type may not name its own fields or its own place as an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1), because a value that points into itself could not be moved.`,
+              Option(String).Some(String.from("point outward instead: declare `comptime(p) : Origin` on a type constructor and write the field as `&(T, p)`, or store an index into the value rather than a reference"))
+            ),
+            E_ORIGIN_NAMES_ITSELF
+          )
+        )
+      );
+    }),
+    .None => ()
+  );
+  if(!ast_expr_is_atom(e) || !is_valid_variable_name(e), {
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `\`${o_text}\` is not an origin: the second argument of \`&(T, o)\` names an origin parameter, a binding whose place the reference points into, or a union of them, \`(p, q)\`.`,
+          String.from("name the binding itself (`&(T, x)`); a field path is not an origin yet (plans/backlog/REFERENCES_AND_ORIGINS.md §7)")
+        )
+      )
+    );
+  });
+  o_name := ast_expr_text(e).*;
+  (o_vars : ArrayList(Variable)) = get_variables_from_env(env, &o_name);
+  if(o_vars.len() == usize(0), {
+    // A module-level binding is bound lazily: evaluating the name forces it.
+    if(_origin_operand_is_type(e, env, ctx), {
+      exn.throw(
+        dyn(
+          _origin_error(
+            e,
+            `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+            `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`comptime(p) : Origin\` on a type constructor`
+          )
+        )
+      );
+    });
+    o_vars = get_variables_from_env(env, &o_name);
+  });
+  o_n := o_vars.len();
+  if(o_n == usize(0), {
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `The origin \`${o_text}\` is not declared.`,
+          `declare it on the type constructor, \`comptime(${o_text}) : Origin\`, or on the function, \`generic(${o_text} : Origin)\`, or name a binding in scope`
+        )
+      )
+    );
+  });
+  o_var := match(o_vars.get(o_n - usize(1)), .Some(v) => v, .None => return(()));
+  o_value := o_var.value.get(usize(0));
+  o_is_type := match(o_value, .Some(.TypeVal(_)) => !is_origin_kind(&o_var.ty), _ => false);
+  if(o_is_type, {
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+          `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`comptime(p) : Origin\` on a type constructor`
+        )
+      )
+    );
+  });
+  if(match(o_value, .Some(.FuncVal(_, _)) => true, _ => false), {
+    exn.throw(
+      dyn(
+        _origin_error(
+          e,
+          `\`${o_text}\` is a function, not a place: an origin names an origin parameter or a binding a reference points into.`,
+          `declare an origin parameter, \`comptime(p) : Origin\`, or name the binding the reference borrows`
+        )
+      )
+    );
+  });
+  // An origin parameter in scope, or a binding's place: both are named. A
+  // place named in an origin is a use of its binding (the warnings
+  // channel's read marker, D15).
+  o_var.was_read = true;
+  if(!_names_contain(out, &o_name), {
+    out.push(o_name);
+  });
+});
+/// The argument of a type constructor's `comptime(p) : Origin` parameter
+/// (decision 43 step 3, N2a): `_View(x)`, `Cursor(T, p)`, `Log((x, y))`. It
+/// is read as an origin (`_type_origin_names_into`), never evaluated as a
+/// value: `x` names the place, whatever `x` holds. The result is an
+/// `Origin`-kinded value, `OriginSet` of the names.
+evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+  names := ArrayList(String).new();
+  _type_origin_names_into(e, env, ctx, &mut names, exn);
+  origin := t_origin_named(&shared_list(names));
+  note_origin_types_exist();
+  out := new_expr_info(env, &t_origin_kind());
+  out.value = Option(EvalValue).Some(create_type_value(&origin));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(e), &out);
+  e.clone()
+});
+/// `&T`, `&mut T`, `&(T, o)` or `&mut(T, o)` whose first operand is a type,
+/// evaluated in a TYPE position (decision 43 step 3, N2a;
+/// plans/backlog/REFERENCES_AND_ORIGINS.md O4): a field's type, a type
+/// argument, an alias. The value is the type `Reference(T, mutable,
+/// origin)`; the one-argument form's origin is elided (a fresh origin per
+/// field, O2). A reference to a reference is N1e's.
+evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, is_mut : bool, exn : Exception) -> AstExpr)({
+  r_args := _fn_call_args(expr);
+  pointee_expr := match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  ev := evaluate_expression_raw(&pointee_expr, env, ctx, exn);
+  ev_info := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)),
+    .Some(i) => i,
+    .None => new_expr_info(env, Rc.new(TypeValueNode.Unit))
+  );
+  pointee := match(
+    ev_info.value,
+    .Some(.TypeVal(t)) => Rc.clone(t),
+    _ => {
+      exn.throw(dyn(format_error_message(ast_expr_token(&pointee_expr), `\`${ast_expr_to_string(&pointee_expr)}\` is not a type: a reference type \`&T\` takes a type.`)));
+      Rc.new(TypeValueNode.Unit)
+    }
+  );
+  if(t_slot_is_borrow(&pointee), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `\`${ast_expr_to_string(expr)}\` is a reference to a reference: it arrives with references as binding types (decision 43 step 2, N1e). A reference to a value is \`&T\`.`
+        )
+      )
+    );
+  });
+  r_env := expr_info_adopt_env(&ev_info);
+  origin := cond(
+    (r_args.len() == usize(2)) => {
+      names := ArrayList(String).new();
+      _type_origin_names_into(match(r_args.get(usize(1)), .Some(o) => o, .None => make_err_expr()), &r_env, ctx, &mut names, exn);
+      t_origin_named(&shared_list(names))
+    },
+    true => t_origin_elided()
+  );
+  ref_ty := t_reference_with_origin(&pointee, is_mut, &origin);
+  note_origin_types_exist();
+  out := new_expr_info(&r_env, &type_of_type(&ref_ty));
+  out.value = Option(EvalValue).Some(create_type_value(&ref_ty));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
+  expr
 });
 /// Collect the origin names a RESULT type `-> &(T, o)` spells into `out`
 /// (decision 43 step 2, N1b; plans/backlog/REFERENCES_AND_ORIGINS.md O1): an
@@ -2145,6 +2335,19 @@ evaluate_function_parameter :: (
       Rc.new(TypeValueNode.Unit)
     }
   );
+  // `x : &mut &T`: since a `&T` operand that is a type evaluates to a
+  // reference type (decision 43 step 3, N2a), the slot's pointee can be one.
+  // A reference to a reference is N1e's (reference-typed bindings).
+  if((has_imm_wrapper || is_param_ref) && t_slot_is_borrow(&final_param_type), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          `This parameter is a reference to a reference (its pointee is \`${type_to_string(&final_param_type)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A reference to a value is \`&T\`.`
+        )
+      )
+    );
+  });
   // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
   // annotate a parameter with a type whose representation carries a raw
   // pointer (RawSlice(T), structs wrapping *(T), ...). The prelude's
@@ -2162,17 +2365,16 @@ evaluate_function_parameter :: (
     );
   });
   // `Origin` is a kind a signature declares in `generic(...)` (decision 43
-  // step 2). A type constructor's origin parameter (`comptime(p) : Origin`)
-  // makes a type carry an origin: first-class storage, N2.
-  if(is_origin_kind(&final_param_type) && !is_parameter_comptime_by_default, {
+  // step 2), or a type constructor declares as `comptime(p) : Origin`
+  // (step 3, N2a; whether the function is a type constructor is checked once
+  // its result is known, `_reject_origin_param_outside_type_constructor`). A
+  // run-time parameter of the kind has no meaning.
+  if(is_origin_kind(&final_param_type) && !is_parameter_comptime_by_default && !is_compile_time_only, {
     exn.throw(
       dyn(
         format_error_message(
           match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          cond(
-            is_compile_time_only => `\`comptime(${match(label, .Some(l) => l.clone(), .None => String.from("?"))}) : Origin\`, a type constructor's origin parameter, arrives with first-class storage (decision 43 step 3, N2); a function declares an origin in \`generic(...)\`.`,
-            true => `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
-          )
+          `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
         )
       )
     );
@@ -4590,6 +4792,18 @@ evaluate_function_type :: (
       Rc.new(TypeValueNode.Unit)
     }
   );
+  // `-> &mut &T` (see the parameter rule): a reference to a reference is
+  // N1e's.
+  if(is_return_type_ref && t_slot_is_borrow(&ret_type_val), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(&return_type_expr),
+          `This result is a reference to a reference (its pointee is \`${type_to_string(&ret_type_val)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A projection returns \`&T\`.`
+        )
+      )
+    );
+  });
   // Auto-convert comptime-only return types if possible
   (return_type : TypeValue) = ret_type_val;
   if(type_requires_comptime_modifier(&return_type) && !is_return_comptime_only, {
@@ -4609,6 +4823,29 @@ evaluate_function_type :: (
   // Prohibit void return type
   if(!ctx.is_unsafe_function_type, {
     prohibit_void_type(&return_type, ast_expr_token(&return_type_expr), exn);
+  });
+  // A `comptime(p) : Origin` parameter belongs to a type constructor (decision
+  // 43 step 3, N2a): the type it returns carries the origin. A function is
+  // abstract over an origin through `generic(p : Origin)`.
+  if(!(is_return_comptime_only && is_type_0(&return_type)), {
+    (opi : usize) = usize(0);
+    while(opi < params_result.params.len(), {
+      match(
+        params_result.params.get(opi),
+        .Some(op) => if(op.is_compile_time_only && is_origin_kind(&op.ty), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(match(param_exprs_for_error(&arg_list, opi), .Some(e) => e, .None => make_err_expr())),
+                `\`comptime(${op.label}) : Origin\` declares a type constructor's origin parameter, so the function must return \`comptime(Type)\`; a function is abstract over an origin through \`generic(${op.label} : Origin)\`.`
+              )
+            )
+          );
+        }),
+        .None => ()
+      );
+      opi = (opi + usize(1));
+    });
   });
   // A runtime result of a bare function TYPE mentioning an opaque `Impl(...)`
   // has no representation (see the parameter rule in
@@ -5773,7 +6010,7 @@ export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
 function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(m => m.len()) + g_macro_return_is_unquote.with(m => m.len()) + g_func_param_defaults.with(m => m.len()) + g_func_variadic_params.with(m => m.len()) + g_func_param_assigned_values.with(m => m.len()) + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.with(m => m.len()) + g_func_param_type_exprs.with(m => m.len()) + g_func_where_constraints.with(m => m.len()) + g_func_where_clause_exprs.with(m => m.len()) + g_func_requires_exprs.with(m => m.len()) + g_func_ensures_exprs.with(m => m.len()) + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.with(m => m.len()) + g_func_return_label.with(m => m.len()));
 export(purge_function_side_tables, function_side_table_entry_count);
-export(evaluate_function_parameters, is_origin_qualified_reference_expr);
+export(evaluate_function_parameters, is_origin_qualified_reference_expr, evaluate_reference_type, evaluate_origin_argument);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);

@@ -759,6 +759,12 @@ _compat_impl :: (
       Rc(.Reference(er_pointee, er_mut, _)) => ((ar_mut == er_mut) && recur(&ar_pointee, &er_pointee, if(ar_mut, _exact_mode(mode), mode), visited)),
       _ => false
     ),
+    // The `Origin` kind, and an origin argument of a type constructor's
+    // instance (decision 43 step 3, N2a): origins are erased from type
+    // identity, so any two origin values agree here; the borrow checker is
+    // what reads them.
+    Rc(.OriginKind) => match(expected, Rc(.OriginKind) => true, _ => false),
+    Rc(.OriginSet(_, _)) => match(expected, Rc(.OriginSet(_, _)) => true, _ => false),
     Rc(.Array(ainner, alen, alvar)) => match(
       expected,
       Rc(.Array(einner, elen, elvar)) => {

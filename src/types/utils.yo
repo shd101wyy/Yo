@@ -70,8 +70,8 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
-{ format_error_message, YoError } :: import("../error.yo");
-{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, Diagnostic } :: import("../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, with_code, YoError } :: import("../error.yo");
+{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_BORROW_ESCAPES, Diagnostic } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Target pointer size
@@ -688,6 +688,137 @@ type_is_second_class :: (fn(ty : &TypeValue) -> bool)(
       _collect_type_borrows_inner(ty, &mut bs, u32(0));
       bs.len() > usize(0)
     }
+  )
+);
+/// Set once some type outside a parameter or result slot holds a reference or
+/// an origin argument (decision 43 step 3, N2a): a `&T` field, a `&T` type
+/// argument, a type constructor applied to an origin. Until then no type
+/// carries an origin and `type_carries_origin` answers `false` without a
+/// walk. Never cleared: it only gates a fast path.
+(mut(g_origin_types_exist) : bool) = false;
+note_origin_types_exist :: (fn() -> unit)({
+  g_origin_types_exist = true;
+});
+/// True if a value of `ty` carries an origin (plans/backlog/REFERENCES_AND_ORIGINS.md
+/// O4, O10; decision 43 step 3): `ty` holds a `Reference` outside a function
+/// type's slots, or an origin argument (an `OriginSet` in a struct's or an
+/// enum's `type_arguments`), directly or through a field, a payload, an
+/// element, a pointee or a resolved type variable. A function type carries
+/// none: its slot origins are bound per call (O2). This is the one
+/// structural test behind E0909's no-origin positions.
+type_carries_origin :: (fn(ty : &TypeValue) -> bool)(
+  cond(
+    !g_origin_types_exist => false,
+    true => {
+      seen := ArrayList(String).new();
+      _carries_origin_inner(ty, &mut seen, u32(0))
+    }
+  )
+);
+_any_carries_origin :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), {
+    if(match(ts.get(i), .Some(t) => _carries_origin_inner(&t, seen, depth + u32(1)), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+_carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  if(depth > u32(24), {
+    return(false);
+  });
+  match(
+    ty,
+    Rc(.Reference(_, _, _)) => true,
+    Rc(.OriginSet(_, _)) => true,
+    Rc(.Pointer(inner)) => _carries_origin_inner(&inner, seen, depth + u32(1)),
+    Rc(.Array(element : elem)) => _carries_origin_inner(&elem, seen, depth + u32(1)),
+    Rc(.RefineT(inner, _)) => _carries_origin_inner(&inner, seen, depth + u32(1)),
+    Rc(.Tuple({ field_types : fields })) => _any_carries_origin(&fields, seen, depth),
+    Rc(.SomeT({ resolution : res })) => match(res, .Some(r) => _carries_origin_inner(&r, seen, depth + u32(1)), .None => false),
+    // An instance's own arguments first (an origin argument is per instance),
+    // then its fields once per definition: every instance of one id has the
+    // same fields up to their origins.
+    Rc(.Struct({ id : sid, field_types : fields, type_arguments : targs })) => cond(
+      _any_carries_origin(&targs, seen, depth) => true,
+      ((sid.len() > usize(0)) && seen.contains(&sid)) => false,
+      true => {
+        if(sid.len() > usize(0), {
+          seen.push(sid.clone());
+        });
+        _any_carries_origin(&fields, seen, depth)
+      }
+    ),
+    Rc(.EnumT({ id : eid, variant_fields : vfields, type_arguments : etargs })) => cond(
+      _any_carries_origin(&etargs, seen, depth) => true,
+      ((eid.len() > usize(0)) && seen.contains(&eid)) => false,
+      true => {
+        if(eid.len() > usize(0), {
+          seen.push(eid.clone());
+        });
+        (vi : usize) = usize(0);
+        while(vi < vfields.len(), {
+          if(match(vfields.get(vi), .Some(vf) => _any_carries_origin(&vf, seen, depth), .None => false), {
+            return(true);
+          });
+          vi = (vi + usize(1));
+        });
+        false
+      }
+    ),
+    _ => false
+  )
+});
+/// N2a's wall (decision 43 step 3; plans/handover/D43_STEP3_N2_DESIGN.md §4):
+/// a type holding a reference may be named — a field's type, a type
+/// argument, an alias — but no value of one is built until N2b, so no build
+/// holds a stored reference the borrow checker cannot see.
+origin_value_phase_message :: (fn(ty : &TypeValue) -> String)(
+  `A value of \`${type_to_string(ty)}\`, a type holding a reference, arrives with the next piece of first-class storage (decision 43 step 3, N2b): a reference type may be named in a type definition, a type argument or an alias, but no value of one is built yet.`
+);
+/// The wall at a run-time function's signature: a parameter or result whose
+/// type carries an origin (outside the `&T` / `-> &T` slots, which N1 checks)
+/// would hold a value N2a cannot build.
+reject_origin_carrying_signature :: (fn(ft : &TypeValue, tok : &Token, exn : Exception) -> unit)(
+  match(
+    ft,
+    Rc(.Func({ param_types : ps, result : r, meta : m })) => if(g_origin_types_exist && !m.*.result_is_comptime_only, {
+      (i : usize) = usize(0);
+      while(i < ps.len(), {
+        match(
+          ps.get(i),
+          .Some(p) => {
+            pp := t_slot_pointee(&p);
+            if(type_carries_origin(&pp), {
+              exn.throw(dyn(format_error_message(tok, origin_value_phase_message(&pp))));
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      rp := t_slot_pointee(&r);
+      if(type_carries_origin(&rp), {
+        exn.throw(dyn(format_error_message(tok, origin_value_phase_message(&rp))));
+      });
+    }),
+    _ => ()
+  )
+);
+/// E0909 restated (plans/backlog/REFERENCES_AND_ORIGINS.md O4, O10): `ty`
+/// stands in a position that accepts no origin — an `extern` signature, a
+/// module-level binding — and carries one. `position` names the position
+/// ("A module-level binding"), `why` says why it takes none.
+no_origin_position_error :: (fn(ty : &TypeValue, position : &String, why : &String, help : &String, tok : &Token) -> YoError)(
+  with_code(
+    format_error_message_with_help(
+      tok,
+      `${position} requires an \`Escapable\` type, and \`${type_to_string(ty)}\` carries an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O4, O10): ${why}`,
+      Option(String).Some(help.clone())
+    ),
+    E_BORROW_ESCAPES
   )
 );
 /// The first `mut` capture-list borrow `ty` carries (decision 38 B: such a
@@ -3845,6 +3976,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
+export(type_carries_origin, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);

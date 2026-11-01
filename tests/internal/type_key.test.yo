@@ -170,6 +170,55 @@ test("type_key: a result slot's origin is erased from the specialization identit
   mut(seen_e) := HashSet(String).new();
   assert(!(type_intern_key(&r_v, usize(0), &mut seen_v) == type_intern_key(&r_elided, usize(0), &mut seen_e)), "the intern key keeps the result's origin");
 });
+// Decision 43 step 3 (N2a): a type constructor's instance records its
+// origin arguments in `type_arguments` (an `OriginSet` at a
+// `comptime(p) : Origin` parameter's position, a `Reference` with its origin
+// at a type parameter's). Origins are erased from every identity: `_View(x)`
+// and `_View(y)`, or `Option(&(i32, x))` and `Option(&(i32, y))`, are one C
+// type and one specialization; only the intern key, which the borrow checker
+// reads through, tells them apart.
+_instance :: (fn(targs : ArrayList(TypeValue)) -> TypeValue)(
+  rc(
+    TypeValueNode.Struct(
+      String.from("yo_n2a_view"),
+      String.from(""),
+      shared_list(ArrayList(String).new()),
+      no_types(),
+      false,
+      false,
+      false,
+      String.from("yo_n2a_view_ctor"),
+      shared_list(targs),
+      false
+    )
+  )
+);
+test("type_key: an instance's origin arguments are erased from the identity", {
+  ox := ArrayList(TypeValue).new();
+  ox.push(_named_origin("x"));
+  oy := ArrayList(TypeValue).new();
+  oy.push(_named_origin("y"));
+  v_x := _instance(ox);
+  v_y := _instance(oy);
+  assert(type_key(&v_x) == type_key(&v_y), "_View(x) vs _View(y): one type_key");
+  assert(are_types_compatible_exact(&v_x, &v_y) && are_types_compatible_exact(&v_y, &v_x), "_View(x) vs _View(y): exact-compatible both ways");
+  rx := ArrayList(TypeValue).new();
+  rx.push(t_reference_with_origin(t_i32(), false, _named_origin("x")));
+  ry := ArrayList(TypeValue).new();
+  ry.push(t_reference_with_origin(t_i32(), false, _named_origin("y")));
+  o_x := _instance(rx);
+  o_y := _instance(ry);
+  assert(type_key(&o_x) == type_key(&o_y), "an instance over &(i32, x) vs &(i32, y): one type_key");
+  assert(are_types_compatible_exact(&o_x, &o_y), "an instance over &(i32, x) vs &(i32, y): exact-compatible");
+  // The mode of a reference type argument is identity.
+  rm := ArrayList(TypeValue).new();
+  rm.push(t_reference_with_origin(t_i32(), true, _named_origin("x")));
+  o_m := _instance(rm);
+  assert(!(type_key(&o_m) == type_key(&o_x)), "an instance over &mut i32 vs &i32: distinct keys");
+  mut(seen_x) := HashSet(String).new();
+  mut(seen_y) := HashSet(String).new();
+  assert(!(type_intern_key(&v_x, usize(0), &mut seen_x) == type_intern_key(&v_y, usize(0), &mut seen_y)), "the intern key keeps an instance's origin argument");
+});
 test("type_key: SomeT distinct from concrete", {
   st := t_some_t(`T`, usize(0));
   assert(!(type_key(&st) == type_key(t_i32())), "SomeT vs i32");

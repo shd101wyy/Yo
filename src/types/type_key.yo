@@ -279,6 +279,7 @@ _tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
       sh_end := resolve_cell_chain(&t);
       match(&sh_end, Rc(.SomeT({ id : _ })) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
     },
+    Rc(.OriginSet(_, _)) => String.from("origin"),
     _ => type_to_string(&t)
   )
 });
@@ -771,6 +772,10 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // An extern opaque type is identified by its C spelling
     // (types/definitions.yo `ExternOpaqueT`), not its Yo label.
     Rc(.ExternOpaqueT(_, tk_ec)) => `ex_${tk_ec}`,
+    // An origin argument of a type constructor's instance (decision 43
+    // step 3, N2a): origins are erased from every key, so `_View(x)` and
+    // `_View(y)` are one C type.
+    Rc(.OriginSet(_, _)) => String.from("origin"),
     _ => type_to_string(t)
   )
 );
