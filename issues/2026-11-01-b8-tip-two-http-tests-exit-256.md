@@ -62,3 +62,15 @@ first pattern on the three trees in the table.
 B8's agent (their branch, their gate). Filed from the B11 flip so the
 coordinator can route it; when B8's fix lands, this doc moves to `fixed/`
 with the fixing PR referenced here.
+
+## Re-score note (coordinator, 2026-11-01)
+
+Suspected **seed-vs-tree artifact**, same class as the retracted D10
+`append_to` finding: every run in this doc used the installed seed (v0.2.73)
+as the compiling binary — seed CODEGEN over a flipped/value std can mis-lower
+drops (a "frankenbuild"). The passing develop row is not an apples-to-apples
+control for that (its std is still pre-flip for these types). B8 re-runs with
+its first tree binary (`yo-out/<target>/bin/yo` first on PATH); if both tests
+pass there, this doc is retired the same way the D10 one was, and the lesson
+— never let plain `yo` (the seed) compile tests over a flipped tree — stands
+for every B9/B10/B11 gate.
