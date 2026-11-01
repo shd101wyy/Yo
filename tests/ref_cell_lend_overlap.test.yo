@@ -1,0 +1,81 @@
+// Decision 43's ref-cell extension of decision 28's value-root rule
+// (issues/fixed/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md):
+// within one call, a place lent exclusively may not overlap a place another
+// argument lends when both root at the same reference cell — the root
+// binding itself a `ref` object, or a field of the root that is one. A `&`
+// argument of a place below a cell is a bitwise copy of that place taken at
+// the call, so once the `&mut` side grows or replaces the storage below the
+// cell, the callee reads a stale copy. Disjoint paths below one cell, two
+// `&` lends, a whole-cell `&` beside a below-cell `&mut`, and distinct
+// cells all pass; so does lending the whole cell to both sides (a copy of
+// a handle follows the object), which is why `s.push_string(&s)` keeps
+// working while the collections are shared handles.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+
+_Holder :: ref(struct(xs : ArrayList(String), s : String, a : i32, b : i32));
+_Node :: ref(struct(v : i32));
+// A value root whose field is the cell: the path crosses into it.
+_Outer :: struct(node : _Node, k : i32);
+
+_touch :: (fn(x : &mut i32, y : &i32) -> i32)({
+  x = (x + i32(1));
+  y + i32(1)
+});
+_peek2 :: (fn(x : &i32, y : &i32) -> i32)(x + y);
+_node_peek :: (fn(n : &_Node, v : &i32) -> i32)(n.v + v);
+
+impl(
+  _Holder,
+  take : (fn(self : &mut Self, n : &ArrayList(String)) -> usize)({
+    self.a = (self.a + i32(1));
+    n.len()
+  })
+);
+
+test("a place below a ref cell lent `&mut` and `&` to one call is E0910", {
+  comptime_expect_error({
+    o := _Holder(xs : ArrayList(String).with_capacity(usize(2)), s : String.from("a"), a : i32(1), b : i32(2));
+    o.xs.extend_cloned(&o.xs)
+  }, "both root at the reference cell");
+  comptime_expect_error({
+    o := _Holder(xs : ArrayList(String).new(), s : String.from("a"), a : i32(1), b : i32(2));
+    o.s.push_string(&o.s)
+  }, "both root at the reference cell");
+  comptime_expect_error({
+    mut(p) := _Outer(node : _Node(v : i32(1)), k : i32(2));
+    _touch(&mut p.node.v, &p.node.v)
+  }, "both root at the reference cell");
+  // The `&mut` side names the cell whole: its callee can re-point the cell,
+  // freeing the storage below it that the `&` side copied.
+  comptime_expect_error({
+    o := _Holder(xs : ArrayList(String).new(), s : String.from("a"), a : i32(1), b : i32(2));
+    o.take(&o.xs)
+  }, "both root at the reference cell");
+});
+
+test("same-cell lends that do not overlap pass", {
+  o := _Holder(xs : ArrayList(String).new(), s : String.from("a"), a : i32(1), b : i32(2));
+  assert(_touch(&mut o.a, &o.b) == i32(3), "disjoint fields below one cell");
+  assert(_peek2(&o.a, &o.a) == i32(4), "two `&` lends of one place below a cell");
+  mut(p) := _Outer(node : _Node(v : i32(1)), k : i32(2));
+  q := _Outer(node : _Node(v : i32(3)), k : i32(4));
+  assert(_touch(&mut p.node.v, &p.k) == i32(3), "a below-cell lend beside a value field of the root");
+  assert(_touch(&mut p.node.v, &q.node.v) == i32(4), "two distinct cells");
+  assert(_node_peek(&p.node, &p.node.v) == i32(6), "a whole-cell `&` beside a below-cell `&`");
+});
+
+test("lending the whole cell to both sides keeps following the object", {
+  l := ArrayList(String).new();
+  l.push(String.from("a"));
+  l.push(String.from("b"));
+  _r := l.extend_cloned(&l);
+  assert(l.len() == usize(4), "a whole-cell `&` argument is a copy of the handle, not of the storage");
+  o := _Holder(xs : ArrayList(String).new(), s : String.from("a"), a : i32(1), b : i32(2));
+  o.xs.push(String.from("a"));
+  o.xs.push(String.from("b"));
+  t := o.xs.clone();
+  _r2 := o.xs.extend_cloned(&t);
+  assert(o.xs.len() == usize(4), "a copy beside the receiver still appends");
+});
