@@ -805,7 +805,14 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
     return(());
   });
   stale := ArrayList(String).new();
-  it := _trait_impl_site_owners.with(m => m.keys());
+// B9: the key walk reads the map in place through the borrowed `for`
+// (`keys()` would consume the map); the collected-key iterator is
+// independent of the cell, so the reads below can re-borrow it.
+it := _trait_impl_site_owners.with(m => {
+  mut(ks) := ArrayList(String).new();
+  for(&m, (k, _v) => { ks.push(k.clone()); });
+  ks.into_iter()
+});
   (go : bool) = true;
   while(go, {
     match(

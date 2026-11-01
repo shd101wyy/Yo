@@ -203,7 +203,14 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
 /// callable Func signature. Linear scan — only reached on the non-Func callee
 /// miss path.
 find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(String))({
-  it := g_closure_capture_info.with(m => m.keys());
+// B9: the key walk reads the map in place through the borrowed `for`
+// (`keys()` would consume the map); the collected-key iterator is
+// independent of the cell, so the reads below can re-borrow it.
+it := g_closure_capture_info.with(m => {
+  mut(ks) := ArrayList(String).new();
+  for(&m, (k, _v) => { ks.push(k.clone()); });
+  ks.into_iter()
+});
   (out : Option(String)) = Option(String).None;
   (go : bool) = true;
   while(go, {
