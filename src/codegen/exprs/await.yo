@@ -58,6 +58,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { fn_value_c_name } :: import("../functions/declarations.yo");
 { unwind_catch_condition } :: import("./async_completion.yo");
+{ replace } :: import("std/mem");
 /// One effect on a Future trait (the first — `FutureTraitT` carries effect
 /// arrays).
 _FutureEffect :: ref(struct(label : String, ty : TypeValue));
@@ -79,18 +80,10 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
   match(
     context.current_evidence_params,
     .Some(eps) => {
-      it := eps.into_iter();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(e) => if(e.value.field_label == field_label, {
-            return(Option(String).Some(e.value.c_param_name.clone()));
-          }),
-          .None => {
-            go = false;
-          }
-        );
+      for(&eps, (_k, e_val) => {
+        if(e_val.field_label == field_label, {
+          return(Option(String).Some(e_val.c_param_name.clone()));
+        });
       });
     },
     .None => ()
@@ -98,24 +91,13 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
   match(
     context.state_machine_variables,
     .Some(svs) => {
-      it := svs.into_iter();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(e) => {
-            cv := e.value;
-            is_outer := match(cv.kind, .Outer => true, _ => false);
-            if((cv.base.name == field_label) && is_outer, {
-              o := `sm->${context.sm_capture_slot}.`;
-              o.push_string(sanitize_for_c_identifier(field_label.clone(), false));
-              return(Option(String).Some(o));
-            });
-          },
-          .None => {
-            go = false;
-          }
-        );
+      for(&svs, (_k, cv) => {
+        is_outer := match(cv.kind, .Outer => true, _ => false);
+        if((cv.base.name == field_label) && is_outer, {
+          o := `sm->${context.sm_capture_slot}.`;
+          o.push_string(sanitize_for_c_identifier(field_label.clone(), false));
+          return(Option(String).Some(o));
+        });
       });
     },
     .None => ()
@@ -194,25 +176,14 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
       match(
         context.state_machine_variables,
         .Some(svs) => {
-          it := svs.into_iter();
-          (go : bool) = true;
-          while(go, {
-            match(
-              it.next(),
-              .Some(e) => {
-                cv := e.value;
-                is_outer := match(cv.kind, .Outer => true, _ => false);
-                if((cv.base.name == flbl) && is_outer, {
-                  o := `sm->${context.sm_capture_slot}.`;
-                  o.push_string(sanitize_for_c_identifier(flbl.clone(), false));
-                  member_code = Option(String).Some(o);
-                  go = false;
-                });
-              },
-              .None => {
-                go = false;
-              }
-            );
+          for(&svs, (_k, cv) => {
+            is_outer := match(cv.kind, .Outer => true, _ => false);
+            if((cv.base.name == flbl) && is_outer, {
+              o := `sm->${context.sm_capture_slot}.`;
+              o.push_string(sanitize_for_c_identifier(flbl.clone(), false));
+              member_code = Option(String).Some(o);
+              break;
+            });
           });
         },
         .None => ()
@@ -222,19 +193,11 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
         match(
           context.current_evidence_params,
           .Some(eps) => {
-            it := eps.into_iter();
-            (go : bool) = true;
-            while(go, {
-              match(
-                it.next(),
-                .Some(e) => if(e.value.field_label == flbl, {
-                  member_code = Option(String).Some(e.value.c_param_name.clone());
-                  go = false;
-                }),
-                .None => {
-                  go = false;
-                }
-              );
+            for(&eps, (_k, e_val) => {
+              if(e_val.field_label == flbl, {
+                member_code = Option(String).Some(e_val.c_param_name.clone());
+                break;
+              });
             });
           },
           .None => ()
@@ -477,7 +440,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // already-aborted future, and for every abort of a bundle-less one.
   {
     // Drop in-scope locals (excluding the not-yet-declared await result var).
-    saved_drops := context.pending_deferred_drops;
+    saved_drops := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     match(
       saved_drops,
       .Some(drops) => {

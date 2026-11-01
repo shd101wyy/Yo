@@ -218,18 +218,8 @@ emit_dispose_dispatch :: (fn(context : &CodeGenContext) -> unit)({
   em := context.emitter;
   // Collect the dispose-fn C names (keys) so we can emit one case per id.
   names := ArrayList(String).new();
-  kit := context.dispose_type_ids.keys();
-  (gk : bool) = true;
-  while(gk, {
-    match(
-      kit.next(),
-      .Some(k) => {
-        names.push(k);
-      },
-      .None => {
-        gk = false;
-      }
-    );
+  for(&context.dispose_type_ids, (k, _v) => {
+    names.push(k.clone());
   });
   if(names.len() > usize(0), {
     em.emit_string_line(

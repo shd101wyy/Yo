@@ -156,6 +156,7 @@
 } :: import("../../evaluator/async/await_analysis.yo");
 { is_io_future_type } :: import("../async/state_machine.yo");
 { panic, assert } :: import("std/assert");
+{ replace } :: import("std/mem");
 /// The callee name of a FnCall (empty for an Atom).
 _func_name :: (fn(expr : &AstExpr) -> String)(
   match(expr, .FnCall(_, func, _, _, _) => ast_expr_text(&func).*.clone(), .Atom(_, _) => String.from(""))
@@ -1056,11 +1057,13 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       // such an exit releases it once its dup is in scope
       // (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
       share_drops := _call_share_drops_to_pend(expr, context);
-      prev_pending := context.pending_deferred_drops;
+      // Only a call with shares to pend swaps the list in (and restores it).
+      (prev_pending : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
       if(share_drops.len() > usize(0), {
+        prev_pending = replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
         with_shares := share_drops.clone();
         match(
-          prev_pending,
+          &prev_pending,
           .Some(pp) => {
             (k : usize) = usize(0);
             while(k < pp.len(), {
@@ -1128,8 +1131,7 @@ _sm_arg_temp_read :: (fn(expr : &AstExpr, code : String, context : &FunctionGene
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code));
   tn := match(ei.variable_name, .Some(n) => n.clone(), .None => return(code));
   if(!is_arg_temp_across_suspension(tn.clone()) || !(code == tn), return(code));
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(code));
-  match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code)
+  match(context.state_machine_variables, .Some(smv) => match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code), .None => code)
 });
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.

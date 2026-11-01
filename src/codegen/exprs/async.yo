@@ -102,6 +102,7 @@
 { yo_error_from_diagnostics } :: import("../../error.yo");
 { SmUnwindCatch, unwind_catches_of_body, unwind_catch_condition } :: import("./async_completion.yo");
 { panic, assert } :: import("std/assert");
+{ replace } :: import("std/mem");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
 EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
@@ -258,46 +259,35 @@ _numeric_id_less :: (fn(a : &String, b : &String) -> bool)(
 _find_bundle_var_field :: (
   fn(state_machine_variables : &HashMap(String, CapturedVariable), target_key : &String, state_machine_field_aliases : &Option(HashMap(String, String))) -> Option(String)
 )({
-  it := state_machine_variables.into_iter();
-  (go : bool) = true;
   (best_aliased : Option(String)) = Option(String).None;
   (best_aliased_id : String) = String.new();
   (best_plain : Option(String)) = Option(String).None;
   (best_plain_id : String) = String.new();
-  while(go, {
-    match(
-      it.next(),
-      .Some(b) => {
-        sm_var := b.value;
-        is_outer := match(sm_var.kind, .Outer => true, .Local => false);
-        if(!is_outer && (type_key(&sm_var.base.ty) == target_key), {
-          vid := sm_var.base.id.clone();
-          alias_opt := match(
-            state_machine_field_aliases,
-            .Some(al) => al.get_cloned(vid.clone()),
-            .None => Option(String).None
-          );
-          match(
-            alias_opt,
-            .Some(a) => {
-              if(best_aliased.is_none() || _numeric_id_less(&vid, &best_aliased_id), {
-                best_aliased = Option(String).Some(a);
-                best_aliased_id = vid.clone();
-              });
-            },
-            .None => {
-              if(best_plain.is_none() || _numeric_id_less(&vid, &best_plain_id), {
-                best_plain = Option(String).Some(sm_local_field_name(vid.clone()));
-                best_plain_id = vid.clone();
-              });
-            }
-          );
-        });
-      },
-      .None => {
-        go = false;
-      }
-    );
+  for(&state_machine_variables, (_k, sm_var) => {
+    is_outer := match(sm_var.kind, .Outer => true, .Local => false);
+    if(!is_outer && (type_key(&sm_var.base.ty) == target_key), {
+      vid := sm_var.base.id.clone();
+      alias_opt := match(
+        state_machine_field_aliases,
+        .Some(al) => al.get_cloned(vid.clone()),
+        .None => Option(String).None
+      );
+      match(
+        alias_opt,
+        .Some(a) => {
+          if(best_aliased.is_none() || _numeric_id_less(&vid, &best_aliased_id), {
+            best_aliased = Option(String).Some(a);
+            best_aliased_id = vid.clone();
+          });
+        },
+        .None => {
+          if(best_plain.is_none() || _numeric_id_less(&vid, &best_plain_id), {
+            best_plain = Option(String).Some(sm_local_field_name(vid.clone()));
+            best_plain_id = vid.clone();
+          });
+        }
+      );
+    });
   });
   if(best_aliased.is_some(), best_aliased, best_plain)
 });
@@ -637,7 +627,7 @@ emit_async_block_struct_definition :: (
   // names here too (idempotent: same list, same names).
   register_sm_captured_names(&info.analysis.captured_variables);
   local_variables := ArrayList(CapturedVariable).new();
-  cvs := info.analysis.captured_variables;
+  cvs := &info.analysis.captured_variables;
   (ci : usize) = usize(0);
   while(ci < cvs.len(), {
     match(
@@ -777,7 +767,7 @@ _build_deferred_deps :: (
   fn(b : &DeferredAsyncBlock, by_struct_name : &HashMap(String, DeferredAsyncBlock), dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), context : &FunctionGenerationContext) -> unit
 )({
   // Local variable fields.
-  cvs := b.analysis.captured_variables;
+  cvs := &b.analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
@@ -798,7 +788,7 @@ _build_deferred_deps :: (
     i = (i + usize(1));
   });
   // await_future_X fields.
-  aps := b.analysis.await_points;
+  aps := &b.analysis.await_points;
   (j : usize) = usize(0);
   while(j < aps.len(), {
     match(
@@ -880,18 +870,10 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   });
   // Kahn's algorithm: seed the queue with indegree-0 nodes.
   queue := ArrayList(String).new();
-  it := indegree.into_iter();
-  (go : bool) = true;
-  while(go, {
-    match(
-      it.next(),
-      .Some(e) => if(e.value == usize(0), {
-        queue.push(e.key.clone());
-      }),
-      .None => {
-        go = false;
-      }
-    );
+  for(&indegree, (k, v) => {
+    if(v == usize(0), {
+      queue.push(k.clone());
+    });
   });
   ordered := ArrayList(String).new();
   (head : usize) = usize(0);
@@ -970,10 +952,10 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
             result_type_c_name : b.result_type_c_name.clone(),
             capture_type : b.capture_type.clone(),
             analysis : b.analysis,
-            cross_boundary_ids : Option(HashSet(String)).Some(cbr.cross_boundary_ids),
+            cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut cbr.cross_boundary_ids, HashSet(String).new())),
             await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases.clone()),
             overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases.clone()),
-            overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(osr.slots),
+            overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(replace(&mut osr.slots, ArrayList(OverlappingSlot).new())),
             closure_param_slots : b.closure_param_slots
           ),
           context
@@ -1340,7 +1322,7 @@ generate_async_block_state_dispose_function :: (
   // Drop cross-boundary locals when unwind aborted the SM (state == -2). Normal
   // completion drops locals inline in the final state.
   local_drop_lines := ArrayList(String).new();
-  cvs := analysis.captured_variables;
+  cvs := &analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
@@ -1943,11 +1925,11 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   if(n_args != n_params, {
     return(_fusion_not_lowered(await_expr, `the call passes ${n_args.to_string()} arguments to ${n_params.to_string()} parameters`, report));
   });
-  slots := match(block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
-  if(slots.len() != usize(1), {
+  n_slots := match(block.closure_param_slots, .Some(s) => s.len(), .None => usize(0));
+  if(n_slots != usize(1), {
     return(_fusion_not_lowered(await_expr, String.from("the block does not take exactly one bundle parameter"), report));
   });
-  bundle_ty := match(slots.get(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit));
+  bundle_ty := match(block.closure_param_slots, .Some(s) => match(s.get(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   effects_ty := match(
     await_args.get(usize(1)),
     .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty)), .None => Option(TypeValue).None),
@@ -2007,10 +1989,13 @@ _collect_fused_sites :: (
               fused_await_site(&e, false, context),
               .Some(s) => if(!seen.contains(s.prefix.clone()), {
                 seen.insert(s.prefix.clone());
+                // The site joins `out` before the sites nested in its block
+                // (emission order); its prefix and analysis are read first.
+                s_prefix := s.prefix.clone();
+                s_analysis := s.block.analysis;
                 out.push(s);
-                saved_prefix := context.fusion_field_prefix;
-                context.fusion_field_prefix = s.prefix.clone();
-                _collect_fused_sites(&s.block.analysis, seen, out, context);
+                saved_prefix := replace(&mut context.fusion_field_prefix, s_prefix);
+                _collect_fused_sites(&s_analysis, seen, out, context);
                 context.fusion_field_prefix = saved_prefix;
               }),
               .None => ()
@@ -2034,8 +2019,8 @@ _collect_fused_sites :: (
 FusedLocalField :: struct(id : String, name : String, field_name : String, ty : TypeValue);
 _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField))({
   out := ArrayList(FusedLocalField).new();
-  cvs := site.block.analysis.captured_variables;
-  register_sm_captured_names(&cvs);
+  register_sm_captured_names(&site.block.analysis.captured_variables);
+  cvs := &site.block.analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
@@ -2067,11 +2052,16 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
           .Some(ct) => em.emit_declaration_string_line(`  ${_find_capture_type_c_name(&ct, context)} ${site.prefix}capture;`),
           .None => ()
         );
-        slots := match(site.block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
-        (pi : usize) = usize(0);
-        while(pi < slots.len(), pi = (pi + usize(1)), {
-          match(slots.get(pi), .Some(sl) => em.emit_declaration_string_line(`  ${sl.c_type.clone()} ${site.prefix}param_${pi.to_string()};  // ${sl.param_name.clone()}`), .None => ());
-        });
+        match(
+          site.block.closure_param_slots,
+          .Some(slots) => {
+            (pi : usize) = usize(0);
+            while(pi < slots.len(), pi = (pi + usize(1)), {
+              match(slots.get(pi), .Some(sl) => em.emit_declaration_string_line(`  ${sl.c_type.clone()} ${site.prefix}param_${pi.to_string()};  // ${sl.param_name.clone()}`), .None => ());
+            });
+          },
+          .None => ()
+        );
         lfs := _fused_local_fields(&site);
         (li : usize) = usize(0);
         while(li < lfs.len(), li = (li + usize(1)), {
@@ -2091,8 +2081,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
             .None => ()
           );
         });
-        saved_prefix := context.fusion_field_prefix;
-        context.fusion_field_prefix = site.prefix.clone();
+        saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
         rfs := inline_await_result_fields(&site.block.analysis, context);
         context.fusion_field_prefix = saved_prefix;
         (ri : usize) = usize(0);
@@ -2180,7 +2169,7 @@ _emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero :
 /// state machine) and its capture fields, all aliased into the site's fields.
 _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVariable))({
   vars := HashMap(String, CapturedVariable).new();
-  cvs := site.block.analysis.captured_variables;
+  cvs := &site.block.analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
@@ -2191,18 +2180,23 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
       .None => ()
     );
   });
-  slots := match(site.block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
-  (pi : usize) = usize(0);
-  while(pi < slots.len(), pi = (pi + usize(1)), {
-    match(
-      slots.get(pi),
-      .Some(sl) => {
-        pid := `__closure_param_${pi.to_string()}`;
-        vars.insert(pid.clone(), _make_sm_captured_variable(&pid, sl.param_name.clone(), &sl.param_type, CapturedVariableKind.Local));
-      },
-      .None => ()
-    );
-  });
+  match(
+    site.block.closure_param_slots,
+    .Some(slots) => {
+      (pi : usize) = usize(0);
+      while(pi < slots.len(), pi = (pi + usize(1)), {
+        match(
+          slots.get(pi),
+          .Some(sl) => {
+            pid := `__closure_param_${pi.to_string()}`;
+            vars.insert(pid.clone(), _make_sm_captured_variable(&pid, sl.param_name.clone(), &sl.param_type, CapturedVariableKind.Local));
+          },
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
   match(
     &site.block.capture_type,
     .Some(ct) => {
@@ -2231,9 +2225,9 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
 /// uninitialized local field instead of the bundle.
 _fused_sm_aliases :: (fn(site : &FusedAwaitSite) -> HashMap(String, String))({
   aliases := HashMap(String, String).new();
-  slots := match(site.block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
+  n_slots := match(site.block.closure_param_slots, .Some(s) => s.len(), .None => usize(0));
   (pi : usize) = usize(0);
-  while(pi < slots.len(), pi = (pi + usize(1)), {
+  while(pi < n_slots, pi = (pi + usize(1)), {
     aliases.insert(`__closure_param_${pi.to_string()}`, `${site.prefix}param_${pi.to_string()}`);
   });
   aliases
@@ -2382,16 +2376,11 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // The fused nodes are also emitted in the wrapper's own function and state
   // machine: the per-program sets that stop a temp from being declared, or a
   // drop from being emitted, twice must not carry over between the two.
-  saved_temps := context.declared_temp_vars;
-  saved_drop_ids := context.emitted_deferred_drop_ids;
-  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
-  context.emitted_deferred_drop_ids = HashSet(usize).new();
-  saved_smv := context.state_machine_variables;
-  saved_aliases := context.state_machine_field_aliases;
-  saved_remap := context.variable_id_remapping;
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
-  context.state_machine_field_aliases = Option(HashMap(String, String)).None;
-  context.variable_id_remapping = Option(HashMap(String, String)).None;
+  saved_temps := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
+  saved_drop_ids := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
+  saved_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
+  saved_aliases := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).None);
+  saved_remap := replace(&mut context.variable_id_remapping, Option(HashMap(String, String)).None);
   match(
     get_func_type(site.wrapper_fid.clone()),
     Rc(.Func({ param_types : wpts, meta : wmeta })) => {
@@ -2437,24 +2426,20 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // temps). Its awaits suspend the CALLER; each is keyed and moved-read per
   // site.
   em.emit_string_line(`${indent}{`);
-  saved_temps2 := context.declared_temp_vars;
-  saved_drop_ids2 := context.emitted_deferred_drop_ids;
-  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
-  context.emitted_deferred_drop_ids = HashSet(usize).new();
-  saved_slot := context.sm_capture_slot;
-  saved_prefix := context.fusion_field_prefix;
+  saved_temps2 := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
+  saved_drop_ids2 := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
+  saved_slot := replace(&mut context.sm_capture_slot, `${site.prefix}capture`);
+  saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
   saved_analysis := low.analysis;
-  saved_emitted := low.emitted;
-  saved_moved_reads := low.moved_reads;
-  saved_pdd := context.pending_deferred_drops;
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site));
+  saved_emitted := replace(&mut low.emitted, HashSet(usize).new());
+  saved_moved_reads := replace(&mut low.moved_reads, HashMap(usize, String).new());
+  saved_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+  // The map restored above (the wrapper's) is taken out again and put back
+  // when the block is done: one map, as the shared handle was.
+  saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
-  context.sm_capture_slot = `${site.prefix}capture`;
-  context.fusion_field_prefix = site.prefix.clone();
   low.analysis = site.block.analysis;
-  low.emitted = HashSet(usize).new();
-  low.moved_reads = HashMap(usize, String).new();
   pdd := match(saved_pdd, .Some(p) => _copy_expr_list(&p), .None => ArrayList(AstExpr).new());
   match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
@@ -2476,7 +2461,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   em.emit_string_line(`${indent}}`);
   context.declared_temp_vars = saved_temps2;
   context.emitted_deferred_drop_ids = saved_drop_ids2;
-  context.state_machine_variables = saved_smv;
+  context.state_machine_variables = saved_smv2;
   context.state_machine_field_aliases = saved_aliases;
   context.variable_id_remapping = saved_remap;
   context.sm_capture_slot = saved_slot;
@@ -2801,7 +2786,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
         is_capture_field_binding(cap_id, v.base.name.clone(), v.base.decl_site.clone())
       );
       remapped_cvs := ArrayList(CapturedVariable).new();
-      src_kcvs := analysis_kinded.captured_variables;
+      src_kcvs := &analysis_kinded.captured_variables;
       // The analysis records the OWNER of every local that shares an owner's
       // RC value (`sb := s`) as a body local, so that the alias is read
       // through the owner's slot (`sm_storage_id`). When the alias is a
@@ -3105,7 +3090,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   );
   if(param_sites.len() > usize(0), {
     (pci : usize) = usize(0);
-    pcvs := block.analysis.captured_variables;
+    pcvs := &block.analysis.captured_variables;
     while(pci < pcvs.len(), {
       match(
         pcvs.get(pci),
@@ -3168,25 +3153,22 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
 });
 _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  saved_sm_vars := context.state_machine_variables;
   saved_evidence_params := context.current_evidence_params;
-  saved_field_aliases := context.state_machine_field_aliases;
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
-  cross_boundary_ids := cbr.cross_boundary_ids;
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
-  osr := compute_overlapping_slots(&cross_boundary_ids, &cbr.variable_segments, &block.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
+  osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &block.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
   overlapping_slot_aliases := osr.slot_aliases.clone();
   // Filter capturedVariables to those that need SM fields (or stay for drops).
   filtered := ArrayList(CapturedVariable).new();
-  src_cvs := block.analysis.captured_variables;
+  src_cvs := &block.analysis.captured_variables;
   (ci : usize) = usize(0);
   while(ci < src_cvs.len(), {
     match(
       src_cvs.get(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
-        keep := (is_outer || cross_boundary_ids.contains(v.base.id.to_string()) || await_future_temp_var_aliases.contains_key(v.base.id.to_string()) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
+        keep := (is_outer || cbr.cross_boundary_ids.contains(v.base.id.to_string()) || await_future_temp_var_aliases.contains_key(v.base.id.to_string()) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
         if(keep, {
           filtered.push(v);
         });
@@ -3197,19 +3179,24 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   });
   // Register closure-param slots as state-machine variables (the atom
   // emitter emits sm->__yo_param_<i>). See [[yo-anon-closure-param-name-extraction]].
-  cps := match(block.closure_param_slots, .Some(s) => s, _ => ArrayList(ClosureParamSlot).new());
-  (cp : usize) = usize(0);
-  while(cp < cps.len(), {
-    match(
-      cps.get(cp),
-      .Some(slot) => {
-        slot_var_id := `__closure_param_${cp.to_string()}`;
-        filtered.push(_make_sm_captured_variable(&slot_var_id, slot.param_name.clone(), &slot.param_type, CapturedVariableKind.Local));
-      },
-      .None => ()
-    );
-    cp = (cp + usize(1));
-  });
+  match(
+    block.closure_param_slots,
+    .Some(cps) => {
+      (cp : usize) = usize(0);
+      while(cp < cps.len(), {
+        match(
+          cps.get(cp),
+          .Some(slot) => {
+            slot_var_id := `__closure_param_${cp.to_string()}`;
+            filtered.push(_make_sm_captured_variable(&slot_var_id, slot.param_name.clone(), &slot.param_type, CapturedVariableKind.Local));
+          },
+          .None => ()
+        );
+        cp = (cp + usize(1));
+      });
+    },
+    .None => ()
+  );
   filtered_analysis := AwaitAnalysisResult(
     await_points : block.analysis.await_points,
     captured_variables : filtered,
@@ -3219,7 +3206,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   // SM var map: filtered vars + capture-struct fields (as outer vars).
   sm_var_map := HashMap(String, CapturedVariable).new();
   (fi : usize) = usize(0);
-  fcvs := filtered_analysis.captured_variables;
+  fcvs := &filtered_analysis.captured_variables;
   while(fi < fcvs.len(), {
     match(
       fcvs.get(fi),
@@ -3249,7 +3236,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
     },
     .None => ()
   );
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(sm_var_map);
+  saved_sm_vars := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(sm_var_map));
   // Merged field aliases: await_future_N + slot_N + closure-param slot fields.
   merged_aliases := _copy_string_map(&await_future_temp_var_aliases);
   osa_it := overlapping_slot_aliases.clone().into_iter();
@@ -3265,18 +3252,24 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
       }
     );
   });
-  (cp2 : usize) = usize(0);
-  while(cp2 < cps.len(), {
-    match(
-      cps.get(cp2),
-      .Some(slot) => {
-        merged_aliases.insert(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
-      },
-      .None => ()
-    );
-    cp2 = (cp2 + usize(1));
-  });
-  context.state_machine_field_aliases = Option(HashMap(String, String)).Some(merged_aliases);
+  match(
+    block.closure_param_slots,
+    .Some(cps) => {
+      (cp2 : usize) = usize(0);
+      while(cp2 < cps.len(), {
+        match(
+          cps.get(cp2),
+          .Some(slot) => {
+            merged_aliases.insert(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
+          },
+          .None => ()
+        );
+        cp2 = (cp2 + usize(1));
+      });
+    },
+    .None => ()
+  );
+  saved_field_aliases := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).Some(merged_aliases));
   // Resume function (returns local-var drops). It is its own C function, so
   // it gets its own declared-name set and block-scope stack, seeded with its
   // one parameter `sm`, exactly as generate_function does for a body. The
@@ -3294,10 +3287,9 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   push_declared_scope(&context.base, String.from("sm"));
   em.declared_ref = Option(Rc(RefCell(HashSet(String)))).Some(Rc.clone(context.base.declared_c_var_names));
   em.scope_ref = Option(Rc(RefCell(ArrayList(String)))).Some(Rc.clone(context.base.declared_scopes));
-  saved_binding_ids := context.state_machine_binding_ids;
-  context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
-  saved_sm_unwind_catch := context.sm_unwind_catch;
-  context.sm_unwind_catch = _sm_unwind_catch_for(block, context);
+  saved_binding_ids := replace(&mut context.state_machine_binding_ids, Option(HashSet(String)).Some(HashSet(String).new()));
+  block_unwind_catch := _sm_unwind_catch_for(block, context);
+  saved_sm_unwind_catch := replace(&mut context.sm_unwind_catch, block_unwind_catch);
   // [`#line` directives] The resume function's prologue and the dispatch
   // switch around the body are compiler-generated; the body's statements set
   // their own `.yo` positions inside. Restore honest C numbering before and
@@ -3312,8 +3304,12 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   em.emit_string_line(String.from(""));
   // set_effect impl (emitted while SM vars are still in context).
   sync_param_slot := match(
-    cps.get(usize(0)),
-    .Some(slot) => Option(SyncParamSlot).Some(SyncParamSlot(field_name : slot.field_name.clone(), c_type : slot.c_type.clone())),
+    block.closure_param_slots,
+    .Some(cps) => match(
+      cps.get(usize(0)),
+      .Some(slot) => Option(SyncParamSlot).Some(SyncParamSlot(field_name : slot.field_name.clone(), c_type : slot.c_type.clone())),
+      .None => Option(SyncParamSlot).None
+    ),
     .None => Option(SyncParamSlot).None
   );
   vt_bundle := generate_future_effect_setter(block.struct_name.clone(), block.set_effect_function_name.clone(), &block.future_trait_type, &block.capture_type, context, &sync_param_slot);
@@ -3323,7 +3319,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   context.state_machine_field_aliases = saved_field_aliases;
   em.emit_string_line(String.from(""));
   // Dispose function.
-  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), &block.result_type, &block.capture_type, &filtered_analysis, &local_var_drops, &cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
+  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), &block.result_type, &block.capture_type, &filtered_analysis, &local_var_drops, &cbr.cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
   context.state_machine_binding_ids = saved_binding_ids;
   context.sm_unwind_catch = saved_sm_unwind_catch;
   em.emit_string_line(String.from(""));
@@ -3366,10 +3362,10 @@ generate_deferred_async_blocks :: (fn(context : &FunctionGenerationContext) -> u
                 result_type_c_name : nb.result_type_c_name.clone(),
                 capture_type : nb.capture_type.clone(),
                 analysis : nb.analysis,
-                cross_boundary_ids : Option(HashSet(String)).Some(ncbr.cross_boundary_ids),
+                cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut ncbr.cross_boundary_ids, HashSet(String).new())),
                 await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases.clone()),
                 overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases.clone()),
-                overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(nosr.slots),
+                overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(replace(&mut nosr.slots, ArrayList(OverlappingSlot).new())),
                 closure_param_slots : nb.closure_param_slots
               ),
               context
@@ -3818,10 +3814,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // async_await batch, arms nesting io.async inside io.async handlers).
   // Clear the sm-vars around the sync setter so the mappings resolve
   // against the sync future's own capture type only.
-  sync_saved_smv := context.state_machine_variables;
-  sync_saved_smfa := context.state_machine_field_aliases;
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
-  context.state_machine_field_aliases = Option(HashMap(String, String)).None;
+  sync_saved_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
+  sync_saved_smfa := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).None);
   sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), &future_trait_type, &eff_capture_type, context, match(sync_param_slots.get(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
   context.state_machine_variables = sync_saved_smv;
   context.state_machine_field_aliases = sync_saved_smfa;

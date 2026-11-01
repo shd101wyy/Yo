@@ -38,6 +38,7 @@
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
 { generate_drop_code_for_value, arm_value_with_dups } :: import("../exprs/drop_dup.yo");
 { RefCell } :: import("std/sync/refcell");
+{ replace } :: import("std/mem");
 CLEANUP_SEGMENT :: usize.MAX;
 CrossBoundaryResult :: ref(
   struct(
@@ -552,7 +553,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
 compute_cross_boundary_variables :: (
   fn(body_expr : &AstExpr, analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> CrossBoundaryResult
 )({
-  captured_variables := analysis.captured_variables;
+  captured_variables := &analysis.captured_variables;
   body_tok := ast_expr_token(body_expr.clone());
   w := _LiveWalk(
     module_path : body_tok.module_path.*.clone(),
@@ -700,7 +701,7 @@ compute_cross_boundary_variables :: (
     cross_boundary_ids : all_ids,
     await_future_temp_var_aliases : HashMap(String, String).new(),
     variable_segments : segments,
-    pattern_binding_ids : w.bindings
+    pattern_binding_ids : replace(&mut w.bindings, HashSet(String).new())
   )
 });
 _SlotRange :: ref(struct(min : usize, max : usize));
@@ -1067,18 +1068,10 @@ resolve_effect_field_from_sm_scope :: (
   match(
     context.current_evidence_params,
     .Some(eps) => {
-      it := eps.into_iter();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(b) => if(b.value.field_label == field_label, {
-            return(Option(String).Some(b.value.c_param_name.clone()));
-          }),
-          .None => {
-            go = false;
-          }
-        );
+      for(&eps, (_k, ep) => {
+        if(ep.field_label == field_label, {
+          return(Option(String).Some(ep.c_param_name.clone()));
+        });
       });
     },
     .None => ()
@@ -1086,24 +1079,13 @@ resolve_effect_field_from_sm_scope :: (
   match(
     context.state_machine_variables,
     .Some(svm) => {
-      it2 := svm.into_iter();
-      (go2 : bool) = true;
-      while(go2, {
-        match(
-          it2.next(),
-          .Some(b) => {
-            cv := b.value;
-            is_outer := match(cv.kind, .Outer => true, .Local => false);
-            if((cv.base.name == field_label) && is_outer, {
-              s := `sm->${context.sm_capture_slot}.`;
-              s.push_string(sanitize_for_c_identifier(field_label.clone(), false));
-              return(Option(String).Some(s));
-            });
-          },
-          .None => {
-            go2 = false;
-          }
-        );
+      for(&svm, (_k, cv) => {
+        is_outer := match(cv.kind, .Outer => true, .Local => false);
+        if((cv.base.name == field_label) && is_outer, {
+          s := `sm->${context.sm_capture_slot}.`;
+          s.push_string(sanitize_for_c_identifier(field_label.clone(), false));
+          return(Option(String).Some(s));
+        });
       });
     },
     .None => ()
@@ -1121,7 +1103,7 @@ _build_combined_sm_variables :: (
   // Assign each LOCAL capture its stable C field name (name-derived,
   // deduped within this SM) — see state_machine_naming.yo.
   register_sm_captured_names(&analysis.captured_variables);
-  cvs := analysis.captured_variables;
+  cvs := &analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
@@ -1193,32 +1175,21 @@ find_bundle_field_name :: (
       state_machine_variables,
       .Some(svm) => {
         (fallback : Option(String)) = Option(String).None;
-        it := svm.into_iter();
-        (go : bool) = true;
-        while(go, {
-          match(
-            it.next(),
-            .Some(b) => {
-              smvar := b.value;
-              is_outer := match(smvar.kind, .Outer => true, .Local => false);
-              if(!is_outer, {
-                svid := match(&smvar.base.ty, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
-                if(svid == target_id, {
-                  aliased := match(state_machine_field_aliases, .Some(al) => al.get_cloned(smvar.base.id.to_string()), .None => Option(String).None);
-                  match(
-                    aliased,
-                    .Some(a) => return(Option(String).Some(a)),
-                    .None => if(fallback.is_none(), {
-                      fallback = Option(String).Some(sm_local_field_name(smvar.base.id.to_string()));
-                    })
-                  );
-                });
-              });
-            },
-            .None => {
-              go = false;
-            }
-          );
+        for(&svm, (_k, smvar) => {
+          is_outer := match(smvar.kind, .Outer => true, .Local => false);
+          if(!is_outer, {
+            svid := match(&smvar.base.ty, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
+            if(svid == target_id, {
+              aliased := match(state_machine_field_aliases, .Some(al) => al.get_cloned(smvar.base.id.to_string()), .None => Option(String).None);
+              match(
+                aliased,
+                .Some(a) => return(Option(String).Some(a)),
+                .None => if(fallback.is_none(), {
+                  fallback = Option(String).Some(sm_local_field_name(smvar.base.id.to_string()));
+                })
+              );
+            });
+          });
         });
         fallback
       },
@@ -1253,24 +1224,14 @@ emit_effect_record_injection_for_sm :: (
       match(
         context.state_machine_variables,
         .Some(svm) => {
-          it := svm.into_iter();
-          (go : bool) = true;
-          while(go && member_code.is_none(), {
-            match(
-              it.next(),
-              .Some(b) => {
-                cv := b.value;
-                is_outer := match(cv.kind, .Outer => true, .Local => false);
-                if((cv.base.name == flabel) && is_outer, {
-                  s := `sm->${context.sm_capture_slot}.`;
-                  s.push_string(sanitize_for_c_identifier(flabel.clone(), false));
-                  member_code = Option(String).Some(s);
-                });
-              },
-              .None => {
-                go = false;
-              }
-            );
+          for(&svm, (_k, cv) => {
+            is_outer := match(cv.kind, .Outer => true, .Local => false);
+            if((cv.base.name == flabel) && is_outer, {
+              s := `sm->${context.sm_capture_slot}.`;
+              s.push_string(sanitize_for_c_identifier(flabel.clone(), false));
+              member_code = Option(String).Some(s);
+              break;
+            });
           });
         },
         .None => ()
@@ -1318,18 +1279,11 @@ emit_effect_record_injection_for_sm :: (
         match(
           context.current_evidence_params,
           .Some(eps) => {
-            it := eps.into_iter();
-            (go : bool) = true;
-            while(go && member_code.is_none(), {
-              match(
-                it.next(),
-                .Some(b) => if(b.value.field_label == flabel, {
-                  member_code = Option(String).Some(b.value.c_param_name.clone());
-                }),
-                .None => {
-                  go = false;
-                }
-              );
+            for(&eps, (_k, ep) => {
+              if(ep.field_label == flabel, {
+                member_code = Option(String).Some(ep.c_param_name.clone());
+                break;
+              });
             });
           },
           .None => ()
@@ -1848,13 +1802,16 @@ _store_await_result_into_temp_slot :: (fn(expr : &AstExpr, out : &String, indent
   });
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(()));
   vn := match(ei.variable_name, .Some(v) => v.clone(), .None => return(()));
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(()));
   match(
-    sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
-    .Some(slot) => if(!(slot == out), {
-      em := context.base.emitter;
-      em.emit_string_line(`${indent}${slot} = ${out};`);
-    }),
+    context.state_machine_variables,
+    .Some(smv) => match(
+      sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+      .Some(slot) => if(!(slot == out), {
+        em := context.base.emitter;
+        em.emit_string_line(`${indent}${slot} = ${out};`);
+      }),
+      .None => ()
+    ),
     .None => ()
   );
 });
@@ -1910,9 +1867,9 @@ generate_async_block_resume_function_inline :: (
   );
   p_low := context.sm_inline_lowering;
   p_in := context.in_async_state_machine;
-  p_smv := context.state_machine_variables;
-  p_vr := context.variable_id_remapping;
-  p_pdd := context.pending_deferred_drops;
+  p_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
+  p_vr := replace(&mut context.variable_id_remapping, Option(HashMap(String, String)).None);
+  p_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
   context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : Rc.clone(future_type)));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
@@ -2007,7 +1964,8 @@ generate_async_block_resume_function_inline :: (
   em.emit_string_line(`}`);
   em.emit_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_string_line(String.from(""));
-  g_inline_suspensions.with_mut(m => m.insert(async_block_id.clone(), low.suspensions));
+  suspensions := replace(&mut low.suspensions, ArrayList(InlineSuspension).new());
+  g_inline_suspensions.with_mut(m => m.insert(async_block_id.clone(), suspensions));
   local_var_drop_codes
 });
 
