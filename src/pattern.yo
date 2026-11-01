@@ -173,7 +173,11 @@ register_match_arms :: (fn(match_id : usize, arms : &ArrayList(Arm)) -> unit)({
   if(!match_arms_table_enabled(), {
     return(());
   });
-  _old := g_match_arms.with_mut(m => m.insert(match_id, arms));
+  // B9: the list is a value now; its elements are `Arm` handles (a ref
+  // struct — no Clone before V5), so the owned copy collects them in place.
+  mut(arms_own) := ArrayList(Arm).new();
+  for(&arms, a => { arms_own.push(a); });
+  _old := g_match_arms.with_mut({ arms_own, match_id }(m) => m.insert(match_id, arms_own));
   record_owned_expr_id(match_id);
 });
 lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.with(m => m.get(&match_id)));
