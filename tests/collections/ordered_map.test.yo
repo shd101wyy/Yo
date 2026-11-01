@@ -11,7 +11,7 @@ test("OrderedMap empty new", {
   assert(m.get(`x`).is_none(), "get returns None");
 });
 test("OrderedMap set and get", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   r1 := m.insert(`a`, i32(1));
   assert(r1.is_none(), "no previous value");
   r2 := m.insert(`b`, i32(2));
@@ -22,7 +22,7 @@ test("OrderedMap set and get", {
   assert(m.get(`b`).unwrap() == i32(2), "b is 2");
 });
 test("try_insert is the allocator-aware form (D9)", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   assert(match(m.try_insert(`k`, i32(1)), .Ok(prev) => prev.is_none(), .Err(_) => false), "new key");
   assert(
     match(m.try_insert(`k`, i32(2)), .Ok(prev) => (prev.unwrap() == i32(1)), .Err(_) => false),
@@ -31,7 +31,7 @@ test("try_insert is the allocator-aware form (D9)", {
   assert(m.len() == usize(1), "still one key");
 });
 test("OrderedMap update existing key preserves order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   r1 := m.insert(`alpha`, i32(1));
   r2 := m.insert(`beta`, i32(2));
   m.insert(`gamma`, i32(3));
@@ -42,7 +42,7 @@ test("OrderedMap update existing key preserves order", {
   assert(m.len() == usize(3), "len still 3");
   assert(m.get(`beta`).unwrap() == i32(20), "new value");
   // Iteration order should still be alpha, beta, gamma
-  it := m.keys();
+  mut(it) := m.keys();
   k1 := it.next().unwrap();
   k2 := it.next().unwrap();
   k3 := it.next().unwrap();
@@ -52,13 +52,13 @@ test("OrderedMap update existing key preserves order", {
   assert(it.next().is_none(), "no more");
 });
 test("OrderedMap iteration in insertion order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`z`, i32(26));
   m.insert(`a`, i32(1));
   m.insert(`m`, i32(13));
   // keys
   mut(ks) := ArrayList(String).new();
-  it := m.keys();
+  mut(it) := m.keys();
   while(true, {
     n := it.next();
     cond(
@@ -90,10 +90,10 @@ test("OrderedMap iteration in insertion order", {
   assert(vs(usize(2)) == i32(13), "13 third");
 });
 test("OrderedMap iter yields entry POINTERS in insertion order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`one`, i32(1));
   m.insert(`two`, i32(2));
-  it := m.iter();
+  mut(it) := m.iter();
   e1 := it.next().unwrap();
   e2 := it.next().unwrap();
   assert(it.next().is_none(), "two entries");
@@ -103,7 +103,7 @@ test("OrderedMap iter yields entry POINTERS in insertion order", {
   assert(e2.*.value == i32(2), "second value");
 });
 test("OrderedMap iter pointers alias the map — writing through one updates it", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   for(m.iter(), ptr => {
@@ -113,7 +113,7 @@ test("OrderedMap iter pointers alias the map — writing through one updates it"
   assert(m.get(`b`).unwrap() == i32(102), "b updated in place");
 });
 test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`one`, i32(1));
   m.insert(`two`, i32(2));
   mut(keys) := ArrayList(String).new();
@@ -128,7 +128,7 @@ test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
   assert(total == i32(3), "values summed");
 });
 test("OrderedMap remove", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
@@ -138,7 +138,7 @@ test("OrderedMap remove", {
   assert(m.len() == usize(2), "len 2");
   assert(!m.contains_key(`b`), "b gone");
   // Order should be a, c
-  it := m.keys();
+  mut(it) := m.keys();
   k1 := it.next().unwrap();
   k2 := it.next().unwrap();
   assert(it.next().is_none(), "two keys");
@@ -150,7 +150,7 @@ test("OrderedMap remove", {
   assert(m.len() == usize(2), "len unchanged");
 });
 test("OrderedMap clear", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.clear();
@@ -159,13 +159,13 @@ test("OrderedMap clear", {
   assert(m.keys().next().is_none(), "no keys");
 });
 test("OrderedMap re-insert after remove appends to end", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
   m.remove(`a`);
   m.insert(`a`, i32(99));
-  it := m.keys();
+  mut(it) := m.keys();
   k1 := it.next().unwrap();
   k2 := it.next().unwrap();
   k3 := it.next().unwrap();
@@ -175,14 +175,14 @@ test("OrderedMap re-insert after remove appends to end", {
   assert(m.get(`a`).unwrap() == i32(99), "a is 99");
 });
 test("OrderedMap many entries preserves order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   mut(i) := i32(0);
   while(i < i32(50), i = (i + i32(1)), {
     key := i.to_string();
     m.insert(key, i);
   });
   assert(m.len() == usize(50), "50 entries");
-  it := m.keys();
+  mut(it) := m.keys();
   mut(expected) := i32(0);
   while(true, {
     n := it.next();
@@ -198,7 +198,7 @@ test("OrderedMap many entries preserves order", {
   assert(expected == i32(50), "saw all 50");
 });
 test("OrderedMap Default is the empty map", {
-  m := OrderedMap(String, i32).default();
+  mut(m) := OrderedMap(String, i32).default();
   assert(m.len() == usize(0), "default map is empty");
   m.insert(`k`, i32(7));
   assert(m.len() == usize(1), "the default map is a usable map");
@@ -206,9 +206,12 @@ test("OrderedMap Default is the empty map", {
 // `swap_remove` moves the LAST key into the removed slot — Rust's
 // `IndexMap::swap_remove`. O(1), and the iteration order changes: that trade
 // is the reason it exists beside the order-preserving O(n) `remove`.
+// `keys()` consumes its map (B10), and the callers below keep theirs, so the
+// helper walks an explicit clone — the value-semantics replacement for the old
+// shared-handle key walk.
 _keys :: (fn(m : &OrderedMap(String, i32)) -> ArrayList(String))({
   mut(out) := ArrayList(String).new();
-  it := m.keys();
+  mut(it) := m.clone().keys();
   while(true, {
     match(
       it.next(),
