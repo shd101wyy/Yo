@@ -101,7 +101,7 @@ _reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token,
       (si : usize) = usize(0);
       while(si < seen_names.len(), {
         if(match(seen_names.get_cloned(si), .Some(x) => (x == nm), .None => false), {
-          other := match(seen_owner.get(si), .Some(x) => x, .None => String.new());
+          other := match(seen_owner.get_cloned(si), .Some(x) => x, .None => String.new());
           exn.throw(
             dyn(
               with_code(
@@ -238,7 +238,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < negative_ids.len(), {
-        existing := match(negative_ids.get(j), .Some(s) => s, .None => String.from(""));
+        existing := match(negative_ids.get_cloned(j), .Some(s) => s, .None => String.from(""));
         if(existing == tid, {
           already = true;
         });
@@ -271,7 +271,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < required_ids.len(), {
-        existing := match(required_ids.get(j), .Some(s) => s, .None => String.from(""));
+        existing := match(required_ids.get_cloned(j), .Some(s) => s, .None => String.from(""));
         if(existing == tid, {
           already = true;
         });

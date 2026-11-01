@@ -72,9 +72,12 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
     set_import_closure_fn(import_closure_of);
     g_import_closure_installed = true;
   });
-  g_loading_key_by_canonical.with_mut(m => m.insert(_canonical(path).*.clone(), path.clone()));
-  g_loading_keys.with_mut(xs => xs.push(path.clone()));
-  g_loading_envs.with_mut(xs => xs.push(env));
+  lkc := _canonical(path).*.clone();
+  lp := path.clone();
+  g_loading_key_by_canonical.with_mut({ lkc, lp }(m) => m.insert(lkc, lp));
+  lk := path.clone();
+  g_loading_keys.with_mut({ lk }(xs) => xs.push(lk));
+  g_loading_envs.with_mut({ env }(xs) => xs.push(env));
   _sync_registration_owner();
 });
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
@@ -199,10 +202,10 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
     n := g_import_edge_importers.with(xs => xs.len());
     (i : usize) = usize(0);
     while(i < n, {
-      from_p := match(g_import_edge_importers.with(xs => xs.get(i)), .Some(a) => (_canonical(&a).* == p), .None => false);
+      from_p := match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (_canonical(&a).* == p), .None => false);
       if(from_p, {
         match(
-          g_import_edge_imports.with(xs => xs.get(i)),
+          g_import_edge_imports.with(xs => xs.get_cloned(i)),
           .Some(t) => {
             tc := _canonical(&t);
             if(seen.insert(tc.*.clone()), {

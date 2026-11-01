@@ -754,8 +754,8 @@ require_ref_own_argument_exclusivity :: (
                       ref_root_vars.get(ri),
                       .Some(ref_var) =>
                         if(alias_group_root(&ref_var) == alias_group_root(&own_var), {
-                          own_lbl := match(own_root_lbls.get(oi), .Some(l) => l, .None => String.from(""));
-                          ref_lbl := match(ref_root_lbls.get(ri), .Some(l) => l, .None => String.from(""));
+                          own_lbl := match(own_root_lbls.get_cloned(oi), .Some(l) => l, .None => String.from(""));
+                          ref_lbl := match(ref_root_lbls.get_cloned(ri), .Some(l) => l, .None => String.from(""));
                           match(
                             args.get(own_idx),
                             .Some(own_arg) =>
@@ -951,7 +951,8 @@ _DeferredSiblingRule :: struct(call_id : usize, label : String, err : YoError);
 (g_deferred_sibling_rules : RefCell(ArrayList(_DeferredSiblingRule))) = RefCell(ArrayList(_DeferredSiblingRule)).new(ArrayList(_DeferredSiblingRule).new());
 /// Record a deferred rule-(b) rejection (see `_DeferredSiblingRule`).
 flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoError) -> unit)({
-  g_deferred_sibling_rules.with_mut(xs => xs.push(_DeferredSiblingRule(call_id : call_id, label : label.clone(), err : err)));
+  rec := _DeferredSiblingRule(call_id : call_id, label : label.clone(), err : err);
+  g_deferred_sibling_rules.with_mut({ rec }(xs) => xs.push(rec));
   ()
 });
 /// Settle the deferred rule-(b) rejections of call `call_id` now that A2 has
@@ -959,20 +960,24 @@ flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoErr
 /// the caller): drop those a capture names — A2 judged that parameter's
 /// place, both directions — and re-raise the first one no capture names.
 take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(CaptureBorrow), exn : Exception) -> unit)({
-  remaining := ArrayList(_DeferredSiblingRule).new();
-  (first_unowned : Option(YoError)) = Option(YoError).None;
-  g_deferred_sibling_rules.with_mut(xs => {
-    (xi : usize) = usize(0);
-    while(xi < xs.len(), {
+  (first_unowned : Option(YoError)) = g_deferred_sibling_rules.with_mut({ &borrowed, call_id }(xs) => {
+    remaining := ArrayList(_DeferredSiblingRule).new();
+    (fu : Option(YoError)) = Option(YoError).None;
+    // B9: the rules are taken out and consumed — `into_iter` yields each
+    // record by value (no Clone on `_DeferredSiblingRule`).
+    taken := xs.split_off(usize(0));
+    it := taken.into_iter();
+    (go : bool) = true;
+    while(go, {
       match(
-        xs.get(xi),
+        it.next(),
         .Some(e) => {
           if(e.call_id == call_id, {
             (owned : bool) = false;
             (bi : usize) = usize(0);
             while(bi < borrowed.len(), {
               match(
-                borrowed.get(bi),
+                borrowed.get_cloned(bi),
                 .Some(b) => {
                   if(b.root_name == e.label, {
                     owned = true;
@@ -982,27 +987,32 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
               );
               bi = (bi + usize(1));
             });
-            if(!owned && first_unowned.is_none(), {
-              first_unowned = Option(YoError).Some(e.err);
+            if(!owned && fu.is_none(), {
+              fu = Option(YoError).Some(e.err);
             });
           }, {
             remaining.push(e);
           });
         },
-        .None => ()
+        .None => {
+          go = false;
+        }
       );
-      xi = (xi + usize(1));
     });
     xs.clear();
-    (ri : usize) = usize(0);
-    while(ri < remaining.len(), {
+    // Put the survivors back by consuming the local list.
+    put := remaining.into_iter();
+    (pgo : bool) = true;
+    while(pgo, {
       match(
-        remaining.get(ri),
+        put.next(),
         .Some(e) => xs.push(e),
-        .None => ()
+        .None => {
+          pgo = false;
+        }
       );
-      ri = (ri + usize(1));
     });
+    fu
   });
   match(
     first_unowned,
@@ -1080,7 +1090,7 @@ _reject_if_container_reachable :: (
     return(());
   });
   cvar := match(cvars.last(), .Some(v) => v, .None => return(()));
-  cname := ast_expr_text(container_atom).*;
+  cname := ast_expr_text(container_atom).*.clone();
   fix := cond(
     (kind == "index") => String.from("Read the element into a local first (\"xs.get(i)\" copies it, std/mem's \"take(&mut xs(i))\" moves it out), or split the calls."),
     true => String.from("Bind the intermediate object to a local first (\"b := ...;\") and pass a field of \"b\" instead, or split the calls.")
@@ -1182,7 +1192,7 @@ _reject_if_container_reachable :: (
             )
           );
           is_closure || match(
-            holder_types,
+            &holder_types,
             .Some(targets) => {
               // F1: a function-typed sibling is NOT given to the walk — the
               // walk answers yes for every `Func`/`Fn` trait type, which
@@ -1251,11 +1261,11 @@ require_valid_ref_argument_places :: (
       // (`flag_deferred_sibling_rule`); `_note_future_producing_call`
       // settles it against the future's real capture list.
       defer_id := if(
-        future_callee && param_labels.get(i).is_some(),
+        future_callee && param_labels.get_cloned(i).is_some(),
         Option(usize).Some(call_id),
         Option(usize).None
       );
-      defer_label := match(param_labels.get(i), .Some(l) => l, .None => String.new());
+      defer_label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_tok := ast_expr_token(&arg);
       if(!arg_tok.module_path.*.starts_with(String.from("auto-generated://")), {

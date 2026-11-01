@@ -1166,8 +1166,8 @@ evaluate_yo_build_functions :: (
         )
       );
     });
-    looked_up := proc_env.get_cloned(env_name.clone());
-    record_env_read(env_name.clone(), match(looked_up, .Some(v) => v.clone(), .None => String.from("<unset>")));
+    looked_up := proc_env.get(env_name.clone());
+    record_env_read(env_name.clone(), match(&looked_up, .Some(v) => v.clone(), .None => String.from("<unset>")));
     return(
       _build_string_result(expr, env, ctx, match(&looked_up, .Some(v) => v.clone(), .None => env_default.clone()))
     );
@@ -1188,7 +1188,7 @@ evaluate_yo_build_functions :: (
     is_set_val := proc_env.get(is_set_name.clone());
     // Recorded exactly like a value read: whether the variable EXISTS is what
     // this call branched on, so a build must not be reused across a change.
-    record_env_read(is_set_name.clone(), match(is_set_val, .Some(v) => v.clone(), .None => String.from("<unset>")));
+    record_env_read(is_set_name.clone(), match(&is_set_val, .Some(v) => v.clone(), .None => String.from("<unset>")));
     return(_build_bool_result(expr, env, ctx, is_set_val.is_some()));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, Option(usize).None), {

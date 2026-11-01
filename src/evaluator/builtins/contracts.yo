@@ -395,7 +395,8 @@ _evaluate_transparent_unary :: (
 /// from non-ghost context (a ghost_fn has no runtime semantics).
 (g_ghost_fn_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_ghost_fn :: (fn(func_id : &String) -> unit)({
-  g_ghost_fn_ids.with_mut(s => s.insert(func_id.clone()));
+  fid := func_id.clone();
+  g_ghost_fn_ids.with_mut({ fid }(s) => s.insert(fid));
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
@@ -416,7 +417,9 @@ GhostFnDef :: ref(
 );
 (g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
-  g_ghost_fn_defs.with_mut(m => m.insert(func_id.clone(), GhostFnDef(params : params.clone(), body : body)));
+  k := func_id.clone();
+  v := GhostFnDef(params : params.clone(), body : body);
+  g_ghost_fn_defs.with_mut({ k, v }(m) => m.insert(k, v));
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
@@ -429,7 +432,9 @@ ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
 /// refine() evaluation); read by the verifier's assume/prove walks.
 (g_refine_pred_chains : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String)) -> unit)({
-  g_refine_pred_chains.with_mut(m => m.insert(outer_fid.clone(), chain.clone()));
+  k := outer_fid.clone();
+  v := chain.clone();
+  g_refine_pred_chains.with_mut({ k, v }(m) => m.insert(k, v));
   ()
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
