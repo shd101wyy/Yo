@@ -99,6 +99,7 @@
 { has_any_control_flow, ExprInfo, lookup_macro_expansion, is_call_scoped_share_drop, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type } :: import("../../types/guards.yo");
+{ t_slot_pointee } :: import("../../types/definitions.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
@@ -155,9 +156,10 @@
 } :: import("../../evaluator/async/await_analysis.yo");
 { is_io_future_type } :: import("../async/state_machine.yo");
 { panic, assert } :: import("std/assert");
+{ replace } :: import("std/mem");
 /// The callee name of a FnCall (empty for an Atom).
 _func_name :: (fn(expr : &AstExpr) -> String)(
-  match(expr, .FnCall(_, func, _, _, _) => ast_expr_text(&func).*, .Atom(_, _) => String.from(""))
+  match(expr, .FnCall(_, func, _, _, _) => ast_expr_text(&func).*.clone(), .Atom(_, _) => String.from(""))
 );
 /// Map an infix operator SYMBOL (`+`, `==`, …) to the builtin-inline function
 /// name (`__yo_op_add`, `__yo_op_eq`, …) that generate_yo_inline_function_call
@@ -308,7 +310,7 @@ _is_primitive_unary_operator :: (fn(expr : &AstExpr, context : &FunctionGenerati
 /// deferred-dup rewrite, fed to generate_yo_inline_function_call.
 _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
-  arg_exprs := match(ei_opt, .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())), .None => match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new()));
+  arg_exprs := match(ei_opt, .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())), .None => match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new()));
   args := ArrayList(String).new();
   n := arg_exprs.len();
   (i : usize) = usize(0);
@@ -386,7 +388,7 @@ _generate_io_spawn :: (fn(expr : &AstExpr, indent : &String, context : &Function
   future_type_name := match(context.base.get_expr_info(&future_arg), .Some(ei) => get_type_string(&ei.ty, &context.base), .None => String.from("void*"));
   expr_ei := context.base.get_expr_info(expr);
   join_handle_type_name := match(expr_ei, .Some(ei) => Option(String).Some(get_type_string(&ei.ty, &context.base)), .None => Option(String).None);
-  name_suffix := match(expr_ei, .Some(ei) => match(ei.variable_name, .Some(n) => n, .None => String.from("")), .None => String.from(""));
+  name_suffix := match(expr_ei, .Some(ei) => match(ei.variable_name, .Some(n) => n.clone(), .None => String.from("")), .None => String.from(""));
   // Statement-level spawns (no bound variable) still need UNIQUE temp names:
   // two unbound `io.spawn(...)` statements in one C scope redefine
   // `__spawn_future`. `variable_name` is absent for unbound spawns, so
@@ -448,7 +450,7 @@ _generate_io_spawn :: (fn(expr : &AstExpr, indent : &String, context : &Function
 /// FuncVal's func_id up in the codegen function registry (populated by
 /// collection.yo's index_method_value pass).
 _index_method_call_by_name :: (fn(method_value : &EvalValue, recv_arg : &String, index_code : &String, context : &FunctionGenerationContext) -> String)({
-  fid := match(method_value, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => return(String.from("/* Error: Index method not a FuncVal */")));
+  fid := match(method_value, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => return(String.from("/* Error: Index method not a FuncVal */")));
   match(
     context.base.get_function_entry(&fid),
     .Some(e) => `${e.c_name.clone()}(${recv_arg}, ${index_code})`,
@@ -593,18 +595,18 @@ _materialize_owned_rc_comptime_value :: (
     context : &FunctionGenerationContext
   ) -> String
 )({
-  var_name := match(ei.variable_name, .Some(vn) => vn, .None => String.from(""));
-  if(var_name.len() == usize(0), return(comptime_code));
+  var_name := match(ei.variable_name, .Some(vn) => vn.clone(), .None => String.from(""));
+  if(var_name.len() == usize(0), return(comptime_code.clone()));
   // Only shapes that actually malloc need an owner (see the predicate's doc).
-  if(!comptime_value_allocates_rc_object(value, &ei.ty), return(comptime_code));
-  if(!is_temp_variable_name(&ei.env.module_path.*, &var_name), return(comptime_code));
+  if(!comptime_value_allocates_rc_object(value, &ei.ty), return(comptime_code.clone()));
+  if(!is_temp_variable_name(&ei.env.module_path.*, &var_name), return(comptime_code.clone()));
   vars := scope_variables(key, &ei.env, var_name.clone());
   is_owning := match(
     vars.last(),
     .Some(v) => v.is_owning_the_rc_value,
     .None => false
   );
-  if(!is_owning, return(comptime_code));
+  if(!is_owning, return(comptime_code.clone()));
   c_name := get_variable_name_for_codegen_at(key, var_name.clone(), Option(Environment).Some(ei.env));
   line := indent.clone();
   line.push_string(get_variable_type_string(&ei.ty, c_name.clone(), &context.base));
@@ -627,7 +629,7 @@ _materialize_owned_rc_comptime_value :: (
 /// A block's result temp lent to a call after an await was never stored, so
 /// its scope-end drop released the zeroed slot and leaked the value
 /// (issues/fixed/2026-10-30-a-block-result-lent-to-a-call-after-an-await-leaks.md).
-_store_result_temp_in_task :: (fn(expr : &AstExpr, code : &String, indent : &String, context : &FunctionGenerationContext) -> String)({
+_store_result_temp_in_task :: (fn(expr : &AstExpr, code : String, indent : &String, context : &FunctionGenerationContext) -> String)({
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -649,7 +651,7 @@ _store_result_temp_in_task :: (fn(expr : &AstExpr, code : &String, indent : &Str
 /// Scalars and pointers only: a type- or function-valued `::` binding is never
 /// read at run time.
 _generate_comptime_binding :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(String.new()));
   rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(String.new()));
   if(!ast_expr_is_atom(&lhs), {
@@ -1000,7 +1002,7 @@ _calls_a_never_function :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
     expr,
     .FnCall(_, callee, _, _, _) => match(
       context.base.get_expr_info(&callee),
-      .Some(cei) => match(&cei.ty, Rc(.Func({ result : cres })) => is_never_type(&cres), _ => false),
+      .Some(cei) => match(&cei.ty, Rc(.Func({ result : cres })) => is_never_type(&t_slot_pointee(&cres)), _ => false),
       .None => false
     ),
     _ => false
@@ -1013,7 +1015,7 @@ _call_share_drops_to_pend :: (fn(expr : &AstExpr, context : &FunctionGenerationC
   out := ArrayList(AstExpr).new();
   drops := match(
     context.base.get_expr_info(expr),
-    .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => d, .None => return(out)),
+    .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => d.clone(), .None => return(out)),
     .None => return(out)
   );
   (i : usize) = usize(0);
@@ -1055,11 +1057,13 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       // such an exit releases it once its dup is in scope
       // (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
       share_drops := _call_share_drops_to_pend(expr, context);
-      prev_pending := context.pending_deferred_drops;
+      // Only a call with shares to pend swaps the list in (and restores it).
+      (prev_pending : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
       if(share_drops.len() > usize(0), {
+        prev_pending = replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
         with_shares := share_drops.clone();
         match(
-          prev_pending,
+          &prev_pending,
           .Some(pp) => {
             (k : usize) = usize(0);
             while(k < pp.len(), {
@@ -1102,7 +1106,7 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
             .None => String.new()
           )
         },
-        true => _sm_arg_temp_read(expr, &code, context)
+        true => _sm_arg_temp_read(expr, code, context)
       )
     },
     // A bare `return` outside a state machine is the unit return
@@ -1122,13 +1126,12 @@ _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
 /// enclosing call suspends: the enclosing call reads it after the task
 /// resumed, when the C local no longer holds it, so the read is the temp's
 /// task slot (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
-_sm_arg_temp_read :: (fn(expr : &AstExpr, code : &String, context : &FunctionGenerationContext) -> String)({
+_sm_arg_temp_read :: (fn(expr : &AstExpr, code : String, context : &FunctionGenerationContext) -> String)({
   if(context.in_async_state_machine.is_none(), return(code));
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code));
-  tn := match(ei.variable_name, .Some(n) => n, .None => return(code));
+  tn := match(ei.variable_name, .Some(n) => n.clone(), .None => return(code));
   if(!is_arg_temp_across_suspension(tn.clone()) || !(code == tn), return(code));
-  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(code));
-  match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code)
+  match(context.state_machine_variables, .Some(smv) => match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code), .None => code)
 });
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.

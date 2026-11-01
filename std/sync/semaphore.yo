@@ -49,15 +49,12 @@ pragma(Pragma.AllowUnsafe);
 /// mutation has to be serialized with the `_permits <= 0` observation made by
 /// a waiter in `acquire`, otherwise a permit released between a waiter's test
 /// and its `wait()` would be lost.
-Semaphore :: atomic(
-  ref(
-    struct(
-      _permits : i32,
-      _mutex : Mutex(bool),
-      _cv : Cond
-    )
-  )
+_SemaphoreState :: struct(
+  _permits : i32,
+  _mutex : Mutex(bool),
+  _cv : Cond
 );
+Semaphore :: struct(_cell : __yo_atomic_cell(_SemaphoreState));
 // __SemaphoreReleaser — private object that releases one permit on Drop.
 // Allocated locally inside with_permit; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees the release under both a normal return
@@ -84,33 +81,38 @@ impl(
   /// batch of work.
   new : (fn(permits : i32) -> Self)(
     Self(
-      _permits : permits,
-      _mutex : Mutex(bool).new(false),
-      _cv : Cond.new()
+      _cell : __yo_atomic_cell(_SemaphoreState)(
+        _SemaphoreState(
+          _permits : permits,
+          _mutex : Mutex(bool).new(false),
+          _cv : Cond.new()
+        ),
+        .None
+      )
     )
   ),
   /// Take one permit, blocking until one is available.
   acquire : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    while(self._permits <= i32(0), {
-      self._cv.wait_with(&self._mutex);
+    self._cell.*._mutex._raw_lock();
+    while(self._cell.*._permits <= i32(0), {
+      self._cell.*._cv.wait_with(&self._cell.*._mutex);
     });
-    self._permits = (self._permits - i32(1));
-    self._mutex._raw_unlock();
+    self._cell.*._permits = (self._cell.*._permits - i32(1));
+    self._cell.*._mutex._raw_unlock();
   }),
   /// Take one permit if one is available right now. Never blocks.
   /// Returns `true` when a permit was taken.
   try_acquire : (fn(self : &Self) -> bool)({
-    self._mutex._raw_lock();
+    self._cell.*._mutex._raw_lock();
     mut(taken) := false;
     cond(
-      (self._permits > i32(0)) => {
-        self._permits = (self._permits - i32(1));
+      (self._cell.*._permits > i32(0)) => {
+        self._cell.*._permits = (self._cell.*._permits - i32(1));
         taken = true;
       },
       true => ()
     );
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_unlock();
     taken
   }),
   /// Return one permit, waking one waiter if any is blocked in `acquire`.
@@ -121,10 +123,10 @@ impl(
   /// `_permits` in its `while` loop and parks again, and the permit it lost
   /// was consumed by the winner, so no release goes unmatched.
   release : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    self._permits = (self._permits + i32(1));
-    self._cv.signal();
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_lock();
+    self._cell.*._permits = (self._cell.*._permits + i32(1));
+    self._cell.*._cv.signal();
+    self._cell.*._mutex._raw_unlock();
   }),
   /// Hold one permit for the duration of `body`, releasing it on the way out.
   ///
@@ -159,9 +161,9 @@ impl(
   /// The permits available at the instant of the call. Informational only —
   /// by the time the caller looks at it another thread may have taken one.
   available_permits : (fn(self : &Self) -> i32)({
-    self._mutex._raw_lock();
-    n := self._permits;
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_lock();
+    n := self._cell.*._permits;
+    self._cell.*._mutex._raw_unlock();
     n
   })
 );

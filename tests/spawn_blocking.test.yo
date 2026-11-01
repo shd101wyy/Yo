@@ -53,7 +53,7 @@ test("spawn_blocking carries a non-scalar result", {
   assert((pr.lo + pr.hi) == i32(7), "a value struct crossed back from the worker thread");
 });
 test("a sibling task keeps running while spawn_blocking blocks", {
-  progress := AtomicI32(i32(0));
+  progress := AtomicI32.new(i32(0));
   // The sibling: an ordinary async task doing 40 turns of the loop.
   sib := io.spawn(
     io.async((io : Io) => {

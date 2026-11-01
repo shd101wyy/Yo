@@ -202,7 +202,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
 _is_non_control_async_fn :: (fn(func_id : &String) -> bool)(
   !is_control_fn(func_id.clone()) && match(
     get_func_type(func_id.clone()),
-    Rc(.Func({ result : r, meta : m })) => (!m.*.is_control && type_implements_future(&r)),
+    Rc(.Func({ result : r, meta : m })) => (!m.*.is_control && type_implements_future(&t_slot_pointee(&r))),
     _ => false
   )
 );
@@ -265,7 +265,7 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &CodeGenContext,
 _callee_token_value :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, tok) => tok.value.*, .FnCall(_, _, _, _, _) => String.from("")),
+    .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, tok) => tok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from("")),
     .Atom(_, _) => String.from("")
   )
 );
@@ -376,7 +376,7 @@ _register_extern_global_header :: (
 });
 /// func_id of a FuncVal EvalValue, or "".
 _func_val_id :: (fn(v : &EvalValue) -> String)(
-  match(v, .FuncVal(__fvd3, _) => __fvd3.*.func_id, _ => String.from(""))
+  match(v, .FuncVal(__fvd3, _) => __fvd3.*.func_id.clone(), _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _func_val_body :: (fn(v : &EvalValue) -> AstExpr)(
@@ -766,7 +766,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &CodeGenContext, 
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
         cdot_args := match(callee, .FnCall(_, _, Rc(da), _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
-        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m).*, String.from("")), .None => String.from(""));
+        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m).*.clone(), String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
         // is the metatype `Type`, not the receiver type P — `type_id_or_empty`

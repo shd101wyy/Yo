@@ -58,7 +58,7 @@ _capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenera
     found,
     .Some(name) => name,
     .None => {
-      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       o := String.from("async_capture_");
       o.push_string(&cap_id);
       o
@@ -568,7 +568,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &Functi
     // __yo_thread_t <tv> = __yo_thread_spawn(<wrapper>, <heapVar>);
     tv := match(
       ei.variable_name,
-      .Some(v) => v,
+      .Some(v) => v.clone(),
       .None => fresh_local_name(String.from("_thr_"), &context.base.current_function_name)
     );
     ts := indent.clone();

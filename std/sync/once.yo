@@ -49,20 +49,19 @@ pragma(Pragma.AllowUnsafe);
 
 /// Execute a function exactly once, thread-safely.
 /// Uses atomic reference counting for safe cross-thread sharing.
-Once :: atomic(
-  ref(
-    struct(
-      _done : atomic_bool,
-      _mutex : Mutex(bool)
-    )
-  )
+_OnceState :: struct(
+  _done : atomic_bool,
+  _mutex : Mutex(bool)
 );
+Once :: struct(_cell : __yo_atomic_cell(_OnceState));
 impl(
   Once,
   /// Create a `Once` that has not run yet — Rust's `Once::new`.
   new : (fn() -> Self)({
-    v := Self(false, Mutex(bool).new(false));
-    unsafe(atomic_store_explicit(addr_of(v._done), false, memory_order_release));
+    v := Self(
+      _cell : __yo_atomic_cell(_OnceState)(_OnceState(false, Mutex(bool).new(false)), .None)
+    );
+    unsafe(atomic_store_explicit(addr_of(v._cell.*._done), false, memory_order_release));
     v
   }),
   // The slow path runs under `Mutex.with_lock` rather than a manual
@@ -105,23 +104,23 @@ impl(
   call : (fn(self : &Self, f : &Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done (atomic_bool with Acquire load), no lock taken.
     cond(
-      (unsafe(atomic_load_explicit(addr_of(self._done), memory_order_acquire)) == true) => (),
+      (unsafe(atomic_load_explicit(addr_of(self._cell.*._done), memory_order_acquire)) == true) => (),
       // Re-entry from inside `f` (rule D5): the initializer runs under
       // `_mutex`, so "this thread holds the mutex" IS "this thread is inside
       // f". Asked here rather than left to the mutex's own self-relock trap
       // so the message names this API — and it needs no extra state to
       // clear on an early exit from `f`, which the mutex guard already
       // handles (issues/fixed/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md).
-      self._mutex._held_by_current_thread() => __yo_panic("Once.call: re-entered from its own initializer"),
+      self._cell.*._mutex._held_by_current_thread() => __yo_panic("Once.call: re-entered from its own initializer"),
       true =>
-        self._mutex.with_lock(_guarded => {
+        self._cell.*._mutex.with_lock(_guarded => {
           // Double-check under the lock: another thread may have finished
           // between the fast-path load and the acquisition.
           cond(
-            (unsafe(atomic_load_explicit(addr_of(self._done), memory_order_relaxed)) == true) => (),
+            (unsafe(atomic_load_explicit(addr_of(self._cell.*._done), memory_order_relaxed)) == true) => (),
             true => {
               f();
-              unsafe(atomic_store_explicit(addr_of(self._done), true, memory_order_release));
+              unsafe(atomic_store_explicit(addr_of(self._cell.*._done), true, memory_order_release));
             }
           );
         })
@@ -136,7 +135,7 @@ impl(
   /// instant it is read — another thread may be inside `f` — so do not use
   /// it to decide whether `call` will block.
   is_done : (fn(self : &Self) -> bool)(
-    unsafe(atomic_load_explicit(addr_of(self._done), memory_order_acquire)) == true
+    unsafe(atomic_load_explicit(addr_of(self._cell.*._done), memory_order_acquire)) == true
   )
 );
 
@@ -149,15 +148,14 @@ impl(
 /// happens after `_value` is written, and every read goes through an
 /// Acquire-load of `_done` first, so a thread that observes an initialized
 /// cell also observes the value the initializer wrote.
-OnceCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic(
-    ref(
-      struct(
-        _once : Once,
-        _value : Option(T)
-      )
-    )
+_OnceCellState :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _once : Once,
+    _value : Option(T)
   )
+);
+OnceCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  struct(_cell : __yo_atomic_cell(_OnceCellState(T)))
 );
 impl(
   generic(T : Type),
@@ -166,30 +164,39 @@ impl(
   /// Create an empty cell.
   new : (fn() -> Self)(
     Self(
-      _once : Once.new(),
-      _value : Option(T).None
+      _cell : __yo_atomic_cell(_OnceCellState(T))(
+        _OnceCellState(T)(
+          _once : Once.new(),
+          _value : Option(T).None
+        ),
+        .None
+      )
     )
   ),
   /// Return the stored value, initializing it with `f` if this is the first
   /// call. `f` runs at most once across all threads; every other caller blocks
   /// until it finishes and then sees its value.
   get_or_init : (fn(self : &Self, f : &Impl(Fn() -> T)) -> T)({
-    self._once.call(() => {
-      self._value = Option(T).Some(f());
+    // The `Once` handle is copied out first: the closure argument writes
+    // through `self`'s cell, and lending the receiver through the same cell
+    // root would be decision 28's argument exclusivity (E0910).
+    once := self._cell.*._once;
+    once.call(() => {
+      self._cell.*._value = Option(T).Some(f());
     });
-    self._value.expect("OnceCell: initialized flag published without a value")
+    self._cell.*._value.expect("OnceCell: initialized flag published without a value")
   }),
   /// Return the stored value, or `None` if the cell has not been initialized.
   /// Never runs an initializer.
   get : (fn(self : &Self) -> Option(T))(
     cond(
-      self._once.is_done() => self._value,
+      self._cell.*._once.is_done() => self._cell.*._value,
       true => Option(T).None
     )
   ),
   /// Whether the cell holds a value.
   is_initialized : (fn(self : &Self) -> bool)(
-    self._once.is_done()
+    self._cell.*._once.is_done()
   )
 );
 

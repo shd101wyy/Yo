@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
 { some_resolution } :: import("../../expr_info.yo");
@@ -21,7 +21,8 @@
   RuntimeStructField,
   get_type_string,
   get_storage_type_string,
-  dyn_slot_param_type_string,
+  dyn_slot_param_abi_string,
+  dyn_slot_result_abi_string,
   dyn_concrete_c_name,
   get_runtime_struct_fields,
   sanitize_for_c_identifier,
@@ -1641,8 +1642,11 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.
         if(dyn_member_is_method(field_ty) && dyn_member_unsafe_reason(field_ty).is_none(), {
-          ret_str := get_type_string(&result, context);
+          // A projection's result is a pointer, and its `&T` parameters
+          // are (decision 34): the slot follows the method's C ABI.
+          ret_str := dyn_slot_result_abi_string(field_ty, context);
           plist := String.new();
+
           np := param_labels.len();
           (pi : usize) = usize(0);
           while(pi < np, {
@@ -1652,7 +1656,7 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
             if(pi == usize(0), {
               plist.push_str("void* self");
             }, {
-              pty := dyn_slot_param_type_string(param_types.get(pi), context);
+              pty := dyn_slot_param_abi_string(field_ty, pi, context);
               pn := match(param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(&l, false), .None => String.from("arg"));
               plist.push_string(&pty);
               plist.push_str(" ");
@@ -1697,9 +1701,10 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
         tt := match(required_trait_types.get(ti), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         cond(
           is_fn_trait_type(&tt) => match(
-            tt,
+            Rc.clone(tt),
             Rc(.FnTraitT({ call_param_labels, call_param_types, call_result })) => {
-              ret_str := get_type_string(&call_result, context);
+              // `Fn(...) -> &T` (N1c): the slot has the projection's ABI.
+              ret_str := dyn_slot_result_abi_string(&tt, context);
               plist := String.new();
               np := call_param_labels.len();
               (pi : usize) = usize(0);
@@ -1707,7 +1712,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
                 if(pi > usize(0), {
                   plist.push_str(", ");
                 });
-                pty := dyn_slot_param_type_string(call_param_types.get(pi), context);
+                pty := dyn_slot_param_abi_string(&tt, pi, context);
                 pn := match(call_param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(&l, false), .None => String.from("arg"));
                 plist.push_string(&pty);
                 plist.push_str(" ");

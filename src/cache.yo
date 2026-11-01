@@ -118,9 +118,11 @@ store_tree_dir :: (fn(cache_root : &String, integrity : &String) -> Result(Strin
   dir.push_string(&hex);
   Result(String, String).Ok(dir)
 });
-/// `<tree dir>.verified` — a sibling file written only after a full hash of
-/// the landed tree matched its name. A tree without it is re-hashed before it
-/// is trusted (an interrupted install, a hand-edited store).
+/// `<tree dir>.verified` — a sibling file written after a full hash of the
+/// landed (or reused) tree matched its name. Informational for humans and
+/// older readers only: since the 2026-11-01 store corruption, `fetch_package`
+/// re-hashes a stored tree on EVERY reuse — a marker standing beside a
+/// mutated inner file used to make `yo install --locked` trust the mutation.
 store_verified_marker :: (fn(tree_dir : &String) -> String)(
   tree_dir.concat(String.from(".verified"))
 );

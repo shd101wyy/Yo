@@ -539,12 +539,13 @@ _ca_pad3 :: (fn(i : usize) -> String)({
 /// plus the body, so a marker at body line L is file line L+1 and `#line N`
 /// names the line after it: N = L+2, with L = newlines-before + 1. The name
 /// is rewritten too — the emitter wrote the monolithic `<out>.c` name it
-/// knows; only the driver's chunk naming is real here. Returns the body
-/// unchanged when no marker is present, so a flag-off compile pays nothing.
-_ca_patch_chunk_markers :: (fn(body : &String, chunk_file : &String) -> String)({
+/// knows; only the driver's chunk naming is real here. Returns `.None` when no
+/// marker is present (the body stands as is), so a flag-off compile pays
+/// nothing — no copy of the chunk body.
+_ca_patch_chunk_markers :: (fn(body : &String, chunk_file : &String) -> Option(String))({
   marker := line_restore_marker();
   if(!body.contains(&marker), {
-    return(body);
+    return(Option(String).None);
   });
   bytes := body.to_bytes();
   n := bytes.len();
@@ -633,7 +634,7 @@ _ca_patch_chunk_markers :: (fn(body : &String, chunk_file : &String) -> String)(
       ls = le;
     });
   });
-  String.from_bytes(out)
+  Option(String).Some(String.from_bytes(out))
 });
 /// Merge two start-ascending range lists into one start-ascending list.
 _ca_merge_ranges :: (
@@ -695,7 +696,7 @@ assemble_chunks :: (
     (chunk_base_opt : &Option(String)) ?= .None
   ) -> ChunkAssembly
 )({
-  chunk_base := match(chunk_base_opt, .Some(b) => b, .None => String.new());
+  chunk_base := match(chunk_base_opt, .Some(b) => b.clone(), .None => String.new());
   n := if(n_chunks < usize(1), usize(1), n_chunks);
   code_bytes := code.to_bytes();
   // 1. The header-defined name set: static definitions already living in the
@@ -898,7 +899,13 @@ assemble_chunks :: (
       cfile := chunk_base.clone();
       cfile.push_string(_ca_pad3(ci2));
       cfile.push_str(".c");
-      body = _ca_patch_chunk_markers(&body, &cfile);
+      match(
+        _ca_patch_chunk_markers(&body, &cfile),
+        .Some(patched) => {
+          body = patched;
+        },
+        .None => ()
+      );
     });
     chunks.push(body);
     ci2 = (ci2 + usize(1));

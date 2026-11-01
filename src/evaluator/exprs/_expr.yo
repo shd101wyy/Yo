@@ -228,7 +228,8 @@ import("std/fmt");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
 { EvalContext, is_dot_callee } :: import("../context.yo");
-{ format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure, warning_diagnostic_of_token } :: import("../../error.yo");
+{ emit_warning } :: import("../../diagnostics.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -650,7 +651,7 @@ _evaluate_exists_or_call :: (
 /// `&(T, o)` / `&mut(T, o)` outside a parameter's type (decision 43 step 2,
 /// N1a): the positions that arrive in later pieces of N1/N2.
 _origin_reference_position_message :: (fn(e : &AstExpr) -> String)(
-  `\`${ast_expr_to_string(e)}\` is an origin-qualified reference (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). It is written as a parameter's type, \`x : &(T, p)\` / \`x : &mut(T, p)\` with \`generic(p : Origin)\`; as a result type, a reference's pointee (\`&mut &(T, p)\`), a local's annotation or a type argument it is not supported yet. \`&mut x\` alone lends one place.`
+  `\`${ast_expr_to_string(e)}\` is an origin-qualified reference (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). It is written as a parameter's type, \`x : &(T, p)\` / \`x : &mut(T, p)\` with \`generic(p : Origin)\`, or as a function's result type, \`-> &(T, p)\`; as a reference's pointee (\`&mut &(T, p)\`), a local's annotation or a type argument it is not supported yet. \`&mut x\` alone lends one place.`
 );
 /// The first argument of a two-argument `&(A, B)` is a type (a soft trial).
 _origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
@@ -947,6 +948,18 @@ _evaluate_expression :: (
               cond(
                 ast_expr_is_fn_call_of(&inner_expr, BK_REF, .None) => {
                   // atomic(ref(struct(...))) — canonical reference-semantics form.
+                  // V5 Generation A warns on each use of the mode words the
+                  // parser keeps until Generation B deletes them
+                  // (plans/VALUES_BY_DEFAULT.md §V5).
+                  emit_warning(
+                    warning_diagnostic_of_token(
+                      ast_expr_token(expr),
+                      `the "atomic(...)" type spelling is deprecated by values-by-default (V5) and will be removed`,
+                      Option(String).Some(
+                        `share a value across threads as "Arc(T)", or compose the "std/sync" types ("Mutex(T)", "Channel(T)", the "Atomic*" wrappers) over plain values`
+                      )
+                    )
+                  );
                   ref_inner := match(
                     inner_expr,
                     .Atom(_, _) => make_err_expr(),
@@ -1012,6 +1025,18 @@ _evaluate_expression :: (
                 .Atom(_, _) => make_err_expr(),
                 .FnCall(_, _, Rc(args), _, _) =>
                   match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
+              );
+              // V5 Generation A warns on each use of the mode words the
+              // parser keeps until Generation B deletes them
+              // (plans/VALUES_BY_DEFAULT.md §V5).
+              emit_warning(
+                warning_diagnostic_of_token(
+                  ast_expr_token(expr),
+                  `the "ref(...)" type spelling is deprecated by values-by-default (V5) and will be removed`,
+                  Option(String).Some(
+                    `a single-owner record is "struct(...)" with "self : &mut Self" mutators; data shared on purpose is held as "Rc(T)" at the sharing site`
+                  )
+                )
               );
               cond(
                 ast_expr_is_fn_call_of(&ref_inner, BK_STRUCT, .None) =>

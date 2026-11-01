@@ -37,26 +37,27 @@ The cached list is treated as a per-call result. It is the cache's STORAGE;
 the concrete half must go into a per-call copy (or the concrete half must be
 cached beside it).
 
-## Fix (not applied here)
+## Fix (applied)
 
-```yo ignore
-out := match(
-  g_ctor_method_cache.with(m => m.get(&key)),
-  .Some(ce) => ce.impls.clone(),
-  .None => _collect_generic_ctor_method_impls(ctor_fid, method) // (kept inside the miss arm)
-);
-```
+The cached entry is the cache's STORAGE and stays generic-only: the hit path
+copies its elements into a fresh per-call `ArrayList` (shallow element copies —
+the binder/pattern handles are what callers already read through) before the
+concrete half is appended. `impls_of_constructor_method`
+(`src/evaluator/values/impl.yo`) now returns `generic + concrete` exactly once
+per call.
 
-i.e. clone the cached list before appending, so the stored entry stays
-generic-only. Left for its own change: the fix changes what
-static-argument inference sees (each concrete candidate exactly once), which
-needs its own test selection (`tests/static_argument_inference.test.yo` and
-the inference-feeding internal files), not a rider on an unrelated
-performance PR.
+## Verification
 
-## Verification plan (for the fixing change)
+- New regression test in `tests/internal/type_trait_methods.test.yo`
+  ("impls_of_constructor_method: repeated calls within one epoch return the
+  same list"): registers one visible concrete ctor method, calls the function
+  twice with an unchanged epoch, asserts both lists have the same length and
+  exactly one entry. FAILED on the unfixed tree (first=1 second=2, rc=1) and
+  PASSES with the fix.
+- `yo test ./tests/static_argument_inference.test.yo --parallel 1` — pass.
+- Tier-1 internal selection for `src/evaluator/values/impl.yo`
+  (`type_trait_methods`, `module_invalidation`, `check_watch`) — pass, one
+  file per call.
+- Emit-diff of `src/main.yo` against a develop-built base binary — identical
+  (the deduplicated candidate list changes no emitted C).
 
-- A unit check that two consecutive `impls_of_constructor_method` calls with
-  an unchanged epoch return lists of the SAME length.
-- `yo test ./tests/static_argument_inference.test.yo --parallel 1` and the
-  Tier-1 internal selection for `src/evaluator/values/impl.yo`.

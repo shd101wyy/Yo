@@ -70,19 +70,18 @@ pragma(Pragma.AllowUnsafe);
 
 /// Reader-writer lock built on `Mutex` and `Cond`, owning the protected `T`.
 /// Uses atomic reference counting for safe cross-thread sharing.
-RwLock :: (fn(comptime(T) : Type, where(T <: (Send, Sync))) -> comptime(Type))(
-  atomic(
-    ref(
-      struct(
-        _readers : i32,
-        _writer : bool,
-        _mutex : Mutex(bool),
-        _read_cv : Cond,
-        _write_cv : Cond,
-        _value : T
-      )
-    )
+_RwLockState :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _readers : i32,
+    _writer : bool,
+    _mutex : Mutex(bool),
+    _read_cv : Cond,
+    _write_cv : Cond,
+    _value : T
   )
+);
+RwLock :: (fn(comptime(T) : Type, where(T <: (Send, Sync))) -> comptime(Type))(
+  struct(_cell : __yo_atomic_cell(_RwLockState(T)))
 );
 
 // __RwLockReadUnlocker / __RwLockWriteUnlocker — private objects that release
@@ -133,12 +132,17 @@ impl(
   /// Create a new reader-writer lock protecting `value`.
   new : (fn(value : T) -> Self)(
     Self(
-      _readers : i32(0),
-      _writer : false,
-      _mutex : Mutex(bool).new(false),
-      _read_cv : Cond.new(),
-      _write_cv : Cond.new(),
-      _value : value
+      _cell : __yo_atomic_cell(_RwLockState(T))(
+        _RwLockState(T)(
+          _readers : i32(0),
+          _writer : false,
+          _mutex : Mutex(bool).new(false),
+          _read_cv : Cond.new(),
+          _write_cv : Cond.new(),
+          _value : value
+        ),
+        .None
+      )
     )
   ),
   /// Run `body` under a SHARED acquisition. Several readers may be inside
@@ -153,7 +157,7 @@ impl(
   )({
     self._raw_read_lock();
     _guard := __RwLockReadUnlocker(T)(self);
-    body(&self._value)
+    body(&self._cell.*._value)
   }),
   /// Run `body` under an EXCLUSIVE acquisition. No other reader or writer can
   /// be inside the lock. `body` receives `v : &mut T`, so its writes land in
@@ -167,7 +171,7 @@ impl(
   )({
     self._raw_write_lock();
     _guard := __RwLockWriteUnlocker(T)(self);
-    body(&mut self._value)
+    body(&mut self._cell.*._value)
   }),
   /// Run `body` under a SHARED acquisition IF one can be taken without
   /// waiting, and return `.Some(result)`; `.None` when a writer holds the
@@ -190,7 +194,7 @@ impl(
       !self._raw_try_read_lock() => Option(R).None,
       true => {
         _guard := __RwLockReadUnlocker(T)(self);
-        Option(R).Some(body(&self._value))
+        Option(R).Some(body(&self._cell.*._value))
       }
     )
   ),
@@ -214,7 +218,7 @@ impl(
       !self._raw_try_write_lock() => Option(R).None,
       true => {
         _guard := __RwLockWriteUnlocker(T)(self);
-        Option(R).Some(body(&mut self._value))
+        Option(R).Some(body(&mut self._cell.*._value))
       }
     )
   ),
@@ -225,68 +229,68 @@ impl(
   //
   // Acquire a read lock. Blocks while a writer holds the lock.
   _raw_read_lock : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    while(self._writer, {
-      self._read_cv.wait_with(&self._mutex);
+    self._cell.*._mutex._raw_lock();
+    while(self._cell.*._writer, {
+      self._cell.*._read_cv.wait_with(&self._cell.*._mutex);
     });
-    self._readers = (self._readers + i32(1));
-    self._mutex._raw_unlock();
+    self._cell.*._readers = (self._cell.*._readers + i32(1));
+    self._cell.*._mutex._raw_unlock();
   }),
   // Take a read lock only if no writer holds one. True when taken.
   //
   // The `_writer` test and the `_readers` increment happen under the same
   // internal-mutex acquisition, so a writer cannot slip in between them.
   _raw_try_read_lock : (fn(self : &Self) -> bool)({
-    self._mutex._raw_lock();
+    self._cell.*._mutex._raw_lock();
     took := cond(
-      self._writer => false,
+      self._cell.*._writer => false,
       true => {
-        self._readers = (self._readers + i32(1));
+        self._cell.*._readers = (self._cell.*._readers + i32(1));
         true
       }
     );
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_unlock();
     took
   }),
   // Take a write lock only if no reader and no writer holds one. True when
   // taken.
   _raw_try_write_lock : (fn(self : &Self) -> bool)({
-    self._mutex._raw_lock();
+    self._cell.*._mutex._raw_lock();
     took := cond(
-      (self._writer || (self._readers > i32(0))) => false,
+      (self._cell.*._writer || (self._cell.*._readers > i32(0))) => false,
       true => {
-        self._writer = true;
+        self._cell.*._writer = true;
         true
       }
     );
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_unlock();
     took
   }),
   // Release a read lock.
   _raw_read_unlock : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    self._readers = (self._readers - i32(1));
+    self._cell.*._mutex._raw_lock();
+    self._cell.*._readers = (self._cell.*._readers - i32(1));
     cond(
-      (self._readers == i32(0)) => self._write_cv.signal(),
+      (self._cell.*._readers == i32(0)) => self._cell.*._write_cv.signal(),
       true => ()
     );
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_unlock();
   }),
   // Acquire a write lock. Blocks while readers or a writer hold the lock.
   _raw_write_lock : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    while(self._writer || (self._readers > i32(0)), {
-      self._write_cv.wait_with(&self._mutex);
+    self._cell.*._mutex._raw_lock();
+    while(self._cell.*._writer || (self._cell.*._readers > i32(0)), {
+      self._cell.*._write_cv.wait_with(&self._cell.*._mutex);
     });
-    self._writer = true;
-    self._mutex._raw_unlock();
+    self._cell.*._writer = true;
+    self._cell.*._mutex._raw_unlock();
   }),
   // Release a write lock.
   //
   // Wake BOTH waiting sets. The previous form picked one:
   //
-  //     cond((self._readers > i32(0)) => self._read_cv.broadcast(),
-  //          true                     => self._write_cv.signal());
+  //     cond((self._cell.*._readers > i32(0)) => self._cell.*._read_cv.broadcast(),
+  //          true                     => self._cell.*._write_cv.signal());
   //
   // and its reader arm was UNREACHABLE. The exclusion invariant guarantees
   // `_readers == 0` here: `_raw_read_lock` blocks while `_writer` is set, so
@@ -301,11 +305,11 @@ impl(
   // and signal one blocked writer (only one can proceed). Both predicates are
   // re-checked in `while` loops, so the extra wakeups are safe.
   _raw_write_unlock : (fn(self : &Self) -> unit)({
-    self._mutex._raw_lock();
-    self._writer = false;
-    self._read_cv.broadcast();
-    self._write_cv.signal();
-    self._mutex._raw_unlock();
+    self._cell.*._mutex._raw_lock();
+    self._cell.*._writer = false;
+    self._cell.*._read_cv.broadcast();
+    self._cell.*._write_cv.signal();
+    self._cell.*._mutex._raw_unlock();
   })
 );
 

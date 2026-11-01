@@ -17,7 +17,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_call_args_unmarked } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, empty_value_cell } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 {
   is_enum_type,
   is_function_type,
@@ -58,6 +58,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { fn_value_c_name } :: import("../functions/declarations.yo");
 { unwind_catch_condition } :: import("./async_completion.yo");
+{ replace } :: import("std/mem");
 /// One effect on a Future trait (the first — `FutureTraitT` carries effect
 /// arrays).
 _FutureEffect :: ref(struct(label : String, ty : TypeValue));
@@ -79,18 +80,10 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
   match(
     context.current_evidence_params,
     .Some(eps) => {
-      it := eps.into_iter();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(e) => if(e.value.field_label == field_label, {
-            return(Option(String).Some(e.value.c_param_name.clone()));
-          }),
-          .None => {
-            go = false;
-          }
-        );
+      for(&eps, (_k, e_val) => {
+        if(e_val.field_label == field_label, {
+          return(Option(String).Some(e_val.c_param_name.clone()));
+        });
       });
     },
     .None => ()
@@ -98,24 +91,13 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
   match(
     context.state_machine_variables,
     .Some(svs) => {
-      it := svs.into_iter();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(e) => {
-            cv := e.value;
-            is_outer := match(cv.kind, .Outer => true, _ => false);
-            if((cv.base.name == field_label) && is_outer, {
-              o := `sm->${context.sm_capture_slot}.`;
-              o.push_string(sanitize_for_c_identifier(field_label.clone(), false));
-              return(Option(String).Some(o));
-            });
-          },
-          .None => {
-            go = false;
-          }
-        );
+      for(&svs, (_k, cv) => {
+        is_outer := match(cv.kind, .Outer => true, _ => false);
+        if((cv.base.name == field_label) && is_outer, {
+          o := `sm->${context.sm_capture_slot}.`;
+          o.push_string(sanitize_for_c_identifier(field_label.clone(), false));
+          return(Option(String).Some(o));
+        });
       });
     },
     .None => ()
@@ -194,25 +176,14 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
       match(
         context.state_machine_variables,
         .Some(svs) => {
-          it := svs.into_iter();
-          (go : bool) = true;
-          while(go, {
-            match(
-              it.next(),
-              .Some(e) => {
-                cv := e.value;
-                is_outer := match(cv.kind, .Outer => true, _ => false);
-                if((cv.base.name == flbl) && is_outer, {
-                  o := `sm->${context.sm_capture_slot}.`;
-                  o.push_string(sanitize_for_c_identifier(flbl.clone(), false));
-                  member_code = Option(String).Some(o);
-                  go = false;
-                });
-              },
-              .None => {
-                go = false;
-              }
-            );
+          for(&svs, (_k, cv) => {
+            is_outer := match(cv.kind, .Outer => true, _ => false);
+            if((cv.base.name == flbl) && is_outer, {
+              o := `sm->${context.sm_capture_slot}.`;
+              o.push_string(sanitize_for_c_identifier(flbl.clone(), false));
+              member_code = Option(String).Some(o);
+              break;
+            });
           });
         },
         .None => ()
@@ -222,19 +193,11 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
         match(
           context.current_evidence_params,
           .Some(eps) => {
-            it := eps.into_iter();
-            (go : bool) = true;
-            while(go, {
-              match(
-                it.next(),
-                .Some(e) => if(e.value.field_label == flbl, {
-                  member_code = Option(String).Some(e.value.c_param_name.clone());
-                  go = false;
-                }),
-                .None => {
-                  go = false;
-                }
-              );
+            for(&eps, (_k, e_val) => {
+              if(e_val.field_label == flbl, {
+                member_code = Option(String).Some(e_val.c_param_name.clone());
+                break;
+              });
             });
           },
           .None => ()
@@ -441,7 +404,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // variable name, fall back to the call's unique expr id so multiple `io.await`
   // calls in one function don't collide on the fixed `__sync_future` /
   // `__pre_await_state` defaults (C "redefinition" errors).
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => ast_expr_id(expr).to_string());
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => ast_expr_id(expr).to_string());
   sync_future_var := if(name_suffix.len() > usize(0), `__sync_future_${name_suffix.clone()}`, String.from("__sync_future"));
   pre_await_state_var := if(name_suffix.len() > usize(0), `__pre_await_state_${name_suffix.clone()}`, String.from("__pre_await_state"));
   em.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
@@ -477,7 +440,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // already-aborted future, and for every abort of a bundle-less one.
   {
     // Drop in-scope locals (excluding the not-yet-declared await result var).
-    saved_drops := context.pending_deferred_drops;
+    saved_drops := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     match(
       saved_drops,
       .Some(drops) => {
@@ -504,7 +467,8 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     );
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
     context.pending_deferred_drops = saved_drops;
-    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(Rc.clone(r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+
     // Caught here only when the handler that unwound was installed in THIS
     // function, so the value has this function's return type. Deciding by the
     // effect bundle (a bundle built here counted as an installation) let a
@@ -589,7 +553,7 @@ generate_state :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   em := context.base.emitter;
   future_code := _call_generate_expr(&future_arg, indent.clone(), context);
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from(""));
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
   result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
@@ -679,7 +643,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .${c_variant_member_name(String.from("Some"))} = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
   some_close := if(jh_nullable, String.new(), String.from(" } } }"));
   none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
-  unique_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("jh"));
+  unique_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
   result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));

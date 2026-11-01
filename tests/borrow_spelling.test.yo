@@ -139,6 +139,17 @@ test("`Fn(v : &T)` slots and `(v : &T) => …` closure parameters", {
   assert(k == i32(10), "a &mut closure parameter wrote the caller's place");
   assert(s.len() == usize(5), "s is still usable");
 });
+bs_apply_named :: (fn(f : Impl(Fn(t : &i32) -> i32), x : &i32) -> i32)(f(&x));
+bs_bump_named :: (fn(f : Impl(Fn(n : &mut i32) -> unit), v : &mut i32) -> unit)(f(&mut v));
+test("a `&T` / `&mut T` closure parameter keeps its own name under a differently labelled `Fn` slot", {
+  k := i32(3);
+  assert(bs_apply_named((s : &i32) => (s + i32(1)), &k) == i32(4), "the closure reads its own `s`, not the slot's `t`");
+  (mut(m) : i32) = i32(1);
+  bs_bump_named((q : &mut i32) => {
+    q = (q + i32(1));
+  }, &mut m);
+  assert(m == i32(2), "the closure writes through its own `q`, not the slot's `n`");
+});
 
 // --- Local borrows and re-points ------------------------------------------------
 test("`y := &place` reads through and `y := &mut place` writes through", {
@@ -269,10 +280,11 @@ comptime_expect_error(
 // two-argument marker used to re-evaluate itself until `yo check`
 // overflowed its stack (exit 139), in every type position
 // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
-// Decision 43 step 2 (N1a) spells it as a parameter's type only; a result,
-// a pointee, a local's annotation and a type argument come later.
+// Decision 43 step 2 spells it as a parameter's type (N1a) and as a
+// result type (N1b); a pointee, a local's annotation and a type argument
+// come later.
 comptime_expect_error(
-  bs_origin_mut_result :: (fn(xs : &mut i32) -> &mut(i32, xs))(xs),
+  bs_origin_mut_pointee :: (fn(xs : &mut i32) -> &mut&mut(i32, xs))(xs),
   "is an origin-qualified reference"
 );
 // The second argument is read by its kind: a type there is E0922, not a
@@ -390,7 +402,237 @@ comptime_expect_error(
   }),
   "is an origin-qualified reference"
 );
+// Decision 43 step 2 (N1b): a result `-> &(T, o)` / `-> &mut(T, o)` spells
+// the origin the projection borrows from: an origin parameter, a
+// reference parameter's place, or a union of them. The mode, the pointee
+// and the emitted C are the elided `-> &T` form's.
+BsTrio :: struct(a : i32, b : i32, c : i32);
+bs_ret_origin :: (fn(generic(p : Origin), t : &(BsTrio, p)) -> &(i32, p))(&t.a);
+bs_ret_place :: (fn(t : &mut BsTrio) -> &mut(i32, t))(&mut t.b);
+bs_ret_union :: (fn(generic(p : Origin), s : &(BsTrio, p), t : &BsTrio, pick : bool) -> &(i32, (p, t)))(
+  cond(
+    pick => &s.c,
+    true => &t.c
+  )
+);
+bs_ret_read :: (fn(x : &i32) -> i32)(x + i32(0));
+test("a result typed `&(T, o)` / `&mut(T, o)` projects like `-> &T` / `-> &mut T`", {
+  t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+  assert(bs_ret_read(bs_ret_origin(&t)) == i32(1), "an origin parameter's result reads the caller's place");
+  mut(u) := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+  bs_ret_place(&mut u) = i32(50);
+  assert(u.b == i32(50), "a `&mut(i32, t)` result writes the caller's place");
+  assert(bs_ret_read(bs_ret_union(&t, &u, true)) == i32(3), "a union `(p, t)` result, first arm");
+  assert(bs_ret_read(bs_ret_union(&t, &u, false)) == i32(6), "a union `(p, t)` result, second arm");
+});
+comptime_expect_error(
+  bs_ret_byvalue :: (fn(v : BsTrio) -> &(i32, v))(&v.a),
+  "a by-value parameter"
+);
+comptime_expect_error(
+  bs_ret_undeclared :: (fn(t : &BsTrio) -> &(i32, q))(&t.a),
+  "The origin `q` is not declared"
+);
+comptime_expect_error(
+  bs_ret_type_param :: (fn(generic(T : Type), t : &BsTrio) -> &(i32, T))(&t.a),
+  "is a type parameter, not an origin"
+);
+comptime_expect_error(
+  bs_ret_not_a_name :: (fn(t : &BsTrio) -> &(i32, t.a))(&t.a),
+  "is not an origin"
+);
+comptime_expect_error(
+  bs_fn_trait_spelled_result :: (fn(f : Impl(Fn(x : &i32) -> &(i32, x))) -> unit)(()),
+  "A closure trait's result origin is elided"
+);
+// Decision 43 step 2 (N1c; plans/backlog/REFERENCES_AND_ORIGINS.md O3): a
+// call of a projection whose result origin is spelled freezes only the
+// arguments that origin names; an elided one freezes every reference
+// argument (O2). The body is checked against the spelled origin (E0923).
+bs_pick_s :: (fn(s : &BsTrio, t : &BsTrio) -> &(i32, s))(&s.a);
+bs_pick_p :: (fn(generic(p : Origin), s : &(BsTrio, p), t : &BsTrio) -> &(i32, p))(&s.b);
+bs_pick_mut :: (fn(s : &mut BsTrio, t : &mut BsTrio) -> &mut(i32, s))(&mut s.c);
+bs_pick_gen :: (fn(generic(T : Type), s : &T, t : &T) -> &(T, s))(&s);
+test("a spelled result origin freezes only the arguments it names", {
+  t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+  mut(u) := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+  r := bs_pick_s(&t, &u);
+  u.a = i32(40);
+  assert(bs_ret_read(r) == i32(1), "`u` is not in the result's origin `s`: writing it while `r` lives is fine");
+  q := bs_pick_p(&t, &u);
+  u.b = i32(50);
+  assert(bs_ret_read(q) == i32(2), "an origin parameter names the arguments whose slots carry it");
+  mut(v) := BsTrio(a : i32(7), b : i32(8), c : i32(9));
+  m := bs_pick_mut(&mut v, &mut u);
+  m = i32(90);
+  u.c = i32(60);
+  assert((v.c == i32(90)) && (u.c == i32(60)), "a `&mut(i32, s)` result holds `s` alone");
+  x := i32(11);
+  mut(y) := i32(12);
+  g := bs_pick_gen(&x, &y);
+  y = i32(13);
+  assert((bs_ret_read(g) == i32(11)) && (y == i32(13)), "a generic projection keeps its spelled origin through the specialization");
+});
+comptime_expect_error(
+  bs_spelled_still_freezes :: (fn() -> unit)({
+    mut(t) := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+    u := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+    r := bs_pick_s(&t, &u);
+    t.a = i32(9);
+    _ := bs_ret_read(r);
+  }),
+  "Cannot write"
+);
+bs_pick_elided :: (fn(s : &BsTrio, t : &BsTrio) -> &i32)(&s.a);
+comptime_expect_error(
+  bs_elided_freezes_all :: (fn() -> unit)({
+    t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+    mut(u) := BsTrio(a : i32(4), b : i32(5), c : i32(6));
+    r := bs_pick_elided(&t, &u);
+    u.a = i32(9);
+    _ := bs_ret_read(r);
+  }),
+  "whose result origin is elided"
+);
+comptime_expect_error(
+  bs_ret_outside_origin :: (fn(s : &BsTrio, t : &BsTrio) -> &(i32, s))(&t.a),
+  "which that origin does not name"
+);
+comptime_expect_error(
+  bs_ret_local_place :: (fn(s : &BsTrio) -> &(i32, s))({
+    y := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+    return(&y.a);
+  }),
+  "its storage ends with the call"
+);
+// O7: an impl member's result origin is within its trait member's.
+BsPick :: trait(pick : (fn(self : &Self, other : &i32) -> &(i32, self)));
+BsWide :: trait(pick_any : (fn(self : &Self, other : &i32) -> &i32));
+BsOne :: struct(v : i32);
+impl(BsOne, BsWide(pick_any : (fn(self : &Self, other : &i32) -> &(i32, self))(&self.v)));
+impl(BsOne, BsPick(pick : (fn(self : &Self, other : &i32) -> &(i32, self))(&self.v)));
+test("an impl may narrow its trait's result origin, and a trait call maps from the trait's", {
+  b := BsOne(v : i32(21));
+  mut(o) := i32(2);
+  r := b.pick_any(&o);
+  assert(bs_ret_read(r) == i32(21), "an impl narrower than its trait (`self` within the elided union)");
+  (d : Dyn(BsPick)) = dyn(BsOne(v : i32(22)));
+  s := d.pick(&o);
+  o = i32(3);
+  assert((bs_ret_read(s) == i32(22)) && (o == i32(3)), "a Dyn call's result origin is the trait's `self`: `o` stays writable");
+});
+// A projection method behind a `Dyn` (issues/fixed/2026-10-29-a-dyn-over-a-trait-with-a-projection-method-emits-invalid-c.md):
+// the vtable slot and its wrapper take `&T` parameters and return the result
+// by pointer, as the impl does.
+BsPk :: trait(pk : (fn(self : &Self, other : &i32) -> &i32));
+impl(BsOne, BsPk(pk : (fn(self : &Self, other : &i32) -> &i32)(&self.v)));
+test("a Dyn over a trait with an elided-origin projection method", {
+  (d : Dyn(BsPk)) = dyn(BsOne(v : i32(23)));
+  o := i32(2);
+  r := d.pk(&o);
+  assert(bs_ret_read(r) == i32(23), "the Dyn projection call reads the payload's field");
+});
+// A projection called through a value (decision 43 step 2, N1c): a
+// `fn(...) -> &T` parameter or field, an `Impl(Fn(...) -> &T)` or
+// `Dyn(Fn(...) -> &T)` holding a named projection or a closure whose body
+// yields `&place`, and an effect operation `ctl(...) -> &T`. The call is the
+// place, its `&T` arguments are passed by address, and its result origin is
+// O2's per-call default: every reference argument.
+bs_first :: (fn(t : &BsTrio) -> &i32)(&t.a);
+bs_third_mut :: (fn(t : &mut BsTrio) -> &mut i32)(&mut t.c);
+BsProj :: struct(get : (fn(t : &BsTrio) -> &i32), put : (fn(t : &mut BsTrio) -> &mut i32));
+bs_via_fn :: (fn(f : (fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
+  r := f(&t);
+  bs_ret_read(r)
+});
+bs_via_impl :: (fn(f : Impl(Fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
+  r := f(&t);
+  bs_ret_read(r)
+});
+bs_poke_impl :: (fn(f : Impl(Fn(t : &mut BsTrio) -> &mut i32), t : &mut BsTrio) -> unit)({
+  r := f(&mut t);
+  r = i32(70);
+});
+bs_via_dyn :: (fn(f : Dyn(Fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
+  r := f(&t);
+  bs_ret_read(r)
+});
+BsAsk :: (ctl(key : &i32) -> &(i32, key));
+bs_ask_use :: (fn(ask : BsAsk) -> i32)({
+  k := i32(31);
+  r := ask(&k);
+  bs_ret_read(r)
+});
+test("a projection is called through a function value, a closure trait and an effect operation", {
+  mut(t) := BsTrio(a : i32(1), b : i32(2), c : i32(3));
+  assert(bs_via_fn(bs_first, &t) == i32(1), "a `fn(...) -> &T` parameter");
+  h := BsProj(get : bs_first, put : bs_third_mut);
+  g := h.get(&t);
+  assert(bs_ret_read(g) == i32(1), "a `fn(...) -> &T` field");
+  m := (h.put)(&mut t);
+  m = i32(30);
+  assert(t.c == i32(30), "a `&mut` projection through a field writes the place");
+  assert(bs_via_impl(bs_first, &t) == i32(1), "a named projection in an `Impl(Fn(...) -> &T)` slot");
+  assert(bs_via_impl((s : &BsTrio) => &s.b, &t) == i32(2), "a closure literal yielding `&place`");
+  bs_poke_impl((s : &mut BsTrio) => &mut s.a, &mut t);
+  assert(t.a == i32(70), "a `&mut` closure projection writes through");
+  (d : Dyn(Fn(s : &BsTrio) -> &i32)) = dyn((s : &BsTrio) => &s.c);
+  assert(bs_via_dyn(d, &t) == i32(30), "a `Dyn(Fn(...) -> &T)` closure");
+  (e : Dyn(Fn(s : &BsTrio) -> &i32)) = dyn(bs_first);
+  assert(bs_via_dyn(e, &t) == i32(70), "a `Dyn(Fn(...) -> &T)` named projection");
+  (ask : BsAsk) = (fn(key : &i32) -> &(i32, key))({
+    return(&key);
+  });
+  assert(bs_ask_use(ask) == i32(31), "a `ctl` handler resumes with a place of its key");
+});
+comptime_expect_error(
+  bs_fn_value_freezes :: (fn(f : (fn(t : &BsTrio) -> &i32), t : &mut BsTrio) -> i32)({
+    r := f(&t);
+    t.a = i32(9);
+    bs_ret_read(r)
+  }),
+  "Cannot write"
+);
+comptime_expect_error(
+  bs_closure_ret_capture :: (fn(t : &BsTrio) -> i32)({
+    y := i32(9);
+    bs_via_impl((s : &BsTrio) => &y, &t)
+  }),
+  "which the closure captures"
+);
+comptime_expect_error(
+  bs_closure_ret_outer_param :: (fn(t : &BsTrio, u : &BsTrio) -> i32)(bs_via_impl((s : &BsTrio) => &u.a, &t)),
+  "which the closure captures"
+);
+comptime_expect_error(
+  bs_handler_ret_local :: (fn() -> i32)({
+    (ask : BsAsk) = (fn(key : &i32) -> &(i32, key))({
+      y := i32(2);
+      return(&y);
+    });
+    bs_ask_use(ask)
+  }),
+  "its storage ends with the call"
+);
+comptime_expect_error(
+  bs_handler_ret_capture :: (fn() -> i32)({
+    x := i32(5);
+    (ask : BsAsk) = (
+      key -> {
+        return(&x);
+      }
+    );
+    bs_ask_use(ask)
+  }),
+  "which the closure captures"
+);
+BsTwo :: struct(v : i32);
+comptime_expect_error(
+  impl(BsTwo, BsPick(pick : (fn(self : &Self, other : &i32) -> &i32)(&self.v))),
+  "which the trait's result origin does not name"
+);
 // `Origin` is reserved like `Type` (decision 43 step 2): a binding of the
+
 // name is rejected naming the kind.
 comptime_expect_error(
   bs_origin_reserved :: (fn() -> unit)({

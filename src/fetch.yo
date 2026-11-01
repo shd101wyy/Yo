@@ -826,9 +826,10 @@ git_remote_url :: (fn(project_dir : &String, url : &String) -> String)(
 /// (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.4): decide its commit —
 /// the lock's `locked_commit` unless `refresh` (`yo update`), else `git
 /// ls-remote` for `ref` — then, when the lock names the tree
-/// (`expected_integrity`) and the store has it, reuse it: without a full hash
-/// when its `.verified` marker is present, after one otherwise (a tree that
-/// does not hash to its name is removed and re-fetched). Anything else is
+/// (`expected_integrity`) and the store has it, reuse it after a full re-hash
+/// (a tree that does not hash to its name is removed and re-fetched; the
+/// `.verified` marker no longer skips the hash — see the 2026-11-01 store
+/// corruption). Anything else is
 /// brought into the remote's bare mirror, extracted under a temporary name,
 /// hashed, and renamed to `store/sha256/<hash>`; a fetched tree whose hash
 /// disagrees with the lock is an integrity error. Under `offline` any step
@@ -896,26 +897,26 @@ fetch_package :: (
       present := e.io.await(exists(Path.new(known_dir.clone()), e.io), e.io);
       have_tree = present;
     });
-    (verified : bool) = false;
-    if(have_tree, {
-      marked := e.io.await(exists(Path.new(store_verified_marker(known_dir.clone())), e.io), e.io);
-      verified = marked;
-    });
+    // The stored tree is re-hashed on EVERY reuse — the `.verified` marker
+    // only says the tree hashed right when it LANDED, not that nothing has
+    // written into it since. A tool that edits an inner file of a present
+    // entry leaves the marker standing, and `yo install --locked` kept
+    // compiling the mutated bytes for every project on the machine (the
+    // 2026-11-01 store corruption; the marker's old skip role is the hole).
     (rehash_matches : bool) = false;
-    if(have_tree && !verified, {
+    if(have_tree, {
       actual := e.io.await(compute_content_hash(known_dir.clone(), e.io, e.exn), e);
       rehash_matches = (actual == expected);
     });
-    if(have_tree && (!verified && rehash_matches), {
+    if(have_tree && rehash_matches, {
       e.io.await(write_string(Path.new(store_verified_marker(known_dir.clone())), `${expected}\n`, e.io), e);
-      verified = true;
     });
-    if(have_tree && (!verified && !rehash_matches), {
+    if(have_tree && !rehash_matches, {
       println(`  ${__probe_name}: the stored tree ${expected} does not hash to its __probe_name — re-fetching`);
       e.io.await(remove_dir_all(Path.new(known_dir.clone()), e.io), e);
       have_tree = false;
     });
-    if(have_tree && verified, {
+    if(have_tree, {
       if(verbose, {
         println(`  ${__probe_name}: in the store`);
       });

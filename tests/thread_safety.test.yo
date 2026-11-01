@@ -99,7 +99,7 @@ comptime_expect_error({
 _send_captures_still_spawn :: (fn() -> unit)({
   n := i32(3);
   a := Arc.new(i32(4));
-  hits := AtomicI32(i32(0));
+  hits := AtomicI32.new(i32(0));
   (bump : Impl(Fn() -> unit)) = (
     () => {
       hits.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -159,7 +159,7 @@ _run_on_thread :: (fn(sink(cb) : Impl(Fn() -> unit, Send)) -> unit)({
   t.join();
 });
 _helper_with_send_captures :: (fn() -> unit)({
-  hits := Arc.new(AtomicI32(i32(0)));
+  hits := Arc.new(AtomicI32.new(i32(0)));
   h := Arc.clone(hits);
   (inner : Impl(Fn() -> unit)) = (
     () => {
@@ -215,7 +215,7 @@ comptime_expect_error({
 // `Arc` of an atomic; judged as a plain struct field, the closure type was never
 // `Send`, and capturing `k` was refused.
 _arc_of_a_closure_over_a_closure_crosses_threads :: (fn() -> unit)({
-  hits := Arc.new(AtomicI32(i32(0)));
+  hits := Arc.new(AtomicI32.new(i32(0)));
   h := hits;
   (inner : Impl(Fn() -> unit)) = (
     () => {

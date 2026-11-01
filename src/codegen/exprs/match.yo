@@ -41,6 +41,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW } :: import("../../pattern.yo");
 { arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
+{ replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -261,7 +262,7 @@ _is_control_flow_code :: (fn(code : &String) -> bool)(
 );
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// True if `expr` is an or-pattern `a | b`.
 _is_or_pattern :: (fn(expr : &AstExpr) -> bool)(
@@ -372,8 +373,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     vei_opt := context.base.get_expr_info(body_expr);
     cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
-    prev_pending := context.pending_deferred_drops;
-    prev_consumed := context.consumed_var_pending_drops;
+    prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+    prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_drops, &prev_pending));
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
     n := begin_args.len();
@@ -462,8 +463,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     vei_opt := context.base.get_expr_info(body_expr);
     cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
-    prev_pending := context.pending_deferred_drops;
-    prev_consumed := context.consumed_var_pending_drops;
+    prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+    prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_drops, &prev_pending));
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cur_consumed, &prev_consumed));
     // When the arm value carries deferred `___dup`s (returning a borrowed
@@ -696,7 +697,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
     i = (i + usize(1));
   });
   context.base.inside_match = saved;
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 /// Generate a primitive (int/bool) match as a C switch.
 generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, matched_value_code : &String, match_value_type : &TypeValue, temp_var_opt : &Option(String), is_unit : bool) -> String)({
@@ -824,7 +825,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
   close.push_str("}");
   em.emit_string_line(&close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 /// Whether a match arm's pattern was executed (comptime branch elimination).
 _case_executed :: (fn(case_value : &AstExpr, context : &FunctionGenerationContext) -> bool)(
@@ -832,7 +833,7 @@ _case_executed :: (fn(case_value : &AstExpr, context : &FunctionGenerationContex
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : &AstExpr) -> String)(
-  match(case_value, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v).*, .None => String.from("")), .Atom(_, _) => String.from(""))
+  match(case_value, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v).*.clone(), .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Add a name to the function's local-shadowed-variables set (creating it if
@@ -853,33 +854,21 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &FunctionGenerationConte
   match(
     context.state_machine_variables,
     .Some(smv) => {
-      it := smv.keys();
-      (go : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .None => {
-            go = false;
-          },
-          .Some(k) => match(
-            smv.get(k.clone()),
-            // A consuming arm's hidden bindings share the arm's token, so the
-            // name tells them apart (decision 26).
-            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
-              note_state_machine_binding_id(context, k.clone());
-              return(
-                Option(String).Some(
-                  match(
-                    context.state_machine_field_aliases,
-                    .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
-                    .None => sm_local_field_name(k.clone())
-                  )
-                )
-              );
-            }),
-            .None => ()
-          )
-        );
+      for(&smv, (k, cv) => {
+        // A consuming arm's hidden bindings share the arm's token, so the
+        // name tells them apart (decision 26).
+        if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
+          note_state_machine_binding_id(context, k.clone());
+          return(
+            Option(String).Some(
+              match(
+                context.state_machine_field_aliases,
+                .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
+                .None => sm_local_field_name(k.clone())
+              )
+            )
+          );
+        });
       });
     },
     .None => ()
@@ -1127,27 +1116,13 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
               match(
                 context.state_machine_variables,
                 .Some(smv2) => {
-                  smb_it := smv2.keys();
-                  (smb_more : bool) = true;
-                  while(smb_more, {
-                    match(
-                      smb_it.next(),
-                      .None => {
-                        smb_more = false;
-                      },
-                      .Some(smb_k) => match(
-                        smv2.get(smb_k.clone()),
-                        .Some(smb_cv) => {
-                          smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
-                          if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.*.to_string()), {
-                            smb_id = smb_k.clone();
-                            smb_has = true;
-                            smb_more = false;
-                          });
-                        },
-                        .None => ()
-                      )
-                    );
+                  for(&smv2, (smb_k, smb_cv) => {
+                    smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
+                    if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.*.to_string()), {
+                      smb_id = smb_k.clone();
+                      smb_has = true;
+                      break;
+                    });
                   });
                 },
                 .None => ()
@@ -1272,7 +1247,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
   // a reference-handle payload (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3)
   // leaked the `.get()` result of every `match(xs.get(i), .Some(v) => …)`.
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 /// Simple (fieldless) enum match → C switch on the tag.
 _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, matched_value_code : &String, enum_type : &TypeValue, deref_star : &String, temp_var_opt : &Option(String), is_unit : bool) -> String)({
@@ -1335,7 +1310,7 @@ _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &Func
   close.push_str("}");
   em.emit_string_line(&close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 /// Remove the shadows a tagged-union arm's destructuring added, mirroring the
 /// var extraction in `_emit_destructure_binds` (labeled `label : var` → var is
@@ -1424,7 +1399,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
               dparams.get(pi),
               .Some(param) => if(ast_expr_is_fn_call_of(&param, ":", Option(usize).Some(usize(2))), {
                 pargs := _args(&param);
-                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_text(&le).*, String.from("")), .None => String.from(""));
+                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(&le), ast_expr_text(&le).*.clone(), String.from("")), .None => String.from(""));
                 match(
                   pargs.get(usize(1)),
                   .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value.* == "_") && (label.len() > usize(0)), {
@@ -1765,7 +1740,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
   close.push_str("}");
   em.emit_string_line(&close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 // ---------------------------------------------------------------------------
 // General lowering — an ordered test chain (plans/reference/MATCH_PATTERN_MATCHING.md
@@ -2438,7 +2413,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   em.emit_string_line(&el);
   context.base.inside_match = saved;
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv.clone(), .None => String.from("")))
 });
 /// Generate a match expression.
 ///
@@ -2456,7 +2431,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
 generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   subject_opt := _args(expr).get(usize(0));
   subj_drops := match(subject_opt, .Some(sj) => match(context.base.get_expr_info(&sj), .Some(sj_ei) => sj_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None), .None => Option(ArrayList(AstExpr)).None);
-  subj_prev := context.pending_deferred_drops;
+  subj_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&subj_drops, &subj_prev));
   code := _generate_match_expression_body(expr, indent, context);
   context.pending_deferred_drops = subj_prev;

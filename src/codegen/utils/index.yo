@@ -30,7 +30,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64, stable_id_module_path } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref, fn_param_slots, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
 {
   is_reference_struct_type,
   is_pointer_type,
@@ -40,6 +40,7 @@
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ fn_abi_param_is_ptr } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
@@ -1168,7 +1169,7 @@ sanitize_for_c_identifier :: (fn(s : &String, is_extern_c : bool) -> String)({
     prefixed.push_string(&sanitized);
     return(prefixed);
   });
-  _avoid_c_reserved_word(&sanitized)
+  _avoid_c_reserved_word(sanitized)
 });
 /// The C spelling of a symbol whose name is an ABI or a compiler-generated
 /// fragment rather than a Yo local: an exported or extern "Yo" function's
@@ -1178,10 +1179,10 @@ sanitize_for_c_identifier :: (fn(s : &String, is_extern_c : bool) -> String)({
 c_symbol_name :: (fn(s : &String) -> String)(
   _avoid_c_reserved_word(_mangle_c_identifier_bytes(s))
 );
-_avoid_c_reserved_word :: (fn(sanitized : &String) -> String)({
-  if(_c_reserved_words.contains(sanitized), {
+_avoid_c_reserved_word :: (fn(sanitized : String) -> String)({
+  if(_c_reserved_words.contains(&sanitized), {
     prefixed := String.from("__yo_c_reserved_");
-    prefixed.push_string(sanitized);
+    prefixed.push_string(&sanitized);
     return(prefixed);
   });
   sanitized
@@ -1295,8 +1296,8 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
   )
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
-  args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(false));
-  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params, _ => return(false));
+  args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(false));
+  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params.clone(), _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
   // remain to line up with the parameters in order.
@@ -1380,7 +1381,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, .FnCall(_, func, Rc(args), _, _) => match(func, .Atom(_, tok) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, Rc(fargs), _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value.* == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, Rc(args), _, _) => match(func, .Atom(_, tok) => if((tok.value.* == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, Rc(fargs), _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value.* == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_text(&v).*.clone()), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1405,7 +1406,7 @@ arm_params :: (fn(case_value : &AstExpr) -> ArrayList(AstExpr))(
         });
         out
       },
-      .FnCall(_, _, _, _, _) => args
+      .FnCall(_, _, _, _, _) => args.clone()
     ),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
@@ -2100,7 +2101,7 @@ _element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
     e,
     .FnCall(_, _, Rc(args), _, _) => if(
       ast_expr_is_fn_call_of(e, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None),
-      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0).*), Option(String).None), .None => Option(String).None),
+      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_text(&a0).*.clone()), Option(String).None), .None => Option(String).None),
       Option(String).None
     ),
     .Atom(_, _) => Option(String).None
@@ -2431,7 +2432,7 @@ _idx_c_string_literal :: (fn(path : &String) -> String)({
 });
 /// The guarded index sub-expression for a runtime-length receiver (`str`:
 /// the caller spells the length as `(<recv>).len`).
-_checked_index_expr :: (fn(index_code : &String, length_code : &String, expr : &AstExpr) -> String)({
+_checked_index_expr :: (fn(index_code : String, length_code : &String, expr : &AstExpr) -> String)({
   // 5b: the verifier proved this subscript in bounds (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
   if(guard_site_is_proved(expr, "index-in-bounds"), {
     return(index_code);
@@ -2457,7 +2458,7 @@ _fixed_array_len_literal :: (fn(array_type : &TypeValue) -> String)(
 );
 /// Guarded subscript for a FIXED array receiver: the bound is the array's
 /// comptime N. Symbolic-length arrays fail open (raw index).
-_checked_fixed_array_subscript :: (fn(index_code : &String, array_type : &TypeValue, expr : &AstExpr) -> String)({
+_checked_fixed_array_subscript :: (fn(index_code : String, array_type : &TypeValue, expr : &AstExpr) -> String)({
   len_code := _fixed_array_len_literal(array_type);
   if(len_code.len() == usize(0), {
     return(index_code);
@@ -2514,25 +2515,27 @@ dyn_concrete_c_name :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(
     )
   )
 );
-/// The C type of one parameter of a Dyn vtable slot and of the wrapper the
-/// slot points at. A `&mut T` slot is `T*`, exactly as the function
-/// prototype spells it (`functions/declarations.yo`): the call site hands the
-/// slot the address of the place, and the impl or closure the wrapper forwards
-/// to takes a `T*` (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
-dyn_slot_param_type_string :: (fn(t : &Option(TypeValue), context : &CodeGenContext) -> String)(
-  match(
-    t,
-    .Some(slot) => {
-      pt := t_slot_pointee(&slot);
-      pts := get_type_string(&pt, context);
-      if(t_slot_is_mut_ref(&slot), {
-        pts.push_str("*");
-      });
-      pts
-    },
-    .None => String.from("void*")
-  )
-);
+/// Parameter `i`'s C type in a `Dyn` vtable slot or wrapper for the method
+/// type `ft`, by its C ABI (`fn_abi_param_is_ptr`): a `&mut T`, or a `&T` of
+/// a projection (`-> &T`, decision 34), is `T*`; every other parameter its
+/// value type. Decision 43 step 2 (N1c): a `Dyn` call maps from the trait's
+/// signature, projections included.
+dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &CodeGenContext) -> String)({
+  pts := match(fn_param_slots(ft).get(i), .Some(s) => get_type_string(&t_slot_pointee(&s), context), .None => String.from("void*"));
+  if(match(fn_abi_param_is_ptr(ft).get(i), .Some(b) => b, .None => false), {
+    pts.push_str("*");
+  });
+  pts
+});
+/// The C result type of the method type `ft` in a `Dyn` vtable slot or
+/// wrapper: a projection's (`-> &T`) is `T*`.
+dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &CodeGenContext) -> String)({
+  rs := get_type_string(&match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr), _ => fn_result_pointee(ft)), context);
+  if(fn_result_is_ref(ft), {
+    rs.push_str("*");
+  });
+  rs
+});
 /// [`#line` directives, plans/reference/LINE_DIRECTIVES.md] The statement
 /// flush point helper: attribute the C about to be emitted for `expr` to the
 /// `.yo` position of its token. A no-op unless the compile ran with
@@ -2574,7 +2577,8 @@ export(
   get_type_string,
   erased_future_result_type_string,
   get_storage_type_string,
-  dyn_slot_param_type_string,
+  dyn_slot_param_abi_string,
+  dyn_slot_result_abi_string,
   dyn_concrete_func_type,
   dyn_concrete_c_name,
   get_variable_type_string,

@@ -6,7 +6,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value } :: import("./definitions.yo");
+{ TypeValue, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow } :: import("./definitions.yo");
 { RefCell } :: import("std/sync/refcell");
 
 // ---------------------------------------------------------------------------
@@ -238,9 +238,11 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           ii = (ii + usize(1));
         });
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
-        ret_s := recur(&ret, _d + usize(1), visited);
+        // The result slot prints its sigil bare (`-> &fn(...)`), never the
+        // parenthesized `&(fn(...))` a reference elsewhere takes.
+        ret_s := recur(&t_slot_pointee(&ret), _d + usize(1), visited);
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
-        `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!__fm1.*.result_is_ref => ret_s, __fm1.*.result_is_mut_ref => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
+        `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!t_slot_is_borrow(&ret) => ret_s, t_slot_is_mut_ref(&ret) => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
       },
       Rc(.Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns })) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the

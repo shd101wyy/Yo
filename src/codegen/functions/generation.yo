@@ -21,7 +21,7 @@
 { AstExpr, ast_expr_to_string, ast_expr_id, ast_expr_token, ast_expr_text, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue, no_types, no_labels, slot_pointee_at, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, no_labels, slot_pointee_at, t_slot_is_mut_ref, t_slot_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation, emitted_block_statements } :: import("../../expr_info.yo");
 { YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
@@ -47,6 +47,7 @@
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 { codegen_fatal, codegen_report_error } :: import("../constants.yo");
+{ replace } :: import("std/mem");
 
 // Insert `attr_line` on its own line immediately before the FIRST declaration
 // of `c_name` (clang requires the GNU error attribute on the first
@@ -60,88 +61,96 @@ _insert_attr_before_first_decl :: (
   fn(em : &Emitter, c_name : &String, attr_line : &String, code_limit_b : usize) -> unit
 )({
   needle := ` ${c_name}(`;
-  nb := needle;
-  nlen := nb.len();
   (bi : usize) = usize(0);
   while(bi < usize(4), {
-    // Read-only search over a String copy: O(1), the copy shares the buffer
-    // (a borrow once VALUES_BY_DEFAULT V2b makes `String` unique), never the
-    // ~110 MB byte copy `to_bytes()` would make per stub. Stage 2 is the
-    // spilled code, if any.
-    (hay : String) = cond(
-      (bi == usize(0)) => em.headers,
-      (bi == usize(1)) => em.declarations,
-      (bi == usize(2)) => if(
-        em.code_spilled_bytes > usize(0),
-        String.from_bytes(read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`))))),
-        String.new()
-      ),
-      true => em.code
+    // Read-only scans of the buffers in place (never the ~110 MB byte copy
+    // `to_bytes()` would make per stub). Stage 2 is the spilled code, if any.
+    rewritten := cond(
+      (bi == usize(0)) => _attr_scan(&em.headers, em.headers.len(), &needle, attr_line),
+      (bi == usize(1)) => _attr_scan(&em.declarations, em.declarations.len(), &needle, attr_line),
+      (bi == usize(2)) => if(em.code_spilled_bytes > usize(0), {
+        spilled := String.from_bytes(read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`)))));
+        _attr_scan(&spilled, spilled.len(), &needle, attr_line)
+      }, Option(ArrayList(u8)).None),
+      true => _attr_scan(&em.code, code_limit_b, &needle, attr_line)
     );
-    limit := cond((bi == usize(3)) => code_limit_b, true => hay.len());
-    if(limit >= nlen, {
-      last_start := (limit - nlen);
-      (si : usize) = usize(0);
-      while(si <= last_start, {
-        (mi : usize) = usize(0);
-        (all_eq : bool) = true;
-        while((mi < nlen) && all_eq, {
-          a := match(hay.get_byte(si + mi), .Some(b0) => b0, .None => u8(0));
-          b := match(nb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
-          if(a != b, {
-            all_eq = false;
-          });
-          mi = (mi + usize(1));
-        });
-        if(all_eq, {
-          // Walk back to the start of this line.
-          (ls : usize) = si;
-          while((ls > usize(0)) && match(hay.get_byte(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
-            ls = (ls - usize(1));
-          });
-          out := ArrayList(u8).new();
-          (ci : usize) = usize(0);
-          while(ci < ls, {
-            out.push(match(hay.get_byte(ci), .Some(cb) => cb, .None => u8(0)));
-            ci = (ci + usize(1));
-          });
-          ab := attr_line.clone();
-          (ai : usize) = usize(0);
-          while(ai < ab.len(), {
-            out.push(match(ab.get_byte(ai), .Some(cb) => cb, .None => u8(0)));
-            ai = (ai + usize(1));
-          });
-          out.push(u8(10));
-          (ci2 : usize) = ls;
-          total := hay.len();
-          while(ci2 < total, {
-            out.push(match(hay.get_byte(ci2), .Some(cb) => cb, .None => u8(0)));
-            ci2 = (ci2 + usize(1));
-          });
-          cond(
-            (bi == usize(0)) => {
-              em.headers = String.from_bytes(out);
-            },
-            (bi == usize(1)) => {
-              em.declarations = String.from_bytes(out);
-            },
-            (bi == usize(2)) => em.rewrite_code_spill(out),
-            true => {
-              em.code = String.from_bytes(out);
-            }
-          );
-          return(());
-        });
-        si = (si + usize(1));
-      });
-    });
+    match(
+      rewritten,
+      .Some(out) => {
+        cond(
+          (bi == usize(0)) => {
+            em.headers = String.from_bytes(out);
+          },
+          (bi == usize(1)) => {
+            em.declarations = String.from_bytes(out);
+          },
+          (bi == usize(2)) => em.rewrite_code_spill(out),
+          true => {
+            em.code = String.from_bytes(out);
+          }
+        );
+        return(());
+      },
+      .None => ()
+    );
     bi = (bi + usize(1));
   });
+});
+/// `_insert_attr_before_first_decl`'s scan of one buffer: the bytes of `hay`
+/// with `attr_line` inserted on its own line before the first line holding
+/// `nb` at an offset below `limit`, or `.None` when there is no such line.
+_attr_scan :: (fn(hay : &String, limit : usize, nb : &String, attr_line : &String) -> Option(ArrayList(u8)))({
+  nlen := nb.len();
+  if(limit >= nlen, {
+    last_start := (limit - nlen);
+    (si : usize) = usize(0);
+    while(si <= last_start, {
+      (mi : usize) = usize(0);
+      (all_eq : bool) = true;
+      while((mi < nlen) && all_eq, {
+        a := match(hay.get_byte(si + mi), .Some(b0) => b0, .None => u8(0));
+        b := match(nb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
+        if(a != b, {
+          all_eq = false;
+        });
+        mi = (mi + usize(1));
+      });
+      if(all_eq, {
+        // Walk back to the start of this line.
+        (ls : usize) = si;
+        while((ls > usize(0)) && match(hay.get_byte(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
+          ls = (ls - usize(1));
+        });
+        out := ArrayList(u8).new();
+        (ci : usize) = usize(0);
+        while(ci < ls, {
+          out.push(match(hay.get_byte(ci), .Some(cb) => cb, .None => u8(0)));
+          ci = (ci + usize(1));
+        });
+        ab := attr_line.clone();
+        (ai : usize) = usize(0);
+        while(ai < ab.len(), {
+          out.push(match(ab.get_byte(ai), .Some(cb) => cb, .None => u8(0)));
+          ai = (ai + usize(1));
+        });
+        out.push(u8(10));
+        (ci2 : usize) = ls;
+        total := hay.len();
+        while(ci2 < total, {
+          out.push(match(hay.get_byte(ci2), .Some(cb) => cb, .None => u8(0)));
+          ci2 = (ci2 + usize(1));
+        });
+        return(Option(ArrayList(u8)).Some(out));
+      });
+      si = (si + usize(1));
+    });
+  });
+  Option(ArrayList(u8)).None
 });
 
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Shallow-copy a deferred-drop/dup expr list into a FRESH ArrayList (same AstExpr
 /// refs, independent list). `context.pending_deferred_drops` is MUTATED as drops are
@@ -184,7 +193,7 @@ _emit_erm_unit_resume_tail :: (fn(function_type : &TypeValue, indent : &String, 
   if(!context.is_effect_record_member_function, {
     return(());
   });
-  ret_c := match(function_type, Rc(.Func({ result : erm_r })) => get_type_string(&erm_r, &context.base), _ => String.from("void"));
+  ret_c := match(function_type, Rc(.Func({ result : erm_r })) => get_type_string(&t_slot_pointee(&erm_r), &context.base), _ => String.from("void"));
   if(ret_c.ends_with("*"), {
     erm_em := context.base.emitter;
     erm_line := `${indent.clone()}return (${ret_c.clone()}){0};  // implicit unit resume (ctl handler fall-through)`;
@@ -203,7 +212,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
   // signature while `is_unit_type(SomeT)=false` sent the body down the
   // value-returning tail path — "void function should not return a value"
   // (the async_await/worker void-closure class).
-  result_is_unit := match(function_type, Rc(.Func({ result : r })) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
+  result_is_unit := match(function_type, Rc(.Func({ result : r })) => is_unit_type(resolve_some_type_to_concrete(t_slot_pointee(&r))), _ => true);
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     match(
       context.base.get_expr_info(body_expr),
@@ -320,7 +329,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                     .Some(lvn) => {
                       raw_code := _call_generate_expr(&last_expr, indent.clone(), context);
                       tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(&last_expr), lvn.clone(), Option(Environment).Some(lei.env));
-                      ret_ty_dup := match(function_type, Rc(.Func({ result : r0 })) => Rc.clone(r0), _ => t_unit());
+                      ret_ty_dup := match(function_type, Rc(.Func({ result : r0 })) => t_slot_pointee(&r0), _ => t_unit());
                       tail_self := is_self_named_atom(&last_expr, lvn.clone());
                       tail_value = Option(String).Some(if(tail_self, raw_code.clone(), tail_tmp.clone()));
                       if(!tail_self && !(tail_tmp == raw_code), {
@@ -391,7 +400,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
             // local the result expression reads (e.g. `i32(xs.len())` after `xs`
             // is dropped → reads freed memory).
             // Only when there are drops + a non-unit return; else `return <expr>`.
-            ret_ty_opt := match(function_type, Rc(.Func({ result : r })) => Option(TypeValue).Some(Rc.clone(r)), _ => Option(TypeValue).None);
+            ret_ty_opt := match(function_type, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r)), _ => Option(TypeValue).None);
             // DEGRADED tail return when the tail expression itself failed to
             // transpile (its ExprInfo was dropped by an eval throw inside
             // this definition — e.g. a comptime_expect_error that did not
@@ -436,9 +445,9 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                 // specialized at a future then declared its temp as the OTHER
                 // specialization's `_P*`
                 // (issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md).
-                decl.push_string(match(context.override_return_type_str, .Some(ors) => ors, .None => get_type_string(&ret_ty, &context.base)));
+                decl.push_string(match(context.override_return_type_str, .Some(ors) => ors.clone(), .None => get_type_string(&ret_ty, &context.base)));
                 // A projection (decision 24) returns its place's address.
-                if(context.override_return_type_str.is_none() && match(function_type, Rc(.Func({ meta : sr_m })) => sr_m.*.result_is_ref, _ => false), {
+                if(context.override_return_type_str.is_none() && fn_result_is_ref(function_type), {
                   decl.push_str("*");
                 });
                 decl.push_str(" __yo_scope_ret = ");
@@ -602,7 +611,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
   // skip above makes.
   match(
     function_type,
-    Rc(.Func({ meta : sk_fm })) => if(sk_fm.*.result_is_ref && sk_fm.*.result_is_mut_ref, {
+    Rc(.Func({ result : sk_r })) => if(t_slot_is_mut_ref(&sk_r), {
       return(());
     }),
     _ => ()
@@ -611,7 +620,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
     function_type,
     Rc(.Func({ param_types : pts, result : r, meta : __fm })) => {
       if(__fm.*.param_labels.len() == usize(0), return(()));
-      if(type_implements_future(&r), return(()));
+      if(type_implements_future(&t_slot_pointee(&r)), return(()));
       // Any RC-object parameter at all? (Cheap pre-check before the analysis.)
       (has_object_param : bool) = false;
       (pi : usize) = usize(0);
@@ -790,9 +799,9 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       stub_mark_b := em.code.len();
       em.emit_string_line(&open);
       _maybe_emit_method_entry_borrow_assert(&function_type, func_id.clone(), &body_box, &em, context);
-      prev_name := context.base.current_function_name;
+      prev_name := replace(&mut context.base.current_function_name, String.new());
       prev_type := context.current_function_type.clone();
-      prev_override := context.override_return_type_str;
+      prev_override := replace(&mut context.override_return_type_str, Option(String).None);
       context.base.current_function_name = c_function_name.clone();
       context.current_function_type = Option(TypeValue).Some(Rc.clone(function_type));
       // Thread the async return-type override into `return` statements (return.yo
@@ -805,8 +814,8 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       prev_is_erm := context.is_effect_record_member_function;
       // Unwind identity: what this function's own `unwind`s target (its body's
       // origin), and which unwinds it catches (the handlers written in it).
-      prev_unwind_origin := context.current_unwind_origin;
-      prev_unwind_catches := context.unwind_catches;
+      prev_unwind_origin := replace(&mut context.current_unwind_origin, Option(String).None);
+      prev_unwind_catches := replace(&mut context.unwind_catches, Option(ArrayList(String)).None);
       context.current_unwind_origin = Option(String).Some(unwind_origin_id(&body_box));
       context.unwind_catches = Option(ArrayList(String)).Some(unwind_catches_of_body(&body_box));
       if(is_effect_record_member(func_id.clone()), {
@@ -816,15 +825,15 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // struct C name + captured field names + defining frame level so the atom
       // emitter rewrites captured vars (e.g. `base`) to
       // `((<cap>*)closure_context)->base`. Restored after the body.
-      prev_caps := context.current_closure_captures;
+      prev_caps := context.current_closure_captures.clone();
       prev_cap_level := context.current_closure_capture_frame_level;
-      prev_cap_cname := context.current_closure_capture_type_c_name;
+      prev_cap_cname := context.current_closure_capture_type_c_name.clone();
       if(is_closure_fn(func_id.clone()), {
         match(
           get_closure_capture_info(func_id.clone()),
           .Some(ci) => {
             cap_labels := match(&ci.capture_type, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
-            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items);
+            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items.clone());
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
             context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(&ci.capture_type, &context.base));
           },
@@ -919,7 +928,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // exact.
       (stub_found_ftt : bool) = false;
       {
-        sb := em.code;
+        sb := &em.code;
         total_b := sb.len();
         needle := String.from("// Failed to transpile");
         nb := needle;
@@ -999,7 +1008,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       stub_is_superseded := fid_fully_specialized(func_id.clone());
       stub_ret_unit := match(
         function_type,
-        Rc(.Func({ result : stub_r })) => is_unit_type(resolve_some_type_to_concrete(stub_r.clone())),
+        Rc(.Func({ result : stub_r })) => is_unit_type(resolve_some_type_to_concrete(t_slot_pointee(&stub_r))),
         _ => true
       );
       // Phase 6 step 3 (plans/TYPE_SYSTEM_SOUNDNESS.md): a SPECIALIZATION that
@@ -1048,8 +1057,8 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
         // Truncate at the marker, in place. stub_mark_b is a byte offset taken
         // at an emission point (a char boundary), so this is byte-exact with
         // the former `substring(0, stub_mark)` and copies nothing.
-        pb := em.code;
         if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
+          pb := &em.code;
           // The rewrite below TRUNCATES the body at the marker, destroying the
           // evidence of WHICH expression failed — print a window AROUND the
           // marker here (the warm in-process campaign's FTT triage probe).
@@ -1305,7 +1314,7 @@ emit_module_level_variable_declarations :: (
           context.base.get_expr_info(&var_atom),
           .None => (),
           .Some(vi) => {
-            var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_text(&var_atom).*);
+            var_name := match(vi.variable_name, .Some(vn) => vn.clone(), .None => ast_expr_text(&var_atom).*.clone());
             (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(&var_atom), &var_name, Option(Environment).Some(vi.env));
             // The recorded env for a `name := rhs` module init can miss the
             // variable (resolution falls back to the bare name and the
@@ -1468,8 +1477,8 @@ emit_thread_local_accessors :: (
   });
   // Same deferred-drop reset as the module-init helper: the initializer's
   // result is MOVED into the thread-local storage, never dropped.
-  saved_pending := context.pending_deferred_drops;
-  saved_consumed := context.consumed_var_pending_drops;
+  saved_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+  saved_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
   context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
   em.emit_string(String.from("\n// Thread-local lazy accessors (one first touch per thread).\n"));
@@ -1633,8 +1642,8 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
   // fresh empty list so the initializer's result is MOVED into the global (never
   // dropped — module globals outlive the program body).
   if(has_module_vars, {
-    saved_pending := context.pending_deferred_drops;
-    saved_consumed := context.consumed_var_pending_drops;
+    saved_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+    saved_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     em.emit_string(

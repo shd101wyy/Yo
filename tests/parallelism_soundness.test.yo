@@ -347,7 +347,7 @@ comptime_expect_error({
 // emitted two Arc instances for one type until P-26,
 // issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
 test("D4 canary: a closure over an atomic satisfies where(T <: Send), and Arc.new of it runs on a thread", {
-  hits := AtomicI32(i32(0));
+  hits := AtomicI32.new(i32(0));
   (bump : Impl(Fn() -> unit)) = (
     () => {
       hits.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -427,7 +427,7 @@ comptime_expect_error({
 });
 // Canary: a spawn closure may call a function that reads a `Send` constant
 // and an atomic global; the non-Send global above is untouched by it.
-g_hits := AtomicI32(i32(0));
+g_hits := AtomicI32.new(i32(0));
 _count_hit :: (fn() -> i32)({
   g_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
   LIMIT
@@ -542,7 +542,7 @@ test("D8 canary: a closure over a copy of the protected value is legal", {
 // ============================================================================
 // D9 — a function value is Send by what it captures and what its code reaches
 // ============================================================================
-d9_hits := AtomicI32(i32(0));
+d9_hits := AtomicI32.new(i32(0));
 _d9_fill :: (fn(io : Io) -> unit)({
   g_items.with_mut(l => l.push(i32(9)));
 });
@@ -750,7 +750,7 @@ test("D9 canary: function values that reach only atomics are Send by every route
 // reaches only an atomic global — compiles and runs; its `Arc(V)` signature
 // and body built two Arc instances until
 // issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md.
-d9_arc_hits := AtomicI32(i32(0));
+d9_arc_hits := AtomicI32.new(i32(0));
 test("D4/D9 canary: Arc.new of a capture-free closure runs on a thread", {
   (k : Impl(Fn() -> unit)) = (
     () => {
@@ -771,7 +771,7 @@ test("D4/D9 canary: Arc.new of a capture-free closure runs on a thread", {
 // definition is a code pointer, re-materialized at every use. Binding it
 // again after the call was "use of moved value"
 // (issues/fixed/passing-a-named-function-to-an-own-parameter-moves-the-definition.md).
-d9_tick_hits := AtomicI32(i32(0));
+d9_tick_hits := AtomicI32.new(i32(0));
 _d9_tick :: (fn() -> unit)({
   d9_tick_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
   ();

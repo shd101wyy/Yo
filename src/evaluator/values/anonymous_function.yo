@@ -40,7 +40,8 @@ pragma(Pragma.AllowUnsafe);
   BK_MUT,
   BK_BORROW_MUT,
   BF_ADDRESS_OF,
-  BF_DOT
+  BF_DOT,
+  rewrite_projection_tails
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -95,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -146,7 +147,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, audit_pending_copies_enabled, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
-{ CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
+{ CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
@@ -321,7 +322,9 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
         (fbtok.value.* == ":") => match(
           args.get(usize(0)),
           .Some(.Atom(_, ntok)) => ntok.value.*.clone(),
-          .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
+          // `x : &T` / `x : &mut T` is `__yo_imm(x) : T` / `__yo_mut(x) : T`
+          // by now (`desugar_if_calls`): the written name is the head's argument.
+          .Some(pm) => if(ast_expr_is_capture_mode_entry(&pm), ast_expr_token(&_only_arg(&pm)).value.*.clone(), fallback.clone()),
           .None => fallback.clone()
         ),
         true => fallback.clone()
@@ -333,6 +336,32 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
 /// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
 /// and wraps them in a no-generic, no-implicit Func.
+/// The body of a closure returning `&T` / `&mut T`: each result position
+/// rewritten to the marked `addr_of(place)` (`rewrite_projection_tails`,
+/// decision 24), a sigil of the other mode rejected.
+_closure_projection_body :: (fn(body : &AstExpr, is_mut : bool, exn : Exception) -> AstExpr)({
+  mismatches := ArrayList(Token).new();
+  out := rewrite_projection_tails(body, is_mut, &mut mismatches);
+  match(
+    mismatches.get(usize(0)),
+    .Some(mt) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            &mt,
+            if(
+              is_mut,
+              String.from("This closure returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
+              String.from("This closure returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+            )
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+  out
+});
 _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
   match(
     ftt,
@@ -355,7 +384,6 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
             implicit_labels : no_labels(),
             result_is_comptime_only : false,
             // Fn-trait-derived closure type (runtime)
-            result_is_ref : false,
             has_variadic : false,
             is_extern : Option(String).None,
             // Fn-trait-derived closure type is not FFI
@@ -435,7 +463,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
         ss_new_pts.push(t_slot_with_pointee(&ss_elem, recur(t_slot_pointee(&ss_elem), env2, allow.clone())));
         ss_pi = (ss_pi + usize(1));
       });
-      Rc.new(TypeValueNode.Func(ss_fts.clone(), shared_list(ss_new_pts), ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), Rc.new(ss_fm.*.clone()), no_types()))
+      Rc.new(TypeValueNode.Func(ss_fts.clone(), shared_list(ss_new_pts), ss_its.clone(), ss_wts.clone(), t_slot_with_pointee(&ss_ret, recur(t_slot_pointee(&ss_ret), env2, allow.clone())), Rc.new(ss_fm.*.clone()), no_types()))
     },
     _ => Rc.clone(ty)
   )
@@ -1339,7 +1367,7 @@ evaluate_anonymous_function_implementation :: (
   );
   result_box := match(
     &function_type,
-    Rc(.Func({ result : rb })) => Rc.clone(rb),
+    Rc(.Func({ result : rb })) => t_slot_pointee(&rb),
     _ => Rc.new(TypeValueNode.Unit)
   );
   // -------------------------------------------------------------------------
@@ -1847,6 +1875,23 @@ evaluate_anonymous_function_implementation :: (
         .None => ()
       );
     });
+    // A closure or handler returning a reference is a projection (decision
+    // 24, N1c): its parameters are the roots its place may be reached from
+    // (`is_parameter`), and a `&T` one is passed by pointer
+    // (`fn_param_is_ptr_borrow`), so it binds as a non-reassignable
+    // reference, as `bind_parameter` binds a named projection's.
+    if(fn_result_is_ref(&function_type), {
+      match(
+        rp_v_opt,
+        .Some(rp_vp) => {
+          rp_vp.is_parameter = true;
+          if(fn_param_is_ptr_borrow(&function_type, rp_i), {
+            rp_vp.is_ref = true;
+          });
+        },
+        .None => ()
+      );
+    });
     rp_i = (rp_i + usize(1));
   });
   // UNANNOTATED closure params whose expected SomeT resolved concretely
@@ -1924,7 +1969,12 @@ evaluate_anonymous_function_implementation :: (
   });
   // Clone taken BEFORE `body_expr` below moves the body into the
   // FuncVal; the definition-time body evaluation further down needs it.
-  body_for_def_eval := body_expr.clone();
+  // A closure or handler returning a reference (`Fn(...) -> &T`, a `ctl`
+  // operation `-> &T`; decision 43 step 2, N1c) is a projection (decision
+  // 24): its body yields a place written with the result's sigil, rewritten
+  // to the marked `addr_of(place)` as a named projection's is.
+  proj_body := if(fn_result_is_ref(&function_type), _closure_projection_body(&body_expr, fn_result_is_mut_ref(&function_type), exn), body_expr.clone());
+  body_for_def_eval := proj_body.clone();
   func_val := EvalValue.FuncVal(
     Rc.new(
       FuncValData(
@@ -1932,7 +1982,7 @@ evaluate_anonymous_function_implementation :: (
         params : actual_param_labels.clone(),
         param_type_names : param_type_names,
         evidence_params : implicit_labels.items.clone(),
-        body : body_expr,
+        body : proj_body,
         cap_names : ArrayList(String).new(),
         cap_tys : ArrayList(TypeValue).new(),
         func_id : func_id.clone(),
@@ -2039,7 +2089,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(enclosing_func_ty) => {
           enclosing_return_ty := match(
             enclosing_func_ty,
-            Rc(.Func({ result : rb })) => Rc.clone(rb),
+            Rc(.Func({ result : rb })) => t_slot_pointee(&rb),
             _ => Rc.new(TypeValueNode.Unit)
           );
           register_definition_site_return(func_id.clone(), &enclosing_return_ty);
@@ -2196,7 +2246,7 @@ evaluate_anonymous_function_implementation :: (
   // DOWN into the still-live throw frame. SomeT results are conservatively
   // not control-bound, so generic/async (`Impl(Future(...))`) results pass.
   if(!ctl_force, {
-    decl_result_ty := match(&function_type, Rc(.Func({ result : __rr })) => Rc.clone(__rr), _ => t_unit());
+    decl_result_ty := match(&function_type, Rc(.Func({ result : __rr })) => t_slot_pointee(&__rr), _ => t_unit());
     if(type_is_control_bound(&decl_result_ty), {
       exn.throw(
         dyn(
@@ -2229,7 +2279,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
       Rc.new(
         FuncValData(
           forall_names : ArrayList(String).new(),
-          params : ArrayList(String).new(),
+          // The parameter names as written: the body's own (the closure-capture
+          // rule, `_enclosing_param_names`), not the expected slot's labels.
+          params : actual_param_labels.clone(),
           param_type_names : ArrayList(String).new(),
           evidence_params : ArrayList(String).new(),
           body : body_for_def_eval.clone(),
@@ -2266,7 +2318,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // body types as SomeT and the concrete result-refine is skipped (closure return
     // + future result then lower to void*). Clear the expected type so the body
     // types naturally (the closure's result is inferred from the body anyway).
-    ret_ty_for_body := match(&function_type, Rc(.Func({ result : brt })) => Rc.clone(brt), _ => t_unit());
+    ret_ty_for_body := match(&function_type, Rc(.Func({ result : brt })) => t_slot_pointee(&brt), _ => t_unit());
     // (`mark_closure_for_codegen` is every `=>` closure — this clear is what
     // makes the def-time body type CONCRETELY instead of being coerced to
     // the SomeT, which feeds the closure-body-type registration below.)
@@ -2426,10 +2478,12 @@ Result type: ${type_to_string(&decl_result_ty)}`
             // Decision 38 A: a second-class value is never returned, except
             // a borrowing future rooted at the closure's own borrow
             // parameters (§3.13 A2).
-            cr_ret_ty := match(&function_type, Rc(.Func({ result : cr_r })) => Rc.clone(cr_r), _ => t_unit());
+            // A projection closure's body is its place's address (the marked
+            // `addr_of(place)`, `_closure_projection_body`), a `*(T)`.
+            cr_ret_ty := match(&function_type, Rc(.Func({ result : cr_r })) => if(t_slot_is_borrow(&cr_r), t_ptr(&t_slot_pointee(&cr_r)), t_slot_pointee(&cr_r)), _ => t_unit());
             if(!has_any_control_flow(cr_info.control_flow), {
               // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
-              if(!match(&function_type, Rc(.Func({ meta : cr_m })) => cr_m.*.result_is_ref, _ => false), {
+              if(!fn_result_is_ref(&function_type), {
                 reject_bare_callable_result(&cr_ret_ty, &cr_body_ty, &body_expr, ctx, exn);
               });
               reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
@@ -2463,7 +2517,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         // That is parametricity, as the deferred trial checks for a closure
         // against its own forall
         // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
-        rv_ret := match(&function_type, Rc(.Func({ result : rv_r })) => Rc.clone(rv_r), _ => t_unit());
+        rv_ret := match(&function_type, Rc(.Func({ result : rv_r })) => t_slot_pointee(&rv_r), _ => t_unit());
         rv_generic := match(
           &rv_ret,
           Rc(.SomeT({ name : rv_name })) => {
@@ -2529,8 +2583,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
           .Some(nrs_info) => {
-            nrs_body_ty := Rc.clone(nrs_info.ty);
-            nrs_ret_ty := match(&function_type, Rc(.Func({ result : nrs_r })) => Rc.clone(nrs_r), _ => t_unit());
+            // A projection closure's body is its place's address (`*(T)`);
+            // the result it binds is the place's type `T`.
+            nrs_body_ty := if(fn_result_is_ref(&function_type), match(&nrs_info.ty, Rc(.Pointer(nrs_pp)) => Rc.clone(nrs_pp), _ => Rc.clone(nrs_info.ty)), Rc.clone(nrs_info.ty));
+            nrs_ret_ty := match(&function_type, Rc(.Func({ result : nrs_r })) => t_slot_pointee(&nrs_r), _ => t_unit());
             nrs_ret_nested := (!is_some_type(&nrs_ret_ty) && (get_all_some_types(&nrs_ret_ty).len() > usize(0)));
             // BARE-SomeT declared return (`-> B`, map's output forall): the
             // env-channel binding must handle it here or `B` never binds
@@ -2572,10 +2628,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
               // body referenced `x` ("use of undeclared identifier 'x'").
               function_type = match(
                 &function_type,
-                Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt)) => {
+                Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_old_r, nrs_m, nrs_vt)) => {
                   nrs_nm := nrs_m.*.clone();
                   nrs_nm.param_labels = shared_list(actual_param_labels.clone());
-                  Rc.new(TypeValueNode.Func(Rc.clone(nrs_fl), Rc.clone(nrs_pt), Rc.clone(nrs_it), Rc.clone(nrs_wt), nrs_body_ty, Rc.new(nrs_nm), Rc.clone(nrs_vt)))
+                  Rc.new(TypeValueNode.Func(Rc.clone(nrs_fl), Rc.clone(nrs_pt), Rc.clone(nrs_it), Rc.clone(nrs_wt), t_slot_with_pointee(&nrs_old_r, &nrs_body_ty), Rc.new(nrs_nm), Rc.clone(nrs_vt)))
                 },
                 _ => Rc.clone(function_type)
               );
@@ -2636,6 +2692,18 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 ),
                 _ => ()
               );
+              // A projection closure's body is its place's address (the
+              // marked `addr_of(place)`, a `*(T)`): its result is the place's
+              // type `T`, returned by address (decision 24).
+              if(fn_result_is_ref(&function_type), {
+                match(
+                  Rc.clone(body_ty),
+                  Rc(.Pointer(rr_pp)) => {
+                    body_ty = Rc.clone(rr_pp);
+                  },
+                  _ => ()
+                );
+              });
               has_some := get_all_some_types(body_ty.clone()).len();
               if(has_some == usize(0), {
                 // SOURCE labels (actual_param_labels), NOT the expected type's
@@ -2666,7 +2734,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     // which codegen then lowered to `void*` once the id-keyed
                     // registry stopped carrying binder resolutions
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-                    Rc.new(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), Rc.new(_l4nm), no_types()))
+                    Rc.new(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), t_slot_with_pointee(&_l4r, &body_ty), Rc.new(_l4nm), no_types()))
                   },
                   _ => t_func_simple(actual_param_labels.clone(), param_types.items.clone(), &body_ty)
                 );
@@ -2767,7 +2835,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
   // degenerating to unit cannot convict, and an expected bare SomeT that is
   // not this fn's own forall is bound by the call site.
   if(should_defer_body, {
-    dgc_ret := match(&function_type, Rc(.Func({ result : dgc_r })) => Rc.clone(dgc_r), _ => t_unit());
+    dgc_ret := match(&function_type, Rc(.Func({ result : dgc_r })) => t_slot_pointee(&dgc_r), _ => t_unit());
     // Every deferred generic closure body is trialled (Phase 6 step 2, the
     // twin of the named-fn deferred trial); the result comparison below
     // stays limited to a result that mentions a type variable.
@@ -2777,7 +2845,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         Rc.new(
           FuncValData(
             forall_names : ArrayList(String).new(),
-            params : ArrayList(String).new(),
+            params : actual_param_labels.clone(),
             param_type_names : ArrayList(String).new(),
             evidence_params : ArrayList(String).new(),
             body : body_for_def_eval.clone(),
@@ -2869,7 +2937,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dgc_body)),
             .Some(dgc_info) => {
               dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !has_control_flow(dgc_info.control_flow, .Return));
-              dgc_is_ref := match(&function_type, Rc(.Func({ meta : __fmd1 })) => __fmd1.*.result_is_ref, _ => false);
+              dgc_is_ref := fn_result_is_ref(&function_type);
+
               dgc_expected := cond(
                 dgc_is_ref => t_ptr(&dgc_ret),
                 true => dgc_ret

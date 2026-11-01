@@ -107,22 +107,22 @@ Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则�
 ```yo
 { AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 
-flag := AtomicBool(false);
+flag := AtomicBool.new(false);
 flag.store(true, MemoryOrder.Release);
 if(flag.load(MemoryOrder.Acquire), {
   println("flag is set!");
 });
 
-counter := AtomicI32(i32(0));
+counter := AtomicI32.new(i32(0));
 counter.fetch_add(i32(1), MemoryOrder.Relaxed);
 println(`count = ${counter.load(MemoryOrder.Acquire)}`);
 
 // 完整的读-改-写族，适用于每一种整数原子类型：
-bits := AtomicU32(u32(0));
+bits := AtomicU32.new(u32(0));
 bits.fetch_or(u32(4), MemoryOrder.AcqRel); // 置位
 bits.fetch_and(u32(4294967291), MemoryOrder.AcqRel); // 清位
 bits.fetch_xor(u32(1), MemoryOrder.AcqRel); // 翻转
-high_water := AtomicUsize(usize(0));
+high_water := AtomicUsize.new(usize(0));
 high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
 
@@ -181,7 +181,7 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 ```yo
 LIMIT :: i32(5); // 常量：任何线程都可读
-hits := AtomicI32(i32(0)); // 原子对象：共享状态，可以
+hits := AtomicI32.new(i32(0)); // 原子对象：共享状态，可以
 (thread_local(mut(scratch)) : i32) = i32(0); // 每线程可变状态：可以
 mut(g) := ArrayList(i32).new(); // 只在主线程上可用
 fill :: (fn() -> unit)({
@@ -211,7 +211,7 @@ Thread(i32).spawn(io => counter); // 错误：……但另一个线程读取了 
 
 ```yo
 mut(g) := ArrayList(i32).new(); // 只在主线程上可用
-hits := AtomicI32(i32(0));
+hits := AtomicI32.new(i32(0));
 fill :: (fn(io : Io) -> unit)({
   g.push(i32(1));
 });

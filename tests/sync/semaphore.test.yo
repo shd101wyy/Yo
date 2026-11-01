@@ -81,10 +81,10 @@ test("Semaphore of one permit acquires and releases repeatedly", {
 test("Semaphore never admits more holders than it has permits", {
   if(arch == Arch.Wasm32, return(()));
   sem := Semaphore.new(i32(2));
-  inside := AtomicI32(i32(0));
-  violations := AtomicI32(i32(0));
-  saw_full := AtomicI32(i32(0));
-  completed := AtomicI32(i32(0));
+  inside := AtomicI32.new(i32(0));
+  violations := AtomicI32.new(i32(0));
+  saw_full := AtomicI32.new(i32(0));
+  completed := AtomicI32.new(i32(0));
   t1 := Thread(unit).spawn(io => {
     mut(i) := i32(0);
     while(i < i32(25), {
@@ -192,8 +192,8 @@ test("Semaphore never admits more holders than it has permits", {
 test("Semaphore blocked acquirers are woken one per released permit", {
   if(arch == Arch.Wasm32, return(()));
   sem := Semaphore.new(i32(2));
-  arrived := AtomicI32(i32(0));
-  passed := AtomicI32(i32(0));
+  arrived := AtomicI32.new(i32(0));
+  passed := AtomicI32.new(i32(0));
   // The main thread drains both permits and keeps them for the whole window.
   sem.acquire();
   sem.acquire();
@@ -245,7 +245,7 @@ test("Semaphore permit may be released by a thread that never acquired it", {
   // Unlike a Mutex, a Semaphore is not owned by the acquirer: this is the
   // "wait for a signal from elsewhere" use.
   sem := Semaphore.new(i32(0));
-  signalled := AtomicI32(i32(0));
+  signalled := AtomicI32.new(i32(0));
   t := Thread(unit).spawn(io => {
     sleep_blocking(Duration.from_millis(i64(20)));
     signalled.store(i32(1), MemoryOrder.Release);
@@ -261,7 +261,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
   // The counter is updated in two separate relaxed steps with a real gap in
   // between, so any lost mutual exclusion shows up as lost updates.
   sem := Semaphore.new(i32(1));
-  counter := AtomicI32(i32(0));
+  counter := AtomicI32.new(i32(0));
   t1 := Thread(unit).spawn(io => {
     mut(i) := i32(0);
     while(i < i32(25), {

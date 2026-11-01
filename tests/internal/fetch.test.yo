@@ -1,8 +1,15 @@
+pragma(Pragma.SkipWasm32Emscripten); // the store-reuse test spawns native git children
+pragma(Pragma.SkipWasm32Wasi); // the store-reuse test spawns native git children
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ DirEntry, FileType } :: import("std/fs/dir");
+{ DirEntry, FileType, create_dir_all } :: import("std/fs/dir");
+{ write_string, read_to_string, exists } :: import("std/fs/file");
+{ remove_dir_all } :: import("std/fs/walker");
 { Path } :: import("std/path");
-{ normalize_line_endings, sort_dir_entries, is_local_git_path, git_remote_url, commit_from_ls_remote } :: import("../../src/fetch.yo");
+{ Rng } :: import("std/rand");
+{ temp_dir } :: import("std/env");
+{ Exception, IoExn } :: import("std/error");
+{ normalize_line_endings, sort_dir_entries, is_local_git_path, git_remote_url, commit_from_ls_remote, fetch_package, git_command } :: import("../../src/fetch.yo");
 { assert, panic } :: import("std/assert");
 // ---------------------------------------------------------------------------
 // normalize_line_endings
@@ -153,4 +160,88 @@ test("commit_from_ls_remote: blank lines are skipped", {
 });
 test("commit_from_ls_remote: empty output is None", {
   assert(_commit_or("", "none") == "none", "nothing to resolve");
+});
+// ---------------------------------------------------------------------------
+// fetch_package store reuse: a mutated inner file is detected
+// ---------------------------------------------------------------------------
+/// Run `git -C <dir> <a> [<b> [<c>]]`, failing the test on a non-zero exit.
+_fm_git :: (fn(dir : &String, io : Io, e : IoExn, (a : str) ?= "", (b : str) ?= "", (c : str) ?= "") -> unit)({
+  cmd := git_command();
+  cmd.arg(String.from("-C"));
+  cmd.arg(dir.clone());
+  if(a.len() > usize(0), {
+    cmd.arg(String.from(a));
+  });
+  if(b.len() > usize(0), {
+    cmd.arg(String.from(b));
+  });
+  if(c.len() > usize(0), {
+    cmd.arg(String.from(c));
+  });
+  status := e.io.await(cmd.status(e.io), e);
+  if(!status.success(), {
+    e.exn.throw(dyn(`git ${a} failed in ${dir}`));
+  });
+});
+test("fetch_package: a mutated inner file of a stored tree is detected and the tree re-fetched", {
+  // The 2026-11-01 store corruption: a tool edited an inner file of a
+  // PRESENT store entry; the `.verified` marker still stood, so the locked
+  // reuse path trusted the mutated bytes and every project on the machine
+  // compiled them. The reuse path must re-hash the tree and re-fetch it
+  // (issues/fixed/2026-11-01-a-mutated-store-entry-is-reused-by-install-locked.md).
+  rng := Rng.from_entropy();
+  root := Path.new(temp_dir()).join(Path.new(`yo_fm_${rng.next_u64().to_string()}`));
+  mk := Exception(
+    throw : (
+      err -> {
+        assert(false, `fixture io failed: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : mk);
+  repo := root.join(Path.new(String.from("repo"))).to_string();
+  io.await(create_dir_all(Path.new(repo.clone()), io), ioexn);
+  _fm_git(&repo, io, ioexn, "init", "--quiet");
+  _fm_git(&repo, io, ioexn, "config", "user.email", "fixture@example.com");
+  _fm_git(&repo, io, ioexn, "config", "user.name", "fixture");
+  io.await(write_string(Path.new(`${repo}/lib.yo`), String.from("VERSION :: `1.0.0`;\n"), io), ioexn);
+  _fm_git(&repo, io, ioexn, "add", "lib.yo");
+  _fm_git(&repo, io, ioexn, "commit", "--quiet", "-m one");
+  rp := git_command();
+  rp.arg(String.from("-C"));
+  rp.arg(repo.clone());
+  rp.arg(String.from("rev-parse"));
+  rp.arg(String.from("HEAD"));
+  out := io.await(rp.output(io), ioexn);
+  sha := String.from_bytes(out.stdout.clone()).trim();
+  assert(sha.len() == usize(40), "rev-parse HEAD returned a commit");
+  cache := root.join(Path.new(String.from("cache"))).to_string();
+  // The resolver's `ensure_cache_layout` normally creates these before any
+  // fetch: the store (the lock file and the landed trees), the bare mirrors.
+  io.await(create_dir_all(Path.new(`${cache}/store`), io), ioexn);
+  io.await(create_dir_all(Path.new(`${cache}/git`), io), ioexn);
+  no_lock := Option(String).None;
+  first := io.await(
+    fetch_package(cache.clone(), String.from("fmdep"), repo.clone(), sha.clone(), &no_lock, &no_lock, false, false, false, io, mk),
+    ioexn
+  );
+  locked_commit := Option(String).Some(sha.clone());
+  locked_integrity := Option(String).Some(first.integrity.clone());
+  second := io.await(
+    fetch_package(cache.clone(), String.from("fmdep"), repo.clone(), sha.clone(), &locked_commit, &locked_integrity, false, false, false, io, mk),
+    ioexn
+  );
+  landed := io.await(exists(Path.new(`${second.dir}/lib.yo`), io), io);
+  assert(landed, "the locked reuse found the landed tree");
+  // The corruption: write into the STORED tree, marker and all.
+  io.await(write_string(Path.new(`${second.dir}/lib.yo`), String.from("VERSION :: `9.9.9`;\n"), io), ioexn);
+  third := io.await(
+    fetch_package(cache.clone(), String.from("fmdep"), repo.clone(), sha.clone(), &locked_commit, &locked_integrity, false, false, false, io, mk),
+    ioexn
+  );
+  text := io.await(read_to_string(Path.new(`${third.dir}/lib.yo`), io), ioexn);
+  assert(text.contains(String.from("1.0.0")), "the mutated inner file was re-fetched pristine");
+  assert(!text.contains(String.from("9.9.9")), "no mutated byte survives the reuse");
+  io.await(remove_dir_all(root.clone(), io), ioexn);
 });
