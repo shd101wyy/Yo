@@ -85,7 +85,7 @@ test("read walk over String elements: no per-element dup", {
   assert(ref_count(first) == before, "counts unchanged after the loop");
 });
 test("read walk over Deque, PriorityQueue and HashSet", {
-  dq := Deque(i32).new();
+  mut(dq) := Deque(i32).new();
   dq.push_back(i32(2));
   dq.push_front(i32(1));
   dq.push_back(i32(3));
@@ -94,7 +94,7 @@ test("read walk over Deque, PriorityQueue and HashSet", {
     seen = ((seen * i32(10)) + x);
   });
   assert(seen == i32(123), "the deque in front-to-back order");
-  pq := PriorityQueue(i32).new();
+  mut(pq) := PriorityQueue(i32).new();
   pq.push(i32(7));
   pq.push(i32(9));
   pq.push(i32(8));
@@ -140,7 +140,7 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
     esum = (esum + e.value);
   });
   assert(esum == i32(6), "the whole entry, read");
-  om := OrderedMap(i32, i32).new();
+  mut(om) := OrderedMap(i32, i32).new();
   om.insert(i32(3), i32(30));
   om.insert(i32(1), i32(10));
   (mut(order) : i32) = i32(0);
@@ -149,7 +149,7 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
     assert(v == (k * i32(10)), "value beside its key");
   });
   assert(order == i32(31), "insertion order");
-  bt := BTreeMap(i32, i32).new();
+  mut(bt) := BTreeMap(i32, i32).new();
   bt.insert(i32(2), i32(20));
   bt.insert(i32(1), i32(10));
   order = i32(0);
@@ -330,7 +330,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   write_walk_over_a_priority_queue :: (fn() -> unit)({
-    pq := PriorityQueue(i32).new();
+    mut(pq) := PriorityQueue(i32).new();
     pq.push(i32(1));
     for(&mut pq, x => {
       x = i32(2);
