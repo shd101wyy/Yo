@@ -1091,6 +1091,28 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
   (i : usize) = usize(0);
   while(i < na, {
     pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
+    // N2b (decision 43 step 3, T9): a by-value REFERENCE parameter (an inline
+    // composite's `&`/`&mut` field) takes a LEND — the argument is the place
+    // and the C field is a pointer, so it is addressed exactly like a ref
+    // parameter's argument. The lend is recorded on the place's ExprInfo as
+    // its converted runtime type (a `Reference`).
+    if(!pref, {
+      match(
+        runtime_args.get(i),
+        .Some(ra) => match(
+          context.base.get_expr_info(&ra),
+          .Some(rei2) => match(
+            expr_info_converted_runtime_type(&rei2),
+            .Some(Rc(.Reference(_, _, _))) => {
+              pref = true;
+            },
+            _ => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
     c := match(args.get_cloned(i), .Some(x) => x, .None => String.from(""));
     // A ref/`inout` parameter of type `unit` has no C value to take the
     // address of — the arg code is EMPTY, so the spill branch declared
