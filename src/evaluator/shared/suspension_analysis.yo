@@ -745,16 +745,11 @@ walk_expr_ :: (
           n_branches := per_branch_points.len();
           (bpi : usize) = usize(0);
           while(bpi < n_branches, {
-            branch := match(
-              per_branch_points.get_cloned(bpi),
-              .None => {
-                bpi = n_branches;
-                return(());
-              },
-              .Some(b) => b
-            );
-            if(branch.len() > max_depth, {
-              max_depth = branch.len();
+            // B9: only the length is read — the branch itself stays in the
+            // list (`SuspensionPoint` has no Clone before V5).
+            bl := per_branch_points(bpi).len();
+            if(bl > max_depth, {
+              max_depth = bl;
             });
             bpi = (bpi + usize(1));
           });
@@ -773,17 +768,11 @@ walk_expr_ :: (
               (found_rep : bool) = false;
               (bpi2 : usize) = usize(0);
               while((bpi2 < n_branches) && !found_rep, {
-                branch2 := match(
-                  per_branch_points.get(bpi2),
-                  .None => {
-                    bpi2 = n_branches;
-                    return(());
-                  },
-                  .Some(b) => b
-                );
-                if(pos < branch2.len(), {
+                // B9: the branch is read in place through the index place
+                // (its points are ref-struct handles, so the read dups).
+                if(pos < per_branch_points(bpi2).len(), {
                   sp3 := match(
-                    branch2.get(pos),
+                    per_branch_points(bpi2).get(pos),
                     .None => {
                       bpi2 = n_branches;
                       return(());
@@ -817,17 +806,9 @@ walk_expr_ :: (
                   branch_in_while := ArrayList(bool).new();
                   (bpi3 : usize) = usize(0);
                   while(bpi3 < n_branches, {
-                    branch3 := match(
-                      per_branch_points.get(bpi3),
-                      .None => {
-                        bpi3 = n_branches;
-                        return(());
-                      },
-                      .Some(b) => b
-                    );
-                    if(pos < branch3.len(), {
+                    if(pos < per_branch_points(bpi3).len(), {
                       match(
-                        branch3.get(pos),
+                        per_branch_points(bpi3).get(pos),
                         .Some(p3) => {
                           // A branch whose point at this position is ITSELF a
                           // merged representative (a nested cond/match with
@@ -842,9 +823,9 @@ walk_expr_ :: (
                           // inner exprs are walked first) is a looping branch.
                           p3_in_while := match(p3.is_inside_while, .Some(b) => b, .None => false);
                           match(
-                            p3.cond_branch_suspension_exprs,
+                            p3.cond_branch_suspension_exprs.clone(),
                             .Some(nested) => {
-                              nested_in_while := match(p3.cond_branch_suspension_in_while, .Some(l) => l.clone(), .None => ArrayList(bool).new());
+                              nested_in_while := match(&p3.cond_branch_suspension_in_while, .Some(l) => l.clone(), .None => ArrayList(bool).new());
                               (ni : usize) = usize(0);
                               while(ni < nested.len(), {
                                 match(
@@ -953,7 +934,7 @@ walk_expr_ :: (
             .None => (),
             .Some(info3) => {
               match(
-                info3.deferred_drop_expressions,
+                info3.deferred_drop_expressions.clone(),
                 .None => (),
                 .Some(drop_exprs) => {
                   (di2 : usize) = usize(0);
@@ -1014,7 +995,7 @@ analyze_suspension_points :: (
     .None => (),
     .Some(body_info) => {
       match(
-        body_info.deferred_drop_expressions,
+        body_info.deferred_drop_expressions.clone(),
         .None => (),
         .Some(drop_exprs) => {
           n_drops := drop_exprs.len();
@@ -1055,7 +1036,7 @@ analyze_suspension_points :: (
   (ci : usize) = usize(0);
   while(ci < n_ids, {
     id := match(
-      captured_variable_ids_in_order.get(ci),
+      captured_variable_ids_in_order.get_cloned(ci),
       .None => {
         break;
       },
@@ -1071,10 +1052,11 @@ analyze_suspension_points :: (
     captured_list.push(cv);
     ci = (ci + usize(1));
   });
+  n_susp := suspension_points.len();
   SuspensionAnalysisResult(
     suspension_points : suspension_points,
     captured_variables : captured_list,
-    has_suspensions : (suspension_points.len() > usize(0)),
+    has_suspensions : (n_susp > usize(0)),
     variable_id_remapping : variable_id_remapping
   )
 });

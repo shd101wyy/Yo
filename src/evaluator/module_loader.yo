@@ -85,7 +85,7 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
 /// `.None` for a module never loaded through this loader.
 loading_key_for_module :: (fn(module : &String) -> Option(String))({
   canon := _canonical(module);
-  g_loading_key_by_canonical.with(m => m.get(&canon.*))
+  g_loading_key_by_canonical.with(m => m.get_cloned(&canon.*))
 });
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
 unregister_loading :: (fn(path : &String) -> unit)({
@@ -93,7 +93,7 @@ unregister_loading :: (fn(path : &String) -> unit)({
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_loading_keys.with(xs => xs.get(i)),
+      g_loading_keys.with(xs => xs.get_cloned(i)),
       .Some(k) => if(k == path, {
         g_loading_keys.with_mut(xs => xs.drain(i .. (i + usize(1))));
         g_loading_envs.with_mut(xs => xs.drain(i .. (i + usize(1))));
@@ -109,7 +109,7 @@ unregister_loading :: (fn(path : &String) -> unit)({
 /// loader uses it to attribute import-graph edges to their importer.
 current_loading_module :: (fn() -> Option(String))(
   cond(
-    (g_loading_keys.with(xs => xs.len()) > usize(0)) => g_loading_keys.with(xs => xs.last()),
+    (g_loading_keys.with(xs => xs.len()) > usize(0)) => g_loading_keys.with(xs => xs.last_cloned()),
     true => Option(String).None
   )
 );
@@ -119,7 +119,7 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_loading_keys.with(xs => xs.get(i)),
+      g_loading_keys.with(xs => xs.get_cloned(i)),
       .Some(k) => if(k == path, {
         return(g_loading_envs.with(xs => xs.get(i)));
       }),
@@ -167,7 +167,8 @@ _clear_import_closure_memo :: (fn() -> unit)({
 /// (stamped by mm_load_prelude_file, which also calls this so every prelude
 /// load path gets both) but which is implicitly in scope everywhere.
 mark_owner_always_visible :: (fn(module : &String) -> unit)({
-  g_always_visible_owners.with_mut(xs => xs.push(_canonical(module).*.clone()));
+  owner := _canonical(module).*.clone();
+  g_always_visible_owners.with_mut({ owner }(xs) => xs.push(owner));
   _clear_import_closure_memo();
 });
 /// Every module reachable from `module` through import edges, `module`
@@ -229,16 +230,18 @@ record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
   n := g_import_edge_importers.with(xs => xs.len());
   while(i < n, {
     same := (
-      match(g_import_edge_importers.with(xs => xs.get(i)), .Some(a) => (a == importer), .None => false) &&
-        match(g_import_edge_imports.with(xs => xs.get(i)), .Some(b) => (b == imported), .None => false)
+      match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false) &&
+        match(g_import_edge_imports.with(xs => xs.get_cloned(i)), .Some(b) => (b == imported), .None => false)
     );
     if(same, {
       return(());
     });
     i = (i + usize(1));
   });
-  g_import_edge_importers.with_mut(xs => xs.push(importer.clone()));
-  g_import_edge_imports.with_mut(xs => xs.push(imported.clone()));
+  imp := importer.clone();
+  g_import_edge_importers.with_mut({ imp }(xs) => xs.push(imp));
+  imd := imported.clone();
+  g_import_edge_imports.with_mut({ imd }(xs) => xs.push(imd));
   _clear_import_closure_memo();
 });
 /// Drop every outgoing edge of `importer`. Called when a module is
@@ -248,7 +251,7 @@ _drop_edges_from :: (fn(importer : &String) -> unit)({
   (i : usize) = g_import_edge_importers.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    same := match(g_import_edge_importers.with(xs => xs.get(i)), .Some(a) => (a == importer), .None => false);
+    same := match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false);
     if(same, {
       g_import_edge_importers.with_mut(xs => xs.drain(i .. (i + usize(1))));
       g_import_edge_imports.with_mut(xs => xs.drain(i .. (i + usize(1))));
@@ -275,7 +278,7 @@ _module_cache_index :: (fn(path : &String) -> Option(usize))({
   n := g_module_cache_keys.with(xs => xs.len());
   while((i < n) && idx.is_none(), {
     match(
-      g_module_cache_keys.with(xs => xs.get(i)),
+      g_module_cache_keys.with(xs => xs.get_cloned(i)),
       .Some(k) => if(k == path, {
         idx = Option(usize).Some(i);
       }),
@@ -300,8 +303,9 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
     eprintln(`[warmcache] register ${path.clone()}`);
   });
   if(!module_cache_has(path.clone()), {
-    g_module_cache_keys.with_mut(xs => xs.push(path.clone()));
-    g_module_cache_vals.with_mut(xs => xs.push(module_value));
+    k := path.clone();
+    g_module_cache_keys.with_mut({ k }(xs) => xs.push(k));
+    g_module_cache_vals.with_mut({ module_value }(xs) => xs.push(module_value));
     g_module_cache_types.with_mut({ module_type : Rc.clone(module_type) }(xs) => xs.push(Rc.clone(module_type)));
   });
 });
@@ -484,7 +488,7 @@ invalidate_module :: (fn(path : &String) -> ArrayList(String))({
     (ri : usize) = usize(0);
     while(ri < removed.len(), {
       match(
-        removed.get(ri),
+        removed.get_cloned(ri),
         .Some(r) => if(r == p, {
           already = true;
         }),
@@ -499,10 +503,10 @@ invalidate_module :: (fn(path : &String) -> ArrayList(String))({
       // obvious anyway).
       (ei : usize) = usize(0);
       while(ei < g_import_edge_imports.with(xs => xs.len()), {
-        hits := match(g_import_edge_imports.with(xs => xs.get(ei)), .Some(t) => (t == p), .None => false);
+        hits := match(g_import_edge_imports.with(xs => xs.get_cloned(ei)), .Some(t) => (t == p), .None => false);
         if(hits, {
           match(
-            g_import_edge_importers.with(xs => xs.get(ei)),
+            g_import_edge_importers.with(xs => xs.get_cloned(ei)),
             .Some(dep) => {
               worklist.push(dep);
             },

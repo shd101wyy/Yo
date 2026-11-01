@@ -439,7 +439,7 @@ register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
   match(
-    g_refine_pred_chains.with(m => m.get(outer_fid.clone())),
+    g_refine_pred_chains.with(m => m.get_cloned(outer_fid.clone())),
     .Some(chain) => chain,
     .None => ArrayList(String).new()
   )
@@ -578,7 +578,7 @@ ${ast_expr_to_string(expr)}`
       inner_chain := refine_pred_chain_of(inner_fid.clone());
       while(ci < inner_chain.len(), {
         match(
-          inner_chain.get(ci),
+          inner_chain.get_cloned(ci),
           .Some(cf) => {
             chain.push(cf.clone());
           },
@@ -706,7 +706,7 @@ _evaluate_spec_collection :: (
   // append / singles / add / str_bytes) take the FIRST argument's type
   // (Seq(T)/Set(T)/Multiset(T) are erased aliases); counts are i64;
   // contains is bool; nth is u8 (str-content iteration).
-  head := ast_expr_text(expr).*;
+  head := ast_expr_text(expr).*.clone();
   arg1_ty := t_bool();
   match(
     args.get(usize(0)),
@@ -920,7 +920,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     );
     bn := match(
       ba.get(usize(0)),
-      .Some(n0) => ast_expr_text(&n0).*,
+      .Some(n0) => ast_expr_text(&n0).*.clone(),
       .None => String.from("_")
     );
     binder_names.push(bn.clone());
@@ -934,7 +934,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
   while(vi < binder_names.len(), {
     // The loop condition proves the index in [0, len); the panic arms carry
     // that invariant instead of trusting unwrap (safe-mode D7).
-    vname := match(binder_names.get(vi), .Some(vn) => vn, .None => __yo_panic("contracts: binder_names.get(vi) — vi < len by loop condition"));
+    vname := match(binder_names.get_cloned(vi), .Some(vn) => vn, .None => __yo_panic("contracts: binder_names.get(vi) — vi < len by loop condition"));
     vty := match(binder_types.get(vi), .Some(vt) => vt, .None => __yo_panic("contracts: binder_types.get(vi) — vi < len by loop condition"));
     _ := add_variable_to_env(
       &cur_env,
@@ -1440,14 +1440,18 @@ ProvedGuardSite :: struct(
   /// `index-in-bounds`.
   class : String
 );
+derive(ProvedGuardSite, Clone);
 (g_proved_guard_sites : RefCell(HashMap(ExprId, ArrayList(ProvedGuardSite)))) = RefCell(HashMap(ExprId, ArrayList(ProvedGuardSite))).new(HashMap(ExprId, ArrayList(ProvedGuardSite)).new());
 /// Node ids whose guard codegen elided (a set: multi-pass emission may ask
 /// twice for one node).
 (g_elided_guard_nodes : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 record_proved_guard_site :: (fn(site : &ProvedGuardSite) -> unit)({
-  existing := match(g_proved_guard_sites.with(m => m.get(&site.node_id)), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
-  existing.push(site);
-  g_proved_guard_sites.with_mut(m => m.insert(site.node_id, existing));
+  nid := site.node_id;
+  site_own := site.clone();
+  existing := match(g_proved_guard_sites.with_mut({ nid }(m) => m.remove(&nid)), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
+  existing.push(site_own);
+  k := site.node_id;
+  g_proved_guard_sites.with_mut({ k, existing }(m) => m.insert(k, existing));
   ()
 });
 /// Drop every recorded site and the elision count (the start of a compile).
@@ -1477,14 +1481,15 @@ elided_guard_count :: (fn() -> usize)(
 /// canonical position? Any mismatch is `false`.
 _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
   match(
-    g_proved_guard_sites.with(m => m.get(ast_expr_id(expr))),
+    g_proved_guard_sites.with(m => m.get_cloned(ast_expr_id(expr))),
     .Some(sites) => {
       tok := ast_expr_token(expr);
       canon := canonical_module_path(&tok.module_path.*);
       (i : usize) = usize(0);
       while(i < sites.len(), {
-        gs := sites(i);
-        if((gs.class == class) && (gs.module == canon) && (gs.row == usize(tok.row)) && (gs.column == usize(tok.column)), {
+        // B9: the fields are compared on the index place itself — binding
+        // the record would copy it (no partial moves off a borrowed list).
+        if((sites(i).class == class) && (sites(i).module == canon) && (sites(i).row == usize(tok.row)) && (sites(i).column == usize(tok.column)), {
           return(true);
         });
         i = (i + usize(1));
@@ -1519,11 +1524,13 @@ guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) 
 /// the misleading "untyped expression" at the hollow body root.
 (g_verify_def_eval_failures : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> unit)({
-  g_verify_def_eval_failures.with_mut(m => m.insert(fn_id.clone(), msg.clone()));
+  k := fn_id.clone();
+  v := msg.clone();
+  g_verify_def_eval_failures.with_mut({ k, v }(m) => m.insert(k, v));
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
-  g_verify_def_eval_failures.with(m => m.get(fn_id))
+  g_verify_def_eval_failures.with(m => m.get_cloned(fn_id))
 );
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
@@ -1531,11 +1538,21 @@ verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
 /// effects are inert.
 /// The CLI override (`--verify-mode`); the file pragma is source of truth
 /// when present, this decides otherwise.
-(mut(g_verify_mode_override) : Option(String)) = Option(String).None;
+(g_verify_mode_override : RefCell(Option(String))) = RefCell(Option(String)).new(Option(String).None);
 set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
-  g_verify_mode_override = m.clone();
+  owned := m.clone();
+  _prev := g_verify_mode_override.replace(owned);
   ()
 });
+/// B9 (decision 18 rule 3): the override moved into a `RefCell`, so reads
+/// lend the cell instead of a mutable global.
+_verify_override_value :: (fn() -> String)(
+  g_verify_mode_override.with(m => match(
+    m,
+    .Some(v) => v.clone(),
+    .None => String.from("runtime")
+  ))
+);
 /// Declare the verification target file set (and reset any previous one).
 /// The verification mode for a module: `"runtime"` | `"verify"` |
 /// `"verify+"` | `"ignore"`. The FILE's pragma is the source of truth when
@@ -1546,11 +1563,7 @@ resolve_verify_mode :: (fn(module_path : &String) -> String)(
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.NoContracts) => String.from("ignore"),
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.Verify) => String.from("verify"),
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.VerifyOrAssert) => String.from("verify+"),
-    true => match(
-      g_verify_mode_override,
-      .Some(m) => m.clone(),
-      .None => String.from("runtime")
-    )
+    true => _verify_override_value()
   )
 );
 /// Queue one function. First-wins on `fn_id`: the def site fires once per
@@ -1697,7 +1710,7 @@ register_impl_inheritance_task :: (
       pred_env.push_frame(false);
       (bih : usize) = usize(0);
       while(bih < p_names.len(), {
-        __pn := match(p_names.get(bih), .Some(x) => x, .None => String.new());
+        __pn := match(p_names.get_cloned(bih), .Some(x) => x, .None => String.new());
         __pt := match(p_types.get(bih), .Some(x) => x, .None => t_unit());
         if(__pn.len() > usize(0), {
           add_variable_to_env(
@@ -1715,7 +1728,7 @@ register_impl_inheritance_task :: (
         bih = (bih + usize(1));
       });
       match(
-        __t_ret,
+        &__t_ret,
         .Some(rl) => {
           add_variable_to_env(
             &pred_env,
@@ -1768,7 +1781,7 @@ register_impl_inheritance_task :: (
           result_type : ret_ty,
           requires_exprs : evh_reqs,
           ensures_exprs : evh_enss,
-          return_label : __t_ret,
+          return_label : __t_ret.clone(),
           table : ctx.expr_info_table.clone(),
           mode : __mode.clone(),
           func_val : method_val,
@@ -1834,14 +1847,17 @@ CallsiteContracts :: struct(
   reqs : ArrayList(AstExpr),
   enss : ArrayList(AstExpr)
 );
+derive(CallsiteContracts, Clone);
 (g_callsite_contracts : RefCell(HashMap(String, CallsiteContracts))) = RefCell(HashMap(String, CallsiteContracts)).new(HashMap(String, CallsiteContracts).new());
 register_callsite_contracts :: (
   fn(call_id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr)) -> unit
 )({
-  _ := g_callsite_contracts.with_mut(m => m.insert(call_id.clone(), CallsiteContracts(reqs : reqs.clone(), enss : enss.clone())));
+  k := call_id.clone();
+  v := CallsiteContracts(reqs : reqs.clone(), enss : enss.clone());
+  _ := g_callsite_contracts.with_mut({ k, v }(m) => m.insert(k, v));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
-  g_callsite_contracts.with(m => m.get(call_id))
+  g_callsite_contracts.with(m => m.get_cloned(call_id))
 );
 /// V6 task 4: specialized FuncVal id → the base (unspecialized) id it
 /// was minted from. Written at the specialization mint (calls/helper.yo)
@@ -1849,10 +1865,12 @@ callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
 /// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
 (g_specialized_base : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)({
-  _ := g_specialized_base.with_mut(m => m.insert(spec_id.clone(), base_id.clone()));
+  k := spec_id.clone();
+  v := base_id.clone();
+  _ := g_specialized_base.with_mut({ k, v }(m) => m.insert(k, v));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
-  g_specialized_base.with(m => m.get(id))
+  g_specialized_base.with(m => m.get_cloned(id))
 );
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).
@@ -1951,7 +1969,7 @@ _callsite_arg_type :: (
 _callsite_method_receiver :: (
   fn(ctx : &EvalContext, f : &AstExpr, params : &ArrayList(String)) -> Option(AstExpr)
 )({
-  first_is_self := match(params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
+  first_is_self := match(params.get_cloned(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
   if(!first_is_self, {
     return(Option(AstExpr).None);
   });
@@ -2071,7 +2089,7 @@ _stash_callsite_contracts :: (
   site_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < fvd_params.len(), {
-    __pn := match(fvd_params.get(bi), .Some(x) => x, .None => String.new());
+    __pn := match(fvd_params.get_cloned(bi), .Some(x) => x, .None => String.new());
     if(__pn.len() > usize(0), {
       __pt := match(
         _callsite_param_type(ctx, e, &recv_expr, bi),
@@ -2354,7 +2372,7 @@ register_impl_variance_task :: (
   // evaluated in THIS module (their names must match the impl's).
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
-    __pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
+    __pn := match(p_names.get_cloned(bi), .Some(x) => x, .None => String.new());
     __pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
     if(__pn.len() > usize(0), {
       add_variable_to_env(
@@ -2621,7 +2639,7 @@ _arg1_string_atom :: (fn(a : &ArrayList(AstExpr)) -> String)(
   match(
     a.get(usize(1)),
     .Some(m_arg) => cond(
-      ast_expr_is_atom(&m_arg) => ast_expr_text(&m_arg).*,
+      ast_expr_is_atom(&m_arg) => ast_expr_text(&m_arg).*.clone(),
       true => String.new()
     ),
     .None => String.new()
@@ -2761,7 +2779,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
     ),
     .FnCall(_, head, Rc(args), _, _) => {
       if(ast_expr_is_atom(&head), {
-        hn := ast_expr_text(&head).*;
+        hn := ast_expr_text(&head).*.clone();
         if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
           return(false);
         });
@@ -2940,7 +2958,7 @@ wrap_function_body_with_contracts :: (
     if(flatten_body && ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None), {
       body_args := match(
         body,
-        .FnCall(_, _, Rc(ba), _, _) => ba,
+        .FnCall(_, _, Rc(ba), _, _) => ba.clone(),
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       (bi : usize) = usize(0);
@@ -3177,7 +3195,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
       ret_is_unit = match(t_slot_pointee(&__lres), Rc(.Unit) => true, _ => false);
 
       match(
-        __lm.*.origin_id,
+        &__lm.*.origin_id,
         .Some(oid) => {
           key = oid.clone();
         },
@@ -3229,7 +3247,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   pred_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
-    pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
+    pn := match(p_names.get_cloned(bi), .Some(x) => x, .None => String.new());
     pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
     if(pn.len() > usize(0), {
       add_variable_to_env(

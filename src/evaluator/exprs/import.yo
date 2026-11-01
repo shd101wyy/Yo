@@ -519,7 +519,7 @@ evaluate_import :: (
   // typed stash (module loading stashes text + diagnostics together); the
   // text-wrapping fallback only fires for non-structured load errors.
   match(
-    load_result.module_error,
+    &load_result.module_error,
     .Some(err_msg) => {
       leaf := take_error_diagnostics();
       group := match(
@@ -529,7 +529,7 @@ evaluate_import :: (
           (ci : usize) = usize(0);
           while(ci < ds.len(), {
             match(
-              ds.get(ci),
+              ds.get_cloned(ci),
               .Some(d) => {
                 entries.push(d);
               },

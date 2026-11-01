@@ -312,7 +312,7 @@ evaluate_dyn_type :: (
     cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());
     scs := match(
       cur_trait,
-      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc,
+      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc.clone(),
       _ => ArrayList(TypeValue).new()
     );
     k := usize(0);
@@ -322,7 +322,7 @@ evaluate_dyn_type :: (
       already := false;
       m := usize(0);
       while(m < required_ids.len(), {
-        eid := match(required_ids.get(m), .Some(s) => s, .None => String.from(""));
+        eid := match(required_ids.get_cloned(m), .Some(s) => s, .None => String.from(""));
         if(eid == cid, {
           already = true;
         });

@@ -1216,7 +1216,8 @@ evaluate_yo_build_functions :: (
   });
   // ── Registry-mutating builtins (all return unit) ────────────────────
   reg := get_build_registry();
-  host_triple := host_target().triple;
+  ht := host_target();
+  host_triple := ht.triple.clone();
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE, Option(usize).None), {
     _build_require_args(&args, usize(2), String.from("__yo_build_executable expects at least 2 arguments (name, root)"), expr, exn);
     reg.register_executable(
@@ -1312,7 +1313,7 @@ evaluate_yo_build_functions :: (
     exclude_parts := exclude_raw.split(",");
     (epi : usize) = usize(0);
     while(epi < exclude_parts.len(), {
-      part := match(exclude_parts.get(epi), .Some(s) => s.trim(), .None => String.new());
+      part := match(exclude_parts.get_cloned(epi), .Some(s) => s.trim(), .None => String.new());
       if(part.len() > usize(0), {
         exclude_list.push(part);
       });
@@ -1454,7 +1455,7 @@ evaluate_yo_build_functions :: (
         (fi : usize) = usize(0);
         while(fi < cf_flags.len(), {
           match(
-            cf_flags.get(fi),
+            cf_flags.get_cloned(fi),
             .Some(f) => {
               art.c_flags.push(f);
             },
