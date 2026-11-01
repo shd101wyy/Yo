@@ -8195,11 +8195,17 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
 /// result tail; each of its frozen roots that is a plain LOCAL of this
 /// function is rejected, naming the place (E0912).
 reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] return-check ${ast_expr_to_string(e)}`);
+  });
   stripped := ast_expr_strip_borrow_marker(e);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
     .Some(ri) => if(type_carries_origin(&ri.ty), {
       roots := origin_carrying_value_roots(&stripped, env, ctx);
+      if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+        eprintln(`[n2b] return-check roots=${roots.len().to_string()} ty=${type_to_string(&ri.ty)}`);
+      });
       (oi : usize) = usize(0);
       while(oi < roots.len(), {
         root := roots(oi);
