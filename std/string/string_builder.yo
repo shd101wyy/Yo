@@ -79,11 +79,10 @@ _str_rune_count :: (fn(s : str) -> usize)({
 /// result := sb.to_string();
 /// assert(result == `Hello, world!`, "built string");
 /// ```
-StringBuilder :: ref(
-  struct(
-    _buf : ArrayList(u8)
-  )
-);
+StringBuilder :: struct(_buf : ArrayList(u8));
+// A value since B11 (plans/VALUES_BY_DEFAULT.md D24): the builder is the only
+// owner of its byte buffer, so `ys := sb` moves it and `sb.clone()` copies it.
+derive(StringBuilder, Clone);
 impl(
   StringBuilder,
   /// Create a new, empty `StringBuilder`. `alloc : .Some(a)` places its
@@ -183,6 +182,15 @@ impl(
     fresh := ArrayList(u8).new(alloc : self._buf.allocator());
     String.from_bytes(replace(&mut self._buf, fresh))
   }),
+  /// Consume the builder and hand its buffer over as the `String` — the
+  /// move-only spelling of `to_string` (D24): no fresh buffer is allocated,
+  /// the builder's buffer becomes the string's.
+  into_string : (fn(sink(self) : Self) -> String)(
+    match(
+      self,
+      StringBuilder(_buf : b) => String.from_bytes(b)
+    )
+  ),
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.
   write_hex : (fn(self : &mut Self, n : u64) -> unit)({
     buf := Array(u8, usize(20)).fill(u8(0));

@@ -842,7 +842,7 @@ test("StatusCode reason, to_string, Eq and Ord", {
 // HeaderMap
 // ============================================================================
 test("HeaderMap lookup is case-insensitive but storage is verbatim", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Content-Type`, `text/plain`);
   assert(h.get(`content-type`).unwrap() == `text/plain`, "lower-case lookup finds it");
   assert(h.get(`CONTENT-TYPE`).unwrap() == `text/plain`, "upper-case too");
@@ -852,7 +852,7 @@ test("HeaderMap lookup is case-insensitive but storage is verbatim", {
   assert(h.to_string() == `Content-Type: text/plain\r\n`, "the stored spelling is preserved");
 });
 test("HeaderMap append keeps repeats, insert replaces them", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Set-Cookie`, `a=1`);
   h.append(`Set-Cookie`, `b=2`);
   h.append(`set-cookie`, `c=3`);
@@ -870,7 +870,7 @@ test("HeaderMap append keeps repeats, insert replaces them", {
   assert(h.insert(`X-New`, `v`).is_none(), "inserting a fresh name reports nothing previous");
 });
 test("HeaderMap remove reports how many lines went", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Accept`, `a`);
   h.append(`X-Keep`, `k`);
   h.append(`accept`, `b`);
@@ -882,13 +882,23 @@ test("HeaderMap remove reports how many lines went", {
   h.remove(`X-Keep`);
   assert(h.is_empty(), "and reports empty once drained");
 });
-test("HeaderMap entries is a snapshot, not the map itself", {
-  h := HeaderMap.new();
+test("HeaderMap entries borrows the map's own list", {
+  // D26: a value HeaderMap with a BORROW getter — the pre-B11 snapshot
+  // (a detached copy every call) is now spelled entries().clone().
+  mut(h) := HeaderMap.new();
   h.append(`A`, `1`);
-  mut(e) := h.entries();
-  assert(e.len() == usize(1), "one entry");
+  e := h.entries();
+  assert(e.len() == usize(1), "one entry, read through the borrow");
+  assert(e(usize(0)).name == `A`, "the field line is readable in order");
+  assert(h.len() == usize(1), "reading the borrow wrote nothing");
+});
+test("HeaderMap entries().clone() is the detached snapshot", {
+  mut(h) := HeaderMap.new();
+  h.append(`A`, `1`);
+  mut(e) := h.entries().clone();
   e.push(HttpHeader.new(`B`, `2`));
-  assert(h.len() == usize(1), "pushing to the snapshot does not change the map");
+  assert(e.len() == usize(2), "two entries in the copy");
+  assert(h.len() == usize(1), "pushing to the detached copy does not change the map");
   assert(h.get(`B`).is_none(), "B never entered the map");
 });
 test("set_header replaces while header() appends", {
@@ -1739,4 +1749,20 @@ test("an aborted HttpClient fetch takes its exchange down with it", {
   };
   saw := srv.await(io);
   assert(match(saw, .Some(v) => (v == i32(0)), .None => false), `the exchange closed its connection when the fetch was aborted (server saw ${saw})`);
+});
+test("a HeaderMap clone is independent (B11)", {
+  mut(h) := HeaderMap.new();
+  h.append(`A`, `1`);
+  mut(c) := h.clone();
+  c.append(`B`, `2`);
+  assert(h.get(`B`).is_none(), "writes to the clone never reach the map");
+  assert(c.get(`A`).unwrap() == `1`, "the clone carries the original's field lines");
+  assert(h.len() == usize(1), "the original keeps its one line");
+});
+test("writing through the entries() borrow is a compile-time error (D26)", {
+  comptime_expect_error({
+    mut(h) := HeaderMap.new();
+    e := h.entries();
+    e.push(HttpHeader.new(`B`, `2`))
+  }, "E0908");
 });

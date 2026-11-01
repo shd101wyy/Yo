@@ -77,21 +77,21 @@ test("StringBuilder new is empty", {
   assert(sb.len() == usize(0), "len 0");
 });
 test("StringBuilder write_str", {
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_str("hello");
   sb.write_str(", world");
   result := sb.to_string();
   assert(result == `hello, world`, "write_str");
 });
 test("StringBuilder write_string", {
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_string(`foo`);
   sb.write_string(`bar`);
   result := sb.to_string();
   assert(result == `foobar`, "write_string");
 });
 test("StringBuilder write_byte", {
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_byte(u8(65)); // 'A'
   sb.write_byte(u8(66)); // 'B'
   sb.write_byte(u8(67)); // 'C'
@@ -99,14 +99,14 @@ test("StringBuilder write_byte", {
   assert(result == `ABC`, "write_byte");
 });
 test("StringBuilder write_line", {
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_line(`line1`);
   sb.write_line(`line2`);
   result := sb.to_string();
   assert(result == `line1\nline2\n`, "write_line");
 });
 test("StringBuilder to_string empties buffer", {
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_str("data");
   sb.to_string();
   assert(sb.is_empty(), "empty after to_string");
@@ -114,7 +114,7 @@ test("StringBuilder to_string empties buffer", {
   assert(result2.is_empty(), "empty string after clear");
 });
 test("StringBuilder clear", {
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_str("abc");
   sb.clear();
   assert(sb.is_empty(), "cleared");
@@ -122,12 +122,12 @@ test("StringBuilder clear", {
   assert(sb.to_string() == `xyz`, "after clear");
 });
 test("StringBuilder with_capacity", {
-  sb := StringBuilder.with_capacity(usize(64));
+  mut(sb) := StringBuilder.with_capacity(usize(64));
   sb.write_string(`hello`);
   assert(sb.to_string() == `hello`, "with_capacity");
 });
 test("StringBuilder mixed writes", {
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_str("Hello");
   sb.write_byte(u8(44)); // ','
   sb.write_byte(u8(32)); // ' '
@@ -137,7 +137,7 @@ test("StringBuilder mixed writes", {
   assert(result == `Hello, world!`, "mixed");
 });
 test("StringBuilder Default is an empty builder", {
-  sb := StringBuilder.default();
+  mut(sb) := StringBuilder.default();
   assert(sb.len() == usize(0), "default builder is empty");
   sb.write_str("hi");
   assert(sb.to_string() == `hi`, "the default builder is a usable builder");
@@ -181,7 +181,7 @@ test("StringBuilder.new(alloc : .Some(a)) builds in its allocator and hands the 
   counts := _counts();
   a := _counting(addr_of(counts));
   {
-    sb := StringBuilder.new(alloc : .Some(a));
+    mut(sb) := StringBuilder.new(alloc : .Some(a));
     sb.write_str("hello, ");
     sb.write_str("placed");
     s := sb.to_string();
@@ -191,4 +191,37 @@ test("StringBuilder.new(alloc : .Some(a)) builds in its allocator and hands the 
     assert(counts.live > usize(0), "the strings' bytes live in the allocator");
   };
   assert(counts.live == usize(0), "every buffer went back to the allocator");
+});
+// ===== B11 flip semantics: a builder is a value (plans/VALUES_BY_DEFAULT.md D24) =====
+test("StringBuilder is a value: a plain copy moves it, a clone is independent", {
+  comptime_expect_error({
+    mut(b) := StringBuilder.new();
+    b.write_str("x");
+    b2 := b;
+    b.write_str("y")
+  }, "use of moved value");
+  mut(b) := StringBuilder.new();
+  b.write_str("base");
+  mut(c) := b.clone();
+  c.write_str("+copy");
+  assert(b.to_string() == `base`, "writes to the clone never reach the builder");
+  assert(c.to_string() == `base+copy`, "the clone keeps its own bytes");
+});
+test("into_string hands the buffer over; to_string keeps the builder (B11)", {
+  mut(b) := StringBuilder.new();
+  b.write_str("owned");
+  s := b.into_string();
+  assert(s == `owned`, "the bytes arrive as the string");
+  comptime_expect_error({
+    mut(b2) := StringBuilder.new();
+    b2.write_str("x");
+    s2 := b2.into_string();
+    b2.write_str("y")
+  }, "use of moved value");
+  mut(t) := StringBuilder.new();
+  t.write_str("kept");
+  first := t.to_string();
+  assert((first == `kept`) && t.is_empty(), "to_string empties the builder, which stays usable");
+  t.write_str("again");
+  assert(t.to_string() == `again`, "usable after to_string");
 });
