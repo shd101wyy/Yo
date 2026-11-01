@@ -539,3 +539,32 @@ test("with's body is an FnOnce: it moves a capture into the element", {
   });
   assert(d(usize(0)) == `moved`, "the moved capture replaced the element");
 });
+// ===== B10: a deque is a value (plans/VALUES_BY_DEFAULT.md) =====
+test("clone is a deep copy: the clone's writes never reach the source (B10)", {
+  mut(d) := Deque(String).new();
+  d.push_back(`a`);
+  d.push_front(`z`);
+  mut(c) := d.clone();
+  c.push_back(`b`);
+  _ := c.pop_front();
+  assert(d.len() == usize(2), "the source keeps its own length");
+  assert((d.front_cloned() == .Some(`z`)) && (d.back_cloned() == .Some(`a`)), "and its own elements");
+  assert(c.len() == usize(2), "the clone saw both writes");
+  assert((c.front_cloned() == .Some(`a`)) && (c.back_cloned() == .Some(`b`)), "front pop and back push both landed");
+});
+test("A cloned deque lives in its source's allocator; a plain deque's clone stays global (B10)", {
+  counts := _counts();
+  a := _counting(addr_of(counts));
+  {
+    mut(d) := Deque(i32).new(alloc : .Some(a));
+    d.push_back(i32(1));
+    d.push_back(i32(2));
+    mut(c) := d.clone();
+    assert(c.allocator().unwrap().same(a), "the clone's ring is the allocator's");
+    assert(c.back().unwrap() == i32(2), "and the clone carries the elements");
+    mut(plain) := Deque(i32).new();
+    plain.push_back(i32(7));
+    assert(plain.clone().allocator().is_none(), "a global deque clones onto the global allocator");
+  };
+  assert(counts.live == usize(0), `the source and the clone released their rings: ${counts.live}`);
+});

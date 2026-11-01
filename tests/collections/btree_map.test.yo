@@ -388,17 +388,28 @@ test("get_cloned, first_entry_cloned and last_entry_cloned clone in place", {
   last := m.last_entry_cloned().unwrap();
   assert((last.key == i32(2)) && (last.value.len() == usize(1)), "the largest key");
 });
-test("BTreeMap clone is a deep copy: the handle is still shared, the clone is not", {
-  m := BTreeMap(i32, ArrayList(i32)).new();
+// ===== B10: a map is a value (plans/VALUES_BY_DEFAULT.md) =====
+test("clone is a deep copy: the clone's writes never reach the source (B10)", {
+  mut(m) := BTreeMap(String, i32).new();
+  m.insert(`a`, i32(1));
+  m.insert(`b`, i32(2));
+  mut(c) := m.clone();
+  c.insert(`b`, i32(20));
+  c.insert(`c`, i32(3));
+  assert(m.len() == usize(2), "the source keeps its own length");
+  assert(m.get(`b`).unwrap() == i32(2), "and its own value for a replaced key");
+  assert(m.get(`c`).is_none(), "the source never saw the new key");
+  assert((c.len() == usize(3)) && (c.get(`b`).unwrap() == i32(20)), "the clone saw both writes");
+});
+test("clone clones every value in: a list value of the clone is its own (B10)", {
+  mut(m) := BTreeMap(i32, ArrayList(i32)).new();
   mut(one) := ArrayList(i32).new();
   one.push(i32(1));
   m.insert(i32(1), one);
-  alias := m;
-  c := m.clone();
+  mut(c) := m.clone();
+  c.insert(i32(1), ArrayList(i32).new());
   c.insert(i32(2), ArrayList(i32).new());
-  alias.insert(i32(3), ArrayList(i32).new());
-  assert(m.len() == usize(2), "the alias writes the same map; the clone does not");
-  assert(c.len() == usize(2), "the clone holds its own entries");
-  assert(c.contains_key(&i32(2)) && !m.contains_key(&i32(2)), "keys inserted into the clone stay there");
-  assert(c(i32(1)).len() == usize(1), "values are cloned in");
+  assert(m.len() == usize(1), "the source keeps its own entries");
+  assert(m(i32(1)).len() == usize(1), "and its own list value");
+  assert((c.len() == usize(2)) && (c(i32(1)).len() == usize(0)), "the clone's writes stay in the clone");
 });

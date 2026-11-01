@@ -451,3 +451,17 @@ test("get_cloned and get_index_cloned clone in place", {
   assert((e.key == `a`) && (e.value == `1`), "the pair at position 0");
   assert(m.get_index_cloned(usize(2)).is_none(), "out of range: none");
 });
+// ===== B10: a map is a value (plans/VALUES_BY_DEFAULT.md) =====
+test("clone is a deep copy: the clone's writes never reach the source (B10)", {
+  mut(m) := OrderedMap(String, i32).new();
+  m.insert(`a`, i32(1));
+  m.insert(`b`, i32(2));
+  mut(c) := m.clone();
+  c.insert(`b`, i32(20));
+  c.insert(`c`, i32(3));
+  _ := c.swap_remove(`a`);
+  assert(m.len() == usize(2), "the source keeps its own length");
+  assert(m.get(`b`).unwrap() == i32(2), "and its own value for a replaced key");
+  assert(m.contains_key(`a`), "the source never saw the removal");
+  assert((c.len() == usize(2)) && (c.get(`b`).unwrap() == i32(20)), "the clone saw every write");
+});
