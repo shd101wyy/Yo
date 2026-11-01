@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -5214,25 +5214,41 @@ evaluate_module_value :: (
         // resolve_some_binder_kind in types/creators.yo). Only value-binder
         // kinds matter, so `: Type` is skipped.
         rhs2 := match(colon_args2.get(usize(1)), .Some(e) => e, .None => make_err_expr());
+        (binder_name : Option(String)) = Option(String).Some(ast_expr_token(&lhs2).value.clone());
         if(ast_expr_is_atom(&rhs2), {
           rhs2_name := ast_expr_token(&rhs2).value.*.clone();
-          // An impl over a type carrying an origin parameter is first-class
-          // storage (decision 43 step 3, N2).
+          // An impl-level origin binder (decision 43 step 3, N2b): bound
+          // ABSTRACTLY as an origin parameter (`t_origin_kind`), the same
+          // value a function's `generic(p : Origin)` binder holds in its
+          // def-time env. The impl's receiver pattern names it
+          // (`impl generic(p : Origin) T for _View(p)`); a method still
+          // declares its own origins in its own signature's `generic(...)`.
+          // `.None` for the name: no `SomeT` follows — the binder is an
+          // origin, not a type parameter, so the loop's SomeT step (which
+          // would re-bind the name as a type variable) sees `_`.
           if(rhs2_name == "Origin", {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(&fp_expr),
-                  `An origin parameter on an \`impl\` (\`generic(${ast_expr_token(&lhs2).value.*} : Origin)\`) arrives with first-class storage (decision 43 step 3, N2); a method declares its origins in its own signature's \`generic(...)\`.`
-                )
-              )
+            op_name := ast_expr_token(&lhs2).value.*.clone();
+            op_names := ArrayList(String).new();
+            op_names.push(op_name.clone());
+            add_variable_to_env(
+              &forall_env,
+              op_name.clone(),
+              t_origin_kind(),
+              Option(EvalValue).Some(create_type_value(t_origin_named(&shared_list(op_names)))),
+              true,
+              false,
+              false,
+              false,
+              ast_expr_token(&fp_expr)
             );
-          });
-          if(rhs2_name != "Type", {
-            register_some_binder_kind(ast_expr_token(&lhs2).value.*.clone(), frame_lvl, &rhs2_name);
+            binder_name = Option(String).None;
+          }, {
+            if(rhs2_name != "Type", {
+              register_some_binder_kind(ast_expr_token(&lhs2).value.*.clone(), frame_lvl, &rhs2_name);
+            });
           });
         });
-        Option(String).Some(ast_expr_token(&lhs2).value.*.clone())
+        binder_name
       }, if(
         ast_expr_is_atom(&fp_expr),
         Option(String).Some(ast_expr_token(&fp_expr).value.*.clone()),

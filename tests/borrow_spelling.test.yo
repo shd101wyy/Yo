@@ -252,12 +252,15 @@ test("the map form `for(&mut m, (k, v) => …)` borrows the value only", {
   assert((m.get(i32(1)) == .Some(i32(11))) && (m.get(i32(2)) == .Some(i32(22))), "each value was written in place");
 });
 
-// --- A reference type outside a slot (decision 43 step 3, N2a) ---------------
+// --- A reference type outside a slot (decision 43 step 3, N2a → N2b) ---------
 // `&T` whose operand is a type is the type `Reference(T, ...)` in a type
-// position: an alias, a type argument, a field. N2a builds no value of a
-// type holding one: a call, a fieldless variant and a run-time signature
-// stop at the phase wall naming N2b, so no build holds a stored reference
-// the borrow checker cannot see.
+// position: an alias, a type argument, a field. N2b builds VALUES of the
+// inline composites (O4 row 2: a value struct or enum, a tuple, an array):
+// a constructor lends its `&`/`&mut` fields (T9), the binding freezes the
+// places its origins name (T8), a copy of an all-`&` holder shares, and a
+// `&mut`-holding one is move-only (§5 route 3). A container or a cell is
+// still only NAMED (the wall names N2c/N2d), and READING a reference field
+// — binding it, dereferencing it — is N1e's.
 BsView :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), lo : usize));
 BsPair :: (fn(comptime(p) : Origin, comptime(q) : Origin) -> comptime(Type))(struct(a : &(i32, p), b : &mut(i32, q)));
 BsElided :: struct(f : &i32, g : &mut i32);
@@ -278,28 +281,41 @@ comptime_expect_error(
   bs_type_argument :: (fn() -> unit)({
     _xs := ArrayList(&i32).new();
   }),
-  "a type holding a reference"
+  "carries an origin inside a container or a cell"
 );
+test("an inline composite over a reference type builds (N2b)", {
+  x := i32(1);
+  o := Option(&mut i32).None;
+  v := BsView(x)(at : &x, lo : usize(0));
+  assert(v.lo == usize(0), "a non-reference field of a view reads");
+  assert(o.is_none(), "a fieldless variant of a reference-holding enum builds");
+  w := v;
+  assert(w.lo == usize(0), "a copy of an all-`&` holder shares its pointers (§5 route 3)");
+});
+bs_composite_signature :: (fn(generic(p : Origin), v : BsView(p)) -> usize)(v.lo);
+bs_composite_result :: (fn(x : &i32) -> Option(&i32))(.None);
+test("a run-time signature over an inline composite checks (N2b)", {
+  x := i32(1);
+  v := BsView(x)(at : &x, lo : usize(7));
+  assert(bs_composite_signature(v) == usize(7), "a composite parameter is passed by value, its origins spelled");
+  assert(bs_composite_result(&x).is_none(), "a composite result over a reference parameter's place");
+});
 comptime_expect_error(
-  bs_mut_type_argument :: (fn() -> unit)({
-    _o := Option(&mut i32).None;
-  }),
-  "a type holding a reference"
-);
-comptime_expect_error(
-  bs_field_value :: (fn() -> unit)({
+  bs_reference_field_read :: (fn() -> unit)({
     x := i32(1);
-    _v := BsView(x)(at : &x, lo : usize(0));
+    v := BsView(x)(at : &x, lo : usize(0));
+    _ := v.at;
   }),
-  "a type holding a reference"
+  "is a reference value"
 );
 comptime_expect_error(
-  bs_composite_signature :: (fn(generic(p : Origin), v : BsView(p)) -> usize)(v.lo),
-  "a type holding a reference"
-);
-comptime_expect_error(
-  bs_composite_result :: (fn(x : &i32) -> Option(&i32))(.None),
-  "a type holding a reference"
+  bs_holder_freeze :: (fn() -> unit)({
+    x := i32(1);
+    v := BsView(x)(at : &x, lo : usize(0));
+    x = i32(2);
+    _ := v.lo;
+  }),
+  ""
 );
 comptime_expect_error(
   bs_field_self_origin :: (fn() -> unit)({
@@ -449,12 +465,11 @@ comptime_expect_error(
   bs_origin_generic_param :: (fn(generic(p : Origin, T : &(i32, p))) -> unit)(()),
   "is erased at runtime"
 );
-comptime_expect_error(
-  bs_origin_type_argument :: (fn(generic(p : Origin)) -> unit)({
-    _o := Option(&(i32, p)).None;
-  }),
-  "a type holding a reference"
-);
+test("a fieldless variant of a composite over an abstract origin builds (N2b)", {
+  bs_origin_none :: (fn(generic(p : Origin), seed : &(i32, p)) -> Option(&(i32, p)))(.None);
+  x := i32(1);
+  assert(bs_origin_none(&x).is_none(), "`Option(&(i32, p))` at an abstract `p` instantiates and builds");
+});
 // Decision 43 step 2 (N1b): a result `-> &(T, o)` / `-> &mut(T, o)` spells
 // the origin the projection borrows from: an origin parameter, a
 // reference parameter's place, or a union of them. The mode, the pointee

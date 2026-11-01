@@ -76,7 +76,8 @@
   type_contains_rc_type,
   type_is_control_bound,
   get_all_some_types,
-  dyn_upcast_note
+  dyn_upcast_note,
+  type_carries_origin
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
@@ -115,6 +116,7 @@
   projection_call_mode_of,
   projection_call_root_args,
   projection_call_callee_type,
+  freeze_origin_carrying_binding,
   LocalBorrowElidedOrigin
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
@@ -1772,6 +1774,13 @@ Use \`::\` for compile-time definitions inside impl.`
       .Some(bound_var) => record_pending_def_variable(var_name.clone(), &actual_lhs_tok, &bound_var),
       .None => ()
     );
+    // N2b's binding freeze (decision 43 step 3, T8/T9): a RUNTIME local
+    // bound to a value whose type carries an origin freezes the places those
+    // origins name, from its initialization to its last use — the E0911
+    // machinery sees the contract exactly as a `y := &x` binding's.
+    if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&final_lhs_type), {
+      freeze_origin_carrying_binding(expr, &rhs, &var_name, &actual_lhs_tok, &env, ctx, exn);
+    });
     // Patch mutable fields not supported by add_variable_to_env.
     match(
       new_var_opt,

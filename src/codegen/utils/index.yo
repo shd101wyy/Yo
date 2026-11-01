@@ -1872,10 +1872,19 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     ),
     Rc(.FnTraitT({})) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
     Rc(.FutureTraitT({})) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
-    // A `&T` / `&mut T` is a parameter slot's mode (decision 43 step 1): every
-    // reader of a slot takes its pointee first, so one reaching codegen is
-    // an internal compiler error, not a C type.
-    Rc(.Reference(_, _, _)) => __yo_panic("get_type_string: a reference type reached codegen (a parameter slot read without t_slot_pointee)"),
+    // A `&T` / `&mut T` REFERENCE IN VALUE STRUCTURE (decision 43 step 3,
+    // N2b: a reference field of an inline composite, a reference element of
+    // a tuple or array) lowers as the design's C row: `const T*` shared,
+    // `T*` exclusive — no dup, no drop, a copy copies the pointer. A
+    // parameter slot still takes its pointee first (`t_slot_pointee`), so a
+    // slot reaching here remains an internal error at its own call sites.
+    Rc(.Reference(ref_pointee, ref_mut, _)) => {
+      pt := get_type_string(&ref_pointee, context);
+      cond(
+        ref_mut => `${pt} *`,
+        true => `${pt} const *`
+      )
+    },
     // Comptime-only / type-level types should not reach codegen.
     _ => {
       fallback := String.from("// Unknown type: ");

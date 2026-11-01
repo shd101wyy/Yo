@@ -1110,6 +1110,28 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
   (i : usize) = usize(0);
   while(i < na, {
     pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
+    // N2b (decision 43 step 3, T9): a by-value REFERENCE parameter (an inline
+    // composite's `&`/`&mut` field) takes a LEND — the argument is the place
+    // and the C field is a pointer, so it is addressed exactly like a ref
+    // parameter's argument. The lend is recorded on the place's ExprInfo as
+    // its converted runtime type (a `Reference`).
+    if(!pref, {
+      match(
+        runtime_args.get(i),
+        .Some(ra) => match(
+          context.base.get_expr_info(&ra),
+          .Some(rei2) => match(
+            expr_info_converted_runtime_type(&rei2),
+            .Some(Rc(.Reference(_, _, _))) => {
+              pref = true;
+            },
+            _ => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
     c := match(args.get_cloned(i), .Some(x) => x, .None => String.from(""));
     // A ref/`inout` parameter of type `unit` has no C value to take the
     // address of — the arg code is EMPTY, so the spill branch declared
@@ -1207,6 +1229,25 @@ _future_field_upcast :: (fn(field_ty : &Option(TypeValue), code : String, contex
       )
     }, code),
     .None => code
+  )
+);
+/// N2b (decision 43 step 3, T9): the field's argument is a recorded LEND
+/// (its converted runtime type is a `Reference` — the marker was peeled out
+/// of the tree), so the C field takes the PLACE'S ADDRESS.
+_lend_field_addr :: (fn(a : &AstExpr, code : &String, context : &FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(a),
+    .Some(lei) => match(
+      expr_info_converted_runtime_type(&lei),
+      .Some(Rc(.Reference(_, _, _))) => {
+        w := String.from("(&(");
+        w.push_string(code);
+        w.push_str("))");
+        w
+      },
+      _ => code.clone()
+    ),
+    .None => code.clone()
   )
 );
 /// The struct a constructor call builds: the call's own type when it is an
@@ -2638,7 +2679,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               // retained, or the cast shares the payload with its owner and
               // both release it
               // (issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md).
-              inner := match(vs_args.get(usize(0)), .Some(a) => emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), .None => String.from(""));
+              inner := match(vs_args.get(usize(0)), .Some(a) => _lend_field_addr(&a, &emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), context), .None => String.from(""));
               nt_out := String.from("((");
               nt_out.push_string(vs_cname.clone());
               nt_out.push_str(")(");
@@ -2695,7 +2736,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                     .Some(a) => {
                       vs_fv := _future_field_upcast(
                         match(rt_fields.get(rfi), .Some(f) => Option(TypeValue).Some(Rc.clone(f.ty)), .None => Option(TypeValue).None),
-                        sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), &vs_args, rfi, false, indent, context),
+                        _lend_field_addr(&a, &sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), &vs_args, rfi, false, indent, context), context),
                         context
                       );
                       cl_out.push_string(&vs_fv);

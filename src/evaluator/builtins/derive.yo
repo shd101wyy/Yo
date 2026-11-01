@@ -19,7 +19,8 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   BK_GENERIC,
   BK_WHERE,
-  desugar_if_calls
+  desugar_if_calls,
+  ast_expr_is_atom
 } :: import("../../expr.yo");
 {
   Environment,
@@ -31,10 +32,10 @@ pragma(Pragma.AllowUnsafe);
   generate_variable_id,
   snapshot_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_origin_kind, t_origin_named, shared_list } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ EvalValue, create_unknown_val_with_name, value_to_string, value_cell_new } :: import("../../value.yo");
+{ EvalValue, create_unknown_val_with_name, value_to_string, value_cell_new, create_type_value } :: import("../../value.yo");
 { EvalContext } :: import("../context.yo");
 {
   ExprInfo,
@@ -636,18 +637,53 @@ _evaluate_derive_executing :: (
         // A Type-universe slot promotes to `TypeVal(SomeType(name))` so the target
         // type expression (e.g. `DRPair(T1, T2)`) instantiates a real struct
         // instead of failing on a bare `UnknownVal(Type)`.
-        unknown_val := create_unknown_val_with_name(Rc.new(TypeValueNode.TypeUni(usize(0))), &fp_name);
-        _add_fp := add_variable_to_env(
-          env,
-          &fp_name,
-          Rc.new(TypeValueNode.TypeUni(usize(0))),
-          Option(EvalValue).Some(unknown_val),
-          true,
-          false,
-          false,
-          false,
-          synthetic_token(&fp_name, &env.module_path.*)
+        // An `Origin` binder (decision 43 step 3, N2b: Q4's
+        // `derive(generic(p : Origin), _View(p), Copy, Clone)`) binds the
+        // ABSTRACT origin instead, as an impl's or a function's does.
+        fp_kind_origin := match(
+          fp,
+          .FnCall(_, func_b, fa3, _, _) => match(
+            func_b,
+            .Atom(_, op_tok3) => cond(
+              (op_tok3.value == ":") => match(
+                fa3.get(usize(1)),
+                .Some(ka) => (ast_expr_is_atom(&ka) && (ast_expr_token(&ka).value == "Origin")),
+                .None => false
+              ),
+              true => false
+            ),
+            .FnCall(_, _, _, _, _) => false
+          ),
+          .Atom(_, _) => false
         );
+        if(fp_kind_origin, {
+          op_names := ArrayList(String).new();
+          op_names.push(fp_name.clone());
+          _add_op := add_variable_to_env(
+            env,
+            &fp_name,
+            t_origin_kind(),
+            Option(EvalValue).Some(create_type_value(t_origin_named(&shared_list(op_names)))),
+            true,
+            false,
+            false,
+            false,
+            synthetic_token(&fp_name, &env.module_path.*)
+          );
+        }, {
+          unknown_val := create_unknown_val_with_name(Rc.new(TypeValueNode.TypeUni(usize(0))), &fp_name);
+          _add_fp := add_variable_to_env(
+            env,
+            &fp_name,
+            Rc.new(TypeValueNode.TypeUni(usize(0))),
+            Option(EvalValue).Some(unknown_val),
+            true,
+            false,
+            false,
+            false,
+            synthetic_token(&fp_name, &env.module_path.*)
+          );
+        });
       });
       fpi = (fpi + usize(1));
     });

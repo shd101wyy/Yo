@@ -22,20 +22,28 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
-  ast_expr_is_fn_call_of
+  ast_expr_is_fn_call_of,
+  ast_expr_strip_borrow_marker,
+  ast_place_text,
+  BF_ADDRESS_OF,
+  BF_DOT,
+  BK_BORROW_MUT,
+  make_err_expr
 } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  path_collection_new
+  path_collection_new,
+  expr_info_converted_runtime_type,
+  expr_info_set_converted_runtime_type
 } :: import("../../expr_info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { Environment, env_adopt } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_reference_with_origin, t_origin_named, shared_list } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ same_name_note, type_carries_origin, origin_value_phase_message } :: import("../../types/utils.yo");
+{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -46,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
-{ E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH } :: import("../../diagnostics.yo");
+{ E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 /// Approximation for `isComptimeOnlyType` (Phase 2 — full version deferred).
@@ -102,21 +110,23 @@ try_to_call_type_with_arguments :: (
       )
     );
   });
-  // A type holding a reference (a `&T` field, decision 43 step 3, N2a) is
-  // named but not built until N2b; stop here, before an argument such as
-  // `&mut x` meets a by-value field's rule. A std body is reached only
-  // through a user call, which is walled itself.
+  // A type holding a reference beyond N2b (a container or a cell, decision
+  // 43 step 3) is named but not built; stop here, before an argument such as
+  // `&mut x` meets a by-value field's rule. An INLINE composite (O4 row 2)
+  // is N2b's: its constructor lends run (T9) and its result freezes the
+  // origins it spells. A std body is reached only through a user call, which
+  // is walled itself.
   (o_fi : usize) = usize(0);
   while(o_fi < n_fields, {
     match(
       type_fields.get(o_fi),
-      .Some(o_f) => if(type_carries_origin(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
+      .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
           .Some(ci) => match(&ci.value, .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
-        exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_value_phase_message(&o_shown))));
+        exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown))));
       }),
       .None => ()
     );
@@ -263,6 +273,35 @@ try_to_call_type_with_arguments :: (
         )
       );
     });
+    // N2b (decision 43 step 3, T9): a reference-typed FIELD takes a LEND at
+    // the constructor — `S(at : &x)` — the marker peeled here (this path has
+    // no `apply_call_site_borrow_markers` pass), the mode matched against the
+    // field's, and the argument typed as the field's reference over the
+    // place after evaluation.
+    t9_is_mut_marker := ast_expr_is_fn_call_of(&actual_arg_expr, BK_BORROW_MUT, Option(usize).Some(usize(1)));
+    t9_is_amp_marker := ast_expr_is_fn_call_of(&actual_arg_expr, BF_ADDRESS_OF, Option(usize).Some(usize(1)));
+    if(t9_is_mut_marker || t9_is_amp_marker, {
+      match(
+        &member_element.ty,
+        Rc(.Reference(_, t9_fm, _)) => {
+          if(t9_is_mut_marker != t9_fm, {
+            exn.throw(
+              dyn(
+                with_code(
+                  format_error_message(
+                    ast_expr_token(&actual_arg_expr),
+                    `Field "${member_element.label}" takes \`${type_to_string(&member_element.ty)}\`: lend the place with \`${if(t9_fm, "&mut ", "&")}${ast_place_text(ast_expr_strip_borrow_marker(&actual_arg_expr))}\`.`
+                  ),
+                  E_BORROW_MARKER_MISMATCH
+                )
+              )
+            );
+          });
+          actual_arg_expr = ast_expr_strip_borrow_marker(&actual_arg_expr);
+        },
+        _ => ()
+      );
+    });
     // Evaluate the argument expression — through the RAW evaluator, with the
     // caller's handler. The non-raw wrapper is the def-eval SWALLOW: it eats
     // every error and hands back an info-less expr, so the only thing this
@@ -289,6 +328,40 @@ try_to_call_type_with_arguments :: (
       );
     });
     arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, &member_element.ty));
+    // N2b (decision 43 step 3, T9): the lent place's ARGUMENT type is the
+    // field's reference over that place — the origin names the place's root,
+    // which the binding freeze reads. The place's own ExprInfo keeps its
+    // pointee type.
+    (t9w_lend_ty : Option(TypeValue)) = Option(TypeValue).None;
+    match(
+      &member_element.ty,
+      Rc(.Reference(_, t9w_mut, _)) => match(
+        &arg_info.ty,
+        Rc(.Reference(_, _, _)) => (),
+        _ => {
+          (t9w_cur : AstExpr) = evaluated_arg;
+          while(ast_expr_is_fn_call_of(&t9w_cur, BF_DOT, Option(usize).Some(usize(2))), {
+            t9w_cur = match(
+              t9w_cur,
+              .FnCall(_, _, t9w_args, _, _) => match(t9w_args.get(usize(0)), .Some(t9w_b) => t9w_b, .None => make_err_expr()),
+              .Atom(_, _) => make_err_expr()
+            );
+          });
+          if(ast_expr_is_atom(&t9w_cur), {
+            t9w_names := ArrayList(String).new();
+            t9w_names.push(ast_expr_token(&t9w_cur).value.clone());
+            t9w_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9w_mut, t_origin_named(&shared_list(t9w_names))));
+            // Record the lend on the PLACE's ExprInfo (the converted-runtime
+            // type slot, read by no codegen path for a place): the binding
+            // freeze reads it back — the marker is peeled out of the tree, so
+            // this is the tree's only record of the lend (T9).
+            expr_info_set_converted_runtime_type(&arg_info, &t9w_lend_ty);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
+          });
+        }
+      ),
+      _ => ()
+    );
     // Decision 44: a callable into a `Dyn(Fn(...))` field is `dyn(f)`.
     reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty, &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
     reject_second_class_escape(&arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
@@ -308,6 +381,14 @@ try_to_call_type_with_arguments :: (
         .Some(fct) => fct,
         .None => convert_comptime_type_to_runtime_type(&arg_info.ty, &env)
       )
+    );
+    // A T9 lend's argument type is the field's reference over the place.
+    match(
+      t9w_lend_ty,
+      .Some(t9w_w) => {
+        arg_type = t9w_w;
+      },
+      .None => ()
     );
     // Type compatibility check. A site `yo fix --migrate dyn-spelling`
     // recorded stands for the rewrite's `dyn(value)`, which the field takes.
