@@ -3966,7 +3966,8 @@ _run_migrate_cloned_accessors :: (
             if(spelled == st.method, {
               n_renamed = (n_renamed + usize(1));
               if(dry_run, {
-                println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` would become \`${st.recv_text}.${st.cloned}(...)\``);
+                handle_note := if(st.handle, String.from(" (a counted handle)"), String.new());
+                println(`fix: ${at}: \`${st.recv_text}.${st.method}(...)\` would become \`${st.recv_text}.${st.cloned}(...)\`${handle_note}`);
               });
               at_idx.push(end);
               at_text.push(String.from("_cloned"));
@@ -12604,7 +12605,7 @@ run_effects :: (
           (ei : usize) = usize(0);
           while((ei < fut_labels.len()) && (ei < fut_types.len()), {
             elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
-            ety := match(fut_types.get(ei), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+            ety := match(fut_types.get_cloned(ei), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             ei = (ei + usize(1));
             kinds := _effect_kinds_of_type(&ety, usize(0));
             // The row label of an `Impl(Future(T, E))` is E's own name; say
@@ -12712,7 +12713,7 @@ _collect_future_effects :: (
     Rc(.SomeT({ required_trait_types })) => {
       (i : usize) = usize(0);
       while(i < required_trait_types.len(), {
-        match(required_trait_types.get(i), .Some(rt) => recur(&rt, labels, types), .None => ());
+        match(required_trait_types.get_cloned(i), .Some(rt) => recur(&rt, labels, types), .None => ());
         i = (i + usize(1));
       });
     },
