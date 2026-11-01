@@ -4262,8 +4262,8 @@ dyn_vtable_slot_result_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> boo
           .Some(Rc(.TraitT({ field_labels : fls, field_types : fts }))) => {
             (j : usize) = usize(0);
             while(j < fls.len(), {
-              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
-                ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
+                ft := match(fts.get_cloned(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 return(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none() && fn_result_is_ref(&ft));
               });
               j = (j + usize(1));

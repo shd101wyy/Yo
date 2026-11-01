@@ -62,7 +62,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -178,7 +178,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), &env.module_path.*);
   create_runtime_unknown_val_with_name(ty, &nm)
 });
-{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject } :: import("../../error.yo");
 { E_EXPLICIT_DESTRUCTOR_CALL, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
@@ -7871,14 +7871,18 @@ _generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, c
 /// `evaluate_function_call` reports at the user's call.
 STD_RAISE_NOTE :: "raised here, inside the standard library";
 /// What the decision-20 accessor lookup found at a method call `r.m(args)`
-/// (`_copying_accessor_info`): the two registry names and whether the
-/// receiver reads in place (`Index`) and writes through (`with`).
+/// (`_copying_accessor_info`): the two registry names, the receiver's type
+/// (the reader the re-anchored subject names), whether the receiver reads in
+/// place (`Index`) and writes through (`with`), and whether the element has
+/// no `Clone` (so the `_cloned` sibling is registered nowhere).
 AccessorCallInfo :: struct(
   method : String,
   cloned : String,
   recv_text : String,
+  recv_ty_text : String,
   has_index : bool,
-  has_with : bool
+  has_with : bool,
+  (element_lacks_clone : bool) ?= false
 );
 /// `call` is a method call `r.m(args)` whose receiver type has an `m_cloned`
 /// sibling in the impl registry (B6-b; plans/VALUES_BY_DEFAULT.md decision
@@ -7890,6 +7894,13 @@ AccessorCallInfo :: struct(
 /// compiler keeps no accessor name list. `.None` for any other shape, an
 /// infix call, a receiver whose type carries no registry id, or a name the
 /// registry holds no sibling for.
+///
+/// A reader whose element has no `Clone` registers NO sibling
+/// (`where(T <: Clone)`), so the lookup also accepts the method itself when
+/// its declared result is not implicitly copyable (resolved through its
+/// registry entry's function type): that is a copying accessor whose
+/// `_cloned` spelling does not resolve, and the help says so instead of
+/// naming it (`_accessor_help_sentence`).
 _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AccessorCallInfo))({
   (ca_infix : bool) = true;
   ca_callee := match(
@@ -7922,17 +7933,30 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   if(ca_rid == "", {
     return(Option(AccessorCallInfo).None);
   });
-  ca_cloned := `${ca_name_tok.value.*}_cloned`;
-  if(get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() == usize(0), {
-    return(Option(AccessorCallInfo).None);
+  ca_method := ca_name_tok.value.*.clone();
+  ca_cloned := `${ca_method}_cloned`;
+  ca_has_cloned := (get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() > usize(0));
+  if(!ca_has_cloned, {
+    ca_plain := get_type_trait_methods_by_name_from_env(env, &ca_method, &ca_recv_ty);
+    if(ca_plain.is_empty(), {
+      return(Option(AccessorCallInfo).None);
+    });
+    // The method's declared result, its SomeTs resolved at this
+    // instantiation: a copying accessor's result IS the element it copies.
+    ca_res := _resolve_some_types_deep(&fn_result_slot(&ca_plain.get_cloned(usize(0)).ty), env);
+    if(!type_requires_explicit_copy(&ca_res), {
+      return(Option(AccessorCallInfo).None);
+    });
   });
   Option(AccessorCallInfo).Some(
     AccessorCallInfo(
-      method : ca_name_tok.value.*.clone(),
-      cloned : ca_cloned,
+      method : ca_method,
+      cloned : if(ca_has_cloned, ca_cloned, String.new()),
       recv_text : ast_expr_to_string(&ca_recv),
+      recv_ty_text : type_to_string(&ca_recv_ty),
       has_index : (get_type_trait_methods_by_name_from_env(env, String.from("index"), &ca_recv_ty).len() > usize(0)),
-      has_with : (get_type_trait_methods_by_name_from_env(env, String.from("with"), &ca_recv_ty).len() > usize(0))
+      has_with : (get_type_trait_methods_by_name_from_env(env, String.from("with"), &ca_recv_ty).len() > usize(0)),
+      element_lacks_clone : !ca_has_cloned
     )
   )
 });
@@ -7942,16 +7966,26 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
 /// receiver is index-addressed, `with` only where the receiver has it, and
 /// every name from the registry (`_copying_accessor_info`). It is appended
 /// to the help sentence before it (`_with_primary_help`), so it starts with a
-/// capital and ends with a period.
+/// capital and ends with a period. Where the element has no `Clone` the
+/// `_cloned` spelling does not resolve (`where(T <: Clone)`), so the sentence
+/// names the in-place reads and the `derive` instead of it. The last
+/// sentence is the migration that spells the `_cloned` calls.
 _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
   parts := ArrayList(String).new();
   if(info.has_index, {
     parts.push(`Read it in place with \`${info.recv_text}(i)\``);
   });
-  copy_verb := if(parts.is_empty(), String.from("Copy"), String.from("copy"));
-  parts.push(`${copy_verb} it with \`${info.recv_text}.${info.cloned}(...)\``);
-  if(info.has_with, {
-    parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
+  if(info.element_lacks_clone, {
+    if(info.has_with, {
+      parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
+    });
+    parts.push(`give the element \`Clone\` (a \`derive\`) and copy it with \`${info.recv_text}.${info.method}_cloned(...)\``);
+  }, {
+    copy_verb := if(parts.is_empty(), String.from("Copy"), String.from("copy"));
+    parts.push(`${copy_verb} it with \`${info.recv_text}.${info.cloned}(...)\``);
+    if(info.has_with, {
+      parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
+    });
   });
   out := String.new();
   (pi : usize) = usize(0);
@@ -7967,7 +8001,7 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
     out.push_string(&parts(pi));
     pi = (pi + usize(1));
   });
-  out.push_str(".");
+  out.push_str(" Or run \`yo fix <path> --migrate cloned-accessors\`.");
   out
 });
 /// An error raised inside the standard library while evaluating a call
@@ -7976,18 +8010,34 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
 /// the same treatment, since the definition-time re-raise throws the flag
 /// rather than the error this frame sees. A re-anchored E0901/E0910 at a
 /// method call whose receiver type has an `<name>_cloned` sibling carries
-/// decision 20's guidance in the primary's help (`_accessor_help_sentence`).
+/// decision 20's guidance in the primary's help (`_accessor_help_sentence`),
+/// and a re-anchored E0901's subject names the std READER that copied
+/// (`ArrayList(Rc(i32)).get`) instead of std's own place inside it
+/// (`(_ptr.add)(index).*` — `_with_primary_subject`).
 _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token, env : &Environment, ctx : &EvalContext) -> AnyError)({
   err_in_std := match(primary_diagnostic_path(&err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
   if(!err_in_std, {
     return(err);
   });
+  ai := _copying_accessor_info(call, env, ctx);
   accessor_help := match(
     primary_diagnostic_code(&err),
     .Some(code) => cond(
       ((code == E_USE_OF_MOVED_VALUE) || (code == E_BORROW_CONFLICT)) => match(
-        _copying_accessor_info(call, env, ctx),
-        .Some(ai) => Option(String).Some(_accessor_help_sentence(&ai)),
+        &ai,
+        .Some(a) => Option(String).Some(_accessor_help_sentence(a)),
+        .None => Option(String).None
+      ),
+      true => Option(String).None
+    ),
+    .None => Option(String).None
+  );
+  accessor_subject := match(
+    primary_diagnostic_code(&err),
+    .Some(code) => cond(
+      (code == E_USE_OF_MOVED_VALUE) => match(
+        &ai,
+        .Some(a) => Option(String).Some(`what \`${a.recv_ty_text}.${a.method}\` copies (its element)`),
         .None => Option(String).None
       ),
       true => Option(String).None
@@ -8003,7 +8053,8 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
         // the PENDING copy (`reraise_flow_violation`), so the decision-20
         // help must ride this one as well.
         fv_anchored := reanchor_primary_at(&fv, call_tok, String.from(STD_RAISE_NOTE));
-        flag_flow_violation(match(accessor_help, .Some(h) => _with_primary_help(&fv_anchored, &h), .None => fv_anchored));
+        fv_shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&fv_anchored, s), .None => fv_anchored);
+        flag_flow_violation(match(accessor_help, .Some(h) => _with_primary_help(&fv_shown, &h), .None => fv_shown));
       }),
       .None => ()
     ),
@@ -8013,7 +8064,8 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
     downcast(err, YoError),
     .Some(ye) => {
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
-      dyn(match(accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
+      shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&anchored, s), .None => anchored);
+      dyn(match(accessor_help, .Some(h) => _with_primary_help(&shown, &h), .None => shown))
     },
     .None => err
   )
