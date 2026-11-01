@@ -44,8 +44,9 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   ast_expr_is_address_of_call,
   BK_BORROW_MUT,
-  BF_ADDR_OF
-, BF_ADDRESS_OF } :: import("../expr.yo");
+  BF_ADDR_OF,
+  BF_ADDRESS_OF
+} :: import("../expr.yo");
 {
   ExprInfo,
   ExprInfoTable,
@@ -69,8 +70,10 @@ pragma(Pragma.AllowUnsafe);
   expr_info_index_trait_ptr_type,
   lookup_method_callee_type,
   mark_call_scoped_share_dup,
-  mark_call_scoped_share_drop
-, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type } :: import("../expr_info.yo");
+  mark_call_scoped_share_drop,
+  expr_info_converted_runtime_type,
+  expr_info_set_converted_runtime_type
+} :: import("../expr_info.yo");
 {
   Environment,
   Variable,
@@ -8115,7 +8118,7 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
                 .None => Option(TypeValue).None
               );
               cond(
-                ((v_is_lend_mut || v_is_lend_amp) || v_lend.is_some()) => {
+                (v_is_lend_mut || v_is_lend_amp || v_lend.is_some()) => {
                   (v_mut : bool) = if(v_is_lend_mut, true, match(v_lend, .Some(Rc(.Reference(_, lm, _))) => lm, _ => false));
                   match(
                     local_borrow_place_of(&value_s, env, ctx),

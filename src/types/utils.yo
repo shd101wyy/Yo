@@ -825,9 +825,9 @@ _origin_shape_is_handle_or_cell :: (fn(ty : &TypeValue) -> bool)(
     // The cell predicates run for EVERY shape: a match arm that yields the
     // ref-semantics flags alone would shadow them for a struct (the unique
     // `Box` is a value newtype, `Rc` may be a handle view).
-    Rc(.Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => ((is_ref || is_atomic) || is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty) || (unique_box_payload_type(ty).is_some())),
+    Rc(.Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => (is_ref || is_atomic || is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty) || unique_box_payload_type(ty).is_some()),
     Rc(.EnumT({ is_reference_semantics : is_ref })) => (is_ref || is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty)),
-    _ => (is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty) || (unique_box_payload_type(ty).is_some()))
+    _ => (is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty) || unique_box_payload_type(ty).is_some())
   )
 );
 _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), depth : u32) -> bool)({
