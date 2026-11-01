@@ -70,7 +70,7 @@ pragma(Pragma.AllowUnsafe);
   lookup_method_callee_type,
   mark_call_scoped_share_dup,
   mark_call_scoped_share_drop
-} :: import("../expr_info.yo");
+, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type } :: import("../expr_info.yo");
 {
   Environment,
   Variable,
@@ -8080,29 +8080,40 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
           // not the place's type.
           v_is_lend_mut := ast_expr_is_fn_call_of(&value, BK_BORROW_MUT, Option(usize).Some(usize(1)));
           v_is_lend_amp := ast_expr_is_fn_call_of(&value, BF_ADDRESS_OF, Option(usize).Some(usize(1)));
-          if(v_is_lend_mut || v_is_lend_amp, {
-            match(
-              local_borrow_place_of(&value_s, env, ctx),
-              .Some(p) => out.push(OriginRootPlace(place : p, is_mut : v_is_lend_mut)),
-              .None => ()
-            );
-          }, {
-            match(
-              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&value_s)),
-              .Some(vi) => match(
-                &vi.ty,
-                // A reference argument: the place it lends.
-                Rc(.Reference(_, vr_mut, _)) => match(
-                  local_borrow_place_of(&value_s, env, ctx),
-                  .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
-                  .None => ()
-                ),
-                // A holder passed on: its own frozen places.
-                _ => _holder_roots_into(&value_s, env, ctx, &mut out)
-              ),
-              .None => ()
-            );
-          });
+          match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&value_s)),
+            .Some(vi) => {
+              // A recorded LEND (the marker was peeled out of the tree, T9):
+              // its reference type carries the mode and the place's root.
+              v_lend := match(
+                expr_info_converted_runtime_type(&vi),
+                .Some(lt) => match(&lt, Rc(.Reference(_, _, _)) => Option(TypeValue).Some(lt), _ => Option(TypeValue).None),
+                .None => Option(TypeValue).None
+              );
+              cond(
+                ((v_is_lend_mut || v_is_lend_amp) || v_lend.is_some()) => {
+                  (v_mut : bool) = if(v_is_lend_mut, true, match(v_lend, .Some(Rc(.Reference(_, lm, _))) => lm, _ => false));
+                  match(
+                    local_borrow_place_of(&value_s, env, ctx),
+                    .Some(p) => out.push(OriginRootPlace(place : p, is_mut : v_mut)),
+                    .None => ()
+                  );
+                },
+                true => match(
+                  &vi.ty,
+                  // A reference argument: the place it lends.
+                  Rc(.Reference(_, vr_mut, _)) => match(
+                    local_borrow_place_of(&value_s, env, ctx),
+                    .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
+                    .None => ()
+                  ),
+                  // A holder passed on: its own frozen places.
+                  _ => _holder_roots_into(&value_s, env, ctx, &mut out)
+                )
+              );
+            },
+            .None => ()
+          );
         });
         i = (i + usize(1));
       });

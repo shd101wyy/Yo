@@ -1738,7 +1738,13 @@ check_if_function_parameter_matches_argument :: (
           .Some(t9_root) => {
             t9_names := ArrayList(String).new();
             t9_names.push(t9_root.clone());
-            t9_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9_mut, t_origin_named(&shared_list(t9_names))));
+            t9_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9_mut, t_origin_named(&shared_list(t9_names)));
+            // Record the lend on the PLACE's ExprInfo (the converted-runtime
+            // type slot): the binding freeze reads it back — the marker was
+            // peeled out of the tree, so this is the tree's only record of
+            // the lend (T9).
+            expr_info_set_converted_runtime_type(&arg_info, &t9_lend_ty);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
           },
           .None => ()
         )

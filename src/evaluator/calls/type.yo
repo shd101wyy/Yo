@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set,
   path_collection_new
-} :: import("../../expr_info.yo");
+, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type } :: import("../../expr_info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { TypeValue , t_reference_with_origin, t_origin_named, shared_list } :: import("../../types/definitions.yo");
@@ -349,6 +349,12 @@ try_to_call_type_with_arguments :: (
             t9w_names := ArrayList(String).new();
             t9w_names.push(ast_expr_token(&t9w_cur).value.clone());
             t9w_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9w_mut, t_origin_named(&shared_list(t9w_names))));
+            // Record the lend on the PLACE's ExprInfo (the converted-runtime
+            // type slot, read by no codegen path for a place): the binding
+            // freeze reads it back — the marker is peeled out of the tree, so
+            // this is the tree's only record of the lend (T9).
+            expr_info_set_converted_runtime_type(&arg_info, &t9w_lend_ty);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
           });
         }
       ),
