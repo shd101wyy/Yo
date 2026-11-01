@@ -8191,7 +8191,30 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     root := roots(ri);
-    local_borrow_access(&root.place, if(root.is_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Read), name_tok, ctx, exn);
+    // The conflict check reads only OTHER bindings' entries: the same name's
+    // earlier entry is this binding's own prior evaluation pass (a def-time
+    // trial), not a competing borrow.
+    (ci : usize) = g_local_borrows.with(xs => xs.len());
+    while(ci > usize(0), {
+      ci = (ci - usize(1));
+      match(
+        g_local_borrows.with(xs => xs.get(ci)),
+        .Some(cinfo) => if((cinfo.name != var_name.clone()) && (cinfo.is_mut || !root.is_mut) && _lb_live_at(&cinfo, name_tok), {
+          (pi2 : usize) = usize(0);
+          while(pi2 < cinfo.places.len(), {
+            match(
+              cinfo.places.get(pi2),
+              .Some(cfp) => if(local_borrow_places_overlap(&cfp, &root.place), {
+                _lb_raise_conflict(&cinfo, &cfp, &root.place, if(root.is_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Read), name_tok, ctx, exn);
+              }),
+              .None => ()
+            );
+            pi2 = (pi2 + usize(1));
+          });
+        }),
+        .None => ()
+      );
+    });
     local_borrow_register(var_name.clone(), name_tok, root.is_mut, &root.place, &range, &Option(Variable).None);
     ri = (ri + usize(1));
   });
