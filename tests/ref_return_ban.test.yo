@@ -41,24 +41,34 @@ impl(
   )
 );
 
-// A `&mut T` field makes a reference-holding type (decision 43 step 3, N2a):
-// the type may be named, but no value of it is built until N2b.
+// A `&mut T` field makes a reference-holding type (decision 43 step 3):
+// N2b builds it — the constructor's `&mut` field is an ordinary exclusive
+// lend, and the binding freezes the place until its last use (T9, T8).
 RefTypedField :: struct(p : &mut i32);
+test("a `&mut`-field composite builds and freezes its root (N2b)", {
+  mut(x) := i32(1);
+  v := RefTypedField(p : &mut x);
+  _ := v;
+});
 comptime_expect_error(
-  ref_typed_field_value :: (fn(x : &mut i32) -> unit)({
-    _v := RefTypedField(p : &mut x);
+  ref_typed_field_exclusive :: (fn() -> unit)({
+    mut(x) := i32(1);
+    v := RefTypedField(p : &mut x);
+    _ := &mut x;
+    _ := v;
   }),
-  "a type holding a reference"
+  ""
 );
 
-// `&mut T` inside a generic type is a reference-holding type: a function
-// returning one waits for N2b, which checks what the value borrows.
-comptime_expect_error(
-  ref_inside_option :: (fn(p : &mut Point) -> Option(&mut i32))(
-    Option(&mut i32).None
-  ),
-  "a type holding a reference"
+// `&mut T` inside a generic type is a reference-holding type: N2b builds the
+// inline composite (`Option(&mut i32)`), so a function returning one checks.
+ref_inside_option :: (fn(p : &mut Point) -> Option(&mut i32))(
+  Option(&mut i32).None
 );
+test("a function returning an inline composite over `&mut T` checks (N2b)", {
+  mut(pt) := Point(x : i32(1), y : i32(2));
+  assert(ref_inside_option(&mut pt).is_none(), "the composite result builds over the parameter's place");
+});
 
 // Positive: the callback pattern — a parameter that RECEIVES a ref —
 // stays legal (`std/sync/mutex.yo` is the live std precedent).

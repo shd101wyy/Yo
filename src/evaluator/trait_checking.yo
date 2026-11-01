@@ -1081,6 +1081,19 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
   while(pi < parts.len(), {
     part := match(parts.get(pi), .Some(p) => p, .None => Rc.new(TypeValueNode.Unit));
     (part_is_copy : bool) = type_implements_trait(&part, copy_tt, env).implemented;
+    // A `&` reference is `Copy` structurally (decision 43 step 3, §5 route 3:
+    // copies share what they point at); a `&mut` one never is (exclusive, so
+    // its holder is move-only). The reference declares nothing, so the trait
+    // registry has no impl to find.
+    if(!part_is_copy, {
+      match(
+        &part,
+        Rc(.Reference(_, false, _)) => {
+          part_is_copy = true;
+        },
+        _ => ()
+      );
+    });
     // The part's own `impl(P, Copy())` may sit later in its module
     // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force it first.
     if(!part_is_copy, {

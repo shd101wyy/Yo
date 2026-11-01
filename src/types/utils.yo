@@ -62,6 +62,8 @@ pragma(Pragma.AllowUnsafe);
   is_module_type,
   is_future_trait_type,
   can_optimize_as_nullable_pointer,
+  is_box_type,
+  is_arc_type,
   unique_box_payload_type,
   is_weak_handle_type,
   is_prelude_allocator_struct,
@@ -698,6 +700,10 @@ type_is_second_class :: (fn(ty : &TypeValue) -> bool)(
 (mut(g_origin_types_exist) : bool) = false;
 note_origin_types_exist :: (fn() -> unit)({
   g_origin_types_exist = true;
+  // A program that names a reference type may hold a `&mut` one (decision 43
+  // step 3, §5 route 3), which is move-only: arm the fast-path knob the
+  // move-only walk is gated on (`type_is_move_only`, `move_only_reason`).
+  g_move_only_possible = true;
 });
 /// True if a value of `ty` carries an origin (plans/backlog/REFERENCES_AND_ORIGINS.md
 /// O4, O10; decision 43 step 3): `ty` holds a `Reference` outside a function
@@ -778,9 +784,118 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
 origin_value_phase_message :: (fn(ty : &TypeValue) -> String)(
   `A value of \`${type_to_string(ty)}\`, a type holding a reference, arrives with the next piece of first-class storage (decision 43 step 3, N2b): a reference type may be named in a type definition, a type argument or an alias, but no value of one is built yet.`
 );
+/// N2b (decision 43 step 3; plans/handover/D43_STEP3_N2_DESIGN.md §3, the
+/// N2b row): `ty` carries an origin at a position O4 does not open at N2b —
+/// a buffer container (O6: a `ref`-semantics buffer over a reference-holding
+/// element — its std generic body at `T := &U` and its flow-set growth
+/// arrive with N2c) or a cell (O4 row 4: a counted handle's payload, a
+/// unique `Box` payload — N2d, with N1d's `Escapable`). Everything else
+/// `type_carries_origin` sees — a value-semantics struct or enum (a user
+/// composite, `Option`, `Result`), a tuple, an array — is an inline
+/// composite O4 row 2 opens at N2b, so its values are built from N2b on and
+/// no wall names it.
+origin_beyond_n2b :: (fn(ty : &TypeValue) -> bool)(
+  cond(
+    !g_origin_types_exist => false,
+    true => {
+      seen := ArrayList(String).new();
+      _origin_beyond_n2b_inner(ty, &mut seen, u32(0))
+    }
+  )
+);
+_any_beyond_n2b :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), {
+    if(match(ts.get(i), .Some(t) => _origin_beyond_n2b_inner(&t, seen, depth + u32(1)), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// A handle or cell SHAPE (O4 rows 3–4): the origin inside one waits for
+/// N2c (a container's element storage) or N2d (a cell payload). `Rc`/`Arc`
+/// (`is_box_type`/`is_arc_type`/`is_counted_handle_value_type`), the unique
+/// `Box` (`unique_box_payload_type`), a `ref`-semantics buffer and an
+/// atomic cell are the shapes; a `Box` nested in a value struct (a
+/// `RefCell`'s `_slot`) is caught by the field walk.
+_origin_shape_is_handle_or_cell :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    // The cell predicates run for EVERY shape: a match arm that yields the
+    // ref-semantics flags alone would shadow them for a struct (the unique
+    // `Box` is a value newtype, `Rc` may be a handle view).
+    Rc(.Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => (is_ref || is_atomic || is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty) || unique_box_payload_type(ty).is_some()),
+    Rc(.EnumT({ is_reference_semantics : is_ref })) => (is_ref || is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty)),
+    _ => (is_box_type(ty) || is_arc_type(ty) || is_counted_handle_value_type(ty) || unique_box_payload_type(ty).is_some())
+  )
+);
+_origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  if(depth > u32(24), {
+    return(false);
+  });
+  match(
+    ty,
+    // A reference or an origin argument is an INLINE position: whether it
+    // walls is decided by the enclosing composite, never by itself (a bare
+    // reference value is N1e's, reported at its own read wall).
+    Rc(.Reference(_, _, _)) => false,
+    Rc(.OriginSet(_, _)) => false,
+    Rc(.Pointer(inner)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
+    Rc(.Array(element : elem)) => _origin_beyond_n2b_inner(&elem, seen, depth + u32(1)),
+    Rc(.RefineT(inner, _)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
+    Rc(.Tuple({ field_types : fields })) => _any_beyond_n2b(&fields, seen, depth),
+    Rc(.SomeT({ resolution : res })) => match(res, .Some(r) => _origin_beyond_n2b_inner(&r, seen, depth + u32(1)), .None => false),
+    Rc(.Struct({ id : sid, field_types : fields, type_arguments : targs })) => cond(
+      // A handle or cell over a reference-holding payload (O4 rows 3–4).
+      (_origin_shape_is_handle_or_cell(ty) && type_carries_origin(ty)) => true,
+      ((sid.len() > usize(0)) && seen.contains(&sid)) => false,
+      true => {
+        if(sid.len() > usize(0), {
+          seen.push(sid.clone());
+        });
+        _any_beyond_n2b(&targs, seen, depth) || _any_beyond_n2b(&fields, seen, depth)
+      }
+    ),
+    Rc(.EnumT({ id : eid, variant_fields : vfields, type_arguments : etargs })) => cond(
+      (_origin_shape_is_handle_or_cell(ty) && type_carries_origin(ty)) => true,
+      ((eid.len() > usize(0)) && seen.contains(&eid)) => false,
+      true => {
+        if(eid.len() > usize(0), {
+          seen.push(eid.clone());
+        });
+        (beyond : bool) = _any_beyond_n2b(&etargs, seen, depth);
+        (vi : usize) = usize(0);
+        while(!beyond && (vi < vfields.len()), {
+          if(match(vfields.get(vi), .Some(vf) => _any_beyond_n2b(&vf, seen, depth), .None => false), {
+            beyond = true;
+          });
+          vi = (vi + usize(1));
+        });
+        beyond
+      }
+    ),
+    _ => false
+  )
+});
+/// N2b's narrowed wall message (decision 43 step 3): the origin sits in a
+/// container (N2c) or a cell (N2d, N1d's `Escapable`), not an inline
+/// composite. Used where N2a's wall (`origin_value_phase_message`) said
+/// "N2b" for every origin-holding type.
+origin_beyond_n2b_message :: (fn(ty : &TypeValue) -> String)(
+  `A value of \`${type_to_string(ty)}\` carries an origin inside a container or a cell, which the remaining pieces of first-class storage open (decision 43 step 3): containers over reference-holding elements arrive with N2c (their std generic bodies and their flow-set growth), cell payloads with N2d (and N1d's \`Escapable\`). An inline composite — a value struct or enum, a tuple, an array — holds references from N2b on.`
+);
+/// A READ of a reference-typed field produces a reference VALUE, which
+/// N1e opens (references as binding types, `.*`, auto-deref; decision 43
+/// step 2's N1e). N2b builds, moves and copies the HOLDER; reading the
+/// reference out of it is the next step.
+reference_value_phase_message :: (fn(ty : &TypeValue) -> String)(
+  `\`${type_to_string(ty)}\` is a reference value, which arrives with references as binding types (decision 43 step 2, N1e): first-class storage (N2b) builds, moves and copies the value HOLDING it, and reading the reference out — binding it, dereferencing it, calling through it — is N1e's.`
+);
 /// The wall at a run-time function's signature: a parameter or result whose
-/// type carries an origin (outside the `&T` / `-> &T` slots, which N1 checks)
-/// would hold a value N2a cannot build.
+/// type carries an origin BEYOND N2b (a container or a cell — inline
+/// composites are N2b's values; the `&T` / `-> &T` slots are N1's) would
+/// hold a value the remaining pieces build.
 reject_origin_carrying_signature :: (fn(ft : &TypeValue, tok : &Token, exn : Exception) -> unit)(
   match(
     ft,
@@ -791,8 +906,8 @@ reject_origin_carrying_signature :: (fn(ft : &TypeValue, tok : &Token, exn : Exc
           ps.get(i),
           .Some(p) => {
             pp := t_slot_pointee(&p);
-            if(type_carries_origin(&pp), {
-              exn.throw(dyn(format_error_message(tok, origin_value_phase_message(&pp))));
+            if(origin_beyond_n2b(&pp), {
+              exn.throw(dyn(format_error_message(tok, origin_beyond_n2b_message(&pp))));
             });
           },
           .None => ()
@@ -800,8 +915,8 @@ reject_origin_carrying_signature :: (fn(ft : &TypeValue, tok : &Token, exn : Exc
         i = (i + usize(1));
       });
       rp := t_slot_pointee(&r);
-      if(type_carries_origin(&rp), {
-        exn.throw(dyn(format_error_message(tok, origin_value_phase_message(&rp))));
+      if(origin_beyond_n2b(&rp), {
+        exn.throw(dyn(format_error_message(tok, origin_beyond_n2b_message(&rp))));
       });
     }),
     _ => ()
@@ -1121,6 +1236,11 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : 
     is_future_value_type(&ty) => true,
     is_rc_type(&ty) => false,
     _nominal_declares_move_only(&ty) => true,
+    // A `&mut` reference is exclusive (decision 43 step 3, §5 route 3): two
+    // copies of one exclusive borrow would alias, so a value holding one is
+    // move-only. A `&` reference shares, so it copies (the holder still
+    // declares `Copy`; the reference itself is Copy structurally).
+    match(&ty, Rc(.Reference(_, true, _)) => true, _ => false) => true,
     // A closure with a `mut` capture (decision 35): two copies of one
     // exclusive borrow would alias.
     _capture_struct_declares_mut(&ty) => true,
@@ -1427,6 +1547,15 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   if(_capture_struct_declares_mut(&ty), {
     return(Option(String).Some(String.from("the closure has a `&mut` capture, and two copies of one exclusive borrow would alias")));
   });
+  // A `&mut` reference held in value structure (decision 43 step 3, §5
+  // route 3): exclusive, so its holder is move-only.
+  match(
+    &ty,
+    Rc(.Reference(_, true, _)) => {
+      return(Option(String).Some(`\`${type_to_string(&ty)}\` is a \`&mut\` reference, and two copies of one exclusive borrow would alias (decision 43, §5 route 3)`));
+    },
+    _ => ()
+  );
   // The first move-only component, as `<label> : <type>` and its own reason.
   // Only a component `type_is_move_only` accepts is descended into, so the
   // walk follows one path to the declaring type at any depth instead of
@@ -3537,6 +3666,9 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     Rc(.CLongDouble) => .None,
     // Pointer and function types are pointer-sized
     Rc(.Pointer(_)) => .Some(usize(get_target_pointer_size_bits())),
+    // A reference (`&T` / `&mut T`, decision 43) is a pointer in C (N2b:
+    // `const T*` / `T*`).
+    Rc(.Reference(_, _, _)) => .Some(usize(get_target_pointer_size_bits())),
     Rc(.Func({ result : _ })) => .Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
     // `Array(unit, N)`: the wrapper has no `data` member, only the one-byte
@@ -3976,7 +4108,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
-export(type_carries_origin, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error);
+export(type_carries_origin, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);
