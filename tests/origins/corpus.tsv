@@ -7,46 +7,46 @@
 # overflows its stack on `&mut(A, B)` and the tree binary's fix gives the recorded
 # diagnostic. Verified 71/71 with the tree binary.
 # id	anchor	kind	phase	expect	today
-wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	-|is an origin-qualified reference
-wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	-|is an origin-qualified reference
+wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0922|is not declared
+wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
 wf-undeclared-origin	O1 declare-before-use	neg	N1	WF_UNDECLARED	E0922|is not declared
-wf-outward-field	O1, O4	pos	N2	ACCEPT	-|a type constructor's origin parameter
+wf-outward-field	O1, O4	pos	N2	ACCEPT	-|a type holding a reference
 ret-local	O3 return rule, §5 route 1	neg	N1	E0912	E0912|its storage ends with the call
 ret-byvalue-param	O3 return rule (E0912's rule)	neg	N1	E0912	E0912|a by-value parameter
 ret-param-place	O3 return rule	pos	N1	ACCEPT	-|a projection (decision 24)
-words	§3 words, O6	pos	N2	ACCEPT	-|is an origin-qualified reference
-words-then-write	O3 step 2	neg	N2	E0911	-|is an origin-qualified reference
-get2-mut-pair	O3 step 2	pos	N2	ACCEPT	-|is an origin-qualified reference
+words	§3 words, O6	pos	N2	ACCEPT	-|a type holding a reference
+words-then-write	O3 step 2	neg	N2	E0911	-|a type holding a reference
+get2-mut-pair	O3 step 2	pos	N2	ACCEPT	-|a type holding a reference
 get2-mut-twice	O3 step 2	neg	N1	E0911	E0911|Cannot read `xs` here
-cursor-two-items	O3 step 2	pos	N2	ACCEPT	-|a type constructor's origin parameter
-copy-mut-holder	§5 route 3	neg	N2	E0901	-|a type constructor's origin parameter
+cursor-two-items	O3 step 2	pos	N2	ACCEPT	-|a type holding a reference
+copy-mut-holder	§5 route 3	neg	N2	E0901	-|a type holding a reference
 call-arg-overlap	O3 step 2, decision 28	neg	N1	E0910	accept
 drop-root-while-borrowed	§5 route 6	neg	N1	E0911	E0911|Cannot move `x` here
-store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	-|is an origin-qualified reference
-store-same-origin	O3-3	pos	N2	ACCEPT	-|is an origin-qualified reference
-store-widen-refcell	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	-|is an origin-qualified reference
+store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	-|a type holding a reference
+store-same-origin	O3-3	pos	N2	ACCEPT	-|a type holding a reference
+store-widen-refcell	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	-|a type holding a reference
 swap-different-origins	O7 swap	neg	N1	ORIGIN_MISMATCH	-|a reference to a reference
 swap-inferred-locals	O2 x O3-3 (§7 flow inference at a &mut lend)	pos	N1	ACCEPT	-|a reference to a reference
 swap-declared-union	O7 swap	pos	N1	ACCEPT	-|a reference to a reference
-push-outside-union	O6	neg	N2	UNION	-|is an origin-qualified reference
-push-inside-union	O6	pos	N2	ACCEPT	-|is an origin-qualified reference
-push-elided-unrelated	O2 elision checked in the body	neg	N2	UNION	-|is a borrow mode, not a type
-push-spelled-shared	O7 push	pos	N2	ACCEPT	-|is an origin-qualified reference
-elided-container-lent-mut	O2 x O6 (§7 flow inference at a &mut lend)	pos	N2	ACCEPT	-|is an origin-qualified reference
-elided-container-lent-mut-then-write	O2 x O6	neg	N2	E0911	-|is an origin-qualified reference
-loop-join-push	hole: control-flow joins	neg	N2	E0911	-|is a borrow mode, not a type
-loop-join-push-after	hole: control-flow joins	pos	N2	ACCEPT	-|is a borrow mode, not a type
-drop-order-user-drop	hole: drop order x may_dangle	neg	N2	E0911	-|a type constructor's origin parameter
-drop-order-may-dangle	hole: drop order x may_dangle	pos	N2	ACCEPT	-|is a borrow mode, not a type
+push-outside-union	O6	neg	N2	UNION	-|a type holding a reference
+push-inside-union	O6	pos	N2	ACCEPT	-|a type holding a reference
+push-elided-unrelated	O2 elision checked in the body	neg	N2	UNION	-|a type holding a reference
+push-spelled-shared	O7 push	pos	N2	ACCEPT	-|a type holding a reference
+elided-container-lent-mut	O2 x O6 (§7 flow inference at a &mut lend)	pos	N2	ACCEPT	-|a type holding a reference
+elided-container-lent-mut-then-write	O2 x O6	neg	N2	E0911	-|a type holding a reference
+loop-join-push	hole: control-flow joins	neg	N2	E0911	-|a type holding a reference
+loop-join-push-after	hole: control-flow joins	pos	N2	ACCEPT	-|a type holding a reference
+drop-order-user-drop	hole: drop order x may_dangle	neg	N2	E0911	-|An origin parameter on an `impl`
+drop-order-may-dangle	hole: drop order x may_dangle	pos	N2	ACCEPT	-|a type holding a reference
 spawn-box-origin	O4, O10	neg	N2	E0909	E0914|lends a borrow, but parameter
-thread-send-origin	O4, O8, O10	neg	N2	E0909	-|is a borrow mode, not a type
-global-refcell-origin	O4, O10, §7 module-level origins	neg	N2	E0909	-|is an origin-qualified reference
-extern-box-origin	O4, O10	neg	N2	E0909	-|is an origin-qualified reference
+thread-send-origin	O4, O8, O10	neg	N2	E0909	-|a type holding a reference
+global-refcell-origin	O4, O10, §7 module-level origins	neg	N2	E0909	E0909|carries an origin
+extern-box-origin	O4, O10	neg	N2	E0909	E0909|carries an origin
 rc-mut-through-deref	O9, decision 46	neg	N1	E0919	E0919|Cannot lend `h.*.x` as `&mut`
 rc-handle-dropped	O9	neg	N1	E0911	-|A local borrow cannot reach through a pointer dereference
 rc-handle-reassigned	O9	neg	N1	E0911	-|A local borrow cannot reach through a pointer dereference
-rc-push-handle-borrow	O9	pos	N2	ACCEPT	-|is an origin-qualified reference
-rc-of-ref-holder	O9, O10	neg	N2	E0909	-|a type constructor's origin parameter
+rc-push-handle-borrow	O9	pos	N2	ACCEPT	-|a type holding a reference
+rc-of-ref-holder	O9, O10	neg	N2	E0909	-|a type holding a reference
 rc-guard-and-clone	hole: handle origin x RefCell guard x collection	pos	N3	ACCEPT	E0610|No method "borrow_mut"
 rc-guard-handle-dropped	O9	neg	N3	E0911	E0610|No method "borrow_mut"
 generic-unbounded-rc	O10	neg	N1	E0909@spec	E0914|lends a borrow, but parameter
@@ -56,9 +56,9 @@ closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	-|a payload bo
 closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	-|a payload bounded by an origin
 closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	-|Last expression in "begin" is not evaluated correctly
 closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	-|Last expression in "begin" is not evaluated correctly
-closure-param-into-capture	hole: elision x closures	neg	N2	UNION	-|is an origin-qualified reference
-closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|is a borrow mode, not a type
-closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	-|is a borrow mode, not a type
+closure-param-into-capture	hole: elision x closures	neg	N2	UNION	-|a type holding a reference
+closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|a type holding a reference
+closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	-|a type holding a reference
 async-cold-start-write	hole: captures in a state machine across a cold start, O8	neg	N3	E0911	E0909|would hold a borrowing future
 async-cold-start-await-first	O8	pos	N3	ACCEPT	E0909|would hold a borrowing future
 async-forward-local	O8 return rule	neg	N3	E0912	E0909|is declared inside the block
@@ -73,8 +73,8 @@ effect-resume-capture	O7 effect handlers, §4 handler lowering	neg	N1	ORIGIN_MIS
 effect-resume-param	O7 effect handlers, §4 handler lowering	pos	N1	ACCEPT	E0912|Cannot return the local borrow
 macro-ret-local	O3 return rule, §4 macro lowering	neg	N1	E0912	-|lends a borrow: it is written as a call argument
 index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E0911	-|A local borrow (`y := &mut place`) needs a place
-place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	-|is an origin-qualified reference
-match-arm-binding-origin	O3, §4 match lowering (superseded row)	neg	N2	E0911	-|is an origin-qualified reference
-list-mut-two-pushes	O3 step 2, O6 (superseded row)	neg	N2	E0911	-|is an origin-qualified reference
-copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	-|a type constructor's origin parameter
-ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	-|a type constructor's origin parameter
+place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	-|a type holding a reference
+match-arm-binding-origin	O3, §4 match lowering (superseded row)	neg	N2	E0911	-|a type holding a reference
+list-mut-two-pushes	O3 step 2, O6 (superseded row)	neg	N2	E0911	-|a type holding a reference
+copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	-|a type holding a reference
+ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	-|a type holding a reference

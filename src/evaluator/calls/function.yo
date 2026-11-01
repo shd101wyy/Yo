@@ -62,8 +62,8 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
+{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { trait_impl_epoch, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -8055,6 +8055,19 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
 /// `println(p)` for a `P` without `ToString` pointed at std/fmt's where
 /// clause, and `i32.MAX + 1` at the prelude's builtin
 /// (issues/fixed/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md).
+/// N2a's value wall (decision 43 step 3; plans/handover/D43_STEP3_N2_DESIGN.md
+/// §4): a call whose result's type holds a reference outside a `-> &T` slot
+/// builds a value the borrow checker cannot see yet. A call returning a TYPE
+/// (`Option(&i32)`) is typed `Type` and passes.
+_reject_origin_carrying_value :: (fn(r : &AstExpr, call_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)),
+    .Some(ri) => if(type_carries_origin(&ri.ty), {
+      exn.throw(dyn(format_error_message(call_tok, origin_value_phase_message(&ri.ty))));
+    }),
+    .None => ()
+  )
+);
 evaluate_function_call :: (
   fn(
     expr : &AstExpr,
@@ -8070,6 +8083,12 @@ evaluate_function_call :: (
   moved_before := _lent_roots_moved_before(expr, env);
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(&call_mp, ctx.std_path.clone()), {
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
+    // The wall stands at the user's code: a std body specialized for a type
+    // holding a reference is reached only through a user call, whose result
+    // the wall names (`ArrayList(&i32)`, not the body's `?*(&i32)`).
+    if(!is_std_module_path(&call_mp, ctx.std_path.clone()), {
+      _reject_origin_carrying_value(&std_r, &call_tok, ctx, exn);
+    });
     _stamp_projection_call(&std_r, ctx);
     _attach_fnonce_callee_release(expr, &std_r, ctx);
     _note_future_producing_call(expr, &std_r, ctx, exn);
@@ -8095,6 +8114,7 @@ evaluate_function_call :: (
     },
     .None => {
       r := match(out.get(usize(0)), .Some(e) => e, .None => expr);
+      _reject_origin_carrying_value(&r, &call_tok, ctx, exn);
       _stamp_projection_call(&r, ctx);
       _attach_fnonce_callee_release(expr, &r, ctx);
       _note_future_producing_call(expr, &r, ctx, exn);
@@ -10857,7 +10877,19 @@ Fix: wrap the call:
             if(!match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false) && !match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false), {
               note_borrowing_argument(&arg_expr_eff);
             });
-            evaled_arg := evaluate_expression_raw(&arg_expr_eff, &arg_eval_env, ctx, exn);
+            // A type constructor's `comptime(p) : Origin` parameter takes an
+            // origin, read by name rather than evaluated, as in
+            // `check_if_function_parameter_matches_argument` (decision 43
+            // step 3, N2a).
+            fv_takes_origin := (
+              match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
+              && match(slot_pointee_at(&resolved_param_types, ai), .Some(o_pt) => is_origin_kind(&o_pt), .None => false)
+            );
+            evaled_arg := if(
+              fv_takes_origin,
+              evaluate_origin_argument(&arg_expr_eff, &arg_eval_env, ctx, exn),
+              evaluate_expression_raw(&arg_expr_eff, &arg_eval_env, ctx, exn)
+            );
             ctx.expected_type = arg_saved_expected;
             // A `&mut` argument writes the place it names, as in
             // `check_if_function_parameter_matches_argument`: a bare one is a
@@ -11344,6 +11376,35 @@ Fix: wrap the call:
             fa_bound_names.push(fve_name);
             fa_bound_types.push(fve_ty);
           });
+        });
+        // `generic(p : Origin)` binders (decision 43 step 2) are not foralls:
+        // each binds as the origin naming itself, as the definition-time
+        // body env binds it, so the body may name `p` in a type
+        // (`Option(&(T, p))`, step 3, N2a).
+        fv_o_labels := match(
+          &fv_callee_ty,
+          Rc(.Func({ meta : fv_o_m })) => match(&fv_o_m.*.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels()),
+          _ => no_labels()
+        );
+        (fv_o_i : usize) = usize(0);
+        while(fv_o_i < fv_o_labels.len(), {
+          fv_o_name := match(fv_o_labels.get(fv_o_i), .Some(n) => n, .None => String.new());
+          if(fv_o_name.len() > usize(0), {
+            fv_o_names := ArrayList(String).new();
+            fv_o_names.push(fv_o_name.clone());
+            _add_origin := add_variable_to_env(
+              &fresh_env,
+              fv_o_name.clone(),
+              t_origin_kind(),
+              Option(EvalValue).Some(EvalValue.TypeVal(t_origin_named(&shared_list(fv_o_names)))),
+              true,
+              false,
+              false,
+              false,
+              synthetic_token(fv_o_name.clone(), &env.module_path.*)
+            );
+          });
+          fv_o_i = (fv_o_i + usize(1));
         });
         // Validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved); this inline FuncVal

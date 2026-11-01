@@ -220,8 +220,7 @@ import("std/fmt");
   BF_COMPTIME_STRING_INDEX_RANGE,
   BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,
   BF_COMPTIME_ARRAY_INDEX,
-  ast_expr_is_local_borrow_mode_call,
-  borrow_mode_not_a_type_message
+  ast_expr_is_local_borrow_mode_call
 } :: import("../../expr.yo");
 { projection_tail_mode, ast_expr_is_infix_op_fn_call } :: import("../../expr.yo");
 { is_never_type } :: import("../../types/guards.yo");
@@ -351,7 +350,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_dyn_type } :: import("../types/dyn.yo");
 { evaluate_enum_type } :: import("../types/enum.yo");
 { evaluate_fn_trait_type } :: import("../types/fn_trait.yo");
-{ evaluate_function_type } :: import("../types/function.yo");
+{ evaluate_function_type, evaluate_reference_type } :: import("../types/function.yo");
 { evaluate_future_type } :: import("../types/future_trait.yo");
 { evaluate_newtype_type } :: import("../types/newtype.yo");
 { evaluate_struct_type, evaluate_cell_type } :: import("../types/struct.yo");
@@ -648,10 +647,10 @@ _evaluate_exists_or_call :: (
     true => evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
   )
 );
-/// `&(T, o)` / `&mut(T, o)` outside a parameter's type (decision 43 step 2,
-/// N1a): the positions that arrive in later pieces of N1/N2.
+/// `&mut(a, b)` whose first operand is not a type: the two-argument form is
+/// decision 43's origin-qualified reference TYPE, `&mut(T, o)`.
 _origin_reference_position_message :: (fn(e : &AstExpr) -> String)(
-  `\`${ast_expr_to_string(e)}\` is an origin-qualified reference (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). It is written as a parameter's type, \`x : &(T, p)\` / \`x : &mut(T, p)\` with \`generic(p : Origin)\`, or as a function's result type, \`-> &(T, p)\`; as a reference's pointee (\`&mut &(T, p)\`), a local's annotation or a type argument it is not supported yet. \`&mut x\` alone lends one place.`
+  `\`${ast_expr_to_string(e)}\` is not a reference type: the two-argument form \`&mut(T, o)\` takes a type and an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). \`&mut x\` alone lends one place.`
 );
 /// The first argument of a two-argument `&(A, B)` is a type (a soft trial).
 _origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
@@ -1180,18 +1179,17 @@ _evaluate_expression :: (
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR, .Some(usize(1)))) =>
           evaluate_raw_pointer_call(expr, env, ctx, exn),
         // `&(T, o)` (the operator-call form, not infix `a & b`) whose first
-        // argument is a type: decision 43's origin-qualified reference, in a
-        // position other than a parameter's type (which
-        // `evaluate_function_parameter` reads before evaluating anything).
+        // argument is a type: decision 43's origin-qualified reference type
+        // in a type position (a field, a type argument, an alias; decision 43
+        // step 3, N2a). A parameter's or a result's type is read by
+        // `evaluate_function_parameter` / the result slot before evaluating
+        // anything.
         (
           (__dk_len == usize(1)) &&
             ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(2))) &&
               !ast_expr_is_infix_op_fn_call(expr) &&
                 _origin_reference_operand_is_type(expr, env, ctx)
-        ) => {
-          exn.throw(dyn(format_error_message(ast_expr_token(expr), _origin_reference_position_message(expr))));
-          expr
-        },
+        ) => evaluate_reference_type(expr, env, ctx, false, exn),
         // `&x` is only a borrow marker (decision 33, V3b Generation B step
         // 3): a call argument lending to an `imm` parameter is peeled before
         // evaluation, so one that reaches here is not lending. `yo fix
@@ -1200,8 +1198,10 @@ _evaluate_expression :: (
           migrate_addr_of_on() => evaluate_address_call(expr, env, ctx, exn),
           true => {
             amp_place := ast_place_text(ast_expr_strip_borrow_marker(expr));
+            // `&T` whose operand is a type: a reference type (decision 43
+            // step 3, N2a).
             if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
-              exn.throw(dyn(format_error_message(ast_expr_token(expr), borrow_mode_not_a_type_message(&amp_place, false))));
+              return(evaluate_reference_type(expr, env, ctx, false, exn));
             });
             exn.throw(
               dyn(
@@ -1234,11 +1234,16 @@ _evaluate_expression :: (
           // below sees through one argument only, so probing a two-argument
           // form re-evaluated this very call until the stack overflowed
           // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
+          // With a type as its first operand it is a reference type in a
+          // type position (decision 43 step 3, N2a).
           if(!ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .Some(usize(1))), {
+            if(ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .Some(usize(2))) && _origin_reference_operand_is_type(expr, env, ctx), {
+              return(evaluate_reference_type(expr, env, ctx, true, exn));
+            });
             exn.throw(dyn(format_error_message(ast_expr_token(expr), _origin_reference_position_message(expr))));
           });
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
-            exn.throw(dyn(format_error_message(ast_expr_token(expr), borrow_mode_not_a_type_message(ast_place_text(ast_expr_strip_borrow_marker(expr)), true))));
+            return(evaluate_reference_type(expr, env, ctx, true, exn));
           });
           exn.throw(
             dyn(

@@ -37,7 +37,7 @@
   is_array_type,
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_carries_origin } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { stable_type_identity } :: import("../../types/type_key.yo");
 {
@@ -203,8 +203,15 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // registers the C struct decl under the same type_key as the final, and the
   // final is then deduped away — emitting `struct { header; }` with no members.
   type := resolve_struct_shell(resolve_enum_shell(type_in));
-  // A `&T` / `&mut T` is a parameter slot's mode (decision 43 step 1), never
-  // a C type: a slot read without `t_slot_pointee` is an internal error.
+  // A type holding a reference (`&T` itself, a `&T` field or type argument,
+  // decision 43 step 3, N2a) has no value until N2b, so it needs no C type.
+  // `type_carries_origin` is false until a program names a reference type.
+  if(type_carries_origin(&type), {
+    return(());
+  });
+  // Otherwise a `&T` / `&mut T` is a parameter slot's mode (decision 43 step
+  // 1), never a C type: a slot read without `t_slot_pointee` is an internal
+  // error.
   if(match(&type, Rc(.Reference(_, _, _)) => true, _ => false), {
     __yo_panic("collect_type: a reference type reached codegen (a parameter slot read without t_slot_pointee)");
   });

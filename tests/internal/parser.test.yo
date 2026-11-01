@@ -1013,8 +1013,9 @@ test("E0003 copies a literal in the right-hand side verbatim", {
 // reads, headed by `__yo_imm` / `__yo_mut` (plans/VALUES_BY_DEFAULT.md
 // decision 42; the source mode words were deleted in Generation B, and the
 // expected side spells the internal heads directly); a `&` anywhere else is left for the
-// evaluator's "a borrow mode, not a type" error, and a call-site marker (a
-// named argument `f(s : &x)`) is never touched.
+// evaluator, which reads `&T` on a type as a reference type (decision 43
+// step 3), and a call-site marker (a named argument `f(s : &x)`) is never
+// touched.
 _d42 :: (fn(src : &String) -> String)({
   exn := Exception(
     throw : (
