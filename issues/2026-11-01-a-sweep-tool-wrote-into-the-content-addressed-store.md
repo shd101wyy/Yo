@@ -12,7 +12,7 @@ At ~04:47 on 2026-11-01, an accessor-migration tool run by an agent rewrote a fi
 +         (maybe_ref : Option(Reference)) = state.*.env.references.get_cloned(&label);
 ```
 
-(the markdown-yo v0.2.22 dependency of the Yo compiler itself). The mutation broke `yo compile src/main.yo` on clean checkouts of every develop tip with a deterministic E0610 `No method "clone" on Reference` (`issues/2026-10-31-a-clean-develop-tip-cannot-raw-compile-src-main-yo-e0610-through-the-inline-dep.md`), sent the #1702/#1703 window down a false regression bisect, and cost the evening's B8 critical path. The culprit tool is being identified; this doc records the incident class either way.
+(the markdown-yo v0.2.22 dependency of the Yo compiler itself). The mutation broke `yo compile src/main.yo` on clean checkouts of every develop tip with a deterministic E0610 `No method "clone" on Reference` (the E0610 `No method "clone" on Reference` failure filed against that window), sent the #1702/#1703 window down a false regression bisect, and cost the evening's B8 critical path. The culprit tool is being identified; this doc records the incident class either way.
 
 ## Why it is possible at all
 

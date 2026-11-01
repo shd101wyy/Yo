@@ -217,6 +217,10 @@ test("fetch_package: a mutated inner file of a stored tree is detected and the t
   sha := String.from_bytes(out.stdout.clone()).trim();
   assert(sha.len() == usize(40), "rev-parse HEAD returned a commit");
   cache := root.join(Path.new(String.from("cache"))).to_string();
+  // The resolver's `ensure_cache_layout` normally creates these before any
+  // fetch: the store (the lock file and the landed trees), the bare mirrors.
+  io.await(create_dir_all(Path.new(`${cache}/store`), io), ioexn);
+  io.await(create_dir_all(Path.new(`${cache}/git`), io), ioexn);
   no_lock := Option(String).None;
   first := io.await(
     fetch_package(cache.clone(), String.from("fmdep"), repo.clone(), sha.clone(), &no_lock, &no_lock, false, false, false, io, mk),
