@@ -5454,10 +5454,23 @@ _mbl_impl_head :: (fn(a : &ArrayList(AstExpr)) -> String)({
   String.new()
 });
 /// Record the member `label : value` when `value` is a `fn` head, or a `fn`
-/// literal, whose first parameter is `self`.
+/// literal, whose first value parameter is `self`. `generic(...)` and
+/// `where(...)` head entries precede or follow the receiver and bind no
+/// runtime value (`_mbl_bind_param`), so the receiver of
+/// `entry : (fn(generic(R : Type), self : &mut Self, ...))` — the closure-body
+/// APIs `HashMap.entry`, `ArrayList.with`, `Deque.with` — is the first
+/// parameter that is neither.
 _mbl_note_member :: (fn(label : &String, value : &AstExpr, head : &String, out : &mut _MblMethods) -> unit)({
   fn_head := match(_mbl_fn_head_params(value), .Some(_) => value.clone(), .None => _bsm_callee(value));
-  ps := match(_mbl_fn_head_params(&fn_head), .Some(xs) => xs, .None => return(()));
+  ps_all := match(_mbl_fn_head_params(&fn_head), .Some(xs) => xs, .None => return(()));
+  ps := ArrayList(AstExpr).new();
+  (pri : usize) = usize(0);
+  while(pri < ps_all.len(), pri = (pri + usize(1)), {
+    p := ps_all(pri).clone();
+    if(!ast_expr_is_fn_call_of(&p, "generic", Option(usize).None) && !ast_expr_is_fn_call_of(&p, "where", Option(usize).None), {
+      ps.push(p);
+    });
+  });
   if(ps.len() == usize(0), {
     return(());
   });

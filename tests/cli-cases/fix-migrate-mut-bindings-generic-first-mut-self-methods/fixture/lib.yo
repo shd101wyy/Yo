@@ -1,0 +1,22 @@
+/// A value struct with a closure-body API whose receiver is the `fn` head's
+/// SECOND parameter, past a leading `generic(...)` — the `HashMap.entry` /
+/// `ArrayList.with` shape.
+Acc :: struct(n : i32);
+impl(
+  Acc,
+  n_of : (fn(self : &Self) -> i32)(self.n),
+  /// The receiver is `self : &mut Self` but not the head's first parameter.
+  with : (fn(generic(R : Type), self : &mut Self, sink(body) : Impl(FnOnce(v : &mut i32) -> R)) -> R)(
+    body(&mut self.n)
+  )
+);
+/// A generic body: its definition-time trial stops at `T(1)` (a type variable
+/// called as a constructor) BEFORE `out`'s only write, which goes through
+/// `with` — a method the lexical half must resolve by its receiver.
+bump_generic :: (fn(generic(T : Type), a : Acc, seed : T) -> Acc)({
+  probe := T(1);
+  out := a;
+  out.with(v => (v + i32(1)));
+  out
+});
+export(Acc, bump_generic);
