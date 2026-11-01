@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name, canonical_module_path, display_module_path } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer, audit_copying_accessor_enabled, audit_print_copying_accessor, migrate_cloned_accessors_on, record_copying_accessor_site, CopyingAccessorSite, implicit_copy_category, _ic_category_is_unique_buffer, _ic_place_root_decl, _ic_place_root_var, _ic_decl_key } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer, audit_copying_accessor_enabled, audit_print_copying_accessor, migrate_cloned_accessors_on, record_copying_accessor_site, CopyingAccessorSite, implicit_copy_category, _ic_category_is_unique_buffer, _ic_place_root_decl, _ic_place_root_var, _ic_decl_key } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -4193,6 +4193,84 @@ _check_call_value_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Envi
     );
   });
 });
+/// Decision 43's ref-cell extension of decision 28's value-root rule
+/// (B8-Q3): within one call, a place an argument lends exclusively may not
+/// overlap a place below the same reference cell another argument lends.
+/// The two places root at the same `ref` cell — the root binding itself, or
+/// a field of it that is the cell — and their paths below it overlap
+/// (`cell_rooted_places_overlap`), so `o.xs.extend_cloned(&o.xs)` and
+/// `f(&mut o.a, &o.a.b)` are E0910, while `f(&mut o.a, &o.b)` (disjoint
+/// paths below the cell) and two `&` lends of one place (no exclusive side)
+/// pass. A `&` argument of a non-projection parameter is a bitwise copy of
+/// the place's fields taken at the call, and a `&mut` argument that overlaps
+/// it writes — grows, replaces — the storage the copy still points into, so
+/// the callee would read a stale copy
+/// (issues/fixed/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md).
+/// The shared side must be strictly below the cell (`below` non-empty): a
+/// `&` argument naming the cell whole is a copy of the handle, which a
+/// write below the cell cannot invalidate. The exclusive side may be the
+/// cell itself (`&mut o`, an empty `below`): its callee can re-point the
+/// cell, freeing the storage below it.
+_check_call_cell_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  // The gate: a call with no exclusive lend (most calls — plain arguments,
+  // `&` lends only) overlaps nothing under this rule, and a call with fewer
+  // than two lends cannot pair one, so neither walks a place. The walks run
+  // only beside an exclusive lend, which keeps the check's share of
+  // evaluating a compiler-sized module next to the value-root rule's.
+  (has_exclusive : bool) = false;
+  (li : usize) = usize(0);
+  while(li < lends.len(), li = (li + usize(1)), {
+    match(
+      lends.get(li),
+      .Some(l) => if(l.exclusive, {
+        has_exclusive = true;
+      }),
+      .None => ()
+    );
+  });
+  if(!has_exclusive || (lends.len() < usize(2)), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < lends.len(), i = (i + usize(1)), {
+    li_lend := match(lends.get(i), .Some(l) => l, .None => return(()));
+    if(li_lend.exclusive && _is_unmarked_lent_place(&li_lend.place, ctx), {
+      match(
+        cell_rooted_place_of(&li_lend.place, env, ctx),
+        .Some(pi) => {
+          (j : usize) = usize(0);
+          while(j < lends.len(), j = (j + usize(1)), {
+            if(j != i, {
+              lj_lend := match(lends.get(j), .Some(l) => l, .None => return(()));
+              if(_is_unmarked_lent_place(&lj_lend.place, ctx), {
+                match(
+                  cell_rooted_place_of(&lj_lend.place, env, ctx),
+                  .Some(pj) => if((pj.below.len() > usize(0)) && (cell_rooted_same_cell(&pi, &pj) && cell_rooted_places_overlap(&pi, &pj)), {
+                    at := if(lj_lend.from > li_lend.from, lj_lend.lent_arg.clone(), li_lend.lent_arg.clone());
+                    raise_flow_violation(
+                      with_code(
+                        format_error_message_with_help(
+                          ast_expr_token(&at),
+                          `This call lends \`${pi.text}\` exclusively (${li_lend.form}) and also lends \`${pj.text}\` (${lj_lend.form}), and both root at the reference cell \`${pi.cell_text}\`: a \`&\` argument of a place below a reference cell is a bitwise copy of that place taken at the call, so the callee would write the cell's storage through the \`&mut\` side while the copy still points into it (decision 43's ref-cell extension of decision 28's value-root rule, plans/VALUES_BY_DEFAULT.md).`,
+                          Option(String).Some(String.from("copy one side into a new local with `.clone()` before the call and pass the copy, or split the call"))
+                        ),
+                        E_BORROW_CONFLICT
+                      ),
+                      ctx,
+                      exn
+                    );
+                  }),
+                  .None => ()
+                );
+              });
+            });
+          });
+        },
+        .None => ()
+      );
+    });
+  });
+});
 /// An unmarked lend (a borrowed receiver, an operand its operator borrows)
 /// names a place whose evaluation runs no code: a name, and field steps,
 /// dereferences (`h.*`, the auto-dereferenced receiver of `h.m(...)` through
@@ -8095,6 +8173,7 @@ evaluate_function_call :: (
     std_lends := _call_lends(expr, ctx);
     _check_call_lent_place_moves(expr, &std_lends, &moved_before, env, ctx, exn);
     _check_call_value_root_overlap(&std_lends, env, ctx, exn);
+    _check_call_cell_root_overlap(&std_lends, env, ctx, exn);
     _check_call_global_lends(expr, &std_lends, &std_r, env, ctx, exn);
     // An await a macro's expansion writes carries the macro's
     // tokens; rule 4 judges it at the macro call
@@ -8121,6 +8200,7 @@ evaluate_function_call :: (
       lends := _call_lends(expr, ctx);
       _check_call_lent_place_moves(expr, &lends, &moved_before, env, ctx, exn);
       _check_call_value_root_overlap(&lends, env, ctx, exn);
+      _check_call_cell_root_overlap(&lends, env, ctx, exn);
       _check_call_global_lends(expr, &lends, &r, env, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);

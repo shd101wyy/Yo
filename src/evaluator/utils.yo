@@ -6959,6 +6959,182 @@ local_borrow_value_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
   });
   Option(LocalBorrowPlace).Some(p)
 });
+/// A place the ref-cell extension of decision 28's value-root rule judges
+/// (decision 43, B8-Q3,
+/// issues/fixed/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md):
+/// the reference cell the path crosses — the root binding and the field
+/// steps down to it, empty steps when the root binding itself is the cell —
+/// and the value-field steps below it. A place that never crosses a cell is
+/// the cell itself lent whole: its `below` is empty, and it is reported (the
+/// callee can re-point the cell, freeing the storage below it) while a
+/// shared lend of the whole cell is not — that argument is a copy of the
+/// handle, which a write below the cell cannot invalidate, and which
+/// re-pointing leaves alive (a `ref` payload is shared). A place rooted at
+/// a value, a module-level binding or a pointer is `.None`: decision 28's
+/// value-root rule and rule 3 judge those.
+CellRootedPlace :: struct(
+  root_name : String,
+  /// The root's declaration token. With the name it identifies the root.
+  root_decl : Token,
+  /// The field steps from the root binding down to the cell (empty when the
+  /// root itself is the cell).
+  cell_steps : ArrayList(String),
+  /// The value-field steps below the cell (empty when the place is the cell
+  /// whole). A second cell, a dereference or a computed member below ends
+  /// them: below a cell the cell is the unit (decision 18), so the rest is
+  /// that place whole.
+  below : ArrayList(String),
+  /// The cell as written (`o`, `p.node`), for messages.
+  cell_text : String,
+  /// The place as written, for messages.
+  text : String
+);
+/// The place `e` names relative to the reference cell its path crosses.
+/// The walk mirrors `local_borrow_place_of`, but records the value-field
+/// steps below the cell instead of cutting them.
+cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(CellRootedPlace))({
+  (e : AstExpr) = ast_expr_strip_borrow_marker(e0);
+  // Outermost first: `steps(k)` selects from `recvs(k)`.
+  steps := ArrayList(String).new();
+  recvs := ArrayList(AstExpr).new();
+  (walking : bool) = true;
+  while(walking, {
+    // A step an evaluator rewrite replaced reads as rewritten.
+    e = ast_rewritten_node(&e);
+    match(
+      e,
+      .Atom(_, _) => {
+        walking = false;
+      },
+      .FnCall(_, callee, Rc(args), _, _) => cond(
+        ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))) => {
+          recv := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+          fld := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+          steps.push(cond(ast_expr_is_atom(&fld) => ast_expr_token(&fld).value.*.clone(), true => String.from("?")));
+          recvs.push(recv);
+          e = recv;
+        },
+        ast_expr_is_fn_call_of(&e, BK_COLON, Option(usize).Some(usize(2))) => {
+          e = match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+        },
+        true => {
+          // An index (`xs(i)`) or a call: what the steps so far select lies
+          // below it, so the place is the callee, whole.
+          steps.clear();
+          recvs.clear();
+          e = callee;
+        }
+      )
+    );
+  });
+  if(!ast_expr_is_atom(&e), {
+    return(Option(CellRootedPlace).None);
+  });
+  tok := ast_expr_token(&e);
+  if(tok.kind != TokenKind.Identifier, {
+    return(Option(CellRootedPlace).None);
+  });
+  root := match(get_variables_from_env(env, tok.value.*.clone()).last(), .Some(v) => v, .None => return(Option(CellRootedPlace).None));
+  if(root.is_compile_time_only || root.is_module_level, {
+    return(Option(CellRootedPlace).None);
+  });
+  cell := ArrayList(String).new();
+  below := ArrayList(String).new();
+  (entered : bool) = false;
+  (k : usize) = steps.len();
+  (stop : bool) = false;
+  while((k > usize(0)) && !stop, {
+    k = (k - usize(1));
+    step := match(steps.get(k), .Some(s) => s, .None => String.from("?"));
+    recv_ty := match(
+      recvs.get(k),
+      .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
+      .None => Rc.clone(root.ty)
+    );
+    cond(
+      _lb_is_cell_type(&recv_ty) => {
+        // The first step below the cell; a second cell below it ends the
+        // steps (the cell is the unit again).
+        if(!entered, {
+          entered = true;
+          below.push(step);
+        }, {
+          stop = true;
+        });
+      },
+      (!entered && (step == "*")) => {
+        stop = true;
+      },
+      _lb_is_value_field_step(&recv_ty, step.clone()) => {
+        if(entered, {
+          below.push(step);
+        }, {
+          cell.push(step);
+        });
+      },
+      true => {
+        stop = true;
+      }
+    );
+  });
+  if(!entered, {
+    // The place is the cell itself lent whole, only when the root binding
+    // is one: `&mut o` for `o` a `ref` object. A value, pointer or field
+    // path that stops before any cell is decision 28's to judge.
+    if(!_lb_is_cell_type(&root.ty), {
+      return(Option(CellRootedPlace).None);
+    });
+  });
+  cell_text := root.name.clone();
+  (ci : usize) = usize(0);
+  while(ci < cell.len(), {
+    cell_text.push_str(".");
+    cell_text.push_string(match(cell.get(ci), .Some(s) => s, .None => String.new()));
+    ci = (ci + usize(1));
+  });
+  Option(CellRootedPlace).Some(
+    CellRootedPlace(
+      root_name : root.name.clone(),
+      root_decl : root.token,
+      cell_steps : cell,
+      below : below,
+      cell_text : cell_text,
+      text : _place_text(ast_expr_strip_borrow_marker(e0))
+    )
+  )
+});
+/// Two cell-rooted places root at the same cell: one root binding (its name
+/// and declaration) and the same field steps down to the cell.
+cell_rooted_same_cell :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) -> bool)({
+  if(!_lb_same_decl(p.root_name.clone(), &p.root_decl, q.root_name.clone(), &q.root_decl), {
+    return(false);
+  });
+  if(p.cell_steps.len() != q.cell_steps.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < p.cell_steps.len(), {
+    if(match(p.cell_steps.get(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get(i), .Some(y) => y, .None => String.new()), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// Two cell-rooted places below one cell overlap: one's steps below the
+/// cell are a prefix of the other's (decision 28's overlap rule, under the
+/// cell).
+cell_rooted_places_overlap :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) -> bool)({
+  n := cond((p.below.len() < q.below.len()) => p.below.len(), true => q.below.len());
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(match(p.below.get(i), .Some(x) => x, .None => String.new()) != match(q.below.get(i), .Some(y) => y, .None => String.new()), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
 _lb_same_decl :: (fn(a_name : &String, a : &Token, b_name : &String, b : &Token) -> bool)(
   (a_name == b_name) && ((a.character == b.character) && (a.module_path == b.module_path))
 );
@@ -8119,6 +8295,10 @@ export(
   local_borrow_place_of_variable,
   local_borrow_value_place_of,
   local_borrow_places_overlap,
+  CellRootedPlace,
+  cell_rooted_place_of,
+  cell_rooted_same_cell,
+  cell_rooted_places_overlap,
   local_borrow_place_text,
   local_borrow_info_of,
   local_borrow_info_of_variable,
