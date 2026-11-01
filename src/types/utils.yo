@@ -4027,7 +4027,7 @@ dyn_vtable_slot_result_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> boo
           .Some(Rc(.TraitT({ field_labels : fls, field_types : fts }))) => {
             (j : usize) = usize(0);
             while(j < fls.len(), {
-              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
+              if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
                 ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 return(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none() && fn_result_is_ref(&ft));
               });
@@ -4415,7 +4415,7 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
         match(_first_fn_trait(&cft_rtt), .Some(t) => return(Option(TypeValue).Some(t)), .None => ());
         (cft_i : usize) = usize(0);
         while(cft_i < seen.len(), {
-          if(match(seen.get(cft_i), .Some(s) => (s == cft_id), .None => false), {
+          if(match(seen.get_cloned(cft_i), .Some(s) => (s == cft_id), .None => false), {
             return(Option(TypeValue).None);
           });
           cft_i = (cft_i + usize(1));
