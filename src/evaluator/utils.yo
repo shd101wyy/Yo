@@ -8083,6 +8083,9 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&value_s)),
             .Some(vi) => {
+              if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+                eprintln(`[n2b] root-arg ${ast_expr_to_string(&value)}: marker=${(v_is_lend_mut || v_is_lend_amp)} lend=${match(expr_info_converted_runtime_type(&vi), .Some(_) => "yes", .None => "no")} ty=${type_to_string(&vi.ty)}`);
+              });
               // A recorded LEND (the marker was peeled out of the tree, T9):
               // its reference type carries the mode and the place's root.
               v_lend := match(
@@ -8157,6 +8160,9 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
   // registers, and the FIRST holder binding in a body must freeze all the
   // same (the caller gates on a function-body context).
   roots := origin_carrying_value_roots(rhs, env, ctx);
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] freeze ${var_name}: roots=${roots.len().to_string()} rhs=${ast_expr_to_string(rhs)}`);
+  });
   range := local_borrow_range_of(binding, var_name.clone(), name_tok);
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
