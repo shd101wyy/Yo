@@ -286,3 +286,14 @@ test("peek_cloned clones the largest element in place", {
   assert(q.peek_cloned() == .Some(i32(8)), "the largest");
   assert(q.len() == usize(3), "nothing removed");
 });
+// ===== B10: a queue is a value (plans/VALUES_BY_DEFAULT.md) =====
+test("clone is a deep copy: the clone's writes never reach the source (B10)", {
+  mut(q) := PriorityQueue(i32).new();
+  q.push(i32(5));
+  q.push(i32(1));
+  mut(c) := q.clone();
+  c.push(i32(9));
+  assert(q.len() == usize(2), "the source keeps its own length");
+  assert((c.len() == usize(3)) && (c.pop().unwrap() == i32(9)), "the clone saw the push");
+  assert(q.peek().unwrap() == i32(5), "the source's order is untouched");
+});

@@ -1,3 +1,6 @@
+# Since B10 (plans/VALUES_BY_DEFAULT.md) an `OrderedMap` is a value:
+# `other := scores` moves the map, so the loop's `for(&mut scores, ...)` is a
+# static E0901 instead of the runtime panic described below.
 # Since decision 39 (plans/VALUES_BY_DEFAULT.md) the loop body cannot name the
 # iterated collection (E0911), so the call goes through a second handle, which
 # the static rule cannot see and the runtime borrow flag guards.
@@ -8,5 +11,5 @@
 # `insert` mutates storage reachable THROUGH `self` (a deep bit), so the outer
 # object carries the assert and panics under a live borrow of its entries.
 # `build run` propagates the panic as rc≠0.
-stdout_keep_match=panic: container operation while an interior reference.*
+stdout_keep_match=error\[E0901\]: use of moved value: (cannot copy )?[^ ]+
 timeout=300

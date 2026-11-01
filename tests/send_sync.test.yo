@@ -13,6 +13,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Mutex } :: import("std/sync/mutex");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
+{ Deque } :: import("std/collections/deque");
 { String } :: import("std/string");
 { RwLock } :: import("std/sync/rwlock");
 { OnceCell } :: import("std/sync/once");
@@ -59,6 +60,14 @@ test("a value String or ArrayList owns its buffer, so it is Send and Sync (B8)",
   comptime_assert(Type.impls(ArrayList(String), Sync), "ArrayList(String) is Sync");
   comptime_assert(!Type.impls(ArrayList(Rc(i32)), Send), "ArrayList(Rc(i32)) is not Send");
   comptime_assert(!Type.impls(ArrayList(Rc(i32)), Sync), "ArrayList(Rc(i32)) is not Sync");
+});
+test("a value Deque owns its ring, so it is Send and Sync (B10)", {
+  // B10 (plans/VALUES_BY_DEFAULT.md): as ArrayList above — the ring has one
+  // owner, so moving the deque moves every element (std/collections/deque.yo).
+  comptime_assert(Type.impls(Deque(i32), Send), "Deque(i32) is Send");
+  comptime_assert(Type.impls(Deque(String), Sync), "Deque(String) is Sync");
+  comptime_assert(!Type.impls(Deque(Rc(i32)), Send), "Deque(Rc(i32)) is not Send");
+  comptime_assert(!Type.impls(Deque(Rc(i32)), Sync), "Deque(Rc(i32)) is not Sync");
 });
 test("atomic cells are Send and Sync", {
   comptime_assert(Type.impls(Arc(i32), Send), "Arc(i32) is Send");

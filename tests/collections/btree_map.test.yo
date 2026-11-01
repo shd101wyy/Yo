@@ -388,3 +388,16 @@ test("get_cloned, first_entry_cloned and last_entry_cloned clone in place", {
   last := m.last_entry_cloned().unwrap();
   assert((last.key == i32(2)) && (last.value.len() == usize(1)), "the largest key");
 });
+// ===== B10: a map is a value (plans/VALUES_BY_DEFAULT.md) =====
+test("clone is a deep copy: the clone's writes never reach the source (B10)", {
+  mut(m) := BTreeMap(String, i32).new();
+  m.insert(`a`, i32(1));
+  m.insert(`b`, i32(2));
+  mut(c) := m.clone();
+  c.insert(`b`, i32(20));
+  c.insert(`c`, i32(3));
+  assert(m.len() == usize(2), "the source keeps its own length");
+  assert(m.get(`b`).unwrap() == i32(2), "and its own value for a replaced key");
+  assert(m.get(`c`).is_none(), "the source never saw the new key");
+  assert((c.len() == usize(3)) && (c.get(`b`).unwrap() == i32(20)), "the clone saw both writes");
+});
