@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate mut-bindings` decides a write through a `&mut self`
+# method whose `fn` head carries a leading `generic(...)`
+# (issues/2026-11-01-yo-fix-mut-bindings-misses-writes-through-iterator-and-closure-bodies.md):
+# `Acc.with`'s receiver is the head's second parameter, like std's
+# `HashMap.entry` and `ArrayList.with`. `_mbl_note_member` read the FIRST
+# parameter as the receiver, so those methods never entered the walk's method
+# table and a generic body past its trial's `T(1)` left `out` unmarked; the
+# trailing `check use.yo`, which instantiates `bump_generic`, then failed with
+# E0917 inside lib.yo.
+stdout_keep=^fix:|^error|E0917
+timeout=240
