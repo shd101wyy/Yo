@@ -7742,7 +7742,14 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) 
     dbg_have := g_lb_lookahead_id;
     eprintln(`[n2b] range_of ${name}: armed=${dbg_armed} want=${ast_expr_id(binding)} have=${dbg_have}`);
   });
-  if(g_lb_lookahead_armed && (g_lb_lookahead_id == ast_expr_id(binding)), {
+  // The id alone gates the look-ahead (N2b): the armed flag is reset by
+  // `local_borrows_truncate`, which every NESTED begin block runs — a
+  // binding whose RHS evaluates a function body (`v := View(x)(...)`, the
+  // callee a comptime constructor) loses the flag between the arm at its
+  // statement and its own range read. The statement id is unique, so a stale
+  // arm cannot match; a nested block's own arm replaces the id and the
+  // binding falls back to its statement-local range as before.
+  if(g_lb_lookahead_id == ast_expr_id(binding), {
     g_lb_lookahead_armed = false;
     // Staged through a local: `.clone()` directly on the `mut(G)` global is
     // E0916 (the receiver lend), while reading it by name is decision 47's
