@@ -158,7 +158,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   em := context.base.emitter;
   indent2 := indent.clone();
   indent2.push_str("  ");
-  args := emitted_block_statements(match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new()));
+  args := emitted_block_statements(match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new()));
   match(
     ei.variable_name,
     .Some(temp_var) => {
@@ -261,7 +261,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       });
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
-      if(is_unit || has_cf, String.from(""), temp_var)
+      if(is_unit || has_cf, String.from(""), temp_var.clone())
     },
     .None => {
       // Statement form: begin block without returning a value.

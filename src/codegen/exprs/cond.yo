@@ -119,7 +119,7 @@ _contains_word_return :: (fn(s : &String) -> bool)({
 });
 /// Args of a FnCall (empty for an Atom).
 _arg_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// The compile-time boolean value of `e`, if it has one.
 _cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
@@ -131,12 +131,12 @@ _cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(
 );
 /// Wrap `code` in `&(...)` when the enclosing function returns `-> &mut T` and
 /// this arm value is not already a pointer.
-_maybe_address_of :: (fn(value_expr : &AstExpr, code : &String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)(
+_maybe_address_of :: (fn(value_expr : &AstExpr, code : String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)(
   if(!cond_outer_is_ptr, code, {
     arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(&ei.ty), .None => true);
     if(arm_is_ptr, code, {
       out := String.from("&(");
-      out.push_string(code);
+      out.push_string(&code);
       out.push_str(")");
       out
     })
@@ -659,7 +659,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
 
   cond_outer_is_ptr := (ret_is_ref && is_pointer_type(&value_type));
   em := context.base.emitter;
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   nargs := args.len();
   // First pass: index of the first non-(compile-time-false) arm.
   (first_nf : usize) = nargs;
