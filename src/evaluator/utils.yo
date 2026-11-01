@@ -7187,6 +7187,9 @@ local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env :
     match(
       local_borrow_place_of(e, env, ctx),
       .Some(p) => {
+        if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+          eprintln(`[n2b] write ${p.root_name} at=${tok.character} entries=${g_local_borrows.with(xs => xs.len()).to_string()}`);
+        });
         local_borrow_require_writable(&p, what, tok, ctx, exn);
         local_borrow_access(&p, LocalBorrowAccess.Write, tok, ctx, exn);
       },
@@ -8170,6 +8173,9 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
     local_borrow_access(&root.place, if(root.is_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Read), name_tok, ctx, exn);
     local_borrow_register(var_name.clone(), name_tok, root.is_mut, &root.place, &range, &Option(Variable).None);
     ri = (ri + usize(1));
+  });
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b]   registered; range last_use=${range.last_use.character} end=${range.end.character} decl=${name_tok.character} entries=${g_local_borrows.with(xs => xs.len()).to_string()}`);
   });
 });
 /// N2b's return rule over composite results (decision 43, O3): an origin in
