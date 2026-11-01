@@ -596,22 +596,23 @@ ls_remote_tags :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Result(String, String), IoExn))
-)(
+)({
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
     cmd := git_command();
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--tags"));
     cmd.arg(String.from("--"));
-    cmd.arg(url.clone());
+    cmd.arg(__probe_url.clone());
     // Nonzero exit (repository not found / not accessible) yields Err below;
     // spawn failure (git missing) propagates through the ambient handler.
     out := e.io.await(cmd.output(e.io), e);
     if(!out.status.success(), {
-      return(Result(String, String).Err(`Repository not found or not accessible: ${url}`));
+      return(Result(String, String).Err(`Repository not found or not accessible: ${__probe_url}`));
     });
     Result(String, String).Ok(String.from_bytes(out.stdout.clone()))
   })
-);
+});
 /// The remote's default branch (`git ls-remote --symref <url> HEAD`), or
 /// "main" when the remote does not say.
 resolve_default_branch :: (
@@ -620,13 +621,14 @@ resolve_default_branch :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(String, IoExn))
-)(
+)({
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
     cmd := git_command();
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--symref"));
     cmd.arg(String.from("--"));
-    cmd.arg(url);
+    cmd.arg(&__probe_url);
     cmd.arg(String.from("HEAD"));
     // Nonzero exit (unreachable repo / no HEAD symref) falls back to "main";
     // spawn failure (git missing) propagates through the ambient handler.
@@ -654,7 +656,7 @@ resolve_default_branch :: (
     });
     result
   })
-);
+});
 /// The latest release tag of `url` (`.Ok(.None)` when it has no semver tags),
 /// or `.Err` when the remote cannot be reached.
 resolve_latest_tag :: (
@@ -664,9 +666,10 @@ resolve_latest_tag :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Result(Option(String), String), IoExn))
-)(
+)({
+  __probe_url := url.clone();
   io.async((e : IoExn) => {
-    listed := e.io.await(ls_remote_tags(url.clone(), e.io, e.exn), e);
+    listed := e.io.await(ls_remote_tags(__probe_url.clone(), e.io, e.exn), e);
     text := match(
       listed,
       .Err(msg) => {
@@ -684,7 +687,7 @@ resolve_latest_tag :: (
     });
     Result(Option(String), String).Ok(match(latest, .Some(t) => Option(String).Some(t.tag.clone()), .None => Option(String).None))
   })
-);
+});
 // ---------------------------------------------------------------------------
 // Requirements and the ref decision (pure)
 // ---------------------------------------------------------------------------
@@ -755,7 +758,7 @@ _satisfies_all_ranges :: (fn(sv : &SemVer, reqs : &ArrayList(Requirement)) -> Re
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     match(
-      &reqs(i).requirement,
+      &reqs(i).requirement.clone(),
       .Version(text) => match(
         parse_version_req(text.clone()),
         .Ok(req) => if(!version_req_matches(&req, sv), {
@@ -792,12 +795,12 @@ choose_ref :: (
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     r := reqs(i).requirement.clone();
-    is_range := match(r, .Version(_) => true, _ => false);
+    is_range := match(&r, .Version(_) => true, _ => false);
     if(is_range, {
       has_range = true;
     }, {
       match(
-        exact,
+        &exact,
         .None => {
           exact = Option(GitRequirement).Some(r);
         },
@@ -819,20 +822,20 @@ choose_ref :: (
     i = (i + usize(1));
   });
   match(
-    exact,
+    &exact,
     .Some(pin) => {
       chosen := match(
         pin,
-        .Tag(t) => match(parse_semver(t.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(t)),
-        .Rev(sha) => ChosenRef.Exact(sha),
-        .Branch(b) => ChosenRef.Branch(b),
+        .Tag(t) => match(parse_semver(t.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(t.clone())),
+        .Rev(sha) => ChosenRef.Exact(sha.clone()),
+        .Branch(b) => ChosenRef.Branch(b.clone()),
         .DefaultBranch => ChosenRef.DefaultBranch,
         .Version(_) => ChosenRef.DefaultBranch
       );
       if(has_range, {
         // A range can only be reconciled with an exact TAG that is a version.
         ok := match(
-          chosen,
+          &chosen,
           .Tag(sv) => match(_satisfies_all_ranges(&sv, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg))),
           _ => false
         );
@@ -874,7 +877,7 @@ locked_entry_satisfies :: (fn(entry : &LockEntry, url : &String, reqs : &ArrayLi
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     fits := match(
-      &reqs(i).requirement,
+      &reqs(i).requirement.clone(),
       .Version(text) => match(
         parse_version_req(text.clone()),
         .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(&req, &sv), .None => false),
@@ -974,7 +977,7 @@ _find_package :: (fn(state : &_State, name : &String) -> Option(_Package))({
 });
 _source_text :: (fn(dep : &ManifestDependency) -> String)(
   match(
-    dep.source,
+    &dep.source,
     .Git(url, _, subdir) => if(subdir.len() > usize(0), `${url} (path ${subdir})`, url.clone()),
     .Path(p) => `path ${p}`
   )
@@ -1000,7 +1003,7 @@ _add_requirement :: (
   (lock_path : String) = String.new();
   (requirement : GitRequirement) = GitRequirement.DefaultBranch;
   match(
-    dep.source,
+    &dep.source,
     .Path(p) => {
       is_path = true;
       dir = abs_under(declaring_dir.clone(), p.clone());
@@ -1122,7 +1125,7 @@ _locked_choice :: (fn(ref : &String) -> ChosenRef)(
 /// Is `name` one `yo update` re-resolves?
 _refresh_requested :: (fn(state : &_State, name : &String) -> bool)(
   match(
-    state.options.mode,
+    &state.options.mode,
     .Install => false,
     .UpdateAll => true,
     .Update(names) => {
@@ -1205,7 +1208,7 @@ _resolve_package :: (
     (ri : usize) = usize(0);
     while(ri < pkg.requirements.len(), {
       match(
-        &pkg.requirements(ri).requirement,
+        &pkg.requirements(ri).requirement.clone(),
         .Version(_) => {
           needs_tags = true;
         },
@@ -1284,7 +1287,7 @@ _resolve_package :: (
     );
     // The default branch's NAME, once per URL (network) — or the lock's.
     (ref_text : String) = chosen.ref_text();
-    is_default := match(chosen, .DefaultBranch => true, _ => false);
+    is_default := match(&chosen, .DefaultBranch => true, _ => false);
     if(is_default && reuse, {
       ref_text = old_ref.clone();
     });
@@ -1380,7 +1383,7 @@ _build_lock :: (fn(state : &_State) -> LockFile)({
         deps.push(p.dependencies(d).clone());
         d = (d + usize(1));
       });
-      version := match(p.chosen, .Some(c) => c.version_text(), .None => String.new());
+      version := match(&p.chosen, .Some(c) => c.version_text(), .None => String.new());
       entries.push(
         LockEntry(
           name : p.name.clone(),
@@ -1449,7 +1452,7 @@ resolve_and_fetch :: (
     cache_root := e.io.await(ensure_cache_layout(e.io, e.exn), e);
     read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, e.exn), e);
     match(
-      read.problem,
+      &read.problem,
       .Some(msg) => {
         if(options.locked, {
           e.exn.throw(dyn(format_coded_error(E_LOCK_MISMATCH, `--locked: ${msg}`)));
