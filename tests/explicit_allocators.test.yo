@@ -159,7 +159,7 @@ test("ArrayList.new, HashMap.new, Deque.new and Box.new(v) are on the global all
   m := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   assert(m.allocator().is_none(), "HashMap.new()");
-  q := Deque(i32).new();
+  mut(q) := Deque(i32).new();
   q.push_back(i32(1));
   assert(q.allocator().is_none(), "Deque.new()");
   b := Box.new(i32(2));
@@ -457,7 +457,7 @@ test("Every release tells the allocator the size and alignment the block was all
       map.insert(k, k * i32(2));
       k = (k + i32(1));
     });
-    q := Deque(i32).new(alloc : placed);
+    mut(q) := Deque(i32).new(alloc : placed);
     mut(j) := i32(0);
     while(j < i32(40), {
       q.push_back(j);

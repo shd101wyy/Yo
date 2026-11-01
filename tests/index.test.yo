@@ -170,7 +170,7 @@ test("Test Index trait mutation on HashMap", {
 });
 // === BTreeMap Index tests ===
 test("Test Index trait on BTreeMap", {
-  (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
+  (mut(map) : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
   map.insert(i32(5), i32(500));
   map.insert(i32(3), i32(300));
   map.insert(i32(7), i32(700));
@@ -179,14 +179,14 @@ test("Test Index trait on BTreeMap", {
   assert(map(i32(7)) == i32(700), "map(7) should be 700");
 });
 test("Test Index trait mutation on BTreeMap", {
-  (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
+  (mut(map) : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   addr_of(map(i32(1))).* = i32(77);
   assert(map(i32(1)) == i32(77), "map(1) should be 77 after mutation");
 });
 // === Deque Index tests ===
 test("Test Index trait on Deque", {
-  (d : Deque(i32)) = Deque(i32).new();
+  (mut(d) : Deque(i32)) = Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
   d.push_back(i32(30));
@@ -195,14 +195,14 @@ test("Test Index trait on Deque", {
   assert(d(usize(2)) == i32(30), "d(2) should be 30");
 });
 test("Test Index trait mutation on Deque", {
-  (d : Deque(i32)) = Deque(i32).new();
+  (mut(d) : Deque(i32)) = Deque(i32).new();
   d.push_back(i32(100));
   d.push_back(i32(200));
   addr_of(d(usize(0))).* = i32(555);
   assert(d(usize(0)) == i32(555), "d(0) should be 555 after mutation");
 });
 test("Test Index on Deque with ring buffer wrap", {
-  (d : Deque(i32)) = Deque(i32).new();
+  (mut(d) : Deque(i32)) = Deque(i32).new();
   // Push and pop to shift head forward
   d.push_back(i32(1));
   d.push_back(i32(2));

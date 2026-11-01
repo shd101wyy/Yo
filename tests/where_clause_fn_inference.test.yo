@@ -96,7 +96,7 @@ impl(
   __WbInto(
     Item : T,
     IntoIter : DequeIter(T),
-    wb_into : (fn(self : &Self) -> DequeIter(T))(self.into_iter())
+    wb_into : (fn(self : Self) -> DequeIter(T))(self.into_iter())
   )
 );
 impl(
@@ -105,27 +105,27 @@ impl(
   __WbInto(
     Item : MapEntry(K, V),
     IntoIter : BTreeMapIter(K, V),
-    wb_into : (fn(self : &Self) -> BTreeMapIter(K, V))(self.into_iter())
+    wb_into : (fn(self : Self) -> BTreeMapIter(K, V))(self.into_iter())
   )
 );
 __wb_sum :: (
-  fn(generic(C : Type), c : &C, where(C <: __WbInto(Item := i32))) -> i32
+  fn(generic(C : Type), c : C, where(C <: __WbInto(Item := i32))) -> i32
 )(
   c.wb_into().fold(i32(0), (acc, x) => (acc + x))
 );
 __wb_count :: (
-  fn(generic(C : Type), c : &C, where(C <: __WbInto)) -> usize
+  fn(generic(C : Type), c : C, where(C <: __WbInto)) -> usize
 )(
   c.wb_into().count()
 );
 test("where-bound generic over Deque then BTreeMap compiles and runs", {
-  dq := Deque(i32).new();
+  mut(dq) := Deque(i32).new();
   dq.push_back(i32(10));
   dq.push_back(i32(20));
-  assert(__wb_sum(&dq) == i32(30), "Deque through the Item-bound generic");
-  bt := BTreeMap(i32, i32).new();
+  assert(__wb_sum(dq) == i32(30), "Deque through the Item-bound generic");
+  mut(bt) := BTreeMap(i32, i32).new();
   bt.insert(i32(1), i32(10));
-  assert(__wb_count(&bt) == usize(1), "BTreeMap through the bare bound");
+  assert(__wb_count(bt) == usize(1), "BTreeMap through the bare bound");
 });
 
 // ---------------------------------------------------------------------------

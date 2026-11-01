@@ -155,7 +155,7 @@ test("HashSet of a move-only element", {
 test("BTreeMap of a move-only value: insert, overwrite, remove, pop_first, pop_last", {
   before := g_mc_dropped;
   {
-    m := BTreeMap(i32, _McFd).new();
+    mut(m) := BTreeMap(i32, _McFd).new();
     // Inserted in descending order, so every insert shifts the entries
     // after it (bitwise swaps).
     mut(i) := i32(20);
@@ -190,7 +190,7 @@ test("BTreeMap of a move-only value: insert, overwrite, remove, pop_first, pop_l
   assert(g_mc_dropped == (before + i32(21)), "every value dropped exactly once");
 });
 test("BTreeMap of a move-only key", {
-  m := BTreeMap(_McTok, i32).new();
+  mut(m) := BTreeMap(_McTok, i32).new();
   m.insert(_McTok(id : i32(2)), i32(20));
   m.insert(_McTok(id : i32(1)), i32(10));
   m.insert(_McTok(id : i32(3)), i32(30));
@@ -203,7 +203,7 @@ test("BTreeMap of a move-only key", {
 test("OrderedMap of a move-only value: insert, overwrite, remove, swap_remove", {
   before := g_mc_dropped;
   {
-    m := OrderedMap(i32, _McFd).new();
+    mut(m) := OrderedMap(i32, _McFd).new();
     mut(i) := i32(0);
     while(i < i32(10), i = (i + i32(1)), {
       m.insert(i, _McFd(n : i));
@@ -232,7 +232,7 @@ test("Deque of a move-only element: push at both ends past a grow, pop at both e
   before := g_mc_dropped;
   sum_before := g_mc_sum;
   {
-    d := Deque(_McFd).new();
+    mut(d) := Deque(_McFd).new();
     mut(i) := i32(0);
     while(i < i32(20), i = (i + i32(1)), {
       d.push_back(_McFd(n : i));
@@ -250,7 +250,7 @@ test("Deque of a move-only element: push at both ends past a grow, pop at both e
   assert(g_mc_sum == (sum_before + i32(2380)), "and each one by its own value");
 });
 test("PriorityQueue of a move-only element", {
-  q := PriorityQueue(_McTok).new();
+  mut(q) := PriorityQueue(_McTok).new();
   mut(i) := i32(0);
   while(i < i32(20), i = (i + i32(1)), {
     q.push(_McTok(id : ((i * i32(7)) % i32(20))));
@@ -331,7 +331,7 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
   before2 := g_mc_kdropped;
   {
     p6 := _McKd(id : i32(6));
-    m := BTreeMap(_McKd, i32).new();
+    mut(m) := BTreeMap(_McKd, i32).new();
     mut(i) := i32(10);
     while(i > i32(0), i = (i - i32(1)), {
       m.insert(_McKd(id : i), i);
@@ -366,7 +366,7 @@ test("ArrayList of a plain type with neither Copy nor Clone: contains compares i
 test("OrderedMap of a Drop key: insert, overwrite, remove, swap_remove, index_of", {
   before := g_mc_kdropped;
   {
-    m := OrderedMap(_McKd, i32).new();
+    mut(m) := OrderedMap(_McKd, i32).new();
     k1 := _McKd(id : i32(1));
     k2 := _McKd(id : i32(2));
     k3 := _McKd(id : i32(3));
@@ -410,7 +410,7 @@ test("OrderedMap of a Drop key: insert, overwrite, remove, swap_remove, index_of
   assert(g_mc_kdropped == (before + i32(9)), "9 drops: the overwrite argument, remove, swap_remove, two from clear, the get temporary, three locals");
 });
 test("OrderedMap of a plain key with neither Copy nor Clone: the same surface", {
-  m := OrderedMap(_McTok, i32).new();
+  mut(m) := OrderedMap(_McTok, i32).new();
   t2 := _McTok(id : i32(2));
   m.insert(_McTok(id : i32(1)), i32(10));
   m.insert(_McTok(id : i32(2)), i32(20));
