@@ -474,7 +474,7 @@ _evaluate_property_access_node :: (
   // -------------------------------------------------------------------------
   // Short-circuit: Type.<KindName> — kind-constraint syntactic sugar.
   // -------------------------------------------------------------------------
-  dot_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  dot_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());

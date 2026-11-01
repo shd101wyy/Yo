@@ -344,7 +344,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
           skip_statement,
           (),
           if(ast_expr_is_fn_call(&expr) && ast_expr_is_fn_call_of(&expr, BK_EXPORT, .None), {
-            export_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+            export_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
             (j : usize) = usize(0);
             nj := export_args.len();
             while((j < nj) && !should_stop, {
@@ -360,7 +360,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       ast_expr_is_fn_call(&export_expr) &&
                         ast_expr_is_fn_call_of(&export_expr, "...", .None)
                     ) => {
-                      spread_args := match(export_expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+                      spread_args := match(export_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                       ext_mod_expr := match(spread_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                       // Optional exclude(...) second arg
                       exclude_expr_opt := spread_args.get(usize(1));
@@ -814,7 +814,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                   // A `(x : T) = v` binding at module-begin scope is a module-level
                   // runtime global by construction — the LHS is a `:` binding.
                   if(ast_expr_is_fn_call_of(&assign_lhs, ":", Option(usize).Some(usize(2))), {
-                    binding_args := match(assign_lhs, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+                    binding_args := match(assign_lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                     binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                     if(ast_expr_is_atom(&binding_lhs), {
                       record_module_level_init_expr(&evaluated);

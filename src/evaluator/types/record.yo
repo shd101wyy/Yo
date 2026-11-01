@@ -106,7 +106,7 @@ evaluate_module_field :: (
       )
     );
   });
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   label_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   type_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier

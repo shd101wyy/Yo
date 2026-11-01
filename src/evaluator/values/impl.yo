@@ -4097,7 +4097,7 @@ _plain_param_label_atom :: (fn(p : &AstExpr) -> Option(AstExpr))({
   if(ast_expr_is_atom(&lbl), Option(AstExpr).Some(lbl), Option(AstExpr).None)
 });
 _fn_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// The parameters a projection's result may point into: every reference
 /// parameter for an elided result origin (O2), the ones a spelled origin
@@ -5134,7 +5134,7 @@ evaluate_module_value :: (
   // Extract args from the FnCall.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := args.len();

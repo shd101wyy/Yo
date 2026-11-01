@@ -237,7 +237,7 @@ _evaluate_inout_local_binding :: (
   // The LHS: `mut(name)`, one identifier, and the annotation `T` of
   // `(name : &T) = &place`, which the parse-time rewrite (decision 42) passes
   // as a second argument.
-  lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if((lhs_args.len() != usize(1)) && (lhs_args.len() != usize(2)), {
     exn.throw(
       dyn(
@@ -751,13 +751,13 @@ _bind_projection_result :: (
 /// pin, `macro_expansion` = the cell expression it takes.
 evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
   (env : Environment) = env_in;
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   rhs := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   lhs_tok := ast_expr_token(&lhs);
   is_mut := ast_expr_is_inout_mode_call(&lhs, .None);
   sig := if(is_mut, String.from("&mut "), String.from("&"));
-  lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(&name_expr), {
     exn.throw(dyn(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`)));

@@ -3442,7 +3442,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     return(());
   });
   (op_callee : AstExpr) = match(expr, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
-  op_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(()));
+  op_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(()));
   bs := ArrayList(CaptureBorrow).new();
   collect_type_borrows(&info.ty, &mut bs);
   if((bs.len() == usize(0)) && some_resolution(&info.ty).is_none() && _callee_is_opaque_function_value(expr, &op_callee, ctx), {
@@ -4021,7 +4021,7 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
     .None => ()
   );
   (callee : AstExpr) = match(e, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(Option(Tuple(AstExpr, String)).None));
-  c_args := match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  c_args := match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   first := match(c_args.get(usize(0)), .Some(f) => f, .None => make_err_expr());
   cond(
     (ast_expr_is_fn_call_of(e, "&mut", Option(usize).Some(usize(1))) && _lent_place_touched(&first, lent, ctx)) => {
@@ -4119,7 +4119,7 @@ _lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstE
 /// A root in `moved_before` was already moved when the call started
 /// (`_lent_roots_moved_before`), so no argument of this call moved it.
 _check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(()));
+  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(()));
   (li : usize) = usize(0);
   while(li < lends.len(), li = (li + usize(1)), {
     match(
@@ -4248,7 +4248,7 @@ _CallLend :: struct(place : AstExpr, lent_arg : AstExpr, from : usize, marked : 
 /// type-qualified call (`T.m(&x, k)`) names a type there, not a receiver.
 _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))({
   out := ArrayList(_CallLend).new();
-  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(out));
+  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(out));
   (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(out));
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     match(
@@ -4638,7 +4638,7 @@ _lent_argument_place :: (fn(lent : &AstExpr) -> Option(AstExpr))(
 /// `match(&x, …)`); everywhere else `&x` of a moved binding is E0901.
 _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayList(String))({
   out := ArrayList(String).new();
-  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => return(out));
+  op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(out));
   places := ArrayList(AstExpr).new();
   match(_call_receiver_place(call), .Some(r) => places.push(r), .None => ());
   // An infix operator's operands may be lent (`a == b`); which ones is known
@@ -5531,7 +5531,7 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
     if(!ast_expr_is_fn_call_of(&we, "<:", Option(usize).Some(usize(2))), {
       continue;
     });
-    we_args := match(we, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+    we_args := match(we, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
     lhs := match(we_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     rhs := match(we_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     if(!ast_expr_is_atom(&lhs), {
@@ -5541,7 +5541,7 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
       _scratch_concrete_binding(se, ast_expr_token(&lhs).value.*),
       .Some(target) => {
         traits := cond(
-          ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None) => match(rhs, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new()),
+          ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None) => match(rhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new()),
           true => {
             one := ArrayList(AstExpr).new();
             one.push(rhs);
@@ -5552,7 +5552,7 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
         while(t < traits.len(), {
           tr := match(traits.get(t), .Some(e) => e, .None => make_err_expr());
           t = (t + usize(1));
-          tr_args := match(tr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+          tr_args := match(tr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
           (a : usize) = usize(0);
           while(a < tr_args.len(), {
             ta := match(tr_args.get(a), .Some(e) => e, .None => make_err_expr());
@@ -8526,7 +8526,7 @@ _evaluate_function_call_unanchored :: (
   );
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   // Pre-fold `-(IntLit)` to a comptime negative integer literal.

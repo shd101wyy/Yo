@@ -7701,7 +7701,7 @@ _lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token), (in
 /// last child that mentions it; anything else (a loop, a call, an
 /// assignment, a closure) is live to its end.
 _lb_region_end :: (fn(e : &AstExpr, name : &String, root : &Token) -> Token)({
-  args := match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   is_block := ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None);
   is_cond := ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None);
   is_branch := (is_cond || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
