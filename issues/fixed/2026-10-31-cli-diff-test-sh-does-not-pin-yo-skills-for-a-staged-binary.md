@@ -6,7 +6,7 @@
 `YO_SELF_BIN=<logs dir>/bin-h5` produced 6 skills-family diffs; re-running the
 same 11 diffing cases with `YO_SKILLS=<checkout>/.github/skills` gave
 `PASS 11 GOLDEN-DIFF 0`.
-**Status**: OPEN.
+**Status:** FIXED 2026-10-31 (fix/cli-diff-skills-pin).
 
 ## Symptom
 
@@ -39,3 +39,13 @@ Add `YO_SKILLS="$REPO_ROOT/.github/skills"` to the per-case `env` line in
 `scripts/cli-diff-test.sh` (beside `YO_STD="$REPO_ROOT/std"`), matching the
 documented contract. Verification: the re-run above (11 cases) is green with the
 pin and red without it.
+
+Landed as `fix/cli-diff-skills-pin`: the single `run_case` run line now pins
+`YO_SKILLS="$REPO_ROOT/.github/skills"` beside the `YO_STD` pin, so scoring and
+`--record` (both go through `run_case`) resolve the checkout's skills for a
+staged binary. Reproduced on this box before the fix (tree build of the branch,
+staged into a logs dir: all 7 skills-family cases GOLDEN-DIFF, `skills-install`
+erroring `rc=1` with the missing-bundle diagnostic) and green after (same staged
+binary, fixed harness: `PASS 7 GOLDEN-DIFF 0`, no golden re-recorded — the
+goldens were always recorded against the tree's skills, CI pins `YO_SKILLS`
+already).
