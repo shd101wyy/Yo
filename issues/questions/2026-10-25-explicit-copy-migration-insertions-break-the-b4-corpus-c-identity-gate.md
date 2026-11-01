@@ -70,3 +70,17 @@ noise classes (sorting the forward-declaration block; normalizing `__yo_m<N>` an
 `src/codegen` hand-edit half of B4-2 as a follow-up PR converted in ≤10-site steps, each step
 gated by the normalized emit-diff — the miscompile and ICE classes observed here show a
 one-shot directory conversion cannot be reviewed against a byte-identity bar.
+
+
+## Evidence from the r3 regeneration on develop 8866e5f0d (2026-11-01)
+
+Regenerated once more after develop absorbed #1697–#1703 (the r2 branches conflicted with
+them). The fresh dry run on `8866e5f0d` reports the same 312 sites (24 insertions + 288
+left; the list is identical to the r2 dry run modulo line numbers — #1700's prelude sweep
+reclassified nothing in `src/codegen`). Both r3 heads (`vbd/b4-2-stepwise-1-r3` @
+`99a97d810`, `vbd/b4-2-stepwise-r3` @ `299ec7631`) again emitted C byte-IDENTICAL to the
+base for `src/main.yo` and for the 45-file corpus, with 0 insertions and the same 10
+deliberately-left sites on the final head. (A machine-wide `check ./src` failure through
+the `markdown-yo` dependency interrupted the gating: B8's unmask.py had mutated the shared
+store entry in place; the coordinator restored it — the store-mutability docs live with
+the ast-immutable item.)
