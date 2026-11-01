@@ -799,10 +799,11 @@ fn_result_slot :: (fn(ft : &TypeValue) -> TypeValue)(match(ft, Rc(.Func({ result
 /// The value type a `Func` returns or projects: `T` for `-> T`, `-> &T` and
 /// `-> &mut T`. Unit for a non-`Func`.
 fn_result_pointee :: (fn(ft : &TypeValue) -> TypeValue)(t_slot_pointee(&fn_result_slot(ft)));
-/// The `Func` `ft` is a projection (`-> &T` or `-> &mut T`).
-fn_result_is_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : fri_r })) => t_slot_is_borrow(&fri_r), _ => false));
-/// The `Func` `ft` is a mutable projection (`-> &mut T`).
-fn_result_is_mut_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : frm_r })) => t_slot_is_mut_ref(&frm_r), _ => false));
+/// The `Func` (or closure trait, `Fn(...) -> &T`, N1c) `ft` is a
+/// projection (`-> &T` or `-> &mut T`).
+fn_result_is_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : fri_r })) => t_slot_is_borrow(&fri_r), Rc(.FnTraitT({ call_result : fri_cr })) => t_slot_is_borrow(&fri_cr), _ => false));
+/// The `Func` (or closure trait) `ft` is a mutable projection (`-> &mut T`).
+fn_result_is_mut_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : frm_r })) => t_slot_is_mut_ref(&frm_r), Rc(.FnTraitT({ call_result : frm_cr })) => t_slot_is_mut_ref(&frm_cr), _ => false));
 /// The names a SPELLED origin lists (`&(T, (p, xs))` → `p`, `xs`); `.None`
 /// for an elided origin or a non-origin (decision 43 step 2, N1c).
 t_origin_spelled_names :: (fn(o : &TypeValue) -> Option(SharedList(String)))(
