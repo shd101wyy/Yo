@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_address_of_call,
   BK_BORROW_MUT,
   BF_ADDR_OF
-} :: import("../expr.yo");
+, BF_ADDRESS_OF } :: import("../expr.yo");
 {
   ExprInfo,
   ExprInfoTable,
@@ -8074,21 +8074,35 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
         );
         value_s := ast_expr_strip_borrow_marker(&value);
         if(ast_expr_is_atom(&value_s), {
-          match(
-            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&value_s)),
-            .Some(vi) => match(
-              &vi.ty,
-              // A reference argument: the place it lends.
-              Rc(.Reference(_, vr_mut, _)) => match(
-                local_borrow_place_of(&value_s, env, ctx),
-                .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
-                .None => ()
+          // A LEND argument (`&x`, `&mut xs`, a `&`/`&mut` field of a
+          // composite constructor, T9): the marker names the mode, the place
+          // keeps its own pointee type, so the root is read off the MARKER,
+          // not the place's type.
+          v_is_lend_mut := ast_expr_is_fn_call_of(&value, BK_BORROW_MUT, Option(usize).Some(usize(1)));
+          v_is_lend_amp := ast_expr_is_fn_call_of(&value, BF_ADDRESS_OF, Option(usize).Some(usize(1)));
+          if(v_is_lend_mut || v_is_lend_amp, {
+            match(
+              local_borrow_place_of(&value_s, env, ctx),
+              .Some(p) => out.push(OriginRootPlace(place : p, is_mut : v_is_lend_mut)),
+              .None => ()
+            );
+          }, {
+            match(
+              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&value_s)),
+              .Some(vi) => match(
+                &vi.ty,
+                // A reference argument: the place it lends.
+                Rc(.Reference(_, vr_mut, _)) => match(
+                  local_borrow_place_of(&value_s, env, ctx),
+                  .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
+                  .None => ()
+                ),
+                // A holder passed on: its own frozen places.
+                _ => _holder_roots_into(&value_s, env, ctx, &mut out)
               ),
-              // A holder passed on: its own frozen places.
-              _ => _holder_roots_into(&value_s, env, ctx, &mut out)
-            ),
-            .None => ()
-          );
+              .None => ()
+            );
+          });
         });
         i = (i + usize(1));
       });
