@@ -1,0 +1,12 @@
+// Two std frames, one user frame (VERDICTS-8 Q1): `first` is std frame one,
+// `get` is std frame two, and the element copy `get` makes is E0901 anchored
+// at the user's `xs.first()` — never at std's internal call.
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  xs := ArrayList(Rc(i32)).new();
+  xs.push(Rc.new(i32(2)));
+  y := xs.first();
+  assert(y.is_some(), "an element");
+});
+export(main);
