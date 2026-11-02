@@ -76,10 +76,13 @@ object). The edges that set `via_ref`:
 - a `Reference` field (decision 43 N2b holders). The walk had no `Reference` case before, so a
   holder of a `&` was never followed.
 
-A raw pointer is followed without changing `via_ref`: it carries no origin (decision 43), and a
-value type's raw pointer is the buffer it owns. Otherwise `ArrayList`'s own `_ptr` would make
-every recursive value type (a `JsonValue` holding `ArrayList(JsonValue)`) reach itself. A
-`Box` payload is owned and is followed the same way. Function values, `Dyn`, open type variables
+A type that does not count is still walked into: a value of a target type can hold a shared
+handle to another one. A raw pointer is followed without changing `via_ref`: a value type's raw
+pointer is the buffer it owns (the value-type invariant), and it carries no origin (decision
+43). Otherwise `ArrayList`'s own `_ptr` would make every recursive value type (a `JsonValue`
+holding `ArrayList(JsonValue)`) reach itself. A `Box` payload is owned and is followed the same
+way. A value struct whose raw pointer unsafe code aims at the caller's container is outside the
+safe-code contract the rule checks, so it is not pinned. Verdict: VERDICTS-13 §5 (Q1 = A). Function values, `Dyn`, open type variables
 and `void` pointers still answer "may reach anything", and closures are still judged by their
 captures. The `seen` set is keyed by `(via_ref, type)`.
 
@@ -92,6 +95,8 @@ Tests: `tests/ref_field_borrow.test.yo`:
   accepted, plus a by-value `_ListBox` and a `ref` owner's field;
 - "an element borrow beside a recursive value that owns lists of the container's type": the
   json `insert` shape over a user enum;
-- "an element borrow beside a value that can reach the container": `&_ListBox`, and the
-  `_StrLists` owner by `&` and by value, stay rejected. The closure and `&Dyn` pins are
+- "an element borrow beside a value that can reach the container": `&_ListBox`, the
+  `_StrLists` owner by `&` and by value, and a `_MixedBox` (`copy : ArrayList(String)`,
+  `shared : Rc(ArrayList(String))`) stay rejected. The `_MixedBox` sibling beside an element of
+  another `_MixedBox` pins that the walk continues into a hit that does not count. The closure and `&Dyn` pins are
   unchanged.

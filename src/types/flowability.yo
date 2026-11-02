@@ -802,8 +802,13 @@ _is_shared_handle_type :: (fn(ty : &TypeValue) -> bool)(
 /// field), or a shared handle (`_is_shared_handle_type`) — or when the target
 /// is itself a shared handle, whose copies all name one object.
 /// (issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md)
-/// A raw pointer is followed without changing `via_ref`: it carries no origin
-/// (decision 43), and a value type's raw pointer is the buffer it owns.
+/// A type that does not count is still walked: a value of a target type
+/// can hold a shared handle to another one. A raw pointer and a `Box`
+/// payload are followed without changing `via_ref`: a value type's raw
+/// pointer is the buffer it owns (the value-type invariant), and a raw
+/// pointer carries no origin (decision 43). A raw pointer that unsafe code
+/// aims at the caller's container breaks that invariant and is outside the
+/// safe-code contract this rule checks.
 /// A `Dyn`, an open type variable and a `void` pointer can hold anything; a
 /// function value — inside an aggregate, an `Impl(Future)` frame, or the
 /// argument itself — may be a closure that captured one, so those answer yes
