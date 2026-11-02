@@ -721,6 +721,13 @@ type_carries_origin :: (fn(ty : &TypeValue) -> bool)(
     }
   )
 );
+/// The prelude's `Escapable` marker, derived structurally (decision 43,
+/// plans/backlog/REFERENCES_AND_ORIGINS.md O10): `ty` carries no origin
+/// (`type_carries_origin`) and holds no capture-list borrow, which a
+/// borrowing closure or a borrowing future does (`type_is_second_class`).
+/// An unresolved type variable answers `true`: a generic body is checked
+/// again per instantiation, where the variable is resolved.
+type_is_escapable :: (fn(ty : &TypeValue) -> bool)(!type_carries_origin(ty) && !type_is_second_class(ty));
 _any_carries_origin :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < ts.len(), {
@@ -934,6 +941,39 @@ no_origin_position_error :: (fn(ty : &TypeValue, position : &String, why : &Stri
       Option(String).Some(help.clone())
     ),
     E_BORROW_ESCAPES
+  )
+);
+/// E0909 for a failed `where(<label> <: Escapable)` bound (decision 43,
+/// plans/backlog/REFERENCES_AND_ORIGINS.md O10): the one text both a spelled
+/// bound and the compiler's own `Rc`/`Arc` payload bound report, so the
+/// payload check reads the same before and after std spells the bound.
+escapable_bound_error :: (fn(ty : &TypeValue, label : &String, tok : &Token) -> YoError)(
+  no_origin_position_error(
+    ty,
+    &`The bound \`where(${label} <: Escapable)\``,
+    &String.from("a type that holds a reference, or a closure or future that borrows, may not outlive the places it borrows, and the bound admits only types that may."),
+    &String.from("pass a value that holds no reference (copy the referent out), or drop the bound where the value never outlives the call"),
+    tok
+  )
+);
+/// The prelude's counted cells take only `Escapable` payloads
+/// (plans/backlog/REFERENCES_AND_ORIGINS.md O9, O10): a payload's drop runs
+/// when the last handle goes, at no point a borrow could be checked against.
+/// `ty` is an `Rc(V)` or `Arc(V)` instance; its payload is `.Some` when it
+/// carries an origin. Until std spells `where(V <: Escapable)` on `Rc` and
+/// `Arc` (N3, plans/backlog/SEED_VERSION_AUTOMATION.md), the compiler checks
+/// it at the type constructor with `escapable_bound_error`'s text.
+counted_cell_payload_not_escapable :: (fn(ty : &TypeValue) -> Option(TypeValue))(
+  cond(
+    !(is_box_type(ty) || is_arc_type(ty)) => Option(TypeValue).None,
+    type_is_escapable(ty) => Option(TypeValue).None,
+    // The cell's one argument is its payload; the cell carries an origin
+    // only through it.
+    true => match(
+      ty,
+      Rc(.Struct({ type_arguments : targs })) => match(targs.get(usize(0)), .Some(v) => Option(TypeValue).Some(v), .None => Option(TypeValue).Some(Rc.clone(ty))),
+      _ => Option(TypeValue).Some(Rc.clone(ty))
+    )
   )
 );
 /// The first `mut` capture-list borrow `ty` carries (decision 38 B: such a
@@ -4108,7 +4148,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
-export(type_carries_origin, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message);
+export(type_carries_origin, type_is_escapable, escapable_bound_error, counted_cell_payload_not_escapable, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);

@@ -70,7 +70,8 @@ pragma(Pragma.AllowUnsafe);
   fn_type_unrepresentable_impl,
   fn_type_unrepresentable_impl_message,
   fn_type_unrepresentable_impl_help,
-  note_origin_types_exist
+  note_origin_types_exist,
+  escapable_bound_error
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
@@ -86,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
-{ type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target } :: import("../trait_checking.yo");
+{ type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target, is_escapable_trait } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -2962,6 +2963,11 @@ validate_concrete_type_constraints :: (
         });
       }, {
         if(!implemented, {
+          // An `Escapable` bound is E0909 (decision 43, O10).
+          if(is_escapable_trait(&tv, env_mut), {
+            esc_lhs := match(_fn_call_args(constraint_expr).get(usize(0)), .Some(l) => ast_expr_to_string(&l), .None => type_to_string(concrete_type));
+            exn.throw(dyn(escapable_bound_error(concrete_type, &esc_lhs, ast_expr_token(constraint_expr))));
+          });
           exn.throw(dyn(format_error_message(ast_expr_token(constraint_expr), _unmet_trait_message(concrete_type, &tv, env_mut))));
         });
       });

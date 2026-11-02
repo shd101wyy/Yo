@@ -569,9 +569,15 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
 // ---------------------------------------------------------------------------
 // Decision 38 D: what a borrow capture may name
 // ---------------------------------------------------------------------------
-test("borrow places: no borrow across an `Rc`/`Arc` deref", {
+test("borrow places: a `&` borrow through an `Rc`/`Arc` deref, never a `&mut` one", {
+  // O9 (decision 43 step 2, N1d): the payload is read-only through the
+  // handle, so a shared capture of a place in it needs no run-time mark;
+  // its origin is the handle, which stays frozen while the closure lives.
   r := Rc.new(_ClAcc(total : i32(4), other : i32(0)));
-  comptime_expect_error(_cl_call0({ t : &r.*.total }() => t), "cannot reach through an `Rc`");
+  assert(_cl_call0({ t : &r.*.total }() => t) == i32(4), "a shared capture through an Rc deref");
+  a := Arc.new(_ClAcc(total : i32(6), other : i32(0)));
+  assert(_cl_call0({ t : &a.*.total }() => t) == i32(6), "a shared capture through an Arc deref");
+  comptime_expect_error(_cl_call0({ t : &mut r.*.total }() => t), "cannot reach through an `Rc`");
   assert(_cl_call0({ &r }() => r.*.total) == i32(4), "capture the handle and re-derive the place");
 });
 test("borrow places: no module-level place", {

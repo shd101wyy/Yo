@@ -5922,6 +5922,16 @@ evaluate_module_value :: (
             .Atom(_, _) => make_err_expr()
           );
           neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
+          if(ast_expr_is_atom(&neg_head) && (ast_expr_text(&neg_head).* == "Escapable"), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(&field_expr),
+                  `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
+                )
+              )
+            );
+          });
           match(
             _try_lookup_trait_type(&neg_head, &local_env, ctx, exn),
             .Some(neg_trait_ty) => {
@@ -5972,6 +5982,18 @@ evaluate_module_value :: (
             .FnCall(_, pfb, _, _, _) => ast_expr_text(&pfb).*,
             .Atom(_, _) => String.new()
           );
+          // `Escapable` is the type's structure (decision 43, O10): no impl
+          // can claim or deny it.
+          if(pos_trait_name == "Escapable", {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(&field_expr),
+                  `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
+                )
+              )
+            );
+          });
           if(((pos_trait_name == "Send") || (pos_trait_name == "Sync")) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
             suffix := if(pos_trait_name == "Send", String.from("send across threads"), String.from("share across threads"));
             exn.throw(
