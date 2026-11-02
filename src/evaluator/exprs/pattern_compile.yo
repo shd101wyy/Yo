@@ -44,7 +44,7 @@
 { Token, TokenKind } :: import("../../token.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, struct_effective_ctor_fid, migrate_rc_pattern_on, record_rc_pattern_site } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, _handles_copy } :: import("../context.yo");
 { EvalValue, is_unknown_val, ValueCell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -1058,7 +1058,7 @@ _compile_tuple :: (
     subs.push(compile_pattern(&arg, &ety, &ev, pc, env, ctx, exn));
     i = (i + usize(1));
   });
-  Pattern.Tuple(subs : subs, elem_tys : elem_tys.items)
+  Pattern.Tuple(subs : subs, elem_tys : elem_tys.items.clone())
 });
 /// Compile a struct pattern — named `Point(x : 0, y)` (callee names the
 /// struct) or anonymous `{x : p, y}` (the `_(…)` record form) — against a
@@ -1371,9 +1371,9 @@ compile_pattern :: (
         },
         _ => ()
       );
-      bid2 := match(position_ty.clone(), Rc(.Struct({ id : bid })) => bid, _ => String.from("-"));
+      bid2 := match(position_ty.clone(), Rc(.Struct({ id : bid })) => bid.clone(), _ => String.from("-"));
       bta2 := match(position_ty.clone(), Rc(.Struct({ type_arguments : bta })) => bta.len(), _ => usize(0));
-      bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf, _ => String.from("-"));
+      bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf.clone(), _ => String.from("-"));
       eprintln(`[tmint-bind] name=${nm} id=${bid2} n_ta=${bta2.to_string()} cfid=${bcf2} fields=${fs}`);
     });
     pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt, atom : name_expr));
@@ -1576,7 +1576,7 @@ compile_pattern :: (
   if(ast_expr_is_fn_call_of(e, "|", Option(usize).Some(usize(2))), {
     alts_ast := _flatten_or(e);
     alts := ArrayList(Pattern).new();
-    outer_binds := pc.binds;
+    outer_binds := _handles_copy(BindInfo, &pc.binds);
     (first_binds : Option(ArrayList(BindInfo))) = Option(ArrayList(BindInfo)).None;
     (first_names : ArrayList(String)) = ArrayList(String).new();
     (ai : usize) = usize(0);
@@ -1584,10 +1584,10 @@ compile_pattern :: (
       alt_ast := match(alts_ast.get(ai), .Some(a) => a, .None => make_err_expr());
       pc.binds = ArrayList(BindInfo).new();
       alt := compile_pattern(&alt_ast, position_ty, value_opt, pc, env, ctx, exn);
-      alt_binds := pc.binds;
+      alt_binds := _handles_copy(BindInfo, &pc.binds);
       alt_names := _bind_names_sorted(&alt_binds);
       match(
-        first_binds,
+        &first_binds,
         .None => {
           first_binds = Option(ArrayList(BindInfo)).Some(alt_binds);
           first_names = alt_names;

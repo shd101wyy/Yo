@@ -802,7 +802,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     .Some(li) => if(li.value.is_none(), {
                       record_module_level_init_expr(&evaluated);
                       _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
-                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&init_lhs).*));
+                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&init_lhs).*.clone()));
                     }),
                     .None => ()
                   );
@@ -819,7 +819,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     if(ast_expr_is_atom(&binding_lhs), {
                       record_module_level_init_expr(&evaluated);
                       _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
-                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&binding_lhs).*));
+                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&binding_lhs).*.clone()));
                     });
                   }, {
                     // Bare-atom reassignment of a previously recorded static.
@@ -1085,8 +1085,8 @@ evaluate_anonymous_module_begin_exprs :: (
   // An impl abandoned in its field loop leaves its working-trait bindings
   // (`Output : i32`) installed; the abort edge restores them with the forcing
   // stacks (issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md).
-  wt_labels := ctx.current_impl_trait_field_labels;
-  wt_types := ctx.current_impl_trait_field_types;
+  wt_labels := ctx.current_impl_trait_field_labels.clone();
+  wt_types := ctx.current_impl_trait_field_types.clone();
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
   ___ca := _take_walk_abort();
