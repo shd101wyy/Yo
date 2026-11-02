@@ -4679,7 +4679,8 @@ _run_migrate_handle_ctors :: (
           first_site.insert(key.clone(), st.clone());
           pos_keys.insert(key.clone(), HashSet(String).new());
         });
-        ks := match(pos_keys.get(key.clone()), .Some(k) => k, .None => HashSet(String).new());
+        // Taken out and stored back: the per-position set is a value (B9).
+        ks := match(pos_keys.remove(&key), .Some(k) => k, .None => HashSet(String).new());
         ks.insert(st.ty_key.clone());
         pos_keys.insert(key.clone(), ks);
         if(st.arg_kind == "contextual", {
@@ -4712,7 +4713,7 @@ _run_migrate_handle_ctors :: (
       // recognition of `Rc.new(<closure>)`, as it was of `rc(<closure>)`.
       in_dyn := _handle_ctor_call_in_dyn(&lines, st.row, st.col);
       needs_type := ((pos_contextual.contains(&key) && !in_dyn) || pos_literal.contains(&key));
-      n_keys := match(pos_keys.get(key.clone()), .Some(k) => k.len(), .None => usize(0));
+      n_keys := cond(pos_keys.contains_key(&key) => pos_keys(key.clone()).len(), true => usize(0));
       skip_reason := cond(
         ((spelled != st.name) || (next != "(") || _handle_ctor_name_continues(&before)) => `the source text does not spell \`${st.name}(\` at the recorded position`,
         (needs_type && (n_keys > usize(1))) => `\`${st.name}(...)\` needs its type argument written (inference does not read this argument) and is evaluated at more than one type (a generic body)`,

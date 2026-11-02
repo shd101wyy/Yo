@@ -265,8 +265,9 @@ register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
           match(
             nodes.get(mj),
             .Some(b) => if(!(a == b), {
-              a_reaches_b := match(reach.get(a.clone()), .Some(r) => r.contains_key(b.clone()), .None => false);
-              b_reaches_a := match(reach.get(b.clone()), .Some(r) => r.contains_key(a.clone()), .None => false);
+              // The reach sets are values (B9): read in place through the index projection.
+              a_reaches_b := (reach.contains_key(&a) && reach(a.clone()).contains_key(b.clone()));
+              b_reaches_a := (reach.contains_key(&b) && reach(b.clone()).contains_key(a.clone()));
               if(a_reaches_b && b_reaches_a, {
                 claimed.insert(b.clone(), true);
                 clique.push(b.clone());
