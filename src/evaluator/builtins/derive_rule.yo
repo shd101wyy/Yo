@@ -76,7 +76,7 @@ evaluate_derive_rule :: (
   // Extract args[0] (trait constructor) and args[1] (derive function).
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(args.len() < usize(2), {
@@ -152,8 +152,12 @@ evaluate_derive_rule :: (
     );
   });
   // Store in the global registry (value + Func type).
-  g_derive_rules.with_mut(m => m.insert(key.clone(), derive_fn_val));
-  g_derive_rule_types.with_mut(m => m.insert(key.clone(), EvalValue.TypeVal(Rc.clone(derive_fn_info.ty))));
+  // Owned key/value per sink callback (`with_mut`'s callback).
+  rule_key := key.clone();
+  g_derive_rules.with_mut({ rule_key, derive_fn_val }(m) => m.insert(rule_key, derive_fn_val));
+  type_key := key.clone();
+  rule_type := EvalValue.TypeVal(Rc.clone(derive_fn_info.ty));
+  g_derive_rule_types.with_mut({ type_key, rule_type }(m) => m.insert(type_key, rule_type));
   out := new_expr_info(env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
