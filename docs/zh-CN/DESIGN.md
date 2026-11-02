@@ -2894,7 +2894,7 @@ list.shrink_to_fit();
 { HashMap } :: import("std/collections/hash_map");
 
 // 创建新的 HashMap
-map := HashMap(i32, i32).new();
+mut(map) := HashMap(i32, i32).new();
 
 // 插入键值对
 result := map.insert(i32(1), i32(100));
@@ -2949,7 +2949,7 @@ map.clear();
 { HashSet } :: import("std/collections/hash_set");
 
 // 创建新的 HashSet
-set := HashSet(i32).new();
+mut(set) := HashSet(i32).new();
 
 // 插入元素
 result := set.insert(i32(42));

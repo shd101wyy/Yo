@@ -1040,19 +1040,20 @@ Enum variant construction is positional (no field names needed).
 
 ### Reference-semantics types (RC) are passed by value
 
-`HashMap` and other `ref(struct(...))` / `ref(enum(...))` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders. `ArrayList` and `String` are not: since B8 they are uniquely owned values, so pass `&xs` to read and `&mut xs` to write.
+`ref(struct(...))` / `ref(enum(...))` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders. The std collections are not: since B8/B9 `ArrayList`, `String`, `HashMap` and `HashSet` are uniquely owned values, so pass `&xs` to read and `&mut xs` to write. Walking a borrowed map's keys while the loop writes the map is `m.keys_cloned()` (`keys()`/`values()` consume it); a read-only walk is `for(&m, (k, v) => ...)`.
 
 ```yo
-// DO NOT use pointer params for RC reference-semantics values:
-// WRONG: fn(m : *(HashMap(String, V))) — will cause greedy & issues at call site
-// CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
-
-process_map :: (fn(m : HashMap(String, i32)) -> unit)({
-  m.insert(String.from("key"), i32(42)); // mutation visible to caller
+Counter :: ref(struct(n : i32));
+bump :: (fn(c : Counter) -> unit)({
+  c.n = (c.n + i32(1)); // visible to every holder of the handle
 });
 
-counts := HashMap(String, i32).new();
-process_map(counts);
+process_map :: (fn(m : &mut HashMap(String, i32)) -> unit)({
+  m.insert(String.from("key"), i32(42)); // a value map is lent, not shared
+});
+
+mut(counts) := HashMap(String, i32).new();
+process_map(&mut counts);
 // counts now has "key" => 42
 ```
 
