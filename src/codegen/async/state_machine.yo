@@ -1819,7 +1819,7 @@ _bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local
         em.emit_string_line(`${indent}${slot} = ${out};`);
       }),
       .None => if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty), {
-        cname := sanitize_for_c_identifier(&vn, false);
+        cname := get_variable_name_for_codegen_at(ast_expr_id(expr), &vn, Option(Environment).Some(ei.env));
         if(!(cname == out), {
           em.emit_string_line(`${indent}${get_variable_type_string(&ei.ty, &cname, &context.base)} = ${out};`);
           return(cname);
