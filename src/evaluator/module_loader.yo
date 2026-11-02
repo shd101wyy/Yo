@@ -452,9 +452,9 @@ remove_module :: (fn(path : &String) -> unit)({
   match(
     _module_cache_index(path.clone()),
     .Some(i) => {
-      g_module_cache_keys.with_mut(xs => xs.drain(i .. (i + usize(1))));
-      g_module_cache_vals.with_mut(xs => xs.drain(i .. (i + usize(1))));
-      g_module_cache_types.with_mut(xs => xs.drain(i .. (i + usize(1))));
+      g_module_cache_keys.with_mut(xs => { _r := xs.remove(i); });
+      g_module_cache_vals.with_mut(xs => { _r := xs.remove(i); });
+      g_module_cache_types.with_mut(xs => { _r := xs.remove(i); });
     },
     .None => ()
   );

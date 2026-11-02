@@ -105,7 +105,7 @@ strict_test_bodies :: (fn() -> bool)(g_strict_test_bodies);
 SkippedTestBody :: struct(test_tok : Token, name : String, error : String);
 (g_skipped_test_bodies : RefCell(ArrayList(SkippedTestBody))) = RefCell(ArrayList(SkippedTestBody)).new(ArrayList(SkippedTestBody).new());
 take_skipped_test_bodies :: (fn() -> ArrayList(SkippedTestBody))({
-  out := g_skipped_test_bodies.with_mut(xs => xs.split_off(usize(0)));
+  out := g_skipped_test_bodies.take();
   out
 });
 _trial_eval_test_body :: (

@@ -2236,7 +2236,7 @@ active_where_trait_ids :: (fn() -> ArrayList(String))(
 /// (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.2) must not see the trial's constraints;
 /// `restore_active_where_trait_ids` puts the saved stack back afterwards.
 take_active_where_trait_ids :: (fn() -> ArrayList(ArrayList(String)))({
-  saved := g_active_where_trait_ids.with_mut(xs => xs.split_off(usize(0)));
+  saved := g_active_where_trait_ids.take();
   saved
 });
 restore_active_where_trait_ids :: (fn(saved : &ArrayList(ArrayList(String))) -> unit)({
@@ -3113,7 +3113,7 @@ set_migrate_param_modes :: (fn(on : bool) -> unit)({
   g_migrate_param_modes = on;
 });
 take_migrate_edits :: (fn() -> ArrayList(MigrateEdit))({
-  out := g_migrate_edits.with_mut(xs => xs.split_off(usize(0)));
+  out := g_migrate_edits.take();
   g_migrate_edit_keys.with_mut(s => s.clear());
   out
 });
@@ -3176,7 +3176,7 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
   g_addr_of_sites.with_mut(xs => xs.push(AddrOfSite(path : amp_tok.module_path.*.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect.clone(), lent : lent)));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
-  out := g_addr_of_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_addr_of_sites.take();
   g_addr_of_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3210,7 +3210,7 @@ record_destructor_site :: (fn(member_tok : &Token) -> unit)({
   g_destructor_sites.with_mut(xs => xs.push(DestructorSite(path : member_tok.module_path.*.clone(), row : usize(member_tok.row), col : usize(member_tok.column))));
 });
 take_destructor_sites :: (fn() -> ArrayList(DestructorSite))({
-  out := g_destructor_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_destructor_sites.take();
   g_destructor_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3241,7 +3241,7 @@ record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> u
   g_marker_sites.with_mut(xs => xs.push(MarkerSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone())));
 });
 take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
-  out := g_marker_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_marker_sites.take();
   g_marker_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3272,7 +3272,7 @@ record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
   g_rc_pattern_sites.with_mut(xs => xs.push(RcPatternSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
 });
 take_rc_pattern_sites :: (fn() -> ArrayList(RcPatternSite))({
-  out := g_rc_pattern_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_rc_pattern_sites.take();
   g_rc_pattern_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3303,7 +3303,7 @@ record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
   g_dyn_spelling_sites.with_mut(xs => xs.push(DynSpellingSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
 });
 take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
-  out := g_dyn_spelling_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_dyn_spelling_sites.take();
   g_dyn_spelling_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3338,7 +3338,7 @@ record_handle_ctor_site :: (fn(site : HandleCtorSite) -> unit)({
   g_handle_ctor_sites.with_mut(xs => xs.push(site));
 });
 take_handle_ctor_sites :: (fn() -> ArrayList(HandleCtorSite))({
-  out := g_handle_ctor_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_handle_ctor_sites.take();
   g_handle_ctor_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3367,7 +3367,7 @@ record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
   g_mutable_global_sites.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
 });
 take_mutable_global_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mutable_global_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_mutable_global_sites.take();
   g_mutable_global_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3448,12 +3448,12 @@ _record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   g_mut_param_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_mut_binding_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_binding_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_mut_binding_sites.take();
   g_mut_binding_site_keys.with_mut(s => s.clear());
   out
 });
 take_mut_param_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_param_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_mut_param_sites.take();
   g_mut_param_site_keys.with_mut(s => s.clear());
   out
 });

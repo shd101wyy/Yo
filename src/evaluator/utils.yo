@@ -2941,7 +2941,7 @@ record_copying_accessor_site :: (fn(site : CopyingAccessorSite) -> unit)({
   g_copying_accessor_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_copying_accessor_sites :: (fn() -> ArrayList(CopyingAccessorSite))({
-  out := g_copying_accessor_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_copying_accessor_sites.replace(ArrayList(CopyingAccessorSite).new());
   g_copying_accessor_site_keys.with_mut(s => s.clear());
   out
 });
@@ -3039,7 +3039,7 @@ record_copy_write_decl :: (fn(decl : String, at : &Token) -> unit)({
   g_copy_writes.with_mut(xs => xs.push(CopyWrite(decl : decl.clone(), at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
 });
 take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_writes.with_mut(xs => xs.split_off(usize(0)));
+  out := g_copy_writes.take();
   out
 });
 /// Record, while the migration runs, that the call `call` (evaluated in
@@ -3094,7 +3094,7 @@ record_copy_pointer_place :: (fn(place : &AstExpr, env : &Environment, at : &Tok
   });
 });
 take_copy_pointers :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_pointers.with_mut(xs => xs.split_off(usize(0)));
+  out := g_copy_pointers.take();
   out
 });
 /// The destinations a block's or a conditional's result positions flow
@@ -3191,11 +3191,11 @@ record_copy_flow_decl :: (fn(src : String, dst : String, at : &Token) -> unit)({
   g_copy_flows.with_mut(xs => xs.push(CopyFlow(src : src.clone(), dst : dst.clone(), at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
 });
 take_copy_flows :: (fn() -> ArrayList(CopyFlow))({
-  out := g_copy_flows.with_mut(xs => xs.split_off(usize(0)));
+  out := g_copy_flows.take();
   out
 });
 take_copy_tail_dests :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_tail_dests.with_mut(xs => xs.split_off(usize(0)));
+  out := g_copy_tail_dests.take();
   out
 });
 /// The source span of one `Clone` impl's member, by byte offset in its
@@ -3258,7 +3258,7 @@ record_clone_impl_body :: (fn(member : &AstExpr, receiver : &String) -> unit)({
   });
 });
 take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
-  out := g_clone_impl_bodies.with_mut(xs => xs.split_off(usize(0)));
+  out := g_clone_impl_bodies.take();
   g_clone_impl_body_keys.with_mut(s => s.clear());
   out
 });
@@ -3333,7 +3333,7 @@ record_copy_loop :: (fn(region : &AstExpr, (is_function : bool) ?= false) -> uni
   });
 });
 take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
-  out := g_copy_loops.with_mut(xs => xs.split_off(usize(0)));
+  out := g_copy_loops.take();
   g_copy_loop_ids.with_mut(s => s.clear());
   out
 });
