@@ -342,7 +342,7 @@ register_definition_site_return :: (fn(func_id : &String, return_ty : &TypeValue
 /// body (e.g., top-level definitions, handlers defined in test blocks).
 get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
   match(
-    g_definition_site_return_registry.with(m => m.get(func_id.clone())),
+    g_definition_site_return_registry.with(m => m.get_cloned(func_id.clone())),
     .Some(ty) => ty,
     .None => t_unit()
   )
@@ -365,7 +365,7 @@ register_closure_body_type :: (fn(func_id : &String, body_ty : &TypeValue) -> un
   g_closure_body_type_registry.with_mut({ body_ty : Rc.clone(body_ty), func_id }(m) => m.insert(func_id.clone(), Rc.clone(body_ty)));
 });
 get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
-  g_closure_body_type_registry.with(m => m.get(func_id.clone()))
+  g_closure_body_type_registry.with(m => m.get_cloned(func_id.clone()))
 );
 /// Record a function's own resolved `Func` type by func_id (called when the
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
@@ -431,7 +431,7 @@ fn_has_specializations :: (fn(func_id : &String) -> bool)(
 registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(m => m.len()));
 get_func_type :: (fn(func_id : &String) -> TypeValue)(
   match(
-    g_func_type_registry.with(m => m.get(func_id.clone())),
+    g_func_type_registry.with(m => m.get_cloned(func_id.clone())),
     .Some(ty) => ty,
     .None => t_unit()
   )

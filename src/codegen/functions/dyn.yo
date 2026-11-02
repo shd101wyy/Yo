@@ -648,7 +648,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                           (sl_j : usize) = usize(0);
                           while((sl_j < tfl.len()) && sl_found.is_none(), {
                             if(match(tfl.get_cloned(sl_j), .Some(l) => (l == label), .None => false), {
-                              sl_ty := match(tft.get(sl_j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                              sl_ty := match(tft.get_cloned(sl_j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                               if(dyn_member_is_method(&sl_ty) && dyn_member_unsafe_reason(&sl_ty).is_none(), {
                                 sl_found = Option(TypeValue).Some(sl_ty);
                               });
@@ -921,7 +921,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
                       // param `self`, no `generic(...)`, `Self` only as the
                       // receiver (the vtable typedef's rule, types/utils.yo).
                       has_self := match(
-                        field_types.get(fi),
+                        field_types.get_cloned(fi),
                         .Some(ft) => (dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none()),
                         .None => false
                       );
@@ -947,7 +947,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
         up_targets := context.base.dyn_upcast_targets(impl_entry.dyn_type.clone());
         (ui : usize) = usize(0);
         while(ui < up_targets.len(), {
-          ut := match(up_targets.get(ui), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+          ut := match(up_targets.get_cloned(ui), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           ut_key := type_key(ut.clone());
           ut_c := match(context.base.get_type_c_name(ut_key.clone()), .Some(cn) => cn, .None => get_type_string(ut.clone(), &context.base));
           concrete_key := type_key(impl_entry.concrete_type.clone());

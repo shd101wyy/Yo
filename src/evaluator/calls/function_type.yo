@@ -424,7 +424,7 @@ _type_binder_env_value :: (
   (smi : usize) = usize(0);
   while((smi < sig_some_ts.len()) && sig_match.is_none(), {
     match(
-      sig_some_ts.get(smi),
+      sig_some_ts.get_cloned(smi),
       .Some(st) => match(
         &st,
         Rc(.SomeT(_, st_name, _, _, _, _, _, _, _, _)) => if(st_name == name, {
@@ -552,7 +552,7 @@ _record_ctor_phantom_positions :: (
     (j : usize) = usize(0);
     while((j < payload_somes.len()) && !in_payload, {
       match(
-        payload_somes.get(j),
+        payload_somes.get_cloned(j),
         .Some(Rc(.SomeT({ id : pid }))) => if(pid == bid, {
           in_payload = true;
         }),
@@ -889,7 +889,7 @@ _build_def_time_body_env :: (
   (rk_bi : usize) = usize(0);
   while(rk_bi < rk_names.len(), {
     match(
-      rk_tys.get(rk_bi),
+      rk_tys.get_cloned(rk_bi),
       .Some(rk_o) => match(
         rk_o,
         .Some(rk_bty) => {
@@ -930,12 +930,12 @@ _build_def_time_body_env :: (
   {
     (sci : usize) = usize(0);
     while(sci < param_types.len(), {
-      spt := match(param_types.get(sci), .Some(t) => t_slot_pointee(&t), .None => t_unit());
+      spt := match(param_types.get_cloned(sci), .Some(t) => t_slot_pointee(&t), .None => t_unit());
       found := get_all_some_types(&spt);
       (sfi : usize) = usize(0);
       while(sfi < found.len(), {
         match(
-          found.get(sfi),
+          found.get_cloned(sfi),
           .Some(st) => {
             sig_some_ts.push(st);
           },
@@ -949,7 +949,7 @@ _build_def_time_body_env :: (
     (sri : usize) = usize(0);
     while(sri < found_r.len(), {
       match(
-        found_r.get(sri),
+        found_r.get_cloned(sri),
         .Some(st) => {
           sig_some_ts.push(st);
         },
@@ -1059,9 +1059,9 @@ _build_def_time_body_env :: (
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
     pn := match(param_labels.get(pi), .Some(n) => n, .None => String.from(""));
-    pt := match(param_types.get(pi), .Some(t) => t_slot_pointee(&t), .None => t_unit());
-    p_ref := match(param_types.get(pi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
-    p_own := match(param_types.get(pi), .Some(t) => t_slot_is_by_value(&t), .None => false);
+    pt := match(param_types.get_cloned(pi), .Some(t) => t_slot_pointee(&t), .None => t_unit());
+    p_ref := match(param_types.get_cloned(pi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
+    p_own := match(param_types.get_cloned(pi), .Some(t) => t_slot_is_by_value(&t), .None => false);
     // A comptime TYPE parameter (`comptime(T) : Type`) must be bound as a
     // `TypeVal(SomeT(name))` type value — NOT `create_unknown_val(Type)` (an
     // unknown VALUE) — so the body can use it as a type (e.g. a type-constructor

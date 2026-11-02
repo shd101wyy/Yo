@@ -881,7 +881,7 @@ _compile_variant :: (
       expr_info_table_set(
         &ctx.expr_info_table,
         ast_expr_id(&label_expr),
-        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)))
+        new_expr_info(env, match(field_tys.get_cloned(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)))
       );
     }, {
       if(is_curly, {
@@ -944,7 +944,7 @@ _compile_variant :: (
         });
       });
     });
-    fty := match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    fty := match(field_tys.get_cloned(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
       fid5 := match(fty.clone(), Rc(.Struct({ id : bid6 })) => bid6, _ => String.from("-"));
       fta5 := match(fty.clone(), Rc(.Struct({ type_arguments : bta6 })) => bta6.len(), _ => usize(0));

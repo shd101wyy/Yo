@@ -237,7 +237,7 @@ _borrow_slots :: (fn(types : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   while(i < types.len(), {
-    match(types.get(i), .Some(pt) => out.push(t_reference(t_slot_pointee(&pt), false)), .None => ());
+    match(types.get_cloned(i), .Some(pt) => out.push(t_reference(t_slot_pointee(&pt), false)), .None => ());
     i = (i + usize(1));
   });
   out
@@ -345,7 +345,7 @@ _sort_dyn_traits :: (fn(types : &mut ArrayList(TypeValue), levels : &mut ArrayLi
   keys := ArrayList(String).new();
   (ki : usize) = usize(0);
   while(ki < types.len(), {
-    keys.push(match(types.get(ki), .Some(t) => _dyn_trait_sort_key(&t), .None => String.new()));
+    keys.push(match(types.get_cloned(ki), .Some(t) => _dyn_trait_sort_key(&t), .None => String.new()));
     ki = (ki + usize(1));
   });
   (i : usize) = usize(1);
@@ -847,7 +847,7 @@ _patch_self_shell :: (
 /// 21's "As built" note), as the struct registry below was before it.
 (g_enum_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
-  if((enum_id.len() > usize(0)) && g_enum_finals.with(m => m.get(enum_id)).is_none(), {
+  if((enum_id.len() > usize(0)) && g_enum_finals.with(m => m.get_cloned(enum_id)).is_none(), {
     g_enum_finals.with_mut({ enum_id, ty : Rc.clone(ty) }(m) => m.insert(enum_id.clone(), Rc.clone(ty)));
     bump_type_key_epoch();
   });
@@ -861,7 +861,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
       if(vns.len() > usize(0), {
         return(Rc.clone(t));
       });
-      match(g_enum_finals.with(m => m.get(&eid)), .Some(f) => f, .None => Rc.clone(t))
+      match(g_enum_finals.with(m => m.get_cloned(&eid)), .Some(f) => f, .None => Rc.clone(t))
     },
     _ => Rc.clone(t)
   )
@@ -940,7 +940,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
   _register_enum_phantom_positions(enum_id.clone(), phantom.clone());
   shell_key := `${enum_id}__self_shell`;
   match(
-    g_enum_finals.with(m => m.get(&shell_key)),
+    g_enum_finals.with(m => m.get_cloned(&shell_key)),
     .Some(final_ty) => match(
       final_ty,
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
@@ -969,7 +969,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
 /// resolves shells on every comparison (plans/reference/TYPE_IDENTITY.md).
 (g_struct_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
-  if((struct_id.len() > usize(0)) && g_struct_finals.with(m => m.get(struct_id)).is_none(), {
+  if((struct_id.len() > usize(0)) && g_struct_finals.with(m => m.get_cloned(struct_id)).is_none(), {
     g_struct_finals.with_mut({ struct_id, ty : Rc.clone(ty) }(m) => m.insert(struct_id.clone(), Rc.clone(ty)));
     bump_type_key_epoch();
   });
@@ -981,7 +981,7 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
     t,
     Rc(.Struct({ id : sid, field_types : fts })) => cond(
       (fts.len() > usize(0)) => Rc.clone(t),
-      true => match(g_struct_finals.with(m => m.get(&sid)), .Some(f) => f, .None => Rc.clone(t))
+      true => match(g_struct_finals.with(m => m.get_cloned(&sid)), .Some(f) => f, .None => Rc.clone(t))
     ),
     _ => Rc.clone(t)
   )

@@ -341,7 +341,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
   // may pass the other (AGENTS.md), and both must find the same anchors.
   owner := _stable_type_id_owner_key(module_path);
   match(
-    g_top_level_anchors.with(m => m.get(&owner.*)),
+    g_top_level_anchors.with(m => m.get_cloned(&owner.*)),
     .Some(list) => {
       (lo : usize) = usize(0);
       (hi : usize) = list.len();
@@ -426,7 +426,7 @@ stable_type_id :: (
   (suffix : usize) = usize(1);
   while(true, {
     match(
-      g_stable_type_id_owner.with(m => m.get(&candidate)),
+      g_stable_type_id_owner.with(m => m.get_cloned(&candidate)),
       .Some(prev) => {
         if(prev.* == owner.*, {
           return(candidate);

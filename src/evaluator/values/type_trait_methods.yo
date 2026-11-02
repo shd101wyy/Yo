@@ -63,12 +63,12 @@ _dyn_type_id :: (fn(rtt : &ArrayList(TypeValue), ntt : &ArrayList(TypeValue)) ->
   keys := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < rtt.len(), {
-    match(rtt.get(i), .Some(t) => keys.push(_dyn_member_key(&t)), .None => ());
+    match(rtt.get_cloned(i), .Some(t) => keys.push(_dyn_member_key(&t)), .None => ());
     i = (i + usize(1));
   });
   (j : usize) = usize(0);
   while(j < ntt.len(), {
-    match(ntt.get(j), .Some(t) => keys.push(`!${_dyn_member_key(&t)}`), .None => ());
+    match(ntt.get_cloned(j), .Some(t) => keys.push(`!${_dyn_member_key(&t)}`), .None => ());
     j = (j + usize(1));
   });
   // Insertion sort: trait sets are a handful of entries.
@@ -327,7 +327,7 @@ set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
 (_canonical_owner_memo : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 _canonical_owner :: (fn(owner : &String) -> Rc(String))(
   match(
-    _canonical_owner_memo.with(m => m.get(owner)),
+    _canonical_owner_memo.with(m => m.get_cloned(owner)),
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(owner));
