@@ -6684,7 +6684,7 @@ generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_move_only_decls.with(xs => xs.len()), i = (i + usize(1)), {
     match(
-      g_move_only_decls.with(xs => xs.get(i)),
+      g_move_only_decls.with(xs => xs.get_cloned(i)),
       .Some(d) => match(
         &d.generic,
         .Some(ge) => if(_generic_drop_impl_covers(&ge, &cfid, &args), {
@@ -7073,7 +7073,7 @@ type_has_impl_shape_for :: (fn(ty : &TypeValue, trait_ty : &TypeValue) -> bool)(
   (bi : usize) = usize(0);
   while(bi < bucket.len(), {
     match(
-      bucket.get(bi),
+      bucket.get_cloned(bi),
       .Some(e) => if(try_match_generic_impl(ty, &e, &e.definition_env, false).is_some(), {
         return(true);
       }),
@@ -7204,6 +7204,7 @@ CtorMethodImpl :: struct(
   generic_entry : Option(GenericImplEntry),
   site : String
 );
+derive(CtorMethodImpl, Clone);
 /// A method a CONCRETE impl registered on an instance of a type constructor
 /// (`impl(Pair(i32), m : …)`): the generic registry holds no entry for it.
 _CtorConcreteMethod :: struct(ctor_fid : String, method : String, receiver_ty : TypeValue, method_ty : TypeValue, site : String);
@@ -7235,7 +7236,8 @@ note_concrete_ctor_method :: (fn(receiver_ty : &TypeValue, method : &String, met
 impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> ArrayList(CtorMethodImpl))({
   key := `${ctor_fid}.${method}`;
   epoch := trait_impl_epoch();
-  fresh := match(g_ctor_method_cache.with(m => m.get(&key)), .Some(ce) => (ce.epoch == epoch), .None => false);
+  // Read the entry in place: its impls list is copied below only once.
+  fresh := g_ctor_method_cache.with(m => (m.contains_key(&key) && (m(key.clone()).epoch == epoch)));
   if(!fresh, {
     collected := _collect_generic_ctor_method_impls(ctor_fid, method);
     cache_key := key.clone();
@@ -7246,31 +7248,20 @@ impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> Arra
   // or every call within one epoch pushes its concrete candidates into the
   // STORED list again — k calls handed back `generic + k × concrete` entries
   // (issues/fixed/2026-10-31-ctor-method-cache-appends-its-concrete-candidates-on-every-call.md).
-  // Element copies are shallow (the binder/pattern handles are what callers
-  // already read through), and the cached list itself is never written after
-  // its miss-time collect.
-  out := ArrayList(CtorMethodImpl).new();
-  match(
-    g_ctor_method_cache.with(m => m.get(&key)),
-    .Some(ce) => {
-      (gi : usize) = usize(0);
-      while(gi < ce.impls.len(), gi = (gi + usize(1)), {
-        match(
-          ce.impls.get(gi),
-          .Some(g) => out.push(g),
-          .None => ()
-        );
-      });
-    },
-    .None => ()
-  );
+  // The copy is the list's clone (B8: the elements are values; the type
+  // handles inside them are shared), and the cached list itself is never
+  // written after its miss-time collect.
+  out := g_ctor_method_cache.with(m => cond(
+    m.contains_key(&key) => m(key.clone()).impls.clone(),
+    true => ArrayList(CtorMethodImpl).new()
+  ));
   n_conc := g_ctor_concrete_methods.with(xs => xs.len());
   (ci : usize) = usize(0);
   while(ci < n_conc, ci = (ci + usize(1)), {
     match(
-      g_ctor_concrete_methods.with(xs => xs.get(ci)),
+      g_ctor_concrete_methods.with(xs => xs.get_cloned(ci)),
       .Some(cm) => if((cm.ctor_fid == ctor_fid) && (cm.method == method) && (get_visible_type_trait_methods_by_name(type_id_or_empty(&cm.receiver_ty), method.clone()).len() > usize(0)), {
-        out.push(CtorMethodImpl(binder_names : ArrayList(String).new(), binder_types : ArrayList(TypeValue).new(), receiver_pattern : Rc.clone(cm.receiver_ty), method_ty : Rc.clone(cm.method_ty), generic_entry : .None, site : cm.site));
+        out.push(CtorMethodImpl(binder_names : ArrayList(String).new(), binder_types : ArrayList(TypeValue).new(), receiver_pattern : Rc.clone(cm.receiver_ty), method_ty : Rc.clone(cm.method_ty), generic_entry : .None, site : cm.site.clone()));
       }),
       .None => ()
     );
@@ -7290,19 +7281,19 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
     (ei : usize) = usize(0);
     while(ei < entry_list.len(), ei = (ei + usize(1)), {
       match(
-        entry_list.get(ei),
+        entry_list.get_cloned(ei),
         .Some(entry) => {
           (fi : usize) = usize(0);
           (found : Option(TypeValue)) = .None;
           while((fi < entry.field_names.len()) && found.is_none(), fi = (fi + usize(1)), {
-            if(match(entry.field_names.get(fi), .Some(n) => (n == method), .None => false), {
+            if(match(entry.field_names.get_cloned(fi), .Some(n) => (n == method), .None => false), {
               found = entry.field_types.get(fi);
             });
           });
           match(
             found,
             .Some(mty) => {
-              owner := match(g_impl_registry_entry_owners.with(xs => xs.get(ki)), .Some(ol) => match(ol.get(ei), .Some(o) => o.clone(), .None => String.new()), .None => String.new());
+              owner := match(g_impl_registry_entry_owners.with(xs => xs.get_cloned(ki)), .Some(ol) => match(ol.get_cloned(ei), .Some(o) => o.clone(), .None => String.new()), .None => String.new());
               if(is_function_type(&mty) && (instance_constructor_fid(&entry.receiver_type_pattern) == ctor_fid) && owner_visible_from_current(&owner), {
                 names := entry.forall_names.clone();
                 somes := entry.forall_some_types.clone();
