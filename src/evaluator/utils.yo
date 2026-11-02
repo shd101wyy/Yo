@@ -3365,6 +3365,7 @@ ImplicitCopyPending :: struct(
   /// copy is real, or none (the knob alone, or a copy it does not rewrite).
   migrate_site : Option(ExplicitCopySite)
 );
+derive(ImplicitCopyPending, Clone);
 /// Variable id → its pending copy sites.
 (g_implicit_copy_pending : RefCell(HashMap(usize, ArrayList(ImplicitCopyPending)))) = RefCell(HashMap(usize, ArrayList(ImplicitCopyPending))).new(HashMap(usize, ArrayList(ImplicitCopyPending)).new());
 /// Lines already printed: def-time trials, the checking phase and each
@@ -3701,6 +3702,7 @@ _ic_migrate_site :: (
 /// `clone_scrutinee`: an arm writes the scrutinee variable, so the judge
 /// spells its clone instead of `&` (`migrate_rc_clone_borrow_scrutinee`).
 PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue, clone_scrutinee : bool);
+derive(PendingScrutineeBorrow, Clone);
 (g_pending_scrutinee_borrows : RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow)))) = RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow))).new(HashMap(usize, ArrayList(PendingScrutineeBorrow)).new());
 record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
   g_pending_scrutinee_borrows.with_mut({ clone_scrutinee, scr, ty : Rc.clone(ty), var_id }(m) => {
@@ -3716,7 +3718,7 @@ record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &Typ
 note_migrate_mut_scrutinee :: (fn(scr : &AstExpr) -> unit)({
   lt := _ic_leftmost_token(&ast_expr_strip_borrow_marker(scr));
   key := `${canonical_module_path(&lt.module_path.*)}:${lt.row.to_string()}:${lt.column.to_string()}`;
-  g_migrate_mut_scrutinees.with_mut(s => s.insert(key));
+  g_migrate_mut_scrutinees.with_mut({ key }(s) => s.insert(key));
 });
 /// Whether `key` (`<canonical module>:<row>:<col>`) is such a position.
 migrate_mut_scrutinee_at :: (fn(key : &String) -> bool)(g_migrate_mut_scrutinees.with(s => s.contains(key.clone())));
@@ -3987,7 +3989,7 @@ audit_record_implicit_copy :: (
           });
         },
         (!v.is_owning_the_rc_value && g_implicit_copy_match_roots.with(m => m.contains_key(&v.id))) => match(
-          g_implicit_copy_match_roots.with(m => m.get(&v.id)),
+          g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id)),
           .Some(r) => cond(
             (r.kind == "temp") => {
               kind = String.from("temp-payload");
@@ -4011,7 +4013,7 @@ audit_record_implicit_copy :: (
                   found := false;
                   while((mbi < lbi.places.len()) && !found, mbi = (mbi + usize(1)), {
                     match(
-                      lbi.places.get(mbi),
+                      lbi.places.get_cloned(mbi),
                       .Some(pl) => if(pl.module_root, {
                         found = true;
                       }),
@@ -4072,15 +4074,13 @@ audit_record_implicit_copy :: (
 /// Hold one copy site pending under variable `vid`, judged where that
 /// variable's frame ends.
 _audit_hold_implicit_copy :: (fn(vid : usize, entry : ImplicitCopyPending) -> unit)(
-  match(
-    g_implicit_copy_pending.with(m => m.get(&vid)),
-    .Some(lst) => lst.push(entry),
-    .None => {
-      fresh := ArrayList(ImplicitCopyPending).new();
-      fresh.push(entry);
-      g_implicit_copy_pending.with_mut(m => m.insert(vid, fresh));
-    }
-  )
+  // The map owns its values (B8), so the entry is written back through
+  // `with_mut`: a push onto a copy read out of `with` would be lost.
+  g_implicit_copy_pending.with_mut({ entry, vid }(m) => {
+    lst := match(m.get_cloned(&vid), .Some(l) => l, .None => ArrayList(ImplicitCopyPending).new());
+    lst.push(entry);
+    m.insert(vid, lst);
+  })
 );
 // ---------------------------------------------------------------------------
 // YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36)
@@ -4126,7 +4126,7 @@ audit_record_copy_trait :: (
       find_variable_in_env(env, ast_expr_token(source).value.*.clone()),
       .Some(v) => {
         captured := (in_closure_body_check && match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
-        root := g_implicit_copy_match_roots.with(m => m.get(&v.id));
+        root := g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id));
         cond(
           (is_any_temp_variable_name(v.name.clone()) || v.is_compile_time_only) => {
             return(());
@@ -4164,7 +4164,7 @@ audit_record_copy_trait :: (
                     found := false;
                     while((mpi < lbi.places.len()) && !found, mpi = (mpi + usize(1)), {
                       match(
-                        lbi.places.get(mpi),
+                        lbi.places.get_cloned(mpi),
                         .Some(pl) => if(pl.module_root, {
                           found = true;
                         }),
@@ -4199,21 +4199,17 @@ audit_record_copy_trait :: (
     (text.len() > usize(60)) => `${text.substring(usize(0), usize(57))}...`,
     true => text
   );
-  first := match(needs.get(usize(0)), .Some(n) => n, .None => String.new());
+  first := match(needs.get_cloned(usize(0)), .Some(n) => n, .None => String.new());
   line := `${display_module_path(&site_tok.module_path.*)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [copy-trait] ${first} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} needs=${String.from(",").join(&needs)} \`${shown_text.replace("\n", String.from(" "))}\``;
   match(
     pending_id,
     .Some(vid) => {
       entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.*.clone(), byte_offset : site_tok.byte_offset, migrate_site : .None);
-      match(
-        g_implicit_copy_pending.with(m => m.get(&vid)),
-        .Some(lst) => lst.push(entry),
-        .None => {
-          fresh := ArrayList(ImplicitCopyPending).new();
-          fresh.push(entry);
-          g_implicit_copy_pending.with_mut(m => m.insert(vid, fresh));
-        }
-      );
+      g_implicit_copy_pending.with_mut({ entry, vid }(m) => {
+        lst := match(m.get_cloned(&vid), .Some(l) => l, .None => ArrayList(ImplicitCopyPending).new());
+        lst.push(entry);
+        m.insert(vid, lst);
+      });
     },
     .None => audit_print_implicit_copy(&line)
   );
@@ -4251,6 +4247,7 @@ get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_token
 /// exprs/begin.yo): the copy moves the local, so a read of it after `site`
 /// is the use of a moved value.
 DynCopyPending :: struct(site : ImplicitCopyPending, name : String, ty : TypeValue, site_tok : Token, seq : u64);
+derive(DynCopyPending, Clone);
 /// The sequence number the next pending `Dyn` copy gets (`dyn_copy_mark`).
 (mut(g_dyn_copy_seq) : u64) = u64(0);
 /// Variable id → the pending `Dyn` copies of it.
@@ -4332,7 +4329,8 @@ note_dyn_copy_pending :: (fn(v : &Variable, tok : &Token, ty : &TypeValue) -> un
   );
   lst := match(g_dyn_copy_pending.with_mut(m => m.remove(&v.id)), .Some(l) => l, .None => ArrayList(DynCopyPending).new());
   lst.push(entry);
-  g_dyn_copy_pending.with_mut(m => m.insert(v.id, lst));
+    vid := v.id;
+  g_dyn_copy_pending.with_mut({ vid, lst }(m) => m.insert(vid, lst));
 });
 _next_dyn_copy_seq :: (fn() -> u64)({
   n := g_dyn_copy_seq;
@@ -4373,7 +4371,7 @@ dyn_copy_rollback :: (fn(mark : u64) -> unit)({
         (j : usize) = usize(0);
         while(j < lst.len(), j = (j + usize(1)), {
           match(
-            lst.get(j),
+            lst.get_cloned(j),
             .Some(e) => if(e.seq < mark, {
               kept.push(e);
             }),
@@ -4381,7 +4379,7 @@ dyn_copy_rollback :: (fn(mark : u64) -> unit)({
           );
         });
         if(kept.len() > usize(0), {
-          g_dyn_copy_pending.with_mut(m => m.insert(id, kept));
+          g_dyn_copy_pending.with_mut({ id, kept }(m) => m.insert(id, kept));
         });
       },
       .None => ()
@@ -4432,7 +4430,7 @@ set_expr_as_needs_to_call_dup :: (
 )({
   // The result positions of a block or conditional `rhs` flow into the
   // same destination, and their copies are judged against it.
-  match(copy_dest_decl, .Some(tail_dest) => record_copy_tail_dests(rhs, &tail_dest, ctx), .None => ());
+  match(&copy_dest_decl, .Some(tail_dest) => record_copy_tail_dests(rhs, &tail_dest, ctx), .None => ());
   // YO_AUDIT_COPY_TRAIT: a plain-data copy, before any early return (a
   // plain value often has no temp name, and a known value is inlined).
   if(g_audit_copy_trait, {
@@ -4552,7 +4550,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env, ctx), in_generic : _ic_in_generic(ctx, &ei.ty), src_dying : _ic_dying_temp_source(rhs, ctx), capture_label : match(copy_capture_label, .Some(cl) => cl, .None => String.new()), capture_names : String.new()))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(&copy_dest_decl, .Some(dd) => dd.clone(), .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env, ctx), in_generic : _ic_in_generic(ctx, &ei.ty), src_dying : _ic_dying_temp_source(rhs, ctx), capture_label : match(&copy_capture_label, .Some(cl) => cl.clone(), .None => String.new()), capture_names : String.new()))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
@@ -4862,7 +4860,7 @@ borrowed_place_read_only_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Opt
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
     // A step an evaluator rewrite replaced reads as rewritten.
     cur = ast_rewritten_node(&cur);
-    d_args := match(cur, .FnCall(_, _, Rc(__bh_a), _, _) => __bh_a, .Atom(_, _) => ArrayList(AstExpr).new());
+    d_args := match(&cur, .FnCall(_, _, Rc(__bh_a), _, _) => __bh_a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     base := match(d_args.get(usize(0)), .Some(b) => b, .None => return(Option(AstExpr).None));
     fld := match(d_args.get(usize(1)), .Some(f) => f, .None => return(Option(AstExpr).None));
     if(!ast_expr_is_atom(&fld), {
