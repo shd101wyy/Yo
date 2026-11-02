@@ -1977,6 +1977,17 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
       },
       _ => ()
     );
+    // A generic body's predicate pass leaves `x.*` untyped over an opaque
+    // `T` (no rewrite either): the deref of a bound reference parameter is
+    // the name's own term, as the bare `x` was.
+    dargs := _fn_call_args(e);
+    d_obj := dargs.get(usize(0)).unwrap();
+    d_fld := dargs.get(usize(1)).unwrap();
+    if(ast_expr_is_atom(&d_obj) && ast_expr_is_atom_of(&d_fld, "*") && expr_info_table_get(&ctx.table, ast_expr_id(e)).is_none(), {
+      if(ctx.vars.get(ast_expr_text(&d_obj).*.clone()).is_some(), {
+        return(_expr_term(ctx, &d_obj));
+      });
+    });
   });
   info := match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
@@ -3580,7 +3591,7 @@ _walk_invariants_in_order :: (fn(ctx : &mut VcCtx, invs : &ArrayList(AstExpr)) -
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(cargs), _, _) => cargs.clone(),
+    .FnCall(_, _, Rc(cargs), _, _) => _args_through_deref(&cargs),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );

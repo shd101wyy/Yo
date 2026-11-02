@@ -8,7 +8,7 @@ main :: (fn() -> unit)({
   other := scores; // a second handle: the loop's static borrow cannot see it
   for(&mut scores, (k, v) => {
     other.insert(String.from("c"), i32(3)); // panics: mutates the inner map while `v` borrows an entry
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
   assert(false, "unreachable: insert must panic first");
 });

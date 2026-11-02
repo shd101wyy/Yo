@@ -7,10 +7,10 @@ test("an Arc(Mutex(Node)) cycle broken before the last handle goes", {
   a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
   b := Arc.clone(a);
   a.with_lock(v => {
-    v = Node(id : i32(1), peer : .Some(Arc.clone(b)));
+    v.* = Node(id : i32(1), peer : .Some(Arc.clone(b)));
   });
   a.with_lock(v => {
-    v = Node(id : i32(1), peer : .None);
+    v.* = Node(id : i32(1), peer : .None);
   });
   assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
 });

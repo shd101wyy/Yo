@@ -12,7 +12,7 @@ test("an Arc(Mutex(Node)) cycle is left closed", {
   a := Arc.new(Mutex(Node).new(Node(id : i32(1), peer : .None)));
   b := Arc.clone(a);
   a.with_lock(v => {
-    v = Node(id : i32(1), peer : .Some(Arc.clone(b)));
+    v.* = Node(id : i32(1), peer : .Some(Arc.clone(b)));
   });
   assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
 });
