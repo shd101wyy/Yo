@@ -2193,6 +2193,12 @@ and in git, not a silent edit.
       non-escaping closure argument overlaps everything it captures, which
       refines today's rule that any closure argument reaches the container
       (`_reject_if_container_reachable`, `src/types/flowability.yo`).
+      A non-closure sibling reaches the container only through a
+      reference-semantic edge: its own `&`/`&mut` mode, a shared handle
+      (a `ref` type, `Rc`/`Arc`, a cell handle, `Weak`) or a held
+      `Reference`. A value that only owns a list of the container's type is
+      a different list (amended 2026-11-02, VERDICTS-12 B8-Q2,
+      `issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md`).
     - **Value roots.** A `&mut` argument, or a by-value argument of a
       non-implicitly-copyable type (a move), that overlaps any other
       argument is a compile error. Two `&` arguments may overlap.

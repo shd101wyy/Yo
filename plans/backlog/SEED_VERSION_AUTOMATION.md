@@ -100,6 +100,21 @@ Hardening (branch `ci/release-tail-hardening`): bump moved to its own
 lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
 ACTION: add the Workflows permission to `RELEASE_PAT`.
 
+## Seed-gated follow-up (2026-11-02): the json `insert` moves its old value out
+
+The element-borrow sibling rule stopped rejecting a value sibling that only OWNS a list of the
+container's type (VERDICTS-12 B8-Q2,
+`issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md`).
+`std/encoding/json.yo`'s `insert` can then replace the entry in place:
+`return(Option(JsonValue).Some(replace(&mut values(i), value)));` with
+`{ replace } :: import("../mem");`, in place of `old := values(i).clone(); values(i) = value;`,
+which deep-copies the old entry on every key overwrite. The compiler calls `JsonValue.insert`
+(`src/context_command.yo` and others), so stage 1 evaluates the body with the seed. The v0.2.73
+seed rejects that spelling ("could hold a handle", measured 2026-11-02), so the switch waits until
+`SEED_VERSION` is a release that carries the loosened rule (v0.2.74 or later). Gate: `yo build`
+the tree with the actual seed bundle, then a test that overwrites a key (`JsonValue.insert`
+twice on one key).
+
 ## ~~Seed-gated follow-up (2026-08-27): migrate the compiler off `std/sys/bufio`~~ **DONE 2026-08-28**
 
 Landed once v0.2.18 became the seed — that release carries #299 (the
