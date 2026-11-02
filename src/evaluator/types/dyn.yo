@@ -78,7 +78,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
       while(i < fls.len(), {
         ft := match(fts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
-          match(fls.get(i), .Some(l) => out.push(l), .None => ());
+          match(fls.get_cloned(i), .Some(l) => out.push(l), .None => ());
         });
         i = (i + usize(1));
       });
@@ -312,7 +312,7 @@ evaluate_dyn_type :: (
     cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());
     scs := match(
       cur_trait,
-      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc,
+      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc.clone(),
       _ => ArrayList(TypeValue).new()
     );
     k := usize(0);
