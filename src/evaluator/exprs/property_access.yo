@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, deref_reads_through_pointee } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -257,13 +257,6 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
 /// synthesize `w.*` (`make_deref_expr`), which keeps the payload's reading.
 _is_written_star :: (fn(star : &AstExpr) -> bool)(
   !is_synthesized_deref_star(ast_expr_id(star))
-);
-/// Whether the old reading of `v.*` on a reference binding whose pointee is
-/// `ty` reached THROUGH the pointee (a cell handle's payload, a `Box`'s, a
-/// raw pointer's target, or a declared field `*`): `yo fix --migrate deref`
-/// spells that `v.*.*` (decision 43 step 2 N1e-1).
-_deref_reads_through :: (fn(ty : &TypeValue) -> bool)(
-  cell_handle_view(ty).is_some() || (unique_box_payload_type(ty).is_some() || (is_pointer_type(ty) || find_first_field_index(&_field_labels_of(ty).items, String.from("*")).is_some()))
 );
 /// The labels a field read can name on `t`: a struct's, tuple's or union's.
 _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
@@ -797,7 +790,7 @@ _evaluate_property_access_node :: (
           // the old way (the payload, recorded as `r.*.*`); any other `.*`
           // on a reference is already the new spelling (a file `--migrate
           // deref` ran on before), and reads as below.
-          if(deref_rule_recording() && _deref_reads_through(&rd_oi.ty), {
+          if(deref_rule_recording() && deref_reads_through_pointee(&rd_oi.ty), {
             record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
           }, {
             // The node reads as the name itself from here on: it is

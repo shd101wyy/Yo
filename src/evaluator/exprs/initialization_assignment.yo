@@ -89,7 +89,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, handle_payload_is_read_only } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee } :: import("../utils.yo");
 { is_mut_binding, is_thread_local_binding } :: import("../../expr.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
@@ -388,7 +388,9 @@ _evaluate_inout_local_binding :: (
           d_recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d_recv)), .Some(dri) => Rc.clone(dri.ty), .None => t_unit());
           // `&r.*…` through the reference binding `r` itself (N1e-1) names
           // the referent: the place `r` already borrows, not a pointer.
-          d_is_reference_deref := (root_is_reference && !deref_rule_recording() && ((dk + usize(1)) == hops.len()));
+          // The recorder reads such a `*` the old way only through a `Box`, a
+          // handle or a pointer (`deref_reads_through_pointee`).
+          d_is_reference_deref := (root_is_reference && (!deref_rule_recording() || !deref_reads_through_pointee(&d_recv_ty)) && ((dk + usize(1)) == hops.len()));
           if(!d_is_reference_deref && !handle_payload_is_read_only(&d_recv_ty), {
             exn.throw(
               dyn(
