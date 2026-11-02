@@ -1,0 +1,15 @@
+// `yo check` (no `--test-bodies`) passes this file: the undefined call in the
+// test body is swallowed, and the `comptime_expect_error` below then reports
+// that its expression raised no error. Alone, the case raises E0919.
+{ assert } :: import("std/assert");
+BsHeld :: struct(x : i32, y : i32);
+test("an error the trial evaluation swallows", {
+  assert(undefined_fn(i32(1)) == i32(1), "x");
+});
+comptime_expect_error(
+  bs_handle_mut_borrow :: (fn() -> unit)({
+    h := Rc.new(BsHeld(x : i32(1), y : i32(2)));
+    _r := &mut h.*.x;
+  }),
+  "read-only through the handle"
+);
