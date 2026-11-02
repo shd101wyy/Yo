@@ -19,10 +19,10 @@
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
   (decision 42, #1310).
-- **Handover:** start with
-  [`plans/handover/VBD_HANDOVER_2026-10-17.md`](handover/VBD_HANDOVER_2026-10-17.md), which has the
-  releases, the open PRs, the branches in flight and the v0.2.65 gate;
-  its predecessor
+- **Handover:** start with the living release-by-release schedule,
+  [`plans/handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md),
+  then the latest handover,
+  [`VBD_HANDOVER_2026-10-20.md`](handover/VBD_HANDOVER_2026-10-20.md);
   [`VBD_HANDOVER_2026-10-15.md`](handover/VBD_HANDOVER_2026-10-15.md)
   keeps the process recipes and scripts.
 
@@ -184,6 +184,10 @@ Progress:
   - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
     --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
     with it (V2c's "As built").
+  - V2's B10: `Deque`, `BTreeMap`, `OrderedMap` and `PriorityQueue` are
+    values (`Clone` derived, or for `Deque` placed in the source's
+    allocator; `BTreeMap.range` consumes, as `keys`/`values` do; §6 V2,
+    item 3's B10).
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
