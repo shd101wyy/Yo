@@ -138,9 +138,9 @@ evaluate_comptime_expect_error :: (
   // `comptime_expect_error` was lost and the rest of the file could not see
   // it ("Variable "assert" not found" from a later `test(...)` arm, which
   // then hollowed the whole batch — tests/safe_code_structural_gates.test.yo).
-  saved_frames := ArrayList(Frame).new();
+  mut(saved_frames) := ArrayList(Frame).new();
   {
-    (sf_i : usize) = usize(0);
+    (mut(sf_i) : usize) = usize(0);
     while(sf_i < env.frames.len(), {
       match(
         env.frames.get(sf_i),
@@ -158,9 +158,9 @@ evaluate_comptime_expect_error :: (
   // frame's variable list must be truncated
   // back, or the leftover shadows the NEXT `(z : T)`
   // binding and mis-types every later use of the name.
-  saved_frame_var_counts := ArrayList(usize).new();
+  mut(saved_frame_var_counts) := ArrayList(usize).new();
   {
-    (sfv_i : usize) = usize(0);
+    (mut(sfv_i) : usize) = usize(0);
     while(sfv_i < env.frames.len(), {
       match(
         env.frames.get(sfv_i),
@@ -186,15 +186,15 @@ evaluate_comptime_expect_error :: (
   // re-push below, and each frame's first `saved_frame_var_counts` entries
   // survive the truncation, so a mark is restored onto the same binding it
   // was taken from.
-  saved_frame_consumed := ArrayList(ArrayList(Option(Token))).new();
+  mut(saved_frame_consumed) := ArrayList(ArrayList(Option(Token))).new();
   {
-    (sfc_i : usize) = usize(0);
+    (mut(sfc_i) : usize) = usize(0);
     while(sfc_i < env.frames.len(), {
-      frame_marks := ArrayList(Option(Token)).new();
+      mut(frame_marks) := ArrayList(Option(Token)).new();
       match(
         env.frames.get(sfc_i),
         .Some(sfc_f) => {
-          (sfc_j : usize) = usize(0);
+          (mut(sfc_j) : usize) = usize(0);
           while(sfc_j < sfc_f.variables.len(), {
             match(
               sfc_f.variables.get(sfc_j),

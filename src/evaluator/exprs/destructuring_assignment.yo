@@ -64,8 +64,8 @@ DestructuringResult :: ref(
 // ---------------------------------------------------------------------------
 /// True if `label` is already in the `seen` list.
 _label_already_seen :: (fn(seen : &ArrayList(String), label : &String) -> bool)({
-  i := usize(0);
-  (found : bool) = false;
+  mut(i) := usize(0);
+  (mut(found) : bool) = false;
   while((i < seen.len()) && !found, {
     match(
       seen.get_cloned(i),
@@ -167,7 +167,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
   match(
     existing.get(n - usize(1)),
     .Some(shadow_var) => {
-      sh_entries := ArrayList(TokenAndError).new();
+      mut(sh_entries) := ArrayList(TokenAndError).new();
       sh_entries.push(
         TokenAndError(
           token : at,
@@ -227,8 +227,8 @@ _is_adopted_extern_c_field :: (fn(rhs_type : &TypeValue, fval_opt : &Option(Eval
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
 _find_field_index :: (fn(field_labels : &ArrayList(String), label : &String) -> Option(usize))({
-  i := usize(0);
-  (result : Option(usize)) = Option(usize).None;
+  mut(i) := usize(0);
+  (mut(result) : Option(usize)) = Option(usize).None;
   while((i < field_labels.len()) && match(result, .None => true, _ => false), {
     match(
       field_labels.get_cloned(i),
@@ -308,9 +308,9 @@ handle_member_destructuring :: (
       )
     );
   });
-  seen_labels := ArrayList(String).new();
-  runtime_destructurings := ArrayList(RuntimeDestructuring).new();
-  (i : usize) = usize(0);
+  mut(seen_labels) := ArrayList(String).new();
+  mut(runtime_destructurings) := ArrayList(RuntimeDestructuring).new();
+  (mut(i) : usize) = usize(0);
   while(i < lhs_fields.len(), {
     // Decision 47: `{ a, mut(b) } := s` and `{ x : mut(b) } := s` declare `b`
     // mutable (per name); `desugar_if_calls` stripped the marker and recorded
@@ -320,23 +320,23 @@ handle_member_destructuring :: (
     if(ast_expr_is_fn_call_of(&lhs_field, BK_COLON, Option(usize).Some(usize(2))), {
       reject_malformed_mut_marker(&lhs_field, usize(1), exn);
     });
-    (field_index : usize) = i; // default: positional
-    (field_value_opt : Option(EvalValue)) = Option(EvalValue).None;
-    (rhs_field_label : String) = match(
+    (mut(field_index) : usize) = i; // default: positional
+    (mut(field_value_opt) : Option(EvalValue)) = Option(EvalValue).None;
+    (mut(rhs_field_label) : String) = match(
       rhs_field_labels.get_cloned(field_index),
       .Some(l) => l,
       .None => String.from("")
     );
-    (rhs_field_type : TypeValue) = match(
+    (mut(rhs_field_type) : TypeValue) = match(
       rhs_field_types.get(field_index),
       .Some(t) => t,
       .None => Rc.new(TypeValueNode.Unit)
     );
-    (variable_name_opt : Option(String)) = Option(String).None;
-    (variable_token_opt : Option(AstExpr)) = Option(AstExpr).None; // token carried via lhs_field
-    (label_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-    (rename_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-    (did_spread : bool) = false;
+    (mut(variable_name_opt) : Option(String)) = Option(String).None;
+    (mut(variable_token_opt) : Option(AstExpr)) = Option(AstExpr).None; // token carried via lhs_field
+    (mut(label_expr_opt) : Option(AstExpr)) = Option(AstExpr).None;
+    (mut(rename_expr_opt) : Option(AstExpr)) = Option(AstExpr).None;
+    (mut(did_spread) : bool) = false;
     // -----------------------------------------------------------------------
     // Branch 1: spread `...` or `(... : ...)`
     // -----------------------------------------------------------------------
@@ -369,7 +369,7 @@ handle_member_destructuring :: (
         );
       });
       // Spread: destructure all rhs fields not yet seen.
-      (j : usize) = usize(0);
+      (mut(j) : usize) = usize(0);
       while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get_cloned(j), .Some(l) => l, .None => String.from(""));
         fty := match(rhs_field_types.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
