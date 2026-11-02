@@ -75,8 +75,13 @@ workaround can be removed once `SEED_VERSION` carries it.
 
 ## Test
 
-`tests/tuple_field_copy_dup.test.yo` covers a tuple copying a list field out of a local, a
-`&S` parameter and a by-value parameter, a `ref` field with a `Drop` counter
-(disposed exactly once), an array literal, and an indexed element. All six
-fail under AddressSanitizer before the fix (heap-use-after-free) and pass
-after it.
+`tests/tuple_field_copy_dup.test.yo` copies a `ref` handle (a `Drop`
+counter) out of a local value, a `&S` parameter and a by-value parameter
+into a tuple, out of a local into an array literal, and out of an
+`ArrayList` by index into a tuple. Each case asserts that the handle is
+disposed exactly once. All five fail under AddressSanitizer before the fix
+(heap-use-after-free) and pass after it, also under `--allocator debug`.
+The handles are `ref` objects because they stay copies once the collections
+are values (B8). Over B8's flipped std the reproducer's `ArrayList` field is
+move-only and `(i32(1), s.buf)` is E0901 ("a field of another value"). The
+five cases still fail without the fix and pass with it there.
