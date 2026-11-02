@@ -1732,7 +1732,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
     // coinciding outer name stays outer everywhere else).
     Rc(.Quant(kind, names, sorts, body, triggers)) => {
       inner_map := HashMap(String, String).new();
-      mit := map.clone().keys();
+      mit := map.keys_cloned().into_iter();
       (mgo : bool) = true;
       while(mgo, {
         match(

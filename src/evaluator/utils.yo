@@ -4358,12 +4358,7 @@ dyn_copy_rollback :: (fn(mark : u64) -> unit)({
   if(g_dyn_copy_pending.with(m => m.len()) == usize(0), {
     return(());
   });
-  ids := g_dyn_copy_pending.with(m => {
-    mut(out) := ArrayList(usize).new();
-    // B9: the key walk reads the map in place through the borrowed `for`.
-    for(&m, (k, _v) => { out.push(k); });
-    out
-  });
+  ids := g_dyn_copy_pending.with(m => m.keys_cloned());
   (i : usize) = usize(0);
   while(i < ids.len(), i = (i + usize(1)), {
     id := match(ids.get(i), .Some(x) => x, .None => usize(0));

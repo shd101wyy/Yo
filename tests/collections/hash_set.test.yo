@@ -683,3 +683,17 @@ test("HashSet.new(alloc : .Some(a)) keeps its table in its allocator", {
   };
   assert(counts.live == usize(0), "dispose released the table");
 });
+test("items_cloned lists a borrowed set without consuming it", {
+  mut(s) := HashSet(i32).new();
+  assert(s.items_cloned().is_empty(), "empty: empty list");
+  s.insert(i32(1));
+  s.insert(i32(2));
+  s.insert(i32(3));
+  xs := s.items_cloned();
+  assert(xs.len() == usize(3), "one per element");
+  for(&xs, x => {
+    assert(s.contains(x), "every listed element is in the set");
+    s.remove(x);
+  });
+  assert(s.is_empty() && (xs.len() == usize(3)), "the snapshot outlives the removes");
+});

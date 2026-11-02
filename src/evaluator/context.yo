@@ -1360,13 +1360,7 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
     _removed := g_retained_walk_paths.with_mut(({ canon_rm }(s) => s.remove(&canon_rm)));
     // `ModuleWalk` is a ref struct: releasing through the value handle
     // releases the table's walk.
-    // B9: `values()` consumes the map; the walk handles (a ref struct) are
-// collected in place through the borrowed `for` and iterated as a list.
-walk_values := g_finished_walks.with(m => {
-  mut(vs) := ArrayList(ModuleWalk).new();
-  for(&m, (_k, w) => { vs.push(w); });
-  vs.into_iter()
-});
+    walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
     wopt := walk_values.next();
     // The loop body closure captures its OWN clone once; reading `canon`
     // itself per iteration is a move (the capture) reused per iteration.
@@ -1424,13 +1418,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
 /// holds its evaluation context; `.None` when that module has no finished walk.
 finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
   canon := canonical_module_path(path);
-  // B9: `values()` consumes the map; the walk handles (a ref struct) are
-// collected in place through the borrowed `for` and iterated as a list.
-walk_values := g_finished_walks.with(m => {
-  mut(vs) := ArrayList(ModuleWalk).new();
-  for(&m, (_k, w) => { vs.push(w); });
-  vs.into_iter()
-});
+  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1449,13 +1437,7 @@ walk_values := g_finished_walks.with(m => {
 /// context. The CTFE-clone purge test's probe.
 finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
   canon := canonical_module_path(path);
-  // B9: `values()` consumes the map; the walk handles (a ref struct) are
-// collected in place through the borrowed `for` and iterated as a list.
-walk_values := g_finished_walks.with(m => {
-  mut(vs) := ArrayList(ModuleWalk).new();
-  for(&m, (_k, w) => { vs.push(w); });
-  vs.into_iter()
-});
+  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1793,14 +1775,7 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
       .Some(s) => s.clone(),
       .None => String.new()
     );
-  // B9: the key walk reads the map in place through the borrowed `for`
-// (`keys()` would consume the map); the collected-key iterator is
-// independent of the cell, so the reads below can re-borrow it.
-kit := g_def_deps.with(m => {
-  mut(ks) := ArrayList(String).new();
-  for(&m, (k, _v) => { ks.push(k.clone()); });
-  ks.into_iter()
-});
+    kit := g_def_deps.with(m => m.keys_cloned()).into_iter();
     kopt := kit.next();
     while(kopt.is_some(), {
       match(
@@ -1829,14 +1804,7 @@ kit := g_def_deps.with(m => {
 /// the invalidator drops each returned importer at file granularity.
 ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
-// B9: the key walk reads the map in place through the borrowed `for`
-// (`keys()` would consume the map); the collected-key iterator is
-// independent of the cell, so the reads below can re-borrow it.
-iit := g_module_ordered_reads.with(m => {
-  mut(ks) := ArrayList(String).new();
-  for(&m, (k, _v) => { ks.push(k.clone()); });
-  ks.into_iter()
-});
+  iit := g_module_ordered_reads.with(m => m.keys_cloned()).into_iter();
   iopt := iit.next();
   while(iopt.is_some(), {
     match(

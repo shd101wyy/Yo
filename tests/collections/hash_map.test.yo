@@ -1127,3 +1127,24 @@ test("get_cloned and get_key_value_cloned clone in place", {
   e := m.get_key_value_cloned(&`k`).unwrap();
   assert((e.key == `k`) && (e.value == `v`), "the stored pair");
 });
+test("keys_cloned and values_cloned list a borrowed map without consuming it", {
+  mut(m) := HashMap(String, String).new();
+  assert(m.keys_cloned().is_empty() && m.values_cloned().is_empty(), "empty: empty lists");
+  m.insert(`a`, `1`);
+  m.insert(`b`, `2`);
+  m.insert(`c`, `3`);
+  ks := m.keys_cloned();
+  vs := m.values_cloned();
+  assert((ks.len() == usize(3)) && (vs.len() == usize(3)), "one per entry");
+  // Bucket order is the order `keys()`/`values()` yield, pairwise aligned.
+  (mut(i) : usize) = usize(0);
+  while(i < ks.len(), {
+    assert(m.get_cloned(&ks(i)).unwrap() == vs(i), "keys and values align");
+    i = (i + usize(1));
+  });
+  // The lists are snapshots: the map stays usable and writable during the walk.
+  for(&ks, k => {
+    m.remove(k);
+  });
+  assert(m.is_empty() && (ks.len() == usize(3)), "the snapshot outlives the removes");
+});
