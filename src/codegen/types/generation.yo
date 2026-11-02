@@ -1443,38 +1443,38 @@ _walk_skip_some :: (fn(type : &TypeValue) -> bool)(
     !keep
   })
 );
-/// The newtype-struct pointee of a field type, if the field is a pointer to a
-/// newtype (direct `*(NT)`), a pointer to an enum optimized as a nullable
-/// pointer whose payload is one (`*Option(NT)`), or an enum optimized as a
-/// nullable pointer to one. A newtype is spelled by its typedef, which cannot
-/// be forward-declared, so the field's struct follows it. `*Option(NT)` is an
-/// `ArrayList(Option(Rc(T)))` buffer once `Rc` is a newtype over its cell
-/// (V5, `issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
+/// The newtype that spells pointee `p` in C: `p` itself if it is a newtype,
+/// or the payload of an enum optimized as a nullable pointer whose payload is
+/// one (`Option(NT)` is emitted as `NT`'s typedef).
+_pointee_spelling_newtype :: (fn(p : &TypeValue) -> Option(TypeValue))(
+  cond(
+    (is_struct_type(p) && is_newtype_type(p)) => Option(TypeValue).Some(p.clone()),
+    is_enum_type(p) => match(
+      can_optimize_as_nullable_pointer(p),
+      .Some(payload) => if(is_struct_type(&payload) && is_newtype_type(&payload), Option(TypeValue).Some(payload), Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    true => Option(TypeValue).None
+  )
+);
+/// The newtype a pointer field's pointee is spelled by: the field is a pointer
+/// (`*NT`, `*Option(NT)`) or an enum optimized as a nullable pointer to one
+/// (`?*NT`, `?*Option(NT)`; `_pointee_spelling_newtype`). A newtype is spelled
+/// by its typedef, which cannot be forward-declared, so the field's struct
+/// follows it. `?*Option(NT)` is an `ArrayList(Option(Rc(T)))` buffer once
+/// `Rc` is a newtype over its cell (V5,
+/// `issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
 _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
   match(
     ft,
-    Rc(.Pointer(pointee)) => {
-      p := Rc.clone(pointee);
-      cond(
-        (is_struct_type(&p) && is_newtype_type(&p)) => Option(TypeValue).Some(p),
-        is_enum_type(&p) => match(
-          can_optimize_as_nullable_pointer(&p),
-          .Some(payload) => if(is_struct_type(&payload) && is_newtype_type(&payload), Option(TypeValue).Some(payload), Option(TypeValue).None),
-          .None => Option(TypeValue).None
-        ),
-        true => Option(TypeValue).None
-      )
-    },
+    Rc(.Pointer(pointee)) => _pointee_spelling_newtype(&pointee),
     _ => if(
       is_enum_type(ft),
       match(
         can_optimize_as_nullable_pointer(ft),
         .Some(ptrty) => match(
           ptrty,
-          Rc(.Pointer(pe)) => {
-            p := Rc.clone(pe);
-            if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
-          },
+          Rc(.Pointer(pe)) => _pointee_spelling_newtype(&pe),
           _ => Option(TypeValue).None
         ),
         .None => Option(TypeValue).None
