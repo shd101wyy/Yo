@@ -371,9 +371,11 @@ comptime_expect_error(
   }),
   "Cannot call `noop` while `c` is live"
 );
-// `for` is a std macro until MACRO_AND_ISO_REMOVAL Part B desugars it: the
-// macro call itself is a runtime call for rule 3, because its expansion makes
-// runtime calls. Part B's desugared loop must keep this rejected. Record:
+// The `for` loop makes runtime calls (its cursor methods), so rule 3 rejects a
+// module-level borrow live across it. The loop was a std macro, whose call was
+// the runtime call; since MACRO_AND_ISO_REMOVAL B1 it is desugared at parse
+// time, and the calls it makes carry the loop's position and are reported as
+// `for`. Record:
 // issues/fixed/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md
 comptime_expect_error(
   module_level_borrow_across_a_for_loop_rejected :: (fn() -> unit)({
