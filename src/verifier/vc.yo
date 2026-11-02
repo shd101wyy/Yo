@@ -52,6 +52,7 @@ pragma(Pragma.AllowUnsafe);
 { VcSort, VcOp, VcTerm, VcTermNode, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
+{ type_key } :: import("../types/type_key.yo");
 { is_unit_type } :: import("../types/guards.yo");
 {
   is_ghost_fn,
@@ -1978,13 +1979,22 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
       _ => ()
     );
     // A generic body's predicate pass leaves `x.*` untyped over an opaque
-    // `T` (no rewrite either): the deref of a bound reference parameter is
-    // the name's own term, as the bare `x` was.
+    // `T`, and a callee's clause walked at a call site was evaluated in
+    // another node: neither has the rewrite. The deref of a bound reference
+    // name is the name's own term, as the bare `x` was; a reference reads as
+    // its pointee's type, so the deref and the name share it (a `Box`'s or
+    // a pointer's `.*` does not).
     dargs := _fn_call_args(e);
     d_obj := dargs.get(usize(0)).unwrap();
     d_fld := dargs.get(usize(1)).unwrap();
-    if(ast_expr_is_atom(&d_obj) && ast_expr_is_atom_of(&d_fld, "*") && expr_info_table_get(&ctx.table, ast_expr_id(e)).is_none(), {
-      if(ctx.vars.get(ast_expr_text(&d_obj).*.clone()).is_some(), {
+    if(ast_expr_is_atom(&d_obj) && ast_expr_is_atom_of(&d_fld, "*") && ctx.vars.get(ast_expr_text(&d_obj).*.clone()).is_some(), {
+      d_same := match(
+        (expr_info_table_get(&ctx.table, ast_expr_id(e)), expr_info_table_get(&ctx.table, ast_expr_id(&d_obj))),
+        (.None, _) => true,
+        (.Some(de), .Some(oe)) => (type_key(&de.ty) == type_key(&oe.ty)),
+        _ => false
+      );
+      if(d_same, {
         return(_expr_term(ctx, &d_obj));
       });
     });
@@ -4304,9 +4314,16 @@ _args_through_deref :: (fn(args : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
     a := args.get(i).unwrap();
     out.push(
       cond(
-        ast_expr_is_fn_call_of(&a, ".", .Some(usize(2))) => match(
-          ast_rewritten_node(&a),
-          .Atom(rd_id, rd_tok) => AstExpr.Atom(rd_id, rd_tok),
+        ast_expr_is_fn_call_of(&a, ".", .Some(usize(2))) => _deref_as_name(&a),
+        // A lend of the referent, `&r.*` / `&mut r.*`: the marker over the
+        // name (`for(&xs.*, x => …)` walks `xs`).
+        (ast_expr_is_fn_call_of(&a, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&a, "&mut", .Some(usize(1)))) => match(
+          a.clone(),
+          .FnCall(m_id, m_f, Rc(m_args), m_infix, m_tok) => {
+            m_out := ArrayList(AstExpr).new();
+            m_out.push(_deref_as_name(&m_args.get(usize(0)).unwrap()));
+            AstExpr.FnCall(m_id, m_f, Rc.new(m_out), m_infix, m_tok)
+          },
           _ => a
         ),
         true => a
@@ -4316,6 +4333,18 @@ _args_through_deref :: (fn(args : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
   });
   out
 });
+/// `r.*` on a reference binding as the name `r` the evaluator rewrote it
+/// to; any other expression as written.
+_deref_as_name :: (fn(a : &AstExpr) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(a, ".", .Some(usize(2))) => match(
+      ast_rewritten_node(a),
+      .Atom(rd_id, rd_tok) => AstExpr.Atom(rd_id, rd_tok),
+      _ => a.clone()
+    ),
+    true => a.clone()
+  )
+);
 _call_term :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, head : &String, args : &ArrayList(AstExpr), info : &ExprInfo)
   -> Option(VcTerm)

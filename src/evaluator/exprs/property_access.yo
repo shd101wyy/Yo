@@ -783,20 +783,22 @@ _evaluate_property_access_node :: (
     // `r.*` on a reference binding `r` (decision 43 step 2 N1e-1,
     // VERDICTS-13 §11): outside std and the compiler tree it is the
     // reference's deref, the value a bare `r` read before, lowered to the
-    // same C (codegen emits the receiver through `macro_expansion`). A
+    // same C (the node is recorded rewritten to the name, below). A
     // `Box`/`Rc`/pointer/field-`*` deref through the reference is
     // `r.*.*`. std and src keep the old reading below (the `.*` reaches
     // through to the payload), and `yo fix --migrate deref`, which reads old
-    // source, records that `.*` as `r.*.*` and evaluates it the old way.
+    // source, records such a `.*` as `r.*.*` and evaluates it the old way.
     match(
       obj_info_opt,
       .Some(rd_oi) => match(
         rd_oi.source_variable,
         .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && variable_is_reference_binding(&rd_v) && deref_rule_applies(ast_expr_token(&object_expr), ctx) && !is_reference_deref_site(ast_expr_token(&object_expr)) && _is_written_star(&property_expr), {
-          if(deref_rule_recording(), {
-            if(_deref_reads_through(&rd_oi.ty), {
-              record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
-            });
+          // The recorder reads a `.*` through a `Box`, a handle or a pointer
+          // the old way (the payload, recorded as `r.*.*`); any other `.*`
+          // on a reference is already the new spelling (a file `--migrate
+          // deref` ran on before), and reads as below.
+          if(deref_rule_recording() && _deref_reads_through(&rd_oi.ty), {
+            record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
           }, {
             // The node reads as the name itself from here on: it is
             // recorded rewritten to the atom `r` under its own id
