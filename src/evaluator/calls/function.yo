@@ -1069,7 +1069,7 @@ _find_receiver_method_of :: (
   });
   prop_args := match(
     callee,
-    .FnCall(_, _, Rc(pargs), _, _) => pargs,
+    .FnCall(_, _, Rc(pargs), _, _) => pargs.clone(),
     _ => {
       return(Option(ReceiverMethodResult).None);
     }
@@ -8629,7 +8629,7 @@ _evaluate_function_call_unanchored :: (
   );
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   // Pre-fold `-(IntLit)` to a comptime negative integer literal.

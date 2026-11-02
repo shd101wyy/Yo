@@ -5140,7 +5140,7 @@ evaluate_module_value :: (
   // Extract args from the FnCall.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := args.len();
@@ -5156,7 +5156,7 @@ evaluate_module_value :: (
     a0 := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     begin_exprs := match(
       a0,
-      .FnCall(_, _, Rc(be), _, _) => be,
+      .FnCall(_, _, Rc(be), _, _) => be.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     saved_expected := ctx.expected_type;
@@ -5191,7 +5191,7 @@ evaluate_module_value :: (
     forall_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     forall_args := match(
       forall_expr,
-      .FnCall(_, _, Rc(fa), _, _) => fa,
+      .FnCall(_, _, Rc(fa), _, _) => fa.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // Snapshot env (share frames — aliasing snapshot) and push a
@@ -5366,7 +5366,7 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call(&c2_pp_expr) && !ast_expr_is_fn_call_of(&c2_pp_expr, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c2_pp_expr, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c2_pp_expr, "!", .Some(usize(1)))), {
         c2_ta := match(
           c2_pp_expr,
-          .FnCall(_, _, Rc(ta), _, _) => ta,
+          .FnCall(_, _, Rc(ta), _, _) => ta.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         (c2_ti : usize) = usize(0);
@@ -5862,7 +5862,7 @@ evaluate_module_value :: (
       .Some(c3_te_outer) => if(ast_expr_is_fn_call(&c3_te_outer) && !ast_expr_is_fn_call_of(&c3_te_outer, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c3_te_outer, "!", .Some(usize(1)))), {
         c3_ta := match(
           c3_te_outer,
-          .FnCall(_, _, Rc(ta), _, _) => ta,
+          .FnCall(_, _, Rc(ta), _, _) => ta.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         (c3_ti : usize) = usize(0);
@@ -6006,7 +6006,7 @@ evaluate_module_value :: (
           // (`where(...)` args are skipped — see the generic loop above.)
           trait_inner_args := match(
             field_expr,
-            .FnCall(_, _, Rc(tia), _, _) => tia,
+            .FnCall(_, _, Rc(tia), _, _) => tia.clone(),
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           // Look up the trait type by atom name in the env so we can

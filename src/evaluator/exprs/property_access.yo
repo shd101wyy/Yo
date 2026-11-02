@@ -528,7 +528,7 @@ _evaluate_property_access_node :: (
   if(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(1))), {
     all_args_1 := match(
       expr,
-      .FnCall(_, _, Rc(args), _, _) => args,
+      .FnCall(_, _, Rc(args), _, _) => args.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     prop_expr_1 := match(
@@ -682,7 +682,7 @@ _evaluate_property_access_node :: (
   });
   all_args := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (object_expr : AstExpr) = match(

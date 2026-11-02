@@ -344,7 +344,7 @@ _is_lex_measure :: (fn(e : &AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BF_DECRE
 _lex_components :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(ca), _, _) => ca,
+    .FnCall(_, _, Rc(ca), _, _) => ca.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -1900,7 +1900,7 @@ _untyped_opaque_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   });
   oargs := match(
     e,
-    .FnCall(_, _, Rc(oa), _, _) => oa,
+    .FnCall(_, _, Rc(oa), _, _) => oa.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   lhs := _untyped_opaque_term(ctx, oargs.get(usize(0)).unwrap());
@@ -2049,7 +2049,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(ast_expr_is_fn_call(e), {
     args := match(
       e,
-      .FnCall(_, _, Rc(a), _, _) => a,
+      .FnCall(_, _, Rc(a), _, _) => a.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // An `old(...)` CALLEE (`old(self)(k)`, a list read through the
@@ -3160,7 +3160,7 @@ _call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut Arra
   );
   cargs := match(
     e,
-    .FnCall(_, _, Rc(fa), _, _) => fa,
+    .FnCall(_, _, Rc(fa), _, _) => fa.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   cv := _call_callee_value(table, e);
@@ -4538,7 +4538,7 @@ _call_term :: (
   if((head == "ghost") && (n == usize(1)) && ast_expr_is_fn_call_of(args.get(usize(0)).unwrap(), ":=", Option(usize).Some(usize(2))), {
     ga := match(
       args.get(usize(0)).unwrap(),
-      .FnCall(_, _, Rc(a2), _, _) => a2,
+      .FnCall(_, _, Rc(a2), _, _) => a2.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     gv := _expr_term(ctx, ga.get(usize(1)).unwrap());
@@ -5248,7 +5248,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
   );
   dot_args := match(
     callee,
-    .FnCall(_, _, Rc(da), _, _) => da,
+    .FnCall(_, _, Rc(da), _, _) => da.clone(),
     .Atom(_, _) => {
       return(Option(ListReceiver).None);
     }
@@ -5422,7 +5422,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
     if(ast_expr_is_fn_call_of(&arm0, "=>", Option(usize).Some(usize(2))), {
       aa0 := match(
         arm0,
-        .FnCall(_, _, Rc(a2), _, _) => a2,
+        .FnCall(_, _, Rc(a2), _, _) => a2.clone(),
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       _scan_assigned_in(ctx, aa0.get(usize(1)).unwrap(), &mut phi_names);
@@ -5444,7 +5444,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
     if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
       aa := match(
         arm,
-        .FnCall(_, _, Rc(a2), _, _) => a2,
+        .FnCall(_, _, Rc(a2), _, _) => a2.clone(),
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       c_opt := _expr_term(ctx, aa.get(usize(0)).unwrap());
@@ -5980,7 +5980,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
             .Some(aname) => {
               la := match(
                 ba.get(usize(0)).unwrap(),
-                .FnCall(_, _, Rc(a3), _, _) => a3,
+                .FnCall(_, _, Rc(a3), _, _) => a3.clone(),
                 .Atom(_, _) => ArrayList(AstExpr).new()
               );
               idx := _expr_term(ctx, la.get(usize(0)).unwrap());
@@ -7724,7 +7724,7 @@ _frame_scan_open :: (fn(table : &ExprInfoTable, e : &AstExpr) -> bool)({
   );
   fargs := match(
     e,
-    .FnCall(_, _, Rc(fa), _, _) => fa,
+    .FnCall(_, _, Rc(fa), _, _) => fa.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   expanded := match(

@@ -71,7 +71,7 @@ evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
-              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner,
+              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner.clone(),
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
@@ -149,7 +149,7 @@ expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
-              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner,
+              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner.clone(),
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
