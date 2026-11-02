@@ -630,9 +630,10 @@ _evaluate_dependency_build_file :: (
   __probe_dep_dir := dep_dir.clone();
   __probe_build_file := build_file.clone();
   __probe_dep_name := dep_name.clone();
+  __probe_defines := defines.clone();
   io.async((e : IoExn) => {
     scratch := BuildRegistry.new();
-    scratch.cli_options = _namespaced_defines(__probe_dep_name.clone(), defines);
+    scratch.cli_options = _namespaced_defines(__probe_dep_name.clone(), &__probe_defines);
     dep_manifest_opt := project_manifest(__probe_dep_dir.clone(), e.exn);
     scratch.manifest_fields = _manifest_fields(&dep_manifest_opt);
     prev := swap_build_registry(Option(BuildRegistry).Some(scratch));
@@ -666,118 +667,119 @@ _evaluate_dependency_builds :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
-  io.async((e : IoExn) => {
-    if(registry.dependency_artifacts.len() == usize(0), {
-      return(());
-    });
-    lock_text := read_lock_text(manifest, e.exn);
-    (i : usize) = usize(0);
-    while(i < registry.dependency_artifacts.len(), {
-      r := registry.dependency_artifacts(i);
-      i = (i + usize(1));
-      dep := match(
-        manifest.find_dependency(r.dependency_name.clone()),
-        .Some(d) => d,
-        .None => {
-          e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
-          return(());
-        }
-      );
-      dir := match(
-        dependency_dir(&dep, manifest.dir.clone(), lock_text.clone()),
-        .Ok(d) => d,
-        .Err(u) => {
-          e.exn.throw(dyn(`Error: dependency "${r.dependency_name}": ${u.reason}`));
-          String.new()
-        }
-      );
-      build_file := `${dir}/build.yo`;
-      if(!file_exists_sync(build_file.clone()), {
-        e.exn.throw(
-          dyn(
-            `Error: dependency "${r.dependency_name}" has no build.yo, so .artifact("${r.artifact_name}") has nothing to build (looked for ${build_file}).`
-          )
-        );
+)({
+  __probe_defines := defines.clone();
+    io.async((e : IoExn) => {
+      if(registry.dependency_artifacts.len() == usize(0), {
+        return(());
       });
-      // Already merged by an earlier reference to the same artifact.
-      merged := match(
-        registry.find_artifact(r.artifact_name.clone()),
-        .Some(existing) => (existing.package_dir == dir),
-        .None => false
-      );
-      if(!merged, {
-        dep_reg := e.io.await(
-          _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), defines, e.io, e.exn),
-          e
-        );
-        art := match(
-          dep_reg.find_artifact(r.artifact_name.clone()),
-          .Some(a) => a,
+      lock_text := read_lock_text(manifest, e.exn);
+      (i : usize) = usize(0);
+      while(i < registry.dependency_artifacts.len(), {
+        r := registry.dependency_artifacts(i);
+        i = (i + usize(1));
+        dep := match(
+          manifest.find_dependency(r.dependency_name.clone()),
+          .Some(d) => d,
           .None => {
-            e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
+            e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
             return(());
           }
         );
-        is_lib := match(art.kind, .StaticLibrary => true, _ => false);
-        if(!is_lib, {
-          e.exn.throw(
-            dyn(
-              `Error: dependency "${r.dependency_name}": "${r.artifact_name}" is not a static library, and only a static library can be linked into this project.`
-            )
-          );
-        });
-        _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
-        registry.register_static_library(
-          BuildArtifact(
-            kind : ArtifactKind.StaticLibrary,
-            name : art.name.clone(),
-            root : art.root.clone(),
-            target : art.target.clone(),
-            optimize : art.optimize.clone(),
-            allocator : art.allocator.clone(),
-            heap_size : art.heap_size,
-            cycle_collector : art.cycle_collector.clone(),
-            sanitize : art.sanitize.clone(),
-            emit_c_to : art.emit_c_to.clone(),
-            emit_chunks : art.emit_chunks,
-            link_libraries : art.link_libraries.clone(),
-            include_paths : art.include_paths.clone(),
-            library_paths : art.library_paths.clone(),
-            c_sources : art.c_sources.clone(),
-            c_flags : art.c_flags.clone(),
-            defines : art.defines.clone(),
-            strip : art.strip,
-            static_link : art.static_link,
-            linked_artifacts : ArrayList(String).new(),
-            linked_system_libs : art.linked_system_libs.clone(),
-            package_dir : dir.clone(),
-            package_name : r.dependency_name.clone()
-          ),
-          e.exn
+        dir := match(
+          dependency_dir(&dep, manifest.dir.clone(), lock_text.clone()),
+          .Ok(d) => d,
+          .Err(u) => {
+            e.exn.throw(dyn(`Error: dependency "${r.dependency_name}": ${u.reason}`));
+            String.new()
+          }
         );
-        // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
-        dep_unknown := undeclared_options(&dep_reg);
-        if(dep_unknown.len() > usize(0), {
-          dep_joined := `", "`.join(&dep_unknown);
+        build_file := `${dir}/build.yo`;
+        if(!file_exists_sync(build_file.clone()), {
           e.exn.throw(
             dyn(
-              `Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`
+              `Error: dependency "${r.dependency_name}" has no build.yo, so .artifact("${r.artifact_name}") has nothing to build (looked for ${build_file}).`
             )
           );
         });
-        // The system libraries the dependency's build file declared, so the
-        // consumer's link line can resolve what its archive needs.
-        (si : usize) = usize(0);
-        while(si < dep_reg.system_libraries.len(), {
-          registry.system_libraries.push(dep_reg.system_libraries(si));
-          si = (si + usize(1));
+        // Already merged by an earlier reference to the same artifact.
+        merged := match(
+          registry.find_artifact(r.artifact_name.clone()),
+          .Some(existing) => (existing.package_dir == dir),
+          .None => false
+        );
+        if(!merged, {
+          dep_reg := e.io.await(
+            _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), &__probe_defines, e.io, e.exn),
+            e
+          );
+          art := match(
+            dep_reg.find_artifact(r.artifact_name.clone()),
+            .Some(a) => a,
+            .None => {
+              e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
+              return(());
+            }
+          );
+          is_lib := match(art.kind, .StaticLibrary => true, _ => false);
+          if(!is_lib, {
+            e.exn.throw(
+              dyn(
+                `Error: dependency "${r.dependency_name}": "${r.artifact_name}" is not a static library, and only a static library can be linked into this project.`
+              )
+            );
+          });
+          _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
+          registry.register_static_library(
+            BuildArtifact(
+              kind : ArtifactKind.StaticLibrary,
+              name : art.name.clone(),
+              root : art.root.clone(),
+              target : art.target.clone(),
+              optimize : art.optimize.clone(),
+              allocator : art.allocator.clone(),
+              heap_size : art.heap_size,
+              cycle_collector : art.cycle_collector.clone(),
+              sanitize : art.sanitize.clone(),
+              emit_c_to : art.emit_c_to.clone(),
+              emit_chunks : art.emit_chunks,
+              link_libraries : art.link_libraries.clone(),
+              include_paths : art.include_paths.clone(),
+              library_paths : art.library_paths.clone(),
+              c_sources : art.c_sources.clone(),
+              c_flags : art.c_flags.clone(),
+              defines : art.defines.clone(),
+              strip : art.strip,
+              static_link : art.static_link,
+              linked_artifacts : ArrayList(String).new(),
+              linked_system_libs : art.linked_system_libs.clone(),
+              package_dir : dir.clone(),
+              package_name : r.dependency_name.clone()
+            ),
+            e.exn
+          );
+          // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
+          dep_unknown := undeclared_options(&dep_reg);
+          if(dep_unknown.len() > usize(0), {
+            dep_joined := `", "`.join(&dep_unknown);
+            e.exn.throw(
+              dyn(
+                `Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`
+              )
+            );
+          });
+          // The system libraries the dependency's build file declared, so the
+          // consumer's link line can resolve what its archive needs.
+          (si : usize) = usize(0);
+          while(si < dep_reg.system_libraries.len(), {
+            registry.system_libraries.push(dep_reg.system_libraries(si));
+            si = (si + usize(1));
+          });
         });
       });
-    });
-    ()
-  })
-);
+      ()
+    })
+});
 /// A dependency package's own import closure, as `name=<root file>` lines. Its
 /// manifest names its modules and its dependencies; the LOCK is the root
 /// project's — dependencies' git dependencies are recorded there.
@@ -2748,9 +2750,9 @@ _execute_node_unless_blocked :: (
 /// overlap. A task that unwinds is recorded as a failure rather than losing
 /// the node.
 ///
-/// The batch's results come back in batch order for the caller to record:
-/// the async body reads `results` but does not write it, since a collection
-/// it captured is its own copy once collections are values
+/// The batch's results come back in batch order for the caller to record.
+/// `results` is read before the task starts (which nodes a failed dependency
+/// blocks), so the async body never captures the borrowed map
 /// (plans/VALUES_BY_DEFAULT.md §3.13).
 _execute_batch :: (
   fn(
@@ -2762,12 +2764,18 @@ _execute_batch :: (
   ) -> Impl(Future(ArrayList(StepResult), IoExn))
 )({
   __probe_batch := batch.clone();
+  // Which nodes a failed dependency blocks is decided here, before the task
+  // starts: the async body would otherwise capture the borrowed `results` map.
+  __probe_blocked := ArrayList(bool).new();
+  for(&__probe_batch, node => {
+    __probe_blocked.push(_dependency_failed(&node, results));
+  });
   io.async((e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
     (i : usize) = usize(0);
     while(i < __probe_batch.len(), {
       node := __probe_batch(i);
-      blocked := _dependency_failed(&node, results);
+      blocked := __probe_blocked(i);
       handles.push(e.io.spawn(_execute_node_unless_blocked(&node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
     });
@@ -3267,6 +3275,7 @@ evaluate_build_file :: (
   ) -> Impl(Future(BuildRegistry, IoExn))
 )({
   __probe_build_file := build_file.clone();
+  __probe_defines := defines.clone();
   io.async((e : IoExn) => {
     clear_build_registry();
     // Seed `-Dname=value` overrides BEFORE evaluating: `build.option(...)`
@@ -3274,7 +3283,7 @@ evaluate_build_file :: (
     // of its declared default. The manifest's `[package]` table goes in the
     // same way — `build.manifest.name` reads it during evaluation.
     reg := get_build_registry();
-    reg.cli_options = defines.clone();
+    reg.cli_options = __probe_defines.clone();
     reg.manifest_fields = _manifest_fields(manifest_opt);
     outcome := mm_load_yo_file(&__probe_build_file, e.io, e.exn);
     load_error := _take_load_error();
