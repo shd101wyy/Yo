@@ -9759,7 +9759,7 @@ once `SEED_VERSION` parses it.
     v0.2.73 seed from lowering a prelude whose `Rc`/`Arc` are
     `newtype(_cell : __yo_cell(V))`: the `dyn` auto-box, the `dyn`
     clone, and borrow marks on the weak count
-    (`issues/2026-11-02-a-retyped-rc-surfaces-three-cell-handle-view-gaps.md`).
+    (`issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
   - **v0.2.75.** **Cells Generation B** retypes `Rc`/`Arc` in std. The
     four constructors pass the allocator to the cell, and the scope swap
     and its three externs go
