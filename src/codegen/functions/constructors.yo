@@ -23,8 +23,8 @@
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
 _has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) -> bool)({
   n := fields.len();
-  (i : usize) = usize(0);
-  (found : bool) = false;
+  (mut(i) : usize) = usize(0);
+  (mut(found) : bool) = false;
   while((i < n) && !found, {
     match(
       fields.get(i),
@@ -114,7 +114,7 @@ _emit_traversal_prototypes :: (fn(context : &FunctionGenerationContext) -> unit)
   em.emit_string_line(`static void __yo_traverse_atomic_stop(void* ptr, void (*visit)(void*, void*)) { (void)ptr; (void)visit; }`);
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
-  vals_cur := context.base.types.walk_start();
+  mut(vals_cur) := context.base.types.walk_start();
   while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
     vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
     match(
@@ -174,15 +174,15 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   if(_has_generic_fields(&runtime_fields), {
     return();
   });
-  constructor_name := String.from("__yo_new_");
+  mut(constructor_name) := String.from("__yo_new_");
   constructor_name.push_string(c_name.clone());
   // Parameter list: "<fieldType> <fieldName>, ..." — a `unit` field has no C
   // member and takes no parameter (the ctor CALL skips the same fields:
   // exprs/other_fn_call.yo, exprs/comptime_value.yo).
-  params := String.from("");
+  mut(params) := String.from("");
   nf := runtime_fields.len();
-  (pi : usize) = usize(0);
-  (any_param : bool) = false;
+  (mut(pi) : usize) = usize(0);
+  (mut(any_param) : bool) = false;
   while(pi < nf, {
     match(
       runtime_fields.get(pi),
@@ -205,7 +205,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   dispose_ptr := dispose_function_takes_pointer(type);
   dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
   (dispose_thunk : String) = match(
-    dispose_opt,
+    &dispose_opt,
     .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
@@ -216,7 +216,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   // allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5).
   is_cell := is_cell_primitive_type(type);
   // Signature + malloc.
-  sig := String.from("static ");
+  mut(sig) := String.from("static ");
   sig.push_string(c_name.clone());
   sig.push_str("* ");
   sig.push_string(constructor_name.clone());
@@ -233,7 +233,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   if(!is_cell, {
     em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
   });
-  alloc := String.from("  ");
+  mut(alloc) := String.from("  ");
   alloc.push_string(c_name.clone());
   alloc.push_str("* obj = (");
   alloc.push_string(c_name.clone());
@@ -720,7 +720,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
   dispose_ptr := dispose_function_takes_pointer(type);
   dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
   (dispose_thunk : String) = match(
-    dispose_opt,
+    &dispose_opt,
     .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
@@ -796,7 +796,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
         });
         // Dispose function pointer (cyclic GC) / type-tag (lightweight path).
         match(
-          dispose_opt,
+          dispose_opt.clone(),
           .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
             em.emit_string_line(`  obj->header.dispose_fn = ${dispose_thunk};`);
           }, {
