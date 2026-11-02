@@ -5611,7 +5611,7 @@ evaluate_module_value :: (
               (gd_provided : bool) = false;
               (gpi : usize) = usize(0);
               while((gpi < g_method_names.len()) && !gd_provided, {
-                if(match(g_method_names.get(gpi), .Some(n) => (n == gd_label), .None => false), {
+                if(match(g_method_names.get_cloned(gpi), .Some(n) => (n == gd_label), .None => false), {
                   gd_provided = true;
                 });
                 gpi = (gpi + usize(1));
@@ -5693,7 +5693,7 @@ evaluate_module_value :: (
       (sbk_i : usize) = usize(0);
       while(sbk_i < forall_names.len(), {
         match(
-          forall_names.get(sbk_i),
+          forall_names.get_cloned(sbk_i),
           .Some(sbk_n) => clear_some_binder_kind(&sbk_n, frame_lvl),
           .None => ()
         );
@@ -5799,7 +5799,7 @@ evaluate_module_value :: (
               ast_expr_is_fn_call_of(&pre_field_expr, BK_COLON, .Some(usize(2)))
           );
           if(!is_colon_pair, {
-            tname := ast_expr_text(&pre_field_expr).*;
+            tname := ast_expr_text(&pre_field_expr).*.clone();
             if(tname.len() > usize(0), {
               first_byte := tname.get_byte(usize(0));
               // Trait names start with an uppercase ASCII letter
@@ -5982,7 +5982,7 @@ evaluate_module_value :: (
         if(!is_negative_field && (ast_expr_is_fn_call(&field_expr) && !ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2)))), {
           pos_trait_name := match(
             field_expr,
-            .FnCall(_, pfb, _, _, _) => ast_expr_text(&pfb).*,
+            .FnCall(_, pfb, _, _, _) => ast_expr_text(&pfb).*.clone(),
             .Atom(_, _) => String.new()
           );
           if(((pos_trait_name == "Send") || (pos_trait_name == "Sync")) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
@@ -6241,7 +6241,7 @@ evaluate_module_value :: (
                     .Some(dme) => {
                       dme_name := match(
                         dme,
-                        .FnCall(_, _, Rc(dca), _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_text(&dn).*, .None => String.from("")),
+                        .FnCall(_, _, Rc(dca), _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_text(&dn).*.clone(), .None => String.from("")),
                         .Atom(_, _) => String.from("")
                       );
                       if(dme_name == d_label, {
@@ -7021,7 +7021,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
         (bi : usize) = usize(0);
         while(bi < bucket.len(), {
           match(
-            bucket.get(bi),
+            bucket.get_cloned(bi),
             .Some(ce) => if(g_hand_written_clone_sites.with(m => m.contains_key(ce.site.clone())) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
               exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
@@ -7110,7 +7110,7 @@ _generic_pattern_covered :: (fn(pattern : &TypeValue, trait_ty : &TypeValue, env
   (bi : usize) = usize(0);
   while((bi < bucket.len()) && !covered, {
     match(
-      bucket.get(bi),
+      bucket.get_cloned(bi),
       .Some(e) => match(
         try_match_generic_impl(pattern, &e, env, false),
         .Some(bindings) => {
