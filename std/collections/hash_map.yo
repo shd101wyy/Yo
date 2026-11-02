@@ -1380,9 +1380,10 @@ impl(
 // advances a COPY of the field, so `_index` never moved and manual
 // `it.next()` loops yielded the first key forever (`for(...)` masked it).
 // Scan directly instead, mirroring `HashMapIterPtr`.
-/// Iterator over a map's keys, in bucket order — what `keys()` returns. Each
-/// key is yielded as a clone (`K <: Clone`): a `String` key owns its bytes
-/// since B8, so the map keeps its own.
+/// Iterator over a map's keys, in bucket order — what `keys()` returns. The
+/// iterator owns the map (`keys()` consumes it), so each key moves out of its
+/// bucket and the bucket's value is dropped: nothing is cloned, and a
+/// move-only key works.
 HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1391,7 +1392,7 @@ HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Clone)),
+  where(K <: (Eq(K), Hash)),
   HashMapKeys(K, V),
   Iterator(
     Item : K,
@@ -1406,7 +1407,11 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.key.clone());
+                // SAFETY: as in `HashMapIter.next` — the iterator owns the
+                // map, so the entry moves out and the bucket is vacated.
+                e := __yo_ptr_read(data_ptr.add(self._index));
+                self._map._vacate(self._index);
+                result = match(e, { key : key, value : _ } => .Some(key));
               },
               true => ()
             );
@@ -1421,8 +1426,8 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Walk the keys, in bucket order — Rust's `keys`. Yields them by value;
-  /// `iter()` is the way to see keys without dup'ing them.
+  /// Walk the keys, in bucket order — Rust's `into_keys`. Each key moves out
+  /// of the map and each value is dropped.
   ///
   /// Consumes the map (lookahead D20): `m.clone().keys()` walks a map that is
   /// read again later. `keys_cloned()` lists the keys of a borrowed map,
@@ -1434,7 +1439,7 @@ impl(
 // NOTE: Same direct-scan structure as `HashMapKeys` — see the note there for
 // why the wrapped-`_inner` delegation form was replaced.
 /// Iterator over a map's values, in bucket order — what `values()` returns.
-/// Each value is yielded as a clone (`V <: Clone`), as `HashMapKeys` does.
+/// Each value moves out of its bucket, as `HashMapKeys` moves its keys.
 HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1443,7 +1448,7 @@ HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash), V <: Clone),
+  where(K <: (Eq(K), Hash)),
   HashMapValues(K, V),
   Iterator(
     Item : V,
@@ -1458,7 +1463,10 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.value.clone());
+                // SAFETY: as in `HashMapKeys.next`.
+                e := __yo_ptr_read(data_ptr.add(self._index));
+                self._map._vacate(self._index);
+                result = match(e, { key : _, value : value } => .Some(value));
               },
               true => ()
             );
@@ -1473,9 +1481,8 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Walk the values, in bucket order — Rust's `values`. Yields them by
-  /// value; `iter()` hands out entry pointers instead, which is the cheaper
-  /// way to read a refcounted `V`.
+  /// Walk the values, in bucket order — Rust's `into_values`. Each value
+  /// moves out of the map and each key is dropped.
   ///
   /// Consumes the map (lookahead D20). `values_cloned()` lists the values of
   /// a borrowed map.
