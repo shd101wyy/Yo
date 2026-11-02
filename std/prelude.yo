@@ -9748,11 +9748,7 @@ export(Result);
 /// assert(b.* == a.*, "a and b name the same value");
 /// ```
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      (*) : V
-    )
-  )
+  newtype(_cell : __yo_cell(V))
 );
 /// The constructor of `Rc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
 /// `Rc.new(value)`, or `Rc(T).new(value)` with the type written. It replaced
@@ -9781,28 +9777,15 @@ impl(
     // over the unbound `T`, a second C type
     // (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md).
     //
-    // The cell constructor allocates from the thread's current scope, so an
-    // explicit allocator is that scope for the one construction, as in
-    // `Arc.new` (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_cell`, the
-    // explicit path goes through the scope). Nothing between the two sets can
-    // unwind: an allocation failure aborts.
+    // The cell takes the allocator itself (`__yo_cell(T)(value, alloc)`,
+    // plans/VALUES_BY_DEFAULT.md §3.5): `.Some(a)` places it in `a`, `.None`
+    // on the global allocator, with no swap of the thread's scope.
     //
-    // The `match` is bound, not the body's tail: a tail `match` takes the
+    // The handle is bound, not the body's tail: a tail expression takes the
     // declared result as its type, and for a `dyn(...)` closure that captures
     // a parameter of a generic function that type is unbound, a second C type
     // for the result (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
-    cell := match(
-      alloc,
-      .Some(a) => {
-        saved_ctx := __yo_scope_ctx();
-        saved_vtable := __yo_scope_vtable();
-        __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
-        placed := Rc(T)(value);
-        __yo_scope_set(saved_ctx, saved_vtable);
-        placed
-      },
-      .None => Rc(T)(value)
-    );
+    cell := Rc(T)(__yo_cell(T)(value, alloc));
     cell
   })
 );
@@ -10363,13 +10346,7 @@ export(Box);
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
-  atomic(
-    ref(
-      struct(
-        (*) : V
-      )
-    )
-  )
+  newtype(_cell : __yo_atomic_cell(V))
 );
 /// The constructor of `Arc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
 /// `Arc.new(value)`, or `Arc(T).new(value)` with the type written. It replaced
@@ -10395,28 +10372,11 @@ impl(
   /// assert(a.* == i32(42), "the payload");
   /// ```
   new : (fn(sink(value) : T, (alloc : Option(Allocator)) ?= .None) -> Arc(T))({
-    // `Arc(T)`, not `Self`, for `Rc.new`'s reason.
-    //
-    // The cell constructor allocates from the thread's current scope, so an
-    // explicit allocator is that scope for the one construction
-    // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_atomic_cell`, the
-    // explicit path goes through the scope). Nothing between the two sets
-    // can unwind: an allocation failure aborts.
-    //
-    // The `match` is bound, not the body's tail, for `Rc.new`'s reason
+    // `Arc(T)`, not `Self`, for `Rc.new`'s reason. The atomic cell takes the
+    // allocator itself, as `Rc.new`'s does, and the handle is bound, not the
+    // body's tail, for `Rc.new`'s reason
     // (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
-    cell := match(
-      alloc,
-      .Some(a) => {
-        saved_ctx := __yo_scope_ctx();
-        saved_vtable := __yo_scope_vtable();
-        __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
-        placed := Arc(T)(value);
-        __yo_scope_set(saved_ctx, saved_vtable);
-        placed
-      },
-      .None => Arc(T)(value)
-    );
+    cell := Arc(T)(__yo_atomic_cell(T)(value, alloc));
     cell
   })
 );
@@ -13602,20 +13562,9 @@ __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocato
   // `Rc.new`'s body, kept as `dyn(...)`'s own constructor: a closure
   // literal's payload type is the `Dyn`'s open payload wrapper, and only a
   // generic FUNCTION's binder resolves it to the capture struct
-  // (`_prelude_cell_constructor`, src/evaluator/values/dyn.yo). The `match` is
+  // (`_prelude_cell_constructor`, src/evaluator/values/dyn.yo). The handle is
   // bound for `Rc.new`'s reason.
-  cell := match(
-    alloc,
-    .Some(a) => {
-      saved_ctx := __yo_scope_ctx();
-      saved_vtable := __yo_scope_vtable();
-      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
-      placed := Rc(V)(value);
-      __yo_scope_set(saved_ctx, saved_vtable);
-      placed
-    },
-    .None => Rc(V)(value)
-  );
+  cell := Rc(V)(__yo_cell(V)(value, alloc));
   cell
 });
 /// `dyn(...)`'s atomically counted cell constructor, for a `Dyn(..., Send)`
@@ -13624,17 +13573,6 @@ __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocato
 __yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))({
   // `Arc.new`'s body, kept as `dyn(...)`'s constructor for a Send target, for
   // `__yo_rc_cell`'s reason.
-  cell := match(
-    alloc,
-    .Some(a) => {
-      saved_ctx := __yo_scope_ctx();
-      saved_vtable := __yo_scope_vtable();
-      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
-      placed := Arc(V)(value);
-      __yo_scope_set(saved_ctx, saved_vtable);
-      placed
-    },
-    .None => Arc(V)(value)
-  );
+  cell := Arc(V)(__yo_atomic_cell(V)(value, alloc));
   cell
 });
