@@ -17,8 +17,8 @@ pragma(Pragma.AllowUnsafe);
 
 /// A task that sleeps `ms` then returns `value`.
 sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
-  v := Rc(i32)(value);
-  m := Rc(u64)(ms);
+  v := Rc(i32).new(value);
+  m := Rc(u64).new(ms);
   io.async((io : Io) => {
     io.await(sleep(m.*), io);
     return(v.*);
@@ -47,8 +47,8 @@ test("Test join_all drains the list it takes", {
   // V2b), so the caller's binding sees the list `join_all` drained: every
   // handle moved out and was consumed by its join.
   handles := ArrayList(JoinHandle(Rc(i32))).new();
-  handles.push(io.spawn(io.async((io : Io) => Rc(i32)(4)), io));
-  handles.push(io.spawn(io.async((io : Io) => Rc(i32)(5)), io));
+  handles.push(io.spawn(io.async((io : Io) => Rc(i32).new(4)), io));
+  handles.push(io.spawn(io.async((io : Io) => Rc(i32).new(5)), io));
   outs := io.await(join_all(handles, io), io);
   assert(handles.len() == usize(0), "join_all drained the list");
   // Each result moves out of its joined task.
@@ -277,7 +277,7 @@ test("Test any_first is None when every handle was aborted", {
 // ---------------------------------------------------------------------------
 /// Spawns `n` sleepy workers inside a task and joins them one by one.
 join_in_task :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
-  count := Rc(i32)(n);
+  count := Rc(i32).new(n);
   io.async((io : Io) => {
     handles := ArrayList(JoinHandle(i32)).new();
     (mut(k) : i32) = i32(0);
