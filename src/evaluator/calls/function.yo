@@ -403,31 +403,35 @@ _reject_dyn_uncallable_method_call :: (
             // lists `Clone` reaches it through the vtable prefix's clone slot,
             // which returns a `Dyn` of the receiver's type
             // (plans/VALUES_BY_DEFAULT.md decision 7).
-            Rc(.TraitT({ name : tname, body : fls_body })) => { fls := fls_body.field_labels(); fts := fls_body.field_types(); if(!is_clone_trait_type(&tt), {
-              (j : usize) = usize(0);
-              while(j < fls.len(), {
-                if(match(fls.get_cloned(j), .Some(l) => (l == name_tok.value.*), .None => false), {
-                  ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-                  if(dyn_member_is_method(&ft), {
-                    match(
-                      dyn_member_unsafe_reason(&ft),
-                      .Some(reason) => {
-                        exn.throw(
-                          dyn(
-                            format_error_message(
-                              &name_tok,
-                              `Method "${name_tok.value.*}" of trait ${tname} cannot be called through a Dyn receiver (${type_to_string(&recv_ty)}): ${reason}. Call it on a concrete value, or declare it with Self only as the receiver and no generic(...) parameters.`
+            Rc(.TraitT({ name : tname, body : fls_body })) => {
+              fls := fls_body.field_labels();
+              fts := fls_body.field_types();
+              if(!is_clone_trait_type(&tt), {
+                (j : usize) = usize(0);
+                while(j < fls.len(), {
+                  if(match(fls.get_cloned(j), .Some(l) => (l == name_tok.value.*), .None => false), {
+                    ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                    if(dyn_member_is_method(&ft), {
+                      match(
+                        dyn_member_unsafe_reason(&ft),
+                        .Some(reason) => {
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                &name_tok,
+                                `Method "${name_tok.value.*}" of trait ${tname} cannot be called through a Dyn receiver (${type_to_string(&recv_ty)}): ${reason}. Call it on a concrete value, or declare it with Self only as the receiver and no generic(...) parameters.`
+                              )
                             )
-                          )
-                        );
-                      },
-                      .None => ()
-                    );
+                          );
+                        },
+                        .None => ()
+                      );
+                    });
                   });
+                  j = (j + usize(1));
                 });
-                j = (j + usize(1));
-              });
-            }) },
+              })
+            },
             _ => ()
           ),
           .None => ()
@@ -3025,7 +3029,11 @@ _try_rewrite_range_index_to_slice_copy :: (
 _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValue) -> TypeValue)(
   match(
     wrapper,
-    Rc(.SomeT(fw_id, fw_nm, fw_fl, fw_pt, fw_rtt_bnd, fw_kft, fw_rc)) => { fw_rtt := fw_rtt_bnd.required(); fw_rtl := fw_rtt_bnd.required_levels(); fw_ntt := fw_rtt_bnd.negative(); fw_ntl := fw_rtt_bnd.negative_levels(); 
+    Rc(.SomeT(fw_id, fw_nm, fw_fl, fw_pt, fw_rtt_bnd, fw_kft, fw_rc)) => {
+      fw_rtt := fw_rtt_bnd.required();
+      fw_rtl := fw_rtt_bnd.required_levels();
+      fw_ntt := fw_rtt_bnd.negative();
+      fw_ntl := fw_rtt_bnd.negative_levels();
       new_rtt := ArrayList(TypeValue).new();
       (i : usize) = usize(0);
       while(i < fw_rtt.len(), {
@@ -3055,7 +3063,8 @@ _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
   match(
     t,
     Rc(.FutureTraitT({ output : o })) => match(o, Rc(.SomeT({ id : oid })) => Option(String).Some(oid.clone()), _ => Option(String).None),
-    Rc(.SomeT({ bounds : rtts_bnd })) => { rtts := rtts_bnd.required(); 
+    Rc(.SomeT({ bounds : rtts_bnd })) => {
+      rtts := rtts_bnd.required();
       (i : usize) = usize(0);
       (found : Option(String)) = Option(String).None;
       while((i < rtts.len()) && found.is_none(), {
@@ -3097,17 +3106,23 @@ _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
 _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bnd, kind_function_type : skft })) => { srtt := srtt_bnd.required(); srtl := srtt_bnd.required_levels(); sntt := srtt_bnd.negative(); sntl := srtt_bnd.negative_levels(); Rc.new(
-      TypeValueNode.SomeT(
-        generate_some_type_id(),
-        sn.clone(),
-        sfl,
-        spt.clone(),
-        some_t_bounds(srtt.clone(), srtl.clone(), sntt.clone(), sntl.clone()),
-        skft.clone(),
-        Option(TypeValue).None
+    Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bnd, kind_function_type : skft })) => {
+      srtt := srtt_bnd.required();
+      srtl := srtt_bnd.required_levels();
+      sntt := srtt_bnd.negative();
+      sntl := srtt_bnd.negative_levels();
+      Rc.new(
+        TypeValueNode.SomeT(
+          generate_some_type_id(),
+          sn.clone(),
+          sfl,
+          spt.clone(),
+          some_t_bounds(srtt.clone(), srtl.clone(), sntt.clone(), sntl.clone()),
+          skft.clone(),
+          Option(TypeValue).None
+        )
       )
-    ) },
+    },
     _ => Rc.clone(t)
   )
 );
@@ -3484,17 +3499,23 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // codegen lowers it as before), carries the assumed borrows.
     assumed_ty := match(
       &info.ty,
-      Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bnd2, kind_function_type : skft })) => { srtt := srtt_bnd2.required(); srtl := srtt_bnd2.required_levels(); sntt := srtt_bnd2.negative(); sntl := srtt_bnd2.negative_levels(); Rc.new(
-        TypeValueNode.SomeT(
-          generate_some_type_id(),
-          sn.clone(),
-          sfl,
-          spt.clone(),
-          some_t_bounds(srtt.clone(), srtl.clone(), sntt.clone(), sntl.clone()),
-          skft.clone(),
-          Option(TypeValue).Some(info.ty.clone())
+      Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bnd2, kind_function_type : skft })) => {
+        srtt := srtt_bnd2.required();
+        srtl := srtt_bnd2.required_levels();
+        sntt := srtt_bnd2.negative();
+        sntl := srtt_bnd2.negative_levels();
+        Rc.new(
+          TypeValueNode.SomeT(
+            generate_some_type_id(),
+            sn.clone(),
+            sfl,
+            spt.clone(),
+            some_t_bounds(srtt.clone(), srtl.clone(), sntt.clone(), sntl.clone()),
+            skft.clone(),
+            Option(TypeValue).Some(info.ty.clone())
+          )
         )
-      ) },
+      },
       _ => return(())
     );
     match(&assumed_ty, Rc(.SomeT({ id : a_id })) => register_capture_borrows(&a_id, &bs), _ => ());
@@ -4859,7 +4880,11 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
           ffts.get(fb_i),
           .Some(fbt) => match(
             fbt,
-            Rc(.SomeT({ name : fbn, frame_level : fbl, parent_type : fbpt, bounds : fbrtt_bnd, kind_function_type : fbkft })) => { fbrtt := fbrtt_bnd.required(); fbrtl := fbrtt_bnd.required_levels(); fbntt := fbrtt_bnd.negative(); fbntl := fbrtt_bnd.negative_levels(); 
+            Rc(.SomeT({ name : fbn, frame_level : fbl, parent_type : fbpt, bounds : fbrtt_bnd, kind_function_type : fbkft })) => {
+              fbrtt := fbrtt_bnd.required();
+              fbrtl := fbrtt_bnd.required_levels();
+              fbntt := fbrtt_bnd.negative();
+              fbntl := fbrtt_bnd.negative_levels();
               subst_add(
                 &fbs,
                 fbn.clone(),
@@ -4973,7 +4998,8 @@ _gc_collect_binder_sites :: (
         somes.get(si),
         .Some(sv) => match(
           &sv,
-          Rc(.SomeT({ id : sid, name : snm, frame_level : slvl, bounds : srt_bnd })) => { srt := srt_bnd.required(); 
+          Rc(.SomeT({ id : sid, name : snm, frame_level : slvl, bounds : srt_bnd })) => {
+            srt := srt_bnd.required();
             (ni : usize) = usize(0);
             while(ni < forall_names.len(), {
               match(
@@ -5087,17 +5113,23 @@ _gc_freshen_all_sites :: (
       g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => Rc.new(TypeValueNode.Unit));
       g_made := match(
         &g_proto,
-        Rc(.SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, bounds : g_prtt_bnd, kind_function_type : g_pkft })) => { g_prtt := g_prtt_bnd.required(); g_prtl := g_prtt_bnd.required_levels(); g_pntt := g_prtt_bnd.negative(); g_pntl := g_prtt_bnd.negative_levels(); Rc.new(
-          TypeValueNode.SomeT(
-            generate_some_type_id(),
-            g_pn.clone(),
-            g_pl,
-            g_ppt.clone(),
-            some_t_bounds(g_prtt.clone(), g_prtl.clone(), g_pntt.clone(), g_pntl.clone()),
-            g_pkft.clone(),
-            Option(TypeValue).None
+        Rc(.SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, bounds : g_prtt_bnd, kind_function_type : g_pkft })) => {
+          g_prtt := g_prtt_bnd.required();
+          g_prtl := g_prtt_bnd.required_levels();
+          g_pntt := g_prtt_bnd.negative();
+          g_pntl := g_prtt_bnd.negative_levels();
+          Rc.new(
+            TypeValueNode.SomeT(
+              generate_some_type_id(),
+              g_pn.clone(),
+              g_pl,
+              g_ppt.clone(),
+              some_t_bounds(g_prtt.clone(), g_prtl.clone(), g_pntt.clone(), g_pntl.clone()),
+              g_pkft.clone(),
+              Option(TypeValue).None
+            )
           )
-        ) },
+        },
         _ => Rc.clone(g_proto)
       );
       fresh_ids.push(g_id.clone());
@@ -5339,7 +5371,11 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           Rc.new(TypeValueNode.Func(Rc.clone(cb_ft), Rc.clone(cb_pt), Rc.clone(cb_it), Rc.clone(cb_wt), t_slot_with_pointee(&cb_res, &body), Rc.clone(cb_meta), no_types())),
           Rc.clone(info.ty)
         ),
-        Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt_bnd, rf_kft, rf_rc)) => { rf_rtt := rf_rtt_bnd.required(); rf_rtl := rf_rtt_bnd.required_levels(); rf_ntt := rf_rtt_bnd.negative(); rf_ntl := rf_rtt_bnd.negative_levels(); 
+        Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt_bnd, rf_kft, rf_rc)) => {
+          rf_rtt := rf_rtt_bnd.required();
+          rf_rtl := rf_rtt_bnd.required_levels();
+          rf_ntt := rf_rtt_bnd.negative();
+          rf_ntl := rf_rtt_bnd.negative_levels();
           new_rtt := ArrayList(TypeValue).new();
           (rf_i : usize) = usize(0);
           while(rf_i < rf_rtt.len(), {
@@ -6486,7 +6522,8 @@ _rre_binder_ids :: (
         somes.get(si),
         .Some(sv) => match(
           sv,
-          Rc(.SomeT({ id : sid, name : snm, bounds : srt_bnd2 })) => { srt := srt_bnd2.required(); 
+          Rc(.SomeT({ id : sid, name : snm, bounds : srt_bnd2 })) => {
+            srt := srt_bnd2.required();
             (ni : usize) = usize(0);
             while(ni < forall_names.len(), {
               match(
@@ -6576,7 +6613,8 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
         somes.get(si),
         .Some(sv) => match(
           sv,
-          Rc(.SomeT({ name : sn, bounds : srt_bnd3 })) => { srt := srt_bnd3.required(); 
+          Rc(.SomeT({ name : sn, bounds : srt_bnd3 })) => {
+            srt := srt_bnd3.required();
             (ni : usize) = usize(0);
             while((ni < ids.len()) && !found, {
               match(
@@ -7983,13 +8021,13 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
   match(
     flow_violation_error(),
     .Some(fv) => match(
-      fv.diagnostics.get(usize(0)),
+      fv.diagnostics.get_cloned(usize(0)),
       .Some(fd) => if(is_std_module_path(&fd.span.path, ctx.std_path.clone()), {
         // The enclosing trial swallows what this fn returns and re-raises
         // the PENDING copy (`reraise_flow_violation`), so the decision-20
         // help must ride this one as well.
         fv_anchored := reanchor_primary_at(&fv, call_tok, String.from(STD_RAISE_NOTE));
-        flag_flow_violation(match(accessor_help, .Some(h) => _with_primary_help(&fv_anchored, &h), .None => fv_anchored));
+        flag_flow_violation(match(&accessor_help, .Some(h) => _with_primary_help(&fv_anchored, &h), .None => fv_anchored));
       }),
       .None => ()
     ),
@@ -7999,7 +8037,7 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
     downcast(err, YoError),
     .Some(ye) => {
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
-      dyn(match(accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
+      dyn(match(&accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
     },
     .None => err
   )
@@ -8054,7 +8092,7 @@ _instantiate_struct_over_closure_args :: (
           .Some(ic_arg_opt) => match(
             ic_arg_opt,
             .Some(ic_arg) => if(is_bound_closure_identity(&ic_arg), {
-              ic_lbl := match(fields.get(fi), .Some(f) => f.label.clone(), .None => String.new());
+              ic_lbl := match(fields.get_cloned(fi), .Some(f) => f.label.clone(), .None => String.new());
               (lj : usize) = usize(0);
               while(lj < ic_labels.len(), {
                 if(match(ic_labels.get_cloned(lj), .Some(l) => (l == ic_lbl), .None => false), {
@@ -8217,7 +8255,7 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
   });
   (callee, args) := match(
     call,
-    .FnCall(_, hc_callee, Rc(hc_args), false, _) => (hc_callee, hc_args),
+    .FnCall(_, hc_callee, Rc(hc_args), false, _) => (hc_callee, hc_args.clone()),
     _ => return(())
   );
   name_tok := match(callee, .Atom(_, t) => t, _ => return(()));
@@ -8542,7 +8580,7 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
   });
   holds_owned := (type_contains_rc_type(&callee_info.ty) || type_requires_explicit_copy(&callee_info.ty));
   name := match(
-    callee_info.variable_name,
+    &callee_info.variable_name,
     .Some(n) => n.clone(),
     .None => {
       // A closure stored in a field (`h.f()`): the call would move it out of
@@ -9219,7 +9257,7 @@ _evaluate_function_call_unanchored :: (
       .Some(iob_ci) => match(
         &iob_ci.ty,
         Rc(.Func({ meta : iob_m })) => match(
-          iob_m.*.extern_name,
+          &iob_m.*.extern_name,
           .Some(iob_en) => if((iob_en == "__yo_io_async") || (iob_en == "__yo_io_await")
           || (iob_en == "__yo_io_state") || (iob_en == "__yo_io_spawn")
           || (iob_en == "__yo_join_handle_await"), {
@@ -9363,7 +9401,7 @@ _evaluate_function_call_unanchored :: (
   callee_ty_for_gate := match(callee_info_opt, .Some(ci) => Rc.clone(ci.ty), .None => t_unit());
   gate_is_extern_c := match(
     &callee_ty_for_gate,
-    Rc(.Func({ meta : __fm3 })) => match(__fm3.*.is_extern, .Some(lang) => (lang == "c"), .None => false),
+    Rc(.Func({ meta : __fm3 })) => match(&__fm3.*.is_extern, .Some(lang) => (lang == "c"), .None => false),
     _ => false
   );
   gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.*.clone()));
@@ -9379,7 +9417,7 @@ _evaluate_function_call_unanchored :: (
   // gated by the `unsafe(...)` rule below.
   gate_is_extern_runtime := match(
     &callee_ty_for_gate,
-    Rc(.Func({ meta : __fm_d6 })) => match(__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
+    Rc(.Func({ meta : __fm_d6 })) => match(&__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
     _ => false
   );
   if(gate_is_extern_runtime && _d6_callee_is_by_name(&func_expr, ctx) && !gate_in_autogen && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
@@ -9387,7 +9425,7 @@ _evaluate_function_call_unanchored :: (
       dyn(
         format_error_message(
           &tok,
-          `Calling the runtime extern '${match(&callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(__fm_d6n.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Calling the runtime extern '${match(&callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(&__fm_d6n.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -9395,7 +9433,7 @@ _evaluate_function_call_unanchored :: (
   if(gate_is_extern_c && !ctx.unsafe_context && !gate_in_autogen, {
     callee_name := match(
       callee_ty_for_gate,
-      Rc(.Func({ meta : __fm4 })) => match(__fm4.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)),
+      Rc(.Func({ meta : __fm4 })) => match(&__fm4.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)),
       _ => ast_expr_to_string(&func_expr)
     );
     exn.throw(
@@ -9642,7 +9680,7 @@ Fix: wrap the call:
             (fsi : usize) = usize(0);
             while(fsi < fields.len(), {
               match(
-                fields.get(fsi),
+                fields.get_cloned(fsi),
                 .Some(fld) => {
                   // Move the registry field into a mutable local and override ONLY
                   // its `ty` with the value's substituted type (metadata moves with
@@ -9723,11 +9761,11 @@ Fix: wrap the call:
                 match(
                   iobp_ty,
                   Rc(.Func({ meta : iobp_m })) => match(
-                    iobp_m.*.extern_name,
+                    &iobp_m.*.extern_name,
                     .Some(iobp_en) => if((iobp_en == "__yo_io_async") || (iobp_en == "__yo_io_await")
                     || (iobp_en == "__yo_io_state") || (iobp_en == "__yo_io_spawn")
                     || (iobp_en == "__yo_join_handle_await"), {
-                      iobp_lbl := match(fields.get(iobp_i), .Some(f) => f.label.clone(), .None => String.new());
+                      iobp_lbl := match(fields.get_cloned(iobp_i), .Some(f) => f.label.clone(), .None => String.new());
                       if(iobp_lbl.len() > usize(0), {
                         record_io_builtin_struct_field(struct_id.clone(), &iobp_lbl, iobp_en.clone());
                       });
@@ -9775,7 +9813,7 @@ Fix: wrap the call:
                     match(
                       inner_v_s,
                       .Some(v_s2) => {
-                        lbl_s := match(fields.get(bi_s), .Some(f) => f.label.clone(), .None => String.new());
+                        lbl_s := match(fields.get_cloned(bi_s), .Some(f) => f.label.clone(), .None => String.new());
                         fnames_s.push(lbl_s);
                         fvals_s.push(v_s2);
                       },
@@ -10293,7 +10331,7 @@ Fix: wrap the call:
         // Placed AFTER the partial-application block above on purpose: the
         // `_`-hole logic runs BEFORE the peel, so
         // `f(generic(i32), _)` must still see the raw argument count.
-        (fv_args : ArrayList(AstExpr)) = args;
+        (fv_args : ArrayList(AstExpr)) = args.clone();
         fv_pre_forall_names := ArrayList(String).new();
         fv_pre_forall_vals := ArrayList(EvalValue).new();
         fv_pre_forall_tys := ArrayList(TypeValue).new();
@@ -11415,7 +11453,7 @@ Fix: wrap the call:
         if(fv_forall_conflicts.len() > usize(0), {
           fc_arg := match(fv_forall_conflict_args.get(usize(0)), .Some(i) => i, .None => usize(0));
           fc_tok := match(fv_args.get(fc_arg), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
-          exn.throw(dyn(format_error_message(&fc_tok, match(fv_forall_conflicts.get(usize(0)), .Some(m) => m, .None => String.new()))));
+          exn.throw(dyn(format_error_message(&fc_tok, match(fv_forall_conflicts.get_cloned(usize(0)), .Some(m) => m, .None => String.new()))));
         });
         // A binder no argument fixed, bound from the EXPECTED type instead:
         // `(x : Option(i32)) = mk()` with `mk : fn(generic(T)) -> Option(T)`
@@ -12552,7 +12590,7 @@ Fix: wrap the call:
         // issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md.
         rt_is_yo_as := match(
           callee_ty,
-          Rc(.Func({ meta : __fm_rt_as })) => match(__fm_rt_as.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
+          Rc(.Func({ meta : __fm_rt_as })) => match(&__fm_rt_as.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
           _ => false
         );
         attach_temp_variable_to_expr(expr, !rt_is_yo_as, ctx);
@@ -13286,7 +13324,7 @@ Fix: wrap the call:
           // (issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md).
           none_is_yo_as := match(
             callee_ty_none,
-            Rc(.Func({ meta : __fm_none })) => match(__fm_none.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
+            Rc(.Func({ meta : __fm_none })) => match(&__fm_none.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
             _ => false
           );
           attach_temp_variable_to_expr(expr, !none_is_yo_as, ctx);
