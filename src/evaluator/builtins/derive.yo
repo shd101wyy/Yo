@@ -68,9 +68,17 @@ pragma(Pragma.AllowUnsafe);
 (g_derive_impl_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _flag_derive_impl_err :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_derive_impl_err.with_mut(xs => xs.clear());
-  g_derive_impl_err.with_mut(xs => xs.push(msg.clone()));
+  derive_msg := msg.clone();
+  g_derive_impl_err.with_mut({ derive_msg }(xs) => xs.push(derive_msg));
   g_derive_impl_code.with_mut(xs => xs.clear());
-  match(code, .Some(c) => g_derive_impl_code.with_mut(xs => xs.push(c.clone())), .None => ());
+  match(
+    code,
+    .Some(c) => {
+      derive_code := c.clone();
+      g_derive_impl_code.with_mut({ derive_code }(xs) => xs.push(derive_code));
+    },
+    .None => ()
+  );
 });
 _clear_derive_impl_err :: (fn() -> unit)({
   g_derive_impl_err.with_mut(xs => xs.clear());
