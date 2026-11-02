@@ -2400,7 +2400,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      reg_ty := match(out_tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       register_module(abs.clone(), &mv, &reg_ty);
       module_load_end(abs, touch_mark);
       Option(String).None
@@ -2808,7 +2808,7 @@ mm_eval_entry_exprs :: (
       ModuleLoadOutcome(
         ok : true,
         module_value : mv,
-        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)),
+        module_type : match(out_tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)),
         env : env,
         ctx : ctx
       )

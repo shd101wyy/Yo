@@ -814,7 +814,7 @@ _ti_bind_type_field_list :: (
   n := labels.len();
   while(i < n, {
     label := match(labels.get(i), .Some(l) => l, .None => String.from(""));
-    field_ty := match(types.get(i), .Some(t) => t, .None => t_unit());
+    field_ty := match(types.get_cloned(i), .Some(t) => t, .None => t_unit());
     fi_val := _ti_build_type_field_info(env_ptr, &label, &field_ty, ctx, exn);
     fi_vals.push(fi_val);
     i = (i + usize(1));
@@ -885,7 +885,7 @@ _ti_bind_trait_info_list :: (
   values := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   while(i < trait_types.len(), {
-    tt := match(trait_types.get(i), .Some(t) => t, .None => t_unit());
+    tt := match(trait_types.get_cloned(i), .Some(t) => t, .None => t_unit());
     tt_name := _ti_bind_type(env_ptr, &tt, ctx);
     code := String.from("TraitInfo(");
     code.push_string(&tt_name);
@@ -958,12 +958,12 @@ _ti_bind_function_info :: (
     n := param_types.len();
     while(i < n, {
       lbl := match(param_labels.get(i), .Some(l) => l, .None => String.new());
-      pty := match(param_types.get(i), .Some(t) => t_slot_pointee(&t), .None => t_unit());
+      pty := match(param_types.get_cloned(i), .Some(t) => t_slot_pointee(&t), .None => t_unit());
       param_vals.push(_ti_build_param_info(env_ptr, &lbl, &pty, false, false, ctx, exn));
       i = (i + usize(1));
     });
     match(
-      variadic_types.get(usize(0)),
+      variadic_types.get_cloned(usize(0)),
       .Some(vty) => {
         param_vals.push(
           _ti_build_param_info(env_ptr, variadic_label.clone(), &vty, variadic_comptime, true, ctx, exn)
@@ -980,7 +980,7 @@ _ti_bind_function_info :: (
     (i : usize) = usize(0);
     while(i < forall_types.len(), {
       lbl := match(forall_labels.get(i), .Some(l) => l, .None => String.new());
-      fty := match(forall_types.get(i), .Some(t) => t, .None => t_unit());
+      fty := match(forall_types.get_cloned(i), .Some(t) => t, .None => t_unit());
       fn_ty_name := _ti_bind_type(env_ptr, &fty, ctx);
       code := String.from("ForallParamInfo(\"");
       code.push_string(_ti_escape_str(&lbl));
@@ -1004,7 +1004,7 @@ _ti_bind_function_info :: (
     (i : usize) = usize(0);
     while(i < implicit_types.len(), {
       lbl := match(implicit_labels.get(i), .Some(l) => l, .None => String.new());
-      ity := match(implicit_types.get(i), .Some(t) => t, .None => t_unit());
+      ity := match(implicit_types.get_cloned(i), .Some(t) => t, .None => t_unit());
       it_name := _ti_bind_type(env_ptr, &ity, ctx);
       code := String.from("ImplicitParamInfo(\"");
       code.push_string(_ti_escape_str(&lbl));
@@ -1075,7 +1075,7 @@ _ti_bind_trait_field_info_list :: (
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
     lbl := match(field_labels.get(i), .Some(l) => l, .None => String.new());
-    fty := match(field_types.get(i), .Some(t) => t, .None => t_unit());
+    fty := match(field_types.get_cloned(i), .Some(t) => t, .None => t_unit());
     ft_name := _ti_bind_type(env_ptr, &fty, ctx);
     (is_assoc : bool) = false;
     {

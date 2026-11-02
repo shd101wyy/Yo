@@ -324,7 +324,7 @@ vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
     return(Rc.new(VcTermNode.BoolLit(false)));
   });
   if(ts.len() == usize(1), {
-    return(match(ts.get(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(false))));
+    return(match(ts.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(false))));
   });
   Rc.new(VcTermNode.App(VcOp.OrOp, ts.clone()))
 });

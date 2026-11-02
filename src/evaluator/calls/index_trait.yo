@@ -178,7 +178,7 @@ _resolve_prelude_range_type :: (
     );
     vi = (vi + usize(1));
   });
-  out.get(usize(0))
+  out.get_cloned(usize(0))
 });
 /// The type constructor a struct type came from (`""` when it was not built
 /// by one). See `_check_range_type`.
@@ -212,7 +212,7 @@ _cached_range_type :: (
   fn(inclusive : bool, env : &Environment, ctx : &EvalContext) -> Option(TypeValue)
 )(
   match(
-    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get(usize(0))), g_range_ty_cache.with(xs => xs.get(usize(0)))),
+    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get_cloned(usize(0))), g_range_ty_cache.with(xs => xs.get_cloned(usize(0)))),
     .Some(hit) => Option(TypeValue).Some(hit),
     .None => {
       name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));
@@ -390,7 +390,7 @@ _find_all_index_methods :: (
       (i : usize) = usize(0);
       while(i < n, {
         lbl_opt := field_labels.get(i);
-        ty_opt := field_types.get(i);
+        ty_opt := field_types.get_cloned(i);
         match(
           lbl_opt,
           .Some(lbl) => {
@@ -1226,7 +1226,7 @@ _find_comptime_index_method :: (
   (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
   while((i < n) && found.is_none(), {
     match(
-      methods.get(i),
+      methods.get_cloned(i),
       .Some(m) => {
         match(
           &m.method_type,

@@ -324,7 +324,7 @@ _thread_marker_named_in :: (fn(tys : &ArrayList(TypeValue)) -> String)({
   (tsi : usize) = usize(0);
   while(tsi < tys.len(), {
     match(
-      tys.get(tsi),
+      tys.get_cloned(tsi),
       .Some(t) => match(
         t,
         Rc(.TraitT(name : tn)) => if((tn == "Send") || ((tn == "Sync") && found.is_empty()), {
@@ -594,13 +594,13 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
   (ti : usize) = usize(0);
   while(ti < tys.len(), {
     match(
-      tys.get(ti),
+      tys.get_cloned(ti),
       .Some(t) => match(
         t,
         Rc(.TraitT({ name : tn, field_labels : fls, field_types : fts })) => {
           (j : usize) = usize(0);
           while(j < fts.len(), {
-            ft := match(fts.get(j), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit));
+            ft := match(fts.get_cloned(j), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit));
             if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
               owned := match(&ft, Rc(.Func({ result : _ })) => match(fn_param_by_value_at(&ft, usize(0)), .Some(o) => o, .None => false), _ => false);
               if(owned, {
@@ -623,7 +623,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
 _traits_name :: (fn(tys : &ArrayList(TypeValue), name : str) -> bool)({
   (ti : usize) = usize(0);
   while(ti < tys.len(), {
-    if(match(tys.get(ti), .Some(t) => match(t, Rc(.TraitT(name : tn)) => (tn == name), _ => false), .None => false), {
+    if(match(tys.get_cloned(ti), .Some(t) => match(t, Rc(.TraitT(name : tn)) => (tn == name), _ => false), .None => false), {
       return(true);
     });
     ti = (ti + usize(1));
@@ -876,7 +876,7 @@ _generic_impl_method_for_dyn :: (
   (ci : usize) = usize(0);
   while(ci < cands.len(), {
     match(
-      cands.get(ci),
+      cands.get_cloned(ci),
       .Some(c) => if(c.method_value.is_some() && (picked.is_none() || (c.source_trait_id == trait_id)), {
         picked = Option(MethodCandidate).Some(c);
       }),
