@@ -1382,14 +1382,9 @@ generate_async_block_state_dispose_function :: (
     em.emit_string_line(`    ${dispose_function_name.clone()}_locals(sm_ptr);`);
     em.emit_line("  }");
   });
-  // A fused site's fields (await-site fusion): zeroed unless the task died
-  // while the site was live.
-  fsites := fused_await_sites(analysis, context);
-  released_locals := HashSet(String).new();
-  (fsi : usize) = usize(0);
-  while(fsi < fsites.len(), fsi = (fsi + usize(1)), {
-    match(fsites.get(fsi), .Some(fs) => _emit_fused_site_releases(&fs, String.from("  "), false, &mut released_locals, context), .None => ());
-  });
+  // A fused site's fields (await-site fusion): released only while the site
+  // is live (`_emit_fused_sites_dispose`).
+  _emit_fused_sites_dispose(&fused_await_sites(analysis, context), context);
   em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
   em.emit_line("}");
   // The locals' drops on their own: the abort dispose above, and a block that
@@ -2047,6 +2042,9 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
       sites.get(si),
       .Some(site) => {
         em.emit_declaration_string_line(`  // fused wrapper block ${site.block.async_block_id.clone()} (await-site fusion)`);
+        if(_fused_site_has_releases(&site), {
+          em.emit_declaration_string_line(`  uint8_t ${site.prefix}live;  // the site is running: the dispose releases its fields`);
+        });
         match(
           &site.block.capture_type,
           .Some(ct) => em.emit_declaration_string_line(`  ${_find_capture_type_c_name(&ct, context)} ${site.prefix}capture;`),
@@ -2093,14 +2091,111 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
     );
   });
 });
-/// Release what a fused site's fields hold, then zero them: at the site's end,
-/// and in the caller's dispose (a site that is not live has zeroed fields, so
-/// this releases nothing there). `done_locals` holds the local fields already
-/// handled: a wrapper block reached at two depths shares them, and the dispose
-/// must release each once.
-_emit_fused_site_releases :: (
-  fn(site : &FusedAwaitSite, indent : &String, zero : bool, done_locals : &mut HashSet(String), context : &FunctionGenerationContext) -> unit
-)({
+/// Whether a fused site has a field the caller's dispose would release (its
+/// capture struct or a local holding an RC or move-only value). Such a site
+/// carries a `<prefix>live` flag, set when its capture is stored and cleared
+/// at its end, and the dispose releases its fields only while it is set: a
+/// finished site's fields are zeroed, and a zeroed move-only value is not an
+/// empty one (its `Drop` still runs on it), so the zeroing alone does not
+/// make the dispose's release a no-op
+/// (issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
+_fused_site_has_releases :: (fn(site : &FusedAwaitSite) -> bool)({
+  if(_fused_capture_has_releases(site), {
+    return(true);
+  });
+  lfs := _fused_local_fields(site);
+  (li : usize) = usize(0);
+  while(li < lfs.len(), li = (li + usize(1)), {
+    if(match(lfs.get(li), .Some(lf) => type_contains_rc_cell_or_move_only(&lf.ty), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// Whether a fused site's capture struct holds an RC or move-only value.
+_fused_capture_has_releases :: (fn(site : &FusedAwaitSite) -> bool)(
+  match(&site.block.capture_type, .Some(ct) => type_contains_rc_cell_or_move_only(&ct), .None => false)
+);
+/// The caller's dispose of its fused sites' fields. Each site's capture is
+/// released while that site is live; a local field is released once, while
+/// any site that has it is live (a wrapper block reached at two depths shares
+/// its local fields, and its sites run one after the other).
+_emit_fused_sites_dispose :: (fn(sites : &ArrayList(FusedAwaitSite), context : &FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  locals := ArrayList(FusedLocalField).new();
+  local_names := HashSet(String).new();
+  (si : usize) = usize(0);
+  while(si < sites.len(), si = (si + usize(1)), {
+    match(
+      sites.get(si),
+      .Some(site) => if(_fused_site_has_releases(&site), {
+        if(_fused_capture_has_releases(&site), {
+          em.emit_string_line(`  if (sm->${site.prefix}live) {`);
+          _emit_fused_capture_releases(&site, String.from("    "), false, context);
+          em.emit_line("  }");
+        });
+        lfs := _fused_local_fields(&site);
+        (li : usize) = usize(0);
+        while(li < lfs.len(), li = (li + usize(1)), {
+          match(
+            lfs.get(li),
+            .Some(lf) => if(type_contains_rc_cell_or_move_only(&lf.ty) && !local_names.contains(lf.field_name.clone()), {
+              local_names.insert(lf.field_name.clone());
+              locals.push(lf);
+            }),
+            .None => ()
+          );
+        });
+      }),
+      .None => ()
+    );
+  });
+  (di : usize) = usize(0);
+  while(di < locals.len(), di = (di + usize(1)), {
+    match(
+      locals.get(di),
+      .Some(lf) => {
+        (guard : String) = String.from("");
+        (si2 : usize) = usize(0);
+        while(si2 < sites.len(), si2 = (si2 + usize(1)), {
+          match(
+            sites.get(si2),
+            .Some(site) => {
+              slfs := _fused_local_fields(&site);
+              (sli : usize) = usize(0);
+              while(sli < slfs.len(), sli = (sli + usize(1)), {
+                if(match(slfs.get(sli), .Some(f) => (f.field_name == lf.field_name), .None => false), {
+                  if(guard.len() > usize(0), guard.push_str(" || "));
+                  guard.push_string(&`sm->${site.prefix}live`);
+                });
+              });
+            },
+            .None => ()
+          );
+        });
+        em.emit_string_line(`  if (${guard}) {`);
+        _emit_fused_local_release(&lf, String.from("    "), false, context);
+        em.emit_line("  }");
+      },
+      .None => ()
+    );
+  });
+});
+/// Release what a fused site's fields hold at the site's end, zero them, and
+/// clear the site's `live` flag (`_fused_site_has_releases`).
+_emit_fused_site_end_releases :: (fn(site : &FusedAwaitSite, indent : &String, context : &FunctionGenerationContext) -> unit)({
+  _emit_fused_capture_releases(site, indent, true, context);
+  lfs := _fused_local_fields(site);
+  (li : usize) = usize(0);
+  while(li < lfs.len(), li = (li + usize(1)), {
+    match(lfs.get(li), .Some(lf) => _emit_fused_local_release(&lf, indent.clone(), true, context), .None => ());
+  });
+  if(_fused_site_has_releases(site), {
+    context.base.emitter.emit_string_line(`${indent}sm->${site.prefix}live = 0;`);
+  });
+});
+/// Release a fused site's capture fields (`zero`: then zero the struct).
+_emit_fused_capture_releases :: (fn(site : &FusedAwaitSite, indent : &String, zero : bool, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   match(
     &site.block.capture_type,
@@ -2124,18 +2219,6 @@ _emit_fused_site_releases :: (
     },
     .None => ()
   );
-  lfs := _fused_local_fields(site);
-  (li : usize) = usize(0);
-  while(li < lfs.len(), li = (li + usize(1)), {
-    match(
-      lfs.get(li),
-      .Some(lf) => if(done_locals.contains(lf.field_name.clone()), (), {
-        done_locals.insert(lf.field_name.clone());
-        _emit_fused_local_release(&lf, indent.clone(), zero, context);
-      }),
-      .None => ()
-    );
-  });
 });
 /// One local field of a fused site, at the site's end (`zero`: the block's
 /// scope-end drops released it, so only zero it) or in the dispose.
@@ -2406,6 +2489,10 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     },
     .None => ()
   );
+  // From here until the site's end the caller's dispose releases its fields.
+  if(_fused_site_has_releases(&site), {
+    em.emit_string_line(`${inner}sm->${site.prefix}live = 1;`);
+  });
   // The wrapper returns here: its scope-end drops, through the ordinary
   // emitter and its gates (a drop of a temp the fused site never declared,
   // such as the future it does not build, is skipped there).
@@ -2457,7 +2544,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     })
   );
   generate_deferred_drop_expressions(&site.block.body_expr, inner.clone(), context);
-  _emit_fused_site_releases(&site, inner.clone(), true, HashSet(String).new(), context);
+  _emit_fused_site_end_releases(&site, &inner, context);
   em.emit_string_line(`${indent}}`);
   context.declared_temp_vars = saved_temps2;
   context.emitted_deferred_drop_ids = saved_drop_ids2;
