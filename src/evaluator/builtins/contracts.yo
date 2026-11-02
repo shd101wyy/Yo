@@ -94,7 +94,7 @@ _evaluate_contract_marker :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
+    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (cur_env : Environment) = env;
@@ -155,7 +155,8 @@ _evaluate_contract_marker :: (
 (g_index_unchecked_twins : RefCell(HashMap(ExprId, EvalValue))) = RefCell(HashMap(ExprId, EvalValue)).new(HashMap(ExprId, EvalValue).new());
 set_verify_target_paths :: (fn(paths : &ArrayList(String)) -> unit)({
   g_verify_target_paths.with_mut(xs => xs.clear());
-  g_verify_target_paths.with_mut({ &paths }(xs) => xs.extend_cloned(paths));
+  paths_owned := paths.clone();
+  g_verify_target_paths.with_mut({ paths_owned }(xs) => xs.extend_cloned(&paths_owned));
   // A new verification recording starts: forget the previous compile's
   // container twins (watch rounds). Unlike the proved-site table, which
   // `_run_contract_verification` clears AFTER evaluation, twins are recorded
@@ -395,8 +396,8 @@ _evaluate_transparent_unary :: (
 /// from non-ghost context (a ghost_fn has no runtime semantics).
 (g_ghost_fn_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_ghost_fn :: (fn(func_id : &String) -> unit)({
-  fid := func_id.clone();
-  g_ghost_fn_ids.with_mut({ fid }(s) => s.insert(fid));
+  func_id_owned := func_id.clone();
+  g_ghost_fn_ids.with_mut({ func_id_owned }(s) => s.insert(func_id_owned.clone()));
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
@@ -417,9 +418,11 @@ GhostFnDef :: ref(
 );
 (g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
-  k := func_id.clone();
-  v := GhostFnDef(params : params.clone(), body : body);
-  g_ghost_fn_defs.with_mut({ k, v }(m) => m.insert(k, v));
+  func_id_owned_ := func_id.clone();
+  params_owned := params.clone();
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  gfd_body := body.clone();
+  g_ghost_fn_defs.with_mut({ func_id_owned_, params_owned, gfd_body }(m) => m.insert(func_id_owned_.clone(), GhostFnDef(params : params_owned, body : gfd_body)));
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
@@ -432,9 +435,9 @@ ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
 /// refine() evaluation); read by the verifier's assume/prove walks.
 (g_refine_pred_chains : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String)) -> unit)({
-  k := outer_fid.clone();
-  v := chain.clone();
-  g_refine_pred_chains.with_mut({ k, v }(m) => m.insert(k, v));
+  outer_fid_owned := outer_fid.clone();
+  chain_owned := chain.clone();
+  g_refine_pred_chains.with_mut({ outer_fid_owned, chain_owned }(m) => m.insert(outer_fid_owned.clone(), chain_owned));
   ()
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
@@ -462,7 +465,7 @@ evaluate_refine :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
+    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if((args.len() != usize(1)) && (args.len() != usize(2)), {
@@ -621,7 +624,7 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext
   // ghost-fn registry so every later CALL from non-ghost context errors.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
+    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   match(
@@ -673,7 +676,7 @@ _evaluate_spec_collection :: (
   (cur_env : Environment) = env;
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
+    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
@@ -934,7 +937,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
   while(vi < binder_names.len(), {
     // The loop condition proves the index in [0, len); the panic arms carry
     // that invariant instead of trusting unwrap (safe-mode D7).
-    vname := match(binder_names.get_cloned(vi), .Some(vn) => vn, .None => __yo_panic("contracts: binder_names.get(vi) — vi < len by loop condition"));
+    vname := match(binder_names.get_cloned(vi), .Some(vn) => vn, .None => __yo_panic("contracts: binder_names.get_cloned(vi) — vi < len by loop condition"));
     vty := match(binder_types.get(vi), .Some(vt) => vt, .None => __yo_panic("contracts: binder_types.get(vi) — vi < len by loop condition"));
     _ := add_variable_to_env(
       &cur_env,
@@ -1446,12 +1449,14 @@ derive(ProvedGuardSite, Clone);
 /// twice for one node).
 (g_elided_guard_nodes : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 record_proved_guard_site :: (fn(site : &ProvedGuardSite) -> unit)({
-  nid := site.node_id;
-  site_own := site.clone();
-  existing := match(g_proved_guard_sites.with_mut({ nid }(m) => m.remove(&nid)), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
-  existing.push(site_own);
-  k := site.node_id;
-  g_proved_guard_sites.with_mut({ k, existing }(m) => m.insert(k, existing));
+  // Taken out and stored back (the stored list is not the one `get`
+  // hands out once collections are values); owned captures for the sink
+  // callback.
+  pgs_key := site.node_id.clone();
+  existing := match(g_proved_guard_sites.with_mut(({ pgs_key }(m) => m.remove(&pgs_key))), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
+  existing.push(site.clone());
+  pgs_key2 := site.node_id.clone();
+  g_proved_guard_sites.with_mut(({ pgs_key2, existing }(m) => m.insert(pgs_key2, existing)));
   ()
 });
 /// Drop every recorded site and the elision count (the start of a compile).
@@ -1481,15 +1486,15 @@ elided_guard_count :: (fn() -> usize)(
 /// canonical position? Any mismatch is `false`.
 _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
   match(
+    // The value list is taken by remove-style clone: get copies it (B8).
     g_proved_guard_sites.with(m => m.get_cloned(ast_expr_id(expr))),
     .Some(sites) => {
       tok := ast_expr_token(expr);
       canon := canonical_module_path(&tok.module_path.*);
       (i : usize) = usize(0);
       while(i < sites.len(), {
-        // B9: the fields are compared on the index place itself — binding
-        // the record would copy it (no partial moves off a borrowed list).
-        if((sites(i).class == class) && (sites(i).module == canon) && (sites(i).row == usize(tok.row)) && (sites(i).column == usize(tok.column)), {
+        gs := sites(i).clone();
+        if((gs.class == class) && (gs.module == canon) && (gs.row == usize(tok.row)) && (gs.column == usize(tok.column)), {
           return(true);
         });
         i = (i + usize(1));
@@ -1524,9 +1529,9 @@ guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) 
 /// the misleading "untyped expression" at the hollow body root.
 (g_verify_def_eval_failures : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> unit)({
-  k := fn_id.clone();
-  v := msg.clone();
-  g_verify_def_eval_failures.with_mut({ k, v }(m) => m.insert(k, v));
+  msg_owned := msg.clone();
+  fn_id_owned := fn_id.clone();
+  g_verify_def_eval_failures.with_mut({ msg_owned, fn_id_owned }(m) => m.insert(fn_id_owned, msg_owned.clone()));
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
@@ -1538,10 +1543,12 @@ verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
 /// effects are inert.
 /// The CLI override (`--verify-mode`); the file pragma is source of truth
 /// when present, this decides otherwise.
+// A RefCell, not a mut binding: the Option's String is move-only since the
+// flip, and a mutable module-level binding cannot lend itself to `.clone()`
+// (E0911/E0916).
 (g_verify_mode_override : RefCell(Option(String))) = RefCell(Option(String)).new(Option(String).None);
 set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
-  owned := m.clone();
-  _prev := g_verify_mode_override.replace(owned);
+  g_verify_mode_override.replace(m.clone());
   ()
 });
 /// B9 (decision 18 rule 3): the override moved into a `RefCell`, so reads
@@ -1563,7 +1570,11 @@ resolve_verify_mode :: (fn(module_path : &String) -> String)(
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.NoContracts) => String.from("ignore"),
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.Verify) => String.from("verify"),
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.VerifyOrAssert) => String.from("verify+"),
-    true => _verify_override_value()
+    true => match(
+      g_verify_mode_override.with(o => o.clone()),
+      .Some(m) => m,
+      .None => String.from("runtime")
+    )
   )
 );
 /// Queue one function. First-wins on `fn_id`: the def site fires once per
@@ -1852,9 +1863,10 @@ derive(CallsiteContracts, Clone);
 register_callsite_contracts :: (
   fn(call_id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr)) -> unit
 )({
-  k := call_id.clone();
-  v := CallsiteContracts(reqs : reqs.clone(), enss : enss.clone());
-  _ := g_callsite_contracts.with_mut({ k, v }(m) => m.insert(k, v));
+  reqs_owned := reqs.clone();
+  call_id_owned := call_id.clone();
+  enss_owned := enss.clone();
+  _ := g_callsite_contracts.with_mut({ reqs_owned, call_id_owned, enss_owned }(m) => m.insert(call_id_owned, CallsiteContracts(reqs : reqs_owned.clone(), enss : enss_owned)));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
   g_callsite_contracts.with(m => m.get_cloned(call_id))
@@ -1865,9 +1877,9 @@ callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
 /// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
 (g_specialized_base : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)({
-  k := spec_id.clone();
-  v := base_id.clone();
-  _ := g_specialized_base.with_mut({ k, v }(m) => m.insert(k, v));
+  spec_id_owned := spec_id.clone();
+  base_id_owned := base_id.clone();
+  _ := g_specialized_base.with_mut({ spec_id_owned, base_id_owned }(m) => m.insert(spec_id_owned.clone(), base_id_owned));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
   g_specialized_base.with(m => m.get_cloned(id))

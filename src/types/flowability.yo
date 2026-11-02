@@ -130,8 +130,8 @@ clear_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_messages.with_mut(xs => xs.clear());
 });
 record_cee_error_message :: (fn(msg : &String) -> unit)({
-  m := msg.clone();
-  g_cee_observed_messages.with_mut({ m }(xs) => xs.push(m));
+  msg_owned := msg.clone();
+  g_cee_observed_messages.with_mut({ msg_owned }(xs) => xs.push(msg_owned.clone()));
 });
 cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.with(xs => xs.clone()));
 cee_observed_error :: (fn() -> bool)(
@@ -948,11 +948,14 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
 /// complaint is dropped. A parameter no capture names was never A2's, and
 /// the complaint is re-raised.
 _DeferredSiblingRule :: struct(call_id : usize, label : String, err : YoError);
+derive(_DeferredSiblingRule, Clone);
 (g_deferred_sibling_rules : RefCell(ArrayList(_DeferredSiblingRule))) = RefCell(ArrayList(_DeferredSiblingRule)).new(ArrayList(_DeferredSiblingRule).new());
 /// Record a deferred rule-(b) rejection (see `_DeferredSiblingRule`).
 flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoError) -> unit)({
-  rec := _DeferredSiblingRule(call_id : call_id, label : label.clone(), err : err);
-  g_deferred_sibling_rules.with_mut({ rec }(xs) => xs.push(rec));
+  label_owned := label.clone();
+  // Owned key; `err` is a `ref` handle, cheap to capture (`with_mut`'s
+  // callback is a sink parameter).
+  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
   ()
 });
 /// Settle the deferred rule-(b) rejections of call `call_id` now that A2 has
@@ -960,60 +963,57 @@ flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoErr
 /// the caller): drop those a capture names — A2 judged that parameter's
 /// place, both directions — and re-raise the first one no capture names.
 take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(CaptureBorrow), exn : Exception) -> unit)({
-  (first_unowned : Option(YoError)) = g_deferred_sibling_rules.with_mut({ &borrowed, call_id }(xs) => {
-    remaining := ArrayList(_DeferredSiblingRule).new();
-    (fu : Option(YoError)) = Option(YoError).None;
-    // B9: the rules are taken out and consumed — `into_iter` yields each
-    // record by value (no Clone on `_DeferredSiblingRule`).
-    taken := xs.split_off(usize(0));
-    it := taken.into_iter();
-    (go : bool) = true;
-    while(go, {
-      match(
-        it.next(),
-        .Some(e) => {
-          if(e.call_id == call_id, {
-            (owned : bool) = false;
-            (bi : usize) = usize(0);
-            while(bi < borrowed.len(), {
-              match(
-                borrowed.get_cloned(bi),
-                .Some(b) => {
-                  if(b.root_name == e.label, {
-                    owned = true;
-                  });
-                },
-                .None => ()
-              );
-              bi = (bi + usize(1));
-            });
-            if(!owned && fu.is_none(), {
-              fu = Option(YoError).Some(e.err);
-            });
-          }, {
-            remaining.push(e);
+  // Snapshot out, compute OUTSIDE the sink callback, write back: the old
+  // body mutated `first_unowned`/`remaining` inside `with_mut`'s by-value
+  // callback, which cannot carry mutable captures (B8).
+  snapshot := g_deferred_sibling_rules.with(xs => xs.clone());
+  remaining := ArrayList(_DeferredSiblingRule).new();
+  (first_unowned : Option(YoError)) = Option(YoError).None;
+  (xi : usize) = usize(0);
+  while(xi < snapshot.len(), {
+    match(
+      snapshot.get_cloned(xi),
+      .Some(e) => {
+        if(e.call_id == call_id, {
+          (owned : bool) = false;
+          (bi : usize) = usize(0);
+          while(bi < borrowed.len(), {
+            match(
+              borrowed.get_cloned(bi),
+              .Some(b) => {
+                if(b.root_name == e.label, {
+                  owned = true;
+                });
+              },
+              .None => ()
+            );
+            bi = (bi + usize(1));
           });
-        },
-        .None => {
-          go = false;
-        }
-      );
-    });
+          if(!owned && first_unowned.is_none(), {
+            first_unowned = Option(YoError).Some(e.err);
+          });
+        }, {
+          remaining.push(e);
+        });
+      },
+      .None => ()
+    );
+    xi = (xi + usize(1));
+  });
+  wb := remaining;
+  g_deferred_sibling_rules.with_mut(({ wb }(xs) => {
     xs.clear();
-    // Put the survivors back by consuming the local list.
-    put := remaining.into_iter();
-    (pgo : bool) = true;
-    while(pgo, {
+    (ri : usize) = usize(0);
+    while(ri < wb.len(), {
       match(
-        put.next(),
+        wb.get_cloned(ri),
         .Some(e) => xs.push(e),
         .None => {
           pgo = false;
         }
       );
     });
-    fu
-  });
+  }));
   match(
     first_unowned,
     .Some(m) => exn.throw(dyn(m)),
@@ -1430,5 +1430,6 @@ export(
   record_cee_error_message,
   cee_observed_messages
 );
+derive(_DeferredSiblingRule, Clone);
 
 export(note_def_time_swallow);

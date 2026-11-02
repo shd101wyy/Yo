@@ -1014,6 +1014,8 @@ SCOPE_HUSK_MARK :: usize(987654321);
 _is_scope_husk :: (fn(env : &Environment) -> bool)(
   match(env.function_declaration_frame_level, .Some(l) => (l == SCOPE_HUSK_MARK), .None => false)
 );
+derive(ScopeNameRecord, Clone);
+derive(ScopeBound, Clone);
 /// Extern-C global name → its declared types (see `register_extern_c_global`).
 (g_extern_c_globals : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
 /// Method-call expr id → resolved method FuncVal (see `record_method_callee_value`).
@@ -1123,9 +1125,7 @@ scope_release_active :: (fn() -> bool)(g_scope_mode != usize(0));
 scope_release_note_binding :: (fn(key : ExprId, env : &Environment, name : &String) -> unit)(
   if(g_scope_mode != usize(0), {
     bound := ScopeBound(name : name.clone(), env : expr_info_env_snapshot(env));
-    // B8/B9 capture rule: an owned value moved into a sink closure needs an
-    // explicit capture list.
-    g_scope_bound.with_mut({ bound, key }(m) => m.insert(key, bound));
+    g_scope_bound.with_mut(m => m.insert(key, bound.clone()));
   })
 );
 /// Shadow mode: a whole-env read (`kind`) keyed by `key`; counted apart
@@ -1142,8 +1142,8 @@ scope_release_note_hard :: (fn(kind : &String, key : ExprId) -> unit)(
 /// atom), and its info names nothing, so the release records that name.
 scope_release_note_query :: (fn(key : ExprId, name : &String) -> unit)(
   if(g_scope_mode != usize(0), {
-    n := name.clone();
-    g_scope_queried.with_mut({ n, key }(m) => m.insert(key, n));
+    name_owned := name.clone();
+    g_scope_queried.with_mut({ name_owned, key : key.clone() }(m) => m.insert(key, name_owned.clone()));
   })
 );
 /// 0 off, 1 shadow (envs kept, answers compared), 2 release.
@@ -1152,9 +1152,9 @@ scope_release_mode :: (fn() -> usize)(g_scope_mode);
 /// reports a decision that differs from the env's.
 scope_release_note_mismatch :: (fn(kind : &String) -> unit)({
   g_scope_mismatch = (g_scope_mismatch + usize(1));
-  kind_own := kind.clone();
-  mp := match(g_scope_mm_kinds.with(m => m.get(&kind_own)), .Some(c) => c, .None => usize(0));
-  g_scope_mm_kinds.with_mut({ kind_own, mp }(m) => m.insert(kind_own.clone(), mp + usize(1)));
+  mp := match(g_scope_mm_kinds.with(m => m.get(kind.clone())), .Some(c) => c, .None => usize(0));
+  kind_owned := kind.clone();
+  g_scope_mm_kinds.with_mut({ kind_owned, mp : mp.clone() }(m) => m.insert(kind_owned.clone(), mp + usize(1)));
 });
 scope_release_depth :: (fn() -> usize)(g_scope_depth);
 scope_release_set_depth :: (fn(d : usize) -> unit)({
@@ -1306,7 +1306,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
           av := get_variables_from_env(&info.env, sv.name.clone());
           ok := ((av.len() == usize(1)) && (av.get(usize(0)).unwrap().id == sv.id));
           if(!ok, {
-            g_scope_atom_exc.with_mut({ av, id }(m) => m.insert(id, av));
+            g_scope_atom_exc.with_mut(m => m.insert(id, av.clone()));
           });
         },
         .None => ()
@@ -1373,7 +1373,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
           g_scope_one.with_mut({ one, id }(m) => m.insert(id, one));
         },
         (inner.len() > usize(1)) => {
-          g_scope_inner.with_mut({ inner, id }(m) => m.insert(id, inner));
+          g_scope_inner.with_mut(m => m.insert(id, inner.clone()));
         },
         true => ()
       );
@@ -1527,8 +1527,8 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         mp := match(g_scope_mm_kinds.with(m => m.get(mk.clone())), .Some(c) => c, .None => usize(0));
         g_scope_mm_kinds.with_mut(m => m.insert(mk.clone(), mp + usize(1)));
         if((g_scope_samples.with(xs => xs.len()) < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
-          sample := `key=${key.to_string()} name=${name} truth=${truth.len().to_string()} rec=${rec.len().to_string()}`;
-          g_scope_samples.with_mut({ sample }(xs) => xs.push(sample));
+          name_owned_ := name.clone();
+          g_scope_samples.with_mut({ name_owned_, key : key.clone(), truth : truth.clone(), rec : rec.clone() }(xs) => xs.push(`key=${key.to_string()} name_owned_=${name_owned_} truth=${truth.len().to_string()} rec=${rec.len().to_string()}`));
         });
       });
     },
@@ -1549,9 +1549,18 @@ scope_release_report :: (fn() -> unit)(
     (n_unlogged : usize) = g_scope_unlogged;
     (n_logged_unreleased : usize) = g_scope_logged_unreleased;
     eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.with(m => m.len()).to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.with(m => m.len()).to_string()} inner=${g_scope_inner.with(m => m.len()).to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.with(m => m.len()).to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
-    kit := g_scope_mm_kinds.with(m => m.clone().into_iter());
+    // The key iterator CLONES (B8); `into_iter` would copy each move-only
+    // entry out of the map's storage.
+    kit := g_scope_mm_kinds.with(m => m.keys());
     while(true, {
-      match(kit.next(), .Some(kv) => eprintln(`[scope-release-kind] ${kv.value.to_string()} ${kv.key}`), .None => break);
+      match(
+        kit.next(),
+        .Some(kk) => {
+          vv := g_scope_mm_kinds.with(m => m.get_cloned(&kk));
+          eprintln(`[scope-release-kind] ${match(vv, .Some(v) => v.to_string(), .None => String.new())} ${kk}`);
+        },
+        .None => break
+      );
     });
     (i : usize) = usize(0);
     while(i < g_scope_samples.with(xs => xs.len()), {
@@ -1588,8 +1597,6 @@ expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
     },
     true => ()
   );
-  // B9: the collection is a value; a caller that gets it to WRITE takes a
-  // clone (the arms above already made the stored one private).
   info.path_collection.clone()
 });
 /// The one-path collection `[[name]]`, shared by every ExprInfo that names
@@ -1628,9 +1635,9 @@ path_collection_of_name :: (fn(name : &String) -> PathCollection)(
       .Some(pc) => pc,
       .None => {
         pc := _fresh_name_path_collection(name);
-        name_own := name.clone();
-        stored := _fresh_name_path_collection(name);
-        _prev := g_name_path_collections.with_mut({ stored, name_own }(xs) => xs.insert(name_own, stored));
+        name_owned__ := name.clone();
+        pc_owned := pc.clone();
+        _prev := g_name_path_collections.with_mut({ name_owned__, pc_owned }(xs) => xs.insert(name_owned__.clone(), pc_owned));
         pc
       }
     )
@@ -1736,9 +1743,9 @@ lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
 (g_io_builtin_struct_fields : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Record that `struct_id`.`field_label` holds an io-builtin function.
 record_io_builtin_struct_field :: (fn(struct_id : &String, field_label : &String, marker : &String) -> unit)({
-  key := `${struct_id}\n${field_label}`;
-  val := marker.clone();
-  g_io_builtin_struct_fields.with_mut({ key, val }(m) => m.insert(key, val));
+  field_label_owned := field_label.clone();
+  marker_owned := marker.clone();
+  g_io_builtin_struct_fields.with_mut({ field_label_owned, marker_owned, struct_id : struct_id.clone() }(m) => m.insert(`${struct_id}\n${field_label_owned}`, marker_owned));
   ()
 });
 /// Look up the io-builtin marker for `struct_id`.`field_label`, if any.
@@ -1749,8 +1756,8 @@ lookup_io_builtin_struct_field :: (fn(struct_id : &String, field_label : &String
 /// Record the io-builtin marker for a call expr id.
 record_io_builtin_call :: (fn(call_id : ExprId, marker : &String) -> unit)({
   record_owned_expr_id(call_id);
-  mark := marker.clone();
-  g_io_builtin_calls.with_mut({ mark, call_id }(m) => m.insert(call_id, mark));
+  marker_owned_ := marker.clone();
+  g_io_builtin_calls.with_mut({ marker_owned_, call_id : call_id.clone() }(m) => m.insert(call_id, marker_owned_.clone()));
   ()
 });
 /// Look up the io-builtin marker for a call expr id, if any.
@@ -1829,12 +1836,12 @@ lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
 _push_extern_c_global :: (fn(name : &String, ty : &TypeValue) -> unit)({
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  n := name.clone();
-  list := match(g_extern_c_globals.with_mut({ n }(m) => m.remove(&n)), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  name_owned___ := name.clone();
+  list := match(g_extern_c_globals.with_mut({ name_owned___ }(m) => m.remove(name_owned___.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(Rc.clone(ty));
-  n2 := name.clone();
-  lc := list.clone();
-  g_extern_c_globals.with_mut({ n2, lc }(m) => m.insert(n2, lc));
+  name_owned____ := name.clone();
+  list_owned := list.clone();
+  g_extern_c_globals.with_mut({ name_owned____, list_owned }(m) => m.insert(name_owned____.clone(), list_owned));
 });
 /// Yo binding name → C symbol name, for extern-C globals bound under a
 /// DIFFERENT name by a destructuring rename (`{ stdout : out } :: c_include(...)`,
@@ -1863,9 +1870,9 @@ register_extern_c_global :: (fn(name : &String, ty : &TypeValue) -> unit)(
 /// codegen keeps working for the new name.
 register_extern_c_global_alias :: (fn(yo_name : &String, c_name : &String, ty : &TypeValue) -> unit)({
   _push_extern_c_global(yo_name.clone(), ty);
-  k := yo_name.clone();
-  v := c_name.clone();
-  g_extern_c_global_c_names.with_mut({ k, v }(m) => m.insert(k, v));
+  yo_name_owned := yo_name.clone();
+  c_name_owned := c_name.clone();
+  g_extern_c_global_c_names.with_mut({ yo_name_owned, c_name_owned }(m) => m.insert(yo_name_owned.clone(), c_name_owned));
   ()
 });
 /// The C symbol behind the extern-C global bound as `yo_name` — the recorded
@@ -1873,7 +1880,7 @@ register_extern_c_global_alias :: (fn(yo_name : &String, c_name : &String, ty : 
 /// Returns a CLONE (never the registry's own String — a caller that appends
 /// to it in place would corrupt the stored name).
 extern_c_global_c_name :: (fn(yo_name : &String) -> String)(
-  match(g_extern_c_global_c_names.with(m => m.get_cloned(yo_name.clone())), .Some(c) => c, .None => yo_name.clone())
+  match(g_extern_c_global_c_names.with(m => m.get_cloned(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name.clone())
 );
 /// Every declared type recorded for the extern-C global `name` (empty when
 /// the name was never declared). Consumers match a resolved binding against
@@ -1883,12 +1890,12 @@ get_extern_c_global_types :: (fn(name : &String) -> ArrayList(TypeValue))(
 );
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : &String) -> bool)(
-  g_extern_c_globals.with(m => m.contains_key(name))
+  g_extern_c_globals.with(m => m.get_cloned(name)).is_some()
 );
 /// Record `sns_id` as the id of a `c_include(...)` module value.
 register_extern_c_module_id :: (fn(sns_id : &String) -> unit)({
-  id := sns_id.clone();
-  g_extern_c_module_ids.with_mut({ id }(s) => s.insert(id));
+  sns_id_owned := sns_id.clone();
+  g_extern_c_module_ids.with_mut({ sns_id_owned }(s) => s.insert(sns_id_owned.clone()));
   ()
 });
 /// True if `sns_id` names a `c_include(...)` module value.
@@ -1987,17 +1994,18 @@ rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
     match(
       g_mg_recorded_keys.with(xs => xs.last_cloned()),
       .Some(k) => {
-        k1 := k.clone();
-        g_module_level_globals.with_mut({ k1 }(m) => m.remove(&k1));
+        // Owned key (`with_mut`'s callback is a sink parameter).
+        rb_key := k.clone();
+        g_module_level_globals.with_mut({ rb_key }(m) => m.remove(&rb_key));
         // The thread-local registry is keyed identically and is a SUBSET, so
         // the same rollback key clears both. Without this a thread-local
         // declared inside a rejected `comptime_expect_error` would keep
         // routing later same-named reads through an accessor that was never
         // emitted.
-        k2 := k.clone();
-        g_thread_locals.with_mut({ k2 }(m) => m.remove(&k2));
-        k3 := k.clone();
-        g_mut_globals.with_mut({ k3 }(m) => m.remove(&k3));
+        rb_key2 := k.clone();
+        g_thread_locals.with_mut({ rb_key2 }(m) => m.remove(&rb_key2));
+        rb_key3 := k.clone();
+        g_mut_globals.with_mut({ rb_key3 }(m) => m.remove(&rb_key3));
         ()
       },
       .None => ()
@@ -2011,12 +2019,13 @@ rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
 });
 register_module_level_global :: (fn(module_path : &String, name : &String) -> unit)({
   mg_key := `${_mg_canon(module_path)}|#|${name}`;
-  if((g_mg_recording_depth > usize(0)) && g_module_level_globals.with(m => m.contains_key(&mg_key)), {
+  if((g_mg_recording_depth > usize(0)) && g_module_level_globals.with(m => m.get(mg_key.clone())).is_none(), {
+    // Owned captures (`with_mut`'s callback is a sink parameter).
     rk := mg_key.clone();
     g_mg_recorded_keys.with_mut({ rk }(xs) => xs.push(rk));
   });
-  ins_key := mg_key.clone();
-  g_module_level_globals.with_mut({ ins_key }(m) => m.insert(ins_key, true));
+  ik := mg_key.clone();
+  g_module_level_globals.with_mut({ ik }(m) => m.insert(ik, true));
   ()
 });
 /// True if module `module_path` declared the module-level runtime global
@@ -2034,14 +2043,14 @@ module_global_c_suffix :: (fn(module_path : &String) -> String)({
 });
 /// Record that module `module_path` declared the thread-local `name`.
 register_thread_local :: (fn(module_path : &String, name : &String) -> unit)({
-  tl_key := `${_mg_canon(module_path)}|#|${name}`;
-  g_thread_locals.with_mut({ tl_key }(m) => m.insert(tl_key, true));
+  name_owned_____ := name.clone();
+  g_thread_locals.with_mut({ name_owned_____, module_path : module_path.clone() }(m) => m.insert(`${_mg_canon(&module_path)}|#|${name_owned_____}`, true));
   ()
 });
 /// Record that module `module_path` declared `name` with `mut(name)`.
 register_mut_global :: (fn(module_path : &String, name : &String) -> unit)({
-  mg_key := `${_mg_canon(module_path)}|#|${name}`;
-  g_mut_globals.with_mut({ mg_key }(m) => m.insert(mg_key, true));
+  name_owned______ := name.clone();
+  g_mut_globals.with_mut({ name_owned______, module_path : module_path.clone() }(m) => m.insert(`${_mg_canon(&module_path)}|#|${name_owned______}`, true));
   ()
 });
 /// True if module `module_path` declared `name` with `mut(name)`.
@@ -2255,8 +2264,8 @@ truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
 /// longer applies). Stack of id lists; the TOP is the active spec's set, empty = none.
 (g_active_where_trait_ids : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
 push_active_where_trait_ids :: (fn(ids : &ArrayList(String)) -> unit)({
-  owned := ids.clone();
-  g_active_where_trait_ids.with_mut({ owned }(xs) => xs.push(owned));
+  ids_owned := ids.clone();
+  g_active_where_trait_ids.with_mut({ ids_owned }(xs) => xs.push(ids_owned.clone()));
 });
 pop_active_where_trait_ids :: (fn() -> unit)({
   g_active_where_trait_ids.with_mut(xs => xs.pop());
@@ -2282,7 +2291,8 @@ restore_active_where_trait_ids :: (fn(saved : &ArrayList(ArrayList(String))) -> 
   // B4-1b: `extend` consumes its list now (decision 20); the saved stack is a
   // borrow the caller still owns, so the restore appends clones — the same
   // spelling `set_verify_target_paths` uses (B6-a).
-  g_active_where_trait_ids.with_mut({ &saved }(xs) => xs.extend_cloned(saved));
+  saved_owned := saved.clone();
+  g_active_where_trait_ids.with_mut({ saved_owned }(xs) => xs.extend_cloned(&saved_owned));
   ()
 });
 /// True when a prior assignment record for `var_id` exists on the CURRENT
@@ -2403,9 +2413,9 @@ first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Optio
   found
 });
 register_struct_ctor_fid :: (fn(struct_id : &String, ctor_fid : &String) -> unit)({
-  k := struct_id.clone();
-  v := ctor_fid.clone();
-  g_struct_ctor_fids.with_mut({ k, v }(m) => m.insert(k, v));
+  ctor_fid_owned := ctor_fid.clone();
+  struct_id_owned := struct_id.clone();
+  g_struct_ctor_fids.with_mut({ ctor_fid_owned, struct_id_owned }(m) => m.insert(struct_id_owned, ctor_fid_owned.clone()));
   ()
 });
 /// The constructor funcId stamped for `struct_id`, if any.
@@ -2421,13 +2431,15 @@ lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
 (g_trait_ctor_fids : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Record the constructor funcId for the trait with `trait_id` (first wins).
 register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)({
-  if(g_trait_ctor_fids.with(m => m.contains_key(trait_id)), {
-    return(());
-  });
-  k := trait_id.clone();
-  v := ctor_fid.clone();
-  g_trait_ctor_fids.with_mut({ k, v }(m) => m.insert(k, v));
-  ()
+  match(
+    g_trait_ctor_fids.with(m => m.get_cloned(trait_id.clone())),
+    .Some(_) => (),
+    .None => {
+      trait_id_owned := trait_id.clone();
+      ctor_fid_owned_ := ctor_fid.clone();
+      g_trait_ctor_fids.with_mut({ trait_id_owned, ctor_fid_owned_ }(m) => m.insert(trait_id_owned.clone(), ctor_fid_owned_));
+    }
+  );
 });
 /// The constructor funcId stamped for `trait_id`, if any.
 lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
@@ -2443,13 +2455,15 @@ lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
 (g_trait_type_args : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
 /// Record the instantiation arguments of the trait with `trait_id` (first wins).
 register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
-  if(g_trait_type_args.with(m => m.contains_key(trait_id)), {
-    return(());
-  });
-  k := trait_id.clone();
-  v := args.clone();
-  g_trait_type_args.with_mut({ k, v }(m) => m.insert(k, v));
-  ()
+  match(
+    g_trait_type_args.with(m => m.get_cloned(trait_id.clone())),
+    .Some(_) => (),
+    .None => {
+      trait_id_owned_ := trait_id.clone();
+      args_owned := args.clone();
+      g_trait_type_args.with_mut({ trait_id_owned_, args_owned }(m) => m.insert(trait_id_owned_.clone(), args_owned));
+    }
+  );
 });
 /// The type arguments the trait with id `trait_id` was instantiated with
 /// (`register_trait_type_args`), when it is a parameterized trait's mint.
@@ -2577,15 +2591,15 @@ adopt_receiver_struct_instance :: (
 /// Count a runtime call dispatch for `fid`.
 record_fid_rtcall :: (fn(fid : &String) -> unit)({
   n := match(g_fid_rtcalls.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
-  k := fid.clone();
-  g_fid_rtcalls.with_mut({ k, n }(m) => m.insert(k, n + usize(1)));
+  fid_owned := fid.clone();
+  g_fid_rtcalls.with_mut({ fid_owned, n : n.clone() }(m) => m.insert(fid_owned.clone(), n + usize(1)));
   ()
 });
 /// Count a successful call-site specialization of `fid`.
 record_fid_spec :: (fn(fid : &String) -> unit)({
   n := match(g_fid_specs.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
-  k := fid.clone();
-  g_fid_specs.with_mut({ k, n }(m) => m.insert(k, n + usize(1)));
+  fid_owned_ := fid.clone();
+  g_fid_specs.with_mut({ fid_owned_, n : n.clone() }(m) => m.insert(fid_owned_.clone(), n + usize(1)));
   ()
 });
 /// True when every counted runtime call of `fid` was specialized (and at
@@ -2617,17 +2631,18 @@ HollowBodyError :: struct(message : String, diagnostics : ArrayList(Diagnostic))
 derive(HollowBodyError, Clone);
 (g_hollow_body_errors : RefCell(HashMap(String, HollowBodyError))) = RefCell(HashMap(String, HollowBodyError)).new(HashMap(String, HollowBodyError).new());
 record_hollow_body_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
-  k := site.clone();
-  v := HollowBodyError(message : message.clone(), diagnostics : diagnostics.clone());
-  g_hollow_body_errors.with_mut({ k, v }(m) => m.insert(k, v));
+  site_owned := site.clone();
+  diagnostics_owned := diagnostics.clone();
+  message_owned := message.clone();
+  g_hollow_body_errors.with_mut({ site_owned, diagnostics_owned, message_owned }(m) => m.insert(site_owned.clone(), HollowBodyError(message : message_owned, diagnostics : diagnostics_owned)));
   ()
 });
 /// A body's definition succeeded after all (a later trial of the same body):
 /// forget what an earlier trial recorded.
 clear_hollow_body_error :: (fn(site : &String) -> unit)({
   if(g_hollow_body_errors.with(m => m.len()) > usize(0), {
-    rm_k := site.clone();
-    _removed := g_hollow_body_errors.with_mut({ rm_k }(m) => m.remove(&rm_k));
+    site_owned_ := site.clone();
+    _removed := g_hollow_body_errors.with_mut({ site_owned_ }(m) => m.remove(&site_owned_));
   });
   ()
 });
@@ -2646,16 +2661,17 @@ trial_body_site :: (fn(body : &AstExpr) -> String)({
 });
 (g_generic_trial_errors : RefCell(HashMap(String, HollowBodyError))) = RefCell(HashMap(String, HollowBodyError)).new(HashMap(String, HollowBodyError).new());
 record_generic_trial_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
-  k := site.clone();
-  v := HollowBodyError(message : message.clone(), diagnostics : diagnostics.clone());
-  g_generic_trial_errors.with_mut({ k, v }(m) => m.insert(k, v));
+  site_owned__ := site.clone();
+  diagnostics_owned_ := diagnostics.clone();
+  message_owned_ := message.clone();
+  g_generic_trial_errors.with_mut({ site_owned__, diagnostics_owned_, message_owned_ }(m) => m.insert(site_owned__.clone(), HollowBodyError(message : message_owned_, diagnostics : diagnostics_owned_)));
   ()
 });
 /// A later trial of the same generic body succeeded: forget the record.
 clear_generic_trial_error :: (fn(site : &String) -> unit)({
   if(g_generic_trial_errors.with(m => m.len()) > usize(0), {
-    rm_k := site.clone();
-    _removed := g_generic_trial_errors.with_mut({ rm_k }(m) => m.remove(&rm_k));
+    site_owned___ := site.clone();
+    _removed := g_generic_trial_errors.with_mut({ site_owned___ }(m) => m.remove(&site_owned___));
   });
   ()
 });
@@ -2667,8 +2683,12 @@ SpecInstantiation :: struct(call_token : Token, description : String);
 derive(SpecInstantiation, Clone);
 (g_spec_instantiations : RefCell(HashMap(String, SpecInstantiation))) = RefCell(HashMap(String, SpecInstantiation)).new(HashMap(String, SpecInstantiation).new());
 record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, description : &String) -> unit)({
-  if(g_spec_instantiations.with(m => m.contains_key(spec_fid)), {
-    return(());
+  if(g_spec_instantiations.with(m => m.get_cloned(spec_fid.clone())).is_none(), {
+    spec_fid_owned := spec_fid.clone();
+    description_owned := description.clone();
+    // `call_token` is a `ref` handle, cheap to capture; the rest are owned
+    // (`with_mut`'s callback is a sink parameter).
+    g_spec_instantiations.with_mut({ spec_fid_owned, description_owned, call_token }(m) => m.insert(spec_fid_owned.clone(), SpecInstantiation(call_token : call_token, description : description_owned)));
   });
   k := spec_fid.clone();
   v := SpecInstantiation(call_token : call_token, description : description.clone());
@@ -2687,6 +2707,7 @@ record_macro_expansion :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({
 lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
   g_macro_expansions.with(m => m.get(&call_id))
 );
+derive(SpecInstantiation, Clone);
 // Module-level mutable-variable init expressions, collected during module-body
 // evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
 // to emit file-scope `static` declarations + initialize them in the main
@@ -3174,10 +3195,13 @@ record_migrate_edit :: (fn(tok : &Token, len : usize, replacement : &String, exp
   if(g_migrate_edit_keys.with(s => s.contains(&key)), {
     return(());
   });
-  ik := key.clone();
-  g_migrate_edit_keys.with_mut({ ik }(s) => s.insert(ik));
-  edit := MigrateEdit(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement.clone(), expect : expect.clone());
-  g_migrate_edits.with_mut({ edit }(xs) => xs.push(edit));
+  g_migrate_edit_keys.with_mut(s => s.insert(key.clone()));
+  // Owned captures (`with_mut`'s callback is a sink parameter): `len` is
+  // Copy, `tok` clones once per recorded edit.
+  replacement_owned := replacement.clone();
+  expect_owned := expect.clone();
+  me_tok := tok.clone();
+  g_migrate_edits.with_mut({ replacement_owned, expect_owned, me_tok, len }(xs) => xs.push(MigrateEdit(path : me_tok.module_path.*.clone(), row : usize(me_tok.row), col : usize(me_tok.column), len : len, replacement : replacement_owned.clone(), expect : expect_owned)));
 });
 /// Whether `yo fix --migrate params` is recording.
 migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
@@ -3226,10 +3250,11 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
   if(g_addr_of_site_keys.with(s => s.contains(&key)), {
     return(());
   });
-  ik := key.clone();
-  g_addr_of_site_keys.with_mut({ ik }(s) => s.insert(ik));
-  site := AddrOfSite(path : amp_tok.module_path.*.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect.clone(), lent : lent);
-  g_addr_of_sites.with_mut({ site }(xs) => xs.push(site));
+  g_addr_of_site_keys.with_mut(s => s.insert(key.clone()));
+  expect_owned_ := expect.clone();
+  // Owned captures (`with_mut`'s callback is a sink parameter); `lent` is
+  // Copy, `amp_tok` is a `ref` handle.
+  g_addr_of_sites.with_mut({ expect_owned_, lent, amp_tok }(xs) => xs.push(AddrOfSite(path : amp_tok.module_path.*.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect_owned_.clone(), lent : lent)));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
   out := g_addr_of_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3295,8 +3320,9 @@ record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> u
   if(!g_marker_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
-  site := MarkerSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone());
-  g_marker_sites.with_mut({ site }(xs) => xs.push(site));
+  expect_owned__ := expect.clone();
+  marker_owned__ := marker.clone();
+  g_marker_sites.with_mut({ expect_owned__, tok : tok.clone(), marker_owned__ }(xs) => xs.push(MarkerSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect_owned__.clone(), marker : marker_owned__)));
 });
 take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
   out := g_marker_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3328,8 +3354,8 @@ record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
   if(!g_rc_pattern_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
-  site := RcPatternSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone());
-  g_rc_pattern_sites.with_mut({ site }(xs) => xs.push(site));
+  expect_owned___ := expect.clone();
+  g_rc_pattern_sites.with_mut({ expect_owned___, tok : tok.clone() }(xs) => xs.push(RcPatternSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect_owned___.clone())));
 });
 take_rc_pattern_sites :: (fn() -> ArrayList(RcPatternSite))({
   out := g_rc_pattern_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3361,8 +3387,8 @@ record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
   if(!g_dyn_spelling_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
-  site := DynSpellingSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone());
-  g_dyn_spelling_sites.with_mut({ site }(xs) => xs.push(site));
+  expect_owned____ := expect.clone();
+  g_dyn_spelling_sites.with_mut({ expect_owned____, tok : tok.clone() }(xs) => xs.push(DynSpellingSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect_owned____.clone())));
 });
 take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
   out := g_dyn_spelling_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3398,7 +3424,7 @@ record_handle_ctor_site :: (fn(site : HandleCtorSite) -> unit)({
   if(!g_handle_ctor_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
-  g_handle_ctor_sites.with_mut({ site }(xs) => xs.push(site));
+  g_handle_ctor_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_handle_ctor_sites :: (fn() -> ArrayList(HandleCtorSite))({
   out := g_handle_ctor_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3428,8 +3454,8 @@ record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
   if(!g_mutable_global_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
-  site := MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone());
-  g_mutable_global_sites.with_mut({ site }(xs) => xs.push(site));
+  name_owned_______ := name.clone();
+  g_mutable_global_sites.with_mut({ name_owned_______, decl : decl.clone() }(xs) => xs.push(MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name_owned_______.clone())));
 });
 take_mutable_global_sites :: (fn() -> ArrayList(MutableGlobalSite))({
   out := g_mutable_global_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3469,15 +3495,19 @@ _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
 /// (`settle_mut_binding_pending`).
 (g_mut_binding_pending : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 record_mut_binding_site_pending :: (fn(decl : &Token, name : &String) -> unit)({
-  site := MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone());
-  g_mut_binding_pending.with_mut({ site }(xs) => xs.push(site));
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  mbp_name := name.clone();
+  mbp_decl := decl.clone();
+  g_mut_binding_pending.with_mut({ mbp_name, mbp_decl }(xs) => xs.push(MutableGlobalSite(path : mbp_decl.module_path.*.clone(), row : usize(mbp_decl.row), col : usize(mbp_decl.column), expect : mbp_name.clone())));
 });
 mut_binding_pending_mark :: (fn() -> usize)(g_mut_binding_pending.with(xs => xs.len()));
 /// A parameter write held the same way, by the position of the write.
 (g_mut_param_pending : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 record_mut_param_site_pending :: (fn(at : &Token, name : &String) -> unit)({
-  site := MutableGlobalSite(path : at.module_path.*.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone());
-  g_mut_param_pending.with_mut({ site }(xs) => xs.push(site));
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  mpp_name := name.clone();
+  mpp_at := at.clone();
+  g_mut_param_pending.with_mut({ mpp_name, mpp_at }(xs) => xs.push(MutableGlobalSite(path : mpp_at.module_path.*.clone(), row : usize(mpp_at.row), col : usize(mpp_at.column), expect : mpp_name.clone())));
 });
 mut_param_pending_mark :: (fn() -> usize)(g_mut_param_pending.with(xs => xs.len()));
 /// Settle the writes held since `mark`. `keep` (the argument raised an error
@@ -3538,7 +3568,7 @@ record_mut_judged :: (fn(tok : &Token) -> unit)({
     return(());
   });
   key := mut_census_key(tok);
-  g_mut_judged.with_mut({ key }(s) => s.insert(key));
+  g_mut_judged.with_mut(s => s.insert(key.clone()));
 });
 take_mut_judged :: (fn() -> HashSet(String))(g_mut_judged.replace(HashSet(String).new()));
 export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites, record_mut_judged, take_mut_judged);

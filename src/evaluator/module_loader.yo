@@ -72,12 +72,11 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
     set_import_closure_fn(import_closure_of);
     g_import_closure_installed = true;
   });
-  lkc := _canonical(path).*.clone();
-  lp := path.clone();
-  g_loading_key_by_canonical.with_mut({ lkc, lp }(m) => m.insert(lkc, lp));
-  lk := path.clone();
-  g_loading_keys.with_mut({ lk }(xs) => xs.push(lk));
-  g_loading_envs.with_mut({ env }(xs) => xs.push(env));
+  path_owned := path.clone();
+  g_loading_key_by_canonical.with_mut({ path_owned }(m) => m.insert(_canonical(&path_owned).*.clone(), path_owned.clone()));
+  path_owned_ := path.clone();
+  g_loading_keys.with_mut({ path_owned_ }(xs) => xs.push(path_owned_.clone()));
+  g_loading_envs.with_mut(xs => xs.push(env));
   _sync_registration_owner();
 });
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
@@ -150,7 +149,9 @@ _canonical :: (fn(p : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(p));
-      _canonical_memo.with_mut({ ck : p.clone(), cv : Rc.clone(c) }(m) => m.insert(ck, cv));
+      c_handle := Rc.clone(c);
+      p_owned := p.clone();
+      _canonical_memo.with_mut({ p_owned, c_handle }(m) => m.insert(p_owned, c_handle));
       c
     }
   )
@@ -167,8 +168,8 @@ _clear_import_closure_memo :: (fn() -> unit)({
 /// (stamped by mm_load_prelude_file, which also calls this so every prelude
 /// load path gets both) but which is implicitly in scope everywhere.
 mark_owner_always_visible :: (fn(module : &String) -> unit)({
-  owner := _canonical(module).*.clone();
-  g_always_visible_owners.with_mut({ owner }(xs) => xs.push(owner));
+  module_owned := module.clone();
+  g_always_visible_owners.with_mut({ module_owned }(xs) => xs.push(_canonical(&module_owned).*.clone()));
   _clear_import_closure_memo();
 });
 /// Every module reachable from `module` through import edges, `module`
@@ -238,10 +239,10 @@ record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
     });
     i = (i + usize(1));
   });
-  imp := importer.clone();
-  g_import_edge_importers.with_mut({ imp }(xs) => xs.push(imp));
-  imd := imported.clone();
-  g_import_edge_imports.with_mut({ imd }(xs) => xs.push(imd));
+  importer_owned := importer.clone();
+  g_import_edge_importers.with_mut({ importer_owned }(xs) => xs.push(importer_owned.clone()));
+  imported_owned := imported.clone();
+  g_import_edge_imports.with_mut({ imported_owned }(xs) => xs.push(imported_owned.clone()));
   _clear_import_closure_memo();
 });
 /// Drop every outgoing edge of `importer`. Called when a module is
@@ -303,9 +304,9 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
     eprintln(`[warmcache] register ${path.clone()}`);
   });
   if(!module_cache_has(path.clone()), {
-    k := path.clone();
-    g_module_cache_keys.with_mut({ k }(xs) => xs.push(k));
-    g_module_cache_vals.with_mut({ module_value }(xs) => xs.push(module_value));
+    path_owned__ := path.clone();
+    g_module_cache_keys.with_mut({ path_owned__ }(xs) => xs.push(path_owned__.clone()));
+    g_module_cache_vals.with_mut(xs => xs.push(module_value));
     g_module_cache_types.with_mut({ module_type : Rc.clone(module_type) }(xs) => xs.push(Rc.clone(module_type)));
   });
 });
