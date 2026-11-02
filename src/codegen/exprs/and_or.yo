@@ -52,7 +52,7 @@ _comptime_bool :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> O
 /// (a temp declaration or call). Atoms / compile-time values are safe.
 _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   ei_opt := context.base.get_expr_info(expr);
-  has_var := match(ei_opt, .Some(ei) => match(ei.variable_name, .Some(_) => true, .None => false), .None => false);
+  has_var := match(&ei_opt, .Some(ei) => match(&ei.variable_name, .Some(_) => true, .None => false), .None => false);
   if(has_var, {
     return(true);
   });
@@ -91,7 +91,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
         context.base.get_expr_info(expr),
         .Some(ei) => {
           match(
-            ei.variable_name,
+            &ei.variable_name,
             .Some(vn) => {
               result.insert(vn.clone());
             },
@@ -116,7 +116,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
                   .Some(de) => match(
                     context.base.get_expr_info(&de),
                     .Some(dei) => match(
-                      dei.variable_name,
+                      &dei.variable_name,
                       .Some(dvn) => {
                         result.insert(dvn.clone());
                       },
@@ -181,7 +181,7 @@ _emit_node_list_drops :: (
   match(
     context.base.get_expr_info(list_owner),
     .Some(nei) => match(
-      nei.deferred_drop_expressions,
+      &nei.deferred_drop_expressions,
       .Some(node_drops) => {
         nd2 := node_drops.len();
         (j : usize) = usize(0);
@@ -272,8 +272,10 @@ _emit_drops_for_conditional_branch :: (
         context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(HashSet(String).new());
       }
     );
+    // A snapshot: the walk below writes `context` (emitted ids, the emitter)
+    // and may store a filtered list back.
     match(
-      context.pending_deferred_drops,
+      context.pending_deferred_drops.clone(),
       .Some(pending_drops) => {
         new_pending := ArrayList(AstExpr).new();
         (removed : usize) = usize(0);
