@@ -2136,12 +2136,12 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   while(di < ne, {
     match(
       entries.get(di),
-      .Some(e) => match(
-        deps.get(e.type_id.clone()),
-        .Some(s) => {
-          in_degree.insert(e.type_id.clone(), s.len());
+      // The dependency set is read in place (a value since B9).
+      .Some(e) => cond(
+        deps.contains_key(&e.type_id) => {
+          in_degree.insert(e.type_id.clone(), deps(e.type_id.clone()).len());
         },
-        .None => {
+        true => {
           in_degree.insert(e.type_id.clone(), usize(0));
         }
       ),
