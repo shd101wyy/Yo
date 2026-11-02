@@ -387,7 +387,7 @@ shared_borrow_param_root_of_place :: (fn(place : &AstExpr, env : &Environment, c
 });
 /// The way out E0908 offers for a write through the `&T` parameter `v`.
 _shared_borrow_param_fix :: (fn(v : &Variable) -> String)(
-  `declare it \`${v.name} : &mut T\` to write the caller's value, take it by value (\`${v.name} : T\`, without \`&\`) to own and write a copy, or copy it into a local first (\`q := ${v.name};\`) and write the copy`
+  `declare it \`${v.name} : &mut T\` to write the caller's value, take it by value (\`${v.name} : T\`, without \`&\`) to own and write a copy, or copy it into a local first (\`q := ${v.name}.*;\`) and write the copy`
 );
 /// E0908: a write through the `&T` parameter `v`; `what` names it
 /// (`write \`p.n\``).
@@ -530,8 +530,8 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
 /// The way out E0908 offers for a write into the borrowed binding `bv`.
 _write_through_borrow_fix :: (fn(bv : &Variable) -> String)(
   cond(
-    bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`&\`) to own and write it, or as \`${bv.name} : &mut T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
-    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.name} => ...)\``
+    bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`&\`) to own and write it, or as \`${bv.name} : &mut T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name}.*;\`) and write the copy`,
+    true => `copy it into a local first (\`q := ${bv.name}.*;\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.name} => ...)\``
   )
 );
 /// The place as written (`p.inner.m`), not the printer's parenthesized

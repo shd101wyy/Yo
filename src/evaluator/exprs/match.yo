@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { migrate_match_scrutinee_on, record_migrate_edit } :: import("../../expr_info.yo");
-{ is_mut_binding, for_desugar_site_of } :: import("../../expr.yo");
+{ is_mut_binding, for_desugar_site_of, ast_rewritten_node } :: import("../../expr.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
@@ -599,12 +599,24 @@ _throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String
   if(text.starts_with("(") && text.ends_with(")"), {
     text = text.substring(usize(1), text.len() - usize(1));
   });
+  // `match(r.*, …)` on a reference binding `r` (rewritten to `r`, decision
+  // 43 step 2 N1e-1) copies the referent; the bare `match(r, …)` matches
+  // through the reference instead (VERDICTS-13 §14).
+  rd := ast_rewritten_node(scr);
+  is_reference_deref := (ast_expr_is_fn_call_of(scr, ".", Option(usize).Some(usize(2))) && ast_expr_is_atom(&rd));
+  if(is_reference_deref, {
+    text = `${ast_expr_token(&rd).value.*}.*`;
+  });
+  help := cond(
+    is_reference_deref => `match through the reference: \`match(${ast_expr_token(&rd).value.*}, …)\` binds the payload as a borrow of the referent, and through a \`&mut\` reference its bindings write it`,
+    true => `match through a borrow: \`match(&${text}, …)\`, or \`match(&mut ${text}, …)\` to write through the bindings`
+  );
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
         _leftmost_token(scr),
         `Cannot match \`${text}\` by value: its type \`${type_to_string(ty)}\` is not implicitly copyable, so a \`match\` takes it by value and moves it (plans/VALUES_BY_DEFAULT.md decision 26), but ${why}`,
-        Option(String).Some(`match through a borrow: \`match(&${text}, …)\`, or \`match(&mut ${text}, …)\` to write through the bindings`)
+        Option(String).Some(help)
       ),
       E_USE_OF_MOVED_VALUE
     ),
