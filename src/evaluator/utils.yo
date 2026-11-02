@@ -7130,7 +7130,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (ci : usize) = usize(0);
   while(ci < cell.len(), {
     cell_text.push_str(".");
-    cell_text.push_string(match(cell.get(ci), .Some(s) => s, .None => String.new()));
+    cell_text.push_string(match(cell.get_cloned(ci), .Some(s) => s, .None => String.new()));
     ci = (ci + usize(1));
   });
   Option(CellRootedPlace).Some(
@@ -7155,7 +7155,7 @@ cell_rooted_same_cell :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) -> bool
   });
   (i : usize) = usize(0);
   while(i < p.cell_steps.len(), {
-    if(match(p.cell_steps.get(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(p.cell_steps.get_cloned(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get_cloned(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
