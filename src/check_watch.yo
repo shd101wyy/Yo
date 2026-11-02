@@ -358,14 +358,14 @@ wait_for_change :: (
         .Some(p) => match(
           _stat_key(p.clone(), io),
           .Some(k) => {
-            prev := match(stats.get(p.clone()), .Some(sv) => sv, .None => String.new());
+            prev := match(stats.get_cloned(p.clone()), .Some(sv) => sv, .None => String.new());
             if(!(prev == k), {
               stats.insert(p.clone(), k);
               changed.push(p.clone());
             });
           },
           .None => {
-            if(stats.get(p.clone()).is_some(), {
+            if(stats.get_cloned(p.clone()).is_some(), {
               _c := stats.remove(p.clone());
               changed.push(p.clone());
             });
