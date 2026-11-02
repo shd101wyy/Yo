@@ -97,11 +97,11 @@ _get_enum_discriminant :: (
     true => variant.clone()
   );
   n := variant_names.len();
-  (i : usize) = usize(0);
-  (result : Option(i64)) = Option(i64).None;
+  (mut(i) : usize) = usize(0);
+  (mut(result) : Option(i64)) = Option(i64).None;
   while((i < n) && result.is_none(), {
     match(
-      variant_names.get(i),
+      variant_names.get_cloned(i),
       .Some(name) => {
         if(name == stripped, {
           match(
@@ -191,7 +191,7 @@ _make_yo_as_node :: (
       input : Rc.clone(orig_tok.input)
     )
   );
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(evaluated);
   args.push(type_expr);
   AstExpr.FnCall(orig_id, func_atom, Rc.new(args), false, orig_tok)
@@ -217,7 +217,7 @@ try_to_convert_to_numeric_type :: (
   // Evaluate the argument with no expectedType (let it resolve its natural type).
   saved_expected := ctx.expected_type;
   ctx.expected_type = .None;
-  evaluated_gout := ArrayList(AstExpr).new();
+  mut(evaluated_gout) := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
   match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
@@ -240,7 +240,7 @@ try_to_convert_to_numeric_type :: (
   // -----------------------------------------------------------------------
   // Case 0: Enum value → integer discriminant
   // -----------------------------------------------------------------------
-  (enum_disc_raw : Option(String)) = Option(String).None;
+  (mut(enum_disc_raw) : Option(String)) = Option(String).None;
   if(is_enum_type(&arg_type), {
     match(
       arg_val,
@@ -280,7 +280,7 @@ try_to_convert_to_numeric_type :: (
     );
     // Enum with known discriminant + comptime-capable target → direct comptime conversion
     match(
-      enum_disc_raw,
+      &enum_disc_raw,
       .Some(disc_raw) => {
         if(is_numeric_type(target_type), {
           out_info := _make_comptime_info(&disc_raw, target_type, &env, ast_expr_token(expr), exn);
@@ -335,8 +335,8 @@ try_to_convert_to_numeric_type :: (
   // Extract comptime raw string value (IntLit or FloatLit), or from enum disc.
   // -----------------------------------------------------------------------
   (comptime_raw : Option(String)) = match(
-    enum_disc_raw,
-    .Some(r) => .Some(r),
+    &enum_disc_raw,
+    .Some(r) => .Some(r.clone()),
     .None => match(
       arg_val,
       .Some(v) => cond(
@@ -351,7 +351,7 @@ try_to_convert_to_numeric_type :: (
   // Case 1: Compile-time value → comptime-capable target type
   // -----------------------------------------------------------------------
   match(
-    comptime_raw,
+    &comptime_raw,
     .Some(raw) => {
       if(is_numeric_type(target_type), {
         // `T(comptime_int)` is a checked conversion: `u8(300)` is an E1102
@@ -371,7 +371,7 @@ try_to_convert_to_numeric_type :: (
         int_raw := cond(
           (!is_float_type(target_type) && !is_comptime_float_type(target_type) && match(arg_val, .Some(av) => is_float_lit(&av), .None => false)) =>
             _float_raw_to_int_raw(raw.clone(), target_type, ast_expr_token(arg_expr), exn),
-          true => raw
+          true => raw.clone()
         );
         out_info := _make_comptime_info(&int_raw, target_type, &env, ast_expr_token(expr), exn);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -403,7 +403,7 @@ try_to_convert_to_numeric_type :: (
   if((is_comptime_int_type(&arg_type) || is_comptime_float_type(&arg_type)) &&
     is_numeric_type(target_type), {
     match(
-      comptime_raw,
+      &comptime_raw,
       .Some(raw) => {
         // Already covered by Case 1, but handle here for completeness.
         out_info := _make_comptime_info(&raw, target_type, &env, ast_expr_token(expr), exn);
@@ -440,7 +440,7 @@ try_to_convert_to_numeric_type :: (
     yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), &evaluated, &type_expr);
     yo_as_info := new_expr_info(&env, target_type);
     yo_as_info.value = .None;
-    yo_as_rt := ArrayList(AstExpr).new();
+    mut(yo_as_rt) := ArrayList(AstExpr).new();
     // `evaluated` is already owned by the __yo_as node's args (above); push an
     // independent handle here so `runtime_arg_exprs` does not share that single
     // ref (codegen omits the dup for a variable passed to a function
@@ -466,7 +466,7 @@ try_to_convert_to_numeric_type :: (
   // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)
   // -----------------------------------------------------------------------
   match(
-    comptime_raw,
+    &comptime_raw,
     .Some(raw) => {
       out_info := _make_comptime_info(&raw, target_type, &env, ast_expr_token(expr), exn);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
