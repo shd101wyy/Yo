@@ -174,6 +174,10 @@ pragma(Pragma.AllowUnsafe);
 /// (N1e-1, `property_access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
 (g_reference_deref_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
+/// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
+/// in the source or in a batch the test runner printed from it.
+(g_synthesized_deref_stars : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// The block statements after a borrow binding, for its live range: set by
 /// `evaluate_begin_expression` just before it evaluates the binding.
 (mut(g_lb_lookahead_stmts) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
@@ -6838,6 +6842,15 @@ deref_exempt_take :: (fn(e : &AstExpr) -> bool)({
 /// `y := &place`, a projection's result, a capture-list borrow, a `for`
 /// element, a binding of a `match(&x, …)` or `match(&mut x, …)`. Its
 /// `Variable.ty` is the pointee until N1e-2 retypes it.
+/// Records `id` as the `*` atom of a synthesized auto-deref (N1e-1).
+note_synthesized_deref_star :: (fn(id : usize) -> unit)({
+  _new := g_synthesized_deref_stars.with_mut(s => s.insert(id));
+});
+/// Whether the `*` atom `id` was synthesized by an auto-deref hook rather
+/// than written.
+is_synthesized_deref_star :: (fn(id : usize) -> bool)(
+  g_synthesized_deref_stars.with(s => s.contains(&id))
+);
 variable_is_reference_binding :: (fn(v : &Variable) -> bool)(
   !v.is_compile_time_only && !v.is_module_level && (v.is_borrow_match_binding || ((v.is_ref || v.is_imm_borrow) && !v.is_value_rebind))
 );
@@ -8651,6 +8664,8 @@ export(
   deref_exempt_take,
   note_reference_deref_site,
   is_reference_deref_site,
+  note_synthesized_deref_star,
+  is_synthesized_deref_star,
   variable_is_reference_binding,
   deref_rule_applies,
   deref_rule_recording,
