@@ -29,7 +29,9 @@
 /// Record the stable field name for a local capture (idempotent — a
 /// re-registered SM re-derives the same name).
 register_sm_local_field_name :: (fn(variable_id : &String, field : &String) -> unit)({
-  _ := g_sm_local_field_names.with_mut(m => m.insert(variable_id.clone(), field.clone()));
+  variable_id_owned := variable_id.clone();
+  field_owned := field.clone();
+  _ := g_sm_local_field_names.with_mut({ variable_id_owned, field_owned }(m) => m.insert(variable_id_owned, field_owned));
 });
 /// Assign every LOCAL capture its stable field name — `var_<name>_<hash of
 /// the binding's declaration site>` — and record the assignments. The suffix
@@ -160,7 +162,8 @@ sm_slot_of_variable :: (
 /// (the abort dispose would then drop it a second time).
 (g_await_consumed_temps : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 note_await_consumed_temp :: (fn(name : &String) -> unit)({
-  g_await_consumed_temps.with_mut(s => s.insert(name.clone()));
+  name_owned := name.clone();
+  g_await_consumed_temps.with_mut({ name_owned }(s) => s.insert(name_owned));
 });
 is_await_consumed_temp :: (fn(name : &String) -> bool)(
   g_await_consumed_temps.with(s => s.contains(name))
@@ -177,7 +180,8 @@ is_await_consumed_temp :: (fn(name : &String) -> bool)(
 /// Field names carry the variable id, so a name identifies one struct's field.
 (g_sm_move_flag_fields : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 note_sm_move_flag_field :: (fn(field : &String) -> unit)({
-  g_sm_move_flag_fields.with_mut(s => s.insert(field.clone()));
+  field_owned := field.clone();
+  g_sm_move_flag_fields.with_mut({ field_owned }(s) => s.insert(field_owned));
 });
 /// The move flag (`sm->__yo_mv_<field>`) of the slot `sm_code`
 /// (`sm-><field>`), or `.None` when the slot has none. A capture-list field
