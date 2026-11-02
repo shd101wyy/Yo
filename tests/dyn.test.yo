@@ -1165,10 +1165,14 @@ impl(
 );
 // One closure literal minted at two instantiations whose expected `Fn` slots
 // differ only in a mode: each mint is boxed with its own closure function.
+// `x` is a reference in one mint and a value in the other, so the body reads
+// it through a receiver (`x.clone()`), the one spelling both accept: a
+// whole-value read is `x.*` in the first and `x` in the second (decision 43
+// step 2 N1e-1).
 _dm_run :: (fn(generic(T : Type), t : T, k : i32) -> i32)(
   t.apply(
     dyn(x => {
-      _y := (x.* + k);
+      _y := (x.clone() + k);
     })
   )
 );
