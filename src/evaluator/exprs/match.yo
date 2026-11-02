@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl, owning_param_binding_beside, move_through_sink_shadow } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
-{ set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
+{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows, _subtree_assigns_variable } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -580,6 +580,10 @@ _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
 );
 /// A binding that holds a `mut` place (`variable_is_mut_borrow`).
 _variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(variable_is_mut_borrow(v));
+/// The scrutinee is a reference binding named bare (`match(r, …)`).
+_scrutinee_is_reference_binding :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
+  ast_expr_is_atom(scr) && match(get_variables_from_env(env, ast_expr_token(scr).value.*.clone()).last(), .Some(sv) => variable_is_reference_binding(&sv), .None => false)
+);
 /// A binding that holds an `imm` borrow (`variable_is_imm_borrow`).
 _variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(variable_is_imm_borrow(v));
 /// E0901 for a scrutinee a `match` would have to move but cannot: `why`
@@ -1224,6 +1228,21 @@ evaluate_match :: (
   old_expected_scr := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   scr_is_marked_index_place := ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0)) && call_is_index_place(&scrutinee_expr, &env, ctx));
+  // A reference binding matched bare (`match(r, …)`) is matched through, as
+  // a receiver is read through: not a whole-value read; its bindings borrow
+  // with the reference's mutability (decision 43 step 2 N1e-1, VERDICTS-13
+  // §14). `match(&r, …)` / `match(&mut r, …)` is E0926: the marker is
+  // redundant, and `yo fix --migrate deref` drops it.
+  if(ast_expr_is_atom(&scrutinee_expr) && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0)), {
+    match(
+      get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last(),
+      .Some(sb_v) => if(variable_is_reference_binding(&sb_v) && deref_rule_applies(ast_expr_token(&scrutinee_expr), ctx), {
+        reject_reference_without_deref(&sb_v, ast_expr_token(&scrutinee_expr), u8(3), ctx, exn);
+      }),
+      .None => ()
+    );
+  });
+  deref_exempt_mark(&scrutinee_expr);
   evaluated_scrutinee := cond(
     is_place_expression(&scrutinee_expr, &env) =>
       evaluate_expression(&scrutinee_expr, &env, ctx),
@@ -1240,6 +1259,7 @@ evaluate_match :: (
     true =>
       evaluate_begin_expression(&scrutinee_expr, &env, ctx, ArrayList(Variable).new(), false, exn)
   );
+  deref_exempt_clear();
   ctx.expected_type = old_expected_scr;
   // Check scrutinee ExprInfo has variable_name
   scr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_scrutinee));
@@ -1264,7 +1284,9 @@ evaluate_match :: (
     // compile is unaffected; if the retry somehow succeeds, the generic
     // message below still fires exactly as before.
     // plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §3.
+    deref_exempt_mark(&scrutinee_expr);
     _retry_scr := evaluate_expression_raw(&scrutinee_expr, &env, ctx, exn);
+    deref_exempt_clear();
     exn.throw(
       dyn(
         format_error_message(
@@ -1620,10 +1642,12 @@ evaluate_match :: (
             match(_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
           });
           match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
-          // A binding of a `match(&x, …)` borrows the part it binds: outside
-          // std and src it reads as a whole value with `.*` (E0926, decision
-          // 43 step 2 N1e-1; a `&mut` match's binding is `is_ref` above).
-          if(!ct_known && !consuming && !mut_places && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)), {
+          // A binding of a `match(&x, …)`, or of a reference binding matched
+          // bare (`match(r, …)`, VERDICTS-13 §14), borrows the part it
+          // binds: outside std and src it reads as a whole value with `.*`
+          // (E0926, decision 43 step 2 N1e-1; a `&mut` match's binding is
+          // `is_ref` above).
+          if(!ct_known && !consuming && !mut_places && ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) || _scrutinee_is_reference_binding(&scrutinee_expr, &env)), {
             match(
               _added,
               .Some(bm_var) => {

@@ -129,7 +129,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, record_deref_site } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -6853,11 +6853,14 @@ deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
 deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
 /// E0926 at `tok`, the reference binding `v` used as a whole value without
 /// `.*` (decision 43 step 2 N1e-1, VERDICTS-13 §11): `kind` 0 is a read in a
-/// by-value position, 1 the write `v = x`, 2 the borrow `&v`/`&mut v`. While
-/// the rule records it notes the `.*` to insert after `tok` instead.
+/// by-value position, 1 the write `v = x`, 2 the borrow `&v`/`&mut v`, 3 a
+/// borrowed scrutinee `match(&v, …)` (VERDICTS-13 §14: the marker is
+/// redundant, `match(v, …)` matches through the reference). While the rule
+/// records it notes the edit instead: the `.*` after `tok`, or for 3 the
+/// marker before it dropped.
 reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
   if(deref_rule_recording(), {
-    record_deref_site(tok, &v.name);
+    if(kind == u8(3), record_deref_edit_site(tok, &v.name, u8(2)), record_deref_site(tok, &v.name));
     return(());
   });
   name := v.name.clone();
@@ -6865,11 +6868,13 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
   msg := cond(
     (kind == u8(1)) => `\`${name}\` is a reference (\`${ref_ty}\`): writing the value it refers to is spelled \`${name}.* = …\``,
     (kind == u8(2)) => `\`${name}\` is a reference (\`${ref_ty}\`): borrowing the value it refers to is spelled \`&${name}.*\``,
+    (kind == u8(3)) => `\`${name}\` is a reference (\`${ref_ty}\`): a \`match\` matches through it as written, \`match(${name}, …)\`, and the borrow marker is redundant`,
     true => `\`${name}\` is a reference (\`${ref_ty}\`): reading the value it refers to is spelled \`${name}.*\``
   );
   help := cond(
     (kind == u8(1)) => `write \`${name}.* = …\`; \`${name} = &place\` re-points the reference (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
+    (kind == u8(3)) => `write \`match(${name}, …)\`: its bindings borrow through \`${name}\` with its mutability (\`yo fix --migrate deref\` drops the marker)`,
     true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
   );
   raise_flow_violation(&with_code(format_error_message_with_help(tok, &msg, Option(String).Some(help)), E_REFERENCE_READ_WITHOUT_DEREF), ctx, exn);

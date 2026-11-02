@@ -62,7 +62,8 @@ pragma(Pragma.AllowUnsafe);
   clear_hollow_body_error,
   trial_body_site,
   record_generic_trial_error,
-  clear_generic_trial_error
+  clear_generic_trial_error,
+  record_deref_edit_site
 } :: import("../../expr_info.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 {
@@ -146,7 +147,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, audit_pending_copies_enabled, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, audit_pending_copies_enabled, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -981,9 +982,26 @@ _evaluate_capture_list :: (
       if(root_var.is_compile_time_only, {
         _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name \`${root_tok.value.*}\`: it is a compile-time value with no runtime storage.`);
       });
+      // A borrow capture of a reference binding `r` (decision 43 step 2
+      // N1e-1, VERDICTS-13 §11): `{ y : &r }` borrows the referent, spelled
+      // `{ y : &r.* }`, and the pun `{ &r }` gains its label,
+      // `{ r : &r.* }` (E0926). In `{ y : &r.*… }` the reference's own deref
+      // names the place `r` already borrows, so it is not a field hop.
+      cap_root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx));
+      if(cap_root_is_reference && (fields.len() == usize(0)), {
+        if(is_pun && deref_rule_recording(), {
+          record_deref_edit_site(&raw_tok, &label, u8(1));
+        });
+        reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
+      });
+      if(cap_root_is_reference && !deref_rule_recording() && (fields.len() > usize(0)) && match(fields.get(usize(0)), .Some(f0) => (f0 == "*"), .None => false), {
+        _dropped_star := fields.remove(usize(0));
+      });
       saved_bexp := ctx.expected_type;
       ctx.expected_type = Option(ExpectedTypeCtx).None;
+      deref_exempt_mark(&place_e);
       ev_place := evaluate_expression_raw(&place_e, env, ctx, exn);
+      deref_exempt_clear();
       ctx.expected_type = saved_bexp;
       require_expr_not_consumed(&ev_place, env, ctx, exn);
       place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_place)), .Some(pi) => Rc.clone(pi.ty), .None => t_unit());
@@ -1042,6 +1060,18 @@ _evaluate_capture_list :: (
       // a record field.
       saved_vexp := ctx.expected_type;
       ctx.expected_type = Option(ExpectedTypeCtx).None;
+      // A shorthand `{ r }` of a reference binding copies the referent,
+      // spelled `{ r : r.* }`: the `.*` is E0926's, the label is recorded
+      // here (decision 43 step 2 N1e-1).
+      if(deref_rule_recording() && _cap_entry_is_shorthand(&label_e, &init_e), {
+        match(
+          get_variables_from_env(env, label.clone()).last(),
+          .Some(sh_v) => if(variable_is_reference_binding(&sh_v) && deref_rule_applies(ast_expr_token(&init_e), ctx), {
+            record_deref_edit_site(ast_expr_token(&init_e), &label, u8(1));
+          }),
+          .None => ()
+        );
+      });
       ev_val := evaluate_expression_raw(&init_e, env, ctx, exn);
       ctx.expected_type = saved_vexp;
       // For `yo fix --migrate explicit-copy`: the copy's destination is the

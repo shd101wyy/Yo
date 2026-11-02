@@ -3254,7 +3254,11 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// `v.*.*`. Every site is one insertion of `.*` right after the expression
 /// whose leftmost token is at `row`/`col` and which prints as `expect`;
 /// the rewrite matches `expect` against the source text first.
-DerefSite :: struct(path : String, row : usize, col : usize, expect : String);
+/// `edit` 1 instead inserts `<expect> : ` before the token at `row`/`col`
+/// (a capture-list pun or shorthand `{ &r }` / `{ r }` gains its label:
+/// `{ r : &r.* }`), and `edit` 2 deletes the borrow marker (`&`, `&mut `)
+/// written right before it (`match(&r, …)` → `match(r, …)`).
+DerefSite :: struct(path : String, row : usize, col : usize, expect : String, edit : u8);
 (mut(g_migrate_deref) : bool) = false;
 (g_deref_sites : RefCell(ArrayList(DerefSite))) = RefCell(ArrayList(DerefSite)).new(ArrayList(DerefSite).new());
 (g_deref_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3279,14 +3283,26 @@ record_deref_site :: (fn(tok : &Token, expect : &String) -> unit)({
   if(g_audit_deref, {
     eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${expect}`);
   });
-  g_deref_sites.with_mut(xs => xs.push(DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
+  g_deref_sites.with_mut(xs => xs.push(DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), edit : u8(0))));
+});
+/// Record an `edit` 1 (label prefix `text`) or 2 (drop the marker) site at
+/// `tok`. Once per position and edit.
+record_deref_edit_site :: (fn(tok : &Token, text : &String, edit : u8) -> unit)({
+  key := `${edit.to_string()}:${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_deref_site_keys.with_mut(s => s.insert(key.clone())), {
+    return(());
+  });
+  if(g_audit_deref, {
+    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", "label")} ${text}`);
+  });
+  g_deref_sites.with_mut(xs => xs.push(DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : text.clone(), edit : edit)));
 });
 take_deref_sites :: (fn() -> ArrayList(DerefSite))({
   out := g_deref_sites.with_mut(xs => xs.split_off(usize(0)));
   g_deref_site_keys.with_mut(s => s.clear());
   out
 });
-export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, take_deref_sites);
+export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, take_deref_sites);
 /// One pattern `yo fix --migrate rc-pattern` wraps in `Rc(…)`
 /// (plans/VALUES_BY_DEFAULT.md decision 31, Generation B): a structural
 /// pattern at an `Rc(T)` position, which the compiler no longer looks through

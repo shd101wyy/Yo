@@ -2758,7 +2758,7 @@ _run_migrate_deref :: (
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
         st := sites(si);
-        if(seen.insert(`${st.row.to_string()}:${st.col.to_string()}`), {
+        if(seen.insert(`${st.edit.to_string()}:${st.row.to_string()}:${st.col.to_string()}`), {
           mine.push(st);
         });
       });
@@ -2785,6 +2785,34 @@ _run_migrate_deref :: (
             lgo = false;
           }
         );
+      });
+      // A capture entry's label (`r : `), inserted before its first token.
+      if(st.edit == u8(1), {
+        n_done = (n_done + usize(1));
+        checked.push(_PendingFix(row : st.row, col : st.col, len : usize(0), replacement : `${st.expect} : `, description : at));
+        continue;
+      });
+      // A redundant borrow marker right before the name: `&` or `&mut `.
+      if(st.edit == u8(2), {
+        (mb : usize) = st.col;
+        while((mb > usize(0)) && ((runes(mb - usize(1)) == ' ') || (runes(mb - usize(1)) == '\t')), mb = (mb - usize(1)), ());
+        (mstart : Option(usize)) = cond(
+          ((mb >= usize(4)) && (runes(mb - usize(4)) == '&') && (runes(mb - usize(3)) == 'm') && (runes(mb - usize(2)) == 'u') && (runes(mb - usize(1)) == 't') && (mb < st.col)) => Option(usize).Some(mb - usize(4)),
+          ((mb >= usize(1)) && (runes(mb - usize(1)) == '&') && (mb == st.col)) => Option(usize).Some(mb - usize(1)),
+          true => Option(usize).None
+        );
+        match(
+          mstart,
+          .Some(ms) => {
+            n_done = (n_done + usize(1));
+            checked.push(_PendingFix(row : st.row, col : ms, len : (st.col - ms), replacement : String.new(), description : at));
+          },
+          .None => {
+            n_skipped = (n_skipped + usize(1));
+            println(`fix: ${at}: no \`&\`/\`&mut\` marker written right before \`${st.expect}\`; left as written`);
+          }
+        );
+        continue;
       });
       span_end := if(st.col < runes.len(), _expr_span_end(&runes, st.col, st.col, &st.expect, &file), Option(usize).None);
       match(
@@ -2832,8 +2860,8 @@ _run_migrate_deref :: (
       run_fmt(&fmt_argv, io, exn);
     });
   });
-  verb := if(dry_run, String.from("would insert"), String.from("inserted"));
-  println(`fix: ${verb} ${n_done.to_string()} \`.*\`; ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  verb := if(dry_run, String.from("would apply"), String.from("applied"));
+  println(`fix: ${verb} ${n_done.to_string()} edit(s) (\`.*\`, capture labels, dropped \`&\` markers); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated references were not migrated`));
   });
