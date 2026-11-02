@@ -2729,7 +2729,15 @@ _run_migrate_deref :: (
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
     file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
+    // Each file is evaluated as `yo check` evaluates it, as the verification
+    // target: a `pragma(Pragma.Verify)` file's contracts are ghost code
+    // there (`seq_of(xs)`, `old(v)`), and only a target reads them so.
+    targets := ArrayList(String).new();
+    targets.push(file.clone());
+    targets.push(mm_resolve_entry_abs(file.clone(), std_path.clone()));
+    set_verify_target_paths(&targets);
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    _tasks := take_verify_tasks();
     if(!outcome.ok, {
       _drop := _take_load_error();
       _drop_diags := take_error_diagnostics();
