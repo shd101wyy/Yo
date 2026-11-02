@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
+{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -772,6 +772,18 @@ _MarkerPlace :: enum(
   /// `&T` binding bare (the 2026-10-09 delegated decisions).
   Borrow
 );
+/// A by-value parameter's non-owning re-bind in a specialized body is not a
+/// reference (decision 43 step 2 N1e-1): mark it so E0926 leaves its reads
+/// alone (`variable_is_reference_binding`).
+_mark_value_rebind :: (fn(v : &Option(Variable), func_type : &TypeValue, i : usize) -> unit)(
+  match(
+    v,
+    .Some(rv) => if(fn_param_is_by_value(func_type, i), {
+      rv.is_value_rebind = true;
+    }),
+    .None => ()
+  )
+);
 /// Classify `e` (an argument with its label and any marker removed, already
 /// evaluated in `env`): a runtime variable, a field or dereference step on a
 /// place (`s.items`, `p.*`), or an element of one (`xs(i)`, an `Index` or
@@ -887,6 +899,38 @@ check_call_site_borrow_marker :: (
         E_BORROW_MARKER_MISMATCH
       )
     )
+  );
+});
+/// E0926 at an argument (decision 43 step 2 N1e-1, VERDICTS-13 §11), after
+/// it was evaluated: `&r`/`&mut r` on a reference binding `r` borrows the
+/// referent, spelled `&r.*`; a bare `r` is a whole-value read in a by-value
+/// slot or as an operator's operand. A bare `r` lent to a reference slot
+/// (`f(r)` passes what `r` borrows) and a method call's receiver (auto-deref)
+/// are not. The argument evaluator exempted the bare name for reference
+/// slots and receivers (`deref_exempt_mark`), and a pre-evaluated argument
+/// (`_sai_arg_type`) reaches here without the identifier check, so this is
+/// where a by-value slot is judged for both.
+_check_reference_argument :: (fn(written_arg : &AstExpr, place_arg : &AstExpr, by_value : bool, is_receiver : bool, is_ct : bool, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(is_ct || !ast_expr_is_atom(place_arg), {
+    return(());
+  });
+  rv := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place_arg)),
+    .Some(ai) => match(
+      ai.source_variable,
+      .Some(v) => if(variable_is_reference_binding(&v), v, return(())),
+      .None => return(())
+    ),
+    .None => return(())
+  );
+  tok := ast_expr_token(place_arg);
+  if(!deref_rule_applies(&tok, ctx), {
+    return(());
+  });
+  cond(
+    (ast_expr_is_fn_call_of(written_arg, BK_BORROW_MUT, .Some(usize(1))) || ast_expr_is_fn_call_of(written_arg, BF_ADDRESS_OF, .Some(usize(1)))) => reject_reference_without_deref(&rv, &tok, u8(2), ctx, exn),
+    (by_value && !is_receiver) => reject_reference_without_deref(&rv, &tok, u8(0), ctx, exn),
+    true => ()
   );
 });
 /// Call-site borrow markers (plans/VALUES_BY_DEFAULT.md decision 33, V3b
@@ -1692,11 +1736,18 @@ check_if_function_parameter_matches_argument :: (
   });
   // A type constructor's `comptime(p) : Origin` parameter takes an origin,
   // read by name rather than evaluated (decision 43 step 3, N2a).
+  // A bare reference binding lent to a reference slot (`f(r)`), or a
+  // receiver, is not a whole-value read (E0926, decision 43 step 2 N1e-1);
+  // the call judges the other positions (`_check_reference_argument`).
+  if(!is_ct_only && (!param_is_owning || (param_label == "self")), {
+    deref_exempt_mark(&actual_arg);
+  });
   evaled_arg := if(
     is_ct_only && is_origin_kind(&resolved_pt),
     evaluate_origin_argument(&actual_arg, caller_env, ctx, exn),
     evaluate_expression_raw(&actual_arg, caller_env, ctx, exn)
   );
+  deref_exempt_clear();
   ctx.expected_type = saved_exp;
   // A `&mut` argument or receiver writes the place it names: an element
   // access on it dispatches `IndexMut` (decision 34, V2b).
@@ -4270,6 +4321,7 @@ create_specialized_function_inline :: (
                   false,
                   synthetic_token(&p_label, &callee_env.module_path.*)
                 );
+                _mark_value_rebind(&_fw, &func_type, rbp_i);
               },
               .None => ()
             );
@@ -4510,6 +4562,7 @@ create_specialized_function_inline :: (
                 false,
                 synthetic_token(&p_label, &callee_env.module_path.*)
               );
+              _mark_value_rebind(&_rbc, &func_type, rbp_i);
             }, if(cur_is_folded_const, {
               match(
                 runtime_param_tys.get(rbp_i),
@@ -4524,6 +4577,7 @@ create_specialized_function_inline :: (
                     false,
                     synthetic_token(&p_label, &callee_env.module_path.*)
                   );
+                  _mark_value_rebind(&_rb, &func_type, rbp_i);
                 },
                 .None => ()
               );
@@ -8565,6 +8619,15 @@ try_to_call_function_with_arguments :: (
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
           _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx)
         );
+        _check_reference_argument(
+          _unlabeled_argument(match(written_args.get(pi), .Some(w) => w, .None => parg)),
+          _unlabeled_argument(&parg),
+          (p_owning || call_is_operator),
+          (is_method_call && (pi == usize(0))),
+          match(call_param_comptime.get(pi), .Some(f) => f, .None => false),
+          ctx,
+          exn
+        );
         if(!(is_method_call && (pi == usize(0))), {
           if(!call_is_operator, {
             check_call_site_borrow_marker(
@@ -9865,7 +9928,7 @@ export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(closure_argument_owned_type);
-export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
+export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);

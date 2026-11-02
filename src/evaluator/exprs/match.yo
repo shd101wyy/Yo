@@ -1620,6 +1620,18 @@ evaluate_match :: (
             match(_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
           });
           match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
+          // A binding of a `match(&x, …)` borrows the part it binds: outside
+          // std and src it reads as a whole value with `.*` (E0926, decision
+          // 43 step 2 N1e-1; a `&mut` match's binding is `is_ref` above).
+          if(!ct_known && !consuming && !mut_places && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)), {
+            match(
+              _added,
+              .Some(bm_var) => {
+                bm_var.is_borrow_match_binding = true;
+              },
+              .None => ()
+            );
+          });
           if(audit_pending_copies_enabled(), {
             // `yo fix --migrate rc-clone`: a binding of a `&`/`&mut`
             // scrutinee borrows whatever the scrutinee is (a call's

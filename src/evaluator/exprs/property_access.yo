@@ -32,7 +32,10 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_comptime_ref,
   scope_release_note_query,
   mark_node_preevaluated,
-  unmark_node_preevaluated
+  unmark_node_preevaluated,
+  expr_info_set_macro_expansion,
+  record_macro_expansion,
+  record_deref_site
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -55,7 +58,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -249,6 +252,13 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
   args.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(args), true, dot_tok)
 });
+/// Whether the old reading of `v.*` on a reference binding whose pointee is
+/// `ty` reached THROUGH the pointee (a cell handle's payload, a `Box`'s, a
+/// raw pointer's target, or a declared field `*`): `yo fix --migrate deref`
+/// spells that `v.*.*` (decision 43 step 2 N1e-1).
+_deref_reads_through :: (fn(ty : &TypeValue) -> bool)(
+  cell_handle_view(ty).is_some() || (unique_box_payload_type(ty).is_some() || (is_pointer_type(ty) || find_first_field_index(&_field_labels_of(ty).items, String.from("*")).is_some()))
+);
 /// The labels a field read can name on `t`: a struct's, tuple's or union's.
 _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
   match(
@@ -704,7 +714,9 @@ _evaluate_property_access_node :: (
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   // RAW — see the comment at the `is_kind` early-return above.
   local_borrow_mark_receiver(&object_expr);
+  deref_exempt_mark(&object_expr);
   object_expr = evaluate_expression_raw(&object_expr, &env, ctx, exn);
+  deref_exempt_clear();
   local_borrow_clear_receiver();
   ctx.expected_type = old_expected_type;
   // The outermost node of a place chain reads the whole place: E0911 while a
@@ -756,6 +768,40 @@ _evaluate_property_access_node :: (
   // -------------------------------------------------------------------------
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*"), {
     obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty)), .None => Option(TypeValue).None);
+    // `r.*` on a reference binding `r` (decision 43 step 2 N1e-1,
+    // VERDICTS-13 §11): outside std and the compiler tree it is the
+    // reference's deref, the value a bare `r` read before, lowered to the
+    // same C (codegen emits the receiver through `macro_expansion`). A
+    // `Box`/`Rc`/pointer/field-`*` deref through the reference is
+    // `r.*.*`. std and src keep the old reading below (the `.*` reaches
+    // through to the payload), and `yo fix --migrate deref`, which reads old
+    // source, records that `.*` as `r.*.*` and evaluates it the old way.
+    match(
+      obj_info_opt,
+      .Some(rd_oi) => match(
+        rd_oi.source_variable,
+        .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && variable_is_reference_binding(&rd_v) && deref_rule_applies(ast_expr_token(&object_expr), ctx), {
+          if(deref_rule_recording(), {
+            if(_deref_reads_through(&rd_oi.ty), {
+              record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
+            });
+          }, {
+            out_rd := new_expr_info(&env, &rd_oi.ty);
+            out_rd.value = rd_oi.value;
+            expr_info_set_origin_type(&out_rd, expr_info_origin_type(&rd_oi));
+            out_rd.variable_name = rd_oi.variable_name.clone();
+            out_rd.source_variable = rd_oi.source_variable;
+            out_rd.path_collection = rd_oi.path_collection.clone();
+            record_macro_expansion(ast_expr_id(expr), object_expr.clone());
+            expr_info_set_macro_expansion(&out_rd, Option(AstExpr).Some(object_expr.clone()));
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rd);
+            return(expr);
+          });
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
     match(
       &obj_ty_deref,
       .Some(ot) => {

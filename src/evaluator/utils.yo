@@ -117,7 +117,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -129,8 +129,8 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt } :: import("./memory_safety.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, record_deref_site } :: import("../expr_info.yo");
+{ is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -164,6 +164,12 @@ pragma(Pragma.AllowUnsafe);
 /// reports the whole place).
 (mut(g_lb_receiver_id) : usize) = usize(0);
 (mut(g_lb_receiver_armed) : bool) = false;
+/// The atom whose identifier evaluation is exempt from E0926 (decision 43
+/// step 2 N1e-1): an auto-deref receiver (`r.f`, `r.m()`, `r(i)`), a lend
+/// to a reference slot (`f(r)`, checked by the call), the re-point name
+/// (`r = &place`). One slot, as the receiver mark above.
+(mut(g_deref_exempt_id) : usize) = usize(0);
+(mut(g_deref_exempt_armed) : bool) = false;
 /// The block statements after a borrow binding, for its live range: set by
 /// `evaluate_begin_expression` just before it evaluates the binding.
 (mut(g_lb_lookahead_stmts) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
@@ -6788,6 +6794,69 @@ local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
+/// Before evaluating `e` where a bare reference binding is not a
+/// whole-value read (`g_deref_exempt_id`): only an atom is marked.
+deref_exempt_mark :: (fn(e : &AstExpr) -> unit)(
+  if(ast_expr_is_atom(e), {
+    g_deref_exempt_id = ast_expr_id(e);
+    g_deref_exempt_armed = true;
+  })
+);
+/// After `e` was evaluated.
+deref_exempt_clear :: (fn() -> unit)({
+  g_deref_exempt_armed = false;
+});
+/// At the identifier evaluator's entry: `e` is exempt. Clears the mark.
+deref_exempt_take :: (fn(e : &AstExpr) -> bool)({
+  if(!g_deref_exempt_armed, {
+    return(false);
+  });
+  hit := (g_deref_exempt_id == ast_expr_id(e));
+  if(hit, {
+    g_deref_exempt_armed = false;
+  });
+  hit
+});
+/// A binding that holds a reference (decision 43 step 2 N1e-1): a `&T` or
+/// `&mut T` parameter (a fn's, a closure's, a receiver's), a local borrow
+/// `y := &place`, a projection's result, a capture-list borrow, a `for`
+/// element, a binding of a `match(&x, …)` or `match(&mut x, …)`. Its
+/// `Variable.ty` is the pointee until N1e-2 retypes it.
+variable_is_reference_binding :: (fn(v : &Variable) -> bool)(
+  !v.is_compile_time_only && !v.is_module_level && (v.is_borrow_match_binding || ((v.is_ref || v.is_imm_borrow) && !v.is_value_rebind))
+);
+/// E0926's rule judges the expression at `tok`: its defining file is outside
+/// the trees that keep the old reading (`is_deref_rule_exempt`), or the
+/// `YO_AUDIT_DEREF=1` census runs (every file).
+deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
+  audit_deref_on() || !is_deref_rule_exempt(&tok.module_path.*, &ctx.std_path)
+);
+/// Whether a judged site records instead of rejecting: `yo fix --migrate
+/// deref` or the census.
+deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
+/// E0926 at `tok`, the reference binding `v` used as a whole value without
+/// `.*` (decision 43 step 2 N1e-1, VERDICTS-13 §11): `kind` 0 is a read in a
+/// by-value position, 1 the write `v = x`, 2 the borrow `&v`/`&mut v`. While
+/// the rule records it notes the `.*` to insert after `tok` instead.
+reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(deref_rule_recording(), {
+    record_deref_site(tok, &v.name);
+    return(());
+  });
+  name := v.name.clone();
+  ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${type_to_string_for_message(&v.ty)}`;
+  msg := cond(
+    (kind == u8(1)) => `\`${name}\` is a reference (\`${ref_ty}\`): writing the value it refers to is spelled \`${name}.* = …\``,
+    (kind == u8(2)) => `\`${name}\` is a reference (\`${ref_ty}\`): borrowing the value it refers to is spelled \`&${name}.*\``,
+    true => `\`${name}\` is a reference (\`${ref_ty}\`): reading the value it refers to is spelled \`${name}.*\``
+  );
+  help := cond(
+    (kind == u8(1)) => `write \`${name}.* = …\`; \`${name} = &place\` re-points the reference (\`yo fix --migrate deref\` inserts the \`.*\`)`,
+    (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
+    true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
+  );
+  raise_flow_violation(&with_code(format_error_message_with_help(tok, msg, Option(String).Some(help)), E_REFERENCE_READ_WITHOUT_DEREF), ctx, exn);
+});
 /// `stmt` declares a local borrow: `y := &place` or `y := &mut place`.
 local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
@@ -8547,6 +8616,13 @@ export(
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
   local_borrow_take_receiver,
+  deref_exempt_mark,
+  deref_exempt_clear,
+  deref_exempt_take,
+  variable_is_reference_binding,
+  deref_rule_applies,
+  deref_rule_recording,
+  reject_reference_without_deref,
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,
   local_borrow_set_lookahead,
