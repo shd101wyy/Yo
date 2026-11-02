@@ -658,6 +658,12 @@ get_visible_type_trait_methods_by_name :: (
 /// so codegen-time synthetic registrations (codegen/functions/collection.yo)
 /// never participate.
 (_inherent_method_sites : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+/// `_inherent_method_sites` keys by owner, so an invalidated module's sites
+/// go with it (`purge_inherent_method_sites_owned_by`). Without the purge a
+/// watch round that re-evaluates an edited module meets its own previous
+/// sites: an edit that moves an impl member to another line made the
+/// member's old site answer as a "first definition" (E0612).
+(_inherent_method_site_owned : OwnedKeys) = owned_keys_new();
 /// Trait-impl sites (plans/reference/TRAIT_COHERENCE.md) — see
 /// `note_trait_impl_site` below; declared here because runtime module-level
 /// bindings are evaluated in order and `clear_type_trait_methods` resets them.
@@ -669,6 +675,7 @@ get_visible_type_trait_methods_by_name :: (
 clear_type_trait_methods :: (fn() -> unit)({
   _type_trait_methods.with_mut(m => m.clear());
   _inherent_method_sites.with_mut(m => m.clear());
+  _inherent_method_site_owned.by_owner.clear();
   _trait_impl_sites.with_mut(m => m.clear());
   _trait_impl_site_owners.with_mut(m => m.clear());
 });
@@ -688,10 +695,29 @@ note_inherent_method_site :: (
     ),
     .None => {
       _inherent_method_sites.with_mut(m => m.insert(key.clone(), site.clone()));
+      owned_keys_record(&_inherent_method_site_owned, key.clone());
       Option(String).None
     }
   )
 });
+/// Drop the inherent-method sites `owner`'s evaluation recorded (watch and
+/// LSP invalidation; its re-evaluation records them again).
+purge_inherent_method_sites_owned_by :: (fn(owner : &String) -> unit)({
+  keys := owned_keys_take(&_inherent_method_site_owned, owner);
+  (i : usize) = usize(0);
+  while(i < keys.len(), {
+    match(
+      keys.get(i),
+      .Some(k) => {
+        _r := _inherent_method_sites.with_mut(m => m.remove(&k));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Recorded inherent-method sites (the watch-round plateau probe).
+inherent_method_site_count :: (fn() -> usize)(_inherent_method_sites.with(m => m.len()));
 /// TRAIT-IMPL sites (plans/reference/TRAIT_COHERENCE.md rules 1–2), keyed by
 /// `type_id` + newline + the trait's instantiation key, valued by the impl's
 /// `module_path:row:column`. A registration from a DIFFERENT site is a second
@@ -1068,6 +1094,8 @@ export(
   hook_register_func_contracts,
   register_type_trait_method,
   note_inherent_method_site,
+  purge_inherent_method_sites_owned_by,
+  inherent_method_site_count,
   note_trait_impl_site,
   trait_impl_site_of,
   forget_trait_impl_site_if_from,
