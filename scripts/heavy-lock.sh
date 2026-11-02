@@ -55,6 +55,11 @@
 # The script runs under macOS's bash 3.2 and under `set -u`: an empty array is
 # expanded as `${a[@]+"${a[@]}"}`, which both accept
 # (scripts/heavy-lock-test.sh runs every job under /bin/bash -u).
+# It is also sourced from zsh, the default login shell of agent sessions:
+# heavy_take and heavy_drop switch to `emulate -L sh` there (word-split
+# `$HEAVY_HELD_SLOTS`, which zsh does not split), and no loop relies on bash's
+# `${!a[@]}` index expansion, which zsh lacks (until 2026-11-02 `heavy_take`
+# died on it with "bad substitution", leaving its ticket queued).
 # HEAVY_ROOT itself has to come from the environment; every copy of this
 # script, in any worktree, must agree on it. The default is the worktree root
 # that AGENTS.md prescribes.
@@ -161,6 +166,7 @@ _heavy_claim() {
 }
 
 heavy_take() {
+  [ -n "${ZSH_VERSION:-}" ] && emulate -L sh
   local who="$1" weight=1 prio="${HEAVY_PRIORITY:-0}" arg
   shift
   for arg in "$@"; do
@@ -184,11 +190,12 @@ heavy_take() {
       pid="${t##*-}"
       if kill -0 "$pid" 2>/dev/null; then live+=("$t"); else rm -f "$HEAVY_QUEUE/$t"; fi
     done
-    local k
-    for k in ${live[@]+"${!live[@]}"}; do
-      if [ "${live[$k]}" = "$ticket_name" ]; then pos=$k; break; fi
-      grep -q '^weight=2$' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && excl_ahead=1
-      grep -q '^weight=' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && newpos=$((newpos + 1))
+    local k=0
+    for t in ${live[@]+"${live[@]}"}; do
+      if [ "$t" = "$ticket_name" ]; then pos=$k; break; fi
+      grep -q '^weight=2$' "$HEAVY_QUEUE/$t" 2>/dev/null && excl_ahead=1
+      grep -q '^weight=' "$HEAVY_QUEUE/$t" 2>/dev/null && newpos=$((newpos + 1))
+      k=$((k + 1))
     done
     _heavy_load_conf
     # Scan every possible slot, not just the configured ones: after the slot
@@ -237,6 +244,7 @@ heavy_take() {
 }
 
 heavy_drop() {
+  [ -n "${ZSH_VERSION:-}" ] && emulate -L sh
   local s dir
   for s in ${HEAVY_HELD_SLOTS:-}; do
     dir="$(_heavy_slot_dir $s)"
