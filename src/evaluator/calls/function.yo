@@ -8055,7 +8055,7 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
         // the PENDING copy (`reraise_flow_violation`), so the decision-20
         // help must ride this one as well.
         fv_anchored := reanchor_primary_at(&fv, call_tok, String.from(STD_RAISE_NOTE));
-        fv_shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&fv_anchored, s), .None => fv_anchored);
+        fv_shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&fv_anchored, &s), .None => fv_anchored);
         flag_flow_violation(match(accessor_help, .Some(h) => _with_primary_help(&fv_shown, &h), .None => fv_shown));
       }),
       .None => ()
@@ -8066,7 +8066,7 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
     downcast(err, YoError),
     .Some(ye) => {
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
-      shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&anchored, s), .None => anchored);
+      shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&anchored, &s), .None => anchored);
       dyn(match(accessor_help, .Some(h) => _with_primary_help(&shown, &h), .None => shown))
     },
     .None => err
