@@ -2786,7 +2786,7 @@ _find_mutual_specializing_info :: (
     top_is_fid,
     Option(SpecializingFunctionInfo).None,
     match(
-      ctx.currently_specializing_function_stack,
+      &ctx.currently_specializing_function_stack,
       .Some(stk) => {
         (i : usize) = usize(0);
         (found : Option(SpecializingFunctionInfo)) = Option(SpecializingFunctionInfo).None;
@@ -3025,7 +3025,7 @@ _spec_resolve_arg_ty :: (fn(t_in : &TypeValue) -> TypeValue)({
         (ri : usize) = usize(0);
         while(ri < seen.len(), {
           match(
-            seen.get(ri),
+            seen.get_cloned(ri),
             .Some(rs) => if(rs == sr_id, {
               revisit = true;
             }),
@@ -3101,7 +3101,7 @@ _somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args
   });
   (si : usize) = usize(0);
   while(si < somes.len(), {
-    sid := match(somes.get(si), .Some(st) => match(st, Rc(.SomeT(sid0, _, _, _, _, _, _)) => sid0, _ => String.new()), .None => String.new());
+    sid := match(somes.get(si), .Some(st) => match(st, Rc(.SomeT(sid0, _, _, _, _, _, _)) => sid0.clone(), _ => String.new()), .None => String.new());
     (found : bool) = false;
     (ii : usize) = usize(0);
     while((ii < ids.len()) && !found, {
@@ -3161,7 +3161,7 @@ create_specialized_function_inline :: (
       });
       // Add implicit arguments (always compile-time)
       match(
-        arg_values.implicit_args,
+        &arg_values.implicit_args,
         .Some(impl_args) => {
           (iai : usize) = usize(0);
           n_ia := impl_args.len();
@@ -3494,7 +3494,7 @@ create_specialized_function_inline :: (
                         while((zbp < zb_pt.len()) && !zb_done, {
                           zb_decl_nm := match(
                             slot_pointee_at(&zb_pt, zbp),
-                            .Some(Rc(.SomeT(_, zdn, _, _, _, _, _))) => zdn,
+                            .Some(Rc(.SomeT(_, zdn, _, _, _, _, _))) => zdn.clone(),
                             .Some(_) => String.from(""),
                             .None => String.from("")
                           );
@@ -3716,7 +3716,7 @@ create_specialized_function_inline :: (
               ctx.is_evaluating_function_type = true;
               pte_prev_self := ctx.self_type.clone();
               {
-                pte_p0_is_self := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+                pte_p0_is_self := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
                 if(pte_p0_is_self, {
                   match(
                     arg_values.args.get(usize(0)),
@@ -3795,7 +3795,7 @@ create_specialized_function_inline :: (
                 // *(Pair(i32,i32)).
                 rte_prev_self := ctx.self_type.clone();
                 {
-                  rte_p0_is_self := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+                  rte_p0_is_self := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
                   if(rte_p0_is_self, {
                     match(
                       arg_values.args.get(usize(0)),
@@ -3854,8 +3854,9 @@ create_specialized_function_inline :: (
           // recursive call graph forever and overflows the stack. Stack
           // entries need only the id/return-type fields (EvalValue has no clone, and
           // `original_func_value` is never read off the stack); popped below.
+          // Taken out and stored back below (the push).
           spec_stack := match(
-            ctx.currently_specializing_function_stack,
+            replace(&mut ctx.currently_specializing_function_stack, Option(ArrayList(SpecializingFunctionInfo)).None),
             .Some(s) => s,
             .None => ArrayList(SpecializingFunctionInfo).new()
           );
@@ -4542,7 +4543,7 @@ create_specialized_function_inline :: (
           // see issues/fixed/yo-self-p1-transpile-tail.md. The call argument carries the
           // real, complete receiver struct, so resolve `Self` to it.
           if(params.len() > usize(0), {
-            is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+            is_self_first := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
             if(is_self_first, {
               match(
                 arg_values.args.get(usize(0)),
@@ -4611,7 +4612,7 @@ create_specialized_function_inline :: (
             (swi : usize) = usize(0);
             while(swi < spec_wes.len(), {
               match(
-                spec_wes.get(swi),
+                spec_wes.get_cloned(swi),
                 .Some(swe) => {
                   swe_id := match(&swe.trait_ty, Rc(.TraitT(_, _, swe_tid, _, _, _)) => swe_tid.clone(), _ => String.from(""));
                   if(swe_id != "", {
@@ -4638,7 +4639,7 @@ create_specialized_function_inline :: (
                       match(
                         sws_rtt.get(sws_ri),
                         .Some(sws_tr) => {
-                          sws_tid := match(sws_tr, Rc(.TraitT(_, _, sws_tid0, _, _, _)) => sws_tid0, _ => String.from(""));
+                          sws_tid := match(sws_tr, Rc(.TraitT(_, _, sws_tid0, _, _, _)) => sws_tid0.clone(), _ => String.from(""));
                           if(sws_tid != "", {
                             spec_where_ids.push(sws_tid);
                           });
@@ -4747,8 +4748,8 @@ create_specialized_function_inline :: (
           sync_counted_handle_std_generic(ctx);
           // Pop this specialization off the full stack (pushed at the set site above).
           spec_stack_r := match(
-            ctx.currently_specializing_function_stack,
-            .Some(s) => s,
+            &ctx.currently_specializing_function_stack,
+            .Some(s) => s.clone(),
             .None => ArrayList(SpecializingFunctionInfo).new()
           );
           spec_stack_r.pop();
@@ -5249,7 +5250,7 @@ create_specialized_function_inline :: (
                                   // closure body is the program's error.
                                   match(
                                     g_reeval_closure_err.with(xs => xs.get(usize(0))),
-                                    .Some(rc_err) => if(!propagate_def_time_errors() && match(rc_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+                                    .Some(rc_err) => if(!propagate_def_time_errors() && match(rc_err.diagnostics.get_cloned(usize(0)), .Some(d) => d.generic_independent, .None => false), {
                                       g_reeval_closure_err.with_mut(xs => xs.clear());
                                       exn.throw(dyn(rc_err));
                                     }),
@@ -5267,7 +5268,7 @@ create_specialized_function_inline :: (
                                           rk_some = (rk_some + get_all_some_types(match(cw_new_pts.get(rk_i), .Some(t) => t, .None => t_unit())).len());
                                           rk_i = (rk_i + usize(1));
                                         });
-                                        rk_code := match(rk_err.diagnostics.get(usize(0)), .Some(d) => match(&d.code, .Some(c) => c.clone(), .None => String.from("-")), .None => String.from("-"));
+                                        rk_code := match(rk_err.diagnostics.get_cloned(usize(0)), .Some(d) => match(&d.code, .Some(c) => c.clone(), .None => String.from("-")), .None => String.from("-"));
                                         rk_tok := ast_expr_token(&cc_fvd.*.body);
                                         eprintln(`[kept] site=${if(rk_some == usize(0), String.from("reeval-concrete"), String.from("reeval-abstract"))} code=${rk_code} owner=${rk_tok.module_path.*}:${rk_tok.row.to_string()}:${rk_tok.column.to_string()}`);
                                       },
@@ -5419,7 +5420,7 @@ create_specialized_function_inline :: (
                           (ydb_f : usize) = usize(0);
                           while((ydb_f < forall_names.len()) && !ydb_is_forall, {
                             match(
-                              forall_names.get(ydb_f),
+                              forall_names.get_cloned(ydb_f),
                               .Some(fnm) => if(fnm == ydb_nm, {
                                 ydb_is_forall = true;
                               }),
@@ -5432,7 +5433,7 @@ create_specialized_function_inline :: (
                         (ydb_k : usize) = usize(0);
                         while(ydb_k < ys_added_names.len(), {
                           match(
-                            ys_added_names.get(ydb_k),
+                            ys_added_names.get_cloned(ydb_k),
                             .Some(an) => if(an == ydb_nm, {
                               ydb_seen = true;
                             }),
@@ -5496,7 +5497,7 @@ create_specialized_function_inline :: (
               // call's real concrete instance — adopt it when the ctor
               // matches, making the signature receiver-canonical.
               (sr_recv_ty : Option(TypeValue)) = Option(TypeValue).None;
-              sr_is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+              sr_is_self_first := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
               if(sr_is_self_first, {
                 match(
                   arg_values.args.get(usize(0)),
@@ -5691,7 +5692,7 @@ _create_specialization_trapped :: (
 _with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description : &String, callee_in_std : bool) -> AnyError)({
   ye := match(downcast(err, YoError), .Some(y) => y, .None => return(err));
   prim_at_call := match(
-    ye.diagnostics.get(usize(0)),
+    ye.diagnostics.get_cloned(usize(0)),
     .Some(d) => ((d.span.path == call_tok.module_path.*) && (d.span.row == usize(call_tok.row)) && (d.span.col == usize(call_tok.column))),
     .None => true
   );
@@ -5714,9 +5715,9 @@ _with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description :
 });
 _same_primary_span :: (fn(a : &YoError, b : &YoError) -> bool)(
   match(
-    a.diagnostics.get(usize(0)),
+    a.diagnostics.get_cloned(usize(0)),
     .Some(da) => match(
-      b.diagnostics.get(usize(0)),
+      b.diagnostics.get_cloned(usize(0)),
       .Some(db) => ((da.span.path == db.span.path) && (da.span.row == db.span.row) && (da.span.col == db.span.col) && (da.message == db.message)),
       .None => false
     ),
@@ -5747,7 +5748,7 @@ create_specialization_at_call :: (
   // body that throws leaves it set, and a probe that catches the error goes
   // on judging its own code as that specialization's.
   prev_spec := ctx.currently_specializing_function;
-  prev_stack_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
+  prev_stack_len := match(&ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
   // The body is evaluated for real, even when an overload trial asked for
   // the specialization: the specialization outlives the trial and is the one
   // every later call reuses, so the trial's checking-phase shortcuts (a
@@ -5810,14 +5811,14 @@ evaluate_ctl_function_body_inline :: (
   ) -> EvalValue
 )({
   // Extract FuncVal fields individually to avoid tuple destructuring.
-  orig_forall_labels := match(original_func_val, .FuncVal(__fvd3, _) => __fvd3.*.forall_names, _ => ArrayList(String).new());
-  orig_params := match(original_func_val, .FuncVal(__fvd4, _) => __fvd4.*.params, _ => ArrayList(String).new());
-  orig_param_type_names := match(original_func_val, .FuncVal(__fvd5, _) => __fvd5.*.param_type_names, _ => ArrayList(String).new());
-  orig_evidence_params := match(original_func_val, .FuncVal(__fvd6, _) => __fvd6.*.evidence_params, _ => ArrayList(String).new());
+  orig_forall_labels := match(original_func_val, .FuncVal(__fvd3, _) => __fvd3.*.forall_names.clone(), _ => ArrayList(String).new());
+  orig_params := match(original_func_val, .FuncVal(__fvd4, _) => __fvd4.*.params.clone(), _ => ArrayList(String).new());
+  orig_param_type_names := match(original_func_val, .FuncVal(__fvd5, _) => __fvd5.*.param_type_names.clone(), _ => ArrayList(String).new());
+  orig_evidence_params := match(original_func_val, .FuncVal(__fvd6, _) => __fvd6.*.evidence_params.clone(), _ => ArrayList(String).new());
   orig_body := match(original_func_val, .FuncVal(__fvd7, _) => __fvd7.*.body, _ => make_err_expr());
   orig_cap_src := match(original_func_val, .FuncVal(__fvd8, _) => fv_capture_source(&__fvd8.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
   orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => Rc.clone(cv), _ => no_values());
-  orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
+  orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.func_id.clone(), _ => String.from("__err_ctl"));
   orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.*.env_key, _ => usize(0));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
@@ -6165,7 +6166,7 @@ validate_where_constraints_for_call :: (
   (wcl_i : usize) = usize(0);
   while(wcl_i < where_constraint_list.len(), {
     wce := match(
-      where_constraint_list.get(wcl_i),
+      where_constraint_list.get_cloned(wcl_i),
       .Some(e) => e,
       .None => {
         wcl_i = (wcl_i + usize(1));
@@ -6744,7 +6745,7 @@ collect_somes_with_fn_sigs :: (fn(t : &TypeValue) -> ArrayList(TypeValue))({
         ft_parts.push(Rc.clone(ftt_res));
         (fi : usize) = usize(0);
         while(fi < ft_parts.len(), {
-          part := match(ft_parts.get(fi), .Some(x) => x, .None => t_unit());
+          part := match(ft_parts.get(fi), .Some(x) => x.clone(), .None => t_unit());
           match(&part, Rc(.SomeT(_, _, _, _, _, _, _)) => somes.push(Rc.clone(part)), _ => ());
           part_somes := get_all_some_types(&part);
           (pk : usize) = usize(0);
@@ -6766,7 +6767,7 @@ _mentions_forall_binder :: (fn(t : &TypeValue, forall_names : &ArrayList(String)
   somes := collect_somes_with_fn_sigs(t);
   (i : usize) = usize(0);
   while(i < somes.len(), {
-    nm := match(somes.get(i), .Some(st) => match(st, Rc(.SomeT({ name : n })) => n, _ => String.new()), .None => String.new());
+    nm := match(somes.get(i), .Some(st) => match(st, Rc(.SomeT({ name : n })) => n.clone(), _ => String.new()), .None => String.new());
     (j : usize) = usize(0);
     while(j < forall_names.len(), {
       if(match(forall_names.get_cloned(j), .Some(f) => (f == nm), .None => false), {
@@ -6916,7 +6917,7 @@ unresolved_own_binder :: (fn(t : &TypeValue, binder_ids : &ArrayList(String), bo
             ni = (ni + usize(1));
           });
           if(own && !bound && some_resolution(&st).is_none(), {
-            return(Option(String).Some(ubn_label));
+            return(Option(String).Some(ubn_label.clone()));
           });
         },
         _ => ()
@@ -7010,6 +7011,7 @@ _forall_len_binding_now :: (fn(env : &Environment, label : &String) -> Option(St
 /// `usize` for a value binder, whose value is `len_value`) and the 0-based
 /// argument that first fixed it.
 ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize, len_value : Option(String));
+derive(ForallBindingSeen, Clone);
 /// Per-call binder consistency (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.4,
 /// issues/fixed/generic-type-var-rebinds-per-argument.md). Each argument is
 /// matched on its own and a later argument's synthesis REBINDS the binder in
@@ -7047,15 +7049,15 @@ _check_forall_bindings_after_arg :: (
     (found : bool) = false;
     while((si < seen.len()) && !found, {
       match(
-        seen.get(si),
+        seen.get_cloned(si),
         .Some(prev) => if(prev.label == label, {
           found = true;
           prev_name := match(param_labels.get_cloned(prev.arg_index), .Some(n) => n, .None => String.new());
           now_name := match(param_labels.get_cloned(arg_index), .Some(n) => n, .None => String.new());
           match(
-            now_len,
+            &now_len,
             .Some(nl) => match(
-              prev.len_value,
+              &prev.len_value,
               .Some(pl) => if(pl != nl, {
                 exn.throw(
                   dyn(
