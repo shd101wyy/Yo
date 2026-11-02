@@ -1790,20 +1790,20 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   _bind_await_result_to_temp(expr, &out, out_is_c_local, indent, context)
 });
 /// Where the await's owned result lives for its consumers, given the code
-/// `out` it was stored to. A result temp with a task slot is dropped through
-/// the slot, so the owned result goes there too, as
-/// `generate_join_handle_await` does: a consumer that does not take the value
-/// over (`(a, b) := io.await(f, io)` reads its fields and leaves the temp to
-/// drop it) otherwise leaves the slot empty and the value unreleased
-/// (issues/fixed/a-destructured-await-result-is-never-released.md). A result
-/// temp with no slot, over a result kept in a C local (`out_is_c_local`), is
-/// declared as a C local under its own name, as the
-/// synchronous await declares it (`generate_await`), and the await's code is
-/// that name: the temp's scheduled drop skips a temp that was never declared,
-/// so a consumer that only reads a field of the value
-/// (`match(io.await(f, io).s, …)`, `while(io.await(f, io).n < 3, …)`) left
-/// the C local `out` unreleased
+/// `out` it was stored to. A result kept in a C local (`out_is_c_local`) whose
+/// owning temp the evaluator minted is declared under the temp's own name,
+/// as the synchronous await (`generate_await`) and every call temp declare
+/// theirs, and the await's code is that name: the temp's scheduled drop skips
+/// a temp that was never declared, so a consumer that only reads a field of
+/// the value (`match(io.await(f, io).s, …)`, `while(io.await(f, io).n < 3,
+/// …)`) left it unreleased
 /// (issues/fixed/2026-10-25-an-await-result-read-by-a-while-condition-or-a-field-reading-scrutinee-is-never-released.md).
+/// A result temp with a task slot is dropped through the slot, so the owned
+/// result goes there too, as `generate_join_handle_await` does: a consumer
+/// that does not take the value over (`(a, b) := io.await(f, io)` reads its
+/// fields and leaves the temp to drop it) otherwise leaves the slot empty and
+/// the value unreleased
+/// (issues/fixed/a-destructured-await-result-is-never-released.md).
 _bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local : bool, indent : &String, context : &FunctionGenerationContext) -> String)({
   if(out.len() == usize(0), {
     return(out.clone());
@@ -1811,24 +1811,26 @@ _bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(out.clone()));
   vn := match(ei.variable_name, .Some(v) => v.clone(), .None => return(out.clone()));
   em := context.base.emitter;
+  (code : String) = out.clone();
+  if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty), {
+    cname := get_variable_name_for_codegen_at(ast_expr_id(expr), &vn, Option(Environment).Some(ei.env));
+    if(!(cname == out), {
+      em.emit_string_line(`${indent}${get_variable_type_string(&ei.ty, &cname, &context.base)} = ${out};`);
+      code = cname;
+    });
+  });
   match(
     context.state_machine_variables,
     .Some(smv) => match(
       sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
-      .Some(slot) => if(!(slot == out), {
-        em.emit_string_line(`${indent}${slot} = ${out};`);
+      .Some(slot) => if(!(slot == code), {
+        em.emit_string_line(`${indent}${slot} = ${code};`);
       }),
-      .None => if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty), {
-        cname := get_variable_name_for_codegen_at(ast_expr_id(expr), &vn, Option(Environment).Some(ei.env));
-        if(!(cname == out), {
-          em.emit_string_line(`${indent}${get_variable_type_string(&ei.ty, &cname, &context.base)} = ${out};`);
-          return(cname);
-        });
-      })
+      .None => ()
     ),
     .None => ()
   );
-  out.clone()
+  code
 });
 
 /// The resume function of the single-pass lowering: the aborted-entry guard,
