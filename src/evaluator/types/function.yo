@@ -280,21 +280,23 @@ register_func_variadic_param :: (fn(func_id : &String, label : &String, ty : &Ty
 });
 copy_func_variadic_param :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_variadic_params.with(m => m.get(from_id.clone())),
+    g_func_variadic_params.with(m => m.get_cloned(from_id.clone())),
     .Some(entry) => {
-      g_func_variadic_params.with_mut(m => m.insert(to_id.clone(), entry.clone()));
+      to_id_owned___ := to_id.clone();
+      entry_owned := entry.clone();
+      g_func_variadic_params.with_mut({ to_id_owned___, entry_owned }(m) => m.insert(to_id_owned___.clone(), entry_owned));
     },
     .None => ()
   );
 });
 get_func_variadic_param :: (fn(func_id : &String) -> Option(VariadicParamEntry))(
-  g_func_variadic_params.with(m => m.get(func_id.clone()))
+  g_func_variadic_params.with(m => m.get_cloned(func_id.clone()))
 );
 /// Return the per-parameter default values for `func_id`, or an empty
 /// list when none are registered (i.e. all parameters required).
 get_func_param_defaults :: (fn(func_id : &String) -> ArrayList(Option(EvalValue)))(
   match(
-    g_func_param_defaults.with(m => m.get(func_id.clone())),
+    g_func_param_defaults.with(m => m.get_cloned(func_id.clone())),
     .Some(defaults) => defaults,
     .None => ArrayList(Option(EvalValue)).new()
   )
@@ -327,21 +329,25 @@ register_func_param_assigned_values :: (fn(func_id : &String, assigned : &ArrayL
   });
   if(any_assigned, {
     record_owned_func_id(func_id.clone());
-    g_func_param_assigned_values.with_mut(m => m.insert(func_id.clone(), assigned));
+    assigned_owned := assigned.clone();
+    func_id_owned___ := func_id.clone();
+    g_func_param_assigned_values.with_mut({ assigned_owned, func_id_owned___ }(m) => m.insert(func_id_owned___, assigned_owned.clone()));
   });
 });
 copy_func_param_assigned_values :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_assigned_values.with(m => m.get(from_id.clone())),
+    g_func_param_assigned_values.with(m => m.get_cloned(from_id.clone())),
     .Some(assigned) => {
-      g_func_param_assigned_values.with_mut(m => m.insert(to_id.clone(), assigned));
+      to_id_owned____ := to_id.clone();
+      assigned_owned_ := assigned.clone();
+      g_func_param_assigned_values.with_mut({ to_id_owned____, assigned_owned_ }(m) => m.insert(to_id_owned____.clone(), assigned_owned_));
     },
     .None => ()
   );
 });
 get_func_param_assigned_values :: (fn(func_id : &String) -> ArrayList(Option(EvalValue)))(
   match(
-    g_func_param_assigned_values.with(m => m.get(func_id.clone())),
+    g_func_param_assigned_values.with(m => m.get_cloned(func_id.clone())),
     .Some(assigned) => assigned,
     .None => ArrayList(Option(EvalValue)).new()
   )
@@ -373,14 +379,18 @@ register_func_param_comptime :: (fn(func_id : &String, flags : &ArrayList(bool))
   });
   if(any_ct, {
     record_owned_func_id(func_id.clone());
-    g_func_param_comptime.with_mut(m => m.insert(func_id.clone(), flags.clone()));
+    func_id_owned____ := func_id.clone();
+    flags_owned := flags.clone();
+    g_func_param_comptime.with_mut({ func_id_owned____, flags_owned }(m) => m.insert(func_id_owned____.clone(), flags_owned));
   });
 });
 copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_comptime.with(m => m.get(from_id.clone())),
+    g_func_param_comptime.with(m => m.get_cloned(from_id.clone())),
     .Some(flags) => {
-      g_func_param_comptime.with_mut(m => m.insert(to_id.clone(), flags.clone()));
+      to_id_owned_____ := to_id.clone();
+      flags_owned_ := flags.clone();
+      g_func_param_comptime.with_mut({ to_id_owned_____, flags_owned_ }(m) => m.insert(to_id_owned_____.clone(), flags_owned_));
     },
     .None => ()
   );
@@ -396,13 +406,16 @@ copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
 (g_func_return_type_expr : RefCell(HashMap(String, AstExpr))) = RefCell(HashMap(String, AstExpr)).new(HashMap(String, AstExpr).new());
 register_func_return_type_expr :: (fn(func_id : &String, e : &AstExpr) -> unit)({
   record_owned_func_id(func_id.clone());
-  g_func_return_type_expr.with_mut(m => m.insert(func_id.clone(), e));
+  func_id_owned_____ := func_id.clone();
+  g_func_return_type_expr.with_mut({ func_id_owned_____, e }(m) => m.insert(func_id_owned_____.clone(), e));
 });
 copy_func_return_type_expr :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
     g_func_return_type_expr.with(m => m.get(from_id.clone())),
     .Some(e) => {
-      g_func_return_type_expr.with_mut(m => m.insert(to_id.clone(), e.clone()));
+      to_id_owned______ := to_id.clone();
+      e_owned := e.clone();
+      g_func_return_type_expr.with_mut({ to_id_owned______, e_owned }(m) => m.insert(to_id_owned______.clone(), e_owned));
     },
     .None => ()
   );
@@ -411,7 +424,7 @@ get_func_return_type_expr :: (fn(func_id : &String) -> Option(AstExpr))(
   g_func_return_type_expr.with(m => m.get(func_id.clone()))
 );
 get_func_param_comptime :: (fn(func_id : &String) -> ArrayList(bool))(
-  match(g_func_param_comptime.with(m => m.get(func_id.clone())), .Some(f) => f, .None => ArrayList(bool).new())
+  match(g_func_param_comptime.with(m => m.get_cloned(func_id.clone())), .Some(f) => f, .None => ArrayList(bool).new())
 );
 // Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
 // AST). The value table above suffices for the call-site count check and the
@@ -443,25 +456,30 @@ register_func_param_default_exprs :: (fn(func_id : &String, exprs : &ArrayList(O
   });
   if(any_default, {
     record_owned_func_id(func_id.clone());
-    g_func_param_default_exprs.with_mut(m => m.insert(func_id.clone(), FuncParamDefaultExprs(exprs : exprs.clone(), def_env : def_env)));
+    func_id_owned______ := func_id.clone();
+    exprs_owned := exprs.clone();
+    g_func_param_default_exprs.with_mut({ func_id_owned______, exprs_owned, def_env }(m) => m.insert(func_id_owned______.clone(), FuncParamDefaultExprs(exprs : exprs_owned, def_env : def_env)));
   });
 });
 copy_func_param_default_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_default_exprs.with(m => m.get(from_id.clone())),
+    g_func_param_default_exprs.with(m => m.get_cloned(from_id.clone())),
     .Some(entry) => {
-      g_func_param_default_exprs.with_mut(m => m.insert(to_id.clone(), entry));
+      to_id_owned_______ := to_id.clone();
+      entry_owned_ := entry.clone();
+      g_func_param_default_exprs.with_mut({ to_id_owned_______, entry_owned_ }(m) => m.insert(to_id_owned_______.clone(), entry_owned_));
     },
     .None => ()
   );
 });
 get_func_param_default_exprs :: (fn(func_id : &String) -> ArrayList(Option(AstExpr)))(
   match(
-    g_func_param_default_exprs.with(m => m.get(func_id.clone())),
+    g_func_param_default_exprs.with(m => m.get_cloned(func_id.clone())),
     .Some(entry) => entry.exprs.clone(),
     .None => ArrayList(Option(AstExpr)).new()
   )
 );
+derive(FuncParamDefaultExprs, Clone);
 /// The environment an omitted argument's `?= default` is evaluated in at a
 /// call site: a fresh frame over the DEFINITION's scope (see
 /// `FuncParamDefaultExprs`), with `inner`'s frames (the callee's captures,
@@ -470,7 +488,7 @@ get_func_param_default_exprs :: (fn(func_id : &String) -> ArrayList(Option(AstEx
 /// `fallback` and `inner` are never mutated: the frame lists are copied.
 default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), fallback : &Environment) -> Environment)({
   out := match(
-    g_func_param_default_exprs.with(m => m.get(func_id)),
+    g_func_param_default_exprs.with(m => m.get_cloned(func_id)),
     .Some(entry) => {
       d := entry.def_env;
       frames := copy_env_frames(&d);
@@ -522,21 +540,25 @@ register_func_param_type_exprs :: (fn(func_id : &String, exprs : &ArrayList(Opti
   });
   if(any_te, {
     record_owned_func_id(func_id.clone());
-    g_func_param_type_exprs.with_mut(m => m.insert(func_id.clone(), exprs.clone()));
+    func_id_owned_______ := func_id.clone();
+    exprs_owned_ := exprs.clone();
+    g_func_param_type_exprs.with_mut({ func_id_owned_______, exprs_owned_ }(m) => m.insert(func_id_owned_______.clone(), exprs_owned_));
   });
 });
 copy_func_param_type_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_type_exprs.with(m => m.get(from_id.clone())),
+    g_func_param_type_exprs.with(m => m.get_cloned(from_id.clone())),
     .Some(exprs) => {
-      g_func_param_type_exprs.with_mut(m => m.insert(to_id.clone(), exprs.clone()));
+      to_id_owned________ := to_id.clone();
+      exprs_owned__ := exprs.clone();
+      g_func_param_type_exprs.with_mut({ to_id_owned________, exprs_owned__ }(m) => m.insert(to_id_owned________.clone(), exprs_owned__));
     },
     .None => ()
   );
 });
 get_func_param_type_exprs :: (fn(func_id : &String) -> ArrayList(Option(AstExpr)))(
   match(
-    g_func_param_type_exprs.with(m => m.get(func_id.clone())),
+    g_func_param_type_exprs.with(m => m.get_cloned(func_id.clone())),
     .Some(exprs) => exprs,
     .None => ArrayList(Option(AstExpr)).new()
   )
@@ -558,13 +580,16 @@ WhereConstraintEntry :: struct(
   trait_ty : TypeValue,
   is_negated : bool
 );
+derive(WhereConstraintEntry, Clone);
 (g_func_where_constraints : RefCell(HashMap(String, ArrayList(WhereConstraintEntry)))) = RefCell(HashMap(String, ArrayList(WhereConstraintEntry))).new(HashMap(String, ArrayList(WhereConstraintEntry)).new());
 /// Register the where-clause constraints for a function.
 /// No-op when the function has none (keeps the table sparse).
 register_func_where_constraints :: (fn(func_id : &String, entries : &ArrayList(WhereConstraintEntry)) -> unit)({
   if(entries.len() > usize(0), {
     record_owned_func_id(func_id.clone());
-    g_func_where_constraints.with_mut(m => m.insert(func_id.clone(), entries));
+    entries_owned := entries.clone();
+    func_id_owned________ := func_id.clone();
+    g_func_where_constraints.with_mut({ entries_owned, func_id_owned________ }(m) => m.insert(func_id_owned________, entries_owned.clone()));
   });
 });
 /// Call-site RE-APPLICATION needs the original constraint EXPRESSIONS: the
@@ -577,13 +602,15 @@ register_func_where_constraints :: (fn(func_id : &String, entries : &ArrayList(W
 register_func_where_clause_exprs :: (fn(func_id : &String, exprs : &ArrayList(AstExpr)) -> unit)({
   if(exprs.len() > usize(0), {
     record_owned_func_id(func_id.clone());
-    g_func_where_clause_exprs.with_mut(m => m.insert(func_id.clone(), exprs.clone()));
+    func_id_owned_________ := func_id.clone();
+    exprs_owned___ := exprs.clone();
+    g_func_where_clause_exprs.with_mut({ func_id_owned_________, exprs_owned___ }(m) => m.insert(func_id_owned_________.clone(), exprs_owned___));
   });
 });
 /// Return the where-clause constraint expressions for `func_id` (empty when none).
 get_func_where_clause_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
-    g_func_where_clause_exprs.with(m => m.get(func_id.clone())),
+    g_func_where_clause_exprs.with(m => m.get_cloned(func_id.clone())),
     .Some(exprs) => exprs,
     .None => ArrayList(AstExpr).new()
   )
@@ -593,16 +620,20 @@ get_func_where_clause_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
 /// Also re-keys the where-clause EXPRESSIONS table (the two travel together).
 copy_func_where_constraints :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_where_constraints.with(m => m.get(from_id.clone())),
+    g_func_where_constraints.with(m => m.get_cloned(from_id.clone())),
     .Some(entries) => {
-      g_func_where_constraints.with_mut(m => m.insert(to_id.clone(), entries));
+      to_id_owned_________ := to_id.clone();
+      entries_owned_ := entries.clone();
+      g_func_where_constraints.with_mut({ to_id_owned_________, entries_owned_ }(m) => m.insert(to_id_owned_________.clone(), entries_owned_));
     },
     .None => ()
   );
   match(
-    g_func_where_clause_exprs.with(m => m.get(from_id.clone())),
+    g_func_where_clause_exprs.with(m => m.get_cloned(from_id.clone())),
     .Some(exprs) => {
-      g_func_where_clause_exprs.with_mut(m => m.insert(to_id.clone(), exprs.clone()));
+      to_id_owned__________ := to_id.clone();
+      exprs_owned____ := exprs.clone();
+      g_func_where_clause_exprs.with_mut({ to_id_owned__________, exprs_owned____ }(m) => m.insert(to_id_owned__________.clone(), exprs_owned____));
     },
     .None => ()
   );
@@ -610,7 +641,7 @@ copy_func_where_constraints :: (fn(from_id : &String, to_id : &String) -> unit)(
 /// Return the where-clause constraints for `func_id` (empty when none).
 get_func_where_constraints :: (fn(func_id : &String) -> ArrayList(WhereConstraintEntry))(
   match(
-    g_func_where_constraints.with(m => m.get(func_id.clone())),
+    g_func_where_constraints.with(m => m.get_cloned(func_id.clone())),
     .Some(entries) => entries,
     .None => ArrayList(WhereConstraintEntry).new()
   )
@@ -656,7 +687,7 @@ register_func_refined_params :: (
   (i : usize) = usize(0);
   while((i < preds.len()) && !any, {
     match(
-      preds.get(i),
+      preds.get_cloned(i),
       .Some(pid) => {
         if(pid.len() > usize(0), {
           any = true;
@@ -668,7 +699,9 @@ register_func_refined_params :: (
   });
   if(any, {
     record_owned_func_id(func_id.clone());
-    g_func_refined_params.with_mut(m => m.insert(func_id.clone(), preds.clone()));
+    func_id_owned__________ := func_id.clone();
+    preds_owned := preds.clone();
+    g_func_refined_params.with_mut({ func_id_owned__________, preds_owned }(m) => m.insert(func_id_owned__________.clone(), preds_owned));
   });
 });
 /// The per-parameter predicate ids for `func_id` (empty = no refinements).
@@ -676,7 +709,7 @@ get_func_refined_params :: (
   fn(func_id : &String) -> ArrayList(String)
 )(
   match(
-    g_func_refined_params.with(m => m.get(func_id.clone())),
+    g_func_refined_params.with(m => m.get_cloned(func_id.clone())),
     .Some(preds) => preds,
     .None => ArrayList(String).new()
   )
@@ -691,7 +724,8 @@ get_func_refined_params :: (
 /// need the type-level wrapper — the std/spec rework slice.
 (g_refine_annotation_preds : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
 register_refine_annotation :: (fn(expr_id : usize, pred_fid : &String) -> unit)({
-  g_refine_annotation_preds.with_mut(m => m.insert(expr_id, pred_fid.clone()));
+  pred_fid_owned := pred_fid.clone();
+  g_refine_annotation_preds.with_mut({ pred_fid_owned, expr_id : expr_id.clone() }(m) => m.insert(expr_id, pred_fid_owned.clone()));
   ()
 });
 refine_annotation_pred :: (fn(expr_id : usize) -> String)(
@@ -712,14 +746,18 @@ refine_annotation_pred :: (fn(expr_id : usize) -> String)(
 register_func_requires_exprs :: (fn(func_id : &String, preds : &ArrayList(AstExpr)) -> unit)({
   if(preds.len() > usize(0), {
     record_owned_func_id(func_id.clone());
-    g_func_requires_exprs.with_mut(m => m.insert(func_id.clone(), preds.clone()));
+    func_id_owned___________ := func_id.clone();
+    preds_owned_ := preds.clone();
+    g_func_requires_exprs.with_mut({ func_id_owned___________, preds_owned_ }(m) => m.insert(func_id_owned___________.clone(), preds_owned_));
   });
 });
 /// Register the signature's `ensures(...)` predicates. No-op when empty.
 register_func_ensures_exprs :: (fn(func_id : &String, preds : &ArrayList(AstExpr)) -> unit)({
   if(preds.len() > usize(0), {
     record_owned_func_id(func_id.clone());
-    g_func_ensures_exprs.with_mut(m => m.insert(func_id.clone(), preds.clone()));
+    func_id_owned____________ := func_id.clone();
+    preds_owned__ := preds.clone();
+    g_func_ensures_exprs.with_mut({ func_id_owned____________, preds_owned__ }(m) => m.insert(func_id_owned____________.clone(), preds_owned__));
   });
 });
 /// Register the signature's `decreases(M)` measure. No-op when absent.
@@ -728,7 +766,9 @@ register_func_decreases_expr :: (fn(func_id : &String, measure : &Option(AstExpr
     measure,
     .Some(m) => {
       record_owned_func_id(func_id.clone());
-      g_func_decreases_expr.with_mut(tbl => tbl.insert(func_id.clone(), m));
+      func_id_owned_____________ := func_id.clone();
+      measure_expr := m;
+      g_func_decreases_expr.with_mut({ func_id_owned_____________, measure_expr }(tbl) => tbl.insert(func_id_owned_____________.clone(), measure_expr));
     },
     .None => ()
   );
@@ -737,7 +777,8 @@ register_func_decreases_expr :: (fn(func_id : &String, measure : &Option(AstExpr
 register_func_assumed_body :: (fn(func_id : &String, assumed : bool) -> unit)({
   if(assumed, {
     record_owned_func_id(func_id.clone());
-    g_func_assumed_body.with_mut(m => m.insert(func_id.clone(), true));
+    func_id_owned______________ := func_id.clone();
+    g_func_assumed_body.with_mut({ func_id_owned______________ }(m) => m.insert(func_id_owned______________.clone(), true));
   });
 });
 /// Whether `func_id`'s signature carried `assumed()` (the body is outside
@@ -756,44 +797,54 @@ get_func_decreases_expr :: (fn(func_id : &String) -> Option(AstExpr))(
 /// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
 copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_requires_exprs.with(m => m.get(from_id.clone())),
+    g_func_requires_exprs.with(m => m.get_cloned(from_id.clone())),
     .Some(preds) => {
-      g_func_requires_exprs.with_mut(m => m.insert(to_id.clone(), preds.clone()));
+      to_id_owned___________ := to_id.clone();
+      preds_owned___ := preds.clone();
+      g_func_requires_exprs.with_mut({ to_id_owned___________, preds_owned___ }(m) => m.insert(to_id_owned___________.clone(), preds_owned___));
     },
     .None => ()
   );
   match(
-    g_func_ensures_exprs.with(m => m.get(from_id.clone())),
+    g_func_ensures_exprs.with(m => m.get_cloned(from_id.clone())),
     .Some(preds) => {
-      g_func_ensures_exprs.with_mut(m => m.insert(to_id.clone(), preds.clone()));
+      to_id_owned____________ := to_id.clone();
+      preds_owned____ := preds.clone();
+      g_func_ensures_exprs.with_mut({ to_id_owned____________, preds_owned____ }(m) => m.insert(to_id_owned____________.clone(), preds_owned____));
     },
     .None => ()
   );
   match(
     g_func_decreases_expr.with(m => m.get(from_id.clone())),
     .Some(m) => {
-      g_func_decreases_expr.with_mut(tbl => tbl.insert(to_id.clone(), m));
+      to_id_owned_____________ := to_id.clone();
+      g_func_decreases_expr.with_mut({ to_id_owned_____________, m }(tbl) => tbl.insert(to_id_owned_____________.clone(), m));
     },
     .None => ()
   );
   match(
     g_func_assumed_body.with(m => m.get(from_id.clone())),
     .Some(a) => {
-      g_func_assumed_body.with_mut(m => m.insert(to_id.clone(), a));
+      to_id_owned______________ := to_id.clone();
+      g_func_assumed_body.with_mut({ to_id_owned______________, a : a.clone() }(m) => m.insert(to_id_owned______________.clone(), a));
     },
     .None => ()
   );
   match(
-    g_func_refined_params.with(m => m.get(from_id.clone())),
+    g_func_refined_params.with(m => m.get_cloned(from_id.clone())),
     .Some(preds) => {
-      g_func_refined_params.with_mut(m => m.insert(to_id.clone(), preds.clone()));
+      to_id_owned_______________ := to_id.clone();
+      preds_owned_____ := preds.clone();
+      g_func_refined_params.with_mut({ to_id_owned_______________, preds_owned_____ }(m) => m.insert(to_id_owned_______________.clone(), preds_owned_____));
     },
     .None => ()
   );
   match(
-    g_func_return_label.with(m => m.get(from_id.clone())),
+    g_func_return_label.with(m => m.get_cloned(from_id.clone())),
     .Some(label) => {
-      g_func_return_label.with_mut(m => m.insert(to_id.clone(), label.clone()));
+      to_id_owned________________ := to_id.clone();
+      label_owned := label.clone();
+      g_func_return_label.with_mut({ to_id_owned________________, label_owned }(m) => m.insert(to_id_owned________________.clone(), label_owned));
     },
     .None => ()
   );
@@ -801,7 +852,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
 /// Return the `requires(...)` predicates for `func_id` (empty when none).
 get_func_requires_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
-    g_func_requires_exprs.with(m => m.get(func_id.clone())),
+    g_func_requires_exprs.with(m => m.get_cloned(func_id.clone())),
     .Some(preds) => preds,
     .None => ArrayList(AstExpr).new()
   )
@@ -809,7 +860,7 @@ get_func_requires_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
 /// Return the `ensures(...)` predicates for `func_id` (empty when none).
 get_func_ensures_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
-    g_func_ensures_exprs.with(m => m.get(func_id.clone())),
+    g_func_ensures_exprs.with(m => m.get_cloned(func_id.clone())),
     .Some(preds) => preds,
     .None => ArrayList(AstExpr).new()
   )
@@ -823,14 +874,16 @@ register_func_return_label :: (
     label,
     .Some(l) => {
       record_owned_func_id(func_id.clone());
-      g_func_return_label.with_mut(m => m.insert(func_id.clone(), l.clone()));
+      l_owned := l.clone();
+      func_id_owned_______________ := func_id.clone();
+      g_func_return_label.with_mut({ l_owned, func_id_owned_______________ }(m) => m.insert(func_id_owned_______________, l_owned.clone()));
     },
     .None => ()
   );
 });
 /// Return the labeled-return name for `func_id` (None when unlabeled).
 get_func_return_label :: (fn(func_id : &String) -> Option(String))(
-  g_func_return_label.with(m => m.get(func_id.clone()))
+  g_func_return_label.with(m => m.get_cloned(func_id.clone()))
 );
 /// Register all three contract artifacts under one id (V6 task 1: the
 /// trait-contract INHERITANCE writer, reached through the hook below).
@@ -952,6 +1005,7 @@ FuncParam :: struct(
   /// callee owns the parameter either way, so it is not part of the type.
   (is_sink : bool) ?= false
 );
+derive(FuncParam, Clone);
 /// The `FuncParam.ty` of a parameter: a regular parameter's slot (its mode is
 /// its type, `t_slot`); a `generic`/`using` parameter's plain type (their
 /// lists carry no mode).
@@ -1023,7 +1077,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, 
       )
     );
   });
-  o_name := ast_expr_text(e).*;
+  o_name := ast_expr_text(e).*.clone();
   o_vars := get_variables_from_env(env, &o_name);
   o_n := o_vars.len();
   if(o_n == usize(0), {
@@ -1144,7 +1198,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
       )
     );
   });
-  o_name := ast_expr_text(e).*;
+  o_name := ast_expr_text(e).*.clone();
   (o_vars : ArrayList(Variable)) = get_variables_from_env(env, &o_name);
   if(o_vars.len() == usize(0), {
     // A module-level binding is bound lazily: evaluating the name forces it.
@@ -1298,9 +1352,9 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, out :
       )
     );
   });
-  r_name := ast_expr_text(e).*;
+  r_name := ast_expr_text(e).*.clone();
   match(
-    params.origin_params,
+    &params.origin_params,
     .Some(r_ops) => if(_names_contain(&r_ops, &r_name), {
       if(!_names_contain(out, &r_name), {
         out.push(r_name);
@@ -1312,7 +1366,7 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, out :
   (rpi : usize) = usize(0);
   while(rpi < params.params.len(), {
     match(
-      params.params.get(rpi),
+      params.params.get_cloned(rpi),
       .Some(rp) => if(rp.label == r_name, {
         if(!t_slot_is_borrow(&rp.ty), {
           exn.throw(
@@ -1339,7 +1393,7 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, out :
   });
   (rfi : usize) = usize(0);
   while(rfi < params.forall_params.len(), {
-    if(match(params.forall_params.get(rfi), .Some(fp) => (fp.label == r_name), .None => false), {
+    if(match(params.forall_params.get_cloned(rfi), .Some(fp) => (fp.label == r_name), .None => false), {
       exn.throw(
         dyn(
           _origin_error(
@@ -1706,12 +1760,12 @@ _add_where_clause_constraint :: (
       wcc_bounds.with_mut({ wcc_trait, is_negated }(b) => {
         if(is_negated, {
           if(!_wcc_has_trait(&b.negative, &wcc_trait), {
-            b.negative.push(wcc_trait);
+            b.negative.push(Rc.clone(&wcc_trait));
             b.negative_levels.push(usize(0));
           });
         }, {
           if(!_wcc_has_trait(&b.required, &wcc_trait), {
-            b.required.push(wcc_trait);
+            b.required.push(Rc.clone(&wcc_trait));
             b.required_levels.push(usize(0));
           });
         });
@@ -1787,7 +1841,7 @@ extract_comptime_parameter_info :: (
   });
   .Some(
     ExtractComptimeResult(
-      ast_expr_text(&name_expr).*,
+      ast_expr_text(&name_expr).*.clone(),
       type_e,
       ast_expr_token(&name_expr)
     )
@@ -1796,7 +1850,7 @@ extract_comptime_parameter_info :: (
 /// E1105: parameter `label`'s `?= dve` default has no compile-time value (a
 /// runtime call or a runtime variable). The help names the `Option` rewrite.
 _param_default_not_comptime_error :: (fn(label : &Option(String), param_type : &Option(TypeValue), dv_ty : &TypeValue, dve : &AstExpr) -> YoError)({
-  rd_label := match(label, .Some(l) => l.clone(), .None => String.from("?"));
+  rd_label := match(&label, .Some(l) => l.clone(), .None => String.from("?"));
   rd_ty := match(param_type, .Some(pt) => type_to_string(&pt), .None => type_to_string(dv_ty));
   with_code(
     format_error_message_with_help(
@@ -2126,7 +2180,7 @@ evaluate_function_parameter :: (
       if(ast_expr_token(&lhs_mut).value.* == "mut", {
         exn.throw(dyn(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut")))));
       });
-      label = .Some(ast_expr_text(&lhs_mut).*);
+      label = .Some(ast_expr_text(&lhs_mut).*.clone());
       label_expr = .Some(lhs_mut);
     },
     .None => ()
@@ -2143,7 +2197,7 @@ evaluate_function_parameter :: (
     );
   });
   // Disallow "Self" as label
-  if(match(label, .Some(l) => (l == "Self"), .None => false), {
+  if(match(&label, .Some(l) => (l == "Self"), .None => false), {
     exn.throw(
       dyn(
         format_error_message(
@@ -2213,7 +2267,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(&ave),
-              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l.clone(), .None => String.from("?"))})" or put this in "generic(...)".`
+              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))})" or put this in "generic(...)".`
             )
           )
         );
@@ -2391,7 +2445,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
+          `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
         )
       )
     );
@@ -2431,7 +2485,7 @@ evaluate_function_parameter :: (
         dyn(
           format_error_message(
             match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-            `Runtime function parameters with generic function types are not allowed:\n${type_to_string(&final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(label, .Some(l) => l.clone(), .None => String.from("?"))}) : ${type_to_string(&final_param_type)}`
+            `Runtime function parameters with generic function types are not allowed:\n${type_to_string(&final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}) : ${type_to_string(&final_param_type)}`
           )
         )
       );
@@ -2451,7 +2505,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message_with_help(
               match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-              fn_type_unrepresentable_impl_message(`parameter "${match(label, .Some(l) => l.clone(), .None => String.from("?"))}"`, &final_param_type, &fpi_impl),
+              fn_type_unrepresentable_impl_message(`parameter "${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}"`, &final_param_type, &fpi_impl),
               Option(String).Some(fn_type_unrepresentable_impl_help())
             )
           )
@@ -3025,7 +3079,7 @@ apply_single_trait_constraint :: (
   // Resolve LHS to a SomeType
   (some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
   if(ast_expr_is_atom(lhs_expr), {
-    var_name := ast_expr_text(lhs_expr).*;
+    var_name := ast_expr_text(lhs_expr).*.clone();
     existing_vars := get_variables_from_env(env_mut, &var_name);
     if(existing_vars.len() == usize(0), {
       return(false);
@@ -3709,7 +3763,7 @@ evaluate_function_parameters :: (
         (di : usize) = usize(0);
         while(di < forall_params.len(), {
           fp := match(
-            forall_params.get(di),
+            forall_params.get_cloned(di),
             .Some(p) => p,
             .None => {
               di = forall_params.len();
@@ -3808,7 +3862,7 @@ evaluate_function_parameters :: (
       (dfi : usize) = usize(0);
       while(dfi < forall_params.len(), {
         fp := match(
-          forall_params.get(dfi),
+          forall_params.get_cloned(dfi),
           .Some(p) => p,
           .None => {
             dfi = forall_params.len();
@@ -3835,7 +3889,7 @@ evaluate_function_parameters :: (
       (dii : usize) = usize(0);
       while(dii < implicit_params.len(), {
         ip := match(
-          implicit_params.get(dii),
+          implicit_params.get_cloned(dii),
           .Some(p) => p,
           .None => {
             dii = implicit_params.len();
@@ -4242,7 +4296,7 @@ evaluate_function_parameters :: (
           if(ast_expr_is_fn_call_of(&vlhs_arg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-            vparam_name = ast_expr_text(&vlabel_expr).*;
+            vparam_name = ast_expr_text(&vlabel_expr).*.clone();
           }, {
             // Inner LHS may be `quote(name)` (literal "quote") or
             // `:(name)` (unary `:`) — both are the unary quote macro,
@@ -4255,11 +4309,11 @@ evaluate_function_parameters :: (
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_text(&vlabel_expr).*;
+              vparam_name = ast_expr_text(&vlabel_expr).*.clone();
             }, {
               if(ast_expr_is_atom(&vlhs_arg) && is_valid_variable_name(&vlhs_arg), {
                 vlabel_expr = vlhs_arg;
-                vparam_name = ast_expr_text(&vlhs_arg).*;
+                vparam_name = ast_expr_text(&vlhs_arg).*.clone();
               }, {
                 exn.throw(
                   dyn(
@@ -4294,7 +4348,7 @@ evaluate_function_parameters :: (
           if(ast_expr_is_fn_call_of(&varg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-            vparam_name = ast_expr_text(&vlabel_expr).*;
+            vparam_name = ast_expr_text(&vlabel_expr).*.clone();
             vparam_type = Rc.new(TypeValueNode.ComptimeListT(t_type()));
           }, {
             // ...(quote(name)) or ...(:(name)) — the unary quote
@@ -4307,12 +4361,12 @@ evaluate_function_parameters :: (
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_text(&vlabel_expr).*;
+              vparam_name = ast_expr_text(&vlabel_expr).*.clone();
               vparam_type = t_comptime_list(t_expr_t());
             }, {
               if(ast_expr_is_atom(&varg) && is_valid_variable_name(&varg), {
                 vlabel_expr = varg;
-                vparam_name = ast_expr_text(&varg).*;
+                vparam_name = ast_expr_text(&varg).*.clone();
                 exn.throw(
                   dyn(
                     format_error_message(
@@ -4394,7 +4448,7 @@ evaluate_function_parameters :: (
       (dpi : usize) = usize(0);
       while(dpi < params.len(), {
         pp := match(
-          params.get(dpi),
+          params.get_cloned(dpi),
           .Some(p) => p,
           .None => {
             dpi = params.len();
@@ -4433,7 +4487,7 @@ evaluate_function_parameters :: (
   (eli : usize) = usize(0);
   while(eli < params.len(), {
     p := match(
-      params.get(eli),
+      params.get_cloned(eli),
       .Some(x) => x,
       .None => {
         eli = params.len();
@@ -4695,7 +4749,7 @@ evaluate_function_type :: (
         )
       );
     });
-    return_label = .Some(ast_expr_text(&rl_expr).*);
+    return_label = .Some(ast_expr_text(&rl_expr).*.clone());
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr) or a projection's
     // -> &T / -> &mut T (decision 24).
@@ -4848,7 +4902,7 @@ evaluate_function_type :: (
     (opi : usize) = usize(0);
     while(opi < params_result.params.len(), {
       match(
-        params_result.params.get(opi),
+        params_result.params.get_cloned(opi),
         .Some(op) => if(op.is_compile_time_only && is_origin_kind(&op.ty), {
           exn.throw(
             dyn(
@@ -4901,7 +4955,7 @@ evaluate_function_type :: (
     (rci : usize) = usize(0);
     while(rci < params_result.params.len(), {
       rp := match(
-        params_result.params.get(rci),
+        params_result.params.get_cloned(rci),
         .Some(p) => p,
         .None => {
           rci = params_result.params.len();
@@ -4942,7 +4996,7 @@ evaluate_function_type :: (
   (wce_i : usize) = usize(0);
   while(wce_i < params_result.forall_params.len(), {
     wfp := match(
-      params_result.forall_params.get(wce_i),
+      params_result.forall_params.get_cloned(wce_i),
       .Some(p) => p,
       .None => {
         wce_i = params_result.forall_params.len();
@@ -4955,7 +5009,7 @@ evaluate_function_type :: (
   (wcp_i : usize) = usize(0);
   while(wcp_i < params_result.params.len(), {
     wpp := match(
-      params_result.params.get(wcp_i),
+      params_result.params.get_cloned(wcp_i),
       .Some(p) => p,
       .None => {
         wcp_i = params_result.params.len();
@@ -4993,7 +5047,7 @@ evaluate_function_type :: (
   (fpi : usize) = usize(0);
   while(fpi < params_result.forall_params.len(), {
     fp := match(
-      params_result.forall_params.get(fpi),
+      params_result.forall_params.get_cloned(fpi),
       .Some(p) => p,
       .None => {
         fpi = params_result.forall_params.len();
@@ -5013,7 +5067,7 @@ evaluate_function_type :: (
   quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
     pp := match(
-      params_result.params.get(ppi),
+      params_result.params.get_cloned(ppi),
       .Some(p) => p,
       .None => {
         ppi = params_result.params.len();
@@ -5103,7 +5157,7 @@ evaluate_function_type :: (
     // so both spellings gate callers. (The node-id annotation registry
     // only ever saw the inline spelling.)
     match(
-      params_result.params.get(rp2_i),
+      params_result.params.get_cloned(rp2_i),
       .Some(fp) => match(
         t_slot_pointee(&fp.ty),
         Rc(.RefineT(_, pred_fid)) => {
@@ -5122,7 +5176,7 @@ evaluate_function_type :: (
   // plans/backlog/FORMAL_VERIFICATION.md). Checked here, where the evaluated
   // return type and the extracted predicates are both in scope.
   match(
-    return_label,
+    &return_label,
     .Some(rl) => {
       if(is_unit_type(&return_type), {
         (uli : usize) = usize(0);
@@ -5191,7 +5245,7 @@ evaluate_function_type :: (
   (ipi : usize) = usize(0);
   while(ipi < params_result.implicit_params.len(), {
     ip := match(
-      params_result.implicit_params.get(ipi),
+      params_result.implicit_params.get_cloned(ipi),
       .Some(p) => p,
       .None => {
         ipi = params_result.implicit_params.len();
@@ -5207,7 +5261,7 @@ evaluate_function_type :: (
   (wci : usize) = usize(0);
   while(wci < params_result.forall_params.len(), {
     fp := match(
-      params_result.forall_params.get(wci),
+      params_result.forall_params.get_cloned(wci),
       .Some(p) => p,
       .None => {
         wci = params_result.forall_params.len();
@@ -5297,7 +5351,7 @@ evaluate_function_type :: (
           // origin_labels — the `generic(p : Origin)` binders (decision 43
           // step 2), `.None` when there are none.
           origin_labels : match(
-            params_result.origin_params,
+            &params_result.origin_params,
             .Some(ol) => Option(SharedList(String)).Some(shared_list(ol.clone())),
             .None => Option(SharedList(String)).None
           )
@@ -5747,7 +5801,7 @@ _cta_seen :: (fn(cta_v : &ArrayList(String), cta_id : &String) -> bool)({
   (cta_found : bool) = false;
   while((cta_k < cta_v.len()) && !cta_found, {
     match(
-      cta_v.get(cta_k),
+      cta_v.get_cloned(cta_k),
       .Some(cta_e) => if(cta_e == cta_id, {
         cta_found = true;
       }),
@@ -5998,25 +6052,42 @@ purge_function_side_tables :: (fn(ids : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < ids.len(), {
     match(
-      ids.get(i),
+      ids.get_cloned(i),
       .Some(id) => {
-        _r0 := g_macro_quoted_param_indices.with_mut(m => m.remove(id.clone()));
-        _r1 := g_macro_return_is_unquote.with_mut(m => m.remove(id.clone()));
-        _r2 := g_func_param_defaults.with_mut(m => m.remove(id.clone()));
-        _r3 := g_func_variadic_params.with_mut(m => m.remove(id.clone()));
-        _r4 := g_func_param_assigned_values.with_mut(m => m.remove(id.clone()));
-        _r5 := g_func_param_comptime.with_mut(m => m.remove(id.clone()));
-        _r6 := g_func_return_type_expr.with_mut(m => m.remove(id.clone()));
-        _r7 := g_func_param_default_exprs.with_mut(m => m.remove(id.clone()));
-        _r8 := g_func_param_type_exprs.with_mut(m => m.remove(id.clone()));
-        _r9 := g_func_where_constraints.with_mut(m => m.remove(id.clone()));
-        _r10 := g_func_where_clause_exprs.with_mut(m => m.remove(id.clone()));
-        _r11 := g_func_requires_exprs.with_mut(m => m.remove(id.clone()));
-        _r12 := g_func_ensures_exprs.with_mut(m => m.remove(id.clone()));
-        _r13 := g_func_decreases_expr.with_mut(m => m.remove(id.clone()));
-        _r14 := g_func_assumed_body.with_mut(m => m.remove(id.clone()));
-        _r15 := g_func_refined_params.with_mut(m => m.remove(id.clone()));
-        _r16 := g_func_return_label.with_mut(m => m.remove(id.clone()));
+        id_r0 := id.clone();
+        _r0 := g_macro_quoted_param_indices.with_mut({ id_r0 }(m) => m.remove(&id_r0));
+        id_r1 := id.clone();
+        _r1 := g_macro_return_is_unquote.with_mut({ id_r1 }(m) => m.remove(&id_r1));
+        id_r2 := id.clone();
+        _r2 := g_func_param_defaults.with_mut({ id_r2 }(m) => m.remove(&id_r2));
+        id_r3 := id.clone();
+        _r3 := g_func_variadic_params.with_mut({ id_r3 }(m) => m.remove(&id_r3));
+        id_r4 := id.clone();
+        _r4 := g_func_param_assigned_values.with_mut({ id_r4 }(m) => m.remove(&id_r4));
+        id_r5 := id.clone();
+        _r5 := g_func_param_comptime.with_mut({ id_r5 }(m) => m.remove(&id_r5));
+        id_r6 := id.clone();
+        _r6 := g_func_return_type_expr.with_mut({ id_r6 }(m) => m.remove(&id_r6));
+        id_r7 := id.clone();
+        _r7 := g_func_param_default_exprs.with_mut({ id_r7 }(m) => m.remove(&id_r7));
+        id_r8 := id.clone();
+        _r8 := g_func_param_type_exprs.with_mut({ id_r8 }(m) => m.remove(&id_r8));
+        id_r9 := id.clone();
+        _r9 := g_func_where_constraints.with_mut({ id_r9 }(m) => m.remove(&id_r9));
+        id_r10 := id.clone();
+        _r10 := g_func_where_clause_exprs.with_mut({ id_r10 }(m) => m.remove(&id_r10));
+        id_r11 := id.clone();
+        _r11 := g_func_requires_exprs.with_mut({ id_r11 }(m) => m.remove(&id_r11));
+        id_r12 := id.clone();
+        _r12 := g_func_ensures_exprs.with_mut({ id_r12 }(m) => m.remove(&id_r12));
+        id_r13 := id.clone();
+        _r13 := g_func_decreases_expr.with_mut({ id_r13 }(m) => m.remove(&id_r13));
+        id_r14 := id.clone();
+        _r14 := g_func_assumed_body.with_mut({ id_r14 }(m) => m.remove(&id_r14));
+        id_r15 := id.clone();
+        _r15 := g_func_refined_params.with_mut({ id_r15 }(m) => m.remove(&id_r15));
+        id_r16 := id.clone();
+        _r16 := g_func_return_label.with_mut({ id_r16 }(m) => m.remove(&id_r16));
       },
       .None => ()
     );
