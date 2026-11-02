@@ -38,7 +38,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom,
   ast_expr_is_atom_of,
   ast_expr_to_string,
-  make_err_expr
+  make_err_expr,
+  for_desugar_site_of
 } :: import("../expr.yo");
 { TokenKind } :: import("../token.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
@@ -3679,6 +3680,20 @@ _for_expansion_loop :: (fn(xp : &AstExpr) -> Option(LoopAnnotations))({
   });
   Option(LoopAnnotations).Some(LoopAnnotations(invariants : invs, decreases : Option(AstExpr).None, body : body))
 });
+/// The `for` call the block `e` was desugared from (macro plan B1), or
+/// `.None`: the desugar records the call by its token position, and the
+/// loop's outer block alone carries the call's own token (the blocks inside
+/// it carry a synthesized one at the same position).
+_desugared_for_call :: (fn(e : &AstExpr) -> Option(AstExpr))(
+  match(
+    for_desugar_site_of(&ast_expr_token(e)),
+    .Some(fc) => cond(
+      (ast_expr_text(e).* == ast_expr_text(&fc).*) => Option(AstExpr).Some(fc),
+      true => Option(AstExpr).None
+    ),
+    .None => Option(AstExpr).None
+  )
+);
 /// A verified `for(xs, x => { invariant(...); body })` over a list
 /// variable (R2 task 4 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md): the
 /// `while` rule over a ghost index from 0 while `idx < len(xs)`, with `x`
@@ -3723,15 +3738,19 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
     _fail_subset(ctx, String.from("for binding other than a plain name (a mut element writes the list)"), e);
     return(Option(VcTerm).None);
   });
-  // The body is walked in the macro expansion the evaluator typed (the
+  // The body is walked in the loop the call was desugared to, or in the
+  // macro expansion the evaluator typed (the
   // source-form arguments carry no types): `{ it := xs.into_iter();
   // while(true, { [invariant(...);] tmp := it.next();
   // match(tmp, .Some(x) => body, .None => { break; }) }) }`, or the read
   // walk's cursor loop (`_for_read_walk_loop`).
-  a_opt := match(
-    expr_info_table_get(&ctx.table, ast_expr_id(e)),
-    .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(xp) => _for_expansion_loop(&xp), .None => Option(LoopAnnotations).None),
-    .None => Option(LoopAnnotations).None
+  a_opt := cond(
+    _desugared_for_call(e).is_some() => _for_expansion_loop(e),
+    true => match(
+      expr_info_table_get(&ctx.table, ast_expr_id(e)),
+      .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(xp) => _for_expansion_loop(&xp), .None => Option(LoopAnnotations).None),
+      .None => Option(LoopAnnotations).None
+    )
   );
   if(a_opt.is_none(), {
     _fail_subset(ctx, String.from("for whose expansion is not the list-iterator loop"), e);
@@ -4469,6 +4488,14 @@ _call_term :: (
   });
   if(head == "for", {
     return(_for_term(ctx, e, args));
+  });
+  // A desugared `for` (macro plan B1): the block the call became.
+  if(head == "begin", {
+    match(
+      _desugared_for_call(e),
+      .Some(fc) => return(_for_term(ctx, e, &_fn_call_args(&fc))),
+      .None => ()
+    );
   });
   // `distinct(a, b)` (R2 task 5): two list parameters are different lists.
   // The fn's own requires assume it (and record the pair); a call proves it
