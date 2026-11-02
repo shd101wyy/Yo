@@ -912,7 +912,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : &Variable) -> bool)({
 });
 /// True iff `v` is captured by the current function/closure.
 _variable_is_captured_by_current_function :: (fn(v : &Variable, ctx : &EvalContext) -> bool)(
-  match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false)
+  match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false)
 );
 /// True iff `expr` is a nested function-definition boundary — recursion for
 /// early-return drops must stop here.

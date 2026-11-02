@@ -2782,7 +2782,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // control-bound-capture for closures). `n_cap_fr` is the outer frame
     // count from before the parameter frame was pushed.
     match(
-      body_eval_ctx.captured_variables,
+      &body_eval_ctx.captured_variables,
       .Some(anon_caps) => if(anon_caps.len() > usize(0), {
         _check_anon_fn_captures(&anon_caps, env, is_creating_closure, n_cap_fr, func_id.clone(), &tok, ctx, exn, cap_frame_idx);
       }),
@@ -2792,7 +2792,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // after the parameter frame is popped (below) — same pop-then-create
     // order as closure_type.yo. (Only the non-deferred path evaluates the body and
     // thus populates captures; a deferred generic closure has none → empty struct.)
-    closure_body_caps = body_eval_ctx.captured_variables;
+    closure_body_caps = body_eval_ctx.captured_variables.take();
     match(
       cap_frame_idx,
       .Some(cfi) => match(
