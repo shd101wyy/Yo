@@ -91,7 +91,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : &Environment, name : &String, contex
     return(Option(String).None);
   });
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(smv) => sm_slot_of(key, env, name, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
     .None => Option(String).None
   )
@@ -226,10 +226,10 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
 /// shares), else `.None`: it is a C local.
 _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Option(String))(
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(smv) => {
       id := v.id.to_string();
-      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id);
+      canon := match(&context.variable_id_remapping, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id);
       match(
         smv.get(&canon),
         .Some(cv) => match(

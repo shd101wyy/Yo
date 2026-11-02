@@ -78,7 +78,7 @@ _first_future_effect :: (fn(ft : &TypeValue) -> Option(_FutureEffect))(
 /// SM capture variables).
 resolve_effect_field_from_scope :: (fn(field_label : &String, context : &FunctionGenerationContext) -> Option(String))({
   match(
-    context.current_evidence_params,
+    &context.current_evidence_params,
     .Some(eps) => {
       for(&eps, (_k, e_val) => {
         if(e_val.field_label == field_label, {
@@ -89,7 +89,7 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
     .None => ()
   );
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(svs) => {
       for(&svs, (_k, cv) => {
         is_outer := match(cv.kind, .Outer => true, _ => false);
@@ -174,7 +174,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
       (mut(member_code) : Option(String)) = Option(String).None;
       // Inside SM: member captured in state-machine variables.
       match(
-        context.state_machine_variables,
+        &context.state_machine_variables,
         .Some(svs) => {
           for(&svs, (_k, cv) => {
             is_outer := match(cv.kind, .Outer => true, _ => false);
@@ -191,7 +191,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
       // Caller evidence params (transitive forwarding).
       if(member_code.is_none(), {
         match(
-          context.current_evidence_params,
+          &context.current_evidence_params,
           .Some(eps) => {
             for(&eps, (_k, e_val) => {
               if(e_val.field_label == flbl, {
@@ -717,7 +717,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
     match(
       &expr_ei.variable_name,
       .Some(rvn) => match(
-        context.state_machine_variables,
+        &context.state_machine_variables,
         .Some(smv) => match(
           sm_slot_of(ast_expr_id(expr), &expr_ei.env, &rvn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
           .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${result_var.clone()};`),

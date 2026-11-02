@@ -852,7 +852,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &FunctionGenerationConte
   });
   site := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(smv) => {
       for(&smv, (k, cv) => {
         // A consuming arm's hidden bindings share the arm's token, so the
@@ -862,7 +862,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &FunctionGenerationConte
           return(
             Option(String).Some(
               match(
-                context.state_machine_field_aliases,
+                &context.state_machine_field_aliases,
                 .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
                 .None => sm_local_field_name(k.clone())
               )
@@ -1090,7 +1090,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                         .None => smb_var.id.to_string()
                       );
                       match(
-                        context.variable_id_remapping,
+                        &context.variable_id_remapping,
                         .Some(rm) => match(
                           rm.get_cloned(smb_id.clone()),
                           .Some(mapped) => {
@@ -1101,7 +1101,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                         .None => ()
                       );
                       smb_has = match(
-                        context.state_machine_variables,
+                        &context.state_machine_variables,
                         .Some(smv) => smv.get(smb_id.clone()).is_some(),
                         .None => false
                       );
@@ -1114,7 +1114,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
             );
             if(!smb_has && !smb_env_resolved, {
               match(
-                context.state_machine_variables,
+                &context.state_machine_variables,
                 .Some(smv2) => {
                   for(&smv2, (smb_k, smb_cv) => {
                     smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
@@ -1130,7 +1130,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
             });
             if(smb_has, {
               smb_field := match(
-                context.state_machine_field_aliases,
+                &context.state_machine_field_aliases,
                 .Some(al) => match(
                   al.get_cloned(smb_id.clone()),
                   .Some(af) => af,

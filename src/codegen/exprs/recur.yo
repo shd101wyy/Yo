@@ -86,7 +86,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
                     .Some(avn) => {
                       sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(&arg), avn.clone(), Option(Environment).Some(aei2.env));
                       if(!(arg_code == sanitized_arg_temp), {
-                        already_arg := match(context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
+                        already_arg := match(&context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
                         if(!already_arg, {
                           record_declared_temp_var(context, sanitized_arg_temp.clone());
                           eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => Rc.clone(aei2.ty));
@@ -147,7 +147,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         .Some(temp_var) => if(!is_unit_type(&ei.ty), {
           c_type := get_type_string(&ei.ty, &context.base);
           temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
-          already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
+          already := match(&context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
           if(!already, {
             record_declared_temp_var(context, temp_var_name.clone());
             em := context.base.emitter;
