@@ -6627,7 +6627,8 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   if(g_move_only_in_flight.with(m => m.contains_key(key.clone())), {
     return(String.new());
   });
-  g_move_only_in_flight.with_mut(m => m.insert(key.clone(), true));
+  mark_key := key.clone();
+  g_move_only_in_flight.with_mut({ mark_key }(m) => m.insert(mark_key, true));
   tid := type_id_or_empty(ty);
   (found : String) = String.new();
   (i : usize) = usize(0);
@@ -7237,7 +7238,8 @@ impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> Arra
   fresh := match(g_ctor_method_cache.with(m => m.get(&key)), .Some(ce) => (ce.epoch == epoch), .None => false);
   if(!fresh, {
     collected := _collect_generic_ctor_method_impls(ctor_fid, method);
-    g_ctor_method_cache.with_mut(m => m.insert(key.clone(), _CtorMethodCacheEntry(epoch : epoch, impls : collected)));
+    cache_key := key.clone();
+    g_ctor_method_cache.with_mut({ cache_key, epoch, collected }(m) => m.insert(cache_key, _CtorMethodCacheEntry(epoch : epoch, impls : collected)));
   });
   // The cached entry is the cache's STORAGE (generic half only): copy its
   // elements into a fresh per-call list before the concrete half is appended,
