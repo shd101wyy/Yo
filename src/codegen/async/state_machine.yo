@@ -29,7 +29,7 @@
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
-{ declare_c_var_name, get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, get_variable_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_await_consumed_temp, sm_slot_of } :: import("./state_machine_naming.yo");
 { is_fnonce_capture_struct, get_func_type } :: import("../../function_value.yo");
 { Emitter } :: import("../../emitter.yo");
@@ -1681,13 +1681,13 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
     return(String.from(""));
   });
   low.emitted.insert(eid);
+  // The result is a C local (not a task field) when no later await in its
+  // statement can suspend before it is consumed.
+  out_is_c_local := (inline_await_result_field_of(expr, inline_await_result_fields(&low.analysis, context)).is_none() && inline_await_local_result_type(expr, &low.analysis, context).is_some());
   // An await of a fusable wrapper call runs the wrapper here instead.
   match(
     _call_emit_fused_await(expr, indent.clone(), context),
-    .Some(fused_code) => {
-      _store_await_result_into_temp_slot(expr, &fused_code, indent, context);
-      return(fused_code);
-    },
+    .Some(fused_code) => return(_bind_await_result_to_temp(expr, &fused_code, out_is_c_local, indent, context)),
     .None => ()
   );
   args := ast_call_args_unmarked(expr);
@@ -1787,33 +1787,48 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   );
   em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
   em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
-  _store_await_result_into_temp_slot(expr, &out, indent, context);
-  out
+  _bind_await_result_to_temp(expr, &out, out_is_c_local, indent, context)
 });
-/// A result temp with a task slot is dropped through the slot, so the owned
-/// result goes there too, as `generate_join_handle_await` does: a consumer
-/// that does not take the value over (`(a, b) := io.await(f, io)` reads its
-/// fields and leaves the temp to drop it) otherwise leaves the slot empty and
-/// the value unreleased
-/// (issues/fixed/a-destructured-await-result-is-never-released.md).
-_store_await_result_into_temp_slot :: (fn(expr : &AstExpr, out : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
+/// Where the await's owned result lives for its consumers, given the code
+/// `out` it was stored to. A result temp with a task slot is dropped through
+/// the slot, so the owned result goes there too, as
+/// `generate_join_handle_await` does: a consumer that does not take the value
+/// over (`(a, b) := io.await(f, io)` reads its fields and leaves the temp to
+/// drop it) otherwise leaves the slot empty and the value unreleased
+/// (issues/fixed/a-destructured-await-result-is-never-released.md). A result
+/// temp with no slot, over a result kept in a C local (`out_is_c_local`), is
+/// declared as a C local under its own name, as the
+/// synchronous await declares it (`generate_await`), and the await's code is
+/// that name: the temp's scheduled drop skips a temp that was never declared,
+/// so a consumer that only reads a field of the value
+/// (`match(io.await(f, io).s, …)`, `while(io.await(f, io).n < 3, …)`) left
+/// the C local `out` unreleased
+/// (issues/fixed/2026-10-25-an-await-result-read-by-a-while-condition-or-a-field-reading-scrutinee-is-never-released.md).
+_bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local : bool, indent : &String, context : &FunctionGenerationContext) -> String)({
   if(out.len() == usize(0), {
-    return(());
+    return(out.clone());
   });
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(()));
-  vn := match(ei.variable_name, .Some(v) => v.clone(), .None => return(()));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(out.clone()));
+  vn := match(ei.variable_name, .Some(v) => v.clone(), .None => return(out.clone()));
+  em := context.base.emitter;
   match(
     context.state_machine_variables,
     .Some(smv) => match(
       sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
       .Some(slot) => if(!(slot == out), {
-        em := context.base.emitter;
         em.emit_string_line(`${indent}${slot} = ${out};`);
       }),
-      .None => ()
+      .None => if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty), {
+        cname := sanitize_for_c_identifier(&vn, false);
+        if(!(cname == out), {
+          em.emit_string_line(`${indent}${get_variable_type_string(&ei.ty, &cname, &context.base)} = ${out};`);
+          return(cname);
+        });
+      })
     ),
     .None => ()
   );
+  out.clone()
 });
 
 /// The resume function of the single-pass lowering: the aborted-entry guard,
