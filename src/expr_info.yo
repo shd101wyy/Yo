@@ -3214,6 +3214,7 @@ export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_m
 /// `addr_of(x)`). `expect` is the printed `&x` expression, which the rewrite
 /// matches against the source text before it edits anything.
 AddrOfSite :: struct(path : String, row : usize, col : usize, expect : String, lent : bool);
+derive(AddrOfSite, Clone);
 (mut(g_migrate_addr_of) : bool) = false;
 (g_addr_of_sites : RefCell(ArrayList(AddrOfSite))) = RefCell(ArrayList(AddrOfSite)).new(ArrayList(AddrOfSite).new());
 (g_addr_of_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3254,6 +3255,7 @@ export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site,
 /// method or a field is left as written
 /// (issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md).
 DestructorSite :: struct(path : String, row : usize, col : usize);
+derive(DestructorSite, Clone);
 (mut(g_migrate_drop_trait) : bool) = false;
 (g_destructor_sites : RefCell(ArrayList(DestructorSite))) = RefCell(ArrayList(DestructorSite)).new(ArrayList(DestructorSite).new());
 (g_destructor_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3287,6 +3289,7 @@ export(DestructorSite, set_migrate_drop_trait, migrate_drop_trait_on, record_des
 /// marker goes; `expect` is the printed place, which the rewrite matches
 /// against the source text before it edits anything.
 MarkerSite :: struct(path : String, row : usize, col : usize, expect : String, marker : String);
+derive(MarkerSite, Clone);
 (mut(g_migrate_markers) : bool) = false;
 (g_marker_sites : RefCell(ArrayList(MarkerSite))) = RefCell(ArrayList(MarkerSite)).new(ArrayList(MarkerSite).new());
 (g_marker_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3320,6 +3323,7 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// printed pattern, which the rewrite matches against the source text before
 /// it edits anything.
 RcPatternSite :: struct(path : String, row : usize, col : usize, expect : String);
+derive(RcPatternSite, Clone);
 (mut(g_migrate_rc_pattern) : bool) = false;
 (g_rc_pattern_sites : RefCell(ArrayList(RcPatternSite))) = RefCell(ArrayList(RcPatternSite)).new(ArrayList(RcPatternSite).new());
 (g_rc_pattern_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3352,6 +3356,7 @@ export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_p
 /// printed value, which the rewrite matches against the source text before
 /// it edits anything.
 DynSpellingSite :: struct(path : String, row : usize, col : usize, expect : String);
+derive(DynSpellingSite, Clone);
 (mut(g_migrate_dyn_spelling) : bool) = false;
 (g_dyn_spelling_sites : RefCell(ArrayList(DynSpellingSite))) = RefCell(ArrayList(DynSpellingSite)).new(ArrayList(DynSpellingSite).new());
 (g_dyn_spelling_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
