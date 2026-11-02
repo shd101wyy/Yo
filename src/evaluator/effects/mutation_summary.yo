@@ -4119,7 +4119,6 @@ _gr_note_read :: (fn(fid : &String, key : &String, loc : &String) -> unit)({
   if(!reads.contains_key(key.clone()), {
     reads.insert(key.clone(), loc.clone());
   });
-  fid_own := fid.clone();
   g_gr_reads_by_fid.with_mut({ fid_own, reads }(m) => m.insert(fid_own, reads));
 });
 _gr_note_callee :: (fn(ctx : &_GrCtx, callee : &String) -> unit)({
@@ -4128,7 +4127,6 @@ _gr_note_callee :: (fn(ctx : &_GrCtx, callee : &String) -> unit)({
   fid_rm := ctx.fid.clone();
   set := match(g_gr_callees_by_fid.with_mut({ fid_rm }(m) => m.remove(&fid_rm)), .Some(c) => c, .None => HashSet(String).new());
   set.insert(callee.clone());
-  fid_own := ctx.fid.clone();
   g_gr_callees_by_fid.with_mut({ fid_own, set }(m) => m.insert(fid_own, set));
 });
 /// Function `fid` runs on another thread (it is a `Send` closure, or code a
