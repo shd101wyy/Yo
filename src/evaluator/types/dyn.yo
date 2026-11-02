@@ -50,7 +50,7 @@ import("std/fmt");
 trait_id_for_dedup :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => {
+    Rc(.TraitT(_, _, id, _, _, _)) => {
       if(id.len() > usize(0), {
         return(id.clone());
       });
@@ -73,7 +73,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
   match(
     t,
     Rc(.FnTraitT(_, _, _, _, _, _)) => out.push(String.from("call")),
-    Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
+    Rc(.TraitT({ body : fls_body })) => { fls := fls_body.field_labels(); fts := fls_body.field_types(); 
       (i : usize) = usize(0);
       while(i < fls.len(), {
         ft := match(fts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
@@ -312,7 +312,7 @@ evaluate_dyn_type :: (
     cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());
     scs := match(
       cur_trait,
-      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc.clone(),
+      Rc(.TraitT(_, sc_body, _, _, _, _)) => sc_body.self_constraints(),
       _ => ArrayList(TypeValue).new()
     );
     k := usize(0);

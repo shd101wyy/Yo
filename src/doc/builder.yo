@@ -3668,7 +3668,7 @@ build_doc_module :: (
             associated_types := ArrayList(DocAssociatedType).new();
             match(
               actual_type,
-              Rc(.TraitT({ assoc_type_names, field_labels : tfl, field_types : tft })) => {
+              Rc(.TraitT({ body : assoc_type_names_body })) => { assoc_type_names := assoc_type_names_body.assoc_type_names(); tfl := assoc_type_names_body.field_labels(); tft := assoc_type_names_body.field_types(); 
                 (fi : usize) = usize(0);
                 while((fi < tfl.len()) && (fi < tft.len()), {
                   t_label := match(tfl.get_cloned(fi), .Some(l) => l, .None => String.new());
@@ -3949,7 +3949,7 @@ build_doc_module :: (
             associated_types := ArrayList(DocAssociatedType).new();
             match(
               inner_type,
-              Rc(.TraitT({ assoc_type_names, field_labels : tfl, field_types : tft })) => {
+              Rc(.TraitT({ body : assoc_type_names_body2 })) => { assoc_type_names := assoc_type_names_body2.assoc_type_names(); tfl := assoc_type_names_body2.field_labels(); tft := assoc_type_names_body2.field_types(); 
                 (fi : usize) = usize(0);
                 while((fi < tfl.len()) && (fi < tft.len()), {
                   t_label := match(tfl.get_cloned(fi), .Some(l) => l, .None => String.new());

@@ -1670,7 +1670,7 @@ _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
 _wcc_trait_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.TraitT(_, _, _, _, wcc_tid, _, _, _, _, _)) => wcc_tid.clone(),
+    Rc(.TraitT(_, _, wcc_tid, _, _, _)) => wcc_tid.clone(),
     _ => String.from("")
   )
 );
@@ -1778,7 +1778,7 @@ _add_where_clause_constraint :: (
 _trait_has_receiver :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => is_concrete.is_some(),
+    Rc(.TraitT(_, _, _, is_concrete, _, _)) => is_concrete.is_some(),
     _ => false
   )
 );
@@ -2535,7 +2535,7 @@ evaluate_function_parameter :: (
   if(is_trait_type(&final_param_type), {
     has_receiver := match(
       &final_param_type,
-      Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => is_concrete.is_some(),
+      Rc(.TraitT(_, _, _, is_concrete, _, _)) => is_concrete.is_some(),
       _ => true
     );
     if(!has_receiver, {
@@ -2833,8 +2833,8 @@ use_id :: (fn(generic(T : Type),
 /// (plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md, option 3).
 _unmet_trait_message :: (fn(concrete : &TypeValue, tv : &TypeValue, env : &Environment) -> String)({
   base := `Type ${type_to_string(concrete)} does not implement required trait ${type_to_string(tv)}`;
-  labels := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => Rc.clone(l), _ => no_labels());
-  wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => Rc.clone(t), _ => no_types());
+  labels := match(tv, Rc(.TraitT(_, _, _, _, l, _)) => Rc.clone(l), _ => no_labels());
+  wants := match(tv, Rc(.TraitT(_, _, _, _, _, t)) => Rc.clone(t), _ => no_types());
   (i : usize) = usize(0);
   while(i < labels.len(), {
     label := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());

@@ -4255,7 +4255,7 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
         hit := match(
           tt,
           Rc(.FnTraitT(_, _, _, _, _, _)) => (name == "call"),
-          Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
+          Rc(.TraitT({ body : fls_body })) => { fls := fls_body.field_labels(); fts := fls_body.field_types(); 
             (found : bool) = false;
             (j : usize) = usize(0);
             while((j < fls.len()) && !found, {
@@ -4288,7 +4288,7 @@ dyn_vtable_slot_result_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> boo
       while(i < rtt.len(), {
         match(
           rtt.get(i),
-          .Some(Rc(.TraitT({ field_labels : fls, field_types : fts }))) => {
+          .Some(Rc(.TraitT({ body : fls_body2 }))) => { fls := fls_body2.field_labels(); fts := fls_body2.field_types(); 
             (j : usize) = usize(0);
             while(j < fls.len(), {
               if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
@@ -4331,7 +4331,7 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
               k = (k + usize(1));
             });
           }),
-          Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
+          Rc(.TraitT({ body : fls_body3 })) => { fls := fls_body3.field_labels(); fts := fls_body3.field_types(); 
             (j : usize) = usize(0);
             while((j < fls.len()) && out.is_empty(), {
               if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {

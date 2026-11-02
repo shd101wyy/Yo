@@ -8,7 +8,7 @@
 //! regressions in storage / lookup shape are caught in isolation.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../src/types/definitions.yo");
+{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../src/types/definitions.yo");
 { t_i32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../src/types/creators.yo");
 { EvalValue } :: import("../../src/value.yo");
 { assert, panic } :: import("std/assert");
@@ -262,13 +262,9 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   greeter_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Greeter"),
-      assoc_type_names : ArrayList(String).new(),
-      field_labels : trait_field_labels,
-      field_types : trait_field_types,
+      body : trait_t_body(ArrayList(String).new(), trait_field_labels, trait_field_types, ArrayList(TypeValue).new(), ArrayList(TypeValue).new()),
       id : String.from("trait_greeter"),
       is_concrete : Option(TypeValue).None,
-      self_constraints : ArrayList(TypeValue).new(),
-      neg_self_constraints : ArrayList(TypeValue).new(),
       assoc_constraint_labels : no_labels(),
       assoc_constraint_types : no_types()
     )
@@ -345,13 +341,9 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   greeter_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Greeter"),
-      assoc_type_names : ArrayList(String).new(),
-      field_labels : trait_field_labels,
-      field_types : trait_field_types,
+      body : trait_t_body(ArrayList(String).new(), trait_field_labels, trait_field_types, ArrayList(TypeValue).new(), ArrayList(TypeValue).new()),
       id : String.from("trait_greeter_dyn"),
       is_concrete : Option(TypeValue).None,
-      self_constraints : ArrayList(TypeValue).new(),
-      neg_self_constraints : ArrayList(TypeValue).new(),
       assoc_constraint_labels : no_labels(),
       assoc_constraint_types : no_types()
     )
@@ -424,13 +416,9 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   functor_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Functor"),
-      assoc_type_names : ArrayList(String).new(),
-      field_labels : trait_field_labels,
-      field_types : trait_field_types,
+      body : trait_t_body(ArrayList(String).new(), trait_field_labels, trait_field_types, ArrayList(TypeValue).new(), ArrayList(TypeValue).new()),
       id : String.from("trait_functor"),
       is_concrete : Option(TypeValue).None,
-      self_constraints : ArrayList(TypeValue).new(),
-      neg_self_constraints : ArrayList(TypeValue).new(),
       assoc_constraint_labels : no_labels(),
       assoc_constraint_types : no_types()
     )
@@ -663,13 +651,9 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
   greeter_trait := Rc.new(
     TypeValueNode.TraitT(
       name : String.from("Greeter"),
-      assoc_type_names : ArrayList(String).new(),
-      field_labels : trait_field_labels,
-      field_types : trait_field_types,
+      body : trait_t_body(ArrayList(String).new(), trait_field_labels, trait_field_types, ArrayList(TypeValue).new(), ArrayList(TypeValue).new()),
       id : String.from("trait_greeter_envscan"),
       is_concrete : Option(TypeValue).None,
-      self_constraints : ArrayList(TypeValue).new(),
-      neg_self_constraints : ArrayList(TypeValue).new(),
       assoc_constraint_labels : no_labels(),
       assoc_constraint_types : no_types()
     )

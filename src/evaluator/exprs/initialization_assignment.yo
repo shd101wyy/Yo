@@ -65,7 +65,7 @@
   record_pending_def_variable
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, fn_result_origin_names } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -1595,12 +1595,12 @@ ${rhs_str}`
             // preserved. Without this, diagnostics render the trait as its
             // field dump (`(id : comptime_str)` instead of `Send`), e.g.
             // the where-clause "does not implement required trait" error.
-            Rc(.TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct)) => cond(
+            Rc(.TraitT(tr_name, tr_atns_body, tr_id, tr_conc, tr_atcl, tr_atct)) => { tr_atns := tr_atns_body.assoc_type_names(); tr_fls := tr_atns_body.field_labels(); tr_fts := tr_atns_body.field_types(); tr_sc := tr_atns_body.self_constraints(); tr_nsc := tr_atns_body.neg_self_constraints(); cond(
               (tr_name.len() == usize(0)) => Option(TypeValue).Some(
-                Rc.new(TypeValueNode.TraitT(binding_name, tr_atns.clone(), tr_fls.clone(), tr_fts.clone(), tr_id.clone(), tr_conc.clone(), tr_sc.clone(), tr_nsc.clone(), Rc.clone(tr_atcl), Rc.clone(tr_atct)))
+                Rc.new(TypeValueNode.TraitT(binding_name, trait_t_body(tr_atns.clone(), tr_fls.clone(), tr_fts.clone(), tr_sc.clone(), tr_nsc.clone()), tr_id.clone(), tr_conc.clone(), Rc.clone(tr_atcl), Rc.clone(tr_atct)))
               ),
               true => Option(TypeValue).None
-            ),
+            ) },
             _ => Option(TypeValue).None
           );
           match(

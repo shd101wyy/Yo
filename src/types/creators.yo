@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee } :: import("./definitions.yo");
+{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -287,11 +287,11 @@ t_trait :: (
     sink(field_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  Rc.new(TypeValueNode.TraitT(name.clone(), assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
+  Rc.new(TypeValueNode.TraitT(name.clone(), trait_t_body(assoc_names, field_labels, field_types, ArrayList(TypeValue).new(), ArrayList(TypeValue).new()), String.from(""), Option(TypeValue).None, no_labels(), no_types()))
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : &String) -> TypeValue)(
-  Rc.new(TypeValueNode.TraitT(name.clone(), ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
+  Rc.new(TypeValueNode.TraitT(name.clone(), trait_t_body(ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new()), String.from(""), Option(TypeValue).None, no_labels(), no_types()))
 );
 /// Create a module type with field lists.
 t_module :: (

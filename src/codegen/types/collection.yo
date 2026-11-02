@@ -402,7 +402,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     // cycle: the second encounter early-returns on the already-registered key.)
     match(
       type,
-      Rc(.TraitT({ field_types })) => {
+      Rc(.TraitT({ body : field_types_body })) => { field_types := field_types_body.field_types(); 
         n := field_types.len();
         (i : usize) = usize(0);
         while(i < n, {

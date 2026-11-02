@@ -643,7 +643,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                       req_traits.get(mi),
                       .Some(rt) => match(
                         rt,
-                        Rc(.TraitT({ field_labels : tfl, field_types : tft })) => {
+                        Rc(.TraitT({ body : tfl_body })) => { tfl := tfl_body.field_labels(); tft := tfl_body.field_types(); 
                           (sl_found : Option(TypeValue)) = Option(TypeValue).None;
                           (sl_j : usize) = usize(0);
                           while((sl_j < tfl.len()) && sl_found.is_none(), {
@@ -905,7 +905,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
             }, {
               match(
                 &rt,
-                Rc(.TraitT({ field_labels, field_types })) => {
+                Rc(.TraitT({ body : field_labels_body })) => { field_labels := field_labels_body.field_labels(); field_types := field_labels_body.field_types(); 
                   nfl := field_labels.len();
                   (fi : usize) = usize(0);
                   while(fi < nfl, {

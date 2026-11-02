@@ -7,7 +7,7 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
-{ some_t_bounds, TypeValue, TypeValueNode, SharedList, shared_list, no_types } :: import("./definitions.yo");
+{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, SharedList, shared_list, no_types } :: import("./definitions.yo");
 // P2 hash-consing: RE-WIRED (2026-07-02) — the runaway explosion this was
 // unwired for during the bisect turned out to be _patch_self_shell's missing
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
@@ -622,18 +622,14 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         Rc(
           .TraitT(
             name : n,
-            assoc_type_names : atns,
-            field_labels : fls,
-            field_types : fts,
+            body : atns_body,
             id : tid,
             is_concrete : ic,
-            self_constraints : scons,
-            neg_self_constraints : ncons,
             assoc_constraint_labels : atcl,
             assoc_constraint_types : atct
           )
         ) =>
-          // Cycle guard: self-referential traits (e.g. a method returning
+          { atns := atns_body.assoc_type_names(); fls := atns_body.field_labels(); fts := atns_body.field_types(); scons := atns_body.self_constraints(); ncons := atns_body.neg_self_constraints(); // Cycle guard: self-referential traits (e.g. a method returning
           // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
           // recursing into this trait id, return it unchanged to break the cycle.
           cond(
@@ -651,9 +647,9 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
                 new_fts.push(_substitute_at(&s_nom_t, &elem, false));
                 i = (i + usize(1));
               });
-              Rc.new(TypeValueNode.TraitT(n.clone(), atns.clone(), fls.clone(), new_fts, tid.clone(), ic.clone(), scons.clone(), ncons.clone(), Rc.clone(atcl), Rc.clone(atct)))
+              Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), new_fts, scons.clone(), ncons.clone()), tid.clone(), ic.clone(), Rc.clone(atcl), Rc.clone(atct)))
             }
-          ),
+          ) },
         // SomeT — check substitution first; if not found, recurse into constraints.
         Rc(
           .SomeT(

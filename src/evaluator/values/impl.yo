@@ -422,7 +422,7 @@ unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &Stri
 get_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
   match(
     trait_ty,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
     Rc(.FnTraitT(base_name, _, _, _, _, _)) => base_name.clone(),
     Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
@@ -438,7 +438,7 @@ get_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
 get_base_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
   match(
     trait_ty,
-    Rc(.TraitT(_, _, _, _, gb_id, _, _, _, _, _)) => match(
+    Rc(.TraitT(_, _, gb_id, _, _, _)) => match(
       lookup_trait_ctor_fid(&gb_id),
       .Some(gb_fid) => gb_fid,
       .None => gb_id.clone()
@@ -1395,9 +1395,9 @@ _any_type_has_some_type :: (fn(tys : &ArrayList(TypeValue)) -> bool)({
 _is_marker_trait :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.TraitT({ field_types : mt_fts, assoc_constraint_types : mt_acts })) => (
+    Rc(.TraitT({ body : mt_fts_body, assoc_constraint_types : mt_acts })) => { mt_fts := mt_fts_body.field_types(); (
       !_any_type_has_some_type(&mt_fts) && !_any_type_has_some_type(&mt_acts.items)
-    ),
+    ) },
     _ => false
   )
 );
@@ -1412,7 +1412,7 @@ _is_marker_trait :: (fn(ty : &TypeValue) -> bool)(
 _where_trait_mentions_no_forall :: (fn(ty : &TypeValue, foralls : &ArrayList(TypeValue)) -> bool)(
   match(
     ty,
-    Rc(.TraitT({ field_types : wf_fts, assoc_constraint_types : wf_acts })) => {
+    Rc(.TraitT({ body : wf_fts_body, assoc_constraint_types : wf_acts })) => { wf_fts := wf_fts_body.field_types(); 
       parts := ArrayList(TypeValue).new();
       (wf_i : usize) = usize(0);
       while(wf_i < wf_fts.len(), wf_i = (wf_i + usize(1)), {
@@ -1794,7 +1794,7 @@ try_match_generic_impl :: (
                 wcr_subj := match(entry.where_constraint_some_types.get(wcr_j), .Some(t) => t, .None => t_unit());
                 match(
                   wcr_trait,
-                  Rc(.TraitT(_, _, _, _, _, _, _, _, wcr_alabels, wcr_atypes)) => {
+                  Rc(.TraitT(_, _, _, _, wcr_alabels, wcr_atypes)) => {
                     (wcr_k : usize) = usize(0);
                     while((wcr_k < wcr_alabels.len()) && wcr_bound.is_none(), {
                       wcr_cty := match(wcr_atypes.get(wcr_k), .Some(t) => t, .None => t_unit());
@@ -2080,7 +2080,7 @@ _trait_instances_agree :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(T
   g_tr := substitute(&ta_s, &entry.trait_type);
   match(
     concrete,
-    Rc(.TraitT({ field_labels : c_labels, field_types : c_types })) => {
+    Rc(.TraitT({ body : c_labels_body })) => { c_labels := c_labels_body.field_labels(); c_types := c_labels_body.field_types(); 
       (ok : bool) = true;
       (ci : usize) = usize(0);
       while((ci < c_labels.len()) && ok, {
@@ -2179,7 +2179,7 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
       // A trait contributes its own base key plus its method signatures'
       // types, where a trait instance's arguments live (`From(Meters)` is
       // `from : fn(value : Meters) -> Self`).
-      Rc(.TraitT(field_types : di_trfts)) => `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}`,
+      Rc(.TraitT(body : di_trfts_body)) => { di_trfts := di_trfts_body.field_types(); `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}` },
       Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
       Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee, depth + usize(1))})`,
       // A parameter slot keys as its pointee: the coherence key never told
@@ -2295,7 +2295,7 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
   // prints `HashSet(T)`, not the SomeT's whole bound set.
   (canon, shown) := _canon_shown_substs(entry);
   shown_receiver := type_to_string(substitute(&shown, &entry.receiver_type_pattern));
-  if(!match(&entry.trait_type, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false), {
+  if(!match(&entry.trait_type, Rc(.TraitT(_, _, _, _, _, _)) => true, _ => false), {
     // An INHERENT generic impl: the duplicate-inherent-method rule
     // (plans/reference/FUNCTION_OVERLOADING_POLICY.md) for a generic
     // receiver. Keyed on the receiver pattern AND the where-clause, so
@@ -3506,7 +3506,7 @@ get_generic_impl_doc_entries :: (
             method_types := ArrayList(TypeValue).new();
             match(
               &entry.trait_type,
-              Rc(.TraitT({ field_labels, field_types })) => {
+              Rc(.TraitT({ body : field_labels_body })) => { field_labels := field_labels_body.field_labels(); field_types := field_labels_body.field_types(); 
                 (mi : usize) = usize(0);
                 while(mi < field_labels.len(), {
                   m_label := match(field_labels.get_cloned(mi), .Some(l) => l, .None => String.from(""));
@@ -3617,7 +3617,7 @@ _try_lookup_trait_type :: (
             ev,
             .TypeVal(tb) => match(
               tb,
-              Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => {
+              Rc(.TraitT(_, _, _, _, _, _)) => {
                 atom_result = Option(TypeValue).Some(Rc.clone(tb));
               },
               _ => ()
@@ -3659,7 +3659,7 @@ _try_lookup_trait_type :: (
         ev,
         .TypeVal(tb) => match(
           tb,
-          Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => Option(TypeValue).Some(Rc.clone(tb)),
+          Rc(.TraitT(_, _, _, _, _, _)) => Option(TypeValue).Some(Rc.clone(tb)),
           _ => Option(TypeValue).None
         ),
         _ => Option(TypeValue).None
@@ -3682,7 +3682,7 @@ _trait_field_type_by_label :: (
     .None => Option(TypeValue).None,
     .Some(t) => match(
       t,
-      Rc(.TraitT(_, _, labels, types, _, _, _, _, _, _)) => {
+      Rc(.TraitT(_, labels_body, _, _, _, _)) => { labels := labels_body.field_labels(); types := labels_body.field_types(); 
         (i : usize) = usize(0);
         (found : Option(TypeValue)) = Option(TypeValue).None;
         n := labels.len();
@@ -5603,7 +5603,7 @@ evaluate_module_value :: (
         // above) restores the nf>0 trigger and per-receiver specialization.
         match(
           &g_trait_ty,
-          Rc(.TraitT({ field_labels : gd_labels, field_types : gd_types, id : gd_trait_id })) => {
+          Rc(.TraitT({ body : gd_labels_body, id : gd_trait_id })) => { gd_labels := gd_labels_body.field_labels(); gd_types := gd_labels_body.field_types(); 
             (gdi : usize) = usize(0);
             while(gdi < gd_labels.len(), {
               gd_label := match(gd_labels.get_cloned(gdi), .Some(l) => l, .None => String.from(""));
@@ -5940,7 +5940,7 @@ evaluate_module_value :: (
             .Some(neg_trait_ty) => {
               has_method := match(
                 &neg_trait_ty,
-                Rc(.TraitT(_, _, _, ftys, _, _, _, _, _, _)) => {
+                Rc(.TraitT(_, ftys_body, _, _, _, _)) => { ftys := ftys_body.field_types(); 
                   (mi : usize) = usize(0);
                   (hm : bool) = false;
                   while((mi < ftys.len()) && !hm, {
@@ -6120,7 +6120,7 @@ evaluate_module_value :: (
           &current_trait_ty,
           .Some(pv_ctt) => match(
             pv_ctt,
-            Rc(.TraitT({ field_labels : pv_labels, field_types : pv_types, id : pv_trait_id })) => if(receiver_type_id != "", {
+            Rc(.TraitT({ body : pv_labels_body, id : pv_trait_id })) => { pv_labels := pv_labels_body.field_labels(); pv_types := pv_labels_body.field_types(); if(receiver_type_id != "", {
               (pvfi : usize) = usize(0);
               while(pvfi < pv_labels.len(), {
                 pv_lbl := match(pv_labels.get_cloned(pvfi), .Some(l) => l, .None => String.from(""));
@@ -6141,7 +6141,7 @@ evaluate_module_value :: (
                 });
                 pvfi = (pvfi + usize(1));
               });
-            }),
+            }) },
             _ => ()
           ),
           .None => ()
@@ -6225,7 +6225,7 @@ evaluate_module_value :: (
           current_trait_ty,
           .Some(ctt2) => match(
             &ctt2,
-            Rc(.TraitT({ field_labels : dtf_labels, field_types : dtf_types, id : dtf_trait_id })) => {
+            Rc(.TraitT({ body : dtf_labels_body, id : dtf_trait_id })) => { dtf_labels := dtf_labels_body.field_labels(); dtf_types := dtf_labels_body.field_types(); 
               (dfi : usize) = usize(0);
               while(dfi < dtf_labels.len(), {
                 d_label := match(dtf_labels.get_cloned(dfi), .Some(l) => l, .None => String.from(""));
