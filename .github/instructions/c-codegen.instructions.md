@@ -287,7 +287,13 @@ source order.
   await in the same statement can suspend before the result is consumed
   (`f(await a, await b)`); any other result is a C local
   (`g_local_await_results`, consulted by the struct emitter and by
-  `emit_inline_await`).
+  `emit_inline_await`). A C-local result that owns an RC or move-only value
+  is declared under the await's owning temp's name, and stored into the
+  temp's slot when it has one (`_bind_await_result_to_temp`): the temp's
+  scheduled drop is skipped while the temp is undeclared, so a consumer that
+  only reads a field (`match(await(f).s, …)`, a `while` condition) leaked
+  the whole value
+  (issues/fixed/2026-10-25-an-await-result-read-by-a-while-condition-or-a-field-reading-scrutinee-is-never-released.md).
 - **The prefix points at a per-type vtable** (`__yo_future_vtable_t`:
   `resume`, `set_effect`, `cancel_pending`, `bundle_offset`, `bundle_size`),
   not three pointers per instance. A raw I/O future's `vt` is NULL; every
