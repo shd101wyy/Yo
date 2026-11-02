@@ -199,7 +199,7 @@ _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_typ
   fk := type_key(field_type);
   (k : usize) = usize(0);
   while(k < clabels.len(), {
-    lbl := match(clabels.get(k), .Some(l) => l, .None => String.from(""));
+    lbl := match(clabels.get_cloned(k), .Some(l) => l, .None => String.from(""));
     t := match(ctypes.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(type_key(&t) == fk, {
       return(Option(String).Some(lbl));
@@ -218,7 +218,7 @@ _visit_effect_struct_fields :: (
   ftypes := match(struct_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
   (i : usize) = usize(0);
   while(i < flabels.len(), {
-    flabel := match(flabels.get(i), .Some(l) => l, .None => String.from(""));
+    flabel := match(flabels.get_cloned(i), .Some(l) => l, .None => String.from(""));
     ftype := match(ftypes.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(is_function_type(&ftype), {
       el := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
@@ -308,7 +308,7 @@ get_injectable_future_effect_field_mappings :: (
   eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => Rc.clone(et), _ => no_types());
   (ei : usize) = usize(0);
   while(ei < eff_labels.len(), {
-    elabel := match(eff_labels.get(ei), .Some(l) => l, .None => String.from(""));
+    elabel := match(eff_labels.get_cloned(ei), .Some(l) => l, .None => String.from(""));
     etype := match(eff_types.get(ei), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(is_function_type(&etype), {
       // Function-typed effect → matching capture field.
@@ -327,7 +327,7 @@ get_injectable_future_effect_field_mappings :: (
             ef_types := match(&etype, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
             (fi : usize) = usize(0);
             while(fi < ef_labels.len(), {
-              flabel := match(ef_labels.get(fi), .Some(l) => l, .None => String.from(""));
+              flabel := match(ef_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
               ftype := match(ef_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               if(is_function_type(&ftype), {
                 match(_find_capture_field(&ct, &flabel, &ftype), .Some(cf) => _add_mapping(&mut mappings, &flabel, `__capture.${sanitize_for_c_identifier(&cf, false)}`), .None => ());
@@ -878,7 +878,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   ordered := ArrayList(String).new();
   (head : usize) = usize(0);
   while(head < queue.len(), {
-    n := match(queue.get(head), .Some(x) => x, .None => String.from(""));
+    n := match(queue.get_cloned(head), .Some(x) => x, .None => String.from(""));
     head = (head + usize(1));
     ordered.push(n.clone());
     match(
@@ -1094,7 +1094,7 @@ _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField)
         typed := f.clone();
         (li : usize) = usize(0);
         while(li < labels.len(), li = (li + usize(1)), {
-          if(match(labels.get(li), .Some(l) => (l == f.label), .None => false), {
+          if(match(labels.get_cloned(li), .Some(l) => (l == f.label), .None => false), {
             match(
               types.get(li),
               .Some(t) => {
@@ -2389,7 +2389,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
         pt := match(slot_pointee_at(&wpts, pi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         label := match(wmeta.*.param_labels.get(pi), .Some(l) => l, .None => `param${pi.to_string()}`);
         cname := sanitize_for_c_identifier(&label, false);
-        code := match(arg_codes.get(pi), .Some(c) => c, .None => String.from("0"));
+        code := match(arg_codes.get_cloned(pi), .Some(c) => c, .None => String.from("0"));
         em.emit_string_line(`${inner}${get_variable_type_string(&pt, cname.clone(), &context.base)} = ${code};`);
         em.emit_string_line(`${inner}(void)${cname.clone()};`);
         declare_c_var_name(&context.base, &cname);
@@ -4033,7 +4033,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         lit.push_str(", ");
       });
       lit_first = false;
-      lbl := match(cap_labels.get(cli), .Some(l) => l, .None => String.from(""));
+      lbl := match(cap_labels.get_cloned(cli), .Some(l) => l, .None => String.from(""));
       lbl_c := sanitize_for_c_identifier(lbl.clone(), false);
       lit.push_str(".");
       lit.push_string(lbl_c.clone());

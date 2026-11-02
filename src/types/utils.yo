@@ -1582,7 +1582,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     Rc(.Struct({ field_labels : fls, field_types : fields })) => {
       (i : usize) = usize(0);
       while(i < fields.len(), {
-        fl := match(fls.get(i), .Some(l) => l, .None => String.new());
+        fl := match(fls.get_cloned(i), .Some(l) => l, .None => String.new());
         labels.push(`field \`${fl}\``);
         comps.push(match(fields.get(i), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit)));
         i = (i + usize(1));
@@ -1592,7 +1592,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
         vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
-        vn := match(vns.get(vi), .Some(n) => n, .None => String.new());
+        vn := match(vns.get_cloned(vi), .Some(n) => n, .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           labels.push(`variant \`${vn}\``);
@@ -4226,7 +4226,7 @@ dyn_member_unsafe_reason :: (fn(member_ty : &TypeValue) -> Option(String))(
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t_slot_pointee(&t), .None => Rc.new(TypeValueNode.Unit));
         if(_mentions_trait_self(&pt), {
-          label := match(labels.get(i), .Some(l) => l, .None => String.from("?"));
+          label := match(labels.get_cloned(i), .Some(l) => l, .None => String.from("?"));
           return(Option(String).Some(`its parameter "${label}" has type ${type_to_string(&pt)}, which the Dyn erases`));
         });
         i = (i + usize(1));

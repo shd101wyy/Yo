@@ -417,7 +417,7 @@ _dyn_bound_check_type :: (fn(t : &TypeValue, env : &Environment) -> Option(TypeV
 _name_in :: (fn(names : &ArrayList(String), n : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < names.len(), {
-    if(match(names.get(i), .Some(x) => (x == n), .None => false), {
+    if(match(names.get_cloned(i), .Some(x) => (x == n), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -604,7 +604,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
             if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
               owned := match(&ft, Rc(.Func({ result : _ })) => match(fn_param_by_value_at(&ft, usize(0)), .Some(o) => o, .None => false), _ => false);
               if(owned, {
-                label := match(fls.get(j), .Some(l) => l, .None => String.from("?"));
+                label := match(fls.get_cloned(j), .Some(l) => l, .None => String.from("?"));
                 return(Option(String).Some(`${tn}.${label}`));
               });
             });
@@ -678,7 +678,7 @@ _require_send_dyn_methods_reach_no_global :: (
                     written := d1_note_thread_reach(fvd.*.func_id.clone());
                     if(reach.is_some(), reach, written)
                   }, .Some(reason) => {
-                    mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                    mname := match(fnames.get_cloned(fi), .Some(n) => n, .None => String.new());
                     msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is ${thread_marker}), but its method '${mname}' ${reason}.`;
                     raise_flow_violation(format_error_message(token, &msg), ctx, exn);
                   }, .None => ()),
@@ -747,7 +747,7 @@ _reject_dyn_borrowing_future_methods :: (
             match(
               bs.get(usize(0)),
               .Some(b0) => {
-                mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                mname := match(fnames.get_cloned(fi), .Some(n) => n, .None => String.new());
                 raise_flow_violation(
                   with_code(
                     format_error_message_with_help(
@@ -807,7 +807,7 @@ _monomorphize_default_fv :: (
       ___mdf := caller_env.push_frame(false);
       (spi : usize) = usize(0);
       while(spi < param_labels.len(), {
-        sp_label := match(param_labels.get(spi), .Some(l) => l, .None => String.new());
+        sp_label := match(param_labels.get_cloned(spi), .Some(l) => l, .None => String.new());
         sp_ty := cond(
           (spi == usize(0)) => value_type.clone(),
           true => match(slot_pointee_at(&sub_pts, spi), .Some(t) => t, .None => value_type.clone())
@@ -1080,7 +1080,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
               field_vals := ArrayList(Option(EvalValue)).new();
               (j : usize) = usize(0);
               while(j < n_fields, {
-                fname := match(fl.get(j), .Some(s) => s, .None => String.from(""));
+                fname := match(fl.get_cloned(j), .Some(s) => s, .None => String.from(""));
                 field_names.push(fname.clone());
                 // Prefer an entry matching BOTH label and trait id; fall back to
                 // a label-only match (the Dyn(Trait) annotation's trait id can

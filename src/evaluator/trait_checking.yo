@@ -266,7 +266,7 @@ _marker_name_of :: (fn(trait_type : &TypeValue, env : &Environment) -> String)({
   (i : usize) = usize(0);
   (found : String) = String.from("");
   while((i < markers.len()) && found.is_empty(), {
-    marker := match(markers.get(i), .Some(m) => m, .None => String.from(""));
+    marker := match(markers.get_cloned(i), .Some(m) => m, .None => String.from(""));
     match(
       get_trait_type_from_env(env, marker.clone()),
       .Some(mt) => if(_trait_type_id(&mt) == tid, {
@@ -915,7 +915,7 @@ _check_associated_type_constraints :: (
   (ok : bool) = true;
   (ci : usize) = usize(0);
   while((ci < n_atc) && ok, {
-    label := match(atc_labels.get(ci), .Some(l) => l, .None => String.from(""));
+    label := match(atc_labels.get_cloned(ci), .Some(l) => l, .None => String.from(""));
     constraint_ty := match(atc_types.get(ci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     // Step 1: the target's OWN registrations (a CONCRETE impl's
     // `Item : i32`). The equivalent store is the
@@ -1056,7 +1056,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
     Rc(.Struct({ field_labels : nc_labels, field_types : nc_fields })) => {
       (i : usize) = usize(0);
       while(i < nc_fields.len(), {
-        labels.push(`its field \`${match(nc_labels.get(i), .Some(l) => l, .None => String.new())}\``);
+        labels.push(`its field \`${match(nc_labels.get_cloned(i), .Some(l) => l, .None => String.new())}\``);
         parts.push(match(nc_fields.get(i), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit)));
         i = (i + usize(1));
       });
@@ -1065,7 +1065,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
       (vi : usize) = usize(0);
       while(vi < nc_vfs.len(), {
         vf := match(nc_vfs.get(vi), .Some(f) => f, .None => no_types());
-        vn := match(nc_vns.get(vi), .Some(n) => n, .None => String.new());
+        vn := match(nc_vns.get_cloned(vi), .Some(n) => n, .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           labels.push(`its variant \`${vn}\``);
@@ -1119,7 +1119,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
       part_is_copy = (type_mentions_some_type(&part) && generic_pattern_implements_trait(&part, copy_tt, env));
     });
     if(!part_is_copy, {
-      lbl := match(labels.get(pi), .Some(l) => l, .None => String.new());
+      lbl := match(labels.get_cloned(pi), .Some(l) => l, .None => String.new());
       return(Option(String).Some(`${lbl} has type \`${type_to_string(&part)}\``));
     });
     pi = (pi + usize(1));
@@ -2947,7 +2947,7 @@ function_value_slot_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -
           e_own := match(fm_e.owns.get(fm_i), .Some(b) => b, .None => false);
           g_own := match(fm_g.owns.get(fm_i), .Some(b) => b, .None => false);
           if((e_ref != g_ref) || (e_own != g_own), {
-            e_lbl := match(fm_e.labels.get(fm_i), .Some(l) => l, .None => String.from("_"));
+            e_lbl := match(fm_e.labels.get_cloned(fm_i), .Some(l) => l, .None => String.from("_"));
             g_lbl := match(fm_g.labels.get(fm_i), .Some(l) => l, .None => e_lbl.clone());
             return(
               Option(String).Some(

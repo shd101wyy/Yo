@@ -99,7 +99,7 @@ get_c_include_for_extern :: (fn(name : &String) -> Option(String))(
 );
 /// Every C header a `c_include`d extern symbol was declared under.
 get_c_includes_for_extern :: (fn(name : &String) -> ArrayList(String))(
-  match(g_extern_c_includes.with(m => m.get(name)), .Some(l) => l, .None => ArrayList(String).new())
+  match(g_extern_c_includes.with(m => m.get_cloned(name)), .Some(l) => l, .None => ArrayList(String).new())
 );
 /// The already-bound type a `c_include` `Name : Type` field should ADOPT, or
 /// `.None` when the name is free (the ordinary opaque-handle case).
@@ -300,7 +300,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !has_dup, {
-      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      existing := match(field_labels.get_cloned(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;
       });

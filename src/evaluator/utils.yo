@@ -5358,7 +5358,7 @@ _keep_body_end_move :: (fn(v : &Variable, ct : &Token, loc : &Token, after : boo
 _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(Token)) -> Option(Token))({
   (si : usize) = usize(0);
   while(si < snap.var_ids.len(), {
-    if(match(snap.var_ids.get(si), .Some(x) => (x == id), .None => false), {
+    if(match(snap.var_ids.get_cloned(si), .Some(x) => (x == id), .None => false), {
       return(match(snap.consumed.get(si), .Some(c) => c, .None => pre));
     });
     si = (si + usize(1));

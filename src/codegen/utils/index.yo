@@ -837,7 +837,7 @@ get_runtime_struct_fields :: (fn(struct_type : &TypeValue) -> ArrayList(RuntimeS
           .None => false
         );
         if(!is_comptime, {
-          label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+          label := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
           ty := match(field_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           result.push(RuntimeStructField(label : label, ty : ty));
         });
@@ -1056,7 +1056,7 @@ pattern_literal_arm_guards :: (
             params.get(pi2),
             .Some(pp) => {
               if(pattern_param_is_literal(&pp), {
-                field_label := match(labels.get(pi2), .Some(fl) => fl, .None => String.from(""));
+                field_label := match(labels.get_cloned(pi2), .Some(fl) => fl, .None => String.from(""));
                 if(out.len() > usize(0), {
                   out.push_str(" && ");
                 });
@@ -1421,7 +1421,7 @@ nullable_variant_names :: (fn(t : &TypeValue) -> Option(ArrayList(String)))(
       (payload_name : String) = String.new();
       (i : usize) = usize(0);
       while(i < vns.len(), {
-        vn := match(vns.get(i), .Some(n) => n, .None => String.new());
+        vn := match(vns.get_cloned(i), .Some(n) => n, .None => String.new());
         nf := match(vfs.get(i), .Some(f) => f.len(), .None => usize(0));
         if(nf == usize(0), {
           empty_name = vn;

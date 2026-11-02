@@ -323,7 +323,7 @@ handle_member_destructuring :: (
     (field_index : usize) = i; // default: positional
     (field_value_opt : Option(EvalValue)) = Option(EvalValue).None;
     (rhs_field_label : String) = match(
-      rhs_field_labels.get(field_index),
+      rhs_field_labels.get_cloned(field_index),
       .Some(l) => l,
       .None => String.from("")
     );
@@ -371,7 +371,7 @@ handle_member_destructuring :: (
       // Spread: destructure all rhs fields not yet seen.
       (j : usize) = usize(0);
       while(j < rhs_field_labels.len(), {
-        flab := match(rhs_field_labels.get(j), .Some(l) => l, .None => String.from(""));
+        flab := match(rhs_field_labels.get_cloned(j), .Some(l) => l, .None => String.from(""));
         fty := match(rhs_field_types.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if(!_label_already_seen(&seen_labels, flab.clone()), {
           {
@@ -476,7 +476,7 @@ handle_member_destructuring :: (
           },
           .Some(fi) => {
             field_index = fi;
-            rhs_field_label = match(rhs_field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+            rhs_field_label = match(rhs_field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
             rhs_field_type = match(rhs_field_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           }
         );

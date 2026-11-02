@@ -959,7 +959,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           (listed : bool) = false;
           (j : usize) = usize(0);
           while(j < field_idx.len(), {
-            if(match(field_idx.get(j), .Some(k) => (k == f), .None => false), {
+            if(match(field_idx.get_cloned(j), .Some(k) => (k == f), .None => false), {
               listed = true;
             });
             j = (j + usize(1));
@@ -1017,7 +1017,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       sub_names := pattern_bindings(&sub);
       (si : usize) = usize(0);
       while(si < sub_names.len(), {
-        sn := match(sub_names.get(si), .Some(n) => n, .None => String.new());
+        sn := match(sub_names.get_cloned(si), .Some(n) => n, .None => String.new());
         sty := _bind_ty_of(own, sn.clone());
         bad := cond(
           (in_cell || _names_contain(&own.borrowed, sn.clone())) => false,
@@ -1082,7 +1082,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           (listed : bool) = false;
           (j : usize) = usize(0);
           while(j < field_idx.len(), {
-            if(match(field_idx.get(j), .Some(k) => (k == f), .None => false), {
+            if(match(field_idx.get_cloned(j), .Some(k) => (k == f), .None => false), {
               listed = true;
             });
             j = (j + usize(1));
@@ -1106,7 +1106,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
 _names_contain :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
+    if(match(xs.get_cloned(i), .Some(y) => (y == x), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -2066,7 +2066,7 @@ evaluate_match :: (
             gadt_va_em,
             .Some(av) => match(
               top_variant_idx,
-              .Some(vidx2) => match(av.get(vidx2), .Some(g) => g, .None => ArrayList(TypeValue).new()),
+              .Some(vidx2) => match(av.get_cloned(vidx2), .Some(g) => g, .None => ArrayList(TypeValue).new()),
               .None => ArrayList(TypeValue).new()
             ),
             .None => ArrayList(TypeValue).new()

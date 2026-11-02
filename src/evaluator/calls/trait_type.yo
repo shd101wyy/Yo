@@ -321,7 +321,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   if(pv_type_id != "", {
     (pvi : usize) = usize(0);
     while(pvi < n_fields, {
-      pv_lbl := match(field_labels.get(pvi), .Some(l) => l, .None => String.from(""));
+      pv_lbl := match(field_labels.get_cloned(pvi), .Some(l) => l, .None => String.from(""));
       pv_ty := match(field_types.get(pvi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       if((pv_lbl != "") && is_function_type(&pv_ty), {
         register_provisional_trait_method(

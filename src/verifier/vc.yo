@@ -2152,7 +2152,7 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
           sb.write_byte(u8(0x7C));
           (vi : usize) = usize(0);
           while(vi < e_names.len(), {
-            vname := match(e_names.get(vi), .Some(n) => n, .None => String.new());
+            vname := match(e_names.get_cloned(vi), .Some(n) => n, .None => String.new());
             if(vi > usize(0), {
               sb.write_byte(u8(0x20));
             });
@@ -2364,7 +2364,7 @@ _build_enum_ctor :: (
   cond(
     _variant_named(e_names, variant.clone()) => {
       vidx := _variant_index_of(e_names, variant.clone());
-      vname := match(e_names.get(vidx), .Some(n) => n, .None => String.new());
+      vname := match(e_names.get_cloned(vidx), .Some(n) => n, .None => String.new());
       vfs := match(e_fields.get(vidx), .Some(l) => l, .None => no_types());
       // The construction's VALUE args are the dot-args AFTER the variant
       // atom.

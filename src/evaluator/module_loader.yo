@@ -347,7 +347,7 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       (ti : usize) = usize(0);
       while(ti < ttypes.len(), {
         ft := match(ttypes.get(ti), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-        if(match(tlabels.get(ti), .Some(t) => (t == name), .None => false), {
+        if(match(tlabels.get_cloned(ti), .Some(t) => (t == name), .None => false), {
           new_types.push(Rc.clone(ty));
           found = true;
         }, {

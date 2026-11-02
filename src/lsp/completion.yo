@@ -279,7 +279,7 @@ _type_member_items :: (
     Rc(.Struct({ field_labels, field_types, is_source_namespace })) => {
       (i : usize) = usize(0);
       while(i < field_labels.len(), {
-        label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.new());
         fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         hidden := ((label.len() == usize(0)) || _hidden_name(label.clone()));
         if(!hidden && !seen.contains(label.clone()), {
@@ -300,7 +300,7 @@ _type_member_items :: (
     Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       (i : usize) = usize(0);
       while(i < variant_names.len(), {
-        vname := match(variant_names.get(i), .Some(n) => n, .None => String.new());
+        vname := match(variant_names.get_cloned(i), .Some(n) => n, .None => String.new());
         vfields := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
         vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
         if(vname.len() > usize(0), {
@@ -312,7 +312,7 @@ _type_member_items :: (
     Rc(.Union({ field_labels : u_labels, field_types : u_types })) => {
       (i : usize) = usize(0);
       while(i < u_labels.len(), {
-        label := match(u_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(u_labels.get_cloned(i), .Some(l) => l, .None => String.new());
         fty := match(u_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if((label.len() > usize(0)) && !seen.contains(label.clone()), {
           seen.insert(label.clone());
@@ -1027,7 +1027,7 @@ _import_member_items :: (
       });
       (i : usize) = usize(0);
       while(i < field_labels.len(), {
-        label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.new());
         fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         (already : bool) = false;
         (li : usize) = usize(0);
@@ -1216,7 +1216,7 @@ handle_completion :: (
                 seen2 := HashSet(String).new();
                 (vi : usize) = usize(0);
                 while(vi < variant_names.len(), {
-                  vname := match(variant_names.get(vi), .Some(n) => n, .None => String.new());
+                  vname := match(variant_names.get_cloned(vi), .Some(n) => n, .None => String.new());
                   vfields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
                   vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
                   if(vname.len() > usize(0), {

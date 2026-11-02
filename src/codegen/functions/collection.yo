@@ -1135,7 +1135,7 @@ _specialize_and_register_trace :: (
   p_types := match(method_ty, Rc(.Func({ param_types : __mpt })) => Rc.clone(__mpt), _ => no_types());
   (pi : usize) = usize(0);
   while(pi < p_labels.len(), {
-    plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
+    plabel := match(p_labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
     pty := if(pi == usize(0), ct.clone(), match(slot_pointee_at(&p_types, pi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
     _bp := add_variable_to_env(
       &fresh,
@@ -1515,7 +1515,7 @@ _synthesize_and_register_dispose :: (
   nf := flabels.len();
   (fi : usize) = usize(0);
   while(fi < nf, {
-    lbl := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
+    lbl := match(flabels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
     fty := match(ftypes.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(type_contains_rc_cell_or_move_only(&fty), {
       // Index-based alias (the field label may not be a valid identifier — e.g. the
@@ -1615,7 +1615,7 @@ _synthesize_and_register_enum_dispose :: (
   (rc_variants : usize) = usize(0);
   (vi : usize) = usize(0);
   while(vi < nv, {
-    vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+    vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
     fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
     nf := fields.len();
     (has_rc : bool) = false;

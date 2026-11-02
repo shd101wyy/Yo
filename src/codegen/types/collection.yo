@@ -730,7 +730,7 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenConte
     nk := keys.len();
     (ki : usize) = usize(0);
     while(ki < nk, {
-      key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
+      key := match(keys.get_cloned(ki), .Some(k) => k, .None => String.from(""));
       if(!processed.contains(key.clone()), {
         processed.insert(key.clone());
         found_new = true;

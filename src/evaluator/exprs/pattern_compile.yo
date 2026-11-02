@@ -230,7 +230,7 @@ _find_str :: (fn(list : &ArrayList(String), s : &String) -> Option(usize))({
   (i : usize) = usize(0);
   (found : Option(usize)) = Option(usize).None;
   while((i < list.len()) && found.is_none(), {
-    if(match(list.get(i), .Some(x) => (x == s), .None => false), {
+    if(match(list.get_cloned(i), .Some(x) => (x == s), .None => false), {
       found = Option(usize).Some(i);
     });
     i = (i + usize(1));
@@ -373,7 +373,7 @@ _enum_const_to_variant :: (fn(value : &EvalValue, position_ty : &TypeValue) -> O
         vns := _enum_variant_names(position_ty);
         (vi : usize) = usize(0);
         while(vi < vns.len(), {
-          cand := match(vns.get(vi), .Some(n) => n, .None => String.new());
+          cand := match(vns.get_cloned(vi), .Some(n) => n, .None => String.new());
           if(_variant_name_eq(vname.clone(), cand.clone()), {
             return(
               Option(Pattern).Some(
@@ -616,14 +616,14 @@ _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
     (ci : usize) = usize(0);
     while(ci < names.len(), {
       if(!taken.contains(&ci), {
-        cand := match(names.get(ci), .Some(n) => n, .None => String.new());
+        cand := match(names.get_cloned(ci), .Some(n) => n, .None => String.new());
         match(
           best,
           .None => {
             best = Option(usize).Some(ci);
           },
           .Some(bi) => {
-            cur_best := match(names.get(bi), .Some(n) => n, .None => String.new());
+            cur_best := match(names.get_cloned(bi), .Some(n) => n, .None => String.new());
             if(cand < cur_best, {
               best = Option(usize).Some(ci);
             });
@@ -636,7 +636,7 @@ _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
       best,
       .Some(bi) => {
         taken.push(bi);
-        sorted.push(match(names.get(bi), .Some(n) => n, .None => String.new()));
+        sorted.push(match(names.get_cloned(bi), .Some(n) => n, .None => String.new()));
       },
       .None => ()
     );
@@ -651,8 +651,8 @@ _same_names :: (fn(a : &ArrayList(String), b : &ArrayList(String)) -> bool)({
   (i : usize) = usize(0);
   (same : bool) = true;
   while((i < a.len()) && same, {
-    x := match(a.get(i), .Some(s) => s, .None => String.new());
-    y := match(b.get(i), .Some(s) => s, .None => String.new());
+    x := match(a.get_cloned(i), .Some(s) => s, .None => String.new());
+    y := match(b.get_cloned(i), .Some(s) => s, .None => String.new());
     if(!(x == y), {
       same = false;
     });

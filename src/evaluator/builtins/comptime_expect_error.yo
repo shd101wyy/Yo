@@ -370,7 +370,7 @@ evaluate_comptime_expect_error :: (
   {
     (rfc_i : usize) = usize(0);
     while(rfc_i < env.frames.len(), {
-      rfc_marks := match(saved_frame_consumed.get(rfc_i), .Some(m) => m, .None => ArrayList(Option(Token)).new());
+      rfc_marks := match(saved_frame_consumed.get_cloned(rfc_i), .Some(m) => m, .None => ArrayList(Option(Token)).new());
       rfc_count := match(saved_frame_var_counts.get(rfc_i), .Some(c) => c, .None => usize(0));
       match(
         env.frames.get(rfc_i),

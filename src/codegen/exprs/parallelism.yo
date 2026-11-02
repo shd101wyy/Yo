@@ -251,7 +251,7 @@ _emit_capture_dispose_lines :: (
           em.emit_string_line(`switch ((${ref_code.clone()}).tag) {`);
           (dv_i : usize) = usize(0);
           while(dv_i < ds_vns.len(), {
-            dv_name := match(ds_vns.get(dv_i), .Some(v) => v, .None => String.new());
+            dv_name := match(ds_vns.get_cloned(dv_i), .Some(v) => v, .None => String.new());
             dv_fields := match(ds_vfs.get(dv_i), .Some(f) => f, .None => no_types());
             dv_labels := match(ds_vls.get(dv_i), .Some(l) => l, .None => no_labels());
             (dv_has : bool) = false;
@@ -274,7 +274,7 @@ _emit_capture_dispose_lines :: (
                 match(
                   dv_fields.get(dv_k),
                   .Some(dv_ft) => if(type_is_move_only(&dv_ft) && !type_contains_rc_cell_or_move_only(&dv_ft), {
-                    dv_label := match(dv_labels.get(dv_k), .Some(l) => l, .None => String.new());
+                    dv_label := match(dv_labels.get_cloned(dv_k), .Some(l) => l, .None => String.new());
                     dv_fname := sanitize_for_c_identifier(dv_label.clone(), false);
                     dv_access := String.from("(");
                     dv_access.push_string(ref_code.clone());

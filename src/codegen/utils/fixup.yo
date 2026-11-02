@@ -69,7 +69,7 @@ register_dyn_upcast_targets :: (fn(context : &CodeGenContext) -> unit)({
     });
     (i : usize) = usize(0);
     while(i < keys.len(), {
-      key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+      key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
       match(
         context.dyn_impls.get(&key),
         .Some(entry) => {
@@ -110,7 +110,7 @@ fixup_dyn_impl_keys :: (fn(context : &CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
       context.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
