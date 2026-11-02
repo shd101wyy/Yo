@@ -990,7 +990,13 @@ _evaluate_capture_list :: (
       if(is_unit_type(&place_ty), {
         _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture cannot name a unit-typed place: it has no runtime storage.`);
       });
-      if(capture_place_crosses_cell(&ev_place, ctx), {
+      // Decision 38 D, narrowed by O9 (decision 43,
+      // REFERENCES_AND_ORIGINS.md): a `&` capture through the deref of a
+      // handle whose payload is read-only (`{ x : &h.*.x }`) has the handle's
+      // place as its origin, so `h` is frozen while the closure lives and no
+      // run-time mark is needed. Any other cell, and a `&mut` capture through
+      // a handle, stays rejected.
+      if(capture_place_crosses_cell(&ev_place, ctx, is_mut), {
         _cap_list_error(
           ctx,
           exn,

@@ -584,6 +584,42 @@ Part C deletes the macros.
   after step 3 settles that protocol, so the lowering is written once.
   `REFERENCES_AND_ORIGINS.md:63` says the borrowed `for` is "unchanged (a
   loop, not a value)"; that is the rule, while its lowering moves at N3.
+  - **As built (B1, branch `vbd/macro-b1-for-desugar`, 2026-11-02).** The
+    desugar is a branch of `desugar_if_calls` (`is_for_desugar_target` →
+    `_desugar_for_call`, `src/expr.yo`). It builds the macro's quote template
+    with the caller's pieces in it (the outer block keeps the call's id and
+    token) and then recurses into that tree, as the macro splice recurses into
+    an expansion. Every synthesized node carries a token at the `for` call's
+    position. The hidden locals are named with the macro's `gensym` prefixes
+    plus a per-module ordinal (`for_coll0`), which `desugar_program_if_calls`
+    resets, so `yo fmt`'s re-parse gate builds equal trees. The cursor is bound
+    `mut(for_cur<N>)`: a prelude-token local was exempt from E0917 and a
+    caller-token one is not. The **desugar-site marker** is one registry,
+    `g_for_desugar_sites`: the call (after decision 42's rewrite), keyed by
+    its token position (`_borrowed_match_site_key`), read through
+    `for_desugar_site_of`. Its four readers:
+    - `local_borrow_register` gives a borrow declared at that position the
+      loop's extent, `_last_token_of(call)`, which is the macro site's.
+    - `_lb_raise_conflict` words the E0911 note and help for the loop
+      ("the borrow lasts for the whole `for` loop").
+    - `match.yo` marks the `.Some(x)` element as a binding the loop introduces
+      (`mark_macro_pattern_binding`).
+    - `vc.yo`'s `_desugared_for_call` finds the block that carries the call's
+      own token and runs `_for_term` over it; `_fail_subset` prints such a
+      block as the `for` call.
+
+    `local_borrow_note_call` names a call the loop makes `for`, so
+    `tests/local_borrows.test.yo`'s "Cannot call `for` while `c` is live" is
+    unchanged. The deleted mode words and the malformed handles become
+    `comptime_assert(false, <the macro's message>)`. The never-reached
+    assertion is `YO_DEBUG_FOR_MACRO_REACHED=1` at the macro dispatch
+    (`src/evaluator/calls/function.yo`).
+
+    One behavior change: rule 4 now sees the hidden borrow across an `await`
+    in the body. Under the macro the borrow's declaring token was in the
+    prelude, and `_lb_first_site_in` never matched it
+    (`issues/fixed/2026-11-02-a-borrowed-for-loop-through-a-cell-is-not-checked-across-an-await-in-its-body.md`,
+    cli-case `borrowed-for-through-a-cell-across-an-await-is-e0911`).
 - **B2 — `for_await`: DELETED 2026-10-24, no desugar** (maintainer decision,
   advisor concurred; as B3 deleted the collection literals). Yo's await is
   not an algebraic effect: a suspension point is an `io.await` written in
@@ -957,6 +993,10 @@ of its own:
   `impl(&C, IntoIterator)`, REFERENCES_AND_ORIGINS N3; the protocol
   itself lands in step 4). The protocol stays in prelude functions, so the
   parser's lowering is written once.
+  Re-dated 2026-11-02 (VERDICTS-13 Task 7): B1 does not depend on N1e; it
+  lands in v0.2.74 if gated before the cut, else v0.2.75, and never while
+  N1e is open (both touch the `for` binding path and the E0911/E0920 help).
+  Part C follows one release after B1's (v0.2.76 expected).
 - **B5** is decision 43's step-2→4 release: no new release.
 - **Part C** rides with decision 43 step 4's Generation B (or with V5's
   boundary, whichever comes first after B5's release is the seed).

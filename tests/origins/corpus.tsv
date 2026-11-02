@@ -43,15 +43,15 @@ thread-send-origin	O4, O8, O10	neg	N2	E0909	-|carries an origin
 global-refcell-origin	O4, O10, §7 module-level origins	neg	N2	E0909	E0909|carries an origin
 extern-box-origin	O4, O10	neg	N2	E0909	E0909|carries an origin
 rc-mut-through-deref	O9, decision 46	neg	N1	E0919	E0919|Cannot lend `h.*.x` as `&mut`
-rc-handle-dropped	O9	neg	N1	E0911	-|A local borrow cannot reach through a pointer dereference
-rc-handle-reassigned	O9	neg	N1	E0911	-|A local borrow cannot reach through a pointer dereference
+rc-handle-dropped	O9	neg	N1	E0911	E0911|Cannot move `h` here
+rc-handle-reassigned	O9	neg	N1	E0911	E0911|Cannot write `h` here
 rc-push-handle-borrow	O9	pos	N2	ACCEPT	-|carries an origin
-rc-of-ref-holder	O9, O10	neg	N2	E0909	-|carries an origin
+rc-of-ref-holder	O9, O10	neg	N2	E0909	E0909|requires an `Escapable` type
 rc-guard-and-clone	hole: handle origin x RefCell guard x collection	pos	N3	ACCEPT	E0610|No method "borrow_mut"
 rc-guard-handle-dropped	O9	neg	N3	E0911	E0610|No method "borrow_mut"
 generic-unbounded-rc	O10	neg	N1	E0909@spec	E0914|lends a borrow, but parameter
-generic-bounded-rc	O10	neg	N1	E0909	E0401|Variable "Escapable" not found
-generic-escapable-rc	O10	pos	N1	ACCEPT	E0401|Variable "Escapable" not found
+generic-bounded-rc	O10	neg	N1	E0909	E0914|lends a borrow, but parameter
+generic-escapable-rc	O10	pos	N1	ACCEPT	accept
 closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	-|a payload bounded by an origin
 closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	-|a payload bounded by an origin
 closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	-|Last expression in "begin" is not evaluated correctly

@@ -2999,19 +2999,29 @@ _evaluate_begin_expression_impl :: (
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
           attach_temp_variable_to_expr(&evaluated_ret_arg, true, ctx);
           // Re-read env in case the stub updated it (future-proof).
-          // By private copy that the argument's ExprInfo does NOT share: this
-          // env is popped at the block's end (`pop_frame_nonmutating`
-          // reassigns `frames` on the env object). Adopting the argument's env
-          // (`expr_info_adopt_env`) made the two one object, so the pop removed
-          // the block's frame from the argument's recorded scope too, and
-          // codegen no longer saw that `return(a)` of a local `a :: …` names a
-          // compile-time-only binding: it emitted `a`, which has no C
-          // declaration
-          // (issues/fixed/2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md).
-          env = match(
+          // Adopt the argument's FRAME LIST into this block's own env object
+          // (`env_adopt`), never rebind `env` to another object:
+          // - The list is shared, not the object. The block's end pops
+          //   through `pop_frame_nonmutating`, which reassigns `frames` on
+          //   the env object. Making the argument's recorded env and this env
+          //   one object (`expr_info_adopt_env`) let that pop remove the
+          //   block's frame from the argument's recorded scope too, and
+          //   codegen no longer saw that `return(a)` of a local `a :: …` names
+          //   a compile-time-only binding
+          //   (issues/fixed/2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md).
+          // - The object stays the caller's. `env` aliases `env_in`, and the
+          //   frame this block pushed sits on that object until the pop at
+          //   the block's end removes it. Rebinding `env` to a snapshot moved
+          //   that pop onto the snapshot, so a block ending in `return` left
+          //   its frame on the caller's env. A `while` reads that env for its
+          //   result, so the enclosing function block took the loop body's
+          //   frame for its own: it scheduled no scope-end drop for its
+          //   locals, and every exit leaked them
+          //   (issues/fixed/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md).
+          match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg)),
-            .Some(ri) => snapshot_env(&ri.env),
-            .None => env
+            .Some(ri) => env_adopt(&env, &ri.env),
+            .None => ()
           );
           // Defense-in-depth flowability on the return ARGUMENT.
           // (A projection's `return(&place)` is root-checked where its
@@ -3285,11 +3295,13 @@ _evaluate_begin_expression_impl :: (
             throw_unwind_type_mismatch(ast_expr_token(&esc_arg), &enclosing_ret, &esc_info.ty, ctx, exn);
           });
           attach_temp_variable_to_expr(&evaluated_esc_arg, true, ctx);
-          // Same: a private copy the argument's ExprInfo does not share.
-          env = match(
+          // Same as `return`: adopt the argument's frame list into this
+          // block's own env object, so the pop at the block's end leaves the
+          // caller's env without this block's frame.
+          match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_esc_arg)),
-            .Some(ei) => snapshot_env(&ei.env),
-            .None => env
+            .Some(ei) => env_adopt(&env, &ei.env),
+            .None => ()
           );
           out := new_expr_info(&env, &esc_info.ty);
           out.value = esc_info.value;

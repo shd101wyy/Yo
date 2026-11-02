@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { migrate_match_scrutinee_on, record_migrate_edit } :: import("../../expr_info.yo");
-{ is_mut_binding } :: import("../../expr.yo");
+{ is_mut_binding, for_desugar_site_of } :: import("../../expr.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
@@ -1601,11 +1601,16 @@ evaluate_match :: (
             );
           });
           // A name the caller wrote, bound by a match a macro expansion built
-          // (`for(coll, x => ...)`'s `.Some(x)` arm), rebinds like a parameter.
+          // or a desugared `for` (macro plan B1) builds (`for(coll, x =>
+          // ...)`'s `.Some(x)` arm), rebinds like a parameter.
           m_tok := ast_expr_token(expr);
-          if(b_tok.module_path != m_tok.module_path, {
-            if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
-              match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
+          if(for_desugar_site_of(&m_tok).is_some(), {
+            match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
+          }, {
+            if(b_tok.module_path != m_tok.module_path, {
+              if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
+                match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
+              });
             });
           });
           // Decision 38 A: a pattern binding is a binding. A second-class
