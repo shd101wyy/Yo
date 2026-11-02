@@ -1289,7 +1289,10 @@ _type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
     g_flip_env,
     .Some(env) => match(
       get_trait_type_from_env(&env, String.from("Clone")),
-      .Some(clone_tt) => !type_implements_trait(ty, &clone_tt, &env).implemented,
+      .Some(clone_tt) => {
+        clone_check := type_implements_trait(ty, &clone_tt, &env);
+        !clone_check.implemented
+      },
       .None => false
     ),
     .None => false
@@ -1446,7 +1449,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // Not memoized: the answer changes once the derive registers `Copy`.
   (pi : usize) = usize(0);
   while(pi < g_copy_pending_keys.with(xs => xs.len()), {
-    if(match(g_copy_pending_keys.with(xs => xs.get(pi)), .Some(pk) => (pk == key), .None => false), {
+    if(match(g_copy_pending_keys.with(xs => xs.get_cloned(pi)), .Some(pk) => (pk == key), .None => false), {
       return(false);
     });
     pi = (pi + usize(1));
@@ -1461,17 +1464,21 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   );
   (ipi : usize) = usize(0);
   while(ipi < g_lacks_copy_in_progress.with(xs => xs.len()), {
-    if(match(g_lacks_copy_in_progress.with(xs => xs.get(ipi)), .Some(ik) => (ik == key), .None => false), {
+    if(match(g_lacks_copy_in_progress.with(xs => xs.get_cloned(ipi)), .Some(ik) => (ik == key), .None => false), {
       return(false);
     });
     ipi = (ipi + usize(1));
   });
-  g_lacks_copy_in_progress.with_mut(xs => xs.push(key.clone()));
+  progress_key := key.clone();
+  g_lacks_copy_in_progress.with_mut({ progress_key }(xs) => xs.push(progress_key));
   answer := cond(
     (type_is_comptime_only_full(&ty, &env) || type_is_control_bound(&ty)) => false,
     true => match(
       get_trait_type_from_env(&env, String.from("Copy")),
-      .Some(copy_tt) => !type_implements_trait(&ty, &copy_tt, &env).implemented,
+      .Some(copy_tt) => {
+        copy_check := type_implements_trait(&ty, &copy_tt, &env);
+        !copy_check.implemented
+      },
       .None => false
     )
   );
@@ -1482,7 +1489,8 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
     _clear_lacks_copy_memo();
     g_lacks_copy_memo_epoch = trait_impl_epoch();
   });
-  g_lacks_copy_memo.with_mut(m => m.insert(key.clone(), answer));
+  memo_key := key.clone();
+  g_lacks_copy_memo.with_mut({ memo_key, answer }(m) => m.insert(memo_key, answer));
   _record_lacks_copy_fast(&ty, key_epoch, answer);
   answer
 });
@@ -2259,7 +2267,7 @@ type_implements_trait :: (
   (gi : usize) = usize(0);
   while(gi < gn, {
     entry := match(
-      g_trait_check_recursion_guard.with(xs => xs.get(gi)),
+      g_trait_check_recursion_guard.with(xs => xs.get_cloned(gi)),
       .Some(s) => s,
       .None => {
         gi = (gi + usize(1));
