@@ -1942,20 +1942,6 @@ _clone_captured_variables :: (
     true => Option(HashMap(String, CapturedVarInfo)).None
   )
 });
-/// B9: ref-struct handle lists (no Clone before V5, B8-Q1) copy by
-/// re-collecting the same handles in place.
-_handles_copy :: (fn(comptime(T) : Type, src : &ArrayList(T)) -> ArrayList(T))({
-  mut(dst) := ArrayList(T).new();
-  for(&src, x => { dst.push(x); });
-  dst
-});
-_handle_list_copy :: (fn(comptime(T) : Type, src : &Option(ArrayList(T))) -> Option(ArrayList(T)))(
-  match(
-    src,
-    .Some(xs) => Option(ArrayList(T)).Some(_handles_copy(T, &xs)),
-    .None => Option(ArrayList(T)).None
-  )
-);
 /// Shallow copy of an EvalContext — every field, the shared tables
 /// (`expr_info_table`, `comptime_fn_caches`, `load_module`) by reference.
 copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
@@ -3673,8 +3659,6 @@ track_variable_usage :: (
 
 export(
   _clone_captured_variables,
-  _handles_copy,
-  _handle_list_copy,
   is_module_ghost_fn_def,
   record_module_member_read,
   record_module_ordered_read,
