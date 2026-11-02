@@ -187,6 +187,11 @@ Progress:
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
+  - V5 Generation A, in three parts (§V5, "Split of 2026-11-02"). The
+    `atomic(...)` std types are on `__yo_atomic_cell` and the `ref`/`atomic`
+    spellings warn (#1707). Cells Generation A, the compiler half of
+    `Rc`/`Arc` over `__yo_cell`, is in v0.2.74. Cells Generation B (the std
+    retype) and the declaration migration are v0.2.75.
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
@@ -9732,6 +9737,22 @@ once `SEED_VERSION` parses it.
   - the tests migrate (~150 declarations in 68 files):
     `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo` and
     `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files.
+- **Split of 2026-11-02** (maintainer-approved; Fable consultation #13 Task 6/d):
+  - **v0.2.74.** #1707 moved every `atomic(...)` std type onto
+    `__yo_atomic_cell` and made the `ref`/`atomic` spellings warn.
+    **Cells Generation A** teaches the compiler to box `dyn(...)` into
+    a view `Rc`/`Arc` (`newtype(_cell : __yo_cell(V))`,
+    `issues/2026-11-02-dyn-auto-box-drops-a-cell-handle-view-box-type.md`).
+    That was the one gap that kept the v0.2.73 seed from lowering the
+    retyped prelude.
+  - **v0.2.75.** **Cells Generation B** retypes `Rc`/`Arc` in std. The
+    four constructors pass the allocator to the cell, and the scope swap
+    and its three externs go
+    (`plans/backlog/SEED_VERSION_AUTOMATION.md`, "V5 cells"). B2b follows
+    it, then the declaration migration after W6b: src's 203 `ref(struct)`
+    and 3 `ref(enum)` declarations, std's non-collection `ref` types, and
+    tests' 267 core declarations plus 151 cli-case fixtures.
+  - **v0.2.76.** Generation B below.
 - **Generation B** (once `SEED_VERSION` carries a std without `ref`).
   - The parser drops the constructors.
   - `is_reference_semantics`/`is_atomic_rc` become "is a cell payload"
