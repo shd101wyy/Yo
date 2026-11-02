@@ -44,8 +44,8 @@ path skipped the drop, as long as a `break` moves the value out of the loop:
 An exit before the move and an exit on the move's own path were already
 correct, and so was a branch with no loop. A `return` in a sibling arm of the
 moving one also leaks when the loop body's last statement is a `return`, with
-or without a move; that is a separate defect, open:
-`issues/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md`.
+or without a move; that was a separate defect, fixed since:
+`issues/fixed/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md`.
 
 ## Root cause
 
