@@ -230,7 +230,7 @@ test("a user Hasher gets the default write_* methods through write", {
   assert(h2.finish() == (u64(5) | (u64(6) << u64(32))), "little-endian i32 pair xor-packed");
 });
 test("HashMap.with_keys: keyed lookups work and keys survive resize and clone", {
-  m := HashMap(String, i32).with_keys(K0, K1);
+  mut(m) := HashMap(String, i32).with_keys(K0, K1);
   mut(i) := i32(0);
   while(i < i32(200), i = (i + i32(1)), {
     m.insert(`k${i}`, i);
@@ -248,7 +248,7 @@ test("HashMap.with_keys: keyed lookups work and keys survive resize and clone", 
   assert(d.k0 == DEFAULT_KEY_0, "new() uses the default keys");
 });
 test("HashSet.with_keys: keyed membership and resize", {
-  s := HashSet(i64).with_keys(K0, K1);
+  mut(s) := HashSet(i64).with_keys(K0, K1);
   mut(i) := i64(0);
   while(i < i64(300), i = (i + i64(1)), {
     s.insert(i * i64(7));
