@@ -1522,7 +1522,7 @@ _infer_unapplied_ctor_receiver :: (
           uc_keys := ArrayList(Option(String)).new();
           (uc_ki : usize) = usize(0);
           while(uc_ki < uc_tys.len(), uc_ki = (uc_ki + usize(1)), {
-            uc_keys.push(match(uc_tys.get(uc_ki), .Some(.Some(uc_kt)) => Option(String).Some(type_key(&uc_kt)), _ => Option(String).None));
+            uc_keys.push(match(uc_tys.get_cloned(uc_ki), .Some(.Some(uc_kt)) => Option(String).Some(type_key(&uc_kt)), _ => Option(String).None));
           });
           uc_entry := _SaiMemo(epoch : trait_impl_epoch(), arg_keys : uc_keys, receiver : Rc.clone(uc_bt));
           g_sai_memo.with_mut({ uc_memo_id, uc_entry }(m) => m.insert(uc_memo_id, uc_entry));
@@ -7949,6 +7949,12 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
     if(!type_requires_explicit_copy(&ca_res), {
       return(Option(AccessorCallInfo).None);
     });
+    // An accessor copies an ELEMENT out of its receiver: a method whose
+    // result is the receiver's own type (`p.clone()`) copies the whole
+    // receiver and is no accessor.
+    if(are_types_compatible_exact(&ca_res, &ca_recv_ty), {
+      return(Option(AccessorCallInfo).None);
+    });
   });
   Option(AccessorCallInfo).Some(
     AccessorCallInfo(
@@ -8399,6 +8405,13 @@ _audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &E
   // decision 17's E0901 at this call.
   is_handle := (!_ic_category_is_unique_buffer(&category) && migrate_cloned_accessors_on() && type_holds_counted_handle_ignoring_migration(&res_ty));
   if(!_ic_category_is_unique_buffer(&category) && !is_handle, {
+    return(());
+  });
+  // No `_cloned` sibling resolves here: `_copying_accessor_info`'s fallback
+  // (any method whose result is not implicitly copyable) serves the help of
+  // an E0901 std raised, and is no rename target — `p.clone()`, `xs.pop()`
+  // and `m.walk_ref(k)` would become calls to nothing.
+  if(ai.element_lacks_clone, {
     return(());
   });
   // The method NAME's token is the rewrite point: `_cloned` inserts right

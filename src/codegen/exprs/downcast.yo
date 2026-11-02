@@ -328,7 +328,7 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGener
 dyn_impl_clone_fid :: (fn(req_traits : &ArrayList(TypeValue), trait_values : &ArrayList(EvalValue)) -> String)({
   (ti : usize) = usize(0);
   while(ti < req_traits.len(), {
-    if(match(req_traits.get(ti), .Some(rt) => is_clone_trait_type(&rt), .None => false), {
+    if(match(req_traits.get_cloned(ti), .Some(rt) => is_clone_trait_type(&rt), .None => false), {
       match(
         trait_values.get(ti),
         .Some(.TraitVal(_, cl_names, cl_vals)) => {
