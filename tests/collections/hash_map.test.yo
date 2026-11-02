@@ -563,6 +563,18 @@ test("HashMap into_iter - a named local moves its entries out", {
   });
   assert(counts == usize(1), `the moved value has one owner: ${counts}`);
 });
+test("HashMap into_iter - move-only String entries move out", {
+  // `String` keys and values cannot be copied: the consuming walk must move
+  // every entry out of the map it owns (no shared-map copy path).
+  mut(map) := HashMap(String, String).new();
+  map.insert(String.from("a"), String.from("x"));
+  map.insert(String.from("b"), String.from("y"));
+  mut(total) := usize(0);
+  for(map.into_iter(), e => {
+    total = ((total + e.key.len()) + e.value.len());
+  });
+  assert(total == usize(4), `every entry visited once: ${total}`);
+});
 test("HashMap into_iter - a partial walk drops the entries it did not yield", {
   keep := Rc(i32)(5);
   {

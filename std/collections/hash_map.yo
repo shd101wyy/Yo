@@ -1226,20 +1226,15 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                cond(
-                  (ref_count(self._map) == usize(1)) => {
-                    // SAFETY: the iterator holds the map's only handle, so
-                    // no one else can read this bucket. The entry moves out
-                    // bitwise and the bucket is vacated: the map no longer
-                    // owns it, and its `Drop` skips it. Vacating never
-                    // rehashes, so the walk's order is unchanged.
-                    result = .Some(__yo_ptr_read(data_ptr.add(self._index)));
-                    self._map._vacate(self._index);
-                  },
-                  true => {
-                    result = .Some((data_ptr.add(self._index)).*);
-                  }
-                );
+                // SAFETY: the iterator owns the map (`into_iter` consumes
+                // it, and a map is a uniquely owned value), so no one else
+                // can read this bucket. The entry moves out bitwise and the
+                // bucket is vacated: the map no longer owns it, and its
+                // `Drop` skips it. Vacating never rehashes, so the walk's
+                // order is unchanged. (The handle era's shared-map branch,
+                // which copied the entry out, is gone with the handle.)
+                result = .Some(__yo_ptr_read(data_ptr.add(self._index)));
+                self._map._vacate(self._index);
               },
               true => ()
             );
