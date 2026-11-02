@@ -635,7 +635,11 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
             id : frame.id,
             variables : new_vars,
             is_begin_block : frame.is_begin_block,
-            where_clause_constraints : frame.where_clause_constraints,
+            // A snapshot of the frame's where-clause map (a value since
+            // B9): the entries are handle copies, so a constraint added to
+            // an existing entry is still seen; a NEW key added to the live
+            // frame later is not, like a later binding (see above).
+            where_clause_constraints : frame.where_clause_constraints.clone(),
             // Fresh key: this rebuilt frame gets its OWN lazy index
             // entry (see Frame.index_key doc in env.yo).
             index_key : generate_variable_id(String.from(""), String.from("fidx"))
