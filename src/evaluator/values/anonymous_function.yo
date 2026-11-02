@@ -479,9 +479,9 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
 (g_anon_swallow_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _flag_anon_swallow :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_anon_swallow_msg.with_mut(xs => xs.clear());
-  g_anon_swallow_msg.with_mut(xs => xs.push(msg.clone()));
+  g_anon_swallow_msg.with_mut({ msg : msg.clone() }(xs) => xs.push(msg));
   g_anon_swallow_code.with_mut(xs => xs.clear());
-  match(code, .Some(c) => g_anon_swallow_code.with_mut(xs => xs.push(c.clone())), .None => ());
+  match(code, .Some(c) => g_anon_swallow_code.with_mut({ c : c.clone() }(xs) => xs.push(c)), .None => ());
 });
 /// The swallowed error's STRUCTURED diagnostics, written and cleared in
 /// lockstep with the text, as calls/function_type.yo's
@@ -495,7 +495,7 @@ _flag_anon_swallow_diags :: (fn(err : &AnyError) -> unit)({
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.with_mut(xs => xs.push(d.clone())), .None => ());
+        match(ye.diagnostics.get_cloned(dgi), .Some(d) => g_anon_swallow_diags.with_mut(xs => xs.push(d.clone())), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -508,9 +508,9 @@ _clear_anon_swallow :: (fn() -> unit)({
   g_anon_swallow_diags.with_mut(xs => xs.clear());
 });
 _anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.with(xs => xs.len()) > usize(0));
-_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.with(xs => xs.get(usize(0))));
+_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.with(xs => xs.get_cloned(usize(0))));
 _anon_swallow_message :: (fn() -> String)(
-  match(g_anon_swallow_msg.with(xs => xs.get(usize(0))), .Some(m) => m.clone(), .None => String.from(""))
+  match(g_anon_swallow_msg.with(xs => xs.get_cloned(usize(0))), .Some(m) => m.clone(), .None => String.from(""))
 );
 /// Trial-evaluate an anonymous-function body at definition time, swallowing
 /// any eval error. Replicates `_trial_eval_fn_body` (calls/function_type.yo)
@@ -836,6 +836,7 @@ _CapListEntry :: struct(
   /// migration.
   root_decl : String
 );
+derive(_CapListEntry, Clone);
 _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
   _raise_capture_rejection(ctx, exn, tok, msg)
 );
@@ -939,7 +940,7 @@ _evaluate_capture_list :: (
     label := name_tok.value.*.clone();
     (di : usize) = usize(0);
     while(di < out.len(), {
-      if(match(out.get(di), .Some(pe) => (pe.label == label), .None => false), {
+      if(match(out.get_cloned(di), .Some(pe) => (pe.label == label), .None => false), {
         _cap_list_error(ctx, exn, &name_tok, `The capture list names \`${label}\` twice.`);
       });
       di = (di + usize(1));
@@ -1176,7 +1177,7 @@ evaluate_anonymous_function_implementation :: (
   // deleted mode-word spelling of a closure parameter or capture entry
   // (decision 42 Generation B), E0009, named before anything else is asked
   // of the literal.
-  match(cap_list_raw, .Some(entries) => _reject_old_closure_param_list(&entries, exn), .None => ());
+  match(&cap_list_raw, .Some(entries) => _reject_old_closure_param_list(&entries, exn), .None => ());
   if(ast_expr_is_capture_list_params(&param_decl), _reject_old_closure_param_list(&cap_list_params, exn), _reject_old_closure_params(&param_decl, exn));
   // -------------------------------------------------------------------------
   // Resolve the expected type from context.
@@ -1386,7 +1387,7 @@ evaluate_anonymous_function_implementation :: (
       .FnCall(_, fb2, Rc(decl_args), _, _) => match(
         fb2,
         .Atom(_, ptok) => cond(
-          (ptok.value.* == BK_TUPLE) => decl_args,
+          (ptok.value.* == BK_TUPLE) => decl_args.clone(),
           true => {
             single_list := ArrayList(AstExpr).new();
             single_list.push(param_decl);
@@ -1598,7 +1599,7 @@ evaluate_anonymous_function_implementation :: (
   // and the capture struct is built from them, not from what the body reads.
   // -------------------------------------------------------------------------
   cap_entries := match(
-    cap_list_raw,
+    &cap_list_raw,
     .Some(cl_raw) => {
       // An `io.async` body owns its by-value entries, so it may move one out
       // (an awaited future, §3.13 A1). A borrow entry makes the future
@@ -1619,7 +1620,7 @@ evaluate_anonymous_function_implementation :: (
     (cfe_i : usize) = usize(0);
     while(cfe_i < cap_entries.len(), {
       match(
-        cap_entries.get(cfe_i),
+        cap_entries.get_cloned(cfe_i),
         .Some(ce) => {
           // A by-value capture is read-only in the body (decision 38: a body
           // never writes its captures). A borrow is a pointer field read and
@@ -1692,7 +1693,7 @@ evaluate_anonymous_function_implementation :: (
                 !(cv.name == "__recur_fn") => (),
                 true => {
                   if(cap_vi > cap_run_start, {
-                    cap_slices.push(CaptureSlice(vars : cap_frame.variables, start : cap_run_start, end : cap_vi));
+                    cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : cap_vi));
                   });
                   cap_run_start = (cap_vi + usize(1));
                 }
@@ -1703,7 +1704,7 @@ evaluate_anonymous_function_implementation :: (
           cap_vi = (cap_vi + usize(1));
         });
         if(n_cap_v > cap_run_start, {
-          cap_slices.push(CaptureSlice(vars : cap_frame.variables, start : cap_run_start, end : n_cap_v));
+          cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : n_cap_v));
         });
       },
       .None => ()
@@ -1819,7 +1820,7 @@ evaluate_anonymous_function_implementation :: (
     // param_type_name for generic param binding at call time
     ptn := match(
       rp_ty_raw,
-      Rc(.SomeT(_, name, _, _, _, _, _)) => name,
+      Rc(.SomeT(_, name, _, _, _, _, _)) => name.clone(),
       _ => String.from("")
     );
     param_type_names.push(ptn.clone());
@@ -2892,13 +2893,13 @@ Result type: ${type_to_string(&decl_result_ty)}`
       // as for concrete-parameter closures above (`body_has_ct_param`).
       if(!propagate_def_time_errors() && !body_has_ct_param, {
         (dgc_indep : Option(YoError)) = Option(YoError).None;
-        if(match(g_anon_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.generic_independent, .None => false), {
+        if(match(g_anon_swallow_diags.with(xs => xs.get_cloned(usize(0))), .Some(d) => d.generic_independent, .None => false), {
           dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.with(xs => xs.clone())));
         });
         if(dgc_indep.is_none() && !dgc_fv_was, {
           match(
             flow_violation_error(),
-            .Some(dgc_fv_err) => if(match(dgc_fv_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+            .Some(dgc_fv_err) => if(match(dgc_fv_err.diagnostics.get_cloned(usize(0)), .Some(d) => d.generic_independent, .None => false), {
               dgc_indep = Option(YoError).Some(dgc_fv_err);
             }),
             .None => ()
@@ -3015,7 +3016,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         (cm_i : usize) = usize(0);
         while(cm_i < cap_entries.len(), {
           match(
-            cap_entries.get(cm_i),
+            cap_entries.get_cloned(cm_i),
             .Some(ce) => {
               cl_map.insert(
                 ce.label.clone(),
@@ -3072,7 +3073,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           (cb_i : usize) = usize(0);
           while(cb_i < cap_entries.len(), {
             match(
-              cap_entries.get(cb_i),
+              cap_entries.get_cloned(cb_i),
               .Some(ce) => if(ce.is_borrow, {
                 cbs.push(
                   CaptureBorrow(
@@ -3173,7 +3174,11 @@ Result type: ${type_to_string(&decl_result_ty)}`
   if(is_creating_closure && !ctx.is_inside_io_async_call, {
     match(
       expected_ty,
-      Rc(.SomeT(w_id, w_nm, w_fl, w_pt, w_rtt_bnd, w_kft, _)) => { w_rtt := w_rtt_bnd.required(); w_rtl := w_rtt_bnd.required_levels(); w_ntt := w_rtt_bnd.negative(); w_ntl := w_rtt_bnd.negative_levels(); 
+      Rc(.SomeT(w_id, w_nm, w_fl, w_pt, w_rtt_bnd, w_kft, _)) => {
+        w_rtt := w_rtt_bnd.required();
+        w_rtl := w_rtt_bnd.required_levels();
+        w_ntt := w_rtt_bnd.negative();
+        w_ntl := w_rtt_bnd.negative_levels();
         match(
           &closure_capture_type,
           .Some(cap_t) => {
@@ -3260,8 +3265,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   // the body specialization both see THIS call's `__impl_fn`.
                   final_lambda_ty = Rc.new(
                     TypeValueNode.SomeT(
-                      w_id,
-                      w_nm,
+                      w_id.clone(),
+                      w_nm.clone(),
                       w_fl,
                       Rc.clone(w_pt),
                       some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl),
@@ -3275,8 +3280,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
               w_has_concrete_fn => {
                 final_lambda_ty = Rc.new(
                   TypeValueNode.SomeT(
-                    w_id,
-                    w_nm,
+                    w_id.clone(),
+                    w_nm.clone(),
                     w_fl,
                     Rc.clone(w_pt),
                     some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl),

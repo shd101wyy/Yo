@@ -426,7 +426,8 @@ validate_function_return_type :: (
       .Some(st) =>
         match(
           &st,
-          Rc(.SomeT(_, name, _, _, required_trait_types_bnd, _, _)) => { required_trait_types := required_trait_types_bnd.required(); 
+          Rc(.SomeT(_, name, _, _, required_trait_types_bnd, _, _)) => {
+            required_trait_types := required_trait_types_bnd.required();
             // Determine whether this SomeT should be skipped.
             // An extern opaque type (`atomic_int : Type`) is a concrete C type
             // wearing a SomeT, nothing to infer: a closure capturing an
@@ -676,7 +677,11 @@ _wrapper_fn_result_needs_refine :: (fn(ty : &TypeValue) -> bool)(
 _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> TypeValue)(
   match(
     ty,
-    Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt_bnd, rf_kft, rf_rc)) => { rf_rtt := rf_rtt_bnd.required(); rf_rtl := rf_rtt_bnd.required_levels(); rf_ntt := rf_rtt_bnd.negative(); rf_ntl := rf_rtt_bnd.negative_levels(); 
+    Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt_bnd, rf_kft, rf_rc)) => {
+      rf_rtt := rf_rtt_bnd.required();
+      rf_rtl := rf_rtt_bnd.required_levels();
+      rf_ntt := rf_rtt_bnd.negative();
+      rf_ntl := rf_rtt_bnd.negative_levels();
       new_rtt := ArrayList(TypeValue).new();
       (rf_i : usize) = usize(0);
       while(rf_i < rf_rtt.len(), {
@@ -4160,7 +4165,11 @@ create_specialized_function_inline :: (
                             fw_kft,
                             _
                           )
-                        ) => { fw_rtt := fw_rtt_bnd.required(); fw_rtl := fw_rtt_bnd.required_levels(); fw_ntt := fw_rtt_bnd.negative(); fw_ntl := fw_rtt_bnd.negative_levels(); 
+                        ) => {
+                          fw_rtt := fw_rtt_bnd.required();
+                          fw_rtl := fw_rtt_bnd.required_levels();
+                          fw_ntt := fw_rtt_bnd.negative();
+                          fw_ntl := fw_rtt_bnd.negative_levels();
                           // The Future carrier comes from the ARG wrapper when
                           // it has one (its carriers are the call's concrete
                           // types — also what the capture-struct key prints),
@@ -4336,7 +4345,11 @@ create_specialized_function_inline :: (
                         sp_kft_c,
                         _
                       )
-                    ) => { sp_rtt_c := sp_rtt_c_bnd.required(); sp_rtl_c := sp_rtt_c_bnd.required_levels(); sp_ntt_c := sp_rtt_c_bnd.negative(); sp_ntl_c := sp_rtt_c_bnd.negative_levels(); 
+                    ) => {
+                      sp_rtt_c := sp_rtt_c_bnd.required();
+                      sp_rtl_c := sp_rtt_c_bnd.required_levels();
+                      sp_ntt_c := sp_rtt_c_bnd.negative();
+                      sp_ntl_c := sp_rtt_c_bnd.negative_levels();
                       bind_pt_cl = Rc.new(
                         TypeValueNode.SomeT(
                           fresh_some_id.clone(),
@@ -4633,7 +4646,8 @@ create_specialized_function_inline :: (
                 spec_all_sts.get(sws_i),
                 .Some(sws_t) => match(
                   sws_t,
-                  Rc(.SomeT({ bounds : sws_rtt_bnd })) => { sws_rtt := sws_rtt_bnd.required(); 
+                  Rc(.SomeT({ bounds : sws_rtt_bnd })) => {
+                    sws_rtt := sws_rtt_bnd.required();
                     (sws_ri : usize) = usize(0);
                     while(sws_ri < sws_rtt.len(), {
                       match(
@@ -6176,7 +6190,8 @@ validate_where_constraints_for_call :: (
     // Marker traits only: a TraitT none of whose fields is function-typed.
     trait_is_marker := match(
       &wce.trait_ty,
-      Rc(.TraitT(_, tr_ftys_body, _, _, _, _)) => { tr_ftys := tr_ftys_body.field_types(); 
+      Rc(.TraitT(_, tr_ftys_body, _, _, _, _)) => {
+        tr_ftys := tr_ftys_body.field_types();
         (tm_i : usize) = usize(0);
         (tm_has_method : bool) = false;
         while((tm_i < tr_ftys.len()) && !tm_has_method, {
@@ -7538,7 +7553,7 @@ try_to_call_function_with_arguments :: (
             while(sx_j < sx_nested.len(), {
               sxn_id := match(
                 sx_nested.get(sx_j),
-                .Some(t) => match(t, Rc(.SomeT(id2, _, _, _, _, _, _)) => id2, _ => String.from("")),
+                .Some(t) => match(t, Rc(.SomeT(id2, _, _, _, _, _, _)) => id2.clone(), _ => String.from("")),
                 .None => String.from("")
               );
               if(sxn_id.len() > usize(0), {
@@ -7685,14 +7700,14 @@ try_to_call_function_with_arguments :: (
             match(
               sig_some_types.get(fv_mi),
               .Some(fv_mst) => {
-                fv_mn := match(&fv_mst, Rc(.SomeT(_, n, _, _, _, _, _)) => n, _ => String.from(""));
+                fv_mn := match(&fv_mst, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => String.from(""));
                 // A receiver-embedded SomeT (self-slot-only) merely SHARES the
                 // forall's name — e.g. `.filter(p).fold(init, f)`: fold's
                 // sig_some_types lists filter's F (inside the substituted
                 // `self : IterFilter(_, F-filter)`) BEFORE fold's own F.
                 // Binding the forall to it routes fold's `f` to filter's
                 // predicate — the name search must skip foreign ids.
-                fv_mid := match(&fv_mst, Rc(.SomeT(id, _, _, _, _, _, _)) => id, _ => String.from(""));
+                fv_mid := match(&fv_mst, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => String.from(""));
                 (fv_foreign : bool) = false;
                 (fv_si : usize) = usize(0);
                 while((fv_si < self_only_ids.len()) && !fv_foreign, {
@@ -7756,7 +7771,7 @@ try_to_call_function_with_arguments :: (
         });
         // If caller supplied explicit generic(…) args, try to resolve.
         match(
-          forall_args_opt,
+          forall_args_opt.clone(),
           .Some(fas) => {
             match(
               fas.get(fpi),
@@ -8138,7 +8153,7 @@ try_to_call_function_with_arguments :: (
                   (ew_nj : usize) = usize(0);
                   while((ew_nj < ew_names.len()) && !ew_named, {
                     match(
-                      ew_names.get(ew_nj),
+                      ew_names.get_cloned(ew_nj),
                       .Some(nn) => if(nn == ew_fl, {
                         ew_named = true;
                       }),
@@ -8168,7 +8183,7 @@ try_to_call_function_with_arguments :: (
                         match(
                           sig_some_types.get(ew_mi),
                           .Some(ew_mst) => {
-                            ew_mn := match(&ew_mst, Rc(.SomeT(_, n, _, _, _, _, _)) => n, _ => String.from(""));
+                            ew_mn := match(&ew_mst, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => String.from(""));
                             if(ew_mn == ew_fl, {
                               add_variable_to_env(
                                 &callee_env,
@@ -8806,7 +8821,8 @@ try_to_call_function_with_arguments :: (
                     v,
                     .TypeVal(v_tb) => match(
                       v_tb,
-                      Rc(.SomeT({ resolution : ex_cell, bounds : ex_rtt_bnd })) => { ex_rtt := ex_rtt_bnd.required(); 
+                      Rc(.SomeT({ resolution : ex_cell, bounds : ex_rtt_bnd })) => {
+                        ex_rtt := ex_rtt_bnd.required();
                         (ex_res : Option(TypeValue)) = Option(TypeValue).None;
                         if(ex_cell.is_some(), {
                           ex_res = ex_cell.clone();
@@ -8982,7 +8998,7 @@ try_to_call_function_with_arguments :: (
                     (s9_si2 : usize) = usize(0);
                     while(s9_si2 < s9_added.len(), {
                       match(
-                        s9_added.get(s9_si2),
+                        s9_added.get_cloned(s9_si2),
                         .Some(s9_an) => if(s9_an == s9_rnm2, {
                           s9_seen2 = true;
                         }),
@@ -9270,11 +9286,15 @@ try_to_call_function_with_arguments :: (
         if(!is_some_type(&ctl_rt_conc) && !is_unit_type(&ctl_rt_conc), {
           match(
             Rc.clone(return_type),
-            Rc(.SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt_bnd, ct_kft, _)) => { ct_rtt := ct_rtt_bnd.required(); ct_rtl := ct_rtt_bnd.required_levels(); ct_ntt := ct_rtt_bnd.negative(); ct_ntl := ct_rtt_bnd.negative_levels(); 
+            Rc(.SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt_bnd, ct_kft, _)) => {
+              ct_rtt := ct_rtt_bnd.required();
+              ct_rtl := ct_rtt_bnd.required_levels();
+              ct_ntt := ct_rtt_bnd.negative();
+              ct_ntl := ct_rtt_bnd.negative_levels();
               return_type = Rc.new(
                 TypeValueNode.SomeT(
-                  ct_id,
-                  ct_nm,
+                  ct_id.clone(),
+                  ct_nm.clone(),
                   ct_fl,
                   Rc.clone(ct_pt),
                   some_t_bounds(ct_rtt, ct_rtl, ct_ntt, ct_ntl),
@@ -9300,7 +9320,7 @@ try_to_call_function_with_arguments :: (
         (resolved : bool) = false;
         // Check for an explicit … arg at position impl_i.
         match(
-          using_args_opt,
+          using_args_opt.clone(),
           .Some(uas) => {
             match(
               uas.get(impl_i),
@@ -9564,6 +9584,15 @@ try_to_call_function_with_arguments :: (
         callee_own_type,
         Rc.clone(func_type)
       );
+      // One argument record, shared by the specialization and the call result
+      // (`ArgValues` is a reference object; `ArgEntry` has no `Clone`, and its
+      // `value` slots are written later through either holder).
+      call_av := ArgValues(
+        forall_args : forall_arg_vals,
+        args : arg_vals,
+        implicit_args : implicit_args_result,
+        variadic_args : ArrayList(VarArgEntry).new()
+      );
       (spec_func_val : Option(EvalValue)) = Option(EvalValue).None;
       if(!skip_specialization && is_func_generic, {
         callee_fid_g := match(
@@ -9667,7 +9696,11 @@ try_to_call_function_with_arguments :: (
               if(!is_some_type(&ctl_res_conc) && !is_unit_type(&ctl_res_conc), {
                 match(
                   Rc.clone(return_type),
-                  Rc(.SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt_bnd, cr_kft, _)) => { cr_rtt := cr_rtt_bnd.required(); cr_rtl := cr_rtt_bnd.required_levels(); cr_ntt := cr_rtt_bnd.negative(); cr_ntl := cr_rtt_bnd.negative_levels(); 
+                  Rc(.SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt_bnd, cr_kft, _)) => {
+                    cr_rtt := cr_rtt_bnd.required();
+                    cr_rtl := cr_rtt_bnd.required_levels();
+                    cr_ntt := cr_rtt_bnd.negative();
+                    cr_ntl := cr_rtt_bnd.negative_levels();
                     return_type = Rc.new(
                       TypeValueNode.SomeT(
                         cr_id.clone(),
@@ -9687,18 +9720,12 @@ try_to_call_function_with_arguments :: (
           });
           // Regular specialization if ctl path did not produce a result.
           if(spec_func_val.is_none(), {
-            reject_runtime_comptime_arguments(&fv2, &arg_vals, &tok, ctx, exn);
-            spec_av := ArgValues(
-              forall_args : forall_arg_vals,
-              args : arg_vals,
-              implicit_args : implicit_args_result,
-              variadic_args : ArrayList(VarArgEntry).new()
-            );
+            reject_runtime_comptime_arguments(&fv2, &call_av.args, &tok, ctx, exn);
             spec_func_val = Option(EvalValue).Some(
               create_specialization_at_call(
                 &fv2,
                 &spec_template_type,
-                &spec_av,
+                &call_av,
                 &callee_env_m,
                 &caller_env_m,
                 &tok,
@@ -9789,12 +9816,7 @@ try_to_call_function_with_arguments :: (
         path_collection : path_collection_new(),
         return_type : return_type,
         return_value : Option(EvalValue).None,
-        arg_values : ArgValues(
-          forall_args : forall_arg_vals,
-          args : arg_vals,
-          implicit_args : implicit_args_result,
-          variadic_args : ArrayList(VarArgEntry).new()
-        ),
+        arg_values : call_av,
         runtime_arg_exprs_in_order : rt_args,
         specialized_function_value : spec_func_val,
         deferred_drop_expressions : if((s0_call_drops.len() > usize(0)) && !s1_elided, Option(ArrayList(AstExpr)).Some(s0_call_drops), Option(ArrayList(AstExpr)).None)

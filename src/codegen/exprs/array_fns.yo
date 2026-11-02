@@ -23,7 +23,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   array_type := Rc.clone(ei.ty);
   match(
-    ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => if(!is_array_type(&array_type), return(Option(String).None), {
       args_list := String.from("");
       n := arg_exprs.len();
@@ -55,7 +55,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                       match(
                         context.base.get_expr_info(&dup_expr),
                         .Some(dup_ei) => match(
-                          dup_ei.variable_name,
+                          &dup_ei.variable_name,
                           .Some(dup_vn) => {
                             elem_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env));
                           },
@@ -94,7 +94,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
         array_value.push_str(" } }");
       });
       match(
-        ei.variable_name,
+        &ei.variable_name,
         .Some(temp_var) => {
           decl := indent.clone();
           decl.push_string(get_variable_type_string(&array_type, temp_var.clone(), &context.base));
@@ -130,7 +130,7 @@ generate_yo_array_fill :: (fn(expr : &AstExpr, indent : &String, context : &Func
   array_type_name := get_type_string(&array_type, &context.base);
   fill_value_code := _call_generate_expr(&fill_value_arg, indent.clone(), context);
   temp_var_name := match(
-    ei.variable_name,
+    &ei.variable_name,
     .Some(v) => v.clone(),
     .None => fresh_local_name(
       String.from("temp_array_"),
