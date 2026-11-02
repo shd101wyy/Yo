@@ -2063,7 +2063,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(ast_expr_is_fn_call(e), {
     args := match(
       e,
-      .FnCall(_, _, Rc(a), _, _) => a,
+      .FnCall(_, _, Rc(a), _, _) => _args_through_deref(&a),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // An `old(...)` CALLEE (`old(self)(k)`, a list read through the
@@ -4283,6 +4283,28 @@ _list_ext_eq :: (fn(ctx : &mut VcCtx, elem : &VcSort, a : &VcTerm, b : &VcTerm) 
   )
 });
 /// The operator/cast/call dispatch.
+/// `args` with each `r.*` on a reference binding read as the name `r` the
+/// evaluator rewrote it to (decision 43 step 2 N1e-1): `old(v.*)`,
+/// `produced(xs.*)` and `distinct(a.*, b.*)` name their argument.
+_args_through_deref :: (fn(args : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    a := args.get(i).unwrap();
+    out.push(
+      cond(
+        ast_expr_is_fn_call_of(&a, ".", .Some(usize(2))) => match(
+          ast_rewritten_node(&a),
+          .Atom(rd_id, rd_tok) => AstExpr.Atom(rd_id, rd_tok),
+          _ => a
+        ),
+        true => a
+      )
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 _call_term :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, head : &String, args : &ArrayList(AstExpr), info : &ExprInfo)
   -> Option(VcTerm)

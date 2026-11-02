@@ -28,7 +28,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   is_mut_binding,
   is_thread_local_binding,
-  alloc_global_expr_id
+  alloc_global_expr_id,
+  ast_rewritten_node
 } :: import("../../expr.yo");
 { ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
@@ -327,7 +328,9 @@ _borrowed_root_walk :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContex
 /// steps that stay inside a copy (see `_borrowed_root_walk`); `.None` when a
 /// step leaves it.
 _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext, through_collections : bool) -> Option(Variable))({
-  (cur : AstExpr) = lhs;
+  // A step an evaluator rewrite replaced reads as rewritten (`r.*` on a
+  // reference binding is the name `r`, decision 43 step 2 N1e-1).
+  (cur : AstExpr) = ast_rewritten_node(lhs);
   (done : bool) = false;
   while(!done, {
     (next : Option(AstExpr)) = match(
@@ -351,7 +354,7 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
         if(!in_copy, {
           return(Option(Variable).None);
         });
-        cur = obj;
+        cur = ast_rewritten_node(&obj);
       },
       .None => {
         done = true;

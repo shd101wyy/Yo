@@ -2623,7 +2623,9 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
 /// lands in storage the binding only points to), or the place is rooted in a
 /// call result.
 place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
-  (cur : AstExpr) = ast_expr_strip_borrow_marker(place);
+  // A step an evaluator rewrite replaced reads as rewritten (`r.*` on a
+  // reference binding is the name `r`, decision 43 step 2 N1e-1).
+  (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
   while(!ast_expr_is_atom(&cur), {
     (next : AstExpr) = match(
       cur,
@@ -2648,7 +2650,7 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
         return(Option(Variable).None);
       });
     });
-    cur = next;
+    cur = ast_rewritten_node(&next);
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last()
 });
