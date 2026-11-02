@@ -1180,7 +1180,7 @@ evaluate_comptime_fn_call :: (
   // recursive calls (they will hit this entry and return the UnknownVal).
   temp_cache := CalledComptimeFnCache(
     func_id : func_id_str.clone(),
-    arg_values : all_arg_vals,
+    arg_values : all_arg_vals.clone(),
     value : _recursive_placeholder(&return_type, &func_id_str, &all_arg_vals)
   );
   match(
@@ -1467,7 +1467,7 @@ evaluate_comptime_fn_call :: (
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
-          Rc.new(TypeValueNode.Struct(sid, stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
+          Rc.new(TypeValueNode.Struct(sid.clone(), stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
         )
       }, {
         if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
@@ -1485,7 +1485,7 @@ evaluate_comptime_fn_call :: (
       // instance that reports the same arguments.
       Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)) => if((etas.len() == usize(0)) && ((inst_type_args.len() > usize(0)) && !eid.starts_with("enum_decl_")), {
         stamp_enum_final_type_arguments(eid.clone(), &inst_type_args, ctor_phantom_flags(func_id_str.clone(), inst_type_args.len()));
-        EvalValue.TypeVal(Rc.new(TypeValueNode.EnumT(eid, enm, Rc.clone(evns), Rc.clone(evfs), esvn, Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone())))
+        EvalValue.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone())))
       }, return_value),
       // Trait returns: record the constructor funcId so the generic-impl
       // registry can key `Eq(Rc(i32))` and `Eq(Rc(T))` into ONE bucket.

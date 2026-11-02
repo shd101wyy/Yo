@@ -288,14 +288,14 @@ _clear_trial_swallow :: (fn() -> unit)({
 _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.with(xs => xs.len()) > usize(0));
 /// The swallowed error's code, carried onto a re-raise built from its text.
 _trial_swallow_code :: (fn() -> Option(String))(
-  match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.code.clone(), .None => Option(String).None)
+  match(g_trial_swallow_diags.with(xs => xs.get_cloned(usize(0))), .Some(d) => d.code.clone(), .None => Option(String).None)
 );
 /// The code as census text (`-` for an uncoded error).
 _trial_swallow_code_text :: (fn() -> String)(
   match(_trial_swallow_code(), .Some(c) => c, .None => String.from("-"))
 );
 _trial_swallow_message :: (fn() -> String)(
-  match(g_trial_swallow_msg.with(xs => xs.get(usize(0))), .Some(m) => m.clone(), .None => String.from(""))
+  match(g_trial_swallow_msg.with(xs => xs.get_cloned(usize(0))), .Some(m) => m.clone(), .None => String.from(""))
 );
 /// The swallowed diagnostics, or `.None` when the swallowed error carried
 /// none. Read BEFORE `_clear_trial_swallow()`, like `_trial_swallow_message`.
@@ -308,7 +308,7 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
       tsd_out := ArrayList(Diagnostic).new();
       (tsd_i : usize) = usize(0);
       while(tsd_i < g_trial_swallow_diags.with(xs => xs.len()), {
-        match(g_trial_swallow_diags.with(xs => xs.get(tsd_i)), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
+        match(g_trial_swallow_diags.with(xs => xs.get_cloned(tsd_i)), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
         tsd_i = (tsd_i + usize(1));
       });
       Option(ArrayList(Diagnostic)).Some(tsd_out)
@@ -323,13 +323,13 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
 /// whether one was pending before it). Everything else stays swallowed: a
 /// call may still resolve it.
 generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
-  if(match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.generic_independent, .None => false), {
+  if(match(g_trial_swallow_diags.with(xs => xs.get_cloned(usize(0))), .Some(d) => d.generic_independent, .None => false), {
     return(Option(YoError).Some(yo_error_from_diagnostics(match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()))));
   });
   if(!fv_was, {
     match(
       flow_violation_error(),
-      .Some(fv_err) => if(match(fv_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+      .Some(fv_err) => if(match(fv_err.diagnostics.get_cloned(usize(0)), .Some(d) => d.generic_independent, .None => false), {
         return(Option(YoError).Some(fv_err));
       }),
       .None => ()
@@ -453,7 +453,7 @@ _type_binder_env_value :: (
       (we_i : usize) = usize(0);
       while(we_i < where_entries.len(), {
         we := match(
-          where_entries.get(we_i),
+          where_entries.get_cloned(we_i),
           .Some(e) => e,
           .None => {
             we_i = (we_i + usize(1));
@@ -473,7 +473,7 @@ _type_binder_env_value :: (
       });
       stamped := match(
         fresh_some,
-        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, fs_r1, fs_r2)) => Rc.new(TypeValueNode.SomeT(fs_id, fs_name, fs_level, Rc.clone(fs_parent), some_t_bounds(fs_req, fs_req_lv, fs_neg, fs_neg_lv), fs_r1.clone(), fs_r2.clone())),
+        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, fs_r1, fs_r2)) => Rc.new(TypeValueNode.SomeT(fs_id.clone(), fs_name.clone(), fs_level, Rc.clone(fs_parent), some_t_bounds(fs_req, fs_req_lv, fs_neg, fs_neg_lv), fs_r1.clone(), fs_r2.clone())),
         other => Rc.clone(other)
       );
       Option(EvalValue).Some(create_type_value(&stamped))
@@ -498,7 +498,7 @@ _ctor_binder_some_ids :: (
     ids.push(
       match(
         find_variable_in_env(env, &lbl),
-        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid, _ => String.from("")),
+        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid.clone(), _ => String.from("")),
         .None => String.from("")
       )
     );
@@ -677,7 +677,7 @@ _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
   });
   decls := match(
     ft,
-    .FnCall(_, _, Rc(ft_args), _, _) => match(ft_args.get(usize(0)), .Some(.FnCall(_, _, Rc(head_args), _, _)) => head_args, _ => return(out)),
+    .FnCall(_, _, Rc(ft_args), _, _) => match(ft_args.get(usize(0)), .Some(.FnCall(_, _, Rc(head_args), _, _)) => head_args.clone(), _ => return(out)),
     .Atom(_, _) => return(out)
   );
   (di : usize) = usize(0);
@@ -1372,7 +1372,7 @@ Result type: ${type_to_string(&result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           slot_pointee_at(&param_types, pti),
-          .Some(Rc(.SomeT(_, name, _, _, _, _, _))) => name,
+          .Some(Rc(.SomeT(_, name, _, _, _, _, _))) => name.clone(),
           .Some(_) => String.from(""),
           .None => String.from("")
         );
@@ -1415,7 +1415,7 @@ Result type: ${type_to_string(&result_box)}`
                 .Some(cv) => {
                   if(cv.name == "__recur_fn", {
                     if(cap_vi > cap_run_start, {
-                      cap_slices.push(CaptureSlice(vars : cap_frame.variables, start : cap_run_start, end : cap_vi));
+                      cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : cap_vi));
                     });
                     cap_run_start = (cap_vi + usize(1));
                   });
@@ -1466,7 +1466,7 @@ Result type: ${type_to_string(&result_box)}`
               cap_vi = (cap_vi + usize(1));
             });
             if(n_cap_v > cap_run_start, {
-              cap_slices.push(CaptureSlice(vars : cap_frame.variables, start : cap_run_start, end : n_cap_v));
+              cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : n_cap_v));
             });
           },
           .None => ()
@@ -1915,7 +1915,7 @@ Result type: ${type_to_string(&result_box)}`
             (fwi : usize) = usize(0);
             while(fwi < def_where_entries.len(), {
               match(
-                def_where_entries.get(fwi),
+                def_where_entries.get_cloned(fwi),
                 .Some(fwe) => {
                   fwe_id := match(&fwe.trait_ty, Rc(.TraitT(_, _, fwe_tid, _, _, _)) => fwe_tid.clone(), _ => String.from(""));
                   if(fwe_id != "", {
@@ -2128,7 +2128,7 @@ Result type: ${type_to_string(&result_box)}`
                   // value (rules D4 + D1, `judge_function_argument_markers`).
                   ub_fam := judge_function_argument_markers(&result_box, &ub_ty, &ub_info.value, &flow_env, ctx);
                   match(
-                    ub_fam.offense,
+                    &ub_fam.offense,
                     .Some(ub_fo) => {
                       mark_fn_unemittable(fn_val_id.clone());
                       exn.throw(dyn(format_error_message(ast_expr_token(&fb), `The body's value (type ${type_to_string(&ub_ty)}) cannot be returned as ${type_to_string(&result_box)}: ${ub_fo}.`)));
@@ -2383,7 +2383,7 @@ Result type: ${type_to_string(&result_box)}`
               (dgw_i : usize) = usize(0);
               while(dgw_i < dg_where.len(), {
                 match(
-                  dg_where.get(dgw_i),
+                  dg_where.get_cloned(dgw_i),
                   .Some(dgw_e) => {
                     dgw_id := match(&dgw_e.trait_ty, Rc(.TraitT(_, _, dgw_tid, _, _, _)) => dgw_tid.clone(), _ => String.from(""));
                     if(dgw_id != "", {
@@ -2561,7 +2561,7 @@ Result type: ${type_to_string(&result_box)}`
                     if(dg_own_forall_skip && !dg_skip_cf && !dg_trial_abstract && !dg_trial_degenerate, {
                       dg_fam := judge_function_argument_markers(&dg_expected, &dg_trial_ty, &dg_info.value, &dg_env, ctx);
                       match(
-                        dg_fam.offense,
+                        &dg_fam.offense,
                         .Some(dg_fo) => {
                           dg_fam_msg := `The body's value (type ${type_to_string(&dg_trial_ty)}) cannot be returned as ${type_to_string(&dg_expected)}: ${dg_fo}.`;
                           raise_flow_violation(format_error_message(&tok, &dg_fam_msg), ctx, exn);
