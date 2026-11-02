@@ -2794,7 +2794,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     match(
       cap_frame_idx,
       .Some(cfi) => match(
-        closure_body_caps,
+        &closure_body_caps,
         // The list is exhaustive (decision 35): a read of any local outside
         // it is an error. Module-level items are never tracked as captures.
         .Some(ex_caps) => {
@@ -2824,7 +2824,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         .None => ()
       ),
       .None => if(is_creating_closure, {
-        match(closure_body_caps, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps, ctx), .None => ());
+        match(&closure_body_caps, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps, ctx), .None => ());
       })
     );
   });
@@ -3040,7 +3040,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         if(cl_map.len() > usize(0), Option(HashMap(String, FuncCapturedVarInfo)).Some(cl_map), Option(HashMap(String, FuncCapturedVarInfo)).None)
       },
       true => match(
-        closure_body_caps,
+        &closure_body_caps,
         .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
         .Some(cv) => if(cv.len() > usize(0), Option(HashMap(String, FuncCapturedVarInfo)).Some(enrich_captured_variables(&cv, env)), Option(HashMap(String, FuncCapturedVarInfo)).None)
       )

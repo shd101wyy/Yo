@@ -49,7 +49,7 @@
 _shadowed_name_code :: (fn(var_name : &String, context : &FunctionGenerationContext) -> String)({
   cname := sanitize_for_c_identifier(var_name, false);
   match(
-    match(context.shadow_slots, .Some(m) => m.get_cloned(cname.clone()), .None => Option(String).None),
+    match(&context.shadow_slots, .Some(m) => m.get_cloned(cname.clone()), .None => Option(String).None),
     .Some(field) => `sm->${field}`,
     .None => cname
   )
