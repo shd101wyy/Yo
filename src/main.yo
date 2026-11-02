@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_ADDRESS_OF, BK_BORROW_MUT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_capture_list_params, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_ADDRESS_OF, BK_BORROW_MUT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_capture_list_params, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested } :: import("./expr_info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser } :: import("./parser.yo");
@@ -141,7 +141,7 @@ json :: import("std/encoding/json");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, set_migrate_rc_clone, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, explicit_copy_type_is_collection, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, take_copying_accessor_sites } :: import("./evaluator/utils.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, HandleCtorSite, set_migrate_handle_ctors, take_handle_ctor_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites, take_mut_judged } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, DerefSite, set_migrate_deref, take_deref_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, HandleCtorSite, set_migrate_handle_ctors, take_handle_ctor_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites, take_mut_judged } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -2707,6 +2707,135 @@ _run_migrate_markers :: (
   println(`fix: ${verb} ${n_imm.to_string()} \`&\` and ${n_mut.to_string()} \`&mut\` call-site marker(s); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated arguments were not migrated`));
+  });
+});
+/// `yo fix <path> --migrate deref` — decision 43 step 2, N1e-1 (step-2
+/// consultation Q7, VERDICTS-13 §11): a reference binding outside std and
+/// the compiler tree reads and writes its referent with `.*`. Semantic:
+/// only the evaluator knows which binding is a reference. Every file is
+/// evaluated with the recorder on (`record_deref_site`): E0926 records the
+/// expression instead of rejecting it — a whole-value read or write
+/// (`n + 1`, `t := r`, `r = v`, `f(r)` to a by-value slot), `&r`/`&mut r`,
+/// and a `v.*` that meant the `Box`/`Rc`/field-`*` deref through a
+/// reference — and each site gets `.*` appended. A site is edited only when
+/// its source text, from the leftmost token, still parses to the evaluated
+/// expression on one line and, with `.*` appended, to its dereference; any
+/// other site is listed and left as written. Code that evaluation never
+/// reaches is not seen.
+_run_migrate_deref :: (
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      _drop := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its references are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_deref(false);
+  sites := take_deref_sites();
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_done : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    // One position can be recorded under both spellings of its module path
+    // and by several evaluations: keep one per position.
+    mine := ArrayList(DerefSite).new();
+    seen := HashSet(String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if(site_paths(si) == canon, {
+        st := sites(si);
+        if(seen.insert(`${st.row.to_string()}:${st.col.to_string()}`), {
+          mine.push(st);
+        });
+      });
+    });
+    if(mine.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    lines := src.split(String.from("\n"));
+    checked := ArrayList(_PendingFix).new();
+    (mi : usize) = usize(0);
+    while(mi < mine.len(), mi = (mi + usize(1)), {
+      st := mine(mi);
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
+      runes := ArrayList(rune).new();
+      lit := line.chars();
+      (lgo : bool) = true;
+      while(lgo, {
+        match(
+          lit.next(),
+          .Some(r) => runes.push(r),
+          .None => {
+            lgo = false;
+          }
+        );
+      });
+      span_end := if(st.col < runes.len(), _expr_span_end(&runes, st.col, st.col, &st.expect, &file), Option(usize).None);
+      match(
+        span_end,
+        .None => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the source text does not print as \`${st.expect}\` on one line; left as written`);
+        },
+        .Some(end) => {
+          // With `.*` appended, the text must dereference exactly the
+          // expression: `.` binds tighter than every operator.
+          with_deref := String.new();
+          (k : usize) = st.col;
+          while(k < end, k = (k + usize(1)), {
+            with_deref.push_rune(runes(k));
+          });
+          with_deref.push_str(".*");
+          (deref_ok : bool) = match(
+            _parse_or_none(&with_deref, file.clone()),
+            .Some(asts) => (
+              (asts.len() == usize(1)) && match(
+                asts(usize(0)),
+                .FnCall(_, _, Rc(d_args), _, _) => (ast_expr_is_fn_call_of(&asts(usize(0)), BF_DOT, .Some(usize(2))) && match(d_args.get(usize(0)), .Some(d_obj) => (ast_expr_to_string(&d_obj) == st.expect), .None => false) && match(d_args.get(usize(1)), .Some(d_fld) => ast_expr_is_atom_of(&d_fld, "*"), .None => false)),
+                .Atom(_, _) => false
+              )
+            ),
+            .None => false
+          );
+          if(deref_ok, {
+            n_done = (n_done + usize(1));
+            checked.push(_PendingFix(row : st.row, col : end, len : usize(0), replacement : String.from(".*"), description : at));
+          }, {
+            n_skipped = (n_skipped + usize(1));
+            println(`fix: ${at}: \`.*\` after the source text does not dereference exactly \`${st.expect}\`; left as written`);
+          });
+        }
+      );
+    });
+    if(!dry_run && (checked.len() > usize(0)), {
+      _apply_fixes_to_file(file.clone(), &mut checked, io, exn);
+      fmt_argv := ArrayList(String).new();
+      fmt_argv.push(String.from("yo"));
+      fmt_argv.push(String.from("fmt"));
+      fmt_argv.push(file.clone());
+      run_fmt(&fmt_argv, io, exn);
+    });
+  });
+  verb := if(dry_run, String.from("would insert"), String.from("inserted"));
+  println(`fix: ${verb} ${n_done.to_string()} \`.*\`; ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated references were not migrated`));
   });
 });
 /// `yo fix <path> --migrate rc-pattern` — decision 31, Generation B
@@ -5822,7 +5951,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone|handle-ctors] [--hot-path PATH]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone|handle-ctors|deref] [--hot-path PATH]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -5848,8 +5977,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy") && (argv(next_m) != "cloned-accessors") && (argv(next_m) != "rc-clone") && (argv(next_m) != "handle-ctors")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings, explicit-copy, cloned-accessors, rc-clone or handle-ctors`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy") && (argv(next_m) != "cloned-accessors") && (argv(next_m) != "rc-clone") && (argv(next_m) != "handle-ctors") && (argv(next_m) != "deref")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings, explicit-copy, cloned-accessors, rc-clone, handle-ctors or deref`));
         });
         migrate = argv(next_m).clone();
         ai = (ai + usize(2));
@@ -5872,7 +6001,7 @@ run_fix :: (
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone|handle-ctors] [--hot-path PATH]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy|cloned-accessors|rc-clone|handle-ctors|deref] [--hot-path PATH]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -5994,6 +6123,9 @@ run_fix :: (
   if(migrate == "handle-ctors", {
     set_migrate_handle_ctors(true);
   });
+  if(migrate == "deref", {
+    set_migrate_deref(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -6053,6 +6185,10 @@ run_fix :: (
   });
   if(migrate == "handle-ctors", {
     _run_migrate_handle_ctors(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "deref", {
+    _run_migrate_deref(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -14569,9 +14705,12 @@ Options:
                             (Rc.clone(h) / Arc.clone(h) on an implicit
                             copy of a counted handle whose source is
                             used again, a capture list on a closure
-                            that captures one), or handle-ctors
+                            that captures one), handle-ctors
                             (rc(x) -> Rc.new(x), box(x) -> Box.new(x),
-                            arc(x) -> Arc.new(x))
+                            arc(x) -> Arc.new(x)), or deref (r -> r.*
+                            where a reference is read or written whole,
+                            &r -> &r.*, and v.* -> v.*.* where v.* was
+                            the Box/Rc deref through a reference)
   --hot-path <path>         With --migrate explicit-copy or
                             cloned-accessors: list the sites in this file
                             or directory for a hand edit instead of
@@ -14613,9 +14752,11 @@ Examples:
                             拷贝式读取 r.m(...) 改写为 r.m_cloned(...)），
                             rc-clone（源值之后仍被使用的计数句柄隐式复制
                             改写为 Rc.clone(h) / Arc.clone(h)，捕获句柄的
-                            闭包加上捕获列表），或
+                            闭包加上捕获列表），
                             handle-ctors（rc(x) -> Rc.new(x)、
-                            box(x) -> Box.new(x)、arc(x) -> Arc.new(x)）
+                            box(x) -> Box.new(x)、arc(x) -> Arc.new(x)），或
+                            deref（整体读写引用时 r -> r.*，&r -> &r.*，
+                            经由引用表示 Box/Rc 解引用的 v.* -> v.*.*）
   --hot-path <path>         与 --migrate explicit-copy 或 cloned-accessors
                             一起使用：列出该文件或目录中的拷贝留待手工修改，
                             而不是改写它们（可重复）

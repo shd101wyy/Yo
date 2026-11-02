@@ -73,6 +73,7 @@ json :: import("std/encoding/json");
   E_ORIGIN_NOT_DECLARED,
   E_ORIGIN_MISMATCH,
   E_ORIGIN_NAMES_ITSELF,
+  E_REFERENCE_READ_WITHOUT_DEREF,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -795,6 +796,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "_Node :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(value : i32, next : &(i32, p)));\nmain :: (fn() -> unit)({\n  x := i32(1);\n  NodeOfX :: _Node(x);\n  _ := x;\n});\nexport(main);\n",
       "`self.value` is the node's own field; an origin parameter `p` names a place outside the node, which `_Node(x)` fills with `x`.",
       "`self.value` 是节点自身的字段；origin 参数 `p` 命名节点外部的位置，`_Node(x)` 用 `x` 填充它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_REFERENCE_READ_WITHOUT_DEREF,
+      "a reference is read or written as a whole value without `.*`",
+      "未用 `.*` 就把引用当作整个值读写",
+      "A `&T`/`&mut T` parameter, a local borrow, a borrow capture or a `for`/`match` borrow binding is used as a whole value — an operator operand, a by-value argument, an initializer, a result, `r = v`, or `&r` — without `.*`.",
+      "`&T`/`&mut T` 参数、局部借用、借用捕获或 `for`/`match` 借用绑定被当作整个值使用 —— 运算符操作数、按值实参、初始化式、结果、`r = v` 或 `&r` —— 却没有写 `.*`。",
+      "A reference is a value of its own type, `&T`, not the `T` it points to (decision 43): `r.*` names the referent, as `p.*` names a raw pointer's target. So a whole-value read is `r.*` (`n.* + 1`, `f(r.*)`, `t := r.*`, `return(r.*)`), a write through a `&mut T` is `r.* = v`, and a reference to the referent is `&r.*` or `&mut r.*`. Operators never dereference: `n + 1` with `n : &i32` is this error, as it is in Rust. Three uses need no `.*`: an auto-dereferencing access (`r.field`, `r.method()`, `r(i)`), passing the reference itself to a reference parameter (`f(r)`), and re-pointing a local borrow (`r = &place`). `yo fix <path> --migrate deref` inserts every `.*`, and turns a `v.*` that meant the `Box`/`Rc` deref through a reference into `v.*.*`. std and the compiler tree keep the older reading, where a borrow reads as its value, until the release that migrates them.",
+      "引用本身是一个值，类型为 `&T`，而不是它所指向的 `T`（决策 43）：`r.*` 命名被引用的值，就像 `p.*` 命名裸指针的目标。因此整值读取写作 `r.*`（`n.* + 1`、`f(r.*)`、`t := r.*`、`return(r.*)`），经由 `&mut T` 的写入写作 `r.* = v`，指向被引用值的引用写作 `&r.*` 或 `&mut r.*`。运算符从不自动解引用：`n : &i32` 时 `n + 1` 就是这个错误，与 Rust 相同。有三种用法不需要 `.*`：自动解引用的访问（`r.field`、`r.method()`、`r(i)`）、把引用本身传给引用形参（`f(r)`），以及让局部借用重新指向（`r = &place`）。`yo fix <path> --migrate deref` 会插入所有 `.*`，并把经由引用表示 `Box`/`Rc` 解引用的 `v.*` 改写为 `v.*.*`。std 与编译器源码树保留较早的读法（借用按其值读取），直到迁移它们的版本。",
+      "add_one :: (fn(n : &i32) -> i32)(n + i32(1));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := add_one(&x);\n});\nexport(main);\n",
+      "add_one :: (fn(n : &i32) -> i32)(n.* + i32(1));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := add_one(&x);\n});\nexport(main);\n",
+      "`n` is a `&i32`, not an `i32`: `n.*` reads the value it refers to, and `+` never dereferences.",
+      "`n` 是 `&i32` 而不是 `i32`：`n.*` 读取它所引用的值，而 `+` 从不自动解引用。"
     )
   );
   out.push(
