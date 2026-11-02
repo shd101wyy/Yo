@@ -72,9 +72,9 @@ _resolve_constraint :: (fn(constraint : &Option(String), arch : Arch) -> String)
     }
   );
   if(c.starts_with("raw:"), {
-    out := String.new();
+    mut(out) := String.new();
     b := c;
-    (i : usize) = usize(4);
+    (mut(i) : usize) = usize(4);
     while(i < b.len(), {
       match(
         b.get_byte(i),
@@ -103,10 +103,10 @@ _resolve_constraint :: (fn(constraint : &Option(String), arch : Arch) -> String)
 /// {name} -> %[name], {N} -> %N, {name:mod} -> %<gcc>[name],
 /// {{ -> {, }} -> }.
 _transform_template :: (fn(template : &String) -> String)({
-  result := String.new();
+  mut(result) := String.new();
   b := template.clone();
   n := b.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     c := match(b.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
@@ -116,10 +116,10 @@ _transform_template :: (fn(template : &String) -> String)({
       },
       (c == u8(123)) => {
         // Find closing }
-        (close_idx : usize) = i;
-        (found_close : bool) = false;
+        (mut(close_idx) : usize) = i;
+        (mut(found_close) : bool) = false;
         {
-          (j : usize) = (i + usize(1));
+          (mut(j) : usize) = (i + usize(1));
           while((j < n) && !found_close, {
             if(match(b.get_byte(j), .Some(x) => (x == u8(125)), .None => false), {
               close_idx = j;
@@ -133,11 +133,11 @@ _transform_template :: (fn(template : &String) -> String)({
           i = (i + usize(1));
         }, {
           // inner = template[i+1 .. close_idx); split at ':'
-          ref_str := String.new();
-          modifier := String.new();
-          (seen_colon : bool) = false;
+          mut(ref_str) := String.new();
+          mut(modifier) := String.new();
+          (mut(seen_colon) : bool) = false;
           {
-            (k : usize) = (i + usize(1));
+            (mut(k) : usize) = (i + usize(1));
             while(k < close_idx, {
               ck := match(b.get_byte(k), .Some(x) => x, .None => u8(0));
               cond(
@@ -155,10 +155,10 @@ _transform_template :: (fn(template : &String) -> String)({
             true => String.new()
           );
           // Positional (all digits) or named?
-          (all_digits : bool) = (ref_str.len() > usize(0));
+          (mut(all_digits) : bool) = (ref_str.len() > usize(0));
           {
             rb := ref_str.clone();
-            (di : usize) = usize(0);
+            (mut(di) : usize) = usize(0);
             while(di < rb.len(), {
               db := match(rb.get_byte(di), .Some(x) => x, .None => u8(0));
               if((db < u8(48)) || (db > u8(57)), {
@@ -253,7 +253,7 @@ _extract_constraint_string :: (fn(e : &AstExpr, context : &FunctionGenerationCon
     match(
       _cg_comptime_str(&raw_arg, context),
       .Some(rs) => {
-        rr := String.from("raw:");
+        mut(rr) := String.from("raw:");
         rr.push_string(&rs);
         return(rr);
       },
@@ -270,8 +270,8 @@ _parse_operand_for_codegen :: (
   arch := context.base.target_info.arch;
   kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
   if((kind == String.from("const_val")) || (kind == String.from("sym")), {
-    (name : Option(String)) = Option(String).None;
-    (value_idx : usize) = usize(0);
+    (mut(name) : Option(String)) = Option(String).None;
+    (mut(value_idx) : usize) = usize(0);
     if(args.len() == usize(2), {
       first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       match(
@@ -298,8 +298,8 @@ _parse_operand_for_codegen :: (
     );
   });
   // (name?, constraint, value_or_type)
-  (name : Option(String)) = Option(String).None;
-  (constraint_idx : usize) = usize(0);
+  (mut(name) : Option(String)) = Option(String).None;
+  (mut(constraint_idx) : usize) = usize(0);
   if(args.len() >= usize(2), {
     first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     is_reg_class_atom := (ast_expr_is_atom(&first) && _is_register_class(_atom_value_cg(&first)));
@@ -315,15 +315,15 @@ _parse_operand_for_codegen :: (
     });
   });
   has_constraint_arg := (constraint_idx < (args.len() - usize(1)));
-  (constraint_raw : Option(String)) = Option(String).None;
-  (value_type_idx : usize) = usize(0);
+  (mut(constraint_raw) : Option(String)) = Option(String).None;
+  (mut(value_type_idx) : usize) = usize(0);
   if(has_constraint_arg, {
     c_e := match(args.get(constraint_idx), .Some(a) => a, .None => make_err_expr());
     constraint_raw = Option(String).Some(_extract_constraint_string(&c_e, context));
     value_type_idx = (constraint_idx + usize(1));
   }, {
     match(
-      name,
+      &name,
       .Some(nm) => {
         constraint_raw = Option(String).Some(nm.clone());
       },
@@ -557,7 +557,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
         raw_template.push_str("\n");
       });
       match(
-        template_parts.get(ti),
+        template_parts.get_cloned(ti),
         .Some(tp) => {
           raw_template.push_string(&tp);
         },
@@ -652,7 +652,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
                     k = (k + usize(1));
                   });
                 };
-                name_match := match(op.name, .Some(nm) => (ref_str == nm), .None => false);
+                name_match := match(&op.name, .Some(nm) => (ref_str == nm), .None => false);
                 idx_match := (ref_str == oi.to_string());
                 if(name_match || idx_match, {
                   rebuilt.push_string(op.c_expr.clone());
@@ -761,7 +761,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
             );
             part := String.new();
             match(
-              op.name,
+              &op.name,
               .Some(nm) => {
                 part.push_str("[");
                 part.push_string(nm.clone());
@@ -793,7 +793,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
         .Some(op) => if((op.kind == String.from("in")) || (op.kind == String.from("sym")), {
           part := String.new();
           match(
-            op.name,
+            &op.name,
             .Some(nm) => {
               part.push_str("[");
               part.push_string(nm.clone());

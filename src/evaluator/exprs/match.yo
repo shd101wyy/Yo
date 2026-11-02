@@ -285,7 +285,7 @@ _gadt_refined_expected :: (
   (k : usize) = usize(0);
   while((k < tca.len()) && refined.is_none(), {
     tk := match(tca.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-    tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid, _ => String.new());
+    tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid.clone(), _ => String.new());
     if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
       match(
         gra.get(k),

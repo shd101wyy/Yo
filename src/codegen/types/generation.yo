@@ -1778,7 +1778,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   em.emit_declaration_line("  void* (*__yo_clone)(void*); // independent payload copy for a Dyn with Clone; NULL otherwise");
   (mi : usize) = usize(0);
   while(mi < members.len(), {
-    match(members.get(mi), .Some(line) => em.emit_declaration_string_line(&line), .None => ());
+    match(members.get_cloned(mi), .Some(line) => em.emit_declaration_string_line(&line), .None => ());
     mi = (mi + usize(1));
   });
   em.emit_declaration_string_line(`} ${vtable_name};`);
@@ -2205,7 +2205,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
           ns := sorted_ids.len();
           while((si < ns) && !seen, {
             match(
-              sorted_ids.get(si),
+              sorted_ids.get_cloned(si),
               .Some(s) => if(s == e.type_id, {
                 seen = true;
               }),
