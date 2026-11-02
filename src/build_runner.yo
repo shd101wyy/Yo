@@ -3120,7 +3120,7 @@ execute_step :: (
 /// declared, with its default and description, plus the value in force.
 print_options :: (fn(registry : &BuildRegistry) -> unit)({
   names := ArrayList(String).new();
-  iter := registry.declared_options.keys();
+  iter := registry.declared_options.keys_cloned().into_iter();
   more := true;
   while(more, {
     match(

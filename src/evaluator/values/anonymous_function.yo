@@ -707,7 +707,7 @@ _check_anon_fn_captures :: (
 )({
   if(!is_closure, {
     (names : String) = String.new();
-    key_iter := caps.keys();
+    key_iter := caps.keys_cloned().into_iter();
     (more : bool) = true;
     while(more, {
       match(
@@ -751,7 +751,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
     });
     return(());
   });
-  key_iter2 := caps.keys();
+  key_iter2 := caps.keys_cloned().into_iter();
   (more2 : bool) = true;
   while(more2, {
     match(
@@ -2800,7 +2800,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         // The list is exhaustive (decision 35): a read of any local outside
         // it is an error. Module-level items are never tracked as captures.
         .Some(ex_caps) => {
-          ex_it := ex_caps.keys();
+          ex_it := ex_caps.keys_cloned().into_iter();
           (ex_more : bool) = true;
           while(ex_more, {
             match(

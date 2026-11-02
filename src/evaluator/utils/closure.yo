@@ -337,7 +337,7 @@ _captures_offense :: (
   fn(cvwv : &HashMap(String, FuncCapturedVarInfo), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(String)
 )({
   mname := type_to_string(marker);
-  key_iter := cvwv.keys();
+  key_iter := cvwv.keys_cloned().into_iter();
   (more : bool) = true;
   while(more, {
     match(
@@ -826,7 +826,7 @@ validate_capture_trait_requirements :: (
           match(
             captured_variables_with_values,
             .Some(cvwv) => {
-              key_iter := cvwv.keys();
+              key_iter := cvwv.keys_cloned().into_iter();
               (more : bool) = true;
               while(more, {
                 match(
@@ -918,7 +918,7 @@ enrich_captured_variables :: (
   ) -> HashMap(String, FuncCapturedVarInfo)
 )({
   result := HashMap(String, FuncCapturedVarInfo).new();
-  key_iter := captured_variables.keys();
+  key_iter := captured_variables.keys_cloned().into_iter();
   (more : bool) = true;
   while(more, {
     match(
@@ -996,7 +996,7 @@ enrich_captured_variables :: (
 /// struct) was missing from the enclosing capture struct
 /// (issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md).
 propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo), ctx : &EvalContext) -> unit)({
-  key_iter := caps.keys();
+  key_iter := caps.keys_cloned().into_iter();
   (more : bool) = true;
   while(more, {
     match(
@@ -1102,7 +1102,7 @@ create_capture_type_and_value :: (
       );
       if(has_any_caps, {
         cvwv := match(captured_vars_with_values, .Some(m) => m, .None => HashMap(String, FuncCapturedVarInfo).new());
-        key_iter := cvwv.keys();
+        key_iter := cvwv.keys_cloned().into_iter();
         (more_keys : bool) = true;
         while(more_keys, {
           match(
@@ -1331,22 +1331,15 @@ _captures_require_explicit_copy :: (fn(cvwv_opt : &Option(HashMap(String, FuncCa
   match(
     cvwv_opt,
     .Some(cvwv) => {
-      it := cvwv.values();
-      (more : bool) = true;
-      (found : bool) = false;
-      while(more && !found, {
-        match(
-          it.next(),
-          // `yo fix --migrate rc-clone` suspends decision 17's rule but
-          // must decide as the rule will: a borrowing closure that captures
-          // a counted handle borrows it, so it gets no capture list.
-          .Some(ci) => if(type_requires_explicit_copy(&ci.ty) || (migrate_rc_clone_on() && !counted_handle_std_generic_on() && type_holds_counted_handle_ignoring_migration(&ci.ty)), {
-            found = true;
-          }),
-          .None => {
-            more = false;
-          }
-        );
+      // Read-only: the captures are read in place through the borrowed `for`.
+      (mut(found) : bool) = false;
+      for(&cvwv, (_k, ci) => {
+        // `yo fix --migrate rc-clone` suspends decision 17's rule but
+        // must decide as the rule will: a borrowing closure that captures
+        // a counted handle borrows it, so it gets no capture list.
+        if(!found && (type_requires_explicit_copy(&ci.ty) || (migrate_rc_clone_on() && !counted_handle_std_generic_on() && type_holds_counted_handle_ignoring_migration(&ci.ty))), {
+          found = true;
+        });
       });
       found
     },
@@ -1362,7 +1355,7 @@ _runtime_capture_names :: (fn(cvwv_opt : &Option(HashMap(String, FuncCapturedVar
   match(
     cvwv_opt,
     .Some(cvwv) => {
-      it := cvwv.keys();
+      it := cvwv.keys_cloned().into_iter();
       (more : bool) = true;
       while(more, {
         match(
@@ -1438,7 +1431,7 @@ generate_captured_variable_dup_expressions :: (
   match(
     captured_vars_with_values,
     .Some(cvwv) => if(cvwv.len() > usize(0), {
-      key_iter := cvwv.keys();
+      key_iter := cvwv.keys_cloned().into_iter();
       (done : bool) = false;
       while(!done, {
         match(
