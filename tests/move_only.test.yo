@@ -3504,10 +3504,11 @@ test("move-only: a generic function moves a match binding out of a compile-time-
 });
 // A wrapper whose body holds a consuming `match`, fused at two awaits of one
 // task, gets its own C labels at each site
-// (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
-// The drop count is not asserted here: a consuming match whose arm moves a
-// `Drop` payload out of a call result before an await drops it twice
-// (issues/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
+// (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md),
+// and each site's payload is dropped once: the caller's dispose releases a
+// fused site's fields only while the site is live, so a finished site's
+// zeroed `_MoFd` is not dropped again
+// (issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
 _mo_res :: (fn(n : i32) -> Result(_MoFd, i32))(
   if(n > i32(0), Result(_MoFd, i32).Ok(_MoFd(n : n)), Result(_MoFd, i32).Err(n))
 );
@@ -3526,6 +3527,57 @@ _mo_fused_twice :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   })
 );
 test("move-only: a wrapper's consuming match fused at two awaits of one task", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
   r := io.await(_mo_fused_twice(io), IoExn(io : io, exn : Exception(throw : (_err -> unwind(())))));
   assert(r == i32(3), "both fused sites ran");
+  assert(g_mo_disposed == (before + i32(2)), `each site's payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(3)), "the dropped payloads are the moved ones");
+});
+// The same wrapper fused once, with an exit inside the site (after its await)
+// and after it: a site that finished leaves nothing for the dispose, a site
+// the task died in is released by the dispose once.
+_mo_fused_exit :: (fn(n : i32, fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(String.from("not positive"))));
+    e.io.await(yield(e.io), e.io);
+    if(fail, {
+      e.exn.throw(dyn(String.from("inside the site")));
+    });
+    fd.n
+  })
+);
+_mo_fused_once :: (fn(n : i32, fail_in : bool, fail_after : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    a := e.io.await(_mo_fused_exit(n, fail_in, e.io), e);
+    if(fail_after, {
+      e.exn.throw(dyn(String.from("after the site")));
+    });
+    a
+  })
+);
+_mo_run_fused_once :: (fn(io : Io, n : i32, fail_in : bool, fail_after : bool) -> i32)({
+  r := io.await(_mo_fused_once(n, fail_in, fail_after, io), IoExn(io : io, exn : Exception(throw : (_err -> unwind(i32(-1))))));
+  r
+});
+test("move-only: a consuming match of a call result before an await in a fused wrapper drops the payload once", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  assert(_mo_run_fused_once(io, i32(7), false, false) == i32(7), "the fused site ran");
+  assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(7)), "the dropped payload is the moved one");
+});
+test("move-only: a task that dies inside a fused site drops the site's payload once", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  assert(_mo_run_fused_once(io, i32(7), true, false) == i32(-1), "the site unwound");
+  assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(7)), "the dropped payload is the moved one");
+});
+test("move-only: a task that dies after a fused site finished does not drop the site's payload again", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  assert(_mo_run_fused_once(io, i32(7), false, true) == i32(-1), "the task unwound after the site");
+  assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(7)), "the dropped payload is the moved one");
 });
