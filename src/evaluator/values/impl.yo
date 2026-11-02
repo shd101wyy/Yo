@@ -6046,7 +6046,7 @@ evaluate_module_value :: (
               match(
                 g_check_self_constraints_fn,
                 .Some(cf) => match(
-                  cf(&receiver_ty, &ctt, &local_env),
+                  &cf(&receiver_ty, &ctt, &local_env),
                   .Some(sc_msg) => {
                     exn.throw(
                       dyn(format_error_message(ast_expr_token(expr), &sc_msg))
@@ -6154,10 +6154,8 @@ evaluate_module_value :: (
         // impl registered under the same receiver id in the global
         // registry — fields attach progressively to the current trait entry.
         c3_rec.current_trait_ty = current_trait_ty.clone();
-        old_wt_labels_c3 := ctx.current_impl_trait_field_labels;
-        old_wt_values_c3 := ctx.current_impl_trait_field_types;
-        ctx.current_impl_trait_field_labels = ArrayList(String).new();
-        ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
+        old_wt_labels_c3 := replace(&mut ctx.current_impl_trait_field_labels, ArrayList(String).new());
+        old_wt_values_c3 := replace(&mut ctx.current_impl_trait_field_types, ArrayList(TypeValue).new());
         (mj : usize) = usize(0);
         while(mj < method_exprs.len(), {
           match(
@@ -6498,7 +6496,7 @@ evaluate_module_value :: (
   pre_n := pre_registered_trait_ids.len();
   while(postri < pre_n, {
     match(
-      pre_registered_trait_ids.get(postri),
+      pre_registered_trait_ids.get_cloned(postri),
       .None => (),
       .Some(tname) => unmark_concrete_impl_being_registered(&receiver_type_id, &tname)
     );
@@ -6539,7 +6537,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      candidates.get(i),
+      candidates.get_cloned(i),
       .Some(c) => {
         out.push(
           MethodEntry(
@@ -6609,8 +6607,8 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   if(g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
     fast := match(g_move_only_fast_answers.with(xs => xs.get_cloned(slot)), .Some(a) => a, .None => String.new());
     if(type_key_memo_check_enabled(), {
-      slow := g_move_only_memo.with(m => m.get(type_key(ty)));
-      if(match(slow, .Some(m) => (m != fast), .None => true), {
+      slow := g_move_only_memo.with(m => m.get_cloned(type_key(ty)));
+      if(match(&slow, .Some(m) => (m != fast), .None => true), {
         panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: nominal_declares_move_only(${type_to_string(ty)}): the identity cache answers "${fast}", the type_key memo ${match(slow, .Some(m) => `answers "${m}"`, .None => String.from("has no entry"))}`);
       });
     });
@@ -6619,7 +6617,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   key_epoch := type_key_epoch();
   key := type_key(ty);
   match(
-    g_move_only_memo.with(m => m.get(key.clone())),
+    g_move_only_memo.with(m => m.get_cloned(key.clone())),
     .Some(m) => {
       _record_move_only_fast(ty, key_epoch, &m);
       return(m);
@@ -6635,7 +6633,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   (i : usize) = usize(0);
   while((i < g_move_only_decls.with(xs => xs.len())) && found.is_empty(), {
     match(
-      g_move_only_decls.with(xs => xs.get(i)),
+      g_move_only_decls.with(xs => xs.get_cloned(i)),
       .Some(d) => {
         hit := match(
           &d.generic,
@@ -6859,7 +6857,8 @@ _record_move_only_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : &String
   (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
   if(!g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
     g_move_only_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
-    g_move_only_fast_answers.with_mut(xs => xs.insert(slot, answer.clone()));
+    answer_owned := answer.clone();
+    g_move_only_fast_answers.with_mut({ answer_owned, slot : slot.clone() }(xs) => xs.insert(slot, answer_owned.clone()));
   });
 });
 _clear_move_only_memo :: (fn() -> unit)({
@@ -6962,9 +6961,11 @@ _check_copy_clone_exclusion :: (
       key := get_trait_key(trait_ty);
       if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
-          g_user_clone_sites.with_mut(m => m.insert(site.clone(), true));
+          site_owned := site.clone();
+          g_user_clone_sites.with_mut({ site_owned }(m) => m.insert(site_owned.clone(), true));
         });
-        g_hand_written_clone_sites.with_mut(m => m.insert(site.clone(), true));
+        site_owned_ := site.clone();
+        g_hand_written_clone_sites.with_mut({ site_owned_ }(m) => m.insert(site_owned_.clone(), true));
         if(_implements_via_hook(receiver_ty, &cc.copy_tt, env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
         });
