@@ -411,7 +411,7 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      Rc(.TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct)) => {
+      Rc(.TraitT(tnm, tatn_body, tid, tisc, tatcl, tatct)) => { tatn := tatn_body.assoc_type_names(); tfl := tatn_body.field_labels(); tft := tatn_body.field_types(); tsc := tatn_body.self_constraints(); tnsc := tatn_body.neg_self_constraints(); 
         tok := String.from("Tr:");
         tok.push_string(&tid);
         if((tid.len() > usize(0)) && visited.contains(&tok), {

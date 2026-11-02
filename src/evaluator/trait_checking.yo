@@ -185,7 +185,7 @@ register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> un
 _trait_type_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
     Rc(.FnTraitT(base_name, _, _, _, _, _)) => base_name.clone(),
     Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
@@ -911,12 +911,12 @@ _check_associated_type_constraints :: (
 )({
   atc_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => Rc.clone(l),
+    Rc(.TraitT(_, _, _, _, l, _)) => Rc.clone(l),
     _ => no_labels()
   );
   atc_types := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => Rc.clone(t),
+    Rc(.TraitT(_, _, _, _, _, t)) => Rc.clone(t),
     _ => no_types()
   );
   n_atc := atc_labels.len();
@@ -1607,7 +1607,7 @@ _trait_or_supertrait_is :: (fn(bound : &TypeValue, wanted : &TypeValue, depth : 
   });
   match(
     bound,
-    Rc(.TraitT({ self_constraints : st_scs })) => {
+    Rc(.TraitT({ body : st_scs_body })) => { st_scs := st_scs_body.self_constraints(); 
       (si : usize) = usize(0);
       while(si < st_scs.len(), {
         if(recur(match(st_scs.get(si), .Some(sc) => sc, .None => Rc.new(TypeValueNode.Unit)), wanted, depth + u32(1)), {
@@ -2086,7 +2086,7 @@ type_implements_trait :: (
         // selfConstraints of the required trait.
         match(
           req_trait,
-          Rc(.TraitT(_, _, _, _, _, _, self_constraints, _, _, _)) => {
+          Rc(.TraitT(_, self_constraints_body, _, _, _, _)) => { self_constraints := self_constraints_body.self_constraints(); 
             ns := self_constraints.len();
             (j : usize) = usize(0);
             while(j < ns, {
@@ -2418,7 +2418,7 @@ check_self_constraints_violation_msg :: (
   );
   match(
     trait_type,
-    Rc(.TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints, _, _)) => {
+    Rc(.TraitT(name, self_constraints_body2, _, _, _, _)) => { self_constraints := self_constraints_body2.self_constraints(); neg_self_constraints := self_constraints_body2.neg_self_constraints(); 
       // Check positive constraints (must implement).
       np := self_constraints.len();
       (ip : usize) = usize(0);

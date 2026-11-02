@@ -402,7 +402,7 @@ _reject_dyn_uncallable_method_call :: (
             // lists `Clone` reaches it through the vtable prefix's clone slot,
             // which returns a `Dyn` of the receiver's type
             // (plans/VALUES_BY_DEFAULT.md decision 7).
-            Rc(.TraitT({ name : tname, field_labels : fls, field_types : fts })) => if(!is_clone_trait_type(&tt), {
+            Rc(.TraitT({ name : tname, body : fls_body })) => { fls := fls_body.field_labels(); fts := fls_body.field_types(); if(!is_clone_trait_type(&tt), {
               (j : usize) = usize(0);
               while(j < fls.len(), {
                 if(match(fls.get_cloned(j), .Some(l) => (l == name_tok.value.*), .None => false), {
@@ -426,7 +426,7 @@ _reject_dyn_uncallable_method_call :: (
                 });
                 j = (j + usize(1));
               });
-            }),
+            }) },
             _ => ()
           ),
           .None => ()
@@ -443,7 +443,7 @@ _reject_dyn_uncallable_method_call :: (
 _is_destructor_trait_id :: (fn(tid : &String, wanted : &String, env : &Environment) -> bool)(
   !tid.is_empty() && match(
     get_trait_type_from_env(env, wanted.clone()),
-    .Some(Rc(.TraitT(_, _, _, _, d_id, _, _, _, _, _))) => (d_id == tid),
+    .Some(Rc(.TraitT(_, _, d_id, _, _, _))) => (d_id == tid),
     _ => false
   )
 );
@@ -531,7 +531,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
     oi.value,
     .Some(.TypeVal(tv)) => match(
       tv,
-      Rc(.TraitT(_, _, _, _, w_id, _, _, _, _, _)) => {
+      Rc(.TraitT(_, _, w_id, _, _, _)) => {
         // `(T <: Drop).drop`: the witness names the trait itself.
         if(_is_destructor_trait_id(&w_id, &wanted, env), {
           found = wanted.clone();
@@ -2085,7 +2085,7 @@ _sai_decide :: (
 _unwrap_trait_receiver :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => match(
+    Rc(.TraitT(_, _, _, is_concrete, _, _)) => match(
       is_concrete,
       .Some(r) => r.clone(),
       .None => t.clone()
@@ -2422,7 +2422,7 @@ _trait_display_name :: (fn(tid : &String, env : &Environment) -> String)({
               v.value.get(usize(0)),
               .Some(vv) => match(
                 vv,
-                .TypeVal(Rc(.TraitT(_, _, _, _, t_id, _, _, _, _, _))) => if(t_id == tid, {
+                .TypeVal(Rc(.TraitT(_, _, t_id, _, _, _))) => if(t_id == tid, {
                   return(v.name.clone());
                 }),
                 _ => (),
@@ -9958,7 +9958,7 @@ Fix: wrap the call:
           // ----------------------------------------------------------------
           // Trait specialization (Item := T) or implementation.
           // ----------------------------------------------------------------
-          Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => {
+          Rc(.TraitT(_, _, _, _, _, _)) => {
             (has_spec : bool) = false;
             (spec_i : usize) = usize(0);
             while((spec_i < args.len()) && !has_spec, {

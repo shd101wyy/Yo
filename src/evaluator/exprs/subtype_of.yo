@@ -362,8 +362,10 @@ evaluate_subtype_of :: (
     // flow-checker ("consumed in some cases but not in other cases").
     trait_with_receiver := match(
       &trait_ty,
-      Rc(.TraitT(name, assoc_type_names, field_labels, field_types, id, _, self_constraints, neg_self_constraints, atc_labels, atc_types)) =>
-        Rc.new(TypeValueNode.TraitT(name.clone(), assoc_type_names.clone(), field_labels.clone(), field_types.clone(), id.clone(), Option(TypeValue).Some(lhs_ty.clone()), self_constraints.clone(), neg_self_constraints.clone(), Rc.clone(atc_labels), Rc.clone(atc_types))),
+      Rc(.TraitT(name, tr_body, id, _, atc_labels, atc_types)) =>
+        // The receiver-bound trait is the same trait (same id): it shares
+        // the trait's body cell.
+        Rc.new(TypeValueNode.TraitT(name.clone(), Rc.clone(tr_body), id.clone(), Option(TypeValue).Some(lhs_ty.clone()), Rc.clone(atc_labels), Rc.clone(atc_types))),
       _ => Rc.clone(trait_ty)
     );
     trait_with_receiver_clone := trait_with_receiver.clone();

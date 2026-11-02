@@ -11,8 +11,9 @@
 //!   * Tuple/Struct field types are stored as parallel `SharedList`s so we
 //!     don't need a separate mutually-recursive struct (which would require
 //!     a forward-reference dance during evaluation). The `SomeT` bound lists
-//!     and five `TraitT` lists stay plain `ArrayList`s: the evaluator writes
-//!     them in place after the node is built (see `SharedList`).
+//!     and a `TraitT`'s five body lists live in one shared mutable cell each
+//!     (`SomeTBounds`, `TraitTBody`): the evaluator writes them after the node
+//!     is built, and every holder must see the write.
 //!   * Generic / unresolved type information (`SomeType`, `TypeApplication`,
 //!     traits with associated types, …) is intentionally kept
 //!     minimal in this iteration — Phase 2b will fill in the details.
@@ -44,9 +45,10 @@ SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// (plans/VALUES_BY_DEFAULT.md decision 17): `Rc.clone(xs)`.
 /// Not every list is shared: a `SomeT`'s four bound lists and a `TraitT`'s
 /// `assoc_type_names`, `field_labels`, `field_types`, `self_constraints` and
-/// `neg_self_constraints` are written in place after the node is built, and
-/// every holder of the node sees the write, so they stay `ArrayList`s
-/// (issues/questions/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md).
+/// `neg_self_constraints` are written after the node is built, and every
+/// holder of the node sees the write, so they live in a mutable cell
+/// (`SomeTBounds`, `TraitTBody`;
+/// issues/questions/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md).
 /// Never hand a `SharedList`'s buffer to one of those lists, or to any list
 /// that is pushed onto: copy it (`xs.items.clone()`). An empty `SharedList`
 /// is the element type's one global empty list (`no_types()`, ...), so a
@@ -72,6 +74,32 @@ SomeTBoundsCell :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// `some_t_bounds`, never a copy of another SomeT's `Rc`. Readers snapshot
 /// a list or read inside one `with`.
 SomeTBounds :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(RefCell(SomeTBoundsCell(T))));
+/// A trait's members and Self constraints: associated type names, member
+/// labels and types, and the positive and negative `where(Self <: X)`
+/// constraints.
+TraitTBodyCell :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    assoc_type_names : ArrayList(String),
+    field_labels : ArrayList(String),
+    field_types : ArrayList(T),
+    self_constraints : ArrayList(T),
+    neg_self_constraints : ArrayList(T)
+  )
+);
+/// A trait's body: the second mutable cell inside a `TypeValue`
+/// (consultation #13 §13, beside `SomeTBounds`). A trait's node is minted
+/// before its body is evaluated, because the body names the trait itself
+/// (`SelfTrait`, `Self.X` through `ctx.self_trait_type`, a member type over
+/// `Dyn(SelfTrait)`); its members and `where(Self <: X)` constraints arrive
+/// afterwards and must reach every holder, since traits have no id-to-value
+/// resolution: a `Dyn` vtable, an impl check and a default-method lookup
+/// all read the embedded node's lists. The writers are `evaluate_trait_type`'s
+/// member pushes and the two `where(Self <: X)` parsers
+/// (`src/evaluator/types/trait.yo`), each through `with_mut`. Every NEW
+/// trait identity (a parameterized trait's instantiation) builds a fresh
+/// cell with `trait_t_body`, never a copy of another trait's `Rc`. Readers
+/// snapshot a list or read inside one `with`.
+TraitTBody :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(RefCell(TraitTBodyCell(T))));
 /// The element types a `SharedList` holds, each naming its one shared empty
 /// list (`no_types()`, `no_labels()`, ...).
 SharedListElem :: trait(
@@ -490,20 +518,13 @@ TypeValueNode :: enum(
   /// where-clause / negative where-clause constraints on Self.
   TraitT(
     name : String,
-    assoc_type_names : ArrayList(String),
-    // names of associated type members
-    field_labels : ArrayList(String),
-    // method / field names
-    field_types : ArrayList(Rc(Self)),
-    // method / field types
+    // associated type names, member labels and types, and the Self
+    // constraints: ONE shared mutable cell (`TraitTBody`)
+    body : TraitTBody(Rc(Self)),
     id : String,
     // unique identity string
     is_concrete : Option(Rc(Self)),
     // Some(T) when this is `Concrete(T)`
-    self_constraints : ArrayList(Rc(Self)),
-    // where-clause constraints on Self
-    neg_self_constraints : ArrayList(Rc(Self)),
-    // negative where-clause constraints on Self
     assoc_constraint_labels : SharedList(String),
     // labels of `Item := X` associated-type constraints
     assoc_constraint_types : SharedList(Rc(Self)) // constraint types
@@ -746,6 +767,46 @@ impl(
 // The bounds hold trait types; a SomeT's bounds do not reach the SomeT
 // itself (recursive bounds recur through ids, as every `TypeValue` does).
 impl(SomeTBounds(TypeValue), Acyclic());
+/// A fresh trait body cell holding these lists (a NEW trait identity).
+trait_t_body :: (
+  fn(sink(assoc_type_names) : ArrayList(String), sink(field_labels) : ArrayList(String), sink(field_types) : ArrayList(TypeValue), sink(self_constraints) : ArrayList(TypeValue), sink(neg_self_constraints) : ArrayList(TypeValue)) -> TraitTBody(TypeValue)
+)(
+  Rc.new(
+    RefCell(TraitTBodyCell(TypeValue)).new(
+      TraitTBodyCell(TypeValue)(
+        assoc_type_names : assoc_type_names,
+        field_labels : field_labels,
+        field_types : field_types,
+        self_constraints : self_constraints,
+        neg_self_constraints : neg_self_constraints
+      )
+    )
+  )
+);
+impl(
+  TraitTBody(TypeValue),
+  /// A snapshot of the associated type names.
+  assoc_type_names : (fn(self : &Self) -> ArrayList(String))(self.*.with(b => b.assoc_type_names.clone())),
+  /// A snapshot of the member labels.
+  field_labels : (fn(self : &Self) -> ArrayList(String))(self.*.with(b => b.field_labels.clone())),
+  /// A snapshot of the member types.
+  field_types : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.field_types.clone())),
+  /// A snapshot of the `where(Self <: X)` constraints.
+  self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.self_constraints.clone())),
+  /// A snapshot of the negative `where(Self <: X)` constraints.
+  neg_self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.neg_self_constraints.clone())),
+  /// A fresh cell holding copies of these lists (a NEW trait identity).
+  fresh_copy : (fn(self : &Self) -> Self)(
+    self.*.with(b => trait_t_body(b.assoc_type_names.clone(), b.field_labels.clone(), b.field_types.clone(), b.self_constraints.clone(), b.neg_self_constraints.clone()))
+  )
+);
+// SAFETY (as for `TypeValue`, whose audit this cell is the exception to): a
+// member type that names the trait itself (`Dyn(SelfTrait)`) reaches the
+// trait's node through this cell, so that one trait's node can be on a
+// cycle. It was before the cell too (the lists were shared handles), and a
+// trait node lives as long as its module's evaluation; declaring `Acyclic`
+// keeps the cell out of the cycle collector like every other type node.
+impl(TraitTBody(TypeValue), Acyclic());
 // ---------------------------------------------------------------------------
 // Parameter slots (plans/VALUES_BY_DEFAULT.md decision 43 step 1).
 // ---------------------------------------------------------------------------
@@ -975,6 +1036,6 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.with(m => m.get_cloned(struct_id.clone()))
 );
-export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, origin_names_contain, fn_param_in_result_origin);
 export(t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

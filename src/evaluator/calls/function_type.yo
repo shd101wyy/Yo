@@ -261,7 +261,8 @@ PendingDefEval :: ref(
 (g_trial_swallow_diags : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
 _flag_trial_swallow :: (fn(msg : &String) -> unit)({
   g_trial_swallow_msg.with_mut(xs => xs.clear());
-  g_trial_swallow_msg.with_mut(xs => xs.push(msg.clone()));
+  swallowed := msg.clone();
+  g_trial_swallow_msg.with_mut({ swallowed }(xs) => xs.push(swallowed));
 });
 /// Record the swallowed error's diagnostics. A non-`YoError` (a plain string
 /// thrown by some other layer) carries none, and then every site below
@@ -273,7 +274,7 @@ _flag_trial_swallow_diags :: (fn(err : &AnyError) -> unit)({
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.with_mut(xs => xs.push(d.clone())), .None => ());
+        match(ye.diagnostics.get_cloned(dgi), .Some(d) => g_trial_swallow_diags.with_mut({ d }(xs) => xs.push(d)), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -1916,7 +1917,7 @@ Result type: ${type_to_string(&result_box)}`
               match(
                 def_where_entries.get(fwi),
                 .Some(fwe) => {
-                  fwe_id := match(&fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid.clone(), _ => String.from(""));
+                  fwe_id := match(&fwe.trait_ty, Rc(.TraitT(_, _, fwe_tid, _, _, _)) => fwe_tid.clone(), _ => String.from(""));
                   if(fwe_id != "", {
                     flow_where_ids.push(fwe_id);
                   });
@@ -2384,7 +2385,7 @@ Result type: ${type_to_string(&result_box)}`
                 match(
                   dg_where.get(dgw_i),
                   .Some(dgw_e) => {
-                    dgw_id := match(&dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid.clone(), _ => String.from(""));
+                    dgw_id := match(&dgw_e.trait_ty, Rc(.TraitT(_, _, dgw_tid, _, _, _)) => dgw_tid.clone(), _ => String.from(""));
                     if(dgw_id != "", {
                       dg_where_ids.push(dgw_id);
                     });

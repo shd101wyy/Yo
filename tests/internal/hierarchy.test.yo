@@ -4,7 +4,7 @@
 //! universe level) of any TypeValue.  Mirrors `src/types/hierarchy.ts`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_discriminants, SharedList, no_label_lists } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, shared_list, no_types, no_labels, no_discriminants, SharedList, no_label_lists } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_i32, t_usize, t_some_t } :: import("../../src/types/creators.yo");
 { type_of_type } :: import("../../src/types/hierarchy.yo");
 { assert, panic } :: import("std/assert");
@@ -137,13 +137,9 @@ test("TraitT → TypeUni(1)", {
     Rc.new(
       TypeValueNode.TraitT(
         String.from("Clone"),
-        ArrayList(String).new(),
-        ArrayList(String).new(),
-        ArrayList(TypeValue).new(),
+        trait_t_body(ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new()),
         String.from(""),
         Option(TypeValue).None,
-        ArrayList(TypeValue).new(),
-        ArrayList(TypeValue).new(),
         no_labels(),
         no_types()
       )

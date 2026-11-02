@@ -4619,7 +4619,7 @@ create_specialized_function_inline :: (
               match(
                 spec_wes.get(swi),
                 .Some(swe) => {
-                  swe_id := match(&swe.trait_ty, Rc(.TraitT(_, _, _, _, swe_tid, _, _, _, _, _)) => swe_tid.clone(), _ => String.from(""));
+                  swe_id := match(&swe.trait_ty, Rc(.TraitT(_, _, swe_tid, _, _, _)) => swe_tid.clone(), _ => String.from(""));
                   if(swe_id != "", {
                     spec_where_ids.push(swe_id);
                   });
@@ -4644,7 +4644,7 @@ create_specialized_function_inline :: (
                       match(
                         sws_rtt.get(sws_ri),
                         .Some(sws_tr) => {
-                          sws_tid := match(sws_tr, Rc(.TraitT(_, _, _, _, sws_tid0, _, _, _, _, _)) => sws_tid0, _ => String.from(""));
+                          sws_tid := match(sws_tr, Rc(.TraitT(_, _, sws_tid0, _, _, _)) => sws_tid0, _ => String.from(""));
                           if(sws_tid != "", {
                             spec_where_ids.push(sws_tid);
                           });
@@ -6181,7 +6181,7 @@ validate_where_constraints_for_call :: (
     // Marker traits only: a TraitT none of whose fields is function-typed.
     trait_is_marker := match(
       &wce.trait_ty,
-      Rc(.TraitT(_, _, _, tr_ftys, _, _, _, _, _, _)) => {
+      Rc(.TraitT(_, tr_ftys_body, _, _, _, _)) => { tr_ftys := tr_ftys_body.field_types(); 
         (tm_i : usize) = usize(0);
         (tm_has_method : bool) = false;
         while((tm_i < tr_ftys.len()) && !tm_has_method, {

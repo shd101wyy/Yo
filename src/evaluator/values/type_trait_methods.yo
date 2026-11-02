@@ -86,7 +86,7 @@ _dyn_type_id :: (fn(rtt : &ArrayList(TypeValue), ntt : &ArrayList(TypeValue)) ->
 _dyn_member_key :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
     _ => type_key(t)
   )
 );
@@ -95,7 +95,7 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     t,
     Rc(.Struct({ id })) => id.clone(),
     Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
     Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(),
     // A union's `name` IS its unique id: evaluate_union_type mints
     // `union_<random_id>` and passes it as the name (evaluator/types/union.yo),

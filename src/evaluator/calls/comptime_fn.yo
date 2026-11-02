@@ -641,11 +641,8 @@ _recursive_placeholder :: (
     is_type_0(return_type) => {
       placeholder := t_some_t(`recur_${func_id}`, usize(0));
       sid := match(&placeholder, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
-      g_recursive_type_refs.with_mut(
-        xs => xs.push(
-          RecursiveTypeRef(some_id : sid.clone(), func_id : func_id.clone(), arg_values : arg_vals)
-        )
-      );
+      recursive_ref := RecursiveTypeRef(some_id : sid.clone(), func_id : func_id.clone(), arg_values : arg_vals.clone());
+      g_recursive_type_refs.with_mut({ recursive_ref }(xs) => xs.push(recursive_ref));
       EvalValue.TypeVal(placeholder)
     },
     true => create_unknown_val(return_type)
@@ -1108,7 +1105,7 @@ evaluate_comptime_fn_call :: (
         func_id : func_id_str.clone(),
         caches : ArrayList(CalledComptimeFnCache).new()
       );
-      g_comptime_fn_caches.with_mut(xs => xs.push(new_entry));
+      g_comptime_fn_caches.with_mut({ new_entry }(xs) => xs.push(new_entry));
       entry_idx_opt = Option(usize).Some(g_comptime_fn_caches.with(xs => xs.len()) - usize(1));
     },
     .Some(_) => ()
@@ -1494,7 +1491,7 @@ evaluate_comptime_fn_call :: (
       // registry can key `Eq(Rc(i32))` and `Eq(Rc(T))` into ONE bucket.
       // Side-table only — TraitT carries no
       // fid field; first stamp wins inside the register fn.
-      Rc(.TraitT(_, _, _, _, ct_trait_id, _, _, _, _, _)) => {
+      Rc(.TraitT(_, _, ct_trait_id, _, _, _)) => {
         register_trait_ctor_fid(ct_trait_id.clone(), func_id_str.clone());
         register_trait_type_args(ct_trait_id.clone(), &inst_type_args.items);
         return_value

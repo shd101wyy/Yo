@@ -535,7 +535,7 @@ _require_dyn_traits_implemented :: (
             continue;
           }
         );
-        req_is_nominal := match(&req, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false);
+        req_is_nominal := match(&req, Rc(.TraitT(_, _, _, _, _, _)) => true, _ => false);
         req_judged := match(&req, Rc(.TraitT(name : rjn)) => _name_in(&fv_judged_names, &rjn), _ => false);
         if(req_is_nominal && !req_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
@@ -597,7 +597,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
       tys.get(ti),
       .Some(t) => match(
         t,
-        Rc(.TraitT({ name : tn, field_labels : fls, field_types : fts })) => {
+        Rc(.TraitT({ name : tn, body : fls_body })) => { fls := fls_body.field_labels(); fts := fls_body.field_types(); 
           (j : usize) = usize(0);
           while(j < fts.len(), {
             ft := match(fts.get(j), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit));
@@ -1073,7 +1073,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
           rtt.get(i),
           .Some(tt) => match(
             &tt,
-            Rc(.TraitT(name : tname, field_labels : fl, id : trait_id)) => {
+            Rc(.TraitT(name : tname, body : fl_body, id : trait_id)) => { fl := fl_body.field_labels(); 
               entries := get_type_trait_methods_for_type(type_id_or_empty(&method_lookup_type));
               n_fields := fl.len();
               field_names := ArrayList(String).new();
