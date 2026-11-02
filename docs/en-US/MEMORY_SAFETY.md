@@ -94,9 +94,9 @@ The pattern C/Rust solve with a pointer or `&mut T` is solved in safe Yo with a 
 
 ```yo
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 
 main :: (fn() -> unit)({

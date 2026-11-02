@@ -731,7 +731,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ```yo
 bump :: (fn(x : &mut i32) -> unit)({
-  x = (x + i32(1));
+  x.* = (x.* + i32(1));
 });
 (f : (fn(x : &mut i32) -> unit)) = bump; // OK
 (g : (fn(x : i32) -> unit)) = bump; // Error: Incompatible types
@@ -750,8 +750,8 @@ The one exception is the receiver of an `impl` member: a trait method declared w
 **Reading a reference with `.*`** (decision 43 step 2, N1e-1; [`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md)). A reference binding (a `&T` or `&mut T` parameter, a local borrow `y := &place`, a capture-list borrow, a `for(&xs, x => …)` element, a binding of `match(&x, …)` or `match(&mut x, …)`) reads and writes the value it refers to with `.*`: `n.* + 1` with `n : &i32`, `r.* = v` with `r : &mut T`, `x := r.*` (a copy, as `t := s` copies). The bare name used as a whole value is error E0926: an operand (`n + 1`; operators never dereference), a by-value argument, an initializer, a returned value, the write `r = v`, and the borrow `&r` (spelled `&r.*`, the referent). Four uses of the bare name are not whole-value reads and stay as they are: a receiver, which reads through the reference (`r.field`, `r.method()`, `r(i)`); the name passed to a reference parameter (`f(r)` passes what `r` borrows); the re-point `r = &place`; and the scrutinee of `match(r, …)`, which matches through the reference, so its bindings borrow the referent's payload (and write it through a `&mut` reference). `match(&r, …)` on a reference is E0926 because the marker is redundant, and the migration drops it; `match(r.*, …)` matches a copy of the referent. On a reference to a `Box`, an `Rc` or a pointer, `r.*` is the reference's own deref and `r.*.*` the payload. `yo fix <path> --migrate deref` inserts every `.*` and drops the redundant `match` markers (`YO_AUDIT_DEREF=1` lists the sites without editing). The rule holds outside the standard library and the compiler's own source, which keep the bare reading until the next release migrates them; a std generic specialized for a user type keeps std's reading.
 
 ```yo
-first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v);
-sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a + b);
+first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v.*);
+sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a.* + b.*);
 Pair :: struct(a : i32, b : i32);
 first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
 second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
@@ -1555,13 +1555,13 @@ For in-place mutation without raw pointers, use a `name : &mut T` parameter. The
 
 ```yo
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 
 increment :: (fn(n : &mut i32) -> unit)({
-  n = (n + i32(1));
+  n.* = (n.* + i32(1));
 });
 
 main :: (fn() -> unit)({
@@ -1582,7 +1582,7 @@ A `&mut T` parameter cannot be combined with `sink(...)` (opposite calling conve
 
 ```yo
 double :: (fn(n : &mut i32) -> unit)({
-  n = (n + n);
+  n.* = (n.* + n.*);
 });
 
 double_both :: (fn(x : &mut i32, y : &mut i32) -> unit)({
@@ -3243,13 +3243,13 @@ k := i32(3);
 w := i32(10);
 z := i32(0);
 (h : Impl(Fn(m : i32) -> i32)) = ({ k, &w, &mut z }(m : i32) => {
-  z = (z + m); // writes the caller's `z` through the borrow
-  k + w + z
+  z.* = (z.* + m); // writes the caller's `z` through the borrow
+  k + w.* + z.*
 });
 (g : Impl(Fn() -> usize)) = ({ n : s.len(), name : &s }() => (n + name.len()));
 count := i32(0);
 (i32(1) .. i32(4)).for_each({ &mut count }(x : i32) => {
-  count = (count + x);
+  count.* = (count.* + x);
 });
 ```
 
@@ -3430,8 +3430,8 @@ Tree :: enum(
 sum :: (fn(t : &Tree) -> i32)(
   match(
     t,
-    .Leaf(v) => v,
-    .Node(l, r) => (sum(&l.*) + sum(&r.*))
+    .Leaf(v) => v.*,
+    .Node(l, r) => (sum(&l.*.*) + sum(&r.*.*))
   )
 );
 t := Tree.Node(Box.new(Tree.Leaf(1)), Box.new(Tree.Leaf(2)));

@@ -850,9 +850,9 @@ For mutating a caller's variable without raw pointers, prefix the parameter's ty
 
 ```yo
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 
 main :: (fn() -> unit)({
@@ -1352,8 +1352,8 @@ divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y)
   mutated `name : &mut T` params).
 
 ```yo
-increment :: (fn(n : &mut i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
-  n = (n + i32(1));
+increment :: (fn(n : &mut i32, requires(n.* < i32(100)), ensures(n.* == (old(n.*) + i32(1)))) -> unit)({
+  n.* = (n.* + i32(1));
 });
 ```
 

@@ -708,7 +708,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ```yo
 bump :: (fn(x : &mut i32) -> unit)({
-  x = (x + i32(1));
+  x.* = (x.* + i32(1));
 });
 (f : (fn(x : &mut i32) -> unit)) = bump; // 可以
 (g : (fn(x : i32) -> unit)) = bump; // 错误：Incompatible types
@@ -727,8 +727,8 @@ bump :: (fn(x : &mut i32) -> unit)({
 **用 `.*` 读引用**（决策 43 第 2 步，N1e-1；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md)）。引用绑定（`&T` 或 `&mut T` 参数、局部借用 `y := &place`、捕获列表中的借用、`for(&xs, x => …)` 的元素、`match(&x, …)` 或 `match(&mut x, …)` 的绑定）用 `.*` 读写它所引用的值：`n : &i32` 时写 `n.* + 1`，`r : &mut T` 时写 `r.* = v`，`x := r.*`（复制，与 `t := s` 的复制相同）。把裸名字当作整个值使用是错误 E0926：运算数（`n + 1`；运算符从不自动解引用）、按值传递的实参、初始化式、返回值、写入 `r = v`，以及借用 `&r`（应写作 `&r.*`，即被引用的值）。裸名字的四种用法不是整值读取，保持原样：接收者经由引用读取（`r.field`、`r.method()`、`r(i)`）；把名字传给引用参数（`f(r)` 传递 `r` 所借用的）；重新指向 `r = &place`；以及 `match(r, …)` 的被匹配值，它经由引用匹配，因此其绑定借用被引用值的载荷（经由 `&mut` 引用时还能写入）。对引用写 `match(&r, …)` 是 E0926，因为这个标记是多余的，迁移会删掉它；`match(r.*, …)` 匹配被引用值的一份副本。对指向 `Box`、`Rc` 或指针的引用，`r.*` 是引用自身的解引用，`r.*.*` 才是载荷。`yo fix <path> --migrate deref` 插入所有 `.*` 并删掉 `match` 中多余的标记（`YO_AUDIT_DEREF=1` 只列出位置，不修改文件）。该规则适用于标准库和编译器自身源码以外的代码；这两处保留裸名读取，直到下一个版本迁移它们；为用户类型特化的 std 泛型仍按 std 的读法。
 
 ```yo
-first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v);
-sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a + b);
+first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v.*);
+sum :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a.* + b.*);
 Pair :: struct(a : i32, b : i32);
 first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
 second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
@@ -1513,13 +1513,13 @@ main :: (fn() -> unit)({
 
 ```yo
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 
 increment :: (fn(n : &mut i32) -> unit)({
-  n = (n + i32(1));
+  n.* = (n.* + i32(1));
 });
 
 main :: (fn() -> unit)({
@@ -1540,7 +1540,7 @@ main :: (fn() -> unit)({
 
 ```yo
 double :: (fn(n : &mut i32) -> unit)({
-  n = (n + n);
+  n.* = (n.* + n.*);
 });
 
 double_both :: (fn(x : &mut i32, y : &mut i32) -> unit)({
@@ -3111,13 +3111,13 @@ k := i32(3);
 w := i32(10);
 z := i32(0);
 (h : Impl(Fn(m : i32) -> i32)) = ({ k, &w, &mut z }(m : i32) => {
-  z = (z + m); // 通过借用写入调用方的 `z`
-  k + w + z
+  z.* = (z.* + m); // 通过借用写入调用方的 `z`
+  k + w.* + z.*
 });
 (g : Impl(Fn() -> usize)) = ({ n : s.len(), name : &s }() => (n + name.len()));
 count := i32(0);
 (i32(1) .. i32(4)).for_each({ &mut count }(x : i32) => {
-  count = (count + x);
+  count.* = (count.* + x);
 });
 ```
 
@@ -3273,8 +3273,8 @@ Tree :: enum(
 sum :: (fn(t : &Tree) -> i32)(
   match(
     t,
-    .Leaf(v) => v,
-    .Node(l, r) => (sum(&l.*) + sum(&r.*))
+    .Leaf(v) => v.*,
+    .Node(l, r) => (sum(&l.*.*) + sum(&r.*.*))
   )
 );
 t := Tree.Node(Box.new(Tree.Leaf(1)), Box.new(Tree.Leaf(2)));

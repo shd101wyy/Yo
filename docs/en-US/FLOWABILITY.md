@@ -20,12 +20,12 @@ same thing one level down. A local borrow binds `name` to the storage
 ```yo
 x := i32(1);
 y := &mut x; // y names x's slot
-y = i32(2); // writes x
+y.* = i32(2); // writes x
 z := x; // fine: y's last use is above, so x is free again
 r := &p.x; // a read-only borrow of a value-struct field
-v := r; // reads through r; `r = v` would be E0908
+v := r.*; // reads through r; `r.* = v` would be E0908
 n := &mut h.n; // a field of an RC object: h's object is pinned for the scope
-copy := n; // copies the pointee — `&mut` is a mode, not a type to store
+copy := n.*; // copies the referent
 ```
 
 **A borrow is live from its binding to its last use**, and for that range
@@ -83,7 +83,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(Rc.new(Node(value : v, next : .None))); // writes the tail slot
+  cur.* = .Some(Rc.new(Node(value : v, next : .None))); // writes the tail slot
 });
 ```
 
