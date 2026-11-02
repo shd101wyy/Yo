@@ -13,6 +13,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Mutex } :: import("std/sync/mutex");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { String } :: import("std/string");
 { RwLock } :: import("std/sync/rwlock");
 { OnceCell } :: import("std/sync/once");
@@ -59,6 +61,16 @@ test("a value String or ArrayList owns its buffer, so it is Send and Sync (B8)",
   comptime_assert(Type.impls(ArrayList(String), Sync), "ArrayList(String) is Sync");
   comptime_assert(!Type.impls(ArrayList(Rc(i32)), Send), "ArrayList(Rc(i32)) is not Send");
   comptime_assert(!Type.impls(ArrayList(Rc(i32)), Sync), "ArrayList(Rc(i32)) is not Sync");
+});
+test("a value HashMap or HashSet owns its buffers, so it is Send and Sync exactly when its parts are (B9)", {
+  // B9 (plans/VALUES_BY_DEFAULT.md): `HashMap(K, V)` is `Send`/`Sync` when `K`
+  // and `V` are, `HashSet(T)` when `T` is (std/collections/hash_map.yo).
+  comptime_assert(Type.impls(HashMap(String, i32), Send), "HashMap(String, i32) is Send");
+  comptime_assert(Type.impls(HashMap(String, i32), Sync), "HashMap(String, i32) is Sync");
+  comptime_assert(!Type.impls(HashMap(String, Rc(i32)), Send), "HashMap(String, Rc(i32)) is not Send");
+  comptime_assert(!Type.impls(HashMap(i32, Rc(i32)), Sync), "HashMap(i32, Rc(i32)) is not Sync");
+  comptime_assert(Type.impls(HashSet(String), Send), "HashSet(String) is Send");
+  comptime_assert(Type.impls(HashSet(i32), Sync), "HashSet(i32) is Sync");
 });
 test("atomic cells are Send and Sync", {
   comptime_assert(Type.impls(Arc(i32), Send), "Arc(i32) is Send");
