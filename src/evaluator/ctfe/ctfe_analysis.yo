@@ -408,7 +408,7 @@ analyze_ctfe_capability :: (
   // Skip extern functions — they cannot be evaluated at compile time.
   is_extern_fn := match(
     func_type,
-    Rc(.Func({ meta : m })) => match(m.*.is_extern, .Some(_) => true, .None => false),
+    Rc(.Func({ meta : m })) => match(&m.*.is_extern, .Some(_) => true, .None => false),
     _ => false
   );
   // Skip generic functions — they need specialisation first.

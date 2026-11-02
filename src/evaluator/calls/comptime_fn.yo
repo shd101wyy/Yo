@@ -286,8 +286,8 @@ _ctfe_args_equal :: (
           (a_is_some && b_is_some && (is_bound_closure_identity(&aty) || is_bound_closure_identity(&bty))) => false,
           // Both bare SomeT: must be the exact same id
           (a_is_some && b_is_some) => (
-            match(aty, Rc(.SomeT(id : aid)) => aid, _ => String.from("")) ==
-              match(bty, Rc(.SomeT(id : bid)) => bid, _ => String.from(""))
+            match(aty, Rc(.SomeT(id : aid)) => aid.clone(), _ => String.from("")) ==
+              match(bty, Rc(.SomeT(id : bid)) => bid.clone(), _ => String.from(""))
           ),
           // One bare SomeT, other not: different types
           (a_is_some || b_is_some) => false,
