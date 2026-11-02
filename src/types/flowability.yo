@@ -45,7 +45,7 @@
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue, TypeValueNode, no_types, no_flags, t_refine_inner, slot_pointee_at, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_pointee } :: import("./definitions.yo");
-{ is_function_type, is_pointer_type, is_counted_handle_type, unique_box_payload_type } :: import("./guards.yo");
+{ is_function_type, is_pointer_type, is_counted_handle_type, is_reference_enum_type, is_weak_handle_type, unique_box_payload_type } :: import("./guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { type_key } :: import("./type_key.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -784,49 +784,70 @@ require_ref_own_argument_exclusivity :: (
     oi = (oi + usize(1));
   });
 });
-/// Can a value of `ty` hold, or reach through its fields, a cell, a pointer
-/// or a box, a value of one of the types `targets` names (`type_key`)? A
-/// `Dyn`, an open type variable and a `void` pointer can hold anything; a
+/// Is `ty` a SHARED handle — a value whose copies all name one object: a
+/// `ref` struct or enum (`Rc`/`Arc` among them), a cell handle
+/// (`cell_handle_view`, V5's `Rc`/`Arc`) or a non-owning `Weak`/`ArcWeak`.
+/// The reference-semantic edges of `_type_may_reach_any_of`.
+_is_shared_handle_type :: (fn(ty : &TypeValue) -> bool)(
+  is_counted_handle_type(ty) || is_reference_enum_type(ty) || is_weak_handle_type(ty)
+);
+/// Can a value of `ty` reach, through a REFERENCE-SEMANTIC edge, a value of
+/// one of the types `targets` names (`type_key`)? A value type has one owner,
+/// so a value of a target type that the sibling owns outright (a fresh
+/// `ArrayList(String)`, the list inside a by-value struct, a `Box` payload,
+/// a value collection's own buffer) is a DIFFERENT value from the place the
+/// element borrow hangs from and cannot alias it. A target type counts only
+/// when the path to it crossed a reference-semantic edge (`via_ref`): a
+/// `&`/`&mut` (the sibling's own parameter mode, or a `Reference` held in a
+/// field), or a shared handle (`_is_shared_handle_type`) — or when the target
+/// is itself a shared handle, whose copies all name one object.
+/// (issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md)
+/// A raw pointer is followed without changing `via_ref`: it carries no origin
+/// (decision 43), and a value type's raw pointer is the buffer it owns.
+/// A `Dyn`, an open type variable and a `void` pointer can hold anything; a
 /// function value — inside an aggregate, an `Impl(Future)` frame, or the
 /// argument itself — may be a closure that captured one, so those answer yes
 /// too. A FUNCTION-TYPED argument never reaches this walk: rule (b) of
 /// `_reject_if_container_reachable` judges it by the representation
 /// formulas instead (the pre-B6-a rule's pair), which accept a bare `fn`
 /// and reject a type carrying a capture struct. A plain DFS over the type
-/// graph: `seen` holds every type already walked, which adds nothing the
-/// first visit did not.
+/// graph: `seen` holds every (type, `via_ref`) pair already walked, which
+/// adds nothing the first visit did not.
 _type_may_reach_any_of :: (
   fn(
     ty_in : &TypeValue,
+    via_ref_in : bool,
     targets : &HashSet(String),
     seen : &mut HashSet(String)
   ) -> bool
 )({
   ty := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(ty_in)));
+  via_ref := (via_ref_in || _is_shared_handle_type(&ty));
   key := type_key(&ty);
-  if(targets.contains(&key), {
+  if(via_ref && targets.contains(&key), {
     return(true);
   });
-  if(seen.contains(&key), {
+  seen_key := cond(via_ref => `r:${key}`, true => `v:${key}`);
+  if(seen.contains(&seen_key), {
     return(false);
   });
-  seen.insert(key);
+  seen.insert(seen_key);
   match(
     unique_box_payload_type(&ty),
     .Some(payload) => {
-      return(recur(&payload, targets, seen));
+      return(recur(&payload, via_ref, targets, seen));
     },
     .None => ()
   );
   match(
     ty,
-    Rc(.Struct({ field_types : fields })) => _any_may_reach_any_of(&fields.items, targets, seen),
+    Rc(.Struct({ field_types : fields })) => _any_may_reach_any_of(&fields.items, via_ref, targets, seen),
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), vi = (vi + usize(1)), {
         match(
           all_fields.get(vi),
-          .Some(v_fields) => if(_any_may_reach_any_of(&v_fields.items, targets, seen), {
+          .Some(v_fields) => if(_any_may_reach_any_of(&v_fields.items, via_ref, targets, seen), {
             return(true);
           }),
           .None => ()
@@ -834,13 +855,14 @@ _type_may_reach_any_of :: (
       });
       false
     },
-    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, targets, seen),
-    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, targets, seen),
-    Rc(.Array(element : elem, length : _)) => recur(&elem, targets, seen),
+    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, via_ref, targets, seen),
+    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, via_ref, targets, seen),
+    Rc(.Array(element : elem, length : _)) => recur(&elem, via_ref, targets, seen),
+    Rc(.Reference(pointee : rp)) => recur(&rp, true, targets, seen),
     Rc(.Pointer(pointee : p)) => match(
       t_refine_inner(&p),
       Rc(.Void) => true,
-      _ => recur(&p, targets, seen)
+      _ => recur(&p, via_ref, targets, seen)
     ),
     Rc(.Func({ result : _ })) => true,
     Rc(.FnTraitT(base_name : _)) => true,
@@ -848,7 +870,7 @@ _type_may_reach_any_of :: (
     Rc(.DynT(required_trait_types : _)) => true,
     Rc(.SomeT({ resolution : resolved })) => match(
       resolved,
-      .Some(concrete) => recur(&concrete, targets, seen),
+      .Some(concrete) => recur(&concrete, via_ref, targets, seen),
       .None => true
     ),
     _ => false
@@ -858,6 +880,7 @@ _type_may_reach_any_of :: (
 _any_may_reach_any_of :: (
   fn(
     fields : &ArrayList(TypeValue),
+    via_ref : bool,
     targets : &HashSet(String),
     seen : &mut HashSet(String)
   ) -> bool
@@ -866,7 +889,7 @@ _any_may_reach_any_of :: (
   while(i < fields.len(), i = (i + usize(1)), {
     match(
       fields.get(i),
-      .Some(ft) => if(_type_may_reach_any_of(&ft, targets, seen), {
+      .Some(ft) => if(_type_may_reach_any_of(&ft, via_ref, targets, seen), {
         return(true);
       }),
       .None => ()
@@ -1027,12 +1050,17 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
 /// — a closure (may have captured it: a literal, or a value held in a
 /// variable, which the representation formulas catch because a closure's
 /// recorded type carries its capture struct while a plain `fn`'s does not),
-/// or a value whose type can hold one of the types the place hangs from
-/// (`_ref_place_holder_types`, `_type_may_reach_any_of`). A value that
-/// cannot hold one cannot reach it: `replace(&mut xs(i), v)` with
-/// `xs : ArrayList(String)` and `v : String` is fine, since no `String`
-/// holds an `ArrayList(String)`
-/// (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
+/// or a value whose type can reach one of the types the place hangs from
+/// (`_ref_place_holder_types`) through a reference-semantic edge
+/// (`_type_may_reach_any_of`). A value that cannot hold one cannot reach it:
+/// `replace(&mut xs(i), v)` with `xs : ArrayList(String)` and `v : String` is
+/// fine, since no `String` holds an `ArrayList(String)`
+/// (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md);
+/// nor can a value that holds one only by ownership: a by-value
+/// `ArrayList(String)` is a different list from `xs`, while a `&` to a
+/// holder, a second handle to a `ref` owner or a closure may name the place
+/// itself
+/// (issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md).
 /// Rule (b) does not THROW for an argument of a future-PRODUCING callee
 /// when `defer_call_id` is `.Some`: the complaint is recorded
 /// (`flag_deferred_sibling_rule`) and `_note_future_producing_call` settles
@@ -1052,6 +1080,7 @@ _reject_if_container_reachable :: (
     ref_arg_index : usize,
     kind : str,
     args : &ArrayList(AstExpr),
+    param_is_ref : &ArrayList(bool),
     n : usize,
     env : &Environment,
     ctx : &EvalContext,
@@ -1160,8 +1189,9 @@ _reject_if_container_reachable :: (
     );
   });
   // (b) element-only: any OTHER argument that could hold a handle to the
-  // container — a closure, or a value whose type can hold one of the types
-  // the place hangs from — could grow/free it. Without the path's types, any
+  // container — a closure, or a value whose type reaches one of the types
+  // the place hangs from through a reference-semantic edge — could
+  // grow/free it. Without the path's types, any
   // non-`Copy` value or pointer-carrier counts. For a future-PRODUCING
   // callee the rejection is DEFERRED (`defer_call_id`), not thrown: §3.13
   // A2 settles it — every async call carries the `io` sibling beside the
@@ -1211,8 +1241,11 @@ _reject_if_container_reachable :: (
                 fn_may_reach := (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty));
                 fn_may_reach
               }, {
+                // A sibling lent to a `&`/`&mut` parameter starts behind a
+                // reference edge: it may point at the place's holder.
+                sibling_is_ref := match(param_is_ref.get(j), .Some(b) => b, .None => false);
                 seen := HashSet(String).new();
-                _type_may_reach_any_of(&oi.ty, &targets, &mut seen)
+                _type_may_reach_any_of(&oi.ty, sibling_is_ref, &targets, &mut seen)
               })
             },
             .None => (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty))
@@ -1283,7 +1316,7 @@ require_valid_ref_argument_places :: (
           );
           match(
             container_atom,
-            .Some(catom) => _reject_if_container_reachable(&catom, &arg, i, "index", args, n, env, ctx, exn, &defer_id, &defer_label),
+            .Some(catom) => _reject_if_container_reachable(&catom, &arg, i, "index", args, param_is_ref, n, env, ctx, exn, &defer_id, &defer_label),
             .None => ()
           );
         }, {
@@ -1332,7 +1365,7 @@ require_valid_ref_argument_places :: (
                 h = (h + usize(1));
               });
               if(has_object_hop && ast_expr_is_atom(&cur), {
-                _reject_if_container_reachable(&cur, &arg, i, "object-hop", args, n, env, ctx, exn, &defer_id, &defer_label);
+                _reject_if_container_reachable(&cur, &arg, i, "object-hop", args, param_is_ref, n, env, ctx, exn, &defer_id, &defer_label);
               });
               // A field of a MODULE-LEVEL root is unsafe when overwriting
               // it through the ref could free heap storage: OBJECT roots
