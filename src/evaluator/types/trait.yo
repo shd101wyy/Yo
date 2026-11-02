@@ -644,7 +644,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_text(&lhs_label_expr).*;
+    label_str = ast_expr_text(&lhs_label_expr).*.clone();
     label_expr_opt = .Some(lhs_label_expr);
     type_expr_opt = .Some(rhs_type_expr);
   }, {
@@ -681,7 +681,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_text(&expr_inner).*;
+    label_str = ast_expr_text(&expr_inner).*.clone();
     label_expr_opt = .Some(expr_inner);
   });
   // Determine expected field type from context
@@ -1202,7 +1202,7 @@ evaluate_trait_type :: (
       b.field_labels.push(member_label.clone());
       b.field_types.push(member_ty);
       if(member_is_assoc, {
-        b.assoc_type_names.push(member_label);
+        b.assoc_type_names.push(member_label.clone());
       });
     });
     // If it's an associated type, add it to assoc_type_names and bind in env
@@ -1328,7 +1328,7 @@ evaluate_trait_type :: (
                 vf_label := match(field_labels.get_cloned(vf_i), .Some(l) => l, .None => String.from("?"));
                 vf_missing_name := match(
                   &vf_missing,
-                  Rc(.SomeT(id : _, name : vf_mn)) => vf_mn,
+                  Rc(.SomeT(id : _, name : vf_mn)) => vf_mn.clone(),
                   _ => type_to_string(&vf_missing)
                 );
                 exn.throw(
