@@ -2795,10 +2795,10 @@ _run_migrate_deref :: (
       // A redundant borrow marker right before the name: `&` or `&mut `.
       if(st.edit == u8(2), {
         (mb : usize) = st.col;
-        while((mb > usize(0)) && ((runes(mb - usize(1)) == ' ') || (runes(mb - usize(1)) == '\t')), mb = (mb - usize(1)), ());
+        while((mb > usize(0)) && ((runes(mb - usize(1)).char == u32(0x20)) || (runes(mb - usize(1)).char == u32(0x09))), mb = (mb - usize(1)), ());
         (mstart : Option(usize)) = cond(
-          ((mb >= usize(4)) && (runes(mb - usize(4)) == '&') && (runes(mb - usize(3)) == 'm') && (runes(mb - usize(2)) == 'u') && (runes(mb - usize(1)) == 't') && (mb < st.col)) => Option(usize).Some(mb - usize(4)),
-          ((mb >= usize(1)) && (runes(mb - usize(1)) == '&') && (mb == st.col)) => Option(usize).Some(mb - usize(1)),
+          ((mb >= usize(4)) && (runes(mb - usize(4)).char == u32(0x26)) && (runes(mb - usize(3)).char == u32(0x6D)) && (runes(mb - usize(2)).char == u32(0x75)) && (runes(mb - usize(1)).char == u32(0x74)) && (mb < st.col)) => Option(usize).Some(mb - usize(4)),
+          ((mb >= usize(1)) && (runes(mb - usize(1)).char == u32(0x26)) && (mb == st.col)) => Option(usize).Some(mb - usize(1)),
           true => Option(usize).None
         );
         match(
