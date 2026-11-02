@@ -649,12 +649,16 @@ _clone_hint :: (fn(name : &String, ty : &TypeValue) -> String)(
 /// `Arc` (decision 17: `Rc.clone(h)`, which no payload method can shadow,
 /// decision 32).
 _counted_handle_ctor :: (fn(ty : &TypeValue) -> String)(cond(is_arc_type(&t_refine_inner(ty)) => String.from("Arc"), true => String.from("Rc")));
+/// The migration sentence that ends a counted handle's E0901 help. An
+/// accessor site's help drops it: there the clone is `get_cloned`, which
+/// `--migrate cloned-accessors` spells (VERDICTS-8 Q1).
+RC_CLONE_MIGRATE_HINT :: " `yo fix <path> --migrate rc-clone` spells the clones.";
 /// The E0901 note for a named value of a type decision 17 copies only
 /// explicitly (`type_holds_counted_handle`): a handle's `Rc.clone(h)` /
 /// `Arc.clone(h)`, or the `.clone()` of a value holding one.
 _counted_handle_help :: (fn(name : &String, ty : &TypeValue) -> String)(
   cond(
-    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${name}\` is a counted handle (\`${type_to_string(ty)}\`), and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): write \`${_counted_handle_ctor(ty)}.clone(${name})\` for a second handle, move it (its last use moves it), or lend it with \`&${name}\` to a \`&T\` parameter. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${name}\` is a counted handle (\`${type_to_string(ty)}\`), and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): write \`${_counted_handle_ctor(ty)}.clone(${name})\` for a second handle, move it (its last use moves it), or lend it with \`&${name}\` to a \`&T\` parameter.${RC_CLONE_MIGRATE_HINT}`,
     type_lacks_clone(ty) => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, whose clone copies each handle, or move it (\`sink(${name})\`).`,
     true => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): write \`${name}.clone()\` for a copy (it copies each handle), move it (\`sink(${name})\`), or lend it with \`&${name}\` to a \`&T\` parameter.`
   )
@@ -662,7 +666,7 @@ _counted_handle_help :: (fn(name : &String, ty : &TypeValue) -> String)(
 /// `_counted_handle_help` for a value with no name of its own.
 _counted_handle_type_help :: (fn(ty : &TypeValue) -> String)(
   cond(
-    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${type_to_string(ty)}\` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in \`${_counted_handle_ctor(ty)}.clone(...)\` for a second handle, lend it to a \`&T\` parameter, or move its whole owner. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${type_to_string(ty)}\` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in \`${_counted_handle_ctor(ty)}.clone(...)\` for a second handle, lend it to a \`&T\` parameter, or move its whole owner.${RC_CLONE_MIGRATE_HINT}`,
     type_lacks_clone(ty) => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, lend it to a \`&T\` parameter, or move its whole owner.`,
     true => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): call \`.clone()\` on it for a copy (it copies each handle), lend it to a \`&T\` parameter, or move its whole owner.`
   )
@@ -3368,7 +3372,7 @@ take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
   g_copy_loop_ids.with_mut(s => s.clear());
   out
 });
-export(owning_param_binding_beside, move_through_sink_shadow, ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, _rc_clone_spelling, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var);
+export(owning_param_binding_beside, move_through_sink_shadow, ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, _rc_clone_spelling, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var, RC_CLONE_MIGRATE_HINT);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
