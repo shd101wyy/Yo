@@ -2441,6 +2441,7 @@ MethodCandidate :: struct(
   /// impl's DECLARING module, not the module that first specialized it.
   owner : String
 );
+derive(MethodCandidate, Clone);
 // Memo for `_inject_forall_captures`: injections are ~99% duplicates (a
 // 150k-call probe saw 1,259 distinct (func_id, bindings) keys), and each
 // miss copies the method's full capture arrays (avg ~600 entries). Keying
@@ -7383,3 +7384,6 @@ first_failed_impl_where :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(
   .None
 });
 export(instance_constructor_fid, CtorMethodImpl, note_concrete_ctor_method, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where);
+// probe-only (B8 -r4's Clone derives)
+derive(ConcreteTraitImpl, Clone);
+derive(_CtorConcreteMethod, Clone);
