@@ -4016,7 +4016,7 @@ _loop_core :: (
     (ci2 : usize) = sites.len();
     while(ci2 > usize(0), {
       ci2 = (ci2 - usize(1));
-      site := sites.get(ci2).unwrap();
+      site := sites.get_cloned(ci2).unwrap();
       site_v := match(
         site.vals.get(name.clone()),
         .Some(sv) => sv,
@@ -4045,7 +4045,7 @@ _loop_core :: (
   while(di3 < sites.len(), {
     d_args := ArrayList(VcTerm).new();
     d_args.push(bs.get(di3).unwrap());
-    d_args.push(Rc.clone(sites.get(di3).unwrap().path));
+    d_args.push(Rc.clone(sites.get_cloned(di3).unwrap().path));
     disj.push(_and_terms(&d_args));
     di3 = (di3 + usize(1));
   });
@@ -4621,8 +4621,8 @@ _call_term :: (
     // afterwards, `_frame_havoc_lists`), so its current binding IS its pre
     // state.
     oa_pre := args.get(usize(0)).unwrap();
-    pre_map := ctx.call_pre.unwrap();
-    saved_pre_vars := ctx.vars;
+    pre_map := ctx.call_pre.clone().unwrap();
+    saved_pre_vars := ctx.vars.clone();
     overlay := HashMap(String, VcTerm).new();
     ovi := ctx.vars.keys_cloned().into_iter();
     (ovgo : bool) = true;
@@ -4680,7 +4680,7 @@ _call_term :: (
       );
       return(Option(VcTerm).None);
     });
-    saved_vars := ctx.vars;
+    saved_vars := ctx.vars.clone();
     entry_copy := HashMap(String, VcTerm).new();
     eit := ctx.entry_vars.keys_cloned().into_iter();
     (ego : bool) = true;
@@ -5598,7 +5598,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
         continue;
       });
       arm_v := match(
-        arm_states.get(fj),
+        arm_states.get_cloned(fj),
         .Some(st) => match(
           st.get(fname.clone()),
           .Some(v) => v,
