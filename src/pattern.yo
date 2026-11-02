@@ -120,8 +120,8 @@ impl(
 /// children) does not allow
 /// (`issues/fixed/arraylist-clone-copies-elements-out-through-get.md`).
 clone_patterns :: (fn(xs : &ArrayList(Pattern)) -> ArrayList(Pattern))({
-  out := ArrayList(Pattern).with_capacity(xs.len());
-  (i : usize) = usize(0);
+  mut(out) := ArrayList(Pattern).with_capacity(xs.len());
+  (mut(i) : usize) = usize(0);
   while(i < xs.len(), i = (i + usize(1)), {
     out.push(xs(i).clone());
   });
@@ -148,6 +148,7 @@ Arm :: ref(
     classic : bool
   )
 );
+impl(Arm, Clone(clone : (fn(self : &Self) -> Self)(self)));
 // ---------------------------------------------------------------------------
 // Registry — arms per match node, keyed by the match expression's id.
 //
@@ -173,10 +174,11 @@ register_match_arms :: (fn(match_id : usize, arms : &ArrayList(Arm)) -> unit)({
   if(!match_arms_table_enabled(), {
     return(());
   });
-  _old := g_match_arms.with_mut(m => m.insert(match_id, arms));
+  arms_owned := arms.clone();
+  _old := g_match_arms.with_mut({ arms_owned, match_id : match_id.clone() }(m) => m.insert(match_id, arms_owned.clone()));
   record_owned_expr_id(match_id);
 });
-lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.with(m => m.get(&match_id)));
+lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.with(m => m.get_cloned(&match_id)));
 /// Drop the compiled arms of the given match ids (a removed module's
 /// `take_owned_expr_ids`).
 purge_match_arms :: (fn(ids : &ArrayList(usize)) -> unit)({
@@ -227,10 +229,11 @@ register_arm_entry_drops :: (fn(arm_id : usize, drops : &ArrayList(AstExpr)) -> 
   // B4-1b: the registry entry SHARES the caller's `drops` list (the same
   // decision as `register_match_arms` below: the table aliases by design, and
   // `Arm` deliberately has no `Clone` — maintainer decision 2026-10-26).
-  _old := g_arm_entry_drops.with_mut(m => m.insert(arm_id, drops));
+  drops_owned := drops.clone();
+  _old := g_arm_entry_drops.with_mut({ drops_owned, arm_id : arm_id.clone() }(m) => m.insert(arm_id, drops_owned.clone()));
   record_owned_expr_id(arm_id);
 });
-lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_arm_entry_drops.with(m => m.get(&arm_id)));
+lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_arm_entry_drops.with(m => m.get_cloned(&arm_id)));
 /// A position whose parts are reached through a reference cell or a raw
 /// pointer: a consuming or `mut` match does not take them (other handles
 /// may share the cell), so its bindings below borrow.
@@ -297,7 +300,7 @@ gadt_branch_reachable :: (fn(enum_id : &String, variant_idx : usize) -> bool)({
       tca_opt,
       .None => true,
       .Some(tca) => {
-        gra := match(all_vargs.get(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new());
+        gra := match(all_vargs.get_cloned(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new());
         if(gra.len() == usize(0), {
           return(true);
         });
@@ -344,7 +347,7 @@ norm_position_type :: (fn(t : &TypeValue) -> TypeValue)({
 /// True when the struct's single field is labeled `*` (the Rc shape).
 _box_shaped :: (fn(fls : &ArrayList(String), fts : &ArrayList(TypeValue)) -> bool)(
   (fls.len() == usize(1)) && (fts.len() == usize(1)) && match(
-    fls.get(usize(0)),
+    fls.get_cloned(usize(0)),
     .Some(l) => (l == "*"),
     .None => false
   )
@@ -740,7 +743,7 @@ _expand_row_heads :: (fn(rows : &ArrayList(ArrayList(Pattern))) -> ArrayList(Arr
   (i : usize) = usize(0);
   while(i < rows.len(), {
     match(
-      rows.get(i),
+      rows.get_cloned(i),
       .Some(row) => {
         if(row.len() == usize(0), {
           out.push(row);
@@ -768,7 +771,7 @@ _expand_row_head :: (fn(head : &Pattern, row : &ArrayList(Pattern), out : &mut A
       (k : usize) = usize(0);
       while(k < expanded.len(), {
         match(
-          expanded.get(k),
+          expanded.get_cloned(k),
           .Some(r2) => {
             out.push(r2);
           },
@@ -788,7 +791,7 @@ _expand_row_head :: (fn(head : &Pattern, row : &ArrayList(Pattern), out : &mut A
         (k : usize) = usize(0);
         while(k < expanded.len(), {
           match(
-            expanded.get(k),
+            expanded.get_cloned(k),
             .Some(r2) => {
               out.push(r2);
             },
@@ -829,7 +832,7 @@ _head_is_wild :: (fn(p : &Pattern) -> bool)(
 _column_has_aggregate :: (fn(rows : &ArrayList(ArrayList(Pattern))) -> bool)({
   (ri : usize) = usize(0);
   while(ri < rows.len(), {
-    if(match(rows.get(ri), .Some(row) => ((row.len() > usize(0)) && _is_aggregate_pattern(&row(usize(0)))), .None => false), {
+    if(match(rows.get_cloned(ri), .Some(row) => ((row.len() > usize(0)) && _is_aggregate_pattern(&row(usize(0)))), .None => false), {
       return(true);
     });
     ri = (ri + usize(1));
@@ -843,7 +846,7 @@ _specialize_variant :: (fn(rows : &ArrayList(ArrayList(Pattern)), name : &String
   (i : usize) = usize(0);
   while(i < rows.len(), {
     match(
-      rows.get(i),
+      rows.get_cloned(i),
       .Some(row) => {
         if(row.len() > usize(0), {
           _specialize_variant_row(&row(usize(0)), &row, name, arity, &mut out);
@@ -882,7 +885,7 @@ _specialize_aggregate :: (fn(rows : &ArrayList(ArrayList(Pattern)), n : usize) -
   (i : usize) = usize(0);
   while(i < rows.len(), {
     match(
-      rows.get(i),
+      rows.get_cloned(i),
       .Some(row) => {
         if(row.len() > usize(0), {
           _specialize_aggregate_row(&row(usize(0)), &row, n, &mut out);
@@ -919,7 +922,7 @@ _specialize_const :: (fn(rows : &ArrayList(ArrayList(Pattern)), key : &String) -
   (i : usize) = usize(0);
   while(i < rows.len(), {
     match(
-      rows.get(i),
+      rows.get_cloned(i),
       .Some(row) => {
         if((row.len() > usize(0)) && _head_matches_const(&row(usize(0)), key), {
           out.push(_tail_patterns(&row));
@@ -946,7 +949,7 @@ _default_matrix :: (fn(rows : &ArrayList(ArrayList(Pattern))) -> ArrayList(Array
   (i : usize) = usize(0);
   while(i < rows.len(), {
     match(
-      rows.get(i),
+      rows.get_cloned(i),
       .Some(row) => {
         if((row.len() > usize(0)) && _head_is_wild(&row(usize(0))), {
           out.push(_tail_patterns(&row));
@@ -965,7 +968,7 @@ _cons_str :: (fn(head : &String, rest : &ArrayList(String)) -> ArrayList(String)
   (i : usize) = usize(0);
   while(i < rest.len(), {
     match(
-      rest.get(i),
+      rest.get_cloned(i),
       .Some(s) => {
         out.push(s);
       },
@@ -990,7 +993,7 @@ _render_variant_witness :: (fn(name : &String, arity : usize, w : &ArrayList(Str
         head.push_str(", ");
       });
       match(
-        w.get(j),
+        w.get_cloned(j),
         .Some(s) => {
           head.push_string(s.clone());
         },
@@ -1004,7 +1007,7 @@ _render_variant_witness :: (fn(name : &String, arity : usize, w : &ArrayList(Str
   (k : usize) = arity;
   while(k < w.len(), {
     match(
-      w.get(k),
+      w.get_cloned(k),
       .Some(s) => {
         rest.push(s);
       },
@@ -1024,7 +1027,7 @@ _render_tuple_witness :: (fn(w : &ArrayList(String), n : usize) -> ArrayList(Str
       head.push_str(", ");
     });
     match(
-      w.get(j),
+      w.get_cloned(j),
       .Some(s) => {
         head.push_string(s.clone());
       },
@@ -1037,7 +1040,7 @@ _render_tuple_witness :: (fn(w : &ArrayList(String), n : usize) -> ArrayList(Str
   (k : usize) = n;
   while(k < w.len(), {
     match(
-      w.get(k),
+      w.get_cloned(k),
       .Some(s) => {
         rest.push(s);
       },
@@ -1067,7 +1070,7 @@ _render_struct_witness :: (fn(struct_ty : &TypeValue, w : &ArrayList(String), n 
     );
     head.push_str(" : ");
     match(
-      w.get(j),
+      w.get_cloned(j),
       .Some(s) => {
         head.push_string(s.clone());
       },
