@@ -7347,17 +7347,17 @@ _lb_raise_conflict :: (
     }
   );
   match(
-    info.elided_origin,
+    &info.elided_origin,
     .Some(eo) => {
       (ek : usize) = usize(0);
       while(ek < eo.roots.len(), {
-        if(match(eo.roots.get(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
-          frozen_label := match(eo.labels.get(ek), .Some(l) => l, .None => String.new());
+        if(match(eo.roots.get_cloned(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
+          frozen_label := match(eo.labels.get_cloned(ek), .Some(l) => l, .None => String.new());
           keep := String.new();
           (kk : usize) = usize(0);
           while(kk < eo.labels.len(), {
             match(
-              eo.labels.get(kk),
+              eo.labels.get_cloned(kk),
               .Some(l) => if(!(l == frozen_label) && !_lb_label_listed(&eo.labels, kk), {
                 if(keep.len() > usize(0), {
                   keep.push_str(", ");
@@ -7392,7 +7392,7 @@ _lb_raise_conflict :: (
 _lb_label_listed :: (fn(labels : &ArrayList(String), k : usize) -> bool)({
   (j : usize) = usize(0);
   while(j < k, {
-    if(match(labels.get(j), .Some(a) => match(labels.get(k), .Some(b) => (a == b), .None => false), .None => false), {
+    if(match(labels.get_cloned(j), .Some(a) => match(labels.get_cloned(k), .Some(b) => (a == b), .None => false), .None => false), {
       return(true);
     });
     j = (j + usize(1));
