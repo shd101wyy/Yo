@@ -70,9 +70,9 @@ _emit_pattern_binding_decl :: (
   em := context.base.emitter;
   tstr := get_type_string(ty, &context.base);
   if(init_code.contains(bind.clone()), {
-    tmp := String.from("__yo_pat_");
+    mut(tmp) := String.from("__yo_pat_");
     tmp.push_string(bind.clone());
-    l1 := indent.clone();
+    mut(l1) := indent.clone();
     l1.push_string(tstr.clone());
     l1.push_str(" ");
     l1.push_string(tmp.clone());
@@ -80,7 +80,7 @@ _emit_pattern_binding_decl :: (
     l1.push_string(init_code.clone());
     l1.push_str(";");
     em.emit_string_line(&l1);
-    l2 := indent.clone();
+    mut(l2) := indent.clone();
     l2.push_string(&tstr);
     l2.push_str(" ");
     l2.push_string(bind.clone());
@@ -89,7 +89,7 @@ _emit_pattern_binding_decl :: (
     l2.push_str(";");
     em.emit_string_line(&l2);
   }, {
-    l := indent.clone();
+    mut(l) := indent.clone();
     l.push_string(&tstr);
     l.push_str(" ");
     l.push_string(bind.clone());
@@ -129,7 +129,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     .Variant(_, vidx, field_idx, subs, enum_ty, through_ptr, _) => {
       cell := (in_cell || through_ptr || pattern_position_is_cell(ty));
       ftys := match(resolve_enum_shell(&enum_ty), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
@@ -141,7 +141,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     .ThroughBox(_, inner_ty, Box(sub)) => recur(&sub, &inner_ty, true, out),
     .Tuple(subs, elem_tys) => {
       cell := (in_cell || is_pointer_type(ty));
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < subs.len(), {
         ety := match(elem_tys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         recur(&subs(i), &ety, cell, out);
@@ -151,7 +151,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     .Struct(struct_ty, field_idx, subs, _) => {
       cell := (in_cell || pattern_position_is_cell(ty));
       ftys := _struct_pattern_field_tys(&struct_ty);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
@@ -163,7 +163,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
   )
 );
 _list_has :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < xs.len(), {
     if(match(xs.get_cloned(i), .Some(y) => (y == x), .None => false), {
       return(true);
@@ -179,8 +179,8 @@ _list_has :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
 /// skipped the arm's result-temp assignment and left the temp uninitialized
 /// (SIGBUS; issues/fixed/cond-arm-return-inside-string-literal.md).
 _inside_c_string_literal :: (fn(s : &String, idx : usize) -> bool)({
-  (in_str : bool) = false;
-  (i : usize) = usize(0);
+  (mut(in_str) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < idx, {
     b := s.byte_at(i);
     cond(
@@ -210,10 +210,10 @@ _byte_index_of :: (fn(s : &String, word : &String, from : usize) -> Option(usize
   if((m == usize(0)) || (n < m), {
     return(Option(usize).None);
   });
-  (i : usize) = from;
+  (mut(i) : usize) = from;
   while((i + m) <= n, {
-    (j : usize) = usize(0);
-    (hit : bool) = true;
+    (mut(j) : usize) = usize(0);
+    (mut(hit) : bool) = true;
     while((j < m) && hit, {
       a := match(sb.get_byte(i + j), .Some(x) => x, .None => u8(0));
       b := match(wb.get_byte(j), .Some(x) => x, .None => u8(1));
@@ -235,7 +235,7 @@ _contains_word_return :: (fn(s : &String) -> bool)({
   wlen := usize(6);
   // BYTE length + byte-based find — see _byte_index_of.
   slen := s.len();
-  (from : usize) = usize(0);
+  (mut(from) : usize) = usize(0);
   while(true, {
     match(
       _byte_index_of(s, word.clone(), from),
@@ -271,18 +271,18 @@ _is_or_pattern :: (fn(expr : &AstExpr) -> bool)(
 /// Flatten an or-pattern into its individual patterns.
 _flatten_or_pattern :: (fn(expr : &AstExpr) -> ArrayList(AstExpr))(
   if(!_is_or_pattern(expr), {
-    out := ArrayList(AstExpr).new();
+    mut(out) := ArrayList(AstExpr).new();
     out.push(expr);
     out
   }, {
     args := _args(expr);
-    out := ArrayList(AstExpr).new();
+    mut(out) := ArrayList(AstExpr).new();
     match(
       args.get(usize(0)),
       .Some(left) => {
         l := recur(&left);
         nl := l.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < nl, {
           match(
             l.get(i),
@@ -301,7 +301,7 @@ _flatten_or_pattern :: (fn(expr : &AstExpr) -> ArrayList(AstExpr))(
       .Some(right) => {
         r := recur(&right);
         nr := r.len();
-        (j : usize) = usize(0);
+        (mut(j) : usize) = usize(0);
         while(j < nr, {
           match(
             r.get(j),
@@ -324,12 +324,12 @@ _c_literal_from_value :: (fn(value : &EvalValue) -> Option(String))(
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
-  out := ArrayList(AstExpr).new();
+  mut(out) := ArrayList(AstExpr).new();
   match(
     current,
     .Some(cd) => {
       n := cd.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           cd.get(i),
@@ -347,7 +347,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
     prev,
     .Some(pp) => {
       n := pp.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           pp.get(i),
@@ -380,8 +380,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     n := begin_args.len();
     // All statements except the last.
     if(n > usize(0), {
-      (j : usize) = usize(0);
-      (stop : bool) = false;
+      (mut(j) : usize) = usize(0);
+      (mut(stop) : bool) = false;
       while((j < (n - usize(1))) && !stop, {
         match(
           begin_args.get(j),
@@ -399,7 +399,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
               .None => false
             );
             if((arg_code.len() > usize(0)) && !arm_bare_temp, {
-              line := indent.clone();
+              mut(line) := indent.clone();
               line.push_string(&arg_code);
               line.push_str(";");
               em.emit_string_line(&line);
@@ -524,7 +524,7 @@ _emit_case_body_no_break :: (fn(case_body : &AstExpr, indent : &String, body_ind
   assigned := match(
     temp_var_opt,
     .Some(tv) => if(!is_unit && (body_code.len() > usize(0)) && !_is_control_flow_code(&body_code), {
-      line := body_indent.clone();
+      mut(line) := body_indent.clone();
       line.push_string(tv.clone());
       line.push_str(" = ");
       line.push_string(body_code.clone());
@@ -541,7 +541,7 @@ _emit_case_body_no_break :: (fn(case_body : &AstExpr, indent : &String, body_ind
       .None => false
     );
     if(!fb_bare_temp, {
-      line := body_indent.clone();
+      mut(line) := body_indent.clone();
       line.push_string(&body_code);
       line.push_str(";");
       em.emit_string_line(&line);
@@ -556,7 +556,7 @@ _emit_case_body_and_break :: (fn(case_body : &AstExpr, indent : &String, body_in
   assigned := match(
     temp_var_opt,
     .Some(tv) => if(!is_unit && (body_code.len() > usize(0)) && !_is_control_flow_code(&body_code), {
-      line := body_indent.clone();
+      mut(line) := body_indent.clone();
       line.push_string(tv.clone());
       line.push_str(" = ");
       line.push_string(body_code.clone());
@@ -577,13 +577,13 @@ _emit_case_body_and_break :: (fn(case_body : &AstExpr, indent : &String, body_in
       .None => false
     );
     if(!fb_bare_temp, {
-      line := body_indent.clone();
+      mut(line) := body_indent.clone();
       line.push_string(&body_code);
       line.push_str(";");
       em.emit_string_line(&line);
     });
   });
-  brk := body_indent.clone();
+  mut(brk) := body_indent.clone();
   brk.push_str("break;");
   em.emit_string_line(&brk);
 });
@@ -596,12 +596,12 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
   em := context.base.emitter;
   saved := context.base.inside_match;
   context.base.inside_match = true;
-  body_indent := indent.clone();
+  mut(body_indent) := indent.clone();
   body_indent.push_str("  ");
   args := _args(expr);
   n := args.len();
-  (i : usize) = usize(1);
-  (emitted_any : bool) = false;
+  (mut(i) : usize) = usize(1);
+  (mut(emitted_any) : bool) = false;
   while(i < n, {
     match(
       args.get(i),
@@ -619,7 +619,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
           if(is_wildcard, {
             // The catch-all: a plain else. Arms after it are unreachable —
             // the evaluator rejects them (A2) — so this is the chain's tail.
-            els := indent.clone();
+            mut(els) := indent.clone();
             els_else := cond(
               emitted_any => String.from("else "),
               true => String.new()
@@ -628,7 +628,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
             els.push_str("{");
             em.emit_string_line(&els);
             _emit_case_body_no_break(&case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
-            cl := indent.clone();
+            mut(cl) := indent.clone();
             cl.push_str("}");
             em.emit_string_line(&cl);
             emitted_any = true;
@@ -639,8 +639,8 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
               .Some(cei) => match(
                 expr_info_primitive_pattern_values(&cei),
                 .Some(pvs) => if(pvs.len() > usize(0), {
-                  cond_code := String.new();
-                  (pi : usize) = usize(0);
+                  mut(cond_code) := String.new();
+                  (mut(pi) : usize) = usize(0);
                   while(pi < pvs.len(), {
                     match(
                       pvs.get(pi),
@@ -668,7 +668,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
                     pi = (pi + usize(1));
                   });
                   if(cond_code.len() > usize(0), {
-                    h := indent.clone();
+                    mut(h) := indent.clone();
                     h_cond := cond(
                       emitted_any => String.from("else if "),
                       true => String.from("if ")
@@ -679,7 +679,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
                     h.push_str(") {");
                     em.emit_string_line(&h);
                     _emit_case_body_no_break(&case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
-                    cl := indent.clone();
+                    mut(cl) := indent.clone();
                     cl.push_str("}");
                     em.emit_string_line(&cl);
                     emitted_any = true;
@@ -709,16 +709,16 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
   saved_inside_match := context.base.inside_match;
   context.base.inside_match = true;
   em := context.base.emitter;
-  body_indent := indent.clone();
+  mut(body_indent) := indent.clone();
   body_indent.push_str("  ");
-  hdr := indent.clone();
+  mut(hdr) := indent.clone();
   hdr.push_str("switch (");
   hdr.push_string(matched_value_code);
   hdr.push_str(") {");
   em.emit_string_line(&hdr);
   args := _args(expr);
   n := args.len();
-  (i : usize) = usize(1);
+  (mut(i) : usize) = usize(1);
   while(i < n, {
     match(
       args.get(i),
@@ -730,11 +730,11 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
         if(executed, {
           is_wildcard := (ast_expr_is_atom(&case_value) && (ast_expr_token(&case_value).value.* == "_"));
           if(is_wildcard, {
-            d := indent.clone();
+            mut(d) := indent.clone();
             d.push_str("default: {");
             em.emit_string_line(&d);
             _emit_case_body_and_break(&case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
-            cl := indent.clone();
+            mut(cl) := indent.clone();
             cl.push_str("}");
             em.emit_string_line(&cl);
           }, {
@@ -745,7 +745,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
                 expr_info_primitive_pattern_values(&cei),
                 .Some(pvs) => if(pvs.len() > usize(0), {
                   np := pvs.len();
-                  (pi : usize) = usize(0);
+                  (mut(pi) : usize) = usize(0);
                   while(pi < np, {
                     match(
                       pvs.get(pi),
@@ -754,7 +754,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
                         .Some(v) => match(
                           _c_literal_from_value(&v),
                           .Some(lit) => {
-                            cl := indent.clone();
+                            mut(cl) := indent.clone();
                             cl.push_str("case ");
                             cl.push_string(&lit);
                             cl.push_str(":");
@@ -778,7 +778,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
               // Fallback: literals from the flattened pattern expressions.
               flat := _flatten_or_pattern(&case_value);
               nf := flat.len();
-              (fi : usize) = usize(0);
+              (mut(fi) : usize) = usize(0);
               while(fi < nf, {
                 match(
                   flat.get(fi),
@@ -789,7 +789,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
                       .Some(v) => match(
                         _c_literal_from_value(&v),
                         .Some(lit) => {
-                          cl := indent.clone();
+                          mut(cl) := indent.clone();
                           cl.push_str("case ");
                           cl.push_string(&lit);
                           cl.push_str(":");
@@ -806,11 +806,11 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
                 fi = (fi + usize(1));
               });
             });
-            ob := indent.clone();
+            mut(ob) := indent.clone();
             ob.push_str("{");
             em.emit_string_line(&ob);
             _emit_case_body_and_break(&case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
-            cb := indent.clone();
+            mut(cb) := indent.clone();
             cb.push_str("}");
             em.emit_string_line(&cb);
           });
@@ -821,7 +821,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
     i = (i + usize(1));
   });
   context.base.inside_match = saved_inside_match;
-  close := indent.clone();
+  mut(close) := indent.clone();
   close.push_str("}");
   em.emit_string_line(&close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
@@ -955,15 +955,15 @@ _shadow_remove :: (fn(context : &FunctionGenerationContext, name : &String) -> u
 });
 _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, matched_value_code : &String, enum_type : &TypeValue, nullable_inner : &TypeValue, is_ptr : bool, temp_var_opt : &Option(String), is_unit : bool) -> String)({
   em := context.base.emitter;
-  body_indent := indent.clone();
+  mut(body_indent) := indent.clone();
   body_indent.push_str("  ");
   args := _args(expr);
   n := args.len();
   // Classify arms into null-case body and pointer-case (body + pattern).
-  (null_body : Option(AstExpr)) = Option(AstExpr).None;
-  (ptr_body : Option(AstExpr)) = Option(AstExpr).None;
-  (ptr_pattern : Option(AstExpr)) = Option(AstExpr).None;
-  (i : usize) = usize(1);
+  (mut(null_body) : Option(AstExpr)) = Option(AstExpr).None;
+  (mut(ptr_body) : Option(AstExpr)) = Option(AstExpr).None;
+  (mut(ptr_pattern) : Option(AstExpr)) = Option(AstExpr).None;
+  (mut(i) : usize) = usize(1);
   while(i < n, {
     match(
       args.get(i),
@@ -1015,7 +1015,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
   });
   // if (<*?>matched != NULL) { <bind payload> <body> } else { <null body> }
   star := if(is_ptr, String.from("*"), String.from(""));
-  hdr := indent.clone();
+  mut(hdr) := indent.clone();
   hdr.push_str("if (");
   hdr.push_string(&star);
   hdr.push_string(matched_value_code.clone());
@@ -1063,15 +1063,15 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
           if(context.sm_inline_lowering.is_some(), {
             _bind_pattern_name(context, body_indent.clone(), dvn.clone(), ast_expr_token(&dvar), matched_value_code.clone());
           }, if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
-            (smb_id : String) = String.new();
-            (smb_has : bool) = false;
+            (mut(smb_id) : String) = String.new();
+            (mut(smb_has) : bool) = false;
             // Env resolution found this binding: its id decides. A binding
             // whose id is not a state-machine variable is a local, and must
             // NOT fall through to the name scan, which would store into
             // another same-named variable's slot (the rule
             // `state_code_gen.yo` follows for await-carrying arms,
             // issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md).
-            (smb_env_resolved : bool) = false;
+            (mut(smb_env_resolved) : bool) = false;
             // Resolve by the PATTERN atom's own env (as `state_code_gen.yo`
             // does): the arm body's recorded env may predate the binding, and
             // a name lookup there finds an OUTER same-named variable.
@@ -1138,7 +1138,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                 ),
                 .None => sm_local_field_name(smb_id.clone())
               );
-              smb_store := body_indent.clone();
+              mut(smb_store) := body_indent.clone();
               smb_store.push_str("sm->");
               smb_store.push_string(smb_field.clone());
               smb_store.push_str(" = ");
@@ -1168,7 +1168,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
           temp_var_opt,
           .Some(tv) => {
             result := if(body_code.len() > usize(0), body_code.clone(), matched_value_code.clone());
-            line := body_indent.clone();
+            mut(line) := body_indent.clone();
             line.push_string(tv.clone());
             line.push_str(" = ");
             line.push_string(&result);
@@ -1176,14 +1176,14 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
             em.emit_string_line(&line);
           },
           .None => if(body_code.len() > usize(0), {
-            line := body_indent.clone();
+            mut(line) := body_indent.clone();
             line.push_string(body_code.clone());
             line.push_str(";");
             em.emit_string_line(&line);
           })
         ),
         if(body_code.len() > usize(0), {
-          line := body_indent.clone();
+          mut(line) := body_indent.clone();
           line.push_string(&body_code);
           line.push_str(";");
           em.emit_string_line(&line);
@@ -1203,7 +1203,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
     ),
     .None => ()
   );
-  mid := indent.clone();
+  mut(mid) := indent.clone();
   mid.push_str("} else {");
   em.emit_string_line(&mid);
   match(
@@ -1215,7 +1215,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
         match(
           temp_var_opt,
           .Some(tv) => {
-            line := body_indent.clone();
+            mut(line) := body_indent.clone();
             line.push_string(tv.clone());
             line.push_str(" = ");
             line.push_string(body_code.clone());
@@ -1223,14 +1223,14 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
             em.emit_string_line(&line);
           },
           .None => if(body_code.len() > usize(0), {
-            line := body_indent.clone();
+            mut(line) := body_indent.clone();
             line.push_string(body_code.clone());
             line.push_str(";");
             em.emit_string_line(&line);
           })
         ),
         if(body_code.len() > usize(0), {
-          line := body_indent.clone();
+          mut(line) := body_indent.clone();
           line.push_string(&body_code);
           line.push_str(";");
           em.emit_string_line(&line);
@@ -1239,7 +1239,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
     },
     .None => ()
   );
-  close := indent.clone();
+  mut(close) := indent.clone();
   close.push_str("}");
   em.emit_string_line(&close);
   // The match's own deferred drops (its scrutinee temp first) run after it,
@@ -1254,9 +1254,9 @@ _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &Func
   em := context.base.emitter;
   saved := context.base.inside_match;
   context.base.inside_match = true;
-  body_indent := indent.clone();
+  mut(body_indent) := indent.clone();
   body_indent.push_str("  ");
-  hdr := indent.clone();
+  mut(hdr) := indent.clone();
   hdr.push_str("switch (");
   hdr.push_string(deref_star);
   hdr.push_string(matched_value_code);
@@ -1264,7 +1264,7 @@ _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &Func
   em.emit_string_line(&hdr);
   args := _args(expr);
   n := args.len();
-  (i : usize) = usize(1);
+  (mut(i) : usize) = usize(1);
   while(i < n, {
     match(
       args.get(i),
@@ -1276,22 +1276,22 @@ _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &Func
             cargs.get(usize(1)),
             .Some(cb) => if(_case_executed(&cv, context), {
               if(ast_expr_is_atom(&cv) && (ast_expr_token(&cv).value.* == "_"), {
-                d := indent.clone();
+                mut(d) := indent.clone();
                 d.push_str("default: {");
                 em.emit_string_line(&d);
                 _emit_case_body_and_break(&cb, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
-                cl := indent.clone();
+                mut(cl) := indent.clone();
                 cl.push_str("}");
                 em.emit_string_line(&cl);
               }, if(ast_expr_is_fn_call_of(&cv, BF_DOT, Option(usize).Some(usize(1))), {
                 variant_tag := get_enum_variant_c_name(enum_type, _variant_name(&cv), &context.base);
-                h := indent.clone();
+                mut(h) := indent.clone();
                 h.push_str("case ");
                 h.push_string(&variant_tag);
                 h.push_str(": {");
                 em.emit_string_line(&h);
                 _emit_case_body_and_break(&cb, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
-                cl := indent.clone();
+                mut(cl) := indent.clone();
                 cl.push_str("}");
                 em.emit_string_line(&cl);
               }));
@@ -1306,7 +1306,7 @@ _gen_simple_enum_match :: (fn(expr : &AstExpr, indent : &String, context : &Func
     i = (i + usize(1));
   });
   context.base.inside_match = saved;
-  close := indent.clone();
+  mut(close) := indent.clone();
   close.push_str("}");
   em.emit_string_line(&close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
@@ -1321,7 +1321,7 @@ _remove_arm_shadows :: (fn(params : &ArrayList(AstExpr), context : &FunctionGene
   is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None), .None => false));
   dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(&p0), .None => params.clone()), params.clone());
   np := dparams.len();
-  (pi : usize) = usize(0);
+  (mut(pi) : usize) = usize(0);
   while(pi < np, {
     match(
       dparams.get(pi),
@@ -1354,9 +1354,9 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
       // the `.data.<variant>` field name is valid.
       cvariant := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
       // Find the variant index.
-      (vi : usize) = vns.len();
+      (mut(vi) : usize) = vns.len();
       nv := vns.len();
-      (vk : usize) = usize(0);
+      (mut(vk) : usize) = usize(0);
       while(vk < nv, {
         match(
           vns.get(vk),
@@ -1379,9 +1379,9 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
         is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None), .None => false));
         dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(&p0), .None => params.clone()), params.clone());
         // Labeled if any param is a `:`(2) pair.
-        (has_labeled : bool) = false;
+        (mut(has_labeled) : bool) = false;
         np := dparams.len();
-        (pk : usize) = usize(0);
+        (mut(pk) : usize) = usize(0);
         while(pk < np, {
           match(
             dparams.get(pk),
@@ -1393,7 +1393,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
           pk = (pk + usize(1));
         });
         if(has_labeled, {
-          (pi : usize) = usize(0);
+          (mut(pi) : usize) = usize(0);
           while(pi < np, {
             match(
               dparams.get(pi),
@@ -1404,9 +1404,9 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                   pargs.get(usize(1)),
                   .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value.* == "_") && (label.len() > usize(0)), {
                     // Find the field index for this label.
-                    (fi : usize) = labels.len();
+                    (mut(fi) : usize) = labels.len();
                     nl := labels.len();
-                    (lk : usize) = usize(0);
+                    (mut(lk) : usize) = usize(0);
                     while(lk < nl, {
                       match(
                         labels.get(lk),
@@ -1420,7 +1420,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                     if(fi < labels.len(), {
                       ftype := match(types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                       if(!is_unit_type(&ftype), {
-                        init := matched_value_code.clone();
+                        mut(init) := matched_value_code.clone();
                         init.push_str(access);
                         init.push_str("data.");
                         init.push_string(c_variant_member_name(cvariant.clone()));
@@ -1447,7 +1447,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
         }, {
           // Positional.
           limit := if(np < labels.len(), np, labels.len());
-          (fi : usize) = usize(0);
+          (mut(fi) : usize) = usize(0);
           while(fi < limit, {
             match(
               dparams.get(fi),
@@ -1455,7 +1455,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                 field_label := match(labels.get_cloned(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if(!is_unit_type(&ftype), {
-                  init := matched_value_code.clone();
+                  mut(init) := matched_value_code.clone();
                   init.push_str(access);
                   init.push_str("data.");
                   init.push_string(c_variant_member_name(cvariant.clone()));
@@ -1503,19 +1503,19 @@ _emit_variant_arm_body :: (
 )({
   em := context.base.emitter;
   if(guards.len() > usize(0), {
-    g := body_indent.clone();
+    mut(g) := body_indent.clone();
     g.push_str("if (");
     g.push_string(guards);
     g.push_str(") {");
     em.emit_string_line(&g);
   });
   arm_indent := if(guards.len() > usize(0), {
-    gi := body_indent.clone();
+    mut(gi) := body_indent.clone();
     gi.push_str("  ");
     gi
   }, indent.clone());
   arm_body_indent := if(guards.len() > usize(0), {
-    gi := body_indent.clone();
+    mut(gi) := body_indent.clone();
     gi.push_str("  ");
     gi.push_str("  ");
     gi
@@ -1526,7 +1526,7 @@ _emit_variant_arm_body :: (
   _emit_case_body_and_break(cb0, arm_indent.clone(), arm_body_indent.clone(), temp_var_opt, is_unit, context);
   _remove_arm_shadows(params, context);
   if(guards.len() > usize(0), {
-    gc := body_indent.clone();
+    mut(gc) := body_indent.clone();
     gc.push_str("}");
     em.emit_string_line(&gc);
   });
@@ -1546,20 +1546,20 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
   em := context.base.emitter;
   saved := context.base.inside_match;
   context.base.inside_match = true;
-  body_indent := indent.clone();
+  mut(body_indent) := indent.clone();
   body_indent.push_str("  ");
   access := if(is_ref_or_ptr, "->", ".");
   tag_expr := if(is_ref_or_ptr, {
-    t := matched_value_code.clone();
+    mut(t) := matched_value_code.clone();
     t.push_str("->tag");
     t
   }, {
-    t := String.from("(");
+    mut(t) := String.from("(");
     t.push_string(matched_value_code.clone());
     t.push_str(").tag");
     t
   });
-  hdr := indent.clone();
+  mut(hdr) := indent.clone();
   hdr.push_str("switch (");
   hdr.push_string(&tag_expr);
   hdr.push_str(") {");
@@ -1589,7 +1589,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
               (si : usize) = usize(0);
               while((si < group_variant_names.len()) && found_at.is_none(), {
                 match(
-                  group_variant_names.get(si),
+                  group_variant_names.get_cloned(si),
                   .Some(gv) => if(gv == vname, {
                     found_at = Option(usize).Some(si);
                   }),
@@ -1657,7 +1657,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                   (si2 : usize) = usize(0);
                   while((si2 < group_variant_names.len()) && group_idx.is_none(), {
                     match(
-                      group_variant_names.get(si2),
+                      group_variant_names.get_cloned(si2),
                       .Some(gv) => if(gv == variant_name, {
                         group_idx = Option(usize).Some(si2);
                       }),
@@ -1669,7 +1669,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                     group_idx,
                     .Some(g) => {
                       match(
-                        group_arm_indices.get(g),
+                        group_arm_indices.get_cloned(g),
                         .Some(arm_list) => {
                           first_idx := match(arm_list.get(usize(0)), .Some(x) => x, .None => usize(0));
                           if(first_idx == i, {
@@ -2384,7 +2384,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
           (si : usize) = usize(0);
           while(si < shadows.len(), {
             match(
-              shadows.get(si),
+              shadows.get_cloned(si),
               .Some(sn) => {
                 _shadow_remove(context, &sn);
               },
@@ -2457,7 +2457,7 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &F
         em.emit_string_line(&trap);
       });
       match(
-        ei.variable_name,
+        &ei.variable_name,
         .Some(tv) => if(!is_unit_type(&ei.ty) && (code == tv), {
           em := context.base.emitter;
           em.mark_declared_in_scope(&tv);
@@ -2478,7 +2478,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   if(
     !is_unit,
     match(
-      temp_var_opt,
+      &temp_var_opt,
       .Some(tv) => {
         d := indent.clone();
         d.push_string(get_type_string(&value_type, &context.base));
@@ -2522,7 +2522,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   is_mut_match := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
   (subject_is_own_temp : bool) = false;
   match(
-    subject_ei.variable_name,
+    &subject_ei.variable_name,
     .Some(svn) => {
       subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn, Option(Environment).Some(subject_ei.env));
       if(!is_mut_match && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
