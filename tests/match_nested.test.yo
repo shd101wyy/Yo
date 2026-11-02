@@ -41,9 +41,9 @@ test("three levels deep, with a literal at the bottom", {
     match(
       d,
       .Wrap(.Ok(.A(0))) => i32(100),
-      .Wrap(.Ok(.A(x))) => x,
+      .Wrap(.Ok(.A(x))) => x.*,
       .Wrap(.Ok(.B)) => i32(-1),
-      .Wrap(.Err(c)) => (c + i32(1000)),
+      .Wrap(.Err(c)) => (c.* + i32(1000)),
       .Flat => i32(0)
     )
   );
@@ -100,8 +100,8 @@ test("reference-semantics payloads bound through a nested pattern", {
   total :: (fn(p : &Pair) -> usize)(
     match(
       p,
-      .Two(.Some(s), n) => (s.len() + usize(n)),
-      .Two(.None, n) => usize(n),
+      .Two(.Some(s), n) => (s.len() + usize(n.*)),
+      .Two(.None, n) => usize(n.*),
       .Zero => usize(0)
     )
   );
@@ -114,8 +114,8 @@ test("a nested variant pattern through an Rc payload", {
   f :: (fn(l : &List) -> i32)(
     match(
       l,
-      .Cons(1, Rc(.Cons(n, _))) => n,
-      .Cons(h, _) => h,
+      .Cons(1, Rc(.Cons(n, _))) => n.*,
+      .Cons(h, _) => h.*,
       .Nil => i32(0)
     )
   );
@@ -127,15 +127,15 @@ test("two levels through Rc payloads", {
   sum_boxed :: (fn(b : &Rc(List)) -> i32)(
     match(
       b,
-      Rc(.Cons(h, _)) => h,
+      Rc(.Cons(h, _)) => h.*,
       Rc(.Nil) => i32(-2)
     )
   );
   g :: (fn(l : &List) -> i32)(
     match(
       l,
-      .Cons(1, Rc(.Cons(2, Rc(.Cons(n, _))))) => n,
-      .Cons(_, t) => sum_boxed(&t),
+      .Cons(1, Rc(.Cons(2, Rc(.Cons(n, _))))) => n.*,
+      .Cons(_, t) => sum_boxed(&t.*),
       .Nil => i32(-1)
     )
   );
@@ -162,7 +162,7 @@ test("an or-pattern through an Rc payload", {
     match(
       l,
       (.Nil | .Cons(0, Rc(.Nil))) => i32(0),
-      .Cons(h, _) => h,
+      .Cons(h, _) => h.*,
       _ => i32(-1)
     )
   );
@@ -173,7 +173,7 @@ test("an or-pattern through an Rc payload", {
 test("whole-value binding of the Rc position still binds the Rc", {
   inner_kind :: (fn(b : &Rc(List)) -> i32)(
     match(
-      b.*,
+      b.*.*,
       (rest := .Nil) => i32(100),
       _ => i32(101)
     )
@@ -181,7 +181,7 @@ test("whole-value binding of the Rc position still binds the Rc", {
   m :: (fn(l : &List) -> i32)(
     match(
       l,
-      .Cons(_, t) => inner_kind(&t),
+      .Cons(_, t) => inner_kind(&t.*),
       .Nil => i32(0)
     )
   );
@@ -193,7 +193,7 @@ test("an Rc scrutinee takes nested patterns directly", {
   n :: (fn(b : &Rc(List)) -> i32)(
     match(
       b,
-      Rc(.Cons(h, _)) => h,
+      Rc(.Cons(h, _)) => h.*,
       Rc(.Nil) => i32(-1)
     )
   );
@@ -207,10 +207,10 @@ test("Rc(p) looks through an Rc child at any depth", {
   f :: (fn(t : &Tree) -> i32)(
     match(
       t,
-      .Node(Rc(.Leaf(a)), Rc(.Leaf(b))) => (a + b),
-      .Node(Rc(.Node(Rc(.Leaf(a)), _)), _) => (a * i32(10)),
+      .Node(Rc(.Leaf(a)), Rc(.Leaf(b))) => (a.* + b.*),
+      .Node(Rc(.Node(Rc(.Leaf(a)), _)), _) => (a.* * i32(10)),
       .Node(_, _) => i32(-1),
-      .Leaf(n) => n
+      .Leaf(n) => n.*
     )
   );
   assert(f(Tree.Node(Rc.new(Tree.Leaf(1)), Rc.new(Tree.Leaf(2)))) == i32(3));
@@ -228,13 +228,13 @@ test("a match on an Rc handle with plain variant arms switches on the payload", 
     match(
       s,
       Rc(.Dot) => i32(1),
-      Rc(.Line(n)) => n,
-      Rc(.Pair(a, b)) => (recur(&a) + recur(&b))
+      Rc(.Line(n)) => n.*,
+      Rc(.Pair(a, b)) => (recur(&a.*) + recur(&b.*))
     )
   );
-  only_line :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(n)) => n, _ => i32(0)));
-  with_literal :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(0)) => i32(-1), Rc(.Line(n)) => n, _ => i32(0)));
-  with_guard :: (fn(s : &Rc(Shape)) -> i32)(match(s, (Rc(.Line(n)) && (n > i32(5))) => i32(5), Rc(.Line(n)) => n, _ => i32(0)));
+  only_line :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(n)) => n.*, _ => i32(0)));
+  with_literal :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(0)) => i32(-1), Rc(.Line(n)) => n.*, _ => i32(0)));
+  with_guard :: (fn(s : &Rc(Shape)) -> i32)(match(s, (Rc(.Line(n)) && (n.* > i32(5))) => i32(5), Rc(.Line(n)) => n.*, _ => i32(0)));
   dot := Rc.new(Shape.Dot);
   line := Rc.new(Shape.Line(len : i32(7)));
   zero := Rc.new(Shape.Line(len : i32(0)));
@@ -286,7 +286,7 @@ test("Rc(p) at the scrutinee covers it with no catch-all", {
   g :: (fn(b : &Rc(Tree)) -> i32)(
     match(
       b,
-      Rc(.Leaf(n)) => n,
+      Rc(.Leaf(n)) => n.*,
       Rc(.Node(_, _)) => i32(-1)
     )
   );
@@ -310,7 +310,7 @@ test("Rc(name) binds the payload, a borrow of the shared cell", {
   k :: (fn(t : &Tree) -> i32)(
     match(
       t,
-      .Node(Rc(left), _) => match(left, .Leaf(n) => n, .Node(_, _) => i32(-2)),
+      .Node(Rc(left), _) => match(left, .Leaf(n) => n.*, .Node(_, _) => i32(-2)),
       .Leaf(_) => i32(0)
     )
   );
@@ -321,8 +321,8 @@ test("(name := Rc(p)) binds the cell, Rc((name := p)) the payload", {
   m :: (fn(t : &Tree) -> i32)(
     match(
       t,
-      .Node(cell := Rc(.Leaf(n)), _) => (n + i32(ref_count(cell))),
-      .Node(_, Rc(inner := .Leaf(n))) => match(inner, .Leaf(x) => (x + n), .Node(_, _) => i32(-3)),
+      .Node(cell := Rc(.Leaf(n)), _) => (n.* + i32(ref_count(cell.*))),
+      .Node(_, Rc(inner := .Leaf(n))) => match(inner, .Leaf(x) => (x.* + n.*), .Node(_, _) => i32(-3)),
       _ => i32(0)
     )
   );
@@ -337,7 +337,7 @@ test("Rc(p) with a literal and an or-pattern inside", {
       c,
       .Value(Rc(1 | 2)) => i32(1),
       .Value(Rc(42)) => i32(42),
-      .Value(Rc(n)) => (n * i32(2)),
+      .Value(Rc(n)) => (n.* * i32(2)),
       .Empty => i32(0)
     )
   );
@@ -351,7 +351,7 @@ test("Arc(p) looks through an Arc", {
   r :: (fn(a : &Arc(Signal)) -> i32)(
     match(
       a,
-      Arc(.Level(v)) => v,
+      Arc(.Level(v)) => v.*,
       Arc(.Off) => i32(-1)
     )
   );

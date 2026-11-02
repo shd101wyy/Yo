@@ -83,9 +83,9 @@ comptime_expect_error({
 // Positive runtime guardrail: safe code with no pointer surface
 // compiles and runs cleanly.
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 test("safe code uses inout, no raw pointers needed", {
   mut(x) := i32(1);

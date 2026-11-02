@@ -247,13 +247,13 @@ MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
 impl(
   i32,
   MyEq(i32)(
-    my_eq : ((self, other) -> (self == other))
+    my_eq : ((self, other) -> (self.* == other.*))
   )
 );
 impl(
   bool,
   MyEq(bool)(
-    my_eq : ((self, other) -> (self == other))
+    my_eq : ((self, other) -> (self.* == other.*))
   )
 );
 // Register derive rule for MyEq: field-wise equality (structs and fieldless enums)
@@ -308,7 +308,7 @@ __derive_uses_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, compt
   ctx.make_impl(
     quote(
       UsesEq(
-        uses_eq : ((self, other) -> (self == other))
+        uses_eq : ((self, other) -> (self.* == other.*))
       )
     )
   )

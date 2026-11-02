@@ -4,8 +4,8 @@
 // call site used to keep `y` at its pre-call term and prove it.
 pragma(Pragma.Verify);
 
-bump :: (fn(x : &mut i32, requires(x < i32(100)), ensures(true)) -> unit)({
-  x = (x + i32(1));
+bump :: (fn(x : &mut i32, requires(x.* < i32(100)), ensures(true)) -> unit)({
+  x.* = (x.* + i32(1));
 });
 
 after_bump :: (fn(n : i32, requires(n == i32(0)), ensures(r == i32(0))) -> (r : i32))({

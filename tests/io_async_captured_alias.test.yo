@@ -103,7 +103,7 @@ test("a captured ref-struct alias is retained by the task and released once", {
 
 // Controls: shapes that always worked must keep working.
 alias_of_param :: (fn(data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-  sb := data;
+  sb := data.*;
   io.async(e => {
     n := e.io.await(give(sb.ptr().unwrap(), sb.len(), e.io), e);
     return(n);

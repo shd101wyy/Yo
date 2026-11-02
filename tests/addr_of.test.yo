@@ -10,7 +10,7 @@ pragma(Pragma.AllowUnsafe);
 _ao_write :: (fn(p : *i32, v : i32) -> unit)({
   p.* = v;
 });
-_ao_id :: (fn(generic(T : Type), x : &T) -> T)(x);
+_ao_id :: (fn(generic(T : Type), x : &T) -> T)(x.*);
 _ao_own :: (fn(generic(T : Type), x : T) -> T)(x);
 _ao_len :: (fn(s : &String) -> usize)(s.len());
 _ao_take :: (fn(s : String) -> usize)(s.len());
@@ -108,22 +108,22 @@ _AoHandle :: ref(struct(n : usize));
 test("addr_of of a &T parameter is E0921: small Copy T, large T, self, generic T, a field", {
   s := _AoSmall(n : usize(1));
   comptime_expect_error({
-    _ao_small_where :: (fn(x : &_AoSmall) -> *_AoSmall)(addr_of(x));
+    _ao_small_where :: (fn(x : &_AoSmall) -> *_AoSmall)(addr_of(x.*));
     _ao_small_where(&s);
   }, "a `&T` parameter has no stable address");
   big := _AoBig(a : usize(1), b : usize(2), c : usize(3), d : usize(4), e : usize(5), f : usize(6), g : usize(7), h : usize(8));
   comptime_expect_error({
-    _ao_big_where :: (fn(x : &_AoBig) -> *_AoBig)(addr_of(x));
+    _ao_big_where :: (fn(x : &_AoBig) -> *_AoBig)(addr_of(x.*));
     _ao_big_where(&big);
   }, "a `&T` parameter has no stable address");
   comptime_expect_error({
     _AoSelf :: struct(n : usize);
-    impl(_AoSelf, where_is : (fn(self : &Self) -> *Self)(addr_of(self)));
+    impl(_AoSelf, where_is : (fn(self : &Self) -> *Self)(addr_of(self.*)));
     o := _AoSelf(n : usize(1));
     o.where_is();
   }, "a `&T` parameter has no stable address");
   comptime_expect_error({
-    _ao_gen_where :: (fn(generic(T : Type), x : &T) -> *T)(addr_of(x));
+    _ao_gen_where :: (fn(generic(T : Type), x : &T) -> *T)(addr_of(x.*));
     _ao_gen_where(&s);
   }, "a `&T` parameter has no stable address");
   comptime_expect_error({
@@ -132,7 +132,7 @@ test("addr_of of a &T parameter is E0921: small Copy T, large T, self, generic T
   }, "takes the address of a place inside `x`");
   comptime_expect_error({
     _ao_capture_where :: (fn(x : &_AoSmall) -> *_AoSmall)({
-      (f : Impl(Fn() -> *_AoSmall)) = (() => addr_of(x));
+      (f : Impl(Fn() -> *_AoSmall)) = (() => addr_of(x.*));
       f()
     });
     _ao_capture_where(&s);
@@ -157,17 +157,17 @@ test("E0921 also covers a tuple element, a fixed-array element, and an async bod
   s := _AoSmall(n : usize(7));
   comptime_expect_error({
     _ao_async_where :: (fn(x : &_AoSmall, io : Io) -> Impl(Future(*_AoSmall, Io)))(
-      io.async((e : Io) => addr_of(x))
+      io.async((e : Io) => addr_of(x.*))
     );
     io.await(_ao_async_where(&s, io), io);
   }, "a `&T` parameter has no stable address");
 });
 _ao_ptr_param :: (fn(x : *_AoBig) -> *_AoBig)(x);
-_ao_mut_param :: (fn(x : &mut _AoBig) -> *_AoBig)(addr_of(x));
+_ao_mut_param :: (fn(x : &mut _AoBig) -> *_AoBig)(addr_of(x.*));
 _ao_mut_field :: (fn(x : &mut _AoBig) -> *usize)(addr_of(x.c));
 _ao_handle_field :: (fn(x : &_AoHandle) -> *usize)(addr_of(x.n));
 _ao_local :: (fn(x : &_AoSmall) -> usize)({
-  (copy : _AoSmall) = x;
+  (copy : _AoSmall) = x.*;
   p := addr_of(copy);
   p.*.n
 });

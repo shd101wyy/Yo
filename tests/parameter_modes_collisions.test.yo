@@ -53,8 +53,8 @@ _pmc_asm_bump :: (fn(n : &mut i64) -> unit)({
       n = asm("add {0}, {0}, #1", inout(reg, v));
     },
     (arch == Arch.X86_64) => {
-      (v : i64) = n;
-      n = asm("add {0}, 1", inout(reg, v), asm_options(intel_syntax));
+      (v : i64) = n.*;
+      n.* = asm("add {0}, 1", inout(reg, v), asm_options(intel_syntax));
     },
     true => {
       n = (n + i64(1));

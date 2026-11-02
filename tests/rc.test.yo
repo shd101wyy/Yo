@@ -559,7 +559,7 @@ test("a moved-out local is dropped on a return hidden in an if or match arm", {
 test("Inline ref-enum unit-variant argument is released by the caller", {
   Val :: ref(enum(UnitVal, IntVal(v : i32)));
   Held :: struct(v : Val);
-  keep :: (fn(x : &Val) -> Held)(Held(v : x));
+  keep :: (fn(x : &Val) -> Held)(Held(v : x.*));
   mk_unit :: (fn() -> Held)(keep(Val.UnitVal));
   mk_payload :: (fn() -> Held)(keep(Val.IntVal(v : i32(7))));
   u := mk_unit();
@@ -716,7 +716,7 @@ alias_poke_loop :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> unit)({
     w.b = Rc.new(i32(100) + i);
     i = (i + i32(1));
   });
-  assert(borrowed.* == i32(42), "borrowed projection reads the pre-mutation value");
+  assert(borrowed.*.* == i32(42), "borrowed projection reads the pre-mutation value");
 });
 test("borrowed projection argument survives aliased container mutation", {
   w := AliasWrap(b : Rc.new(i32(42)));
@@ -747,10 +747,10 @@ test("borrowed projection argument survives aliased container mutation", {
 // exercises the mark-time skip; the generic one exercises the
 // post-specialization unmark.
 stage1_read_borrow :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> usize)(
-  ref_count(borrowed)
+  ref_count(borrowed.*)
 );
 stage1_rc_of :: (fn(generic(T : Type), borrowed : &T) -> usize)(
-  ref_count(borrowed)
+  ref_count(borrowed.*)
 );
 test("read-only callee elides the Stage-0 borrowed-projection dup", {
   w := AliasWrap(b : Rc.new(i32(42)));
@@ -781,12 +781,12 @@ stage1_poke :: (fn(w : &AliasWrap, seed : i32) -> i32)({
 stage1_sneaky :: (fn(w : &AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
   (mut(t) : i32) = i32(0);
   t = stage1_poke(w, seed);
-  borrowed.* + (t - t)
+  borrowed.*.* + (t - t)
 });
 // Control: the same mutation behind a `:=` declaration.
 stage1_honest :: (fn(w : &AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
   t := stage1_poke(w, seed);
-  borrowed.* + (t - t)
+  borrowed.*.* + (t - t)
 });
 // Regression (issues/fixed/array-of-rc-constructor-emits-invalid-c.md): the
 // `Array(T, N)(...)` CONSTRUCTOR used to manufacture UnknownValue placeholders
@@ -828,7 +828,7 @@ stage0_poke_index :: (fn(h : &Stage0Arr, borrowed : &Rc(i32)) -> i32)({
     h.a(0) = Rc.new(i32(100) + i);
     i = (i + i32(1));
   });
-  borrowed.*
+  borrowed.*.*
 });
 test("an INDEXED borrowed argument is protected like a field projection", {
   h := Stage0Arr(a : Array(Rc(i32), 2)(Rc.new(i32(42)), Rc.new(i32(7))));
@@ -858,7 +858,7 @@ test("an INDEXED borrowed argument is protected like a field projection", {
 // rule still lists it, documented in mutation-summary.ts.
 stage1_drop_owned :: (fn(sink(h) : Rc(i32), borrowed : &Rc(i32)) -> usize)({
   ___drop(h);
-  ref_count(borrowed)
+  ref_count(borrowed.*)
 });
 // The mutation happens only on the BACK EDGE of a mutual recursion, so the
 // walk meets the cycle guard before it ever reaches the assignment.
@@ -867,7 +867,7 @@ impl(
   Stage1Rec,
   even : (fn(w : &AliasWrap, borrowed : &Rc(i32), n : i32) -> i32)(
     cond(
-      (n == i32(0)) => borrowed.*,
+      (n == i32(0)) => borrowed.*.*,
       true => Stage1Rec.odd(w, borrowed, n - i32(1))
     )
   ),
@@ -884,7 +884,7 @@ stage1_closure :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> i32)({
     i32(0)
   });
   z := f(w);
-  borrowed.* + z
+  borrowed.*.* + z
 });
 // The mutation sits in a runtime-selected cond arm, then a match arm — the
 // walk must not let arm-skipping (`caseExecuted`) hide a live branch.
@@ -896,7 +896,7 @@ stage1_cond_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), go : bool) -> i32)({
     },
     true => i32(0)
   );
-  borrowed.*
+  borrowed.*.*
 });
 stage1_match_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), o : Option(i32)) -> i32)({
   match(
@@ -907,7 +907,7 @@ stage1_match_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), o : Option(i32)) ->
     },
     .None => ()
   );
-  borrowed.*
+  borrowed.*.*
 });
 // Transitivity: the mutation is three calls deep.
 stage1_deep3 :: (fn(w : &AliasWrap) -> unit)({
@@ -918,7 +918,7 @@ stage1_deep2 :: (fn(w : &AliasWrap) -> unit)(
 );
 stage1_deep1 :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> i32)({
   stage1_deep2(w);
-  borrowed.*
+  borrowed.*.*
 });
 // Over-conservatism guard: a callee whose only "effect" is a benign extern
 // (printf takes no callback and is not the runtime/allocator family) must
@@ -926,7 +926,7 @@ stage1_deep1 :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> i32)({
 // extern rule has become too broad and Stage 1 is losing its benefit.
 stage1_benign_extern :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> usize)({
   unsafe(printf(""));
-  ref_count(borrowed)
+  ref_count(borrowed.*)
 });
 test("mutation inside a runtime cond arm keeps the borrow alive", {
   w := AliasWrap(b : Rc.new(i32(42)));
@@ -1213,11 +1213,11 @@ impl(
   _LendHandle,
   /// Replace the caller's handle with a new object.
   replace_with : (fn(self : &mut Self, tag : i32) -> unit)({
-    self = _LendHandle(tag : tag);
+    self.* = _LendHandle(tag : tag);
   })
 );
 _lend_replace :: (fn(h : &mut _LendHandle, tag : i32) -> unit)({
-  h = _LendHandle(tag : tag);
+  h.* = _LendHandle(tag : tag);
 });
 test("an alias lent &mut to a call that replaces it leaves the base its object", {
   before := g_lend_dropped_tags;
@@ -1503,8 +1503,8 @@ impl(
 );
 at_read :: (fn(a : &ArgTemp) -> i32)(a.n);
 at_sink :: (fn(sink(a) : ArgTemp) -> i32)(a.n);
-at_pick_match :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(match(flag, true => ArgTemp(n : i32(1)), false => keep)));
-at_pick_cond :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(cond(flag => ArgTemp(n : i32(2)), true => keep)));
+at_pick_match :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(match(flag, true => ArgTemp(n : i32(1)), false => keep.*)));
+at_pick_cond :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(cond(flag => ArgTemp(n : i32(2)), true => keep.*)));
 test("a match passed as a call argument releases its fresh result", {
   before := g_at_disposed;
   flag := (before >= i32(0));
@@ -1578,7 +1578,7 @@ test("a block result that is not moved is released once", {
 at_block_of_param :: (fn(keep : &ArgTemp) -> i32)(
   at_read({
     _z := i32(0);
-    keep
+    keep.*
   })
 );
 test("a block that yields an outer local or is bound does not over-release", {
@@ -1729,7 +1729,7 @@ test("a nested match argument and a match moved into an own parameter", {
 // canary: the caller's value must survive and be disposed exactly once.
 at_ret_nested :: (fn(flag : bool, keep : &Option(ArgTemp)) -> i32)({
   if(flag, {
-    v := at_read(match(keep, .Some(p) => p, .None => ArgTemp(n : i32(50))));
+    v := at_read(match(keep, .Some(p) => p.*, .None => ArgTemp(n : i32(50))));
     return(v);
   });
   i32(-1)
@@ -1763,12 +1763,12 @@ test("a match or cond call argument is released on an explicit return", {
 // (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
 FwbNamed :: struct(s : String, n : i32);
 fwb_rename :: (fn(p : &FwbNamed) -> FwbNamed)({
-  mut(q) := p;
+  mut(q) := p.*;
   q.s = String.from("renamed-string-long-enough-for-the-heap");
   q
 });
 fwb_scratch :: (fn(p : &FwbNamed) -> i32)({
-  mut(q) := p;
+  mut(q) := p.*;
   q.n = (q.n + i32(1));
   q.n
 });
@@ -1858,7 +1858,7 @@ _OwnMWrap :: struct(m : _OwnM, n : i32);
 _OwnMOuter :: struct(w : _OwnMWrap);
 _own_m_plain :: (fn(sink(b) : _OwnM) -> _OwnMHolder)(_OwnMHolder(b : b));
 _own_m_param_field :: (fn(w : &_OwnMWrap) -> _OwnMHolder)(_OwnMHolder.make(w.m));
-_own_m_param :: (fn(m : &_OwnM) -> _OwnMHolder)(_OwnMHolder.make(m));
+_own_m_param :: (fn(m : &_OwnM) -> _OwnMHolder)(_OwnMHolder.make(m.*));
 _own_m_nested_field :: (fn(o : &_OwnMOuter) -> _OwnMHolder)(_OwnMHolder.make(o.w.m));
 _own_m_plain_field :: (fn(w : &_OwnMWrap) -> _OwnMHolder)(_own_m_plain(w.m));
 test("Type.method with an own parameter retains a borrowed parameter's field", {
@@ -2041,7 +2041,7 @@ impl(
 impl(_NtOpt, from_field : (fn(self : &mut Self) -> Self)(Self(b : self.b)));
 impl(_NtW, from_field : (fn(self : &mut Self) -> Self)(Self(v : self.v)));
 impl(_NtPair, from_field : (fn(self : &mut Self) -> Self)(Self(p : self.p)));
-_nt_from_param :: (fn(b : &_NtBox) -> _NtV)(_NtV(b : b));
+_nt_from_param :: (fn(b : &_NtBox) -> _NtV)(_NtV(b : b.*));
 _nt_from_fresh :: (fn(tag : i32) -> _NtV)({
   b := _NtBox(tag : tag);
   _NtV(b : b)
@@ -2225,8 +2225,8 @@ UBoxTree :: enum(
 ubox_sum :: (fn(t : &UBoxTree) -> i32)(
   match(
     t,
-    .Leaf(v) => v,
-    .Node(l, r) => (ubox_sum(&l.*) + ubox_sum(&r.*))
+    .Leaf(v) => v.*,
+    .Node(l, r) => (ubox_sum(&l.*.*) + ubox_sum(&r.*.*))
   )
 );
 // Deep clone for the tree: each `Box` is cloned through its payload.
@@ -2236,7 +2236,7 @@ impl(
     clone : (fn(self : &Self) -> Self)(
       match(
         self,
-        .Leaf(v) => UBoxTree.Leaf(v),
+        .Leaf(v) => UBoxTree.Leaf(v.*),
         .Node(l, r) => UBoxTree.Node(Box.clone(l), Box.clone(r))
       )
     )
@@ -2266,7 +2266,7 @@ test("unique Box: a tree copied with clone and edited on one side", {
   match(
     &mut u,
     .Node(l, _) => {
-      l.* = UBoxTree.Leaf(i32(40));
+      l.*.* = UBoxTree.Leaf(i32(40));
     },
     .Leaf(_) => ()
   );
@@ -2387,10 +2387,10 @@ test("unique Box: Box(p) names the cell a pattern looks through", {
   f :: (fn(t : &UBoxTree) -> i32)(
     match(
       t,
-      .Node(Box(.Leaf(a)), Box(.Leaf(b))) => (a + b),
-      .Node(Box(.Node(Box(.Leaf(a)), _)), _) => (a * i32(10)),
+      .Node(Box(.Leaf(a)), Box(.Leaf(b))) => (a.* + b.*),
+      .Node(Box(.Node(Box(.Leaf(a)), _)), _) => (a.* * i32(10)),
       .Node(_, _) => i32(-1),
-      .Leaf(v) => v
+      .Leaf(v) => v.*
     )
   );
   assert(f(UBoxTree.Node(Box.new(UBoxTree.Leaf(1)), Box.new(UBoxTree.Leaf(2)))) == i32(3));
@@ -2431,7 +2431,7 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
   match(
     &mut f,
     .A(b) => {
-      b.* = i32(7);
+      b.*.* = i32(7);
     },
     .B => ()
   );
@@ -2507,7 +2507,7 @@ test("unique Box: a struct field of type Option(Box(T)) compiles and reads back"
   t := s.clone();
   match(
     &t.o,
-    .Some(b) => assert(b.* == String.from("hi"), "the String payload through the field"),
+    .Some(b) => assert(b.*.* == String.from("hi"), "the String payload through the field"),
     .None => assert(false, "unreachable")
   );
   p := UBoxOptPoint(o : .Some(Box.new(UBoxPoint(x : i32(1), y : i32(2)))), n : i32(3));
@@ -2616,7 +2616,7 @@ _consume_param :: (fn(b : _ConsumeBox) -> unit)({
   consume(b);
 });
 _consume_borrow :: (fn(b : &_ConsumeBox) -> unit)({
-  consume(b);
+  consume(b.*);
 });
 test("consume of an owned local releases it at the consume", {
   before := g_consume_disposed;
@@ -2713,15 +2713,15 @@ test("an early return after or before a consume releases the local once", {
 _RoNode :: ref(struct(n : i32));
 _RoShared :: struct(n : i32, items : ArrayList(i32), node : _RoNode);
 _ro_bump :: (fn(x : &mut i32) -> unit)({
-  x = (x + i32(1));
+  x.* = (x.* + i32(1));
 });
-_ro_peek :: (fn(x : &mut i32) -> i32)(x);
-_ro_read :: (fn(x : &i32) -> i32)(x);
+_ro_peek :: (fn(x : &mut i32) -> i32)(x.*);
+_ro_read :: (fn(x : &i32) -> i32)(x.*);
 _ro_run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 _ro_make :: (fn() -> Rc(_RoShared))(Rc.new(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : _RoNode(n : i32(2)))));
 _RoHolder :: struct(h : Rc(_RoShared));
 _ro_set_gen :: (fn(generic(T : Type), dst : &mut T, v : T) -> unit)({
-  dst = v;
+  dst.* = v;
 });
 test("a write through an Rc handle is E0919, naming the doors", {
   h := _ro_make();
@@ -2904,20 +2904,20 @@ _CondCtBox :: ref(struct(n : i32));
 _cond_ct_after_false :: (fn(q : &_CondCtBox) -> _CondCtBox)(
   cond(
     false => q,
-    true => q
+    true => q.*
   )
 );
-_cond_ct_only_true :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => q));
+_cond_ct_only_true :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => q.*));
 _cond_ct_folded :: (fn(q : &_CondCtBox) -> _CondCtBox)(
   cond(
     (i32(1) == i32(2)) => q,
-    true => q
+    true => q.*
   )
 );
 _cond_ct_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
   cond(
-    k => q,
-    true => q
+    k => q.*,
+    true => q.*
   )
 );
 _cond_ct_deref :: (fn(p : *_CondCtBox) -> _CondCtBox)(
@@ -2965,14 +2965,14 @@ test("a compile-time-collapsed cond in a binding dups the local it names", {
 // More collapsed shapes: a nested collapse (in a runtime arm too), the `if`
 // spelling, a borrowed struct's field, a call argument, and an async body.
 _CondCtHolder :: struct(r : _CondCtBox, k : i32);
-_cond_ct_nested :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => cond(true => q)));
+_cond_ct_nested :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => cond(true => q.*)));
 _cond_ct_nested_in_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
   cond(
-    k => cond(true => q),
-    true => q
+    k => cond(true => q.*),
+    true => q.*
   )
 );
-_cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, q, q));
+_cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, q.*, q));
 _cond_ct_field :: (fn(h : &_CondCtHolder) -> _CondCtBox)(cond(true => h.r));
 _cond_ct_take :: (fn(b : _CondCtBox) -> i32)(b.n);
 _cond_ct_async :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
@@ -2980,7 +2980,7 @@ _cond_ct_async :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))
     io.await(yield(io), io);
     cond(
       false => q,
-      true => q
+      true => q.*
     )
   })
 );
@@ -3008,12 +3008,12 @@ test("a compile-time-collapsed cond dups through nesting, if, fields, arguments 
 // A collapsed cond whose arm is `return(x)` moves the returned value out
 // (issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md).
 _cond_ct_return_then_tail :: (fn(q : &_CondCtBox) -> _CondCtBox)({
-  cond(true => return(q));
+  cond(true => return(q.*));
   q
 });
 _cond_ct_return_before_runtime_arm :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)({
   cond(
-    true => return(q),
+    true => return(q.*),
     k => ()
   );
   q
@@ -3022,10 +3022,10 @@ _cond_ct_return_owned :: (fn(q : &_CondCtBox) -> _CondCtBox)({
   cond(true => return(_CondCtBox(n : (q.n + i32(1)))));
   q
 });
-_cond_ct_return_body :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => return(q)));
+_cond_ct_return_body :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => return(q.*)));
 _cond_ct_return_after_local :: (fn(q : &_CondCtBox) -> _CondCtBox)({
   x := _CondCtBox(n : i32(0));
-  cond(true => return(q));
+  cond(true => return(q.*));
   x
 });
 test("a compile-time-collapsed cond's return arm keeps the returned value alive", {
@@ -3051,7 +3051,7 @@ _cond_ct_async_return :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox
   io.async((io : Io) => {
     x := _CondCtBox(n : i32(100));
     io.await(yield(io), io);
-    cond(true => return(q));
+    cond(true => return(q.*));
     x
   })
 );
@@ -3069,7 +3069,7 @@ test("a compile-time-collapsed cond's return arm in an async body releases the b
 _cond_ct_loop_break :: (fn(q : &_CondCtBox) -> i32)({
   mut(i) := i32(0);
   while(i < i32(3), {
-    t := cond(true => q);
+    t := cond(true => q.*);
     i = (i + t.n);
     cond(true => break);
   });
@@ -3081,8 +3081,8 @@ _cond_ct_for_continue :: (fn(q : &_CondCtBox) -> i32)({
   xs.push(i32(2));
   mut(s) := i32(0);
   for(&xs, x => {
-    t := cond(true => q);
-    s = (s + (t.n * x));
+    t := cond(true => q.*);
+    s = (s + (t.n * x.*));
     cond(true => continue);
   });
   s
@@ -3099,9 +3099,9 @@ test("a compile-time-collapsed cond's break and continue arms after a collapsed 
 _cond_ct_fused :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))({
   x := cond(
     false => q,
-    true => q
+    true => q.*
   );
-  y := cond(true => q);
+  y := cond(true => q.*);
   io.async((io : Io) => {
     io.await(yield(io), io);
     x.n + y.n
@@ -3397,7 +3397,7 @@ _rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : &mut ArrayList(Rc(_R
       cond((s > i32(2)) => break, true => ());
     });
     s
-  }, { &mut hs2 }() => {
+  }, { hs2 : &mut hs2.* }() => {
     hs2.clear();
     cond(true => return(()), true => ());
     _rcv_drops = (_rcv_drops + i32(100));
@@ -3936,7 +3936,7 @@ test("an upgrade from the payload's own Drop is .None, and the payload's Weak fr
 // an interior argument into its payload, not a function's entry check on an `Rc`
 // parameter (a second `downgrade` ran one, and saw the first `Weak` as a
 // live borrow).
-_weak_read :: (fn(x : &i32) -> i32)(x);
+_weak_read :: (fn(x : &i32) -> i32)(x.*);
 _weak_list :: (fn() -> Rc(ArrayList(i32)))({
   l := ArrayList(i32).new();
   l.push(i32(1));
@@ -3950,7 +3950,7 @@ test("no borrow mark reaches an Rc cell's weak count", {
   assert(w.weak_count() == usize(2), "two downgrades of one handle");
   (mut(sum) : i32) = i32(0);
   for(&xs, x => {
-    sum = (sum + x);
+    sum = (sum + x.*);
     assert(w.weak_count() == usize(2), "a borrowed for over the Rc marks nothing");
   });
   assert(sum == i32(3), "the loop read the payload");
@@ -4081,7 +4081,7 @@ _V2cNode :: struct(label : Rc(i32), weight : i32);
 derive(_V2cNode, Clone);
 _V2cBare :: struct(h : Rc(i32));
 _v2c_keep :: (fn(h : &Rc(i32)) -> Rc(i32))(Rc.clone(h));
-_v2c_peek :: (fn(h : &Rc(i32)) -> i32)(h.*);
+_v2c_peek :: (fn(h : &Rc(i32)) -> i32)(h.*.*);
 _v2c_take :: (fn(h : Rc(i32)) -> i32)(h.*);
 _v2c_first :: (fn(xs : &ArrayList(Rc(i32))) -> Rc(i32))(match(xs.get(usize(0)), .Some(h) => h, .None => Rc.new(i32(0))));
 _v2c_some :: (fn() -> Option(Rc(i32)))(.Some(Rc.new(i32(5))));
@@ -4114,7 +4114,7 @@ test("a handle's last use moves it, and a copy whose source is used again is E09
   }, "Rc.clone(c)");
 });
 test("a handle copied out of a borrow, a field or a module-level binding is E0901", {
-  comptime_expect_error((fn(h : &Rc(i32)) -> Rc(i32))(h), "is a counted handle, copied only explicitly");
+  comptime_expect_error((fn(h : &Rc(i32)) -> Rc(i32))(h.*), "is a counted handle, copied only explicitly");
   comptime_expect_error((fn(n : &_V2cNode) -> Rc(i32))(n.label), "Rc.clone(...)");
   n := _V2cNode(label : Rc.new(i32(3)), weight : i32(1));
   l := Rc.clone(n.label);

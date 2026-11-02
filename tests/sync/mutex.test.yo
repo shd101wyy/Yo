@@ -26,20 +26,20 @@ comptime_expect_error({
 // ============================================================================
 test("Mutex new and with_lock read", {
   m := Mutex(i32).new(i32(42));
-  result := m.with_lock(v => v);
+  result := m.with_lock(v => v.*);
   assert(result == i32(42), "should read initial value");
 });
 test("Mutex with_lock write and read back", {
   m := Mutex(i32).new(i32(0));
   result := m.with_lock(v => {
-    v = i32(99);
-    v
+    v.* = i32(99);
+    v.*
   });
   assert(result == i32(99), "should see written value");
 });
 test("Mutex with_lock return value", {
   m := Mutex(i32).new(i32(7));
-  doubled := m.with_lock(v => (v * i32(2)));
+  doubled := m.with_lock(v => (v.* * i32(2)));
   assert(doubled == i32(14), "with_lock should propagate return value");
 });
 // Regression for issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
@@ -53,9 +53,9 @@ test("Mutex with_lock return value", {
 test("Mutex with_lock body may end in a statement (unit R)", {
   m := Mutex(i32).new(i32(0));
   m.with_lock(v => {
-    v = i32(42);
+    v.* = i32(42);
   });
-  assert(m.with_lock(v => v) == i32(42), "the unit-bodied write landed");
+  assert(m.with_lock(v => v.*) == i32(42), "the unit-bodied write landed");
 });
 // Decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2) dropped the
 // O7 `Acyclic` requirement (plans/archive/STD_API_AUDIT.md §8): as in Rust, a
@@ -97,7 +97,7 @@ test("Mutex serializes concurrent read-modify-write, losing no update", {
         (mut(i) : i64) = i64(0);
         while(i < _INCREMENTS_PER_THREAD, {
           counter.with_lock(v => {
-            v = (v + i64(1));
+            v.* = (v.* + i64(1));
           });
           i = (i + i64(1));
         });
@@ -113,7 +113,7 @@ test("Mutex serializes concurrent read-modify-write, losing no update", {
     j = (j + usize(1));
   });
   expected := (_THREADS * _INCREMENTS_PER_THREAD);
-  got := counter.with_lock(v => v);
+  got := counter.with_lock(v => v.*);
   assert(got == expected, `expected ${expected} increments, saw ${got}`);
 });
 test("Mutex.with_lock hands back the closure's value and mutations persist", {
@@ -121,11 +121,11 @@ test("Mutex.with_lock hands back the closure's value and mutations persist", {
   // outside the lock; this pins that with_lock's result is the closure's.
   m := Mutex(i64).new(i64(41));
   doubled := m.with_lock(v => {
-    v = (v + i64(1));
-    v * i64(2)
+    v.* = (v.* + i64(1));
+    v.* * i64(2)
   });
   assert(doubled == i64(84), `with_lock returns the closure value, got ${doubled}`);
-  after := m.with_lock(v => v);
+  after := m.with_lock(v => v.*);
   assert(after == i64(42), `the mutation persisted, got ${after}`);
 });
 test("A Mutex survives being locked and released repeatedly by many threads", {
@@ -145,10 +145,10 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
           // Two separate critical sections per iteration: acquire, release,
           // acquire again.
           m.with_lock(v => {
-            v = (v + i64(1));
+            v.* = (v.* + i64(1));
           });
           m.with_lock(v => {
-            v = (v - i64(1));
+            v.* = (v.* - i64(1));
           });
           i = (i + i64(1));
         });
@@ -163,7 +163,7 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
     handles(j).join();
     j = (j + usize(1));
   });
-  final := m.with_lock(v => v);
+  final := m.with_lock(v => v.*);
   assert(final == i64(0), `every increment was matched by a decrement, got ${final}`);
 });
 // ============================================================================
@@ -172,13 +172,13 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
 test("try_with_lock runs the body and hands back Some on a free mutex", {
   m := Mutex(i64).new(i64(7));
   got := m.try_with_lock(v => {
-    v = (v + i64(1));
-    v * i64(2)
+    v.* = (v.* + i64(1));
+    v.* * i64(2)
   });
   assert(got.is_some(), "an uncontended try_with_lock takes the lock");
   assert(got.unwrap() == i64(16), `the body's value came back, got ${got.unwrap()}`);
   // The mutation landed AND the lock was released, so a second attempt works.
-  again := m.try_with_lock(v => v);
+  again := m.try_with_lock(v => v.*);
   assert(again.is_some(), "the lock was released on the way out");
   assert(again.unwrap() == i64(8), "the mutation persisted");
 });
@@ -193,16 +193,16 @@ test("try_with_lock returns None while ANOTHER thread holds the mutex", {
     m.with_lock(v => {
       _ := held.send(i32(1));
       release.recv();
-      v = i64(99);
+      v.* = i64(99);
     });
   });
   held.recv();
-  blocked := m.try_with_lock(v => v);
+  blocked := m.try_with_lock(v => v.*);
   assert(blocked.is_none(), "a held mutex gives .None, and the body never ran");
   _ := release.send(i32(1));
   holder.join();
   // Once released it is takeable again, and the holder's write is visible.
-  after := m.try_with_lock(v => v);
+  after := m.try_with_lock(v => v.*);
   assert(after.is_some(), "takeable again after the holder released");
   assert(after.unwrap() == i64(99), "the holder's write is visible");
 });
@@ -232,7 +232,7 @@ test("is_unlocked answers about the past, and says so", {
   assert(m.is_unlocked(), "a fresh mutex is unlocked");
   // It takes the lock to find out and releases it again, so it must leave the
   // mutex takeable.
-  assert(m.try_with_lock(v => v).is_some(), "is_unlocked released what it took");
+  assert(m.try_with_lock(v => v.*).is_some(), "is_unlocked released what it took");
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn(io => {
@@ -255,11 +255,11 @@ test("try_with_lock from the holding thread is None on every platform", {
   // A Windows CRITICAL_SECTION is recursive and used to answer .Some here;
   // the owner check makes the answer portable.
   inner := m.with_lock(v => {
-    v;
-    m.try_with_lock(w => w)
+    v.*;
+    m.try_with_lock(w => w.*)
   });
   assert(inner.is_none(), "the holder cannot take the lock a second time");
-  assert(m.try_with_lock(v => v) == Option(i32).Some(i32(3)), "released afterwards");
+  assert(m.try_with_lock(v => v.*) == Option(i32).Some(i32(3)), "released afterwards");
 });
 test("is_unlocked from the holding thread reports locked", {
   m := Mutex(i32).new(i32(0));
@@ -286,7 +286,7 @@ test("Cond.wait_with restores the holder record after the wait", {
   waiter := Thread(bool).spawn(io => {
     io;
     m.with_lock(v => {
-      while(v == i32(0), {
+      while(v.* == i32(0), {
         cv.wait_with(&m);
       });
       // Back from the OS wait holding the mutex: the owner record must say so,
@@ -295,7 +295,7 @@ test("Cond.wait_with restores the holder record after the wait", {
     })
   });
   m.with_lock(v => {
-    v = i32(1);
+    v.* = i32(1);
     cv.broadcast();
   });
   assert(waiter.join(), "the waiter holds the mutex after wait_with returns");

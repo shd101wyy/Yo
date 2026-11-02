@@ -227,7 +227,7 @@ test("auto-deref: field, method and place write through Box", {
 // A whole-payload write through a `&Box` is E0908, and so is a field write
 // (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
 _box_replace :: (fn(b : &Box(_P)) -> unit)({
-  comptime_expect_error(b.* = _mk(i32(1)), "Cannot write");
+  comptime_expect_error(b.*.* = _mk(i32(1)), "Cannot write");
   comptime_expect_error(b.n = i32(2), "is a `&T` parameter, a read-only borrow");
 });
 test("auto-deref: a &Box parameter's payload cannot be replaced", {

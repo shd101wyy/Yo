@@ -182,7 +182,7 @@ comptime_expect_error(
 // --- Borrowed form -------------------------------------------------------------
 Enemy :: struct(hp : i32, name : String);
 bump_i32 :: (fn(v : &mut i32) -> unit)({
-  v = (v + i32(1));
+  v.* = (v.* + i32(1));
 });
 test("for(list, inout(x) => body) mutates ArrayList elements in place", {
   list := ArrayList(i32).new();
@@ -190,7 +190,7 @@ test("for(list, inout(x) => body) mutates ArrayList elements in place", {
   list.push(i32(2));
   list.push(i32(3));
   for(&mut list, x => {
-    x = (x * i32(10));
+    x.* = (x.* * i32(10));
   });
   assert(list(usize(0)) == i32(10), "0 -> 10");
   assert(list(usize(1)) == i32(20), "1 -> 20");
@@ -229,10 +229,10 @@ test("borrowed for: element handed to an inout parameter, break and continue", {
     i = (i + i32(1));
   });
   for(&mut list, x => {
-    if(x == i32(1), {
+    if(x.* == i32(1), {
       continue;
     });
-    if(x == i32(4), {
+    if(x.* == i32(4), {
       break;
     });
     bump_i32(x);
@@ -251,9 +251,9 @@ test("borrowed for: return from the body and unwind through the body release the
   // The source is a `&mut` parameter: the loop re-borrows it. The element is
   // a local borrow, so it is read out before it is returned (E0912 below).
   find_first_even :: (fn(xs : &mut ArrayList(i32)) -> i32)({
-    for(&mut xs, x => {
-      if((x % i32(2)) == i32(0), {
-        v := x;
+    for(&mut xs.*, x => {
+      if((x.* % i32(2)) == i32(0), {
+        v := x.*;
         return(v);
       });
     });
@@ -272,8 +272,8 @@ test("borrowed for: return from the body and unwind through the body release the
         unwind(());
       }
     );
-    for(&mut xs, x => {
-      x = i32(0);
+    for(&mut xs.*, x => {
+      x.* = i32(0);
       raise();
     });
     assert(false, "unreachable");
@@ -287,7 +287,7 @@ test("borrowed for: return from the body and unwind through the body release the
 // second-class, so returning it is E0912 — read it out first.
 comptime_expect_error(
   borrowed_element_returned :: (fn(xs : &mut ArrayList(i32)) -> i32)({
-    for(&mut xs, x => {
+    for(&mut xs.*, x => {
       return(x);
     });
     i32(0)
@@ -302,7 +302,7 @@ test("nested borrowed loops over two collections", {
   b.push(i32(20));
   for(&mut a, x => {
     for(&mut b, y => {
-      y = (y + x);
+      y.* = (y.* + x.*);
     });
   });
   assert((b(usize(0)) == i32(13)) && (b(usize(1)) == i32(23)), "inner loop saw both outer elements");
@@ -332,8 +332,8 @@ test("borrowed for over a rvalue collection", {
   });
   mut(sum) := i32(0);
   for(&mut make(), x => {
-    x = (x + i32(1));
-    sum = (sum + x);
+    x.* = (x.* + i32(1));
+    sum = (sum + x.*);
   });
   assert(sum == i32(6), "the hidden local kept the temporary alive for the loop");
 });
@@ -343,8 +343,8 @@ test("for(map, (k, inout(v)) => body): key read-only, value borrowed", {
   scores.insert(String.from("b"), i32(2));
   keys := ArrayList(String).new();
   for(&mut scores, (k, v) => {
-    v = (v + i32(10));
-    keys.push(k);
+    v.* = (v.* + i32(10));
+    keys.push(k.*);
   });
   assert(scores.get(String.from("a")) == Option(i32).Some(i32(11)), "a bumped in place");
   assert(scores.get(String.from("b")) == Option(i32).Some(i32(12)), "b bumped in place");
@@ -357,20 +357,20 @@ test("borrowed for over Deque, BTreeMap and OrderedMap", {
   dq.push_back(i32(1));
   dq.push_back(i32(2));
   for(&mut dq, x => {
-    x = (x + i32(100));
+    x.* = (x.* + i32(100));
   });
   assert(dq.pop_front() == Option(i32).Some(i32(101)), "deque element mutated in place");
   bt := BTreeMap(i32, i32).new();
   bt.insert(i32(1), i32(10));
   bt.insert(i32(2), i32(20));
   for(&mut bt, (k, v) => {
-    v = (v + k);
+    v.* = (v.* + k.*);
   });
   assert(bt.get(i32(2)) == Option(i32).Some(i32(22)), "btree value mutated in place");
   om := OrderedMap(i32, i32).new();
   om.insert(i32(7), i32(1));
   for(&mut om, (k, v) => {
-    v = (v + k);
+    v.* = (v.* + k.*);
   });
   assert(om.get(i32(7)) == Option(i32).Some(i32(8)), "ordered-map value mutated in place");
 });
@@ -383,7 +383,7 @@ comptime_expect_error(
     xs.push(i32(1));
     for(&mut xs, x => {
       run(() => {
-        x = i32(2);
+        x.* = i32(2);
       });
     });
   })
@@ -394,7 +394,7 @@ comptime_expect_error(
   borrowed_form_over_a_chain :: (fn() -> unit)({
     xs := ArrayList(i32).new();
     xs.push(i32(1));
-    for(&mut xs.into_iter().map(v => (v + i32(1))), x => {
+    for(&mut xs.into_iter().map(v => (v.* + i32(1))), x => {
       x = i32(0);
     });
   })
@@ -420,7 +420,7 @@ comptime_expect_error(
     xs.push(i32(1));
     total := i32(0);
     for(&mut xs, x => {
-      total = (total + (x * i32(xs.len())));
+      total = (total + (x.* * i32(xs.len())));
     });
   })
 );
@@ -498,7 +498,7 @@ test("borrowed for: read-only and fresh-storage methods through an alias do not 
   mut(total) := i32(0);
   mut(hits) := i32(0);
   for(&mut xs, x => {
-    total = (total + (x * i32(ys.len())));
+    total = (total + (x.* * i32(ys.len())));
     assert(ys.contains(x), "contains reads");
     match(
       ys.get(usize(0)),
@@ -520,7 +520,7 @@ test("borrowed for: read-only and fresh-storage methods through an alias do not 
     collected := ys.into_iter().collect(ArrayList(i32));
     collected.push(i32(7));
     total = (total + i32(collected.len()));
-    x = (x + i32(1));
+    x.* = (x.* + i32(1));
   });
   // Step 1: 1*2, then get(0) = 1, then 3 + 3 from the clone and the collect
   // (9); the write makes xs(0) = 2. Step 2: 2*2, get(0) = 2, 3 + 3 (12).

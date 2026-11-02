@@ -165,7 +165,7 @@ _guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoE
     Result(String, String).Ok(raw)
   })
 );
-_show :: (fn(r : &Result(String, String)) -> String)(match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`));
+_show :: (fn(r : &Result(String, String)) -> String)(match(r, .Ok(s) => s.*, .Err(m) => `ERR ${m}`));
 // Returns what the three awaits produced: a frame that "caught" the unwind by
 // returning early (the old lowering) cannot fake this result.
 _three_guarded :: (fn(io : Io) -> String)({

@@ -32,7 +32,7 @@ _gl_read :: (fn(g : &Gauge) -> i64)(g.n);
 _gl_bump :: (fn(g : &mut Gauge) -> unit)({
   g.n = (g.n + i64(1));
 });
-_gl_read_i64 :: (fn(v : &i64) -> i64)(v);
+_gl_read_i64 :: (fn(v : &i64) -> i64)(v.*);
 _gl_by_value :: (fn(v : i64) -> i64)(v);
 _gl_len :: (fn(s : &String) -> usize)(s.len());
 _gl_list_len :: (fn(xs : &ArrayList(i64)) -> usize)(xs.len());
@@ -83,7 +83,7 @@ test("a handle global is mutated through its methods without mut", {
   assert(_gl_list_len(&_gl_names) == usize(2), "the handle itself is lent");
   (mut(t) : i64) = i64(0);
   for(&_gl_names, x => {
-    t = (t + x);
+    t = (t + x.*);
   });
   assert(t == i64(9), "a borrowed `for` over the handle");
 });
@@ -129,14 +129,14 @@ test("lending a mut global, or a place under it, to a call is E0916", {
   comptime_expect_error(`${_gl_mstr}`, "is declared `mut(_gl_mstr)`");
   comptime_expect_error({
     for(&_gl_mlist, x => {
-      _gl_count = x;
+      _gl_count = x.*;
     });
   }, "is declared `mut(_gl_mlist)`");
   // The in-place walk lends it the same way; its loop body needs no call
   // (issues/fixed/2026-10-23-a-borrowed-for-over-a-mut-global-is-not-e0916.md).
   comptime_expect_error({
     for(&mut _gl_mlist, x => {
-      x = i64(0);
+      x.* = i64(0);
     });
   }, "is declared `mut(_gl_mlist)`");
   // A closure and a function value lend it the same way.

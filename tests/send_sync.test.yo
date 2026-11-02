@@ -319,11 +319,11 @@ test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it",
   a := Arc.new(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
   b := Arc.clone(a);
   a.with_lock(v => {
-    v = SsPeer(id : i32(1), peer : .Some(Arc.clone(b)));
+    v.* = SsPeer(id : i32(1), peer : .Some(Arc.clone(b)));
   });
   assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
   a.with_lock(v => {
-    v = SsPeer(id : i32(1), peer : .None);
+    v.* = SsPeer(id : i32(1), peer : .None);
   });
   assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
 });

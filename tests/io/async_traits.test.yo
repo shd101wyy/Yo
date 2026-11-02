@@ -31,29 +31,29 @@ pragma(Pragma.AllowUnsafe);
 read_once :: (
   fn(generic(R : Type), r : &R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
 )(
-  io.async({ &r, buf, size }(e : IoExn) => e.io.await(r.read(buf, size, e.io), e))
+  io.async({ r : &r.*, buf, size }(e : IoExn) => e.io.await(r.read(buf, size, e.io), e))
 );
 write_once :: (
   fn(generic(W : Type), w : &W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
 )(
-  io.async({ &w, buf, size }(e : IoExn) => e.io.await(w.write(buf, size, e.io), e))
+  io.async({ w : &w.*, buf, size }(e : IoExn) => e.io.await(w.write(buf, size, e.io), e))
 );
 
 // Slice-2 generic helpers: the defaults reached through where bounds.
 read_all_generic :: (
   fn(generic(R : Type), r : &R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
 )(
-  io.async({ &r, io }(e : IoExn) => e.io.await(r.read_to_end(io), e))
+  io.async({ r : &r.*, io }(e : IoExn) => e.io.await(r.read_to_end(io), e))
 );
 read_string_generic :: (
   fn(generic(R : Type), r : &R, io : Io, where(R <: Reader)) -> Impl(Future(String, IoExn))
 )(
-  io.async({ &r, io }(e : IoExn) => e.io.await(r.read_to_string(io), e))
+  io.async({ r : &r.*, io }(e : IoExn) => e.io.await(r.read_to_string(io), e))
 );
 write_all_generic :: (
   fn(generic(W : Type), w : &W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &w, buf, size, io }(e : IoExn) => e.io.await(w.write_all(buf, size, io), e))
+  io.async({ w : &w.*, buf, size, io }(e : IoExn) => e.io.await(w.write_all(buf, size, io), e))
 );
 test("read_to_end default loops chunks; write_all default delivers everything", {
   t_exn := Exception(

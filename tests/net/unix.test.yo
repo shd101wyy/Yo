@@ -215,7 +215,7 @@ test("a connected UnixStream write to an accepted peer that has closed throws in
 // AF_UNIX listener has no AcceptEx, and its accept() used to block the
 // event-loop thread itself: the client's connect, on the same loop, never ran.
 _reads_exactly :: (fn(s : &UnixStream, want : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-  io.async({ &s, want }(e : IoExn) => {
+  io.async({ s : &s.*, want }(e : IoExn) => {
     got := ArrayList(u8).new();
     buf := ArrayList(u8).new();
     mut(i) := usize(0);

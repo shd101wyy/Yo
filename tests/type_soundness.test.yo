@@ -75,8 +75,8 @@ test("soundness: a substituted phantom enum instance keeps its type argument", {
 // was never checked against a `T` another argument fixed
 // (issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md;
 // the struct half is issues/generic-inference-ignores-phantom-type-arguments-of-structs.md).
-_pid :: (fn(generic(T : Type), p : &_Phantom(T)) -> _Phantom(T))(p);
-_pick :: (fn(generic(T : Type), y : &T, _p : &_Phantom(T)) -> T)(y);
+_pid :: (fn(generic(T : Type), p : &_Phantom(T)) -> _Phantom(T))(p.*);
+_pick :: (fn(generic(T : Type), y : &T, _p : &_Phantom(T)) -> T)(y.*);
 test("soundness: a phantom argument binds a generic parameter", {
   comptime_expect_error({
     x := _pid(_Phantom(i32).A(i32(1)));
@@ -143,7 +143,7 @@ test("soundness canary: a well-typed closure still flows into Fn(x : i32) -> i32
 // ---------------------------------------------------------------------------
 _bad_ct :: (fn(comptime(T) : Type, x : &T) -> i32)(true);
 _bad_generic :: (fn(generic(T : Type), x : &T) -> i32)(true);
-_good_generic :: (fn(generic(T : Type), x : &T) -> T)(x);
+_good_generic :: (fn(generic(T : Type), x : &T) -> T)(x.*);
 test("soundness: a specialized generic body must have its declared result type", {
   comptime_expect_error(_bad_ct(i32, i32(1)), "Function body has type `bool`");
   comptime_expect_error(_bad_generic(i32(1)), "Function body has type `bool`");
@@ -231,7 +231,7 @@ test("soundness: the arm join does not depend on arm order", {
 _NoEq :: struct(x : i32);
 derive(_NoEq, Copy, Clone);
 _NoEqE :: enum(A, B);
-_generic_eq :: (fn(generic(T : Type), a : &T, b : &T, where(T <: Eq(T))) -> bool)(a == b);
+_generic_eq :: (fn(generic(T : Type), a : &T, b : &T, where(T <: Eq(T))) -> bool)(a.* == b.*);
 test("soundness: a missing operator impl is an error", {
   a := _NoEq(x : i32(1));
   b := _NoEq(x : i32(2));
@@ -287,7 +287,7 @@ test("soundness canary: named fns and literals still fit those slots", {
 // (Phase 1.9): an `inout` parameter is a pointer in every fn-pointer call.
 // ---------------------------------------------------------------------------
 _bump :: (fn(x : &mut i32) -> unit)({
-  x = (x + i32(1));
+  x.* = (x.* + i32(1));
   ()
 });
 _Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
@@ -412,7 +412,7 @@ test("soundness canary: fn values and capture-free closures are Send", {
 // issues/fixed/generic-type-var-rebinds-per-argument.md (Phase 2.4): every
 // mention of a type parameter in one call stands for one type.
 // ---------------------------------------------------------------------------
-_pair_same :: (fn(generic(A : Type), x : &A, y : &A) -> A)(x);
+_pair_same :: (fn(generic(A : Type), x : &A, y : &A) -> A)(x.*);
 _apply_g :: (fn(generic(T : Type), f : &Impl(Fn(x : &T) -> T), v : &T) -> T)(f(v));
 _apply_v :: (fn(generic(T : Type), v : &T, f : &Impl(Fn(x : &T) -> T)) -> T)(f(v));
 test("soundness: two arguments cannot bind one type parameter to two types", {
@@ -434,9 +434,9 @@ test("soundness canary: arguments that agree on a type parameter", {
   assert(_n_of([u8(1), u8(2)], [u8(3), u8(4)]) == usize(2), "equal lengths still bind");
   assert(_pair_same(i32(3), i32(4)) == i32(3), "same type");
   assert(_pair_same(i32(3), 4) == i32(3), "a literal adopts the binder");
-  assert(_apply_g(x => (x + i32(1)), i32(3)) == i32(4), "closure result agrees");
-  assert(_apply_g(x -> (x * i32(2)), i32(3)) == i32(6), "function literal first");
-  assert(_apply_v(i32(3), x -> (x * i32(2))) == i32(6), "function literal last");
+  assert(_apply_g(x => (x.* + i32(1)), i32(3)) == i32(4), "closure result agrees");
+  assert(_apply_g(x -> (x.* * i32(2)), i32(3)) == i32(6), "function literal first");
+  assert(_apply_v(i32(3), x -> (x.* * i32(2))) == i32(6), "function literal last");
 });
 // ---------------------------------------------------------------------------
 // issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md
@@ -477,7 +477,7 @@ _TwoTRec :: struct(key : i32, tag : i32);
 derive(_TwoTRec, Copy, Clone);
 _inner_at :: (fn(generic(T : Type), a : &T, b : &T, less : &Impl(Fn(x : &T, y : &T) -> bool)) -> bool)(less(a, b));
 _outer_at :: (fn(generic(T : Type), xs : &ArrayList(T), less : &Impl(Fn(x : &T, y : &T) -> bool)) -> bool)(
-  _inner_at(usize(0), usize(1), (i, j) => less(&xs(i), &xs(j)))
+  _inner_at(usize(0), usize(1), (i, j) => less(&xs(i.*), &xs(j.*)))
 );
 test("soundness canary: a closure keeps the inner instantiation's parameter type", {
   xs := ArrayList(_TwoTRec).new();
@@ -496,11 +496,11 @@ impl(
   where(T <: Send),
   _IoCell(T),
   put : (fn(self : &mut Self, value : &T) -> unit)({
-    self.v = value;
+    self.v = value.*;
   })
 );
 _io_run :: (fn(generic(T : Type), io : Io, seed : &T, cb : &Impl(Fn(io : Io) -> T), where(T <: Send)) -> T)({
-  mut(b) := _IoCell(T)(v : seed);
+  mut(b) := _IoCell(T)(v : seed.*);
   b.put(cb(io));
   b.v
 });
@@ -563,7 +563,7 @@ test("soundness canary: two method-call arguments bind one callee's type paramet
 // issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md
 // (Phase 2.4): a kind-annotated binder is inferred from an argument's
 // instantiation, and `F(A)` in the result is applied.
-_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : &F(A)) -> F(A))(x);
+_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : &F(A)) -> F(A))(x.*);
 test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
   o := Option(i32).Some(i32(7));
   r := _hk_identity(&o);
@@ -616,11 +616,11 @@ impl(
 );
 test("soundness canary: two .map chains at different Item types keep their own Item", {
   out := ArrayList(i32).new();
-  it := _SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x * i32(2)));
+  it := _SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x.* * i32(2)));
   it.for_each(x => {
-    out.push(x);
+    out.push(x.*);
   });
-  m := _SoundRange64(_cur : i64(-3), _end : i64(4)).map(x => (x * i64(2))).min();
+  m := _SoundRange64(_cur : i64(-3), _end : i64(4)).map(x => (x.* * i64(2))).min();
   assert(out.len() == usize(3), "the i32 chain");
   assert(match(m, .Some(v) => v, .None => i64(99)) == i64(-6), "the i64 chain's min");
 });
@@ -631,29 +631,29 @@ test("soundness canary: two .map chains at different Item types keep their own I
 // blanket combinators can be called on the parameter.
 // ---------------------------------------------------------------------------
 _sound_count :: (fn(generic(I : Type, A : Type), it : &I, where(I <: Iterator(Item := A))) -> usize)(
-  it.fold(usize(0), (n, x) => (n + usize(1)))
+  it.fold(usize(0), (n, x) => (n.* + usize(1)))
 );
 _sound_sum :: (fn(generic(I : Type, A : Type), it : &I, zero : &A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
-  it.fold(zero, (acc, x) => (acc + x))
+  it.fold(zero, (acc, x) => (acc.* + x.*))
 );
 _sound_collect :: (fn(generic(I : Type, A : Type), it : &I, where(I <: Iterator(Item := A))) -> ArrayList(A))(
   it.collect(ArrayList(A))
 );
 // `J` is fixed only by `F <: (Fn(item : A) -> J)` and the closure's body.
 _sound_map_all :: (fn(generic(I : Type, A : Type, J : Type, F : Type), it : &I, f : &F, where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> J))) -> ArrayList(J))(
-  it.map(f).collect(ArrayList(J))
+  it.map(f.*).collect(ArrayList(J))
 );
 _sound_sum_i32 :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := i32))) -> i32)(
   it.fold(i32(0), (acc, x) => (acc + x))
 );
 test("soundness: a free fn binds an associated type from its where-clause", {
   assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4))) == usize(3), "a source");
-  assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x * i32(2)))) == usize(3), "a chain");
+  assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x.* * i32(2)))) == usize(3), "a chain");
   assert(_sound_sum(_SoundRange(_cur : i32(1), _end : i32(4)), i32(0)) == i32(6), "A <: Add(A) at i32");
   assert(_sound_sum(_SoundRange64(_cur : i64(1), _end : i64(4)), i64(0)) == i64(6), "A <: Add(A) at i64");
   got := _sound_collect(_SoundRange(_cur : i32(1), _end : i32(4)));
   assert(got.len() == usize(3), "a blanket combinator on the parameter");
-  wide := _sound_map_all(_SoundRange(_cur : i32(1), _end : i32(4)), x => i64(x));
+  wide := _sound_map_all(_SoundRange(_cur : i32(1), _end : i32(4)), x => i64(x.*));
   assert(match(wide.get(usize(2)), .Some(v) => v, .None => i64(0)) == i64(3), "J from the closure body");
   comptime_expect_error(_sound_sum_i32(_SoundRange64(_cur : i64(1), _end : i64(4))), "its associated type Item is i64, not i32");
   // The self-referential bound is still judged, at the candidate.
@@ -667,7 +667,7 @@ test("soundness: a free fn binds an associated type from its where-clause", {
 // ---------------------------------------------------------------------------
 _sound_apply_dyn :: (fn(generic(A : Type, B : Type), f : &Dyn(Fn(x : &A) -> B), v : &A) -> B)(f(v));
 test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
-  (inc : Dyn(Fn(y : &i32) -> i32)) = dyn(y => (y + i32(1)));
+  (inc : Dyn(Fn(y : &i32) -> i32)) = dyn(y => (y.* + i32(1)));
   assert(_sound_apply_dyn(&inc, i32(41)) == i32(42), "B inferred");
 });
 // ---------------------------------------------------------------------------
@@ -910,7 +910,7 @@ _p38_takes_a :: (fn(x : &Dyn(_P38DA)) -> i32)(x.da());
 _p38_both_into_a :: Type.is_compatible_with(Dyn(_P38DA, _P38DB), Dyn(_P38DA));
 _p38_a_into_both :: Type.is_compatible_with(Dyn(_P38DA), Dyn(_P38DB, _P38DA));
 test("soundness: an extern opaque value is not a scalar argument", {
-  comptime_expect_error((fn(a : &_P38Ull) -> u64)(_p38_u64_sink(a)));
+  comptime_expect_error((fn(a : &_P38Ull) -> u64)(_p38_u64_sink(a.*)));
   assert(true, "rejected");
 });
 test("soundness: a Dyn is neither downcast nor upcast", {
@@ -1140,7 +1140,7 @@ _P5Holder :: struct(s : String);
 _p5_clobber :: (fn(a : &mut _P5Holder, b : &_P5Holder) -> usize)({
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
-    a = _P5Holder(s : `fresh-value-${i}-xxxxxxxxxxxxxxxxxxxxxxxx`);
+    a.* = _P5Holder(s : `fresh-value-${i}-xxxxxxxxxxxxxxxxxxxxxxxx`);
     i = (i + i32(1));
   });
   b.s.len()
@@ -1167,7 +1167,7 @@ test("soundness: a `&mut` argument overlapping a `&` one on a value root is E091
 _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> usize)({
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
-    a = ArrayList(_P5Box).new();
+    a.* = ArrayList(_P5Box).new();
     a.push(_P5Box(tag : i));
     i = (i + i32(1));
   });
@@ -1201,7 +1201,7 @@ test("soundness: std panic types a value arm", {
 // a generic that forwards its own binder to a generic applying an operator to
 // it type-checks, whether or not anything calls it. On develop the result
 // check rejected `U` against `U` and this whole file failed to check.
-_p6_twice :: (fn(generic(T : Type), x : &T) -> T)(x + x);
+_p6_twice :: (fn(generic(T : Type), x : &T) -> T)(x.* + x.*);
 _p6_twice_via :: (fn(generic(U : Type), u : &U) -> U)(_p6_twice(u));
 _p6_twice_via_let :: (fn(generic(U : Type), u : &U) -> U)({
   (r : U) = _p6_twice(u);

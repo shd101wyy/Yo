@@ -198,7 +198,7 @@ test("Test timeout aborts on deadline", {
   fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(100)), io);
     ran.with_mut(cur => {
-      cur = true;
+      cur.* = true;
     });
     return(i32(1));
   });
@@ -209,7 +209,7 @@ test("Test timeout aborts on deadline", {
   );
   // Outlive the aborted task's timer so its completion fires the entry guard.
   io.await(sleep(u64(120)), io);
-  assert(!ran.with(cur => cur), "the timed-out body must not resume past its suspension point");
+  assert(!ran.with(cur => cur.*), "the timed-out body must not resume past its suspension point");
 });
 // ---------------------------------------------------------------------------
 // race_first / any_first — the cleanup done for you
@@ -225,7 +225,7 @@ sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(RefCell(bool)), io : Io) -> I
   io.async({ value, ms, ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(ms), io);
     ran.with_mut(r => {
-      r = true;
+      r.* = true;
     });
     value
   })
@@ -241,8 +241,8 @@ test("Test race_first returns the fastest task's value", {
   assert(match(r, .Some(v) => (v == i32(20)), .None => false), "the 1 ms task wins");
   // Both losers were aborted and joined: neither runs past its sleep.
   io.await(sleep(u64(100)), io);
-  assert(!ran0.with(r => r), "loser 0 was aborted, not left running");
-  assert(!ran2.with(r => r), "loser 2 was aborted, not left running");
+  assert(!ran0.with(r => r.*), "loser 0 was aborted, not left running");
+  assert(!ran2.with(r => r.*), "loser 2 was aborted, not left running");
 });
 test("Test race_first with a single handle", {
   handles := ArrayList(JoinHandle(i32)).new();
@@ -258,7 +258,7 @@ test("Test any_first returns the first COMPLETED value and aborts the rest", {
   r := io.await(any_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(2)), .None => false), "the fast task's value comes back");
   io.await(sleep(u64(100)), io);
-  assert(!ran0.with(r => r), "the loser was aborted");
+  assert(!ran0.with(r => r.*), "the loser was aborted");
 });
 test("Test any_first is None when every handle was aborted", {
   handles := ArrayList(JoinHandle(i32)).new();
@@ -407,7 +407,7 @@ test("Test aborting the joining task leaves the joined task running", {
   worker := io.async({ done : Rc.clone(done) }(io : Io) => {
     io.await(sleep(u64(20)), io);
     done.with_mut(cur => {
-      cur = true;
+      cur.* = true;
     });
     return(i32(1));
   });
@@ -423,7 +423,7 @@ test("Test aborting the joining task leaves the joined task running", {
   assert(match(r, .Some(_) => false, .None => true), "the joiner was aborted");
   // The aborted join dropped the handle, which detached the worker.
   io.await(sleep(u64(60)), io);
-  assert(done.with(cur => cur), "the joined task still ran to the end");
+  assert(done.with(cur => cur.*), "the joined task still ran to the end");
 });
 // ===========================================================================
 // Stream — the async analogue of `Iterator`
@@ -438,7 +438,7 @@ impl(
   Stream(
     Item : i32,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-      io.async({ &mut self }(io : Io) =>
+      io.async({ self : &mut self.* }(io : Io) =>
         cond(
           (self._n <= i32(0)) => Option(i32).None,
           true => {
@@ -574,9 +574,9 @@ test("Test a consumer generic over Stream", {
   assert(n3 == usize(2), "and it takes a combinator chain, not only a source");
   total := io.await(_sum_i32(Countdown(_n : i32(3)), io), io);
   assert(total == i32(6), "a concrete-Item consumer sums a source");
-  chained := io.await(_sum_i32(Countdown(_n : i32(3)).map(x => (x * i32(2))), io), io);
+  chained := io.await(_sum_i32(Countdown(_n : i32(3)).map(x => (x.* * i32(2))), io), io);
   assert(chained == i32(12), "and it accepts a combinator chain, not just a source");
-  all := _collect_all(Countdown(_n : i32(3)).map(x => (x * i32(2))), io);
+  all := _collect_all(Countdown(_n : i32(3)).map(x => (x.* * i32(2))), io);
   assert(all.len() == usize(3), "a generic-Item consumer collects a chain");
   assert(all(usize(0)) == i32(6), "and keeps the values");
 });
@@ -585,14 +585,14 @@ test("Test a consumer generic over Stream", {
 // different inner stream is its own type. They were interned as one C type
 // (incompatible pointer types in the emitted C), two deep and deeper.
 test("Test the same combinator repeated in one chain", {
-  two := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).collect(io), io);
+  two := io.await(Countdown(_n : i32(3)).map(x => (x.* + i32(1))).map(x => (x.* + i32(2))).collect(io), io);
   assert(two.len() == usize(3), "two maps keep every item");
   assert(two(usize(0)) == i32(6), "two maps: 3 + 1 + 2");
-  three := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).map(x => (x + i32(3))).collect(io), io);
+  three := io.await(Countdown(_n : i32(3)).map(x => (x.* + i32(1))).map(x => (x.* + i32(2))).map(x => (x.* + i32(3))).collect(io), io);
   assert(three(usize(0)) == i32(9), "three maps: 3 + 1 + 2 + 3");
-  four := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).map(x => (x + i32(3))).map(x => (x + i32(4))).collect(io), io);
+  four := io.await(Countdown(_n : i32(3)).map(x => (x.* + i32(1))).map(x => (x.* + i32(2))).map(x => (x.* + i32(3))).map(x => (x.* + i32(4))).collect(io), io);
   assert(four(usize(0)) == i32(13), "four maps: 3 + 1 + 2 + 3 + 4");
-  alt := io.await(Countdown(_n : i32(3)).map(x => (x * i32(2))).take(usize(2)).map(x => (x + i32(1))).collect(io), io);
+  alt := io.await(Countdown(_n : i32(3)).map(x => (x.* * i32(2))).take(usize(2)).map(x => (x.* + i32(1))).collect(io), io);
   assert(alt.len() == usize(2), "map, take, map: the take applies");
   assert(alt(usize(1)) == i32(5), "and the outer map sees the inner one's values: 2 * 2 + 1");
 });
@@ -600,25 +600,25 @@ test("Test the same combinator repeated in one chain", {
 // S4. Each combinator, awaited from inside a spawned task
 // ---------------------------------------------------------------------------
 test("Test Stream map inside a spawned task", {
-  got := _bounded(Countdown(_n : i32(3)).map(x => (x * i32(10))), io);
+  got := _bounded(Countdown(_n : i32(3)).map(x => (x.* * i32(10))), io);
   assert(got.len() == usize(3), "map is length-preserving");
   assert(got(usize(0)) == i32(30), "first mapped");
   assert(got(usize(2)) == i32(10), "last mapped");
 });
 test("Test Stream filter inside a spawned task", {
-  got := _bounded(Countdown(_n : i32(6)).filter(x => ((x % i32(2)) == i32(0))), io);
+  got := _bounded(Countdown(_n : i32(6)).filter(x => ((x.* % i32(2)) == i32(0))), io);
   assert(got.len() == usize(3), "three even values in 6..1");
   assert(got(usize(0)) == i32(6), "6 first");
   assert(got(usize(2)) == i32(2), "2 last");
 });
 test("Test Stream filter that keeps nothing", {
-  got := _bounded(Countdown(_n : i32(4)).filter(x => (x > i32(100))), io);
+  got := _bounded(Countdown(_n : i32(4)).filter(x => (x.* > i32(100))), io);
   assert(got.len() == usize(0), "a predicate no item satisfies drains to empty, it does not hang");
 });
 test("Test Stream filter_map inside a spawned task", {
   got := _bounded(
     Countdown(_n : i32(5)).filter_map(
-      x => cond((x > i32(3)) => Option(i32).Some(x + i32(100)), true => Option(i32).None)
+      x => cond((x.* > i32(3)) => Option(i32).Some(x.* + i32(100)), true => Option(i32).None)
     ),
     io
   );
@@ -654,7 +654,7 @@ test("Test Stream skip past the end of the stream", {
 // ---------------------------------------------------------------------------
 test("Test a Stream combinator chain", {
   // 10..1 -> evens (10 8 6 4 2) -> +1 (11 9 7 5 3) -> first two.
-  got := _bounded(Countdown(_n : i32(10)).filter(x => ((x % i32(2)) == i32(0))).map(x => (x + i32(1))).take(usize(2)), io);
+  got := _bounded(Countdown(_n : i32(10)).filter(x => ((x.* % i32(2)) == i32(0))).map(x => (x.* + i32(1))).take(usize(2)), io);
   assert(got.len() == usize(2), "the chain yields two items");
   assert(got(usize(0)) == i32(11), "first");
   assert(got(usize(1)) == i32(9), "second");
@@ -666,7 +666,7 @@ test("Test Stream for_each from main", {
   seen := ArrayList(i32).new();
   io.await(
     Countdown(_n : i32(3)).for_each(x => {
-      seen.push(x);
+      seen.push(x.*);
     }, io),
     io
   );
@@ -679,7 +679,7 @@ test("Test Stream for_each inside a spawned task", {
   // written inside an `io.async` body loses the future's result type
   // (issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md).
   drain := Countdown(_n : i32(4)).for_each(x => {
-    seen.push(x);
+    seen.push(x.*);
   }, io);
   r := io.await(timeout(drain, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_each finished inside the deadline");
@@ -814,7 +814,7 @@ impl(
   Stream(
     Item : i32,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-      io.async({ &mut self }(io : Io) => {
+      io.async({ self : &mut self.* }(io : Io) => {
         io.await(yield(io), io);
         cond(
           (self._n <= i32(0)) => Option(i32).None,
@@ -839,7 +839,7 @@ test("Test a stream loop suspends its task between items", {
       match(
         n,
         .Some(_) => {
-          seen.push(ticks.with(cur => cur));
+          seen.push(ticks.with(cur => cur.*));
         },
         .None => {
           break;
@@ -851,7 +851,7 @@ test("Test a stream loop suspends its task between items", {
   (mut(i) : i32) = i32(0);
   while(i < i32(20), {
     ticks.with_mut(cur => {
-      cur = (cur + i32(1));
+      cur.* = (cur.* + i32(1));
     });
     io.await(yield(io), io);
     i = (i + i32(1));
@@ -882,12 +882,12 @@ test("Stream.for_each releases what its body closure captures", {
     io.await(
       Countdown(_n : i32(3)).for_each({ t, total : Rc.clone(total) }(x) => {
         total.with_mut(cur => {
-          cur = (cur + (x * t.n));
+          cur.* = (cur.* + (x.* * t.n));
         });
       }, io),
       io
     );
-    assert(total.with(cur => cur) > i32(0), "the body ran");
+    assert(total.with(cur => cur.*) > i32(0), "the body ran");
   };
   assert((g_fe_disposed - before) == i32(1), `the captured value was released once, released ${g_fe_disposed - before}`);
 });
@@ -904,13 +904,13 @@ impl(
   Stream(
     Item : i32,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-      io.async({ &mut self }(io : Io) =>
+      io.async({ self : &mut self.* }(io : Io) =>
         cond(
-          (self._n.with(n => n) <= i32(0)) => Option(i32).None,
+          (self._n.with(n => n.*) <= i32(0)) => Option(i32).None,
           true => {
-            v := self._n.with(n => n);
+            v := self._n.with(n => n.*);
             self._n.with_mut(n => {
-              n = (n - i32(1));
+              n.* = (n.* - i32(1));
             });
             Option(i32).Some(v)
           }
@@ -919,9 +919,9 @@ impl(
   )
 );
 test("Test collect over chains of different shapes whose source holds an Rc", {
-  a := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).map(x => (x + i32(1))).collect(io), io);
-  b := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).filter(x => (x > i32(1))).filter(x => (x < i32(4))).collect(io), io);
-  c := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).filter(x => (x > i32(20))).collect(io), io);
+  a := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x.* * i32(10))).map(x => (x.* + i32(1))).collect(io), io);
+  b := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).filter(x => (x.* > i32(1))).filter(x => (x.* < i32(4))).collect(io), io);
+  c := io.await(RcCountdown(_n : Rc.new(RefCell(i32).new(i32(4)))).map(x => (x.* * i32(10))).filter(x => (x.* > i32(20))).collect(io), io);
   assert(a.len() == usize(4), "map then map keeps every item");
   assert(a(usize(0)) == i32(41), "and applies both maps: 4 * 10 + 1");
   assert(b.len() == usize(2), "filter then filter keeps 3 and 2");
@@ -933,7 +933,7 @@ test("Test collect over chains of different shapes whose source holds an Rc", {
 // declared with the other instantiation's closure type
 // (issues/fixed/2026-10-15-a-lent-parameter-copy-in-a-generic-io-async-body-has-another-instantiations-type.md).
 apply_later :: (fn(generic(R : Type), body : &Impl(Fn(x : i64) -> R), io : Io) -> Impl(Future(R, Io)))(
-  io.async({ &body }(io : Io) => {
+  io.async({ body : &body.* }(io : Io) => {
     io.await(yield(io), io);
     body(i64(20))
   })
@@ -970,7 +970,7 @@ impl(
 );
 /// Sleeps `ms`, then adds one to the counter it borrows `&mut`.
 _a4_bump_after :: (fn(c : &mut _A4Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ &mut c, ms }(io : Io) => {
+  io.async({ c : &mut c.*, ms }(io : Io) => {
     p := _A4Probe(k : i32(1));
     io.await(sleep(ms), io);
     c.n = (c.n + p.k);
@@ -979,7 +979,7 @@ _a4_bump_after :: (fn(c : &mut _A4Counter, ms : u64, io : Io) -> Impl(Future(i32
 );
 /// Sleeps `ms`, then reads the counter it borrows `&`.
 _a4_read_after :: (fn(c : &_A4Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ &c, ms }(io : Io) => {
+  io.async({ c : &c.*, ms }(io : Io) => {
     io.await(sleep(ms), io);
     c.n
   })
@@ -1005,14 +1005,14 @@ _a4_both :: (fn(generic(A : Type, B : Type), a : Impl(Future(A, Io)), b : Impl(F
 /// A combinator that also takes a plain `&mut` argument, after the operand
 /// and before it: the operand's lends and that argument's are one call's.
 _a4_with :: (fn(generic(T : Type), op : Impl(Future(T, Io)), c : &mut _A4Counter, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ op, &mut c }(io : Io) => {
+  io.async({ op, c : &mut c.* }(io : Io) => {
     c.n = (c.n + i32(10));
     io.await(op, io);
     ()
   })
 );
 _a4_with_first :: (fn(generic(T : Type), c : &mut _A4Counter, op : Impl(Future(T, Io)), io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ &mut c, op }(io : Io) => {
+  io.async({ c : &mut c.*, op }(io : Io) => {
     c.n = (c.n + i32(10));
     io.await(op, io);
     ()
@@ -1408,7 +1408,7 @@ _a4_bounded_k :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item :
   io.await(_a4_with_k(s.collect(io), i32(0), io), io)
 );
 test("A4: one combinator over the futures of two streams' collect gets two specializations", {
-  a := _a4_bounded_k(Countdown(_n : i32(3)).map(x => (x * i32(10))), io);
+  a := _a4_bounded_k(Countdown(_n : i32(3)).map(x => (x.* * i32(10))), io);
   b := _a4_bounded_k(Countdown(_n : i32(4)).take(usize(2)), io);
   assert(a.len() == usize(3), "the mapped stream");
   assert(b.len() == usize(2), "the taken stream");

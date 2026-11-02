@@ -29,14 +29,14 @@ Env :: ref(struct(x : i32, cyc : Option(Self)));
 Res :: ref(struct(expected_env : Env, given_env : Env));
 
 name_of :: (fn(e : &Env) -> String)(`n${e.x}`);
-has_pair :: (fn(a : &String, b : &String) -> bool)(a == b);
+has_pair :: (fn(a : &String, b : &String) -> bool)(a.* == b.*);
 
 // Mirrors _synthesize_types_impl's shape: owning locals bound from params,
 // used in an early-return constructor, and REASSIGNED in a later arm.
 f :: (fn(expected_env : &Env, given_env : &Env, deep : bool) -> Res)({
   exp_id := name_of(expected_env);
-  (mut(ee) : Env) = expected_env;
-  (mut(ge) : Env) = given_env;
+  (mut(ee) : Env) = expected_env.*;
+  (mut(ge) : Env) = given_env.*;
   giv_id := name_of(given_env);
   if(has_pair(&exp_id, &giv_id), {
     return(Res(expected_env : ee, given_env : ge));

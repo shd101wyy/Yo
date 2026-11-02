@@ -117,10 +117,10 @@ test("an explicit receiver on the method form, at two different R", {
 // E0601, "Cannot unify i32 and Option(T)"
 // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
 _wrap_opt_u :: (fn(generic(U : Type), v : &U, io : Io) -> Impl(Future(Option(U), Io)))(
-  io.async((io : Io) => Option(U).Some(v))
+  io.async((io : Io) => Option(U).Some(v.*))
 );
 _wrap_opt_t :: (fn(generic(T : Type), v : &T, io : Io) -> Impl(Future(Option(T), Io)))(
-  io.async((io : Io) => Option(T).Some(v))
+  io.async((io : Io) => Option(T).Some(v.*))
 );
 
 test("a future result containing the binder, at two different U", {
@@ -198,14 +198,14 @@ test("a future type as an enum payload declares the payload type first", {
 _BareE :: enum(X, Y);
 derive(_BareE, Copy, Clone);
 _bare_future :: (fn(generic(T : Type), v : &Option(T), io : Io) -> Impl(Future(Result(T, _BareE), Io)))({
-  b := Rc(Option(T))(v);
+  b := Rc(Option(T))(v.*);
   io.async((io : Io) => {
     c := b.*;
     match(c, .Some(x) => .Ok(x), .None => .Err(_BareE.X))
   })
 });
 _bare_fn :: (fn(generic(T : Type), v : &Option(T)) -> Impl(Fn(k : i32) -> Result(T, _BareE)))({
-  b := Rc(Option(T))(v);
+  b := Rc(Option(T))(v.*);
   (k : i32) => {
     c := b.*;
     match(c, .Some(x) => .Ok(x), .None => .Err(_BareE.X))

@@ -8,28 +8,28 @@
 /// ref params lower to `T*` in C; the caller automatically passes
 /// `&(arg)`.
 swap_i32 :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 
 increment :: (fn(n : &mut i32) -> unit)({
-  n = (n + i32(1));
+  n.* = (n.* + i32(1));
 });
 
 add_to :: (fn(dst : &mut i32, src : i32) -> unit)({
-  dst = (dst + src);
+  dst.* = (dst.* + src);
 });
 
 set_both :: (fn(a : &mut i32, b : &mut i32, v : i32) -> unit)({
-  a = v;
-  b = v;
+  a.* = v;
+  b.* = v;
 });
 
 double_then_swap :: (fn(x : &mut i32, y : &mut i32) -> unit)({
   // Calls ref-param fn passing through ref-params.
-  add_to(x, x);
-  add_to(y, y);
+  add_to(x, x.*);
+  add_to(y, y.*);
   swap_i32(x, y);
 });
 
@@ -75,7 +75,7 @@ test("ref chained through another ref-param fn", {
 
 test("ref read returns current caller value", {
   mut(v) := i32(100);
-  read_back :: (fn(p : &mut i32) -> i32)(p);
+  read_back :: (fn(p : &mut i32) -> i32)(p.*);
   result := read_back(&mut v);
   assert(result == i32(100), "read through ref");
 });
@@ -86,11 +86,11 @@ test("ref read returns current caller value", {
 // The top-level tail `m` never hit it (no nested block, no shadow).
 test("returning an inout param from inside a nested block", {
   first_positive :: (fn(m : &mut i32) -> i32)({
-    if(m > i32(0), {
-      return(m);
+    if(m.* > i32(0), {
+      return(m.*);
     });
-    m = i32(-1);
-    m
+    m.* = i32(-1);
+    m.*
   });
   mut(a) := i32(4);
   assert(first_positive(&mut a) == i32(4), "returned through the pointer");
@@ -108,7 +108,7 @@ test("returning an inout param from inside a nested block", {
 own_len :: (fn(sink(v) : String) -> usize)(v.len());
 test("inout parameter passed to an own parameter copies, the referenced slot survives", {
   via_param :: (fn(p : &mut String) -> usize)({
-    n := own_len(p);
+    n := own_len(p.*);
     p.push_str("!");
     n
   });
@@ -129,12 +129,12 @@ impl(
   InoutBag,
   touched : (fn(self : &mut Self, x : i32) -> Self)({
     self.n = x;
-    self
+    self.*
   })
 );
 touch_bag :: (fn(x : &mut InoutBag, k : i32) -> InoutBag)({
   x.n = k;
-  x
+  x.*
 });
 InoutEntry :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_items : ArrayList(V), n : i32));
 impl(
@@ -142,7 +142,7 @@ impl(
   InoutEntry(V),
   bumped : (fn(self : &mut Self, k : i32) -> Self)({
     self.n = (self.n + k);
-    self
+    self.*
   })
 );
 test("returning an inout self of an RC-holding value struct as the body tail", {

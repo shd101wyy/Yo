@@ -120,11 +120,11 @@ impl(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       match(
         lhs,
-        .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false),
-        .Node(a) => match(rhs, .Node(b) => _rec_b_kids_eq(&a, &b), _ => false)
+        .Leaf(x) => match(rhs, .Leaf(y) => (x.* == y.*), _ => false),
+        .Node(a) => match(rhs, .Node(b) => _rec_b_kids_eq(&a.*, &b.*), _ => false)
       )
     ),
-    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs == rhs))
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs.* == rhs.*))
   )
 );
 test("two recursive enums of one shape have distinct ArrayList(Self) instantiations", {

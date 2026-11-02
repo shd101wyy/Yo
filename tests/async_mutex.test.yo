@@ -22,7 +22,7 @@ test("lock/unlock/get/set basics", {
 
 test("with_lock runs the body under the lock and returns its value", {
   m := Mutex(i64).new(i64(5));
-  r := io.await(m.with_lock(v => (v + i64(1)), io), io);
+  r := io.await(m.with_lock(v => (v.* + i64(1)), io), io);
   assert(r == i64(6), "with_lock result");
   assert(!m.is_locked(), "released after the section");
 });
@@ -32,12 +32,12 @@ test("with_lock with two different R bodies on ONE mutex (the C54 shape)", {
   // The second specialization's `R := String` used to clobber the first's
   // `R := i64` in the emitted C (last-writer global registry); both orders
   // are pinned.
-  n := io.await(m.with_lock(v => (v + i64(1)), io), io);
+  n := io.await(m.with_lock(v => (v.* + i64(1)), io), io);
   s := io.await(m.with_lock(v => `v=${v}`, io), io);
   assert(n == i64(11), "i64 body result");
   assert(s == "v=10", "String body result");
   s2 := io.await(m.with_lock(v => `v=${v}`, io), io);
-  n2 := io.await(m.with_lock(v => (v * i64(3)), io), io);
+  n2 := io.await(m.with_lock(v => (v.* * i64(3)), io), io);
   assert(s2 == "v=10", "String body result (reverse order)");
   assert(n2 == i64(30), "i64 body result (reverse order)");
 });
@@ -51,7 +51,7 @@ test("with_lock's body runs under the async lock alone and may probe the mutex",
   m := Mutex(i64).new(i64(5));
   r := io.await(
     m.with_lock({ &m }(v : &mut i64) => {
-      v = (v + i64(1));
+      v.* = (v.* + i64(1));
       m.is_locked() && !m.try_lock()
     }, io),
     io

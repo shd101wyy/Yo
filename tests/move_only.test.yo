@@ -71,7 +71,7 @@ impl(
 // A `sink(x)` parameter is the same function type as a plain `x` (the move
 // is decided at the caller); `own(x)`, its old spelling, is deleted.
 _mo_take_old :: (fn(sink(f) : _MoFd) -> i32)(f.n);
-_mo_dup_generic :: (fn(generic(T : Type), x : &T) -> T)(x);
+_mo_dup_generic :: (fn(generic(T : Type), x : &T) -> T)(x.*);
 _mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
 // ---------------------------------------------------------------------------
 // The marker
@@ -487,15 +487,15 @@ test("move-only: a generic `sink` parameter moves at the instantiation", {
 // ---------------------------------------------------------------------------
 test("move-only: a borrow cannot be copied or moved out", {
   a := _MoFd(n : i32(1));
-  comptime_expect_error((fn(f : &_MoFd) -> _MoFd)(f), "it is borrowed");
+  comptime_expect_error((fn(f : &_MoFd) -> _MoFd)(f.*), "it is borrowed");
   comptime_expect_error(
     (fn(f : &_MoFd) -> i32)({
-      g := f;
+      g := f.*;
       g.n
     }),
     "it is borrowed"
   );
-  comptime_expect_error((fn(f : &mut _MoFd) -> i32)(_mo_take(f)), "it is a `&mut` borrow");
+  comptime_expect_error((fn(f : &mut _MoFd) -> i32)(_mo_take(f.*)), "it is a `&mut` borrow");
   comptime_expect_error(
     (fn(f : &_MoFd) -> i32)({
       (k : Impl(Fn() -> i32)) = (() => f.n);
@@ -504,7 +504,7 @@ test("move-only: a borrow cannot be copied or moved out", {
     "the closure captures `f`"
   );
   o := Option(_MoFd).Some(_MoFd(n : i32(2)));
-  comptime_expect_error(match(&o, .Some(f) => _mo_take(f), .None => i32(0)), "it is borrowed");
+  comptime_expect_error(match(&o, .Some(f) => _mo_take(f.*), .None => i32(0)), "it is borrowed");
   assert(_mo_peek(&a) == i32(1), "a is untouched");
 });
 test("move-only: no partial moves out of a field", {
@@ -789,7 +789,7 @@ test("consuming match: `match(&x, …)` borrows and keeps `x`", {
     comptime_expect_error(
       match(
         &o,
-        .Some(f) => _mo_take(f),
+        .Some(f) => _mo_take(f.*),
         .None => i32(0)
       ),
       "it is borrowed"
@@ -872,7 +872,7 @@ test("consuming match: a match on an outer local inside a loop is a move per ite
     while(i < i32(2), {
       match(
         &o2,
-        .Some(f) => _mo_peek(&f),
+        .Some(f) => _mo_peek(&f.*),
         .None => i32(0)
       );
       i = (i + i32(1));
@@ -922,11 +922,11 @@ test("consuming match: inside an io.async body, across an await in the arm", {
       .Zero => i32(0)
     );
     result.with_mut(cur => {
-      cur = (first + second);
+      cur.* = (first + second);
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur) == i32(6), "4 moved across the await, then a.n = 2");
+  assert(result.with(cur => cur.*) == i32(6), "4 moved across the await, then a.n = 2");
   assert(g_mo_disposed == (before + i32(3)), "f by the callee, b at the arm's entry, a at the arm's end");
   assert(g_mo_sum == (before_sum + i32(9)), "4 + 3 + 2, each once");
 });
@@ -944,11 +944,11 @@ test("consuming match: an io.async arm keeps a looked-through cell across an awa
       .Empty => i32(0)
     );
     result.with_mut(cur => {
-      cur = result_value;
+      cur.* = result_value;
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur) == i32(3), "f moved after the await, k read through the kept cell");
+  assert(result.with(cur => cur.*) == i32(3), "f moved after the await, k read through the kept cell");
   assert(g_mo_disposed == (before + i32(2)), "f by the callee, the cell at the arm's end");
 });
 // issues/fixed/a-move-inside-an-overloaded-operators-operand-is-a-use-after-move.md:
@@ -1457,8 +1457,8 @@ _mo_for_break_before_move :: (fn(k : i32) -> i32)({
   ns.push(i32(3));
   (mut(total) : i32) = i32(0);
   for(&ns, n => {
-    f := _MoFd(n : n);
-    if(n == k, {
+    f := _MoFd(n : n.*);
+    if(n.* == k, {
       break;
     });
     total = (total + _mo_take(f));
@@ -1578,11 +1578,11 @@ test("move-only: in an io.async loop, a `break` or `continue` before a later mov
       total = (total + _mo_take(g));
     });
     result.with_mut(cur => {
-      cur = total;
+      cur.* = total;
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur) == i32(41), "1, then 10 and 30, reached the callee");
+  assert(result.with(cur => cur.*) == i32(41), "1, then 10 and 30, reached the callee");
   assert(g_mo_disposed == (before + i32(5)), "1, 10 and 30 by the callee, 2 at the break, 20 at the continue");
 });
 // An exit between a move of a local and its reassignment finds the local
@@ -1612,12 +1612,12 @@ _mo_continue_between_move_and_reassign :: (fn(k : i32) -> i32)({
   ns.push(i32(3));
   (mut(total) : i32) = i32(0);
   for(&ns, n => {
-    (mut(f) : _MoFd) = _MoFd(n : n);
+    (mut(f) : _MoFd) = _MoFd(n : n.*);
     total = (total + _mo_take(f));
-    if(n == k, {
+    if(n.* == k, {
       continue;
     });
-    f = _MoFd(n : (n * i32(10)));
+    f = _MoFd(n : (n.* * i32(10)));
     total = (total + _mo_take(f));
   });
   total
@@ -1684,11 +1684,11 @@ test("move-only: in an io.async loop, an exit between a move and a reassignment 
       total = (total + _mo_take(f));
     });
     result.with_mut(cur => {
-      cur = total;
+      cur.* = total;
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur) == i32(13), "1 and 10, then 2 before the break");
+  assert(result.with(cur => cur.*) == i32(13), "1 and 10, then 2 before the break");
   assert(g_mo_disposed == (before + i32(3)), "1, 10 and 2, each by the callee once");
   assert(g_mo_sum == i32(13), "nothing disposed twice");
 });
@@ -1727,11 +1727,11 @@ test("move-only: in an io.async loop, an exit inside a binding's own initializer
       total = (total + _mo_take(y));
     });
     result.with_mut(cur => {
-      cur = total;
+      cur.* = total;
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur) == i32(83), "1, 2, then 10, 30 and 40");
+  assert(result.with(cur => cur.*) == i32(83), "1, 2, then 10, 30 and 40");
   assert(g_mo_disposed == (before + i32(5)), "five values, each by the callee once");
   assert(g_mo_sum == i32(83), "nothing disposed twice");
   g_mo_sum = i32(0);
@@ -1750,12 +1750,12 @@ test("move-only: in an io.async loop, an exit inside a binding's own initializer
       io.await(yield(io), io);
       v := _mo_take(x);
       result2.with_mut(cur => {
-        cur = (cur + v);
+        cur.* = (cur.* + v);
       });
     });
   });
   io.await(task2, io);
-  assert(result2.with(cur => cur) == i32(3), "1 and 2 before the return");
+  assert(result2.with(cur => cur.*) == i32(3), "1 and 2 before the return");
   assert(g_mo_disposed == (before2 + i32(2)), "1 and 2, each by the callee once");
   assert(g_mo_sum == i32(3), "nothing disposed twice");
 });
@@ -2060,9 +2060,9 @@ _mo_mb_for :: (fn(k : i32) -> i32)({
   ns.push(i32(3));
   (mut(total) : i32) = i32(0);
   for(&ns, n => {
-    f := _MoFd(n : n);
+    f := _MoFd(n : n.*);
     match(
-      n == k,
+      n.* == k,
       false => {
         total = (total + _mo_take(f));
       },
@@ -3266,17 +3266,17 @@ test("move-only: in an io.async loop, a `return` before the `break` path moves a
       });
       if(i == i32(2), {
         result.with_mut(cur => {
-          cur = i32(-2);
+          cur.* = i32(-2);
         });
         return(());
       });
     });
     result.with_mut(cur => {
-      cur = i;
+      cur.* = i;
     });
   });
   io.await(task, io);
-  assert(_mo_shape(result.with(cur => cur), i32(-2), d0, i32(1), i32(3)), "the return at i == 2 drops the slot local");
+  assert(_mo_shape(result.with(cur => cur.*), i32(-2), d0, i32(1), i32(3)), "the return at i == 2 drops the slot local");
 });
 // An aborted task drops what its slots still own. A move on a `break` path
 // or in a branch arm empties the slot (its move flag), so the abort at a

@@ -13,7 +13,7 @@ import("std/fmt");
 // CTFE-executed an ordinary runtime body.
 // issues/fixed/comptime-type-argument-alone-does-not-bind-the-generic.md
 _dflt :: (fn(comptime(C) : Type, where(C <: Default)) -> C)((C <: Default).default());
-_pick :: (fn(comptime(C) : Type, v : &C) -> C)(v);
+_pick :: (fn(comptime(C) : Type, v : &C) -> C)(v.*);
 _dflt2 :: (fn(comptime(C) : Type, hint : &C, where(C <: Default)) -> C)(
   (C <: Default).default()
 );
@@ -92,7 +92,7 @@ test("A comptime type argument holding a resolved Impl specializes", {
 // issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md
 _PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
 derive(generic(K : Type), _PhantomTag(K), Copy, Clone);
-impl(generic(K : Type), _PhantomTag(K), code : (fn(self : &Self) -> u8)(match(self, .A => u8(0), .B(n) => n)));
+impl(generic(K : Type), _PhantomTag(K), code : (fn(self : &Self) -> u8)(match(self, .A => u8(0), .B(n) => n.*)));
 _phantom_code :: (fn(comptime(K) : Type, t : &_PhantomTag(K)) -> u8)(t.code());
 test("A method on a phantom generic enum resolves through a comptime type parameter", {
   t := _PhantomTag(i32).B(n : u8(5));

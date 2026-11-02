@@ -14,7 +14,7 @@ impl(
   MyBox,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      unsafe(printf("Disposing Boxed i32 with value: %d\n", self.*));
+      unsafe(printf("Disposing Boxed i32 with value: %d\n", self.*.*));
     })
   )
 );
@@ -336,13 +336,13 @@ impl(
     ch := Channel(T).new(usize(1));
     sink := ch;
     run_it(() => {
-      _ := sink.send(v);
+      _ := sink.send(v.*);
       ()
     });
     Self(_slot : ch)
   }),
   take : (fn(self : &Self, fallback : &T) -> T)(
-    match(self._slot.try_recv(), .Ok(r) => r, .Err(_) => fallback)
+    match(self._slot.try_recv(), .Ok(r) => r, .Err(_) => fallback.*)
   )
 );
 test("a generic impl method's capturing closure compiles and runs", {
@@ -366,7 +366,7 @@ impl(
   generic(T : Type),
   _ClosureSlot(T),
   empty : (fn(tag : i32) -> Self)(Self(tag : tag, _f : .None)),
-  holding : (fn(tag : i32, f : &T) -> Self)(Self(tag : tag, _f : .Some(f)))
+  holding : (fn(tag : i32, f : &T) -> Self)(Self(tag : tag, _f : .Some(f.*)))
 );
 test("a container of a closure type compiles and calls the closure", {
   (hits : AtomicI32) = AtomicI32.new(i32(0));

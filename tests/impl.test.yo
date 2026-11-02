@@ -23,8 +23,8 @@ impl(
   Id(
     id : (
       self -> {
-        unsafe(printf("i32 value: %d\n", self));
-        return(self);
+        unsafe(printf("i32 value: %d\n", self.*));
+        return(self.*);
       }
     )
   )
@@ -34,7 +34,7 @@ impl(
   RetI32(
     return_i32 : (
       self -> {
-        return(self.*);
+        return(self.*.*);
       }
     )
   )
@@ -45,10 +45,10 @@ impl(
     id : (
       self -> {
         cond(
-          self => unsafe(printf("bool value: true\n")),
+          self.* => unsafe(printf("bool value: true\n")),
           true => unsafe(printf("bool value: false\n"))
         );
-        return(self);
+        return(self.*);
       }
     )
   )
@@ -59,7 +59,7 @@ impl(
     return_i32 : (
       self ->
         cond(
-          self.* => 1,
+          self.*.* => 1,
           true => return(0)
         )
     )
@@ -70,7 +70,7 @@ impl(
   Id(
     id : (
       self -> {
-        unsafe(printf("Boxed i32 value: %d\n", self.*));
+        unsafe(printf("Boxed i32 value: %d\n", self.*.*));
         return(Rc.clone(self));
       }
     )
@@ -82,7 +82,7 @@ impl(
     // Let's x2 here
     return_i32 : (
       self -> {
-        return(self.*.* + (self.*.*));
+        return(self.*.*.* + (self.*.*.*));
       }
     )
   )
@@ -416,7 +416,7 @@ SelfEqKind :: ref(enum(Leaf, Other, Node(elem : Self)));
 impl(
   SelfEqKind,
   Eq(SelfEqKind)(
-    (==) : ((lhs, rhs) -> match(lhs, .Leaf => match(rhs, .Leaf => true, _ => false), .Other => match(rhs, .Other => true, _ => false), .Node(l) => match(rhs, .Node(r) => (l == r), _ => false)))
+    (==) : ((lhs, rhs) -> match(lhs, .Leaf => match(rhs, .Leaf => true, _ => false), .Other => match(rhs, .Other => true, _ => false), .Node(l) => match(rhs, .Node(r) => (l.* == r.*), _ => false)))
   )
 );
 
@@ -440,10 +440,10 @@ impl(
   MrE,
   Eq(MrE)(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(lhs, .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false), .Node(a) => match(rhs, .Node(b) => _mr_kids_eq(&a, &b), _ => false))
+      match(lhs, .Leaf(x) => match(rhs, .Leaf(y) => (x.* == y.*), _ => false), .Node(a) => match(rhs, .Node(b) => _mr_kids_eq(&a.*, &b.*), _ => false))
     ),
     (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      !(lhs == rhs)
+      !(lhs.* == rhs.*)
     )
   )
 );

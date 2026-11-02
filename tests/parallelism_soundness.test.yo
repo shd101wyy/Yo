@@ -155,7 +155,7 @@ test("D3 canary: a `&mut` lend of a plain place or of the atomic binding itself 
   mut(s) := Shared(counter : Counter(n : i32(1)));
   {
     r := &mut s;
-    r = Shared(counter : Counter(n : i32(5)));
+    r.* = Shared(counter : Counter(n : i32(5)));
   };
   assert((c.n == i32(1)) && (s.counter.n == i32(5)), "both lends wrote their own place");
 });
@@ -243,7 +243,7 @@ comptime_expect_error({
 // The use-after-free the hole allowed: another task takes the field a
 // borrowing future reads after its suspension.
 _slot_peek :: (fn(w : &Slot, io : Io) -> Impl(Future(i64, Io)))(
-  io.async({ &w }(io : Io) => {
+  io.async({ w : &w.* }(io : Io) => {
     io.await(yield(io), io);
     match(w.o, .Some(v) => v, .None => i64(0))
   })
@@ -324,7 +324,7 @@ comptime_expect_error({
 });
 // D4 (Phase 4): ...and through a generic `where(T <: Send)` function.
 _needs_send :: (fn(generic(T : Type), x : &T, where(T <: Send)) -> unit)({
-  x;
+  x.*;
 });
 comptime_expect_error({
   _d4_generic_send_bound :: (fn() -> unit)({
@@ -529,7 +529,7 @@ comptime_expect_error({
 test("D8 canary: a closure over a copy of the protected value is legal", {
   m := Mutex(Counter).new(Counter(n : i32(7)));
   seen := m.with_lock(v => {
-    c := v;
+    c := v.*;
     (k : Impl(Fn() -> i32)) = (() => c.n);
     k()
   });

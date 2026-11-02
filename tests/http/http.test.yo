@@ -39,7 +39,7 @@ _network_required :: (fn() -> bool)(env.get("CI").is_some());
 /// cannot produce it; every other error stays fatal under CI.
 _is_dns_failure :: (fn(err : &AnyError) -> bool)(
   match(
-    downcast(err, NetError),
+    downcast(err.*, NetError),
     .Some(ne) => match(ne, .DNSFailed => true, _ => false),
     .None => false
   )
@@ -180,16 +180,16 @@ test("fetch over https returns a real response (mandatory under CI)", {
   );
   resp := io.await(fetch(`https://example.com`.to_string(), io), IoExn(io : io, exn : exn));
   reached.with_mut(cur => {
-    cur = true;
+    cur.* = true;
   });
   status_ok := (resp.status == StatusCode.OK());
   body_ok := (resp.body.len() > usize(0));
   good := (status_ok && body_ok);
   ok.with_mut(cur => {
-    cur = good;
+    cur.* = good;
   });
   cond(
-    reached.with(cur => cur) => assert(ok.with(cur => cur), `expected a 200 with a body over https, got ${resp.status}`),
+    reached.with(cur => cur.*) => assert(ok.with(cur => cur.*), `expected a 200 with a body over https, got ${resp.status}`),
     true => assert(true, "skipped: no network")
   );
 });
@@ -226,7 +226,7 @@ _ends_headers :: (fn(b : &ArrayList(u8)) -> bool)({
 // client has not read yet. Both make a server that answers correctly look like
 // one that did not.
 _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async({ &stream }(e : IoExn) => {
+  io.async({ stream : &stream.* }(e : IoExn) => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
     mut(eof) := false;
@@ -1042,7 +1042,7 @@ _ka_one_shot :: (fn(mode : i32) -> bool)(
 // One connection: read framed requests off it and answer each one, until the
 // peer closes (an empty framed message is EOF) or the mode says to stop.
 _ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : _KaStats, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async({ &stream, mode, stats }(e : IoExn) => {
+  io.async({ stream : &stream.*, mode, stats }(e : IoExn) => {
     // ONE carry list for the whole connection: a single `read` can deliver
     // the end of this request and the start of the next.
     carry := Rc.new(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
@@ -1727,7 +1727,7 @@ test("an aborted HttpClient fetch takes its exchange down with it", {
         io.async({ &client, &url, &opts }(io : Io) => {
           wexn := Exception(throw : (err -> unwind(false)));
           wb := IoExn(io : io, exn : wexn);
-          _r := io.await(client.fetch_with(&url, &opts, io), wb);
+          _r := io.await(client.fetch_with(&url.*, &opts.*, io), wb);
           true
         }),
         Duration.from_millis(i64(100)),

@@ -2,11 +2,11 @@
 // manifest tests/origins/corpus.tsv): POSITIVE: forwarding a borrowing future over a lent place, bound and awaited later (O8: closes A2's forwarding gap).
 // Expected once decision 43's rules land: accepted.
 _bump :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ &mut c }(io : Io) => {
-    c = (c + i32(1));
+  io.async({ c : &mut c.* }(io : Io) => {
+    c.* = (c.* + i32(1));
   })
 );
-_forward :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(_bump(&mut c, io));
+_forward :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(_bump(&mut c.*, io));
 main :: (fn(io : Io) -> unit)({
   mut(x) := i32(1);
   fut := _forward(&mut x, io);
