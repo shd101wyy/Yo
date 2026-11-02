@@ -7086,7 +7086,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (stop : bool) = false;
   while((k > usize(0)) && !stop, {
     k = (k - usize(1));
-    step := match(steps.get_cloned(k), .Some(s) => s, .None => String.from("?"));
+    step := match(steps.get(k), .Some(s) => s, .None => String.from("?"));
     recv_ty := match(
       recvs.get(k),
       .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
@@ -7130,7 +7130,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (ci : usize) = usize(0);
   while(ci < cell.len(), {
     cell_text.push_str(".");
-    cell_text.push_string(match(cell.get_cloned(ci), .Some(s) => s, .None => String.new()));
+    cell_text.push_string(match(cell.get(ci), .Some(s) => s, .None => String.new()));
     ci = (ci + usize(1));
   });
   Option(CellRootedPlace).Some(
@@ -7155,7 +7155,7 @@ cell_rooted_same_cell :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) -> bool
   });
   (i : usize) = usize(0);
   while(i < p.cell_steps.len(), {
-    if(match(p.cell_steps.get_cloned(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get_cloned(i), .Some(y) => y, .None => String.new()), {
+    if(match(p.cell_steps.get(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
@@ -7347,17 +7347,17 @@ _lb_raise_conflict :: (
     }
   );
   match(
-    &info.elided_origin,
+    info.elided_origin,
     .Some(eo) => {
       (ek : usize) = usize(0);
       while(ek < eo.roots.len(), {
-        if(match(eo.roots.get_cloned(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
-          frozen_label := match(eo.labels.get_cloned(ek), .Some(l) => l, .None => String.new());
+        if(match(eo.roots.get(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
+          frozen_label := match(eo.labels.get(ek), .Some(l) => l, .None => String.new());
           keep := String.new();
           (kk : usize) = usize(0);
           while(kk < eo.labels.len(), {
             match(
-              eo.labels.get_cloned(kk),
+              eo.labels.get(kk),
               .Some(l) => if(!(l == frozen_label) && !_lb_label_listed(&eo.labels, kk), {
                 if(keep.len() > usize(0), {
                   keep.push_str(", ");
@@ -7392,7 +7392,7 @@ _lb_raise_conflict :: (
 _lb_label_listed :: (fn(labels : &ArrayList(String), k : usize) -> bool)({
   (j : usize) = usize(0);
   while(j < k, {
-    if(match(labels.get_cloned(j), .Some(a) => match(labels.get_cloned(k), .Some(b) => (a == b), .None => false), .None => false), {
+    if(match(labels.get(j), .Some(a) => match(labels.get(k), .Some(b) => (a == b), .None => false), .None => false), {
       return(true);
     });
     j = (j + usize(1));
