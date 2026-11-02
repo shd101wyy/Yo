@@ -2539,7 +2539,8 @@ type_implements_runtime_full :: (fn(ty : &TypeValue, env : &Environment) -> bool
 ///
 ///
 begin_send_derivation :: (fn(type_id : &String) -> unit)({
-  g_send_derivation_in_progress.with_mut(xs => xs.push(type_id.clone()));
+  type_id_owned__ := type_id.clone();
+  g_send_derivation_in_progress.with_mut({ type_id_owned__ }(xs) => xs.push(type_id_owned__.clone()));
 });
 /// Remove a type from the Send auto-derivation in-progress set.
 ///
@@ -2550,7 +2551,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
   (found_idx : Option(usize)) = Option(usize).None;
   while(i < n, {
     entry := match(
-      g_send_derivation_in_progress.with(xs => xs.get(i)),
+      g_send_derivation_in_progress.with(xs => xs.get_cloned(i)),
       .Some(s) => s,
       .None => {
         i = (i + usize(1));
@@ -2588,7 +2589,7 @@ _type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Envi
   (id : usize) = usize(0);
   while(id < nd, {
     entry := match(
-      g_send_derivation_in_progress.with(xs => xs.get(id)),
+      g_send_derivation_in_progress.with(xs => xs.get_cloned(id)),
       .Some(s) => s,
       .None => {
         id = (id + usize(1));
@@ -2762,7 +2763,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
               (si : usize) = usize(0);
               while(si < eft_seen.len(), {
                 match(
-                  eft_seen.get(si),
+                  eft_seen.get_cloned(si),
                   .Some(sid) => if(sid == eft_id, {
                     eft_revisit = true;
                   }),
@@ -3157,7 +3158,7 @@ type_contains_some_type_for_codegen_param :: (
     (ci : usize) = usize(0);
     while((ci < checked_ids.len()) && !seen, {
       match(
-        checked_ids.get(ci),
+        checked_ids.get_cloned(ci),
         .Some(k) => if(k == nominal_id, {
           seen = true;
         }),
