@@ -168,7 +168,31 @@ job w1 2 &
 wait
 expect "a weight-1 job labelled with timing words shares the machine" "$(max_concurrent)" 2
 
-# 12. Nothing is left behind.
+# 12. zsh callers (agent sessions' login shell): a weight-1 take/drop and an
+#     exclusive take/drop over several slots both complete, and the slots
+#     drain afterwards.
+if command -v zsh > /dev/null 2>&1; then
+  zjob() {
+    zsh -c '
+      source "$1"; trap heavy_drop EXIT
+      heavy_take "$2" ${4:-} || exit 1
+      echo "$(date +%s.%N) start $2" >> "$HEAVY_ROOT/events"
+      sleep "$3"
+      echo "$(date +%s.%N) end $2" >> "$HEAVY_ROOT/events"
+    ' _ "$LIB" "$@"
+  }
+  scenario zsh-callers
+  printf 'HEAVY_SLOTS=3\nHEAVY_MIN_AVAIL_MB=0\n' > "$HEAVY_ROOT/heavy-lock.conf"
+  zjob z1 2 & sleep 0.3
+  zjob z2 2 & sleep 0.3
+  zjob zx 1 exclusive &
+  wait
+  expect "zsh: two weight-1 jobs share, then the exclusive one runs" "$(start_order)" "z1 z2 zx"
+else
+  echo "skip zsh callers (no zsh on PATH)"
+fi
+
+# 13. Nothing is left behind.
 expect "every slot released, every ticket gone" "$(find "$WORK" -mindepth 2 \( -name '.heavy-lock*' -o -path '*/.heavy-queue/*' \) | wc -l | tr -d ' ')" 0
 
 exit $FAILED
