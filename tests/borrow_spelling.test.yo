@@ -708,3 +708,100 @@ comptime_expect_error(
   }),
   "it is the kind of an origin"
 );
+// `Escapable` and borrows through a handle (decision 43 step 2, N1d;
+// plans/backlog/REFERENCES_AND_ORIGINS.md O9, O10). The marker is derived
+// from a type's structure: a type holding a reference is not `Escapable`,
+// and a failed `where(T <: Escapable)` is E0909. `Rc`/`Arc` payloads take
+// only `Escapable` types, with the same message. A `&` borrow through a
+// handle's deref has the handle as its origin, so the handle is frozen
+// while the borrow lives.
+BsHeld :: struct(x : i32, y : i32);
+derive(BsHeld, Copy, Clone);
+bs_wrap_escapable :: (fn(generic(T : Type), v : T, where(T <: Escapable)) -> Rc(T))(Rc.new(v));
+bs_is_escapable :: (fn(generic(T : Type), _v : T, where(T <: Escapable)) -> bool)(true);
+test("Escapable holds for a type without origins, and a borrow reaches through a handle", {
+  r := bs_wrap_escapable(i32(7));
+  assert(r.* == i32(7), "an i32 is Escapable");
+  assert(bs_is_escapable(BsHeld(x : i32(1), y : i32(2))), "a struct of plain fields is Escapable");
+  h := Rc.new(BsHeld(x : i32(1), y : i32(2)));
+  a := &h.*.x;
+  b := &h.*.y;
+  assert((a + b) == i32(3), "two shared borrows through one Rc handle");
+  c := Arc.new(BsHeld(x : i32(3), y : i32(4)));
+  d := &c.*.y;
+  assert(d == i32(4), "a shared borrow through an Arc handle");
+  // Another handle's drop is legal: the frozen `h` still holds the payload.
+  h2 := Rc.clone(h);
+  q := &h.*.x;
+  drop(h2);
+  assert(q == i32(1), "the payload outlives the other handle");
+  // A capture through the handle: `h` is frozen while the closure lives.
+  f := { v : &h.*.y }() => v;
+  assert(f() == i32(2), "a closure borrows through the handle");
+});
+comptime_expect_error(
+  bs_rc_of_view :: (fn() -> unit)({
+    x := i32(1);
+    v := BsView(x)(at : &x, lo : usize(0));
+    _r := Rc.new(v);
+  }),
+  "The bound `where(V <: Escapable)` requires an `Escapable` type"
+);
+comptime_expect_error(
+  bs_arc_of_view :: (fn() -> unit)({
+    x := i32(1);
+    v := BsView(x)(at : &x, lo : usize(0));
+    _r := Arc.new(v);
+  }),
+  "The bound `where(V <: Escapable)` requires an `Escapable` type"
+);
+comptime_expect_error(
+  bs_bound_rejects_view :: (fn() -> bool)({
+    x := i32(1);
+    v := BsView(x)(at : &x, lo : usize(0));
+    bs_is_escapable(v)
+  }),
+  "The bound `where(T <: Escapable)` requires an `Escapable` type"
+);
+comptime_expect_error(impl(BsHeld, Escapable()), "never implemented by hand");
+comptime_expect_error(
+  bs_handle_dropped :: (fn() -> i32)({
+    h := Rc.new(BsHeld(x : i32(1), y : i32(2)));
+    r := &h.*.x;
+    drop(h);
+    r
+  }),
+  "while it is borrowed"
+);
+comptime_expect_error(
+  bs_handle_reassigned :: (fn() -> i32)({
+    mut(h) := Rc.new(BsHeld(x : i32(1), y : i32(2)));
+    r := &h.*.x;
+    h = Rc.new(BsHeld(x : i32(3), y : i32(4)));
+    r
+  }),
+  "while it is borrowed"
+);
+comptime_expect_error(
+  bs_handle_mut_borrow :: (fn() -> unit)({
+    h := Rc.new(BsHeld(x : i32(1), y : i32(2)));
+    _r := &mut h.*.x;
+  }),
+  "read-only through the handle"
+);
+comptime_expect_error(
+  bs_handle_capture_frozen :: (fn() -> i32)({
+    mut(h) := Rc.new(BsHeld(x : i32(1), y : i32(2)));
+    f := { v : &h.*.x }() => v;
+    h = Rc.new(BsHeld(x : i32(3), y : i32(4)));
+    f()
+  }),
+  "the closure `f` borrows"
+);
+comptime_expect_error(
+  bs_handle_capture_mut :: (fn() -> unit)({
+    h := Rc.new(BsHeld(x : i32(1), y : i32(2)));
+    _f := { v : &mut h.*.x }() => v;
+  }),
+  "A borrow capture cannot reach through"
+);

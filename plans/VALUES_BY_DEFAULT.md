@@ -1036,6 +1036,14 @@ Each kind of root gets its own check:
   a plain value, not only behind `Rc`/`Arc`:
   `issues/questions/refcell-inside-a-plain-value.md` (recommendation: yes,
   anywhere, verifier-excluded).
+  **Projection form under review at N3 (2026-11-02, Fable consultation,
+  VERDICTS-13 §8):** `get()`/`get_mut()` were split out of decision 43
+  step 2's N1d — they have no v0.2.74 consumer (B5 put std and src on
+  `with`/`with_mut`) and no seed relevance. Their shape is decided at N3
+  (v0.2.75); the recommendation is Rust-style guard values (an
+  origin-carrying struct whose `Drop` releases the mark, so the release
+  rides the deferred drops and runs on unwind) instead of the
+  expression-scoped projection and binding ban above.
 - **Why a type and not a per-site marker.** A marker leaves every `Rc`
   cell carrying marks because some site elsewhere might write; the type
   makes the fact modular: it works across static libraries, and a struct

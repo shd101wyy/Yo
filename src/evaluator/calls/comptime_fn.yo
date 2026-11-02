@@ -718,7 +718,7 @@ _check_counted_cell_payload :: (fn(v : &EvalValue, function_callee_expr : &Optio
   match(
     v,
     .TypeVal(t) => match(
-      counted_cell_payload_not_escapable(t),
+      counted_cell_payload_not_escapable(&t),
       .Some(payload) => {
         tok := match(function_callee_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(make_err_expr()));
         exn.throw(dyn(escapable_bound_error(&payload, &String.from("V"), &tok)));

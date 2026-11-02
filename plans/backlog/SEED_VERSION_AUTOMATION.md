@@ -382,6 +382,27 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-11-02): std spells `where(V <: Escapable)` on `Rc` and `Arc` (decision 43 N3)
+
+Decision 43 step 2's N1d (v0.2.74) adds the prelude marker `Escapable`
+(`plans/backlog/REFERENCES_AND_ORIGINS.md` O10), derived from a type's
+structure by the compiler, and makes a failed `where(T <: Escapable)` error
+E0909. `Rc(V)` and `Arc(V)` take only an `Escapable` payload (O9), but the
+prelude cannot spell that bound while the seed that compiles std does not
+derive the marker: under the v0.2.73 seed every `Rc(T)` would fail. Until
+then the compiler checks it itself, at the type constructor, with the text
+the spelled bound reports (`_check_counted_cell_payload`,
+`src/evaluator/calls/comptime_fn.yo`, over
+`counted_cell_payload_not_escapable` and `escapable_bound_error`,
+`src/types/utils.yo`; step-2 consultation Q6: one predicate, one message).
+
+**Generation B (N3, once `SEED_VERSION` carries N1d, v0.2.74):** write
+`where(V <: Escapable)` on `Rc`, `Arc`, `__yo_rc_cell` and `__yo_arc_cell` in
+`std/prelude.yo`, then delete `_check_counted_cell_payload` and
+`counted_cell_payload_not_escapable`. The diagnostics do not change: the
+cli-cases and tests that pin the message keep passing. W6b's amendment of
+O9/O10 (the collector's removal) is not pre-empted by either half.
+
 ## Seed-gated follow-up (2026-10-30): make_mut reuses the owner (Rc/Arc.allocator)
 
 `Rc.make_mut` and `Arc.make_mut` place their fresh cell (another strong
