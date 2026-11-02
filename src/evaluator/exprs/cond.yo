@@ -648,7 +648,7 @@ evaluate_cond :: (
         if(value_type.is_none(), {
           value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_unit(), env : env));
         });
-        vts := match(value_type, .Some(vt) => vt.clone(), .None => ValueTypeState(ty : t_unit(), env : env));
+        vts := match(&value_type, .Some(vt) => vt.clone(), .None => ValueTypeState(ty : t_unit(), env : env));
         // A `comptime_int` arm joined at a fixed-width integer type must fit
         // it: `cond(c => 300, true => u8(1))` would emit a truncated constant.
         (ci_bi : usize) = usize(0);

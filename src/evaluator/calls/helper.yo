@@ -5273,7 +5273,7 @@ create_specialized_function_inline :: (
                                           rk_some = (rk_some + get_all_some_types(match(cw_new_pts.get(rk_i), .Some(t) => t, .None => t_unit())).len());
                                           rk_i = (rk_i + usize(1));
                                         });
-                                        rk_code := match(rk_err.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c.clone(), .None => String.from("-")), .None => String.from("-"));
+                                        rk_code := match(rk_err.diagnostics.get(usize(0)), .Some(d) => match(&d.code, .Some(c) => c.clone(), .None => String.from("-")), .None => String.from("-"));
                                         rk_tok := ast_expr_token(&cc_fvd.*.body);
                                         eprintln(`[kept] site=${if(rk_some == usize(0), String.from("reeval-concrete"), String.from("reeval-abstract"))} code=${rk_code} owner=${rk_tok.module_path.*}:${rk_tok.row.to_string()}:${rk_tok.column.to_string()}`);
                                       },

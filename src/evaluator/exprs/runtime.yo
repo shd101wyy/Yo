@@ -137,7 +137,7 @@ _reject_borrowed_for_over_mut_global :: (
   match(
     get_variables_from_env(env, &pl.root_name).last(),
     .Some(rv) => if(rv.is_module_level && is_mut_global(&rv.token.module_path.*, &rv.name), {
-      at := match(info.macro_site, .Some(t) => t.clone(), .None => info.decl.clone());
+      at := match(&info.macro_site, .Some(t) => t.clone(), .None => info.decl.clone());
       form := cond(info.is_mut => "for(&mut ...)", true => "for(&...)");
       raise_flow_violation(
         with_code(
