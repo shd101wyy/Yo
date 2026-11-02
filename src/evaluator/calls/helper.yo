@@ -983,7 +983,7 @@ apply_call_site_borrow_markers :: (
     mi = (mi + usize(1));
   });
   if(!any_marker, {
-    return(args);
+    return(args.clone());
   });
   out := ArrayList(AstExpr).new();
   (ai : usize) = usize(0);
@@ -1343,7 +1343,7 @@ consume_argument_for_parameter :: (
   arg_is_bitwise_copy := type_is_bitwise_copy(Rc.clone(arg_info.ty));
   if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase && !arg_is_bitwise_copy, {
     match(
-      arg_info.variable_name,
+      &arg_info.variable_name,
       .None => (),
       .Some(arg_var_name) => {
         arg_vars := get_variables_from_env(caller_env, &arg_var_name);
@@ -1602,7 +1602,7 @@ check_argument_for_parameter :: (
   // skips the markers it judged.
   fam := judge_function_argument_markers(resolved_pt, &lowered, &arg_info.value, env, ctx);
   match(
-    fam.offense,
+    &fam.offense,
     .Some(fam_o) => _arg_rule_throw(arg_tok, `Argument for parameter "${param_label}" (type ${type_to_string(&lowered)}) cannot be passed as ${type_to_string(resolved_pt)}: ${fam_o}.`, ctx, exn),
     .None => ()
   );
@@ -2134,7 +2134,7 @@ _type_signature_string :: (fn(t : &TypeValue) -> String)({
     });
     (at : usize) = g_type_sig_fast.with(xs => type_identity_slot(xs, t));
     g_type_sig_fast.with_mut({ at, t : Rc.clone(t) }(xs) => xs.insert(at, Rc.clone(t)));
-    g_type_sig_fast_strings.with_mut(xs => xs.insert(at, sig.clone()));
+    g_type_sig_fast_strings.with_mut({ at, sig : sig.clone() }(xs) => xs.insert(at, sig));
   });
   sig
 });
@@ -2213,7 +2213,7 @@ compute_compile_time_signature :: (
   );
   // Implicit argument values (given/using handlers — always compile-time)
   match(
-    arg_values.implicit_args,
+    &arg_values.implicit_args,
     .Some(impl_args) => {
       n_ia := impl_args.len();
       (iai : usize) = usize(0);
@@ -2300,7 +2300,7 @@ compute_compile_time_signature :: (
       result.push_str("_");
     });
     match(
-      parts.get(pi),
+      parts.get_cloned(pi),
       .Some(p) => result.push_string(&p),
       .None => ()
     );
@@ -2350,7 +2350,7 @@ _self_marker_id :: (fn(env : &Environment, label : &String) -> String)({
         .Some(vv) => match(
           vv,
           .TypeVal(Rc(.SomeT({ id : mid }))) => {
-            return(mid);
+            return(mid.clone());
           },
           _ => (),
           _ => ()
@@ -2545,7 +2545,7 @@ _store_specialization_cache :: (
   ) -> unit
 )({
   new_cache := SpecializedFunctionCache(
-    compile_time_arg_values : compile_time_arg_values,
+    compile_time_arg_values : compile_time_arg_values.clone(),
     runtime_parameter_types : runtime_parameter_types.clone(),
     specialized_func_value : specialized_func_val,
     owner : registration_owner()
@@ -2573,14 +2573,8 @@ _store_specialization_cache :: (
     // Create new entry
     new_caches := ArrayList(SpecializedFunctionCache).new();
     new_caches.push(new_cache);
-    g_specialized_fn_caches.with_mut(
-      xs => xs.push(
-        SpecializedFunctionCacheEntry(
-          func_id : func_id.clone(),
-          caches : new_caches
-        )
-      )
-    );
+    entry := SpecializedFunctionCacheEntry(func_id : func_id.clone(), caches : new_caches);
+    g_specialized_fn_caches.with_mut({ entry }(xs) => xs.push(entry));
   });
 });
 /// Specializations minted while a recording is open
