@@ -34,9 +34,9 @@ EvidenceParameter :: ref(
 );
 /// Join a path of field labels with "__".
 _join_double_underscore :: (fn(parts : &ArrayList(String)) -> String)({
-  out := String.from("");
+  mut(out) := String.from("");
   n := parts.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     if(i > usize(0), {
       out.push_str("__");
@@ -62,17 +62,17 @@ collect_evidence_from_record :: (
     effect_record_type,
     Rc(.Struct({ field_labels, field_types })) => {
       n := field_labels.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         field_label := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
         field_ty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         cond(
           is_function_type(&field_ty) => {
             // Forall function fields are passed as void* and cast at each call site.
-            field_path := path_prefix.clone();
+            mut(field_path) := path_prefix.clone();
             field_path.push(field_label.clone());
             joined := _join_double_underscore(field_path.clone());
-            c_param := String.from("");
+            mut(c_param) := String.from("");
             c_param.push_string(implicit_label.clone());
             c_param.push_str("__");
             c_param.push_string(joined.clone());
@@ -87,7 +87,7 @@ collect_evidence_from_record :: (
             );
           },
           (is_module_type(&field_ty) || is_struct_type(&field_ty)) => {
-            nested_prefix := path_prefix.clone();
+            mut(nested_prefix) := path_prefix.clone();
             nested_prefix.push(field_label.clone());
             recur(implicit_label.clone(), &field_ty, &nested_prefix, result);
           },
@@ -142,16 +142,16 @@ generate_function_prototype :: (
         override_return_type,
         .Some(s) => s.clone(),
         .None => {
-          base := get_type_string(&result, context);
+          mut(base) := get_type_string(&result, context);
           if(result_is_ref, {
             base.push_str("*");
           });
           base
         }
       );
-      params := String.from("");
+      mut(params) := String.from("");
       n := param_types.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         if(i > usize(0), {
           params.push_str(", ");
@@ -164,12 +164,12 @@ generate_function_prototype :: (
         pname := match(
           param_labels.get(i),
           .Some(lbl) => if(lbl.len() > usize(0), sanitize_for_c_identifier(lbl.clone(), false), {
-            p := String.from("param");
+            mut(p) := String.from("param");
             p.push_string(i.to_string());
             p
           }),
           .None => {
-            p := String.from("param");
+            mut(p) := String.from("param");
             p.push_string(i.to_string());
             p
           }
@@ -177,7 +177,7 @@ generate_function_prototype :: (
         cond(
           is_function_type(&pt) => {
             // Function-pointer parameter: <ret> (*paramN)(<paramTypes>).
-            callee := String.from("(*");
+            mut(callee) := String.from("(*");
             callee.push_string(pname.clone());
             callee.push_str(")");
             params.push_string(recur(&pt, &callee, context, Option(String).None, false));
@@ -190,7 +190,7 @@ generate_function_prototype :: (
             // it as `((void*)0)`
             // (issues/fixed/inout-unit-receiver-void-ref-spill.md).
             pts := if(is_ref, {
-              p0 := get_type_string(&pt, context);
+              mut(p0) := get_type_string(&pt, context);
               p0.push_str("*");
               p0
             }, get_storage_type_string(&pt, context));
@@ -201,7 +201,7 @@ generate_function_prototype :: (
         );
         i = (i + usize(1));
       });
-      out := return_type_str.clone();
+      mut(out) := return_type_str.clone();
       out.push_str(" ");
       out.push_string(c_function_name.clone());
       out.push_str("(");
@@ -220,7 +220,7 @@ generate_function_prototype :: (
     },
     _ => {
       // Not a function type — emit a void() prototype as a safe fallback.
-      r := String.from("void ");
+      mut(r) := String.from("void ");
       r.push_string(c_function_name.clone());
       r.push_str("(void)");
       r
@@ -232,8 +232,8 @@ generate_function_prototype :: (
 /// forward declaration and the definition agree on which objects get a ctor.
 _object_decl_has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) -> bool)({
   n := fields.len();
-  (i : usize) = usize(0);
-  (found : bool) = false;
+  (mut(i) : usize) = usize(0);
+  (mut(found) : bool) = false;
   while((i < n) && !found, {
     match(
       fields.get(i),
@@ -254,15 +254,15 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
     type,
     Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       nv := variant_names.len();
-      (vi : usize) = usize(0);
+      (mut(vi) : usize) = usize(0);
       while(vi < nv, {
         vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
         fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
         nf := fields.len();
-        params := String.from("");
-        (emitted : usize) = usize(0);
-        (pi : usize) = usize(0);
+        mut(params) := String.from("");
+        (mut(emitted) : usize) = usize(0);
+        (mut(pi) : usize) = usize(0);
         while(pi < nf, {
           match(
             fields.get(pi),
@@ -331,7 +331,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   // Per-object constructor declarations.
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
-  vals_cur := context.types.walk_start();
+  mut(vals_cur) := context.types.walk_start();
   while(context.types.walk_valid(&vals_cur), vals_cur = context.types.walk_next(&vals_cur), {
     vals_key := context.types.walk_ref(&vals_cur).key.clone();
     match(
@@ -341,10 +341,10 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
         if(!_object_decl_has_generic_fields(&runtime_fields), {
           // Twin of `_generate_one_constructor`'s parameter list: a `unit`
           // field is zero-sized and takes no parameter.
-          params := String.from("");
+          mut(params) := String.from("");
           nf := runtime_fields.len();
-          (pi : usize) = usize(0);
-          (any_param : bool) = false;
+          (mut(pi) : usize) = usize(0);
+          (mut(any_param) : bool) = false;
           while(pi < nf, {
             match(
               runtime_fields.get(pi),
@@ -361,7 +361,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
             );
             pi = (pi + usize(1));
           });
-          line := String.from("static ");
+          mut(line) := String.from("static ");
           line.push_string(entry.c_name.clone());
           line.push_str("* __yo_new_");
           line.push_string(entry.c_name.clone());
@@ -386,7 +386,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   // (`ref(enum(…))`).
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
-  evals_cur := context.types.walk_start();
+  mut(evals_cur) := context.types.walk_start();
   while(context.types.walk_valid(&evals_cur), evals_cur = context.types.walk_next(&evals_cur), {
     evals_key := context.types.walk_ref(&evals_cur).key.clone();
     match(
@@ -417,8 +417,8 @@ _func_has_expr_param :: (fn(ft : &TypeValue) -> bool)(
     ft,
     Rc(.Func({ param_types })) => {
       n := param_types.len();
-      (i : usize) = usize(0);
-      (found : bool) = false;
+      (mut(i) : usize) = usize(0);
+      (mut(found) : bool) = false;
       while((i < n) && !found, {
         match(
           slot_pointee_at(&param_types, i),
@@ -439,8 +439,8 @@ _func_has_generic_params :: (fn(ft : &TypeValue) -> bool)(
     ft,
     Rc(.Func({ forall_types, param_types })) => if(forall_types.len() > usize(0), true, {
       n := param_types.len();
-      (i : usize) = usize(0);
-      (found : bool) = false;
+      (mut(i) : usize) = usize(0);
+      (mut(found) : bool) = false;
       while((i < n) && !found, {
         match(
           slot_pointee_at(&param_types, i),
@@ -468,7 +468,18 @@ _func_has_generic_params :: (fn(ft : &TypeValue) -> bool)(
 /// True when the return type is a plain `Impl(...)` existential (SomeType at top
 /// level with at least one required trait).
 _returns_plain_impl :: (fn(ret : &TypeValue) -> bool)(
-  if(!is_some_type(ret), false, match(ret, Rc(.SomeT({ bounds : rts_bnd })) => { rts := rts_bnd.required(); (rts.len() > usize(0)) }, _ => false))
+  if(
+    !is_some_type(ret),
+    false,
+    match(
+      ret,
+      Rc(.SomeT({ bounds : rts_bnd })) => {
+        rts := rts_bnd.required();
+        rts.len() > usize(0)
+      },
+      _ => false
+    )
+  )
 );
 /// The body expression of a FuncVal, if any.
 _func_value_body :: (fn(value : &EvalValue) -> Option(AstExpr))(
@@ -657,7 +668,7 @@ _async_override_return_type :: (
       match(
         block_sn,
         .Some(sn) => {
-          r := sn.clone();
+          mut(r) := sn.clone();
           r.push_str("*");
           // Also register the fn-RETURN future type's key → this SM struct, so a
           // CALLER's `get_type_string(call_result_type)` resolves to the concrete
@@ -740,7 +751,7 @@ _return_type_override :: (
   fn(function_type : &TypeValue, body : &Option(AstExpr), context : &CodeGenContext) -> Option(String)
 )({
   ret := _func_result_type(function_type);
-  (override : Option(String)) = Option(String).None;
+  (mut(override) : Option(String)) = Option(String).None;
   if(type_implements_future(&ret), {
     override = _async_override_return_type(function_type, body, context);
   }, {
@@ -805,7 +816,7 @@ emitted_return_type_string :: (
               .None => match(
                 ft,
                 Rc(.Func({ result : r_slot })) => {
-                  base := get_type_string(&t_slot_pointee(&r_slot), context);
+                  mut(base) := get_type_string(&t_slot_pointee(&r_slot), context);
                   if(t_slot_is_borrow(&r_slot), {
                     base.push_str("*");
                   });
@@ -857,8 +868,8 @@ fn_value_c_name :: (fn(func_id : &String, context : &CodeGenContext) -> Option(S
             // gave (its label, else `param<i>`).
             labels := match(&ft, Rc(.Func({ meta : tm })) => Rc.clone(tm.*.param_labels), _ => no_labels());
             np := match(ft, Rc(.Func({ param_types : tpts })) => tpts.len(), _ => usize(0));
-            args := String.from("");
-            (i : usize) = usize(0);
+            mut(args) := String.from("");
+            (mut(i) : usize) = usize(0);
             while(i < np, {
               if(i > usize(0), {
                 args.push_str(", ");
@@ -901,8 +912,8 @@ static_dispatch_callee_return_type :: (
     .Some(cei) => {
       sd_id := match(
         resolve_some_type_to_concrete(&cei.ty),
-        Rc(.Struct({ id : i })) => i,
-        Rc(.SomeT({ id : i })) => i,
+        Rc(.Struct({ id : i })) => i.clone(),
+        Rc(.SomeT({ id : i })) => i.clone(),
         _ => String.from("")
       );
       cond(
@@ -972,7 +983,7 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
     cn := entry.c_name.clone();
     tag := _func_extern_tag(&entry.ty);
     cond(
-      match(tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
+      match(&tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
         generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
       }),
       (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
