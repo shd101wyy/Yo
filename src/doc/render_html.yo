@@ -578,7 +578,7 @@ _wrap_page :: (
 // ── Sidebar ──────────────────────────────────────────────────────────
 _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> String)({
   version_html := match(
-    model.version,
+    &model.version,
     .Some(v) => `\n  <span class="version">${_escape_html(&v)}</span>`,
     .None => String.new()
   );
@@ -628,7 +628,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
   (i : usize) = usize(0);
   while(i < top_level.len(), {
     m := match(
-      top_level.get(i),
+      top_level.get_cloned(i),
       .Some(x) => x,
       .None => {
         break;
@@ -648,13 +648,13 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
   (gi : usize) = usize(0);
   while(gi < sorted_groups.len(), {
     g := match(
-      sorted_groups.get(gi),
+      sorted_groups.get_cloned(gi),
       .Some(x) => x,
       .None => {
         break;
       }
     );
-    mods := match(groups.get(g.clone()), .Some(x) => x, .None => ArrayList(DocModule).new());
+    mods := match(groups.get_cloned(g.clone()), .Some(x) => x, .None => ArrayList(DocModule).new());
     is_active_group := match(
       active_module,
       .Some(am) => (_module_group(&am) == g),
@@ -847,7 +847,7 @@ _render_params_table :: (
       }
     );
     match(
-      p.doc,
+      &p.doc,
       .Some(_) => {
         has_doc = true;
       },
@@ -871,13 +871,13 @@ _render_params_table :: (
       notes.push(String.from("comptime"));
     });
     match(
-      p.default_value,
+      &p.default_value,
       .Some(dv) => {
         notes.push(`default: ${_escape_html(&dv)}`);
       },
       .None => ()
     );
-    doc_cell := if(has_doc, match(p.doc, .Some(d) => `<td>${_render_markdown(&d)}</td>`, .None => String.from("<td></td>")), String.new());
+    doc_cell := if(has_doc, match(&p.doc, .Some(d) => `<td>${_render_markdown(&d)}</td>`, .None => String.from("<td></td>")), String.new());
     type_html := _type_html(p.type_.clone(), links, current_mod_file.clone(), use_links);
     notes_joined := String.from(", ").join(&notes);
     html.push_string(`\n<tr><td><code>${_escape_html(&p.name)}</code></td><td class="type-col">${type_html}</td><td>${notes_joined}</td>${doc_cell}</tr>`);
@@ -902,7 +902,7 @@ _render_fields_table :: (
         break;
       }
     );
-    doc_text := match(f.doc, .Some(d) => _render_markdown(&d), .None => String.new());
+    doc_text := match(&f.doc, .Some(d) => _render_markdown(&d), .None => String.new());
     type_html := _type_html(f.type_.clone(), links, current_mod_file.clone(), use_links);
     html.push_string(`\n<tr><td><code>${_escape_html(&f.name)}</code></td><td class="type-col">${type_html}</td><td>${doc_text}</td></tr>`);
     i = (i + usize(1));
@@ -927,7 +927,7 @@ _render_variants_table :: (
       }
     );
     fields_str := match(
-      v.fields,
+      &v.fields,
       .Some(fls) => {
         parts := ArrayList(String).new();
         (j : usize) = usize(0);
@@ -947,7 +947,7 @@ _render_variants_table :: (
       },
       .None => String.new()
     );
-    doc_text := match(v.doc, .Some(d) => _render_markdown(&d), .None => String.new());
+    doc_text := match(&v.doc, .Some(d) => _render_markdown(&d), .None => String.new());
     html.push_string(`\n<tr><td><code>${_escape_html(&v.name)}</code></td><td class="type-col">${fields_str}</td><td>${doc_text}</td></tr>`);
     i = (i + usize(1));
   });
@@ -977,9 +977,9 @@ _render_associated_types :: (
         break;
       }
     );
-    doc_text := match(t.doc, .Some(d) => _render_markdown(&d), .None => String.new());
+    doc_text := match(&t.doc, .Some(d) => _render_markdown(&d), .None => String.new());
     constraint_html := match(
-      t.constraint,
+      &t.constraint,
       .Some(c) => _type_html(&c, links, current_mod_file.clone(), use_links),
       .None => String.new()
     );
@@ -1115,7 +1115,7 @@ _render_impl_blocks :: (
         html.push_str("\n<details class=\"impl-block\" open>");
         html.push_string(`\n<summary class="impl-header"><code>${_escape_html(&impl_.signature)}</code></summary>`);
         match(
-          impl_.associated_types,
+          &impl_.associated_types,
           .Some(ats) => {
             (ai : usize) = usize(0);
             while(ai < ats.len(), {
@@ -1129,7 +1129,7 @@ _render_impl_blocks :: (
               type_html := _type_html(at.type_.clone(), links, current_mod_file.clone(), use_links);
               html.push_string(`\n<div class="method-item">\n<div class="method-header"><code>${_escape_html(&at.name)}</code> : <code>${type_html}</code></div>`);
               match(
-                at.doc,
+                &at.doc,
                 .Some(d) => {
                   html.push_string(`\n<div class="method-body">${_render_markdown(&d)}</div>`);
                 },
@@ -1152,7 +1152,7 @@ _render_impl_blocks :: (
             }
           );
           match(
-            methods_by_name.get(nm.clone()),
+            methods_by_name.get_cloned(nm.clone()),
             .Some(mm) => {
               impl_methods.push(mm);
             },
@@ -1216,14 +1216,14 @@ _render_impl_blocks :: (
 _render_function :: (
   fn(f : &DocFunction, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
-  dep_cls := match(f.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&f.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   html := `<div class="item-card${dep_cls}" id="fn-${_escape_html(&f.name)}">\n<div class="item-header">\n  <a class="item-name" href="#fn-${_escape_html(&f.name)}">${_escape_html(&f.name)}</a>\n  <span class="item-kind">function</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(&f.signature)}</div>`;
   html.push_string(_render_deprecated_banner(&f.deprecated));
   // A trait-impl method that took the TRAIT's documentation is LABELLED as
   // such, the way rustdoc labels it, so a reader can tell the contract from
   // the implementation's own notes.
   match(
-    f.inherited_from,
+    &f.inherited_from,
     .Some(tn) => {
       html.push_string(`<div class="inherited-doc">documentation inherited from <code>${_escape_html(&tn)}</code></div>`);
     },
@@ -1231,7 +1231,7 @@ _render_function :: (
   );
   html.push_string(_render_doc(&f.doc));
   match(
-    f.type_params,
+    &f.type_params,
     .Some(tps) => if(tps.len() > usize(0), {
       html.push_string(_render_params_table(&tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
     }),
@@ -1241,7 +1241,7 @@ _render_function :: (
     html.push_string(_render_params_table(&f.parameters, String.from("Parameters"), links, current_mod_file.clone(), use_links));
   });
   match(
-    f.effects,
+    &f.effects,
     .Some(effs) => if(effs.len() > usize(0), {
       html.push_string(_render_params_table(&effs, String.from("Effects"), links, current_mod_file.clone(), use_links));
     }),
@@ -1256,27 +1256,27 @@ _render_function :: (
 _render_type :: (
   fn(t : &DocType, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
-  dep_cls := match(t.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&t.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   kind_str := doc_item_kind_to_string(t.kind);
   html := `<div class="item-card${dep_cls}" id="type-${_escape_html(&t.name)}">\n<div class="item-header">\n  <a class="item-name" href="#type-${_escape_html(&t.name)}">${_escape_html(&t.name)}</a>\n  <span class="item-kind">${_escape_html(&kind_str)}</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(&t.signature)}</div>`;
   html.push_string(_render_deprecated_banner(&t.deprecated));
   html.push_string(_render_doc(&t.doc));
   match(
-    t.type_params,
+    &t.type_params,
     .Some(tps) => if(tps.len() > usize(0), {
       html.push_string(_render_params_table(&tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
   match(
-    t.fields,
+    &t.fields,
     .Some(fls) => if(fls.len() > usize(0), {
       html.push_string(_render_fields_table(&fls, links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
   match(
-    t.variants,
+    &t.variants,
     .Some(vs) => if(vs.len() > usize(0), {
       html.push_string(_render_variants_table(&vs, links, current_mod_file.clone(), use_links));
     }),
@@ -1285,7 +1285,7 @@ _render_type :: (
   html.push_string(_render_trait_impls(&t.trait_impls, links, current_mod_file.clone(), use_links));
   html.push_string(_render_impl_blocks(&t.impls, &t.methods, t.name.clone(), links, current_mod_file.clone(), use_links));
   match(
-    t.examples,
+    &t.examples,
     .Some(x) => {
       html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x)}</div></div>`);
     },
@@ -1297,13 +1297,13 @@ _render_type :: (
 _render_trait :: (
   fn(tr : &DocTrait, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
-  dep_cls := match(tr.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&tr.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   kind_str := doc_trait_kind_to_string(tr.kind);
   html := `<div class="item-card${dep_cls}" id="trait-${_escape_html(&tr.name)}">\n<div class="item-header">\n  <a class="item-name" href="#trait-${_escape_html(&tr.name)}">${_escape_html(&tr.name)}</a>\n  <span class="item-kind">${kind_str}</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(&tr.signature)}</div>`;
   html.push_string(_render_deprecated_banner(&tr.deprecated));
   html.push_string(_render_doc(&tr.doc));
   match(
-    tr.type_params,
+    &tr.type_params,
     .Some(tps) => if(tps.len() > usize(0), {
       html.push_string(_render_params_table(&tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
     }),
@@ -1312,7 +1312,7 @@ _render_trait :: (
   html.push_string(_render_associated_types(&tr.associated_types, links, current_mod_file.clone(), use_links));
   html.push_string(_render_methods(&tr.methods, tr.name.clone(), links, current_mod_file.clone(), use_links));
   match(
-    tr.examples,
+    &tr.examples,
     .Some(x) => {
       html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x)}</div></div>`);
     },
@@ -1370,12 +1370,12 @@ _render_constant :: (
   fn(c : &DocConstant, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   type_html := _type_html(c.type_.clone(), links, current_mod_file.clone(), use_links);
-  dep_cls := match(c.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  dep_cls := match(&c.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   html := `<div class="item-card${dep_cls}" id="const-${_escape_html(&c.name)}">\n<div class="item-header">\n  <a class="item-name" href="#const-${_escape_html(&c.name)}">${_escape_html(&c.name)}</a>\n  <span class="item-kind">constant</span>\n  <span class="item-sig">${type_html}</span>\n</div>\n<div class="item-body">`;
   html.push_string(_render_deprecated_banner(&c.deprecated));
   html.push_string(_render_doc(&c.doc));
   match(
-    c.value,
+    &c.value,
     .Some(v) => {
       html.push_string(`\n<p>Value: <code>${_escape_html(&v)}</code></p>`);
     },
@@ -1386,7 +1386,7 @@ _render_constant :: (
 });
 // ── Index page ───────────────────────────────────────────────────────
 _render_module_card :: (fn(m : &DocModule) -> String)({
-  desc := match(m.doc, .Some(d) => _first_sentence(&d), .None => String.from("No description"));
+  desc := match(&m.doc, .Some(d) => _first_sentence(&d), .None => String.from("No description"));
   stats := ArrayList(String).new();
   if(m.functions.len() > usize(0), {
     stats.push(`${m.functions.len()} fn`);
@@ -1426,7 +1426,7 @@ _render_module_card :: (fn(m : &DocModule) -> String)({
 });
 _render_index_content :: (fn(model : &DocModel) -> String)({
   version_badge := match(
-    model.version,
+    &model.version,
     .Some(v) => ` <span class="version-badge">${_escape_html(&v)}</span>`,
     .None => String.new()
   );
@@ -1472,7 +1472,7 @@ _render_index_content :: (fn(model : &DocModel) -> String)({
     (i : usize) = usize(0);
     while(i < top_level.len(), {
       m := match(
-        top_level.get(i),
+        top_level.get_cloned(i),
         .Some(x) => x,
         .None => {
           break;
@@ -1488,13 +1488,13 @@ _render_index_content :: (fn(model : &DocModel) -> String)({
   (gi : usize) = usize(0);
   while(gi < sorted_groups.len(), {
     g := match(
-      sorted_groups.get(gi),
+      sorted_groups.get_cloned(gi),
       .Some(x) => x,
       .None => {
         break;
       }
     );
-    mods := match(groups.get(g.clone()), .Some(x) => x, .None => ArrayList(DocModule).new());
+    mods := match(groups.get_cloned(g.clone()), .Some(x) => x, .None => ArrayList(DocModule).new());
     html.push_string(`\n<h3 class="module-group-header">${_escape_html(&g)}/</h3>`);
     html.push_str("\n<div class=\"module-grid\">");
     (mj : usize) = usize(0);
@@ -1523,7 +1523,7 @@ render_module_content_html :: (
   html.push_string(`<h1>Module <code>${_escape_html(&m.name)}</code></h1>`);
   html.push_string(`<div class="module-path">${_escape_html(&m.path)}</div>`);
   match(
-    m.stability,
+    &m.stability,
     .None => (),
     .Some(st) => {
       // The badge carries the LEVEL only. `m.stability` is the whole

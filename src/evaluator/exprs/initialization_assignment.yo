@@ -479,7 +479,7 @@ _evaluate_inout_local_binding :: (
     // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
     reject_write_through_rc(&evaluated_rhs, "mut-borrow", Option(TypeValue).None, ctx, exn);
     match(
-      lb_place,
+      &lb_place,
       .Some(lp) => {
         local_borrow_require_writable(&lp, `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
         local_borrow_access(&lp, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
@@ -530,7 +530,7 @@ _evaluate_inout_local_binding :: (
       range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
       (step_pin : Option(Variable)) = Option(Variable).None;
       if(range.has_repoint, {
-        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*));
+        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
         step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
         match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
       });
@@ -571,7 +571,7 @@ _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(",");
     });
-    match(xs.get(i), .Some(x) => out.push_string(&x), .None => ());
+    match(xs.get_cloned(i), .Some(x) => out.push_string(&x), .None => ());
     i = (i + usize(1));
   });
   out
@@ -645,7 +645,7 @@ _bind_projection_result :: (
   root_names := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
-    root := roots(ri);
+    root := roots(ri).clone();
     if(!is_mut || root.is_mut, {
       match(
         local_borrow_place_of(&root.arg, env, ctx),
