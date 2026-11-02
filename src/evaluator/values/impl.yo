@@ -5395,7 +5395,7 @@ evaluate_module_value :: (
       fields : c2_fields,
       current_top_index : usize(0),
       current_trait_ty : Option(TypeValue).None,
-      forall_names : forall_names
+      forall_names : forall_names.clone()
     );
     push_impl_in_flight(&c2_rec);
     (fj : usize) = (receiver_arg_idx + usize(1));
@@ -5422,8 +5422,8 @@ evaluate_module_value :: (
           .Some(neg_trait_ty) => {
             neg_entry := GenericImplEntry(
               get_trait_key(&neg_trait_ty),
-              forall_names,
-              forall_some_types,
+              forall_names.clone(),
+              forall_some_types.clone(),
               Rc.clone(receiver_type_pattern),
               neg_trait_ty,
               ArrayList(String).new(),
@@ -5450,7 +5450,7 @@ evaluate_module_value :: (
               c2_pf.state,
               .Done => (),
               .Failed => {
-                exn.throw(dyn(match(c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
+                exn.throw(dyn(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
               },
               .Forcing => {
                 exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
@@ -5628,9 +5628,9 @@ evaluate_module_value :: (
         g_entry := GenericImplEntry(
           get_base_trait_key(&g_trait_ty),
           // 1. trait_key — the trait's own key, NOT the inherent "" key
-          forall_names,
+          forall_names.clone(),
           // 2. forall_names
-          forall_some_types,
+          forall_some_types.clone(),
           // 3. forall_some_types
           Rc.clone(receiver_type_pattern),
           // 4. receiver_type_pattern
