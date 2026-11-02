@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name, canonical_module_path, display_module_path } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer, audit_copying_accessor_enabled, audit_print_copying_accessor, migrate_cloned_accessors_on, record_copying_accessor_site, CopyingAccessorSite, implicit_copy_category, _ic_category_is_unique_buffer, _ic_place_root_decl, _ic_place_root_var, _ic_decl_key } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, RC_CLONE_MIGRATE_HINT, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer, audit_copying_accessor_enabled, audit_print_copying_accessor, migrate_cloned_accessors_on, record_copying_accessor_site, CopyingAccessorSite, implicit_copy_category, _ic_category_is_unique_buffer, _ic_place_root_decl, _ic_place_root_var, _ic_decl_key } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -178,7 +178,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), &env.module_path.*);
   create_runtime_unknown_val_with_name(ty, &nm)
 });
-{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject, _without_primary_help_text } :: import("../../error.yo");
 { E_EXPLICIT_DESTRUCTOR_CALL, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
@@ -8062,7 +8062,7 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
         // help must ride this one as well.
         fv_anchored := reanchor_primary_at(&fv, call_tok, String.from(STD_RAISE_NOTE));
         fv_shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&fv_anchored, &s), .None => fv_anchored);
-        flag_flow_violation(match(accessor_help, .Some(h) => _with_primary_help(&fv_shown, &h), .None => fv_shown));
+        flag_flow_violation(match(accessor_help, .Some(h) => _with_primary_help(&_without_primary_help_text(&fv_shown, &String.from(RC_CLONE_MIGRATE_HINT)), &h), .None => fv_shown));
       }),
       .None => ()
     ),
@@ -8073,7 +8073,7 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
     .Some(ye) => {
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
       shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&anchored, &s), .None => anchored);
-      dyn(match(accessor_help, .Some(h) => _with_primary_help(&shown, &h), .None => shown))
+      dyn(match(accessor_help, .Some(h) => _with_primary_help(&_without_primary_help_text(&shown, &String.from(RC_CLONE_MIGRATE_HINT)), &h), .None => shown))
     },
     .None => err
   )
