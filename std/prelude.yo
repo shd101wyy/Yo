@@ -10123,16 +10123,7 @@ extern(
   __yo_aligned_alloc :
     (fn(alignment : usize, size : usize) -> ?*void),
   __yo_aligned_free :
-    (fn(ptr : ?*void) -> unit),
-  __yo_scope_ctx :
-    (fn() -> ?*void),
-  __yo_scope_vtable :
-    (fn() -> ?*void),
-  // Sets the thread's allocation scope, around the one cell construction of
-  // an explicit `alloc` in `Rc.new` and `Arc.new` (until V5 moves them onto
-  // `__yo_cell`, plans/backlog/ALLOCATOR_PLACEMENT.md §6 A1).
-  __yo_scope_set :
-    (fn(ctx : ?*void, vtable : ?*void) -> unit)
+    (fn(ptr : ?*void) -> unit)
 );
 // A placed `Box` cell's owner record: `{ctx, vtable}`, the layout of
 // `std/allocator.yo`'s `_AllocPrefix` and codegen's `__yo_alloc_prefix_t`, in
@@ -13634,7 +13625,8 @@ impl(
 /// `Dyn` payload wrapper
 /// (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md;
 /// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a); Fable
-/// consultation #7). V5 Generation A rewrites its body onto `__yo_cell`.
+/// consultation #7). Its body builds through `__yo_cell`, as `Rc.new`'s does
+/// (V5 cells Generation B); the constructor itself stays until that S3 is fixed.
 __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
   // `Rc.new`'s body, kept as `dyn(...)`'s own constructor: a closure
   // literal's payload type is the `Dyn`'s open payload wrapper, and only a
