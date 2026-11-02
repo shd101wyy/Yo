@@ -6827,9 +6827,12 @@ variable_is_reference_binding :: (fn(v : &Variable) -> bool)(
 );
 /// E0926's rule judges the expression at `tok`: its defining file is outside
 /// the trees that keep the old reading (`is_deref_rule_exempt`), or the
-/// `YO_AUDIT_DEREF=1` census runs (every file).
+/// `YO_AUDIT_DEREF=1` census runs (every file). The machinery a desugared
+/// `for` synthesizes (its hidden borrow and cursor) sits at the `for`
+/// keyword's position, which no name the program wrote shares, and is
+/// compiler code: it keeps the old reading.
 deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
-  audit_deref_on() || !is_deref_rule_exempt(&tok.module_path.*, &ctx.std_path)
+  (audit_deref_on() || !is_deref_rule_exempt(&tok.module_path.*, &ctx.std_path)) && for_desugar_site_of(tok).is_none()
 );
 /// Whether a judged site records instead of rejecting: `yo fix --migrate
 /// deref` or the census.
