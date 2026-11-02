@@ -7549,11 +7549,13 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
       g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if(info.module_root && _lb_live_at(&info, tok), {
         root_text := match(info.places.get(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
+        // A call a desugared `for` makes (macro plan B1) is the loop's.
+        shown := match(for_desugar_site_of(tok), .Some(fc) => ast_expr_token(&fc).value.*.clone(), .None => callee_text.clone());
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(
             token : tok,
-            error_message : `Cannot call \`${callee_text}\` while \`${info.name}\` is live: \`${info.name}\` borrows \`${root_text}\`, a module-level place, which has no run-time borrow flag, and a callee can reach a module-level place by name.`
+            error_message : `Cannot call \`${shown}\` while \`${info.name}\` is live: \`${info.name}\` borrows \`${root_text}\`, a module-level place, which has no run-time borrow flag, and a callee can reach a module-level place by name.`
           )
         );
         entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${root_text}\` here:`));
