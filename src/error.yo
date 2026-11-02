@@ -782,15 +782,16 @@ primary_diagnostic_path :: (fn(err : &AnyError) -> Option(String))(
     .None => Option(String).None
   )
 );
-/// `msg` with the subject of its ``cannot copy `...` `` clause replaced by
-/// `subject`: the clause names a PLACE, and a place inside std spells std's
+/// `msg` with the quoted subject of its ``cannot copy `...` `` clause,
+/// backticks included, replaced by `subject` (which quotes its own code
+/// spans): the clause names a PLACE, and a place inside std spells std's
 /// own locals (`(_ptr.add)(index).*`), which says nothing to the user whose
 /// call made std copy. `msg` unchanged when it has no such clause.
 _replace_cannot_copy_subject :: (fn(msg : &String, subject : &String) -> String)({
   tag := String.from("cannot copy `");
   close_tag := String.from("`,");
-  start := match(msg.index_of(&tag), .Some(at) => (at + tag.len()), .None => return(msg.clone()));
-  end := match(msg.index_of(&close_tag), .Some(close) => close, .None => return(msg.clone()));
+  start := match(msg.index_of(&tag), .Some(at) => (at + (tag.len() - usize(1))), .None => return(msg.clone()));
+  end := match(msg.index_of(&close_tag), .Some(close) => (close + usize(1)), .None => return(msg.clone()));
   if(end < start, {
     return(msg.clone());
   });
