@@ -172,9 +172,12 @@ register_type_trait :: (fn(type_id : &String, trait_name : str, env : &Environme
 register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit)({
   // Taken out of the registry and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(g_type_trait_registry.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  type_id_owned := type_id.clone();
+  list := match(g_type_trait_registry.with_mut({ type_id_owned }(m) => m.remove(type_id_owned.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(Rc.clone(trait_ty));
-  g_type_trait_registry.with_mut(m => m.insert(type_id.clone(), list));
+  type_id_owned_ := type_id.clone();
+  list_owned := list.clone();
+  g_type_trait_registry.with_mut({ type_id_owned_, list_owned }(m) => m.insert(type_id_owned_.clone(), list_owned));
   bump_trait_impl_epoch();
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
@@ -199,7 +202,7 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
 is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
-    g_type_trait_registry.with(m => m.get(type_id)),
+    g_type_trait_registry.with(m => m.get_cloned(type_id)),
     .None => false,
     .Some(list) => {
       n := list.len();
@@ -293,7 +296,7 @@ _ondemand_guard_contains :: (fn(key : &String) -> bool)({
   (found : bool) = false;
   while((i < g_ondemand_marker_guard.with(xs => xs.len())) && !found, {
     match(
-      g_ondemand_marker_guard.with(xs => xs.get(i)),
+      g_ondemand_marker_guard.with(xs => xs.get_cloned(i)),
       .Some(k) => if(k == key, {
         found = true;
       }),
@@ -602,7 +605,8 @@ _acy_declared :: (fn(t : &TypeValue, key : &String, at : &TypeValue, env : &Envi
   if(g_acy_generic_guard.with(xs => xs.contains(key)), {
     return(false);
   });
-  g_acy_generic_guard.with_mut(xs => xs.push(key.clone()));
+  key_owned := key.clone();
+  g_acy_generic_guard.with_mut({ key_owned }(xs) => xs.push(key_owned.clone()));
   declared := _find_matching_generic_impl(t, at, env);
   g_acy_generic_guard.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
   declared
@@ -650,9 +654,12 @@ _acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeV
         st.memo_ok = false;
         match(
           leaves.get(li),
-          .Some(leaf) => if(!type_implements_trait(&leaf, at, env).implemented, {
-            st.reach(v) = true;
-          }),
+          .Some(leaf) => {
+            leaf_check := type_implements_trait(&leaf, at, env);
+            if(!leaf_check.implemented, {
+              st.reach(v) = true;
+            });
+          },
           .None => ()
         );
       });
@@ -759,9 +766,12 @@ _acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environmen
   while(li < leaves.len(), li = (li + usize(1)), {
     match(
       leaves.get(li),
-      .Some(leaf) => if(!type_implements_trait(&leaf, at, env).implemented, {
-        return(Option(bool).Some(false));
-      }),
+      .Some(leaf) => {
+        leaf_check := type_implements_trait(&leaf, at, env);
+        if(!leaf_check.implemented, {
+          return(Option(bool).Some(false));
+        });
+      },
       .None => ()
     );
   });
@@ -788,7 +798,9 @@ _acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environmen
   if(st.memo_ok, {
     (ki : usize) = usize(0);
     while(ki < st.keys.len(), ki = (ki + usize(1)), {
-      g_acy_memo.with_mut(m => m.insert(st.keys(ki).clone(), st.reach(ki)));
+      memo_key := st.keys(ki).clone();
+      memo_val := st.reach(ki);
+      g_acy_memo.with_mut({ memo_key, memo_val }(m) => m.insert(memo_key, memo_val));
     });
   });
   Option(bool).Some(!reaches)
