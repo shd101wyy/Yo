@@ -9755,10 +9755,11 @@ once `SEED_VERSION` parses it.
 - **Split of 2026-11-02** (maintainer-approved; Fable consultation #13 Task 6/d):
   - **v0.2.74.** #1707 moved every `atomic(...)` std type onto
     `__yo_atomic_cell` and made the `ref`/`atomic` spellings warn.
-    **Cells Generation A** closes the three view gaps that kept the
+    **Cells Generation A** closes the four view gaps that kept the
     v0.2.73 seed from lowering a prelude whose `Rc`/`Arc` are
     `newtype(_cell : __yo_cell(V))`: the `dyn` auto-box, the `dyn`
-    clone, and borrow marks on the weak count
+    clone, borrow marks on the weak count, and a struct ordered before
+    the typedef its `*Option(Rc(T))` field names
     (`issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
   - **v0.2.75.** **Cells Generation B** retypes `Rc`/`Arc` in std. The
     four constructors pass the allocator to the cell, and the scope swap

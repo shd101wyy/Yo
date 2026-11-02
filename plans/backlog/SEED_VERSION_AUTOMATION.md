@@ -415,15 +415,16 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(newt
 cell := Rc(T)(__yo_cell(T)(value, alloc));
 ```
 
-The v0.2.73 seed lowers almost everything about the view; the exceptions are three gaps
+The v0.2.73 seed lowers almost everything about the view; the exceptions are four gaps
 (`issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`):
 
 - `dyn(...)`'s auto-box keeps only a `ref` object as the box type, so every value `dyn(...)` in src and std
   fails in the C compiler.
 - A `Dyn(..., Clone)` clone calls the cell constructor without its scope argument.
 - Borrow marks land on a cell header whose bits are the weak count.
+- A struct with a `*Option(Rc(T))` field (an `ArrayList(Option(Rc(T)))`) is emitted before the `Rc` typedef.
 
-**Generation A (v0.2.74, `vbd/v5-gen-a-completion`):** the compiler fixes all three. A tree-binary probe over the
+**Generation A (v0.2.74, `vbd/v5-gen-a-completion`):** the compiler fixes all four. A tree-binary probe over the
 retyped std is recorded in the PR.
 
 **Generation B (v0.2.75, once `SEED_VERSION` carries Generation A):** the parked branch `vbd/v5-cells-gen-b`

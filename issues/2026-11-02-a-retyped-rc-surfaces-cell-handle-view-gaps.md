@@ -1,8 +1,8 @@
-# A retyped `Rc` surfaces three cell-handle view gaps: the `dyn` auto-box, the `dyn` clone, and borrow marks on the weak count
+# A retyped `Rc` surfaces four cell-handle view gaps: the `dyn` auto-box, the `dyn` clone, borrow marks on the weak count, and a typedef ordered after its pointer
 
-**Severity:** S3 — no user program reaches the first and third gaps (a safe file cannot retype `Rc`), and the second needs a `pragma(Pragma.AllowUnsafe)` cell wrapper. Together they kept the v0.2.73 seed from lowering V5's `Rc`/`Arc` over `__yo_cell`, which moves V5 cells Generation B (the std retype) from v0.2.74 to v0.2.75.
+**Severity:** S3 — no user program reaches the first and third gaps (a safe file cannot retype `Rc`), and the second and fourth need a `pragma(Pragma.AllowUnsafe)` cell wrapper. Together they kept the v0.2.73 seed from lowering V5's `Rc`/`Arc` over `__yo_cell`, which moves V5 cells Generation B (the std retype) from v0.2.74 to v0.2.75.
 
-**Status:** fixed in the compiler by V5 cells Generation A (`vbd/v5-gen-a-completion`). `tests/cell_handles.test.yo` covers gap 2 now. Gaps 1 and 3 are reachable only through the prelude's `Rc`/`Arc`, so their regression rows go live with cells Generation B (v0.2.75), which moves this doc to `issues/fixed/`.
+**Status:** fixed in the compiler by V5 cells Generation A (`vbd/v5-gen-a-completion`). `tests/cell_handles.test.yo` covers gaps 2 and 4 now. Gaps 1 and 3 are reachable only through the prelude's `Rc`/`Arc`, so their regression rows go live with cells Generation B (v0.2.75), which moves this doc to `issues/fixed/`.
 
 ## How it was found
 
@@ -20,8 +20,8 @@ The probe programs and test files were then compiled against it with `--std-path
 `ref_count`, auto-dereference, `.*`, `downgrade`/`upgrade`, `try_unwrap`, `make_mut` and `Arc.new`/`Arc.clone`
 all lower correctly. The v0.2.71 seed-predicates work (`feat/v5-seed-predicates`) taught every handle predicate
 "old shape or view", and tested each one with test-local handles (`tests/fixtures/cell_handles.yo`). It missed
-the three sites below: two can only be reached through the prelude's `Rc`/`Arc` (or a `Weak` of one), and the
-third was never exercised.
+the four sites below: two can only be reached through the prelude's `Rc`/`Arc` (or a `Weak` of one), and the
+other two were never exercised.
 
 ## Gap 1: the `dyn` auto-box drops a view as the box type
 
@@ -94,6 +94,24 @@ container, the inline borrow primitives, and the object-method test. A cell neve
 reference into its payload needs no mark on it. The evaluator's read-only rule (E0919,
 `handle_payload_is_read_only`) still asks `is_counted_cell_type` alone, because a bare cell's payload is a
 mutable place (§3.5).
+
+## Gap 4: a struct with a `*Option(NT)` field is emitted before the newtype's typedef
+
+`tests/async/combinators.test.yo` failed to compile:
+
+```
+error: unknown type name '__yo_t_11128910607436448541'
+ 2129 |   __yo_t_11128910607436448541* _ptr;     // ArrayList(Option(Rc(i32)))
+ 2587 | typedef __yo_t_706403678748857193* __yo_t_11128910607436448541; // Rc(i32) (newtype)
+```
+
+An `ArrayList(Option(Rc(T)))` buffer is `*Option(Rc(T))`. The option is optimized as a nullable pointer and
+spelled by its payload's C type, the `Rc` newtype's typedef, which cannot be forward-declared. The old `Rc` was
+a struct pointer, so the forward declaration was enough. `_walk_pointee_newtype`
+(`src/codegen/types/generation.yo`) ordered a struct after the newtype for `*NT` and `Option(*NT)` fields, but
+not for `*Option(NT)`. Fix: its pointer arm also looks through an enum optimized as a nullable pointer. Repro:
+the `a list of optional cell handles orders its struct after the handle's typedef` row of
+`tests/cell_handles.test.yo` (test-local `TRc`). `ArrayList(Option(Box(T)))` was not affected.
 
 ## Verification
 
