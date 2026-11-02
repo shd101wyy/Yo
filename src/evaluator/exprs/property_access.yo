@@ -195,7 +195,7 @@ find_last_field_index :: (fn(labels : &ArrayList(String), name : &String) -> Opt
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      labels.get(i),
+      labels.get_cloned(i),
       .Some(lbl) => {
         if(lbl == name, {
           result = Option(usize).Some(i);
@@ -214,7 +214,7 @@ find_first_field_index :: (fn(labels : &ArrayList(String), name : &String) -> Op
   (i : usize) = usize(0);
   while((i < n) && result.is_none(), {
     match(
-      labels.get(i),
+      labels.get_cloned(i),
       .Some(lbl) => {
         if(lbl == name, {
           result = Option(usize).Some(i);
@@ -298,13 +298,13 @@ build_field_path_collection :: (
     (bpc_i : usize) = usize(0);
     while(bpc_i < obj_pc.len(), {
       match(
-        obj_pc.get(bpc_i),
+        obj_pc.get_cloned(bpc_i),
         .Some(old_path) => {
           new_path := ArrayList(String).new();
           (bpc_j : usize) = usize(0);
           while(bpc_j < old_path.len(), {
             match(
-              old_path.get(bpc_j),
+              old_path.get_cloned(bpc_j),
               .Some(seg) => {
                 new_path.push(seg);
               },
@@ -321,7 +321,7 @@ build_field_path_collection :: (
     });
   }, {
     base_path := ArrayList(String).new();
-    base_name := match(obj_vname, .Some(n) => n.clone(), .None => String.from("?"));
+    base_name := match(&obj_vname, .Some(n) => n.clone(), .None => String.from("?"));
     base_path.push(base_name);
     base_path.push(prop_name.clone());
     result.push(base_path);
@@ -610,8 +610,8 @@ _evaluate_property_access_node :: (
                 _reject_gadt_unreachable_variant(&exp_ctx_1.ty, en_id_1.clone(), vi_1, variant_name_1.clone(), &prop_expr_1, exn);
                 new_en_ty_1 := Rc.new(
                   TypeValueNode.EnumT(
-                    en_id_1,
-                    en_name_1,
+                    en_id_1.clone(),
+                    en_name_1.clone(),
                     Rc.clone(en_vnames_1),
                     Rc.clone(en_vfields_1),
                     Option(String).Some(variant_name_1.clone()),
@@ -1053,7 +1053,7 @@ Raw pointer operations may dereference invalid memory.`
       generic_methods_pr := find_methods_from_generic_impls(&type_val_inner, &pr_prop_name, &env);
       if(generic_methods_pr.len() == usize(1), {
         method_pr := match(
-          generic_methods_pr.get(usize(0)),
+          generic_methods_pr.get_cloned(usize(0)),
           .Some(m) => m,
           .None => {
             return(expr);
@@ -1165,7 +1165,7 @@ Raw pointer operations may dereference invalid memory.`
               generic_methods_en := find_methods_from_generic_impls(&type_val_inner, variant_name_tv.clone(), &env);
               if(generic_methods_en.len() == usize(1), {
                 method_en := match(
-                  generic_methods_en.get(usize(0)),
+                  generic_methods_en.get_cloned(usize(0)),
                   .Some(m) => m,
                   .None => {
                     return(expr);
@@ -1200,8 +1200,8 @@ Raw pointer operations may dereference invalid memory.`
               _reject_gadt_unreachable_variant(&type_val_inner, tv_en_id.clone(), tv_vi, variant_name_tv.clone(), &property_expr, exn);
               new_en_tv := Rc.new(
                 TypeValueNode.EnumT(
-                  tv_en_id,
-                  tv_en_name,
+                  tv_en_id.clone(),
+                  tv_en_name.clone(),
                   Rc.clone(tv_en_vnames),
                   Rc.clone(tv_en_vfields),
                   Option(String).Some(variant_name_tv.clone()),
@@ -1301,7 +1301,7 @@ Raw pointer operations may dereference invalid memory.`
       generic_methods_su := find_methods_from_generic_impls(&type_val_inner, &prop_name_su, &env);
       if(generic_methods_su.len() == usize(1), {
         method_su := match(
-          generic_methods_su.get(usize(0)),
+          generic_methods_su.get_cloned(usize(0)),
           .Some(m) => m,
           .None => {
             return(expr);
@@ -1532,7 +1532,7 @@ Raw pointer operations may dereference invalid memory.`
           (tt_ci : usize) = usize(0);
           while(tt_ci < tt_cands.len(), {
             tt_cand := match(
-              tt_cands.get(tt_ci),
+              tt_cands.get_cloned(tt_ci),
               .Some(c) => c,
               .None => {
                 tt_ci = (tt_ci + usize(1));
@@ -1562,7 +1562,7 @@ Raw pointer operations may dereference invalid memory.`
       );
       tt_types := match(
         type_val_inner,
-        Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
+        Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types.clone(),
         _ => ArrayList(TypeValue).new()
       );
       fidx_tt := find_first_field_index(&tt_labels, prop_name_tt.clone());
@@ -1640,7 +1640,7 @@ Raw pointer operations may dereference invalid memory.`
             );
             st_types := match(
               st_trait,
-              Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
+              Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types.clone(),
               _ => ArrayList(TypeValue).new()
             );
             st_fidx := find_first_field_index(&st_labels, st_prop_name.clone());
@@ -1764,7 +1764,7 @@ Raw pointer operations may dereference invalid memory.`
       out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name.clone(), .None => Option(String).None);
       out_io.path_collection = match(
         obj_info_opt,
-        .Some(oi_pc) => oi_pc.path_collection,
+        .Some(oi_pc) => oi_pc.path_collection.clone(),
         .None => ArrayList(ArrayList(String)).new()
       );
       out_io.is_accessing_property = Option(bool).Some(true);
@@ -2295,12 +2295,12 @@ Raw pointer operations may dereference invalid memory.`
                 // `field.assignedValue ?? createUnknownValue(field.type)` off
                 // the TYPE, independent of the receiver's value — this is how
                 // `io.async(...)` resolves inside a def-time function body.
-                mod_sid := match(base_ty, Rc(.Struct({ id : msid })) => msid, _ => String.from(""));
+                mod_sid := match(base_ty, Rc(.Struct({ id : msid })) => msid.clone(), _ => String.from(""));
                 (mod_reg_val : Option(EvalValue)) = Option(EvalValue).None;
                 match(
                   get_struct_fields(&mod_sid),
                   .Some(mod_tfs) => match(
-                    mod_tfs.get(fi_mod),
+                    mod_tfs.get_cloned(fi_mod),
                     .Some(mod_tf) => {
                       mod_reg_val = mod_tf.assigned_value;
                     },
@@ -2369,7 +2369,7 @@ Raw pointer operations may dereference invalid memory.`
                       ep_path := ArrayList(String).new();
                       ep_obj_vname := match(
                         obj_info_opt,
-                        .Some(oi) => match(oi.variable_name, .Some(n) => n.clone(), .None => String.from("?")),
+                        .Some(oi) => match(&oi.variable_name, .Some(n) => n.clone(), .None => String.from("?")),
                         .None => String.from("?")
                       );
                       ep_path.push(ep_obj_vname);
@@ -2445,7 +2445,7 @@ Raw pointer operations may dereference invalid memory.`
                 dv_path := ArrayList(String).new();
                 dv_obj_vname := match(
                   obj_info_opt,
-                  .Some(oi) => match(oi.variable_name, .Some(n) => n.clone(), .None => String.from("?")),
+                  .Some(oi) => match(&oi.variable_name, .Some(n) => n.clone(), .None => String.from("?")),
                   .None => String.from("?")
                 );
                 dv_path.push(dv_obj_vname);

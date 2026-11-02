@@ -91,10 +91,13 @@ EvalTypeFieldResult :: struct(
 register_struct_fields :: (fn(id : &String, fields : &ArrayList(TypeField)) -> unit)({
   // `insert` returns the previous entry (D9); a re-registration legitimately
   // replaces one, so the value is discarded. `{ e; }` is unit-valued.
-  g_struct_field_registry.with_mut(m => m.insert(id.clone(), fields));
+  // Owned captures: `with_mut`'s callback is a sink parameter.
+  key_own := id.clone();
+  fields_own := fields.clone();
+  g_struct_field_registry.with_mut({ key_own, fields_own }(m) => m.insert(key_own, fields_own));
 });
 get_struct_fields :: (fn(id : &String) -> Option(ArrayList(TypeField)))(
-  g_struct_field_registry.with(m => m.get(id))
+  g_struct_field_registry.with(m => m.get_cloned(id))
 );
 /// The bindings a closure capture struct's fields hold, by declaration site:
 /// `<struct id>|<label>|<decl site>` per field, and every struct id with a
@@ -106,8 +109,11 @@ get_struct_fields :: (fn(id : &String) -> Option(ArrayList(TypeField)))(
 (g_capture_field_decl_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 (g_capture_structs_with_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_capture_field_decl_site :: (fn(struct_id : &String, label : &String, decl_site : &String) -> unit)({
-  g_capture_field_decl_sites.with_mut(s => s.insert(`${struct_id}|${label}|${decl_site}`));
-  g_capture_structs_with_sites.with_mut(s => s.insert(struct_id.clone()));
+  // Owned captures: `with_mut`'s callback is a sink parameter.
+  key := `${struct_id}|${label}|${decl_site}`;
+  g_capture_field_decl_sites.with_mut({ key }(s) => s.insert(key));
+  struct_id_owned := struct_id.clone();
+  g_capture_structs_with_sites.with_mut({ struct_id_owned }(s) => s.insert(struct_id_owned));
 });
 /// Whether field `label` of capture struct `struct_id` holds the binding
 /// declared at `decl_site`.
@@ -180,7 +186,7 @@ evaluate_type_field :: (
         );
       });
       label_expr = Option(AstExpr).Some(lhs_expr);
-      label = Option(String).Some(ast_expr_text(&lhs_expr).*);
+      label = Option(String).Some(ast_expr_text(&lhs_expr).*.clone());
     });
     args2 := match(expr_, .FnCall(_, _, Rc(args_), _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
@@ -230,7 +236,7 @@ evaluate_type_field :: (
       );
     });
     label_expr = Option(AstExpr).Some(lhs_);
-    label = Option(String).Some(ast_expr_text(&lhs_).*);
+    label = Option(String).Some(ast_expr_text(&lhs_).*.clone());
   }, if(ast_expr_is_fn_call_of(&expr_, BK_COMPTIME, Option(usize).Some(usize(1))), {
     if(is_comptime, {
       exn.throw(
@@ -256,7 +262,7 @@ evaluate_type_field :: (
       );
     });
     label_expr = Option(AstExpr).Some(lhs_);
-    label = Option(String).Some(ast_expr_text(&lhs_).*);
+    label = Option(String).Some(ast_expr_text(&lhs_).*.clone());
   }, if(!default_value_expr.is_some() && !assigned_value_expr.is_some(), {
     // Bare type expression (positional tuple field, or `Self :: i32` shorthand)
     type_expr = Option(AstExpr).Some(expr_);
@@ -335,7 +341,7 @@ evaluate_type_field :: (
               format_error_message_with_help(
                 ast_expr_token(&te),
                 fn_type_unrepresentable_impl_message(
-                  `${for_type} field "${match(label, .Some(l) => l.clone(), .None => `${tuple_field_index}`)}"`,
+                  `${for_type} field "${match(&label, .Some(l) => l.clone(), .None => `${tuple_field_index}`)}"`,
                   match(&field_type, .Some(fft2) => Rc.clone(fft2), .None => Rc.new(TypeValueNode.Unit)),
                   &ffi_impl
                 ),
@@ -576,7 +582,7 @@ evaluate_type_field :: (
     le := match(label_expr, .Some(e) => e, .None => make_err_expr());
     doc_key := doc_comment_lookup_key_from_token(ast_expr_token(&le));
     field_doc_comment := match(
-      &ctx.doc_comment_lookup,
+      ctx.doc_comment_lookup,
       .Some(lookup) => lookup.get_cloned(&doc_key),
       .None => Option(String).None
     );
@@ -638,7 +644,7 @@ evaluate_type_field :: (
     .Some(le) => {
       doc_key := doc_comment_lookup_key_from_token(ast_expr_token(&le));
       match(
-        &ctx.doc_comment_lookup,
+        ctx.doc_comment_lookup,
         .Some(lookup) => lookup.get_cloned(&doc_key),
         .None => Option(String).None
       )

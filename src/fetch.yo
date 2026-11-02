@@ -865,7 +865,7 @@ fetch_package :: (
     // Offline, the mirror is the only place a ref can be resolved.
     if(needs_ls_remote && offline && mirror_present, {
       from_mirror := e.io.await(mirror_rev_parse(mirror_dir.clone(), __probe_ref.clone(), e.io, e.exn), e);
-      commit = match(from_mirror, .Some(c) => c.clone(), .None => String.new());
+      commit = match(&from_mirror, .Some(c) => c.clone(), .None => String.new());
     });
     if(needs_ls_remote && offline && (commit.len() == usize(0)), {
       e.exn.throw(

@@ -1488,7 +1488,7 @@ evaluate_match :: (
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(&pattern_ast, "&&", .Some(usize(2))), {
-      gargs := match(pattern_ast, .FnCall(_, _, Rc(ga), _, _) => ga, .Atom(_, _) => ArrayList(AstExpr).new());
+      gargs := match(pattern_ast, .FnCall(_, _, Rc(ga), _, _) => ga.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       guard_ast = gargs.get(usize(1));
       pattern_ast = match(gargs.get(usize(0)), .Some(a) => a, .None => pattern_ast);
     });

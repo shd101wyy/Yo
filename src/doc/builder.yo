@@ -99,7 +99,7 @@ module_stability :: (fn(doc : &Option(String)) -> Option(String))(
     doc,
     .None => Option(String).None,
     .Some(text) => match(
-      parse_doc_comment(&text).sections.get(String.from("stability")),
+      parse_doc_comment(&text).sections.get_cloned(String.from("stability")),
       .None => Option(String).None,
       .Some(sec) => {
         (collapsed : String) = String.from("");
@@ -776,7 +776,7 @@ _extract_top_level_fn_signatures :: (
         _parse_source_fn_signature(&toks, i + usize(2)),
         .Some(info) => {
           already := match(
-            result.get(token.value.*.clone()),
+            result.get_cloned(token.value.*.clone()),
             .Some(_) => true,
             .None => false
           );
@@ -1107,7 +1107,7 @@ extract_trait_impls_from_tokens :: (
       continue;
     });
     existing := match(
-      result.get(type_name.clone()),
+      result.get_cloned(type_name.clone()),
       .Some(l) => l,
       .None => ArrayList(String).new()
     );
@@ -1425,7 +1425,7 @@ extract_impl_info_from_tokens :: (
       );
     });
     entry := match(
-      result.get(receiver_type_name.clone()),
+      result.get_cloned(receiver_type_name.clone()),
       .Some(e) => e,
       .None => TokenImplInfo(
         trait_impls : ArrayList(String).new(),
@@ -1471,14 +1471,14 @@ extract_impl_info_from_tokens :: (
         member_doc := match(
           _collect_doc_comment_before(tokens, usize(first.row), usize(first.character)),
           .Some(content) => Option(String).Some(content),
-          .None => doc_lookup.get(method_name.clone())
+          .None => doc_lookup.get_cloned(method_name.clone())
         );
         // Record the receiver-qualified key for the evaluator-side lookups
         // (`_extract_methods`, `_extract_generic_impl_info`), which see no
         // token positions. `HashMap` is a ref type, so this writes through to
         // the caller's map.
         match(
-          member_doc,
+          &member_doc,
           .Some(content) => {
             doc_lookup.insert(
               _member_doc_key(receiver_type_name.clone(), method_name.clone()),
@@ -1560,7 +1560,7 @@ extract_impl_info_from_tokens :: (
                 // evaluator-side lookups cannot cross these between types
                 // either.
                 match(
-                  m.doc,
+                  &m.doc,
                   .Some(content) => {
                     doc_lookup.insert(
                       _member_doc_key(receiver_type_name.clone(), m.name.clone()),
@@ -1597,7 +1597,7 @@ extract_impl_info_from_tokens :: (
           (spi : usize) = usize(0);
           while(spi < signature_parts.len(), {
             match(
-              signature_parts.get(spi),
+              signature_parts.get_cloned(spi),
               .Some(p) => {
                 full_parts.push(p.clone());
               },
@@ -1657,6 +1657,7 @@ _TokenGroupFrame :: struct(
   /// This group's `(` index in the filtered token list.
   open_index : usize
 );
+derive(_TokenGroupFrame, Clone);
 /// The declaration STRUCTURE of a module's tokens — what the token-only
 /// fallback needs to emit the same ITEMS the evaluated path would.
 ///
@@ -1827,7 +1828,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
     // its parens open at depth 1 and do not start with `fn`, unlike a fn
     // TYPE's parameter list — still names a top-level binding.
     outer := match(
-      frames.get(frames.len() - usize(1)),
+      frames.get_cloned(frames.len() - usize(1)),
       .Some(f) => f,
       .None => _TokenGroupFrame(
         head : String.new(),
@@ -1859,7 +1860,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
     (k : isize) = (isize(frames.len()) - isize(1));
     while(k >= isize(0), {
       frame := match(
-        frames.get(usize(k)),
+        frames.get_cloned(usize(k)),
         .Some(f) => f,
         .None => {
           break;
@@ -1904,15 +1905,15 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
 /// use (the write-back pattern `build_cross_references` uses for traits).
 _attach_token_field :: (fn(types : &mut ArrayList(DocType), idx : usize, field : &DocField) -> unit)({
   t := match(
-    types.get(idx),
+    types.get_cloned(idx),
     .Some(x) => x,
     .None => {
       return(());
     }
   );
   fields := match(
-    t.fields,
-    .Some(fs) => fs,
+    &t.fields,
+    .Some(fs) => fs.clone(),
     .None => ArrayList(DocField).new()
   );
   fields.push(field.clone());
@@ -1935,15 +1936,15 @@ _attach_token_field :: (fn(types : &mut ArrayList(DocType), idx : usize, field :
 /// first use.
 _attach_token_variant :: (fn(types : &mut ArrayList(DocType), idx : usize, variant : &DocVariant) -> unit)({
   t := match(
-    types.get(idx),
+    types.get_cloned(idx),
     .Some(x) => x,
     .None => {
       return(());
     }
   );
   variants := match(
-    t.variants,
-    .Some(vs) => vs,
+    &t.variants,
+    .Some(vs) => vs.clone(),
     .None => ArrayList(DocVariant).new()
   );
   variants.push(variant.clone());
@@ -1983,7 +1984,7 @@ build_doc_module_from_tokens :: (
   structure := _classify_token_declarations(tokens);
   (module_doc : Option(String)) = Option(String).None;
   match(
-    extraction.module_doc,
+    &extraction.module_doc,
     .Some(md) => {
       module_doc = Option(String).Some(md.content.clone());
     },
@@ -2220,7 +2221,7 @@ build_doc_module_from_tokens :: (
   (oi : usize) = usize(0);
   while(oi < orphan_receivers.len(), {
     receiver := match(
-      orphan_receivers.get(oi),
+      orphan_receivers.get_cloned(oi),
       .Some(r) => r,
       .None => {
         oi = (oi + usize(1));
@@ -2333,7 +2334,7 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
     // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
     m := match(
-      modules.get(mj),
+      modules.get_cloned(mj),
       .Some(x) => x,
       .None => {
         mj = (mj + usize(1));
@@ -2343,7 +2344,7 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     (tj : usize) = usize(0);
     while(tj < m.traits.len(), {
       tr := match(
-        m.traits.get(tj),
+        m.traits.get_cloned(tj),
         .Some(x) => x,
         .None => {
           tj = (tj + usize(1));
@@ -2449,7 +2450,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
               // — and registering that would let it claim the key and block the
               // declaring module's fully documented entry. Module walk order is
               // not something to depend on either way.
-              .Some(di) => if(score > _doc_type_doc_count(match(d_types.get(di), .Some(x) => x, .None => t.clone())), {
+              .Some(di) => if(score > _doc_type_doc_count(match(d_types.get_cloned(di), .Some(x) => x, .None => t.clone())), {
                 d_types(di) = t;
               }),
               .None => {
@@ -2471,7 +2472,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
     // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
     m2 := match(
-      modules.get(mj),
+      modules.get_cloned(mj),
       .Some(x) => x,
       .None => {
         mj = (mj + usize(1));
@@ -2481,7 +2482,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     (tj : usize) = usize(0);
     while(tj < m2.types.len(), {
       t2 := match(
-        m2.types.get(tj),
+        m2.types.get_cloned(tj),
         .Some(x) => x,
         .None => {
           tj = (tj + usize(1));
@@ -2491,7 +2492,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
       match(
         d_keys.index_of(`${t2.name}|${t2.signature}`),
         .Some(di) => match(
-          d_types.get(di),
+          d_types.get_cloned(di),
           .Some(donor) => {
             // Methods, fields and variants live in ArrayLists, which are shared
             // handles even through a struct copy — indexed assignment on them
@@ -2506,14 +2507,14 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
                 doc : donor.doc.clone(),
                 kind : t2.kind,
                 signature : t2.signature.clone(),
-                type_params : t2.type_params,
-                fields : t2.fields,
-                variants : t2.variants,
-                methods : t2.methods,
+                type_params : t2.type_params.clone(),
+                fields : t2.fields.clone(),
+                variants : t2.variants.clone(),
+                methods : t2.methods.clone(),
                 trait_impls : t2.trait_impls.clone(),
-                impls : t2.impls,
-                deprecated : match(t2.deprecated, .Some(d) => .Some(d.clone()), .None => donor.deprecated.clone()),
-                examples : match(t2.examples, .Some(e) => .Some(e.clone()), .None => donor.examples.clone())
+                impls : t2.impls.clone(),
+                deprecated : match(&t2.deprecated, .Some(d) => .Some(d.clone()), .None => donor.deprecated.clone()),
+                examples : match(&t2.examples, .Some(e) => .Some(e.clone()), .None => donor.examples.clone())
               );
             });
           },
@@ -2546,7 +2547,7 @@ _doc_type_doc_count :: (fn(t : &DocType) -> usize)({
     i = (i + usize(1));
   });
   match(
-    t.fields,
+    &t.fields,
     .Some(fs) => {
       (fi : usize) = usize(0);
       while(fi < fs.len(), {
@@ -2563,7 +2564,7 @@ _doc_type_doc_count :: (fn(t : &DocType) -> usize)({
     .None => ()
   );
   match(
-    t.variants,
+    &t.variants,
     .Some(vs) => {
       (vi : usize) = usize(0);
       while(vi < vs.len(), {
@@ -2586,7 +2587,7 @@ _fill_doc_methods_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
   (i : usize) = usize(0);
   while(i < dst.methods.len(), {
     match(
-      dst.methods.get(i),
+      dst.methods.get_cloned(i),
       .Some(dm) => if(dm.doc.is_none(), {
         (found : Option(String)) = Option(String).None;
         (found_from : Option(String)) = Option(String).None;
@@ -2618,7 +2619,7 @@ _fill_doc_methods_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
             errors : dm.errors.clone(),
             deprecated : dm.deprecated.clone(),
             examples : dm.examples.clone(),
-            inherited_from : match(dm.inherited_from, .Some(x) => .Some(x.clone()), .None => found_from)
+            inherited_from : match(&dm.inherited_from, .Some(x) => .Some(x.clone()), .None => found_from)
           );
         });
       }),
@@ -2629,12 +2630,12 @@ _fill_doc_methods_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
 });
 /// Per-name field doc fill-in (structs).
 _fill_doc_fields_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
-  dfs := match(dst.fields, .Some(x) => x, .None => return(()));
-  sfs := match(src.fields, .Some(x) => x, .None => return(()));
+  dfs := match(&dst.fields, .Some(x) => x.clone(), .None => return(()));
+  sfs := match(&src.fields, .Some(x) => x.clone(), .None => return(()));
   (i : usize) = usize(0);
   while(i < dfs.len(), {
     match(
-      dfs.get(i),
+      dfs.get_cloned(i),
       .Some(df) => if(df.doc.is_none(), {
         (j : usize) = usize(0);
         while(j < sfs.len(), {
@@ -2656,12 +2657,12 @@ _fill_doc_fields_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
 });
 /// Per-name variant doc fill-in (enums).
 _fill_doc_variants_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
-  dvs := match(dst.variants, .Some(x) => x, .None => return(()));
-  svs := match(src.variants, .Some(x) => x, .None => return(()));
+  dvs := match(&dst.variants, .Some(x) => x.clone(), .None => return(()));
+  svs := match(&src.variants, .Some(x) => x.clone(), .None => return(()));
   (i : usize) = usize(0);
   while(i < dvs.len(), {
     match(
-      dvs.get(i),
+      dvs.get_cloned(i),
       .Some(dv) => if(dv.doc.is_none(), {
         (j : usize) = usize(0);
         while(j < svs.len(), {
@@ -2740,7 +2741,7 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
         match(
           tr.methods.get_cloned(fi),
           .Some(fnc) => match(
-            fnc.doc,
+            &fnc.doc,
             .Some(d) => if(d.len() > usize(0), {
               names.push(fnc.name.clone());
               docs.push(d.clone());
@@ -2768,7 +2769,7 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
     // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
     m2 := match(
-      modules.get(mj),
+      modules.get_cloned(mj),
       .Some(x) => x,
       .None => {
         mj = (mj + usize(1));
@@ -2780,7 +2781,7 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
       // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
       // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
       ty := match(
-        m2.types.get(tj),
+        m2.types.get_cloned(tj),
         .Some(x) => x,
         .None => {
           tj = (tj + usize(1));
@@ -2790,7 +2791,7 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
       (fj : usize) = usize(0);
       while(fj < ty.methods.len(), {
         mm := match(
-          ty.methods.get(fj),
+          ty.methods.get_cloned(fj),
           .Some(x) => x,
           .None => {
             fj = (fj + usize(1));
@@ -2904,7 +2905,7 @@ _function_params_to_doc_params :: (
     func_type,
     Rc(.Func({ param_types, meta })) => {
       labels := Rc.clone(meta.*.param_labels);
-      origin := match(meta.*.origin_id, .Some(oid) => oid.clone(), .None => String.new());
+      origin := match(&meta.*.origin_id, .Some(oid) => oid.clone(), .None => String.new());
       comptime_flags := get_func_param_comptime(&origin);
       defaults := get_func_param_defaults(&origin);
       (i : usize) = usize(0);
@@ -3174,7 +3175,7 @@ _extract_generic_impl_info :: (
       }
     );
     match(
-      entry.trait_name,
+      &entry.trait_name,
       .Some(tn) => if(!trait_impls.contains(&tn), {
         trait_impls.push(tn.clone());
       }),
@@ -3405,7 +3406,7 @@ build_doc_module :: (
   source_fn_signatures := _extract_top_level_fn_signatures(tokens);
   (module_doc : Option(String)) = Option(String).None;
   match(
-    extraction.module_doc,
+    &extraction.module_doc,
     .Some(md) => {
       module_doc = Option(String).Some(md.content.clone());
     },
@@ -3420,10 +3421,10 @@ build_doc_module :: (
     path : path.clone(),
     doc : module_doc.clone(),
     stability : module_stability(&module_doc),
-    functions : functions,
-    types : types,
-    traits : traits,
-    constants : constants,
+    functions : functions.clone(),
+    types : types.clone(),
+    traits : traits.clone(),
+    constants : constants.clone(),
     submodules : ArrayList(Rc(DocModule)).new()
   );
   if(!is_module_type(module_type), {

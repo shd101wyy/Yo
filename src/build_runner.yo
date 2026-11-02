@@ -1268,7 +1268,7 @@ _resolve_workspace_member :: (
   fn(package : &Option(String), io : Io, exn : Exception) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    name := match(package, .Some(n) => n.clone(), .None => return(Option(String).None));
+    name := match(&package, .Some(n) => n.clone(), .None => return(Option(String).None));
     cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
     root_manifest_path := match(
       find_manifest(cwd_str.clone()),
@@ -3427,7 +3427,7 @@ run_build :: (
               sl_i = (sl_i + usize(1));
             });
             if(linked.len() > usize(0), {
-              eff_target := match(options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
+              eff_target := match(&options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
               eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
               if(is_target_wasm(&eff_ti), {
                 (wl_i : usize) = usize(0);

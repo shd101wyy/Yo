@@ -2080,7 +2080,7 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
     .None => String.from(".")
   );
   found := find_manifest(&entry_dir);
-  key := match(found, .Some(p) => p.clone(), .None => String.new());
+  key := match(&found, .Some(p) => p.clone(), .None => String.new());
   match(
     g_manifest_roots_for,
     .Some(k) => if(k == key, {
@@ -2307,7 +2307,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
     eprintln(`[warmload] MISS path=${abs.clone()}`);
   });
   touch_mark := module_load_begin();
-  std_path := match(g_loader_std_path, .Some(s) => s.clone(), .None => String.from(""));
+  std_path := match(&g_loader_std_path, .Some(s) => s.clone(), .None => String.from(""));
   fs_path := abs.replace(String.from("file://"), String.new());
   // Phase 0: this load's read+parse / evaluation walls. `prof_t0` spans the
   // WHOLE load so the parent window subtracts the load's true total.
