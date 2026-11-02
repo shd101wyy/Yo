@@ -52,7 +52,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
         if(is_number_val(&av) || is_bool_val(&av), {
           arg_code := _call_generate_expr(&arg, indent.clone(), context);
           type_name := get_type_string(&arg_ei.ty, &context.base);
-          out := String.from("(&(");
+          mut(out) := String.from("(&(");
           out.push_string(&type_name);
           out.push_str("){");
           out.push_string(&arg_code);
@@ -65,7 +65,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             expr_info_converted_runtime_type(&arg_ei),
             .Some(_) => {
               arg_code := _call_generate_expr(&arg, indent.clone(), context);
-              out := String.from("(&");
+              mut(out) := String.from("(&");
               out.push_string(&arg_code);
               out.push_str(")");
               return(out);
@@ -102,7 +102,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
         .Some(cei) => _checked_fixed_array_subscript(index_code, &cei.ty, &arg),
         .None => index_code
       );
-      out := String.from("(&((&");
+      mut(out) := String.from("(&((&");
       out.push_string(&callee_code);
       out.push_str(")->data[");
       out.push_string(&arr_idx);
@@ -125,7 +125,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             match(
               context.base.get_expr_info(&callee_expr),
               .Some(cei) => {
-                is_already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen_at(ast_expr_id(&callee_expr), vn.clone(), Option(Environment).Some(cei.env))), .None => false);
+                is_already_var := match(&cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen_at(ast_expr_id(&callee_expr), vn.clone(), Option(Environment).Some(cei.env))), .None => false);
                 if(!is_already_var, {
                   callee_type := get_type_string(&cei.ty, &context.base);
                   callee_tok := ast_expr_token(&callee_expr);
@@ -225,11 +225,11 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     match(
       arg_ei_opt,
       .Some(arg_ei) => {
-        is_already_var := match(arg_ei.variable_name, .Some(vn) => (arg_code == get_variable_name_for_codegen_at(ast_expr_id(&arg), vn.clone(), Option(Environment).Some(arg_ei.env))), .None => false);
+        is_already_var := match(&arg_ei.variable_name, .Some(vn) => (arg_code == get_variable_name_for_codegen_at(ast_expr_id(&arg), vn.clone(), Option(Environment).Some(arg_ei.env))), .None => false);
         if(!is_already_var, {
           arg_type_str := get_type_string(&arg_ei.ty, &context.base);
           temp_name := match(
-            arg_ei.variable_name,
+            &arg_ei.variable_name,
             .Some(vn) => sanitize_for_c_identifier(&vn, false),
             .None => {
               arg_tok := ast_expr_token(&arg);
