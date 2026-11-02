@@ -283,9 +283,9 @@ impl(
     match(
       self,
       Self(_inner : inner, _st : st) => {
-        // Bound first: a field copied straight into a tuple literal skips
-        // its dup, so the box would free the buffer the tuple still holds
-        // (issues/2026-10-25-a-tuple-literal-copying-a-field-out-of-a-value-skips-the-dup.md).
+        // Bound first while std builds with a seed that copies a field into a
+        // tuple literal without its dup (the box would free the tuple's buffer;
+        // issues/fixed/2026-10-25-a-tuple-literal-copying-a-field-out-of-a-value-skips-the-dup.md).
         pending := st.*._buf;
         (inner, pending)
       }
