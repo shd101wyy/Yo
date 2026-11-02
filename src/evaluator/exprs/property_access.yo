@@ -161,7 +161,7 @@ _reject_gadt_unreachable_variant :: (
       if(ii > usize(0), {
         idx_s.push_str(", ");
       });
-      idx_s.push_string(type_to_string(match(idx.get(ii), .Some(t) => t, .None => t_unit())));
+      idx_s.push_string(type_to_string(match(idx.get_cloned(ii), .Some(t) => t, .None => t_unit())));
       ii = (ii + usize(1));
     });
     exn.throw(
@@ -1039,7 +1039,7 @@ Raw pointer operations may dereference invalid memory.`
       generic_methods_pr := find_methods_from_generic_impls(&type_val_inner, &pr_prop_name, &env);
       if(generic_methods_pr.len() == usize(1), {
         method_pr := match(
-          generic_methods_pr.get(usize(0)),
+          generic_methods_pr.get_cloned(usize(0)),
           .Some(m) => m,
           .None => {
             return(expr);
@@ -1072,7 +1072,7 @@ Raw pointer operations may dereference invalid memory.`
         wt_lbl := match(ctx.current_impl_trait_field_labels.get(wt_i), .Some(l) => l, .None => String.from(""));
         if(wt_lbl == wt_prop, {
           match(
-            ctx.current_impl_trait_field_types.get(wt_i),
+            ctx.current_impl_trait_field_types.get_cloned(wt_i),
             .Some(wt_ty) => {
               // Entries are associated TYPES (`Output : u8`); the info's
               // own type is the plain meta type — walking the type graph
@@ -1151,7 +1151,7 @@ Raw pointer operations may dereference invalid memory.`
               generic_methods_en := find_methods_from_generic_impls(&type_val_inner, variant_name_tv.clone(), &env);
               if(generic_methods_en.len() == usize(1), {
                 method_en := match(
-                  generic_methods_en.get(usize(0)),
+                  generic_methods_en.get_cloned(usize(0)),
                   .Some(m) => m,
                   .None => {
                     return(expr);
@@ -1285,7 +1285,7 @@ Raw pointer operations may dereference invalid memory.`
       generic_methods_su := find_methods_from_generic_impls(&type_val_inner, &prop_name_su, &env);
       if(generic_methods_su.len() == usize(1), {
         method_su := match(
-          generic_methods_su.get(usize(0)),
+          generic_methods_su.get_cloned(usize(0)),
           .Some(m) => m,
           .None => {
             return(expr);
@@ -1516,7 +1516,7 @@ Raw pointer operations may dereference invalid memory.`
           (tt_ci : usize) = usize(0);
           while(tt_ci < tt_cands.len(), {
             tt_cand := match(
-              tt_cands.get(tt_ci),
+              tt_cands.get_cloned(tt_ci),
               .Some(c) => c,
               .None => {
                 tt_ci = (tt_ci + usize(1));
@@ -1553,7 +1553,7 @@ Raw pointer operations may dereference invalid memory.`
       match(
         fidx_tt,
         .Some(fi_tt) => {
-          ft_tt := match(tt_types.get(fi_tt), .Some(t) => t, .None => t_unit());
+          ft_tt := match(tt_types.get_cloned(fi_tt), .Some(t) => t, .None => t_unit());
           out_tt := new_expr_info(&env, &ft_tt);
           out_tt.value = Option(EvalValue).Some(create_unknown_val(&ft_tt));
           out_tt.is_accessing_property = Option(bool).Some(true);
@@ -1596,7 +1596,7 @@ Raw pointer operations may dereference invalid memory.`
         (st_idx0 : usize) = usize(0);
         while(st_idx0 < st_rtt.len(), {
           match(
-            st_rtt.get(st_idx0),
+            st_rtt.get_cloned(st_idx0),
             .Some(t) => {
               candidate_traits.push(t);
             },
@@ -1615,7 +1615,7 @@ Raw pointer operations may dereference invalid memory.`
         (st_idx : usize) = usize(0);
         st_n := candidate_traits.len();
         while((st_idx < st_n) && !st_found, {
-          st_trait := match(candidate_traits.get(st_idx), .Some(t) => t, .None => t_unit());
+          st_trait := match(candidate_traits.get_cloned(st_idx), .Some(t) => t, .None => t_unit());
           if(is_trait_type(&st_trait), {
             st_labels := match(
               &st_trait,
@@ -1631,7 +1631,7 @@ Raw pointer operations may dereference invalid memory.`
             match(
               st_fidx,
               .Some(st_fi) => {
-                st_ft := match(st_types.get(st_fi), .Some(t) => t, .None => t_unit());
+                st_ft := match(st_types.get_cloned(st_fi), .Some(t) => t, .None => t_unit());
                 // For assoc-type fields (declared `Item : Type` etc.), every
                 // `Self.Output` must name
                 // ONE SomeType object. The stand-in for that per-field

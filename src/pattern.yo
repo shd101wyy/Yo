@@ -304,8 +304,8 @@ gadt_branch_reachable :: (fn(enum_id : &String, variant_idx : usize) -> bool)({
         (reachable : bool) = true;
         (k : usize) = usize(0);
         while((k < tca.len()) && reachable, {
-          tk := gadt_resolve_tca_entry(match(tca.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
-          gk := match(gra.get(k), .Some(g) => g, .None => Rc.new(TypeValueNode.Unit));
+          tk := gadt_resolve_tca_entry(match(tca.get_cloned(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
+          gk := match(gra.get_cloned(k), .Some(g) => g, .None => Rc.new(TypeValueNode.Unit));
           if(!is_some_type(&tk), {
             if(!are_types_compatible(&tk, &gk), {
               reachable = false;
@@ -696,7 +696,7 @@ _concat_types :: (fn(a : &ArrayList(TypeValue), b : &ArrayList(TypeValue)) -> Ar
   (i : usize) = usize(0);
   while(i < a.len(), {
     match(
-      a.get(i),
+      a.get_cloned(i),
       .Some(t) => {
         out.push(t);
       },
@@ -707,7 +707,7 @@ _concat_types :: (fn(a : &ArrayList(TypeValue), b : &ArrayList(TypeValue)) -> Ar
   (j : usize) = usize(0);
   while(j < b.len(), {
     match(
-      b.get(j),
+      b.get_cloned(j),
       .Some(t) => {
         out.push(t);
       },
@@ -723,7 +723,7 @@ _tail_types :: (fn(v : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   (i : usize) = usize(1);
   while(i < v.len(), {
     match(
-      v.get(i),
+      v.get_cloned(i),
       .Some(t) => {
         out.push(t);
       },
@@ -1514,7 +1514,7 @@ _useful :: (
   ) -> Option(ArrayList(String))
 )({
   w_opt := _useful_at(rows_in, q, tys, gadt_exact);
-  cell := match(tys.get(usize(0)), .Some(t0) => _witness_cell_name(&t0), .None => Option(String).None);
+  cell := match(tys.get_cloned(usize(0)), .Some(t0) => _witness_cell_name(&t0), .None => Option(String).None);
   match(
     w_opt,
     .Some(w) => match(
@@ -1588,7 +1588,7 @@ _useful_head :: (
   rows := _expand_row_heads(rows_in);
   q_rest := _tail_patterns(q);
   tys_rest := _tail_types(tys);
-  ty0 := norm_position_type(match(tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
+  ty0 := norm_position_type(match(tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
   // An integer column: intervals decide it exactly.
   if(match(
     head0,

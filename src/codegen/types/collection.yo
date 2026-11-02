@@ -399,7 +399,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
         (i : usize) = usize(0);
         while(i < n, {
           match(
-            field_types.get(i),
+            field_types.get_cloned(i),
             .Some(ft) => match(
               &ft,
               Rc(.Func({ param_types : __mpt, result : __mres })) => {
@@ -484,7 +484,7 @@ collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
     (i : usize) = usize(0);
     while(i < n, {
       match(
-        snapshot.get(i),
+        snapshot.get_cloned(i),
         .Some(t) => {
           rfs := get_runtime_struct_fields(&t);
           nf := rfs.len();

@@ -867,7 +867,7 @@ _collect_where_constraints_from_some_t :: (
       (ri : usize) = usize(0);
       while(ri < required_trait_types.len(), {
         match(
-          required_trait_types.get(ri),
+          required_trait_types.get_cloned(ri),
           .Some(rt) => {
             out.push(WhereConstraintEntry(lhs_label : label.clone(), trait_ty : rt, is_negated : false));
           },
@@ -878,7 +878,7 @@ _collect_where_constraints_from_some_t :: (
       (ni : usize) = usize(0);
       while(ni < negative_trait_types.len(), {
         match(
-          negative_trait_types.get(ni),
+          negative_trait_types.get_cloned(ni),
           .Some(nt) => {
             out.push(WhereConstraintEntry(lhs_label : label.clone(), trait_ty : nt, is_negated : true));
           },
@@ -1639,8 +1639,8 @@ _wcc_same_instantiation :: (fn(a : &String, b : &String) -> bool)({
   });
   (i : usize) = usize(0);
   while(i < a_args.len(), {
-    at := match(a_args.get(i), .Some(t) => t, .None => t_unit());
-    bt := match(b_args.get(i), .Some(t) => t, .None => t_unit());
+    at := match(a_args.get_cloned(i), .Some(t) => t, .None => t_unit());
+    bt := match(b_args.get_cloned(i), .Some(t) => t, .None => t_unit());
     if(type_key(&at) != type_key(&bt), {
       return(false);
     });
@@ -1657,7 +1657,7 @@ _wcc_has_trait :: (fn(list : &ArrayList(TypeValue), trait_ty : &TypeValue) -> bo
   (wcc_i : usize) = usize(0);
   while((wcc_i < wcc_n) && !wcc_found, {
     match(
-      list.get(wcc_i),
+      list.get_cloned(wcc_i),
       .Some(wcc_e) => {
         wcc_have := _wcc_trait_id(&wcc_e);
         if((wcc_have == wcc_want) || ((wcc_want.len() > usize(0)) && _wcc_same_instantiation(&wcc_have, &wcc_want)), {
@@ -2595,7 +2595,7 @@ use_id :: (fn(generic(T : Type),
                     (ri : usize) = usize(0);
                     while(ri < new_rtt.len(), {
                       nt := match(
-                        new_rtt.get(ri),
+                        new_rtt.get_cloned(ri),
                         .Some(t) => t,
                         .None => {
                           ri = new_rtt.len();
@@ -2609,7 +2609,7 @@ use_id :: (fn(generic(T : Type),
                     (ni : usize) = usize(0);
                     while(ni < new_ntt.len(), {
                       nt := match(
-                        new_ntt.get(ni),
+                        new_ntt.get_cloned(ni),
                         .Some(t) => t,
                         .None => {
                           ni = new_ntt.len();
@@ -5203,7 +5203,7 @@ evaluate_function_type :: (
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
           tt := match(
-            required_trait_types.get(ti2),
+            required_trait_types.get_cloned(ti2),
             .Some(t) => t,
             .None => {
               ti2 = required_trait_types.len();
@@ -5326,7 +5326,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
   );
   (i : usize) = usize(0);
   while(i < rtts.len(), {
-    rtt := match(rtts.get(i), .Some(t) => t, .None => t_unit());
+    rtt := match(rtts.get_cloned(i), .Some(t) => t, .None => t_unit());
     match(
       rtt,
       // Future carrier — `Impl(Future(T, E))`. Without this arm the type
@@ -5345,7 +5345,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
         (foi : usize) = usize(0);
         while(foi < fo_inner.len(), {
           match(
-            fo_inner.get(foi),
+            fo_inner.get_cloned(foi),
             .Some(s) => {
               acc.push(s);
             },
@@ -5362,7 +5362,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
               (fej : usize) = usize(0);
               while(fej < fe_inner.len(), {
                 match(
-                  fe_inner.get(fej),
+                  fe_inner.get_cloned(fej),
                   .Some(s2) => {
                     acc.push(s2);
                   },
@@ -5386,7 +5386,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
               (ii : usize) = usize(0);
               while(ii < inner.len(), {
                 match(
-                  inner.get(ii),
+                  inner.get_cloned(ii),
                   .Some(s) => {
                     acc.push(s);
                   },
@@ -5403,7 +5403,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
         (ci : usize) = usize(0);
         while(ci < cr_inner.len(), {
           match(
-            cr_inner.get(ci),
+            cr_inner.get_cloned(ci),
             .Some(s) => {
               acc.push(s);
             },
@@ -5420,7 +5420,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
               (ik : usize) = usize(0);
               while(ik < inner.len(), {
                 match(
-                  inner.get(ik),
+                  inner.get_cloned(ik),
                   .Some(s) => {
                     acc.push(s);
                   },
@@ -5455,13 +5455,13 @@ _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) ->
       new_rtt := ArrayList(TypeValue).new();
       (i : usize) = usize(0);
       while(i < sw_rtt.len(), {
-        match(sw_rtt.get(i), .Some(t) => new_rtt.push(substitute(ns, &t)), .None => ());
+        match(sw_rtt.get_cloned(i), .Some(t) => new_rtt.push(substitute(ns, &t)), .None => ());
         i = (i + usize(1));
       });
       new_ntt := ArrayList(TypeValue).new();
       (j : usize) = usize(0);
       while(j < sw_ntt.len(), {
-        match(sw_ntt.get(j), .Some(t) => new_ntt.push(substitute(ns, &t)), .None => ());
+        match(sw_ntt.get_cloned(j), .Some(t) => new_ntt.push(substitute(ns, &t)), .None => ());
         j = (j + usize(1));
       });
       Rc.new(TypeValueNode.SomeT(sw_id.clone(), sw_nm.clone(), sw_fl, Rc.clone(sw_pt), new_rtt, sw_rtl.clone(), new_ntt, sw_ntl.clone(), sw_kft.clone(), sw_rc.clone()))
@@ -5497,7 +5497,7 @@ _resolve_wrapper_carriers_from_env :: (fn(wrapper : &TypeValue, env : &Environme
   (i : usize) = usize(0);
   while(i < carriers.len(), {
     match(
-      carriers.get(i),
+      carriers.get_cloned(i),
       .Some(c) => match(
         &c,
         Rc(.SomeT(_, c_name, c_lvl, _, _, _, _, _, _, _)) => {
@@ -5558,7 +5558,7 @@ _resolve_some_types_deep :: (
           (rsd_i : usize) = usize(0);
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
-              rsd_rtt.get(rsd_i),
+              rsd_rtt.get_cloned(rsd_i),
               .Some(Rc(.FutureTraitT(base_name : _))) => {
                 rsd_fut_poisoned = true;
               },
@@ -5595,7 +5595,7 @@ _resolve_some_types_deep :: (
     (nbound : bool) = false;
     (nti : usize) = usize(0);
     while(nti < nested.len(), {
-      nst := match(nested.get(nti), .Some(t) => t, .None => t_unit());
+      nst := match(nested.get_cloned(nti), .Some(t) => t, .None => t_unit());
       (nres : TypeValue) = get_value_of_some_type_from_env(env, &nst);
       if(_env_rebound_to_another_some(&nst, &nres), {
         // The env bound the slot to ANOTHER SomeType (a per-spec rebuild or
@@ -5633,7 +5633,7 @@ _resolve_some_types_deep :: (
   (bound_any : bool) = false;
   (sti : usize) = usize(0);
   while(sti < some_types.len(), {
-    st := match(some_types.get(sti), .Some(t) => t, .None => t_unit());
+    st := match(some_types.get_cloned(sti), .Some(t) => t, .None => t_unit());
     (resolved : TypeValue) = get_value_of_some_type_from_env(env, &st);
     // If the env resolves `st` only to ANOTHER SomeType (e.g. an async future's
     // output type, which stays unresolved through eval), try the codegen
@@ -5803,7 +5803,7 @@ _collect_type_arg_somes :: (
       (cta_pi : usize) = usize(0);
       while(cta_pi < cta_phantoms.len(), {
         match(
-          cta_phantoms.get(cta_pi),
+          cta_phantoms.get_cloned(cta_pi),
           .Some(cta_pt) => {
             if(is_some_type(&cta_pt), {
               acc.push(Rc.clone(cta_pt));
@@ -5868,7 +5868,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
   (tas_i : usize) = usize(0);
   while(tas_i < targ_somes.len(), {
     match(
-      targ_somes.get(tas_i),
+      targ_somes.get_cloned(tas_i),
       .Some(tas_st) => {
         (tas_r : TypeValue) = get_value_of_some_type_from_env(env, &tas_st);
         // The env binds by NAME, so what it answers substitutes by name. A

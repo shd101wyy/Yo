@@ -164,7 +164,7 @@ _encode_ctor_app :: (fn(name : &String, args : &ArrayList(VcTerm)) -> String)({
   (ci : usize) = usize(0);
   while(ci < args.len(), {
     match(
-      args.get(ci),
+      args.get_cloned(ci),
       .Some(a) => {
         sb.write_byte(u8(0x20));
         sb.write_string(encode_term(&a));
@@ -206,7 +206,7 @@ encode_term :: (fn(t : &VcTerm) -> String)(
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => {
             sb.write_byte(u8(0x20));
             sb.write_string(encode_term(&a));
@@ -277,7 +277,7 @@ encode_term :: (fn(t : &VcTerm) -> String)(
         (ti : usize) = usize(0);
         while(ti < triggers.len(), {
           match(
-            triggers.get(ti),
+            triggers.get_cloned(ti),
             .Some(tr) => {
               sb.write_str(" :pattern (");
               sb.write_string(encode_term(&tr));
@@ -505,7 +505,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
   (xi : usize) = usize(0);
   while(xi < q.axioms.len(), {
     match(
-      q.axioms.get(xi),
+      q.axioms.get_cloned(xi),
       .Some(ax) => {
         sb.write_string(`(assert ${encode_term(&ax)})\n`);
       },
