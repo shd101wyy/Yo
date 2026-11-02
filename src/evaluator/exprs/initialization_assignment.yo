@@ -1685,11 +1685,11 @@ Use \`::\` for compile-time definitions inside impl.`
     );
     // Look up doc comment from pre-computed position-keyed lookup.
     doc_comment_opt := match(
-      ctx.doc_comment_lookup,
+      &ctx.doc_comment_lookup,
       .None => Option(String).None,
       .Some(lookup) => {
         key := doc_comment_lookup_key_from_token(&actual_lhs_tok);
-        match(lookup.get(&key), .Some(v) => Option(String).Some(v), .None => Option(String).None)
+        lookup.get_cloned(&key)
       }
     );
     // No-shadowing rule: a `:=`/`::` binding may not reuse a name visible in

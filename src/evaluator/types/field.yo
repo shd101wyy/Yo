@@ -576,8 +576,8 @@ evaluate_type_field :: (
     le := match(label_expr, .Some(e) => e, .None => make_err_expr());
     doc_key := doc_comment_lookup_key_from_token(ast_expr_token(&le));
     field_doc_comment := match(
-      ctx.doc_comment_lookup,
-      .Some(lookup) => lookup.get(&doc_key),
+      &ctx.doc_comment_lookup,
+      .Some(lookup) => lookup.get_cloned(&doc_key),
       .None => Option(String).None
     );
     le_val := match(
@@ -638,8 +638,8 @@ evaluate_type_field :: (
     .Some(le) => {
       doc_key := doc_comment_lookup_key_from_token(ast_expr_token(&le));
       match(
-        ctx.doc_comment_lookup,
-        .Some(lookup) => lookup.get(&doc_key),
+        &ctx.doc_comment_lookup,
+        .Some(lookup) => lookup.get_cloned(&doc_key),
         .None => Option(String).None
       )
     },
