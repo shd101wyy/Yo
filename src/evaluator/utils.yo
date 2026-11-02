@@ -5389,7 +5389,7 @@ check_loop_flow :: (
           (ci : usize) = usize(0);
           while(ci < lc.continue_states.len(), {
             match(
-              lc.continue_states.get(ci),
+              lc.continue_states.get_cloned(ci),
               .Some(cs) => match(_snapshot_state_of(&cs, v.id, &pre), .Some(t) => back_moved.push(t), .None => back_live.push(cs.site)),
               .None => ()
             );
@@ -5423,7 +5423,7 @@ check_loop_flow :: (
           (bi : usize) = usize(0);
           while(bi < lc.break_states.len(), {
             match(
-              lc.break_states.get(bi),
+              lc.break_states.get_cloned(bi),
               .Some(bs) => match(_snapshot_state_of(&bs, v.id, &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(bs.site)),
               .None => ()
             );
@@ -5599,7 +5599,7 @@ _drop_in_arms_that_keep :: (
             drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
             evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
             v.consumed_at_token = Option(Token).None;
-            drops := match(bi.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+            drops := match(&bi.deferred_drop_expressions, .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
             drops.push(evaluated);
             bi.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
             // A `return` inside this arm already emits the arm's deferred
@@ -5656,7 +5656,7 @@ reject_mixed_closure_arms :: (
           _arm_closure_capture_struct(&info),
           .Some(Rc(.Struct({ id : cid }))) => if(cid.len() > usize(0), {
             if(first_id.len() == usize(0), {
-              first_id = cid;
+              first_id = cid.clone();
             }, if(cid != first_id, {
               exn.throw(
                 dyn(
@@ -6735,7 +6735,7 @@ LocalBorrowElidedOrigin :: struct(
 /// `decl`, when `decl` is template code of that macro (another module).
 _lb_macro_site_of :: (fn(decl : &Token) -> Option(LocalBorrowMacroSite))(
   match(
-    g_lb_macro_sites.with(xs => xs.last()),
+    g_lb_macro_sites.with(xs => xs.last_cloned()),
     .Some(site) => cond(
       (site.site.module_path != decl.module_path) => Option(LocalBorrowMacroSite).Some(site),
       true => Option(LocalBorrowMacroSite).None
@@ -6746,6 +6746,7 @@ _lb_macro_site_of :: (fn(decl : &Token) -> Option(LocalBorrowMacroSite))(
 /// A `match` binding over a local borrow: a place reached from it, which a
 /// re-point may go through (decision 25).
 LocalBorrowPatternBinding :: struct(name : String, decl : Token, borrow : LocalBorrowInfo);
+derive(LocalBorrowPatternBinding, Clone);
 /// A `mut` place a `match` arm binds over the local borrow `borrow`
 /// (`match(cur, .Some(n) => …)`): it points into `borrow`'s place from its
 /// binding `decl` to `end` (its last mention `last_use`).
@@ -6754,6 +6755,7 @@ LocalBorrowMatchPlace :: struct(name : String, decl : Token, last_use : Token, e
 /// token `end`, and the ids of the `.await(…)` calls written in that
 /// expansion (`local_borrow_enter_macro_site`).
 LocalBorrowMacroSite :: struct(site : Token, end : Token, await_ids : ArrayList(usize));
+derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
@@ -6855,7 +6857,7 @@ _lb_is_cell_type :: (fn(t : &TypeValue) -> bool)(
 _lb_contains :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
+    if(match(xs.get_cloned(i), .Some(y) => (y == x), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -7121,7 +7123,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (ci : usize) = usize(0);
   while(ci < cell.len(), {
     cell_text.push_str(".");
-    cell_text.push_string(match(cell.get(ci), .Some(s) => s, .None => String.new()));
+    cell_text.push_string(match(cell.get_cloned(ci), .Some(s) => s, .None => String.new()));
     ci = (ci + usize(1));
   });
   Option(CellRootedPlace).Some(
@@ -7160,7 +7162,7 @@ cell_rooted_places_overlap :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) ->
   n := cond((p.below.len() < q.below.len()) => p.below.len(), true => q.below.len());
   (i : usize) = usize(0);
   while(i < n, {
-    if(match(p.below.get(i), .Some(x) => x, .None => String.new()) != match(q.below.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(p.below.get_cloned(i), .Some(x) => x, .None => String.new()) != match(q.below.get_cloned(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
@@ -7268,7 +7270,7 @@ local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(Loca
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_local_borrow_patterns.with(xs => xs.get(i)),
+      g_local_borrow_patterns.with(xs => xs.get_cloned(i)),
       .Some(pb) => if(_lb_same_decl(pb.name.clone(), &pb.decl, name.clone(), decl), {
         return(Option(LocalBorrowInfo).Some(pb.borrow));
       }),
