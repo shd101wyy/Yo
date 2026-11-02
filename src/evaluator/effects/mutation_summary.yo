@@ -4097,7 +4097,7 @@ _GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(Typ
 (g_gr_reads_by_fid : RefCell(HashMap(String, HashMap(String, String)))) = RefCell(HashMap(String, HashMap(String, String))).new(HashMap(String, HashMap(String, String)).new());
 (g_gr_callees_by_fid : RefCell(HashMap(String, HashSet(String)))) = RefCell(HashMap(String, HashSet(String))).new(HashMap(String, HashSet(String)).new());
 _gr_note_read :: (fn(fid : &String, key : &String, loc : &String) -> unit)({
-  reads := match(g_gr_reads_by_fid.with(m => m.get(fid.clone())), .Some(m) => m, .None => HashMap(String, String).new());
+  reads := match(g_gr_reads_by_fid.with(m => m.get_cloned(fid)), .Some(m) => m, .None => HashMap(String, String).new());
   if(!reads.contains_key(key.clone()), {
     reads.insert(key.clone(), loc.clone());
   });
@@ -4132,7 +4132,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
     if(!seen.contains(f.clone()), {
       seen.insert(f.clone());
       match(
-        g_gr_reads_by_fid.with(m => m.get(f.clone())),
+        g_gr_reads_by_fid.with(m => m.get_cloned(&f)),
         .Some(reads) => {
           it := reads.keys();
           (go : bool) = true;
