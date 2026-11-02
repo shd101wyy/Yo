@@ -1746,6 +1746,13 @@ _optimize_dup_drop_pairs :: (
                   );
                   rci = (rci + usize(1));
                 });
+                if(g_debug_scope_drops && (runtime_count <= usize(1)), {
+                  (pdi : usize) = usize(0);
+                  while(pdi < dups.len(), {
+                    match(dups.get(pdi), .Some(pd) => eprintln(`[s1p-cancel] v=${v.name} base=${base.name} dup=${ast_expr_id(&pd)} ${ast_expr_to_string(&pd)}`), .None => ());
+                    pdi = (pdi + usize(1));
+                  });
+                });
                 if(runtime_count <= usize(1), {
                   // Cancel: remove the dup and mark the variable consumed.
                   (rmi : usize) = usize(0);
@@ -2384,6 +2391,7 @@ _scope_end_drop_eligible :: (
   e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
   e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
   if(g_debug_scope_drops, {
+    eprintln(`[sd-names] var=${v.name} result=${match(result_var_name, .Some(rn) => rn.clone(), .None => String.from("-"))} tail=${match(tail_atom_name, .Some(tn) => tn.clone(), .None => String.from("-"))}`);
     eprintln(`[sd] mod=${v.token.module_path.*} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
   });
   e7
