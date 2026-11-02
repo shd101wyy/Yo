@@ -4158,9 +4158,9 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
               .Some(k) => {
                 if(violation.is_none(), {
                   match(
-                    g_d1_written.with(m => m.get(k.clone())),
+                    g_d1_written.with(m => m.get_cloned(k.clone())),
                     .Some(wloc) => {
-                      rloc := match(reads.get(k.clone()), .Some(l) => l, .None => String.new());
+                      rloc := match(reads.get_cloned(k.clone()), .Some(l) => l, .None => String.new());
                       gname := match(k.last_index_of(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
                       violation = Option(String).Some(`reads the module-level global '${gname}' (at ${rloc}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${gname}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state`);
                     },
@@ -4169,7 +4169,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
                 });
                 if(!g_d1_reached.with(m => m.contains_key(k.clone())), {
                   match(
-                    reads.get(k.clone()),
+                    reads.get_cloned(k.clone()),
                     .Some(loc) => {
                       g_d1_reached.with_mut(m => m.insert(k.clone(), loc.clone()));
                     },
@@ -4188,7 +4188,9 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
       match(
         g_gr_callees_by_fid.with(m => m.get(f.clone())),
         .Some(cs) => {
-          cit := cs.into_iter();
+          // `cs` shares the registry's set: walk an owned copy, whose
+          // entries the consuming iterator can move out.
+          cit := cs.clone().into_iter();
           (cgo : bool) = true;
           while(cgo, {
             match(
