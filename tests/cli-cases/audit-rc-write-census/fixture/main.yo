@@ -3,9 +3,9 @@
 Counter :: struct(n : i32, items : ArrayList(i32));
 Node :: ref(struct(n : i32, items : ArrayList(i32)));
 bump :: (fn(x : &mut i32) -> unit)({
-  x = (x + i32(1));
+  x.* = (x.* + i32(1));
 });
-peek :: (fn(x : &mut i32) -> i32)(x);
+peek :: (fn(x : &mut i32) -> i32)(x.*);
 apply :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 // Listed, unproved: the handle is a parameter, a caller may hold a borrow.
 through_param :: (fn(r : &Node) -> unit)({
@@ -34,7 +34,7 @@ main :: (fn() -> unit)({
   c.n = i32(7);
   cell := Rc.new(RefCell(i32).new(i32(0)));
   cell.with_mut(v => {
-    v = i32(8);
+    v.* = i32(8);
   });
   // Listed, proved: a list placed by an explicit allocator is fresh storage
   // too; the owner record it carries roots nothing.

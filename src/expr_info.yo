@@ -3268,6 +3268,14 @@ set_migrate_deref :: (fn(on : bool) -> unit)({
 /// Whether `yo fix --migrate deref` is recording (E0926 records the site
 /// instead of rejecting it).
 migrate_deref_on :: (fn() -> bool)(g_migrate_deref);
+/// Every other `yo fix --migrate` takes code written before the deref rule
+/// one rule forward, so the files it evaluates keep the old reading (as std
+/// and src do); `--migrate deref` is the step after it.
+(mut(g_deref_rule_suspended) : bool) = false;
+set_deref_rule_suspended :: (fn(on : bool) -> unit)({
+  g_deref_rule_suspended = on;
+});
+deref_rule_suspended :: (fn() -> bool)(g_deref_rule_suspended);
 /// `YO_AUDIT_DEREF=1`: the census of N1e-1's sites, printed as
 /// `[deref] <file>:<row>:<col> <expr>` at each one (print-only, every file,
 /// the exempt trees included), so the PR states the real count.
@@ -3302,7 +3310,7 @@ take_deref_sites :: (fn() -> ArrayList(DerefSite))({
   g_deref_site_keys.with_mut(s => s.clear());
   out
 });
-export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, take_deref_sites);
+export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, take_deref_sites);
 /// One pattern `yo fix --migrate rc-pattern` wraps in `Rc(…)`
 /// (plans/VALUES_BY_DEFAULT.md decision 31, Generation B): a structural
 /// pattern at an `Rc(T)` position, which the compiler no longer looks through

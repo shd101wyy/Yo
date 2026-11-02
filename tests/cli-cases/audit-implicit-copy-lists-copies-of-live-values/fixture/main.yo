@@ -23,17 +23,17 @@ bind_then_read :: (fn() -> usize)({
 });
 // A by-value parameter is borrowed: storing it always copies.
 store_param :: (fn(s : &String) -> Holder)(
-  Holder(name : s, items : ArrayList(i32).new())
+  Holder(name : s.*, items : ArrayList(i32).new())
 );
 // Returning a borrowed parameter copies it.
-return_param :: (fn(xs : &ArrayList(i32)) -> ArrayList(i32))(xs);
+return_param :: (fn(xs : &ArrayList(i32)) -> ArrayList(i32))(xs.*);
 // A field read stored elsewhere: a projection, always a copy (no partial moves).
 store_field :: (fn(h : &Holder) -> Holder)(
   Holder(name : h.name, items : ArrayList(i32).new())
 );
 // An owning argument from a borrowed binding copies.
 take :: (fn(sink(s) : String) -> usize)(s.len());
-pass_borrowed :: (fn(s : &String) -> usize)(take(s));
+pass_borrowed :: (fn(s : &String) -> usize)(take(s.*));
 // Inside a loop the site runs again: a copy, unless the loop reassigns.
 loop_store :: (fn() -> usize)({
   s := String.from("x");
@@ -99,14 +99,14 @@ match_parts :: (fn(p : &Option(String)) -> usize)({
   h1 := match(o, .Some(x) => hold(x), .None => hold(String.from("")));
   n := match(o, .Some(y) => y.len(), .None => usize(0));
   h2 := match(make_opt(), .Some(z) => hold(z), .None => hold(String.from("")));
-  h3 := match(p, .Some(w) => hold(w), .None => hold(String.from("")));
+  h3 := match(p, .Some(w) => hold(w.*), .None => hold(String.from("")));
   h1.name.len() + n + h2.name.len() + h3.name.len()
 });
 // A read walk's element is an inout-borrow: passing it on copies.
 for_store :: (fn(xs : &ArrayList(String)) -> usize)({
   out := ArrayList(Holder).new();
-  for(&xs, s => {
-    out.push(hold(s));
+  for(&xs.*, s => {
+    out.push(hold(s.*));
   });
   out.len()
 });
