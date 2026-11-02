@@ -228,7 +228,7 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // Variable lookup
   // ------------------------------------------------------------------
-  identifier_string := token.value.*;
+  identifier_string := token.value.*.clone();
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
     eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
@@ -321,13 +321,13 @@ evaluate_identifier_and_operator :: (
         std_exporters := lookup_std_exporters(&identifier_string);
         (import_repair : Option(String)) = Option(String).None;
         if(std_exporters.len() > usize(0), {
-          first_spec := match(std_exporters.get(usize(0)), .Some(s0) => s0, .None => String.new());
+          first_spec := match(std_exporters.get_cloned(usize(0)), .Some(s0) => s0, .None => String.new());
           import_line := `{ ${identifier_string} } :: import("${first_spec}");`;
           (spec_list : String) = String.new();
           (sxi : usize) = usize(0);
           while(sxi < std_exporters.len(), {
             match(
-              std_exporters.get(sxi),
+              std_exporters.get_cloned(sxi),
               .Some(sx) => {
                 if(sxi > usize(0), {
                   spec_list.push_str(", ");
@@ -411,7 +411,7 @@ evaluate_identifier_and_operator :: (
                     &token,
                     `Variable "${identifier_string}" not found.`,
                     &not_found_help,
-                    Span(path : token.module_path.*, row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
+                    Span(path : token.module_path.*.clone(), row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
                     `${line}\n`,
                     `add ${line}`
                   ),
@@ -512,7 +512,7 @@ evaluate_identifier_and_operator :: (
         sub_ctx.kind,
         .FunctionBody => {
           match(
-            ctx.captured_variables,
+            &ctx.captured_variables,
             .Some(_) => {
               closure_frame_level := sub_ctx.eval_env.frame_count();
               // Generation-safe INNER test: `variable.frame_level` is stamped
@@ -582,7 +582,7 @@ evaluate_identifier_and_operator :: (
         },
         .AsyncBlock => {
           match(
-            ctx.captured_variables,
+            &ctx.captured_variables,
             .Some(_) => {
               async_frame_level := sub_ctx.eval_env.frame_count();
               // Generation-safe INNER test — the SAME repair the FunctionBody
@@ -672,7 +672,7 @@ _first_code_row :: (fn(source : &String) -> usize)({
   lines := source.split(String.from("\n"));
   (r : usize) = usize(0);
   while(r < lines.len(), {
-    t := match(lines.get(r), .Some(l) => l.trim(), .None => String.new());
+    t := match(lines.get_cloned(r), .Some(l) => l.trim(), .None => String.new());
     if((t.len() > usize(0)) && !t.starts_with(String.from("//")), {
       return(r);
     });

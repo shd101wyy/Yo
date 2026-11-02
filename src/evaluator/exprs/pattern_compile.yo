@@ -230,7 +230,7 @@ _find_str :: (fn(list : &ArrayList(String), s : &String) -> Option(usize))({
   (i : usize) = usize(0);
   (found : Option(usize)) = Option(usize).None;
   while((i < list.len()) && found.is_none(), {
-    if(match(list.get(i), .Some(x) => (x == s), .None => false), {
+    if(match(list.get_cloned(i), .Some(x) => (x == s), .None => false), {
       found = Option(usize).Some(i);
     });
     i = (i + usize(1));
@@ -373,7 +373,7 @@ _enum_const_to_variant :: (fn(value : &EvalValue, position_ty : &TypeValue) -> O
         vns := _enum_variant_names(position_ty);
         (vi : usize) = usize(0);
         while(vi < vns.len(), {
-          cand := match(vns.get(vi), .Some(n) => n, .None => String.new());
+          cand := match(vns.get_cloned(vi), .Some(n) => n, .None => String.new());
           if(_variant_name_eq(vname.clone(), cand.clone()), {
             return(
               Option(Pattern).Some(
@@ -616,14 +616,14 @@ _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
     (ci : usize) = usize(0);
     while(ci < names.len(), {
       if(!taken.contains(&ci), {
-        cand := match(names.get(ci), .Some(n) => n, .None => String.new());
+        cand := match(names.get_cloned(ci), .Some(n) => n, .None => String.new());
         match(
           best,
           .None => {
             best = Option(usize).Some(ci);
           },
           .Some(bi) => {
-            cur_best := match(names.get(bi), .Some(n) => n, .None => String.new());
+            cur_best := match(names.get_cloned(bi), .Some(n) => n, .None => String.new());
             if(cand < cur_best, {
               best = Option(usize).Some(ci);
             });
@@ -636,7 +636,7 @@ _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
       best,
       .Some(bi) => {
         taken.push(bi);
-        sorted.push(match(names.get(bi), .Some(n) => n, .None => String.new()));
+        sorted.push(match(names.get_cloned(bi), .Some(n) => n, .None => String.new()));
       },
       .None => ()
     );
@@ -651,8 +651,8 @@ _same_names :: (fn(a : &ArrayList(String), b : &ArrayList(String)) -> bool)({
   (i : usize) = usize(0);
   (same : bool) = true;
   while((i < a.len()) && same, {
-    x := match(a.get(i), .Some(s) => s, .None => String.new());
-    y := match(b.get(i), .Some(s) => s, .None => String.new());
+    x := match(a.get_cloned(i), .Some(s) => s, .None => String.new());
+    y := match(b.get_cloned(i), .Some(s) => s, .None => String.new());
     if(!(x == y), {
       same = false;
     });
@@ -668,7 +668,7 @@ _names_to_string :: (fn(names : &ArrayList(String)) -> String)({
       out.push_str(", ");
     });
     match(
-      names.get(i),
+      names.get_cloned(i),
       .Some(s) => {
         out.push_string(s.clone());
       },
@@ -756,8 +756,8 @@ _compile_variant :: (
     )
   );
   dparams := cond(
-    is_curly => match(params.get(usize(0)), .Some(p0) => _args_of(&p0), .None => params),
-    true => params
+    is_curly => match(params.get(usize(0)), .Some(p0) => _args_of(&p0), .None => params.clone()),
+    true => params.clone()
   );
   (has_labeled : bool) = is_curly;
   (li : usize) = usize(0);
@@ -946,10 +946,10 @@ _compile_variant :: (
     });
     fty := match(field_tys.get(fidx), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
-      fid5 := match(fty.clone(), Rc(.Struct({ id : bid6 })) => bid6, _ => String.from("-"));
+      fid5 := match(fty.clone(), Rc(.Struct({ id : bid6 })) => bid6.clone(), _ => String.from("-"));
       fta5 := match(fty.clone(), Rc(.Struct({ type_arguments : bta6 })) => bta6.len(), _ => usize(0));
-      fcf5 := match(fty.clone(), Rc(.Struct({ constructor_func_id : bcf6 })) => bcf6, _ => String.from("-"));
-      eid5 := match(enum_ty.clone(), Rc(.EnumT(bid7, _, _, _, _, _, _, _, _, _)) => bid7, _ => String.from("-"));
+      fcf5 := match(fty.clone(), Rc(.Struct({ constructor_func_id : bcf6 })) => bcf6.clone(), _ => String.from("-"));
+      eid5 := match(enum_ty.clone(), Rc(.EnumT(bid7, _, _, _, _, _, _, _, _, _)) => bid7.clone(), _ => String.from("-"));
       eprintln(`[tmint-varpayload] enum=${eid5} var=${vname} payload_id=${fid5} n_ta=${fta5.to_string()} cfid=${fcf5} ty=${type_to_string(&fty)}`);
     });
     fval := match(
@@ -1411,9 +1411,9 @@ compile_pattern :: (
           },
           _ => ()
         );
-        bid3 := match(position_ty.clone(), Rc(.Struct({ id : bid4 })) => bid4, _ => String.from("-"));
+        bid3 := match(position_ty.clone(), Rc(.Struct({ id : bid4 })) => bid4.clone(), _ => String.from("-"));
         bta3 := match(position_ty.clone(), Rc(.Struct({ type_arguments : bta4 })) => bta4.len(), _ => usize(0));
-        bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4, _ => String.from("-"));
+        bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4.clone(), _ => String.from("-"));
         eprintln(`[tmint-bind] name=${nm} id=${bid3} n_ta=${bta3.to_string()} cfid=${bcf3} fields=${fs2}`);
       });
       pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt, atom : e));
