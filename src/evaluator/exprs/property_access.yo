@@ -33,8 +33,6 @@ pragma(Pragma.AllowUnsafe);
   scope_release_note_query,
   mark_node_preevaluated,
   unmark_node_preevaluated,
-  expr_info_set_macro_expansion,
-  record_macro_expansion,
   record_deref_site
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
@@ -58,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -479,7 +477,13 @@ evaluate_property_access :: (
 )(
   // A field read the auto-dereference below rewrote reads as rewritten
   // (`ast_rewritten_node`), so a re-evaluation does not rewrite it again.
-  _evaluate_property_access_node(&ast_rewritten_node(expr), env_in, ctx, exn)
+  match(
+    ast_rewritten_node(expr),
+    // `r.*` on a reference binding (N1e-1) was rewritten to the name `r`
+    // itself: a re-evaluation reads the name.
+    .Atom(rw_id, rw_tok) => evaluate_expression_raw(&AstExpr.Atom(rw_id, rw_tok), env_in, ctx, exn),
+    rw_node => _evaluate_property_access_node(&rw_node, env_in, ctx, exn)
+  )
 );
 _evaluate_property_access_node :: (
   fn(
@@ -786,14 +790,21 @@ _evaluate_property_access_node :: (
               record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
             });
           }, {
+            // The node reads as the name itself from here on: it is
+            // recorded rewritten to the atom `r` under its own id
+            // (`note_rewritten_node`), so codegen, the place walks and a
+            // re-evaluation see exactly the bare read `r` was, with this
+            // id's info an atom read's. The name keeps its exemption
+            // (`note_reference_deref_site`).
+            rd_tok := ast_expr_token(&object_expr);
+            note_reference_deref_site(&rd_tok);
             out_rd := new_expr_info(&env, &rd_oi.ty);
             out_rd.value = rd_oi.value;
             expr_info_set_origin_type(&out_rd, expr_info_origin_type(&rd_oi));
             out_rd.variable_name = rd_oi.variable_name.clone();
             out_rd.source_variable = rd_oi.source_variable;
             out_rd.path_collection = rd_oi.path_collection.clone();
-            record_macro_expansion(ast_expr_id(expr), object_expr.clone());
-            expr_info_set_macro_expansion(&out_rd, Option(AstExpr).Some(object_expr.clone()));
+            note_rewritten_node(&AstExpr.Atom(ast_expr_id(expr), rd_tok));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rd);
             return(expr);
           });

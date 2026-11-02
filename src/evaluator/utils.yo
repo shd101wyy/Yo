@@ -170,6 +170,10 @@ pragma(Pragma.AllowUnsafe);
 /// (`r = &place`). One slot, as the receiver mark above.
 (mut(g_deref_exempt_id) : usize) = usize(0);
 (mut(g_deref_exempt_armed) : bool) = false;
+/// The receivers `r` of the `r.*` reference derefs rewritten to `r` itself
+/// (N1e-1, `property_access.yo`), by source position: the name there is the
+/// deref, never a whole-value read, in this node and in every clone of it.
+(g_reference_deref_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// The block statements after a borrow binding, for its live range: set by
 /// `evaluate_begin_expression` just before it evaluates the binding.
 (mut(g_lb_lookahead_stmts) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
@@ -6806,6 +6810,16 @@ deref_exempt_mark :: (fn(e : &AstExpr) -> unit)(
 deref_exempt_clear :: (fn() -> unit)({
   g_deref_exempt_armed = false;
 });
+_reference_deref_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset.to_string()}`);
+/// `tok` is the receiver of an `r.*` rewritten to `r` (N1e-1).
+note_reference_deref_site :: (fn(tok : &Token) -> unit)({
+  _new := g_reference_deref_sites.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+  ()
+});
+/// Whether the name at `tok` is a rewritten `r.*`'s receiver.
+is_reference_deref_site :: (fn(tok : &Token) -> bool)(
+  (g_reference_deref_sites.with(s => s.len()) > usize(0)) && g_reference_deref_sites.with(s => s.contains(&_reference_deref_site_key(tok)))
+);
 /// At the identifier evaluator's entry: `e` is exempt. Clears the mark.
 deref_exempt_take :: (fn(e : &AstExpr) -> bool)({
   if(!g_deref_exempt_armed, {
@@ -8622,6 +8636,8 @@ export(
   deref_exempt_mark,
   deref_exempt_clear,
   deref_exempt_take,
+  note_reference_deref_site,
+  is_reference_deref_site,
   variable_is_reference_binding,
   deref_rule_applies,
   deref_rule_recording,

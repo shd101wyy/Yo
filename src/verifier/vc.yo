@@ -39,7 +39,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom_of,
   ast_expr_to_string,
   make_err_expr,
-  for_desugar_site_of
+  for_desugar_site_of,
+  ast_rewritten_node
 } :: import("../expr.yo");
 { TokenKind } :: import("../token.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
@@ -1965,6 +1966,17 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(ast_expr_is_fn_call_of(e, BK_RETURN, .Some(usize(1))), {
     _fail_subset(ctx, String.from("return(...) (an early exit: the walk does not model the returning path)"), e);
     return(Option(VcTerm).None);
+  });
+  // `r.*` on a reference binding (decision 43 step 2 N1e-1) reads the
+  // referent: the evaluator rewrote it to the name `r` itself.
+  if(ast_expr_is_fn_call_of(e, ".", .Some(usize(2))), {
+    match(
+      ast_rewritten_node(e),
+      .Atom(rd_id, rd_tok) => {
+        return(_expr_term(ctx, &AstExpr.Atom(rd_id, rd_tok)));
+      },
+      _ => ()
+    );
   });
   info := match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
