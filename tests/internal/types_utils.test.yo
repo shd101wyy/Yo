@@ -3,7 +3,8 @@
 { String } :: import("std/string");
 import("std/fmt");
 { TypeValue, TypeValueNode, shared_list, no_types, no_labels, SharedList } :: import("../../src/types/definitions.yo");
-{ t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_dyn_simple, t_future_trait_simple, t_ptr } :: import("../../src/types/creators.yo");
+{ t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_dyn_simple, t_future_trait_simple, t_ptr, t_trait_simple, t_with_resolution } :: import("../../src/types/creators.yo");
+{ _add_where_clause_constraint } :: import("../../src/evaluator/types/function.yo");
 { Environment } :: import("../../src/env.yo");
 { type_intern_key } :: import("../../src/types/intern.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -369,7 +370,7 @@ test("get_all_some_types: SomeT itself is collected", {
     result.get(usize(0)),
     .Some(found) => match(
       found,
-      Rc(.SomeT(_, name : n, _, _, _, _, _, _, _, _)) =>
+      Rc(.SomeT(_, name : n, _, _, _, _, _)) =>
         assert(n == String.from("T"), "collected SomeT should have name T"),
       _ => assert(false, "expected SomeT variant")
     ),
@@ -664,4 +665,30 @@ test("raw-ptr predicate: nested structs with the same id are walked, not taken f
 });
 test("raw-ptr predicate: Dyn(Trait) is FALSE — RC-managed reference-semantics", {
   assert(!type_representation_contains_raw_ptr(t_dyn_simple(ArrayList(TypeValue).new())), "Dyn()");
+});
+// A SomeT's bounds are ONE shared cell (`SomeTBounds`, consultation #13 §10):
+// a where clause stamps a bound after a parameter type already holds the
+// SomeT, and every holder of that identity must see it; a NEW SomeT built
+// from it (a resolution copy, a substitution) owns a fresh cell.
+_somet_required_len :: (fn(t : &TypeValue) -> usize)(
+  match(
+    t,
+    Rc(.SomeT(_, _, _, _, b, _, _)) => b.required_len(),
+    Rc(.Pointer(inner)) => _somet_required_len(inner),
+    _ => usize(99)
+  )
+);
+test("SomeT bounds: a later stamp reaches the type built over the SomeT, never a copy built before it", {
+  t := t_some_t(&String.from("T"), usize(0));
+  // A parameter type built BEFORE the where clause runs (`x : *(T)`).
+  param_ty := t_ptr(&t);
+  // A new SomeT identity built from it before the stamp (a resolution copy).
+  copy := t_with_resolution(&t, &t_i32());
+  _add_where_clause_constraint(&t, &t_trait_simple(&String.from("Send")), false);
+  assert(_somet_required_len(&t) == usize(1), "the stamped SomeT holds the bound");
+  assert(_somet_required_len(&param_ty) == usize(1), "the parameter type built over it sees the bound");
+  assert(_somet_required_len(&copy) == usize(0), "a copy built before the stamp keeps its own, empty bounds");
+  // The same where clause re-validated does not append a second copy.
+  _add_where_clause_constraint(&t, &t_trait_simple(&String.from("Send")), false);
+  assert(_somet_required_len(&t) == usize(1), "the stamp dedups by trait id");
 });

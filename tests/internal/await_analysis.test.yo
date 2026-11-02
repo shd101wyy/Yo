@@ -5,7 +5,7 @@
 { TokenKind, Token } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_levels } :: import("../../src/types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_levels } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_future_trait_simple, t_some_t, generate_some_type_id } :: import("../../src/types/creators.yo");
 { assert, panic } :: import("std/assert");
 {
@@ -103,10 +103,7 @@ make_future_some_type :: (fn() -> TypeValue)({
       String.from("SomeFuture"),
       usize(0),
       Rc.new(TypeValueNode.TypeUni(usize(0))),
-      required_trait_types,
-      required_trait_levels,
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
+      some_t_bounds(required_trait_types, required_trait_levels, ArrayList(TypeValue).new(), ArrayList(usize).new()),
       Option(TypeValue).None,
       Option(TypeValue).None
     )

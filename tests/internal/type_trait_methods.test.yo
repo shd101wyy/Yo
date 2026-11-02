@@ -8,7 +8,7 @@
 //! regressions in storage / lookup shape are caught in isolation.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../src/types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../src/types/definitions.yo");
 { t_i32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../src/types/creators.yo");
 { EvalValue } :: import("../../src/value.yo");
 { assert, panic } :: import("std/assert");
@@ -284,10 +284,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
       name : String.from("T"),
       frame_level : usize(0),
       parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
-      required_trait_types : required_traits,
-      required_trait_levels : required_levels,
-      negative_trait_types : ArrayList(TypeValue).new(),
-      negative_trait_levels : ArrayList(usize).new(),
+      bounds : some_t_bounds(required_traits, required_levels, ArrayList(TypeValue).new(), ArrayList(usize).new()),
       kind_function_type : Option(TypeValue).None,
       resolution : Option(TypeValue).None
     )
@@ -445,10 +442,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
       name : String.from("F"),
       frame_level : usize(0),
       parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
-      required_trait_types : ArrayList(TypeValue).new(),
-      required_trait_levels : ArrayList(usize).new(),
-      negative_trait_types : ArrayList(TypeValue).new(),
-      negative_trait_levels : ArrayList(usize).new(),
+      bounds : some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
       kind_function_type : Option(TypeValue).None,
       resolution : Option(TypeValue).None
     )
@@ -459,10 +453,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
       name : String.from("A"),
       frame_level : usize(0),
       parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
-      required_trait_types : ArrayList(TypeValue).new(),
-      required_trait_levels : ArrayList(usize).new(),
-      negative_trait_types : ArrayList(TypeValue).new(),
-      negative_trait_levels : ArrayList(usize).new(),
+      bounds : some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
       kind_function_type : Option(TypeValue).None,
       resolution : Option(TypeValue).None
     )
@@ -695,10 +686,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
       name : String.from("_Self"),
       frame_level : usize(0),
       parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
-      required_trait_types : ArrayList(TypeValue).new(),
-      required_trait_levels : ArrayList(usize).new(),
-      negative_trait_types : ArrayList(TypeValue).new(),
-      negative_trait_levels : ArrayList(usize).new(),
+      bounds : some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
       kind_function_type : Option(TypeValue).None,
       resolution : Option(TypeValue).None
     )
@@ -709,10 +697,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
       name : String.from("Output"),
       frame_level : usize(0),
       parent_type : Rc.new(TypeValueNode.TypeUni(usize(0))),
-      required_trait_types : ArrayList(TypeValue).new(),
-      required_trait_levels : ArrayList(usize).new(),
-      negative_trait_types : ArrayList(TypeValue).new(),
-      negative_trait_levels : ArrayList(usize).new(),
+      bounds : some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
       kind_function_type : Option(TypeValue).None,
       resolution : Option(TypeValue).None
     )
