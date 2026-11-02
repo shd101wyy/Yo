@@ -517,19 +517,16 @@ _load_world :: (
     ci = (ci + usize(1));
     idx_dir := context_index_dir(cache_root.clone(), key.clone());
     centries := context_index_load(cache_root.clone(), key.clone(), io, exn);
-    (i : usize) = usize(0);
-    while(i < centries.len(), {
-      world.entries.push(centries(i));
-      i = (i + usize(1));
-    });
+    world.entries.extend(centries);
     cmods := context_index_load_modules(cache_root.clone(), &key, io, exn);
     (j : usize) = usize(0);
     while(j < cmods.len(), {
-      m := cmods(j);
-      m.index_dir = idx_dir.clone();
-      world.mods.push(m);
+      cmods.with(j, { d : idx_dir.clone() }(m) => {
+        m.index_dir = d;
+      });
       j = (j + usize(1));
     });
+    world.mods.extend(cmods);
   });
   context_unlock(&lock);
   // D3: every listing sorted — module rows by path, entries by (module,
@@ -549,15 +546,15 @@ _entry_less :: (fn(a : &ContextIndexEntry, b : &ContextIndexEntry) -> bool)(
 /// Sort entries in place by (module, name, kind) — insertion sort, STABLE,
 /// so items of one name keep the index's order (a type before its methods).
 _sort_entries :: (fn(xs : &mut ArrayList(ContextIndexEntry)) -> unit)({
+  // An insertion sort by swaps: an element is a value, so it moves, never
+  // copies.
   (i : usize) = usize(1);
   while(i < xs.len(), {
-    cur := xs(i);
     (j : usize) = i;
-    while((j > usize(0)) && _entry_less(&cur, &xs(j - usize(1))), {
-      xs(j) = xs(j - usize(1));
+    while((j > usize(0)) && _entry_less(&xs(j), &xs(j - usize(1))), {
+      xs.swap(j, j - usize(1));
       j = (j - usize(1));
     });
-    xs(j) = cur;
     i = (i + usize(1));
   });
 });
@@ -565,13 +562,11 @@ _sort_entries :: (fn(xs : &mut ArrayList(ContextIndexEntry)) -> unit)({
 _sort_modules :: (fn(xs : &mut ArrayList(ContextIndexModule)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
-    cur := xs(i);
     (j : usize) = i;
-    while((j > usize(0)) && (cur.module < xs(j - usize(1)).module), {
-      xs(j) = xs(j - usize(1));
+    while((j > usize(0)) && (xs(j).module < xs(j - usize(1)).module), {
+      xs.swap(j, j - usize(1));
       j = (j - usize(1));
     });
-    xs(j) = cur;
     i = (i + usize(1));
   });
 });
@@ -720,7 +715,7 @@ _entry_names :: (fn(entries : &ArrayList(ContextIndexEntry), module : &String) -
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    e := entries(i);
+    e := entries(i).clone();
     if((module.len() == usize(0)) || (e.module == module), {
       out.push(e.name.clone());
     });
@@ -899,7 +894,7 @@ _anchor_names :: (fn(anchor : &String, item : &String) -> bool)({
 _module_page :: (fn(mods : &ArrayList(ContextIndexModule), module : &String, io : Io, exn : Exception) -> String)({
   (i : usize) = usize(0);
   while(i < mods.len(), {
-    m := mods(i);
+    m := mods(i).clone();
     i = (i + usize(1));
     if(m.module == module, {
       path := Path.new(module_md_dir(m.index_dir.clone(), module.clone())).join(Path.new(`${module_leaf(module.clone())}.md`));
@@ -916,7 +911,7 @@ _sections_of :: (
   fn(cache : &mut HashMap(String, ArrayList(PageSection)), mods : &ArrayList(ContextIndexModule), module : &String, io : Io, exn : Exception) -> ArrayList(PageSection)
 )(
   match(
-    cache.get(module.clone()),
+    cache.get_cloned(module.clone()),
     .Some(s) => s,
     .None => {
       s := _page_sections(_module_page(mods, module.clone(), io, exn));
@@ -941,17 +936,17 @@ _section_text :: (fn(sections : &ArrayList(PageSection), name : &String) -> Stri
 /// real ones; the barrel's copy carries neither).
 _defining_entry :: (fn(entries : &ArrayList(ContextIndexEntry), e : &ContextIndexEntry) -> ContextIndexEntry)({
   if(e.origin.len() == usize(0), {
-    return(e);
+    return(e.clone());
   });
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    d := entries(i);
+    d := entries(i).clone();
     if((d.module == e.origin) && (d.name == e.name) && (d.kind == e.kind), {
       return(d);
     });
     i = (i + usize(1));
   });
-  e
+  e.clone()
 });
 // ---------------------------------------------------------------------------
 // --list
@@ -963,7 +958,7 @@ _run_context_list :: (fn(world : &LoadedWorld, as_json : bool) -> unit)({
     arr := ArrayList(JsonValue).new();
     (i : usize) = usize(0);
     while(i < world.mods.len(), {
-      m := world.mods(i);
+      m := world.mods(i).clone();
       o := JsonValue.object();
       o.insert(String.from("module"), _jstr(m.module.clone()));
       o.insert(String.from("doc"), _jstr(m.doc.clone()));
@@ -980,7 +975,7 @@ _run_context_list :: (fn(world : &LoadedWorld, as_json : bool) -> unit)({
   (degraded : usize) = usize(0);
   (i2 : usize) = usize(0);
   while(i2 < world.mods.len(), {
-    m := world.mods(i2);
+    m := world.mods(i2).clone();
     i2 = (i2 + usize(1));
     if(m.degraded, {
       degraded = (degraded + usize(1));
@@ -1000,6 +995,7 @@ SearchHit :: struct(
   entry : ContextIndexEntry,
   score : usize
 );
+derive(SearchHit, Clone);
 /// The query's match tokens: lowercased, whitespace-split, empty pieces
 /// dropped — "hash  string" (repeated spaces) or " hash " carry exactly the
 /// two tokens "hash" and "string", and no empty token that would trivially
@@ -1095,7 +1091,7 @@ _search_entries :: (
   seen := HashMap(String, bool).new();
   (i : usize) = usize(0);
   while(i < world.entries.len(), {
-    e := world.entries(i);
+    e := world.entries(i).clone();
     i = (i + usize(1));
     // A tab cannot occur in any field (paths, identifiers, and the
     // whitespace-collapsed signature/doc), so it separates without aliasing.
@@ -1113,10 +1109,10 @@ _search_entries :: (
   });
   (k : usize) = usize(1);
   while(k < hits.len(), {
-    cur := hits(k);
+    cur := hits(k).clone();
     (j : usize) = k;
     while((j > usize(0)) && (cur.score > hits(j - usize(1)).score), {
-      hits(j) = hits(j - usize(1));
+      hits(j) = (hits(j - usize(1))).clone();
       j = (j - usize(1));
     });
     hits(j) = cur;
@@ -1141,7 +1137,7 @@ _run_context_search :: (fn(q : &ContextQuery, world : &LoadedWorld, io : Io, exn
     arr := ArrayList(JsonValue).new();
     (i : usize) = usize(0);
     while(i < hits.len(), {
-      h := hits(i);
+      h := hits(i).clone();
       o := _entry_json(&h.entry);
       o.insert(String.from("score"), JsonValue.Int(i64(h.score)));
       arr.push(o);
@@ -1156,7 +1152,7 @@ _run_context_search :: (fn(q : &ContextQuery, world : &LoadedWorld, io : Io, exn
   });
   (i2 : usize) = usize(0);
   while((i2 < hits.len()) && (i2 < usize(50)), {
-    h := hits(i2);
+    h := hits(i2).clone();
     println(`${h.entry.module}  ${h.entry.name}  ${h.entry.kind}  ${h.entry.signature}  (${h.score.to_string()})`);
     i2 = (i2 + usize(1));
   });
@@ -1182,7 +1178,7 @@ _run_context_describe_module :: (fn(module : &String, world : &LoadedWorld, as_j
   (degraded : bool) = false;
   (mi : usize) = usize(0);
   while(mi < world.mods.len(), {
-    m := world.mods(mi);
+    m := world.mods(mi).clone();
     mi = (mi + usize(1));
     if(m.module == module, {
       doc = m.doc.clone();
@@ -1193,10 +1189,10 @@ _run_context_describe_module :: (fn(module : &String, world : &LoadedWorld, as_j
   (width : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < world.entries.len(), {
-    e := world.entries(i);
+    e := world.entries(i).clone();
     i = (i + usize(1));
     if(e.module == module, {
-      items.push(e);
+      items.push(e.clone());
       if(e.name.len() > width, {
         width = e.name.len();
       });
@@ -1224,7 +1220,7 @@ _run_context_describe_module :: (fn(module : &String, world : &LoadedWorld, as_j
   println(String.new());
   (k : usize) = usize(0);
   while(k < items.len(), {
-    e := items(k);
+    e := items(k).clone();
     println(`  ${_pad(e.name.clone(), width)}  ${e.kind}  ${e.signature}`);
     k = (k + usize(1));
   });
@@ -1297,7 +1293,7 @@ _run_context_describe_item :: (
   matches := ArrayList(ContextIndexEntry).new();
   (i : usize) = usize(0);
   while(i < world.entries.len(), {
-    e := world.entries(i);
+    e := world.entries(i).clone();
     i = (i + usize(1));
     if((e.module == module) && _entry_names_item(&e, item.clone(), world, &mut cache, io, exn), {
       matches.push(e);
@@ -1330,7 +1326,7 @@ _run_context_describe_item :: (
       exn
     );
   });
-  e := matches(usize(0));
+  e := (matches(usize(0))).clone();
   if(as_json, {
     println(json.stringify(_item_json(&e, world, &mut cache, io, exn)));
     return(());
@@ -1347,7 +1343,7 @@ _run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : 
   raw := ArrayList(ContextIndexEntry).new();
   (i : usize) = usize(0);
   while(i < world.entries.len(), {
-    e := world.entries(i);
+    e := world.entries(i).clone();
     i = (i + usize(1));
     if(e.name == name, {
       raw.push(e);
@@ -1356,7 +1352,7 @@ _run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : 
   hits := ArrayList(ContextIndexEntry).new();
   (r : usize) = usize(0);
   while(r < raw.len(), {
-    e := raw(r);
+    e := raw(r).clone();
     r = (r + usize(1));
     (dup : bool) = false;
     if(e.origin.len() > usize(0), {
@@ -1404,7 +1400,7 @@ _run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : 
   println(tr(`'${name}' names ${hits.len().to_string()} items — yo context <module> ${name} for one:`, `'${name}' 对应 ${hits.len().to_string()} 个条目——用 yo context <module> ${name} 查看其一：`));
   (j2 : usize) = usize(0);
   while(j2 < hits.len(), {
-    e := hits(j2);
+    e := hits(j2).clone();
     println(`  ${e.module}  ${e.name}  ${e.kind}  ${e.signature}`);
     j2 = (j2 + usize(1));
   });
