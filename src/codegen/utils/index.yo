@@ -93,7 +93,8 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_token,
-  ast_expr_text
+  ast_expr_text,
+  ast_rewritten_node
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
@@ -2480,7 +2481,9 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : &TypeVal
 /// materializing it as `T name = <rendering>;` would redefine the variable in
 /// its own scope.
 is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
-  ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value.*)
+  // Read through an evaluator rewrite: `r.*` on a reference binding is the
+  // name `r` itself (decision 43 step 2 N1e-1, `note_rewritten_node`).
+  match(ast_rewritten_node(expr), .Atom(_, sn_tok) => (variable_name == sn_tok.value.*), .FnCall(_, _, _, _, _) => false)
 );
 /// The `fn(...)` type a `dyn(...)` payload's concrete type is, through its
 /// `SomeT` resolutions (an `Impl(Fn(...))` parameter bound to a named `fn`),
