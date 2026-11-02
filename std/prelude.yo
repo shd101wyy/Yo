@@ -13638,3 +13638,19 @@ __yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocat
   );
   cell
 });
+/// Escapable trait — a value of this type carries no origin, so it may
+/// outlive every place it was built from (decision 43,
+/// plans/backlog/REFERENCES_AND_ORIGINS.md O10; Rust's `T : 'static`).
+///
+/// Derived structurally, never implemented by hand: a reference `&T`, a
+/// type holding one (a field, an element, a payload, an origin argument),
+/// a closure with a borrow capture and a borrowing future are not
+/// `Escapable`; every other type is. The positions that outlive their
+/// creator require it: an `Rc`/`Arc` payload, a module-level binding, an
+/// `extern` signature. A generic function states it with
+/// `where(T <: Escapable)`, so a caller passing an origin-carrying type is
+/// rejected at the call (E0909) instead of inside the specialization.
+Escapable :: trait(
+  id := "Escapable"
+);
+export(Escapable);

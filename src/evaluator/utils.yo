@@ -1461,13 +1461,16 @@ place_cell_hops :: (fn(ev : &AstExpr, ctx : &EvalContext) -> PlaceCellHops)({
   out
 });
 /// Decision 38 D: no hop of the evaluated place `ev` may pass through a cell
-/// (an `Rc`/`Arc`, any `ref` object, a pointer dereference `p.*`, or an index
-/// into a buffer behind a pointer; `place_cell_hops`). A borrow capture could
-/// not hold the cell's run-time mark: the closure may be copied, and a
-/// per-call mark would leave the pointer dangling between calls.
-capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
+/// (any `ref` object, a pointer dereference `p.*`, or an index into a buffer
+/// behind a pointer; `place_cell_hops`). A borrow capture could not hold the
+/// cell's run-time mark: the closure may be copied, and a per-call mark
+/// would leave the pointer dangling between calls. A shared capture through
+/// the deref of a handle whose payload is read-only (an `Rc` or an `Arc`)
+/// is the exception (O9, decision 43): it needs no mark, and the capture
+/// freezes the handle; a `&mut` one (`is_mut`) is not.
+capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext, is_mut : bool) -> bool)({
   h := place_cell_hops(ev, ctx);
-  h.read_only_handle || h.mutable_cell
+  (h.read_only_handle && is_mut) || h.mutable_cell
 });
 /// Decision 46 (plans/VALUES_BY_DEFAULT.md): the `Rc` handle whose payload
 /// the evaluated place `ev` lies in, or `.None`. The walk follows field steps

@@ -74,7 +74,8 @@ pragma(Pragma.AllowUnsafe);
   trait_impl_epoch,
   is_drop_trait_name,
   value_type_owns_buffer,
-  buffer_element_types
+  buffer_element_types,
+  type_is_escapable
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -1724,6 +1725,12 @@ type_implements_trait :: (
       .None => ()
     );
   });
+  // Escapable (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O10) is
+  // structural and nothing else: no impl, negative impl or registry entry
+  // decides it (`impl(T, Escapable())` is rejected at the impl).
+  if(is_escapable_trait(trait_type, env), {
+    return(TraitCheckResult(implemented : type_is_escapable(&target), env : env));
+  });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
   // trait regardless of auto-derive.
@@ -2611,6 +2618,14 @@ type_implements_acyclic :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
     get_trait_type_from_env(env, String.from("Acyclic")),
     .None => false,
     .Some(acyclic_trait) => type_implements_trait_bool(ty, &acyclic_trait, env)
+  )
+);
+/// `trait_type` is the prelude's `Escapable` marker (decision 43, O10).
+is_escapable_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
+  match(
+    get_trait_type_from_env(env, String.from("Escapable")),
+    .None => false,
+    .Some(et) => (_trait_type_id(trait_type) == _trait_type_id(&et))
   )
 );
 // ---------------------------------------------------------------------------
@@ -3575,7 +3590,7 @@ export(type_clone_runs_no_user_code);
 export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
-export(type_implements_send, type_implements_sync, type_implements_dispose, type_implements_acyclic);
+export(type_implements_send, type_implements_sync, type_implements_dispose, type_implements_acyclic, is_escapable_trait);
 export(deref_target_type, copy_structural_parts);
 export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);

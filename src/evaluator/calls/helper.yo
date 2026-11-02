@@ -104,7 +104,8 @@ pragma(Pragma.AllowUnsafe);
   resolve_cell_chain,
   resolution_chain_end,
   fn_param_is_ptr_borrow,
-  is_future_value_type
+  is_future_value_type,
+  escapable_bound_error
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -122,7 +123,8 @@ pragma(Pragma.AllowUnsafe);
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
   judge_function_argument_markers,
-  type_contains_some_type_for_codegen_param
+  type_contains_some_type_for_codegen_param,
+  is_escapable_trait
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
@@ -6293,6 +6295,10 @@ validate_where_constraints_for_call :: (
                     );
                   });
                 }, {
+                  // An `Escapable` bound is E0909 (decision 43, O10).
+                  if(!wc_implemented && is_escapable_trait(&wce.trait_ty, callee_env), {
+                    exn.throw(dyn(escapable_bound_error(&bound_ty, &wce.lhs_label, tok)));
+                  });
                   if(!wc_implemented, {
                     exn.throw(
                       dyn(

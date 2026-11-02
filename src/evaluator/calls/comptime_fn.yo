@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, counted_cell_payload_not_escapable, escapable_bound_error } :: import("../../types/utils.yo");
 {
   EvalValue,
   eval_value_eq,
@@ -708,6 +708,26 @@ _restamp_instance_origins :: (fn(v : EvalValue, arg_vals : &ArrayList(EvalValue)
     _ => v
   )
 });
+/// The prelude's `Rc(V)` and `Arc(V)` take only an `Escapable` payload
+/// (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O9, O10; step-2
+/// consultation Q6): checked here, on the instance a call of either type
+/// constructor returns, with the text a spelled `where(V <: Escapable)`
+/// reports. One predicate, deleted at N3 when std spells the bound
+/// (plans/backlog/SEED_VERSION_AUTOMATION.md).
+_check_counted_cell_payload :: (fn(v : &EvalValue, function_callee_expr : &Option(AstExpr), exn : Exception) -> unit)(
+  match(
+    v,
+    .TypeVal(t) => match(
+      counted_cell_payload_not_escapable(t),
+      .Some(payload) => {
+        tok := match(function_callee_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(make_err_expr()));
+        exn.throw(dyn(escapable_bound_error(&payload, &String.from("V"), &tok)));
+      },
+      .None => ()
+    ),
+    _ => ()
+  )
+);
 evaluate_comptime_fn_call :: (
   fn(
     function_callee_expr : &Option(AstExpr),
@@ -1168,9 +1188,11 @@ evaluate_comptime_fn_call :: (
       if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(`[ctfe-hit] fid=${func_id_str} result=${value_to_string(&cached_val)}`);
       });
+      hit_val := _restamp_instance_origins(cached_val, &all_arg_vals);
+      _check_counted_cell_payload(&hit_val, function_callee_expr, exn);
       return(
         ComptimeFnCallResult(
-          value : _restamp_instance_origins(cached_val, &all_arg_vals),
+          value : hit_val,
           caller_env : caller_env,
           callee_env : callee_env,
           comptime_ref : Option(ComptimeRef).None
@@ -1542,6 +1564,7 @@ evaluate_comptime_fn_call :: (
   body_comptime_ref := expr_info_comptime_ref(&body_info);
   // The call's value is out: the executed clone's own metadata is dead.
   purge_executed_clone_metadata(&ctx.expr_info_table, &body_expr, clone_lo, clone_hi);
+  _check_counted_cell_payload(&final_return_value, function_callee_expr, exn);
   ComptimeFnCallResult(
     value : final_return_value,
     caller_env : caller_env,
