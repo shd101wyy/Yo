@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -251,7 +251,7 @@ _synthesize_default_func_type :: (
 _is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, res)) => match(
+    Rc(.SomeT(_, _, _, _, _, _, res)) => match(
       res,
       .Some(_) => false,
       .None => type_implements_fn(ty)
@@ -1257,7 +1257,7 @@ evaluate_anonymous_function_implementation :: (
     &expected_ty,
     Rc(.Func({ result : _ })) => Option(TypeValue).Some(Rc.clone(expected_ty)),
     Rc(.FnTraitT(_, _, _, _, _, _)) => Option(TypeValue).Some(_func_from_fn_trait(&expected_ty)),
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
       fn_trait_opt := extract_fn_trait_from_type(&expected_ty);
       match(
         fn_trait_opt,
@@ -1278,7 +1278,7 @@ evaluate_anonymous_function_implementation :: (
   expected_fn_base := match(
     &expected_ty,
     Rc(.FnTraitT(base_name : efb)) => efb.clone(),
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => match(
+    Rc(.SomeT(_, _, _, _, _, _, _)) => match(
       extract_fn_trait_from_type(&expected_ty),
       .Some(eft) => match(eft, Rc(.FnTraitT(base_name : efb2)) => efb2.clone(), _ => String.from("")),
       .None => String.from("")
@@ -1730,10 +1730,7 @@ evaluate_anonymous_function_implementation :: (
         fl_name.clone(),
         env.frame_count(),
         Rc.new(TypeValueNode.TypeUni(usize(0))),
-        ArrayList(TypeValue).new(),
-        ArrayList(usize).new(),
-        ArrayList(TypeValue).new(),
-        ArrayList(usize).new(),
+        some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
         Option(TypeValue).None,
         Option(TypeValue).None
       )
@@ -1793,7 +1790,7 @@ evaluate_anonymous_function_implementation :: (
     // concrete bindings from the callee env.
     rp_ty := match(
       &rp_ty_raw,
-      Rc(.SomeT(_, srp_name, _, _, _, _, _, _, _, _)) => {
+      Rc(.SomeT(_, srp_name, _, _, _, _, _)) => {
         _st_bind_vars := get_variables_from_env(&expected_type_env, srp_name.clone());
         (_st_bound : Option(TypeValue)) = Option(TypeValue).None;
         (_st_bi : usize) = _st_bind_vars.len();
@@ -1822,7 +1819,7 @@ evaluate_anonymous_function_implementation :: (
     // param_type_name for generic param binding at call time
     ptn := match(
       rp_ty_raw,
-      Rc(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name,
+      Rc(.SomeT(_, name, _, _, _, _, _)) => name,
       _ => String.from("")
     );
     param_type_names.push(ptn.clone());
@@ -3176,7 +3173,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
   if(is_creating_closure && !ctx.is_inside_io_async_call, {
     match(
       expected_ty,
-      Rc(.SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _)) => {
+      Rc(.SomeT(w_id, w_nm, w_fl, w_pt, w_rtt_bnd, w_kft, _)) => { w_rtt := w_rtt_bnd.required(); w_rtl := w_rtt_bnd.required_levels(); w_ntt := w_rtt_bnd.negative(); w_ntl := w_rtt_bnd.negative_levels(); 
         match(
           &closure_capture_type,
           .Some(cap_t) => {
@@ -3247,10 +3244,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                       String.from("__impl_fn"),
                       usize(0),
                       Rc.new(TypeValueNode.TypeUni(usize(0))),
-                      impl_rtt,
-                      impl_rtl,
-                      ArrayList(TypeValue).new(),
-                      ArrayList(usize).new(),
+                      some_t_bounds(impl_rtt, impl_rtl, ArrayList(TypeValue).new(), ArrayList(usize).new()),
                       Option(TypeValue).None,
                       Option(TypeValue).Some(Rc.clone(cap_t))
                     )
@@ -3270,10 +3264,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                       w_nm,
                       w_fl,
                       Rc.clone(w_pt),
-                      w_rtt,
-                      w_rtl,
-                      w_ntt,
-                      w_ntl,
+                      some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl),
                       w_kft.clone(),
                       Option(TypeValue).Some(impl_fn_wrapper)
                     )
@@ -3288,10 +3279,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     w_nm,
                     w_fl,
                     Rc.clone(w_pt),
-                    w_rtt,
-                    w_rtl,
-                    w_ntt,
-                    w_ntl,
+                    some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl),
                     w_kft.clone(),
                     Option(TypeValue).Some(Rc.clone(cap_t))
                   )

@@ -12693,7 +12693,7 @@ _collect_future_effects :: (
         i = (i + usize(1));
       });
     },
-    Rc(.SomeT({ required_trait_types })) => {
+    Rc(.SomeT({ bounds : required_trait_types_bnd })) => { required_trait_types := required_trait_types_bnd.required(); 
       (i : usize) = usize(0);
       while(i < required_trait_types.len(), {
         match(required_trait_types.get(i), .Some(rt) => recur(&rt, labels, types), .None => ());

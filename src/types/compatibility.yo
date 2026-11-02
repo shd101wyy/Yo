@@ -209,7 +209,7 @@ _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(u
   while(i < types.len(), {
     t := match(types.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
     somes := get_all_some_types(&t);
-    match(&t, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
+    match(&t, Rc(.SomeT(_, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
     (j : usize) = usize(0);
     while(j < somes.len(), {
       match(
@@ -293,7 +293,7 @@ _future_trait_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
     Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(t)),
-    Rc(.SomeT(required_trait_types : rtt)) => {
+    Rc(.SomeT(bounds : rtt_bnd)) => { rtt := rtt_bnd.required(); 
       (i : usize) = usize(0);
       while(i < rtt.len(), i = (i + usize(1)), {
         match(rtt.get(i), .Some(Rc(.FutureTraitT(base_name : _))) => return(rtt.get(i)), _ => ());
@@ -451,7 +451,7 @@ _compat_impl :: (
   if(!identity && is_some_type(actual) && is_dyn_type(expected), {
     artt := match(
       actual,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt.clone(),
+      Rc(.SomeT(bounds : rtt_bnd2)) => { rtt := rtt_bnd2.required(); rtt.clone() },
       _ => ArrayList(TypeValue).new()
     );
     drtt := match(
@@ -493,7 +493,7 @@ _compat_impl :: (
   if(!identity && is_dyn_type(actual) && is_some_type(expected), {
     erts := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt.clone(),
+      Rc(.SomeT(bounds : rtt_bnd3)) => { rtt := rtt_bnd3.required(); rtt.clone() },
       _ => ArrayList(TypeValue).new()
     );
     adrtt := match(
@@ -579,7 +579,7 @@ _compat_impl :: (
     });
     erts2 := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt2)) => rtt2.clone(),
+      Rc(.SomeT(bounds : rtt2_bnd)) => { rtt2 := rtt2_bnd.required(); rtt2.clone() },
       _ => ArrayList(TypeValue).new()
     );
     if(erts2.len() == usize(0), {
@@ -648,7 +648,7 @@ _compat_impl :: (
           // such pairs one level up without looking inside
           // (plans/reference/TYPE_IDENTITY.md).
           .None => if(!require_exact, {
-            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq.clone(), _ => ArrayList(TypeValue).new());
+            a_reqs := match(actual, Rc(.SomeT(bounds : a_rq_bnd)) => { a_rq := a_rq_bnd.required(); a_rq.clone() }, _ => ArrayList(TypeValue).new());
             if(a_reqs.len() == usize(0), {
               return(true);
             });
@@ -1415,9 +1415,9 @@ _compat_impl :: (
     // equal-length NON-EMPTY constraint lists, and every Fn/Future carrier
     // argument SomeT-FREE — the pairwise recursion below then only ever
     // descends into concrete types and terminates.
-    Rc(.SomeT(name : aname, frame_level : alvl, required_trait_types : artt)) => match(
+    Rc(.SomeT(name : aname, frame_level : alvl, bounds : artt_bnd)) => { artt := artt_bnd.required(); match(
       expected,
-      Rc(.SomeT(name : ename, frame_level : elvl, required_trait_types : ertt)) => cond(
+      Rc(.SomeT(name : ename, frame_level : elvl, bounds : ertt_bnd)) => { ertt := ertt_bnd.required(); cond(
         // Two resolved annotation wrappers are one type exactly when their
         // resolutions are: every closure's `Impl(Fn(...))` wrapper carries
         // the reserved name "Impl", so name + level alone made two different
@@ -1463,9 +1463,9 @@ _compat_impl :: (
           });
           xw_ok
         }
-      ),
+      ) },
       _ => false
-    ),
+    ) },
     // -----------------------------------------------------------------------
     // Phase 2f variants
     // -----------------------------------------------------------------------

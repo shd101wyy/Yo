@@ -321,7 +321,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         });
         `${n.clone()}(${body})`
       },
-      Rc(.SomeT(id : sm_id, name : n, required_trait_types : rts, negative_trait_types : nts)) => {
+      Rc(.SomeT(id : sm_id, name : n, bounds : rts_bnd)) => { rts := rts_bnd.required(); nts := rts_bnd.negative(); 
         if((rts.len() == usize(0)) && (nts.len() == usize(0)), {
           return(n.clone());
         });

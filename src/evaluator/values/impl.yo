@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
+{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -717,9 +717,9 @@ generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usiz
               while(fi < entry.forall_some_types.len(), {
                 match(
                   entry.forall_some_types.get(fi),
-                  .Some(Rc(.SomeT({ name : bn, required_trait_types : brts }))) => if(bn == binder_name, {
+                  .Some(Rc(.SomeT({ name : bn, bounds : brts_bnd }))) => { brts := brts_bnd.required(); if(bn == binder_name, {
                     out.push(brts.len());
-                  }),
+                  }) },
                   _ => ()
                 );
                 fi = (fi + usize(1));
@@ -850,7 +850,7 @@ _abstract_bindings_ok :: (fn() -> bool)(in_def_time_trial() || g_open_pattern_qu
 _is_open_fn_param_slot :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT({ name : ofp_nm, required_trait_types : ofp_rtts, resolution : ofp_rc })) => {
+    Rc(.SomeT({ name : ofp_nm, bounds : ofp_rtts_bnd, resolution : ofp_rc })) => { ofp_rtts := ofp_rtts_bnd.required(); 
       (ofp_found : bool) = false;
       if((ofp_nm == "Impl") && ofp_rc.is_none(), {
         (ofp_i : usize) = usize(0);
@@ -1349,7 +1349,7 @@ _bind_forall_from_type_args :: (
 _is_future_handle_slot :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT({ required_trait_types : fh_rtts })) => {
+    Rc(.SomeT({ bounds : fh_rtts_bnd })) => { fh_rtts := fh_rtts_bnd.required(); 
       (fh_found : bool) = false;
       (fh_i : usize) = usize(0);
       while((fh_i < fh_rtts.len()) && !fh_found, fh_i = (fh_i + usize(1)), {
@@ -1698,7 +1698,7 @@ try_match_generic_impl :: (
     while((wcj < n_wcj) && wc_ok, {
       wcj_some := match(entry.where_constraint_some_types.get(wcj), .Some(sm) => sm, .None => t_unit());
       wcj_trait := match(entry.where_constraint_traits.get(wcj), .Some(tr) => tr, .None => t_unit());
-      wcj_name := match(&wcj_some, Rc(.SomeT(_, nm, _, _, _, _, _, _, _, _)) => nm.clone(), _ => ``);
+      wcj_name := match(&wcj_some, Rc(.SomeT(_, nm, _, _, _, _, _)) => nm.clone(), _ => ``);
       match(
         _pre_where_or_resolve(&entry.forall_some_types, &pre_where_bindings, &match_env, &wcj_some, &wcj_name, unify_base - usize(1)),
         .Some(wcj_bound) => match(
@@ -1905,7 +1905,7 @@ try_match_generic_impl :: (
         dar_ty := match(bindings.get(dar_i), .Some(t) => t, .None => t_unit());
         match(
           dar_some,
-          Rc(.SomeT(_, _, dar_lvl, _, _, _, _, _, _, _)) => subst_add(&dar_s, &dar_name, dar_lvl, &dar_ty),
+          Rc(.SomeT(_, _, dar_lvl, _, _, _, _)) => subst_add(&dar_s, &dar_name, dar_lvl, &dar_ty),
           _ => ()
         );
         dar_i = (dar_i + usize(1));
@@ -2842,7 +2842,7 @@ _find_methods_from_generic_impls_scan :: (
                 sb_ty := match(match_bindings.get(sb_i), .Some(t) => t, .None => t_unit());
                 match(
                   sb_some,
-                  Rc(.SomeT(_, _, lvl, _, _, _, _, _, _, _)) => {
+                  Rc(.SomeT(_, _, lvl, _, _, _, _)) => {
                     subst_add(&spec_s, &sb_name, lvl, &sb_ty);
                     (fts_i : usize) = usize(0);
                     while(fts_i < ft_all_somes.len(), {
@@ -2850,7 +2850,7 @@ _find_methods_from_generic_impls_scan :: (
                         ft_all_somes.get(fts_i),
                         .Some(fts_t) => match(
                           fts_t,
-                          Rc(.SomeT(_, fts_n, fts_lvl, _, _, _, _, _, _, _)) => if((fts_n == sb_name) && (fts_lvl != lvl), {
+                          Rc(.SomeT(_, fts_n, fts_lvl, _, _, _, _)) => if((fts_n == sb_name) && (fts_lvl != lvl), {
                             subst_add(&spec_s, &sb_name, fts_lvl, &sb_ty);
                           }),
                           _ => ()
@@ -3263,7 +3263,7 @@ find_associated_type_from_generic_impls :: (
                         sb_ty := match(match_bindings.get(sb_i), .Some(t) => t, .None => t_unit());
                         match(
                           sb_some,
-                          Rc(.SomeT(_, _, lvl, _, _, _, _, _, _, _)) => subst_add(&spec_s, &sb_name, lvl, &sb_ty),
+                          Rc(.SomeT(_, _, lvl, _, _, _, _)) => subst_add(&spec_s, &sb_name, lvl, &sb_ty),
                           _ => ()
                         );
                         sb_i = (sb_i + usize(1));
@@ -3731,7 +3731,7 @@ _substitute_assoc_in_method_ty :: (
       somes.get(i),
       .Some(st) => match(
         st,
-        Rc(.SomeT(_, snm, slvl, _, _, _, _, _, _, _)) => {
+        Rc(.SomeT(_, snm, slvl, _, _, _, _)) => {
           (j : usize) = usize(0);
           while(j < labels.len(), {
             lbl := match(labels.get_cloned(j), .Some(l) => l, .None => String.from(""));
@@ -3840,7 +3840,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
               while(cj < c_somes.len(), {
                 match(
                   c_somes.get(cj),
-                  .Some(Rc(.SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _))) => {
+                  .Some(Rc(.SomeT(_, c_nm, c_lvl, _, _, _, _))) => {
                     keep.push(`${c_nm}@${c_lvl.to_string()}`);
                   },
                   .Some(_) => (),
@@ -3863,7 +3863,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
           res_somes.get(ri),
           .Some(rst) => match(
             rst,
-            Rc(.SomeT({ name : r_nm, frame_level : r_lvl, parent_type : r_pt, required_trait_types : r_rtt, required_trait_levels : r_rtl, negative_trait_types : r_ntt, negative_trait_levels : r_ntl, kind_function_type : r_kft })) => {
+            Rc(.SomeT({ name : r_nm, frame_level : r_lvl, parent_type : r_pt, bounds : r_rtt_bnd, kind_function_type : r_kft })) => { r_rtt := r_rtt_bnd.required(); r_rtl := r_rtt_bnd.required_levels(); r_ntt := r_rtt_bnd.negative(); r_ntl := r_rtt_bnd.negative_levels(); 
               r_key := `${r_nm}@${r_lvl.to_string()}`;
               (r_kept : bool) = false;
               (ki : usize) = usize(0);
@@ -3884,10 +3884,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
                       r_nm.clone(),
                       r_lvl,
                       r_pt.clone(),
-                      r_rtt.clone(),
-                      r_rtl.clone(),
-                      r_ntt.clone(),
-                      r_ntl.clone(),
+                      some_t_bounds(r_rtt.clone(), r_rtl.clone(), r_ntt.clone(), r_ntl.clone()),
                       r_kft.clone(),
                       Option(TypeValue).None
                     )
@@ -3942,7 +3939,7 @@ _substitute_self_in_method_ty :: (
   while(ssi < self_somes.len(), {
     match(
       self_somes.get(ssi),
-      .Some(Rc(.SomeT(_, ss_n, ss_lvl, _, _, _, _, _, _, _))) => if(ss_n == "Self", {
+      .Some(Rc(.SomeT(_, ss_n, ss_lvl, _, _, _, _))) => if(ss_n == "Self", {
         subst_add(&s, String.from("Self"), ss_lvl, self_concrete.clone());
         any_self = true;
       }),
@@ -5079,14 +5076,7 @@ _collect_impl_where_constraints :: (
                   // `impl(generic(T), where(T <: (Send, Sync)), Arc(T), Send())`)
                   // sees T with ZERO constraints and the atomic-Send
                   // enforcement wrongly rejects the prelude.
-                  match(
-                    &mut st,
-                    Rc(.SomeT(_, _, _, _, cw_req, cw_req_lv, _, _, _, _)) => {
-                      cw_req.push(tr);
-                      cw_req_lv.push(usize(0));
-                    },
-                    _ => ()
-                  );
+                  _stamp_impl_where_bound(&st, tr);
                 },
                 .None => ()
               );
@@ -5099,14 +5089,7 @@ _collect_impl_where_constraints :: (
                 out_some_types.push(st.clone());
                 out_traits.push(Rc.clone(tr));
                 // Stamp on the SomeT too — see the tuple arm above.
-                match(
-                  st,
-                  Rc(.SomeT(_, _, _, _, cw1_req, cw1_req_lv, _, _, _, _)) => {
-                    cw1_req.push(tr);
-                    cw1_req_lv.push(usize(0));
-                  },
-                  _ => ()
-                );
+                _stamp_impl_where_bound(&st, tr);
               },
               .None => ()
             );
@@ -5117,6 +5100,23 @@ _collect_impl_where_constraints :: (
     });
   });
 });
+/// Stamp the where bound `tr` on the impl generic `st` itself, so CTFE of the
+/// impl HEAD sees it (`Arc(T)` in `impl(generic(T), where(T <: (Send, Sync)),
+/// Arc(T), Send())`). The bounds cell is shared by every holder of the SomeT
+/// (`SomeTBounds`); this is one of its two writers.
+_stamp_impl_where_bound :: (fn(st : &TypeValue, tr : &TypeValue) -> unit)(
+  match(
+    st,
+    Rc(.SomeT(_, _, _, _, stamp_bounds, _, _)) => {
+      stamp_trait := Rc.clone(tr);
+      stamp_bounds.with_mut({ stamp_trait }(b) => {
+        b.required.push(stamp_trait);
+        b.required_levels.push(usize(0));
+      });
+    },
+    _ => ()
+  )
+);
 evaluate_module_value :: (
   fn(
     expr : &AstExpr,
@@ -6734,7 +6734,7 @@ _generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : 
       if(match(pat_args.get(p), .Some(pp) => _same_type_var(&pp, &w_some), .None => false), {
         implied = match(
           args.get(p),
-          .Some(Rc(.SomeT({ required_trait_types : rts }))) => {
+          .Some(Rc(.SomeT({ bounds : rts_bnd }))) => { rts := rts_bnd.required(); 
             (found : bool) = false;
             (r : usize) = usize(0);
             while((r < rts.len()) && !found, r = (r + usize(1)), {
@@ -7365,7 +7365,7 @@ first_failed_impl_where :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(
   while(wj < entry.where_constraint_some_types.len(), wj = (wj + usize(1)), {
     w_some := match(entry.where_constraint_some_types.get(wj), .Some(s) => s, .None => t_unit());
     w_trait := match(entry.where_constraint_traits.get(wj), .Some(t) => t, .None => t_unit());
-    w_name := match(w_some, Rc(.SomeT(_, nm, _, _, _, _, _, _, _, _)) => nm.clone(), _ => String.new());
+    w_name := match(w_some, Rc(.SomeT(_, nm, _, _, _, _, _)) => nm.clone(), _ => String.new());
     (bi : usize) = usize(0);
     while(bi < entry.forall_names.len(), bi = (bi + usize(1)), {
       if(match(entry.forall_names.get_cloned(bi), .Some(n) => (n == w_name), .None => false), {

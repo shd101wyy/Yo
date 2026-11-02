@@ -1567,7 +1567,7 @@ _lookup_named_c_type :: (fn(t : &TypeValue, context : &CodeGenContext) -> String
 _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT({ required_trait_types : rtts })) => {
+    Rc(.SomeT({ bounds : rtts_bnd })) => { rtts := rtts_bnd.required(); 
       (found : bool) = false;
       (i : usize) = usize(0);
       n := rtts.len();
@@ -1595,7 +1595,7 @@ _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
 _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    Rc(.SomeT({ required_trait_types : eft_rtts })) => {
+    Rc(.SomeT({ bounds : eft_rtts_bnd })) => { eft_rtts := eft_rtts_bnd.required(); 
       (eft_found : Option(TypeValue)) = Option(TypeValue).None;
       (eft_i : usize) = usize(0);
       n := eft_rtts.len();
