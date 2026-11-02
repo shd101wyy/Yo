@@ -63,13 +63,13 @@ pragma(Pragma.AllowUnsafe);
 /// module happened to be evaluated last.
 record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
   match(
-    g_extern_c_includes.with(m => m.get(name.clone())),
+    g_extern_c_includes.with(m => m.get_cloned(name)),
     .Some(list) => {
       (i : usize) = usize(0);
       (seen : bool) = false;
       while(i < list.len(), {
         match(
-          list.get(i),
+          list.get_cloned(i),
           .Some(h) => if(h == header, {
             seen = true;
           }),
@@ -82,24 +82,26 @@ record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
         // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
         grown := list;
         grown.push(header.clone());
-        g_extern_c_includes.with_mut(m => m.insert(name.clone(), grown));
+        key_own := name.clone();
+        g_extern_c_includes.with_mut({ key_own, grown }(m) => m.insert(key_own, grown));
       });
     },
     .None => {
       list := ArrayList(String).new();
       list.push(header.clone());
-      g_extern_c_includes.with_mut(m => m.insert(name.clone(), list));
+      key_own := name.clone();
+      g_extern_c_includes.with_mut({ key_own, list }(m) => m.insert(key_own, list));
     }
   );
 });
 /// The FIRST C header a `c_include`d extern symbol was declared under, if any
 /// (the registration slot of `register_extern_function` holds one header).
 get_c_include_for_extern :: (fn(name : &String) -> Option(String))(
-  match(g_extern_c_includes.with(m => m.get(name)), .Some(l) => l.get(usize(0)), .None => Option(String).None)
+  match(g_extern_c_includes.with(m => m.get_cloned(name)), .Some(l) => l.get_cloned(usize(0)), .None => Option(String).None)
 );
 /// Every C header a `c_include`d extern symbol was declared under.
 get_c_includes_for_extern :: (fn(name : &String) -> ArrayList(String))(
-  match(g_extern_c_includes.with(m => m.get(name)), .Some(l) => l, .None => ArrayList(String).new())
+  match(g_extern_c_includes.with(m => m.get_cloned(name)), .Some(l) => l, .None => ArrayList(String).new())
 );
 /// The already-bound type a `c_include` `Name : Type` field should ADOPT, or
 /// `.None` when the name is free (the ordinary opaque-handle case).
@@ -300,7 +302,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !has_dup, {
-      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      existing := match(field_labels.get_cloned(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;
       });
@@ -398,7 +400,7 @@ User code should normally call stdlib wrappers (e.g. functions in
           // With `c_type("...")` the C spelling is explicit: an adopted Yo
           // struct lowers to that spelling (`struct point`), an opaque handle
           // is registered under it so `*label` becomes `struct stat*`.
-          c_spelling := match(c_type_spelling, .Some(s) => s, .None => result.label.clone());
+          c_spelling := match(&c_type_spelling, .Some(s) => s.clone(), .None => result.label.clone());
           match(
             _adoptable_type_binding(&env, result.label.clone()),
             .Some(existing_ty) => {
