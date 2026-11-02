@@ -480,7 +480,7 @@ _emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, 
 /// (`self` parameter of object type). An `Rc` or `Arc` cell is not one: it
 /// carries no borrow marks (`carries_no_borrow_marks`).
 _is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
-  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
+  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get_cloned(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
 );
 /// Is the current function's `self` a `self : &mut Self` receiver? Such a receiver
 /// is passed as `T** self` (a pointer to the caller's handle slot), so the

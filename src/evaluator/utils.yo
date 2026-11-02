@@ -7708,7 +7708,7 @@ _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &To
   match(
     for_site,
     .Some(fs) => {
-      ftext := match(info.places.get(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => name.clone());
+      ftext := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => name.clone());
       entries.push(TokenAndError(token : fs, error_message : `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${name}\`):`));
     },
     .None => {
