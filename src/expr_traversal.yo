@@ -755,12 +755,15 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
       ),
       .None => Option(FusionCandidate).None
     );
-    g_fusion_candidate_of_fn.with_mut(m => m.insert(func_id.clone(), candidate.clone()));
+    fc_key := func_id.clone();
+    g_fusion_candidate_of_fn.with_mut({ fc_key, candidate }(m) => m.insert(fc_key, candidate));
   });
   // Only a wrapper's calls are recorded: every other call would grow the
   // table for nothing.
   if(match(g_fusion_candidate_of_fn.with(m => m.get_cloned(func_id.clone())), .Some(c) => c.is_some(), .None => false), {
-    g_fusion_callee_of_call.with_mut(m => m.insert(ast_expr_id(call).to_string(), func_id.clone()));
+    fc_call_key := ast_expr_id(call).to_string();
+    fc_callee := func_id.clone();
+    g_fusion_callee_of_call.with_mut({ fc_call_key, fc_callee }(m) => m.insert(fc_call_key, fc_callee));
   });
 });
 /// The recorded candidate for `call`, if its callee is an `io.async` wrapper.
