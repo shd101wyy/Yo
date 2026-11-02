@@ -508,7 +508,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
         while(apw_j < apw_args.len(), {
           apw_arm := match(apw_args.get(apw_j), .Some(a) => a, .None => make_err_expr());
           if(ast_expr_is_fn_call_of(&apw_arm, "=>", .None), {
-            apw_arm_args := match(apw_arm, .FnCall(_, _, Rc(aa), _, _) => aa, .Atom(_, _) => ArrayList(AstExpr).new());
+            apw_arm_args := match(apw_arm, .FnCall(_, _, Rc(aa), _, _) => aa.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
             if(apw_arm_args.len() >= usize(2), {
               apw_has_arm = true;
               match(

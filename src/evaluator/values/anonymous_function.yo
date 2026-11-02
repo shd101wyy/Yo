@@ -1420,7 +1420,7 @@ evaluate_anonymous_function_implementation :: (
     is_using_call := ast_expr_is_fn_call_of(&pe, "using", .None);
     cond(
       is_forall_call => {
-        fa := match(pe, .FnCall(_, _, Rc(fa_args), _, _) => fa_args, .Atom(_, _) => ArrayList(AstExpr).new());
+        fa := match(pe, .FnCall(_, _, Rc(fa_args), _, _) => fa_args.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         (fi : usize) = usize(0);
         while(fi < fa.len(), {
           fpe := match(fa.get(fi), .Some(a) => a, .None => make_err_expr());
@@ -1429,7 +1429,7 @@ evaluate_anonymous_function_implementation :: (
         });
       },
       is_using_call => {
-        ua := match(pe, .FnCall(_, _, Rc(ua_args), _, _) => ua_args, .Atom(_, _) => ArrayList(AstExpr).new());
+        ua := match(pe, .FnCall(_, _, Rc(ua_args), _, _) => ua_args.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         (ui : usize) = usize(0);
         while(ui < ua.len(), {
           upe := match(ua.get(ui), .Some(a) => a, .None => make_err_expr());

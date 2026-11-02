@@ -5624,7 +5624,7 @@ _fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr)
             ta := match(tr_args.get(a), .Some(e) => e, .None => make_err_expr());
             a = (a + usize(1));
             if(ast_expr_is_fn_call_of(&ta, ":=", Option(usize).Some(usize(2))), {
-              pair := match(ta, .FnCall(_, _, Rc(p), _, _) => p, _ => ArrayList(AstExpr).new());
+              pair := match(ta, .FnCall(_, _, Rc(p), _, _) => p.clone(), _ => ArrayList(AstExpr).new());
               al := match(pair.get(usize(0)), .Some(e) => e, .None => make_err_expr());
               av := match(pair.get(usize(1)), .Some(e) => e, .None => make_err_expr());
               if(ast_expr_is_atom(&al) && ast_expr_is_atom(&av) && (ast_expr_token(&av).value.* == name), {
@@ -7888,7 +7888,7 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   if(ca_infix || !ast_expr_is_fn_call_of(&ca_callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(AccessorCallInfo).None);
   });
-  ca_pargs := match(ca_callee, .FnCall(_, _, Rc(pa), _, _) => pa, .Atom(_, _) => return(Option(AccessorCallInfo).None));
+  ca_pargs := match(ca_callee, .FnCall(_, _, Rc(pa), _, _) => pa.clone(), .Atom(_, _) => return(Option(AccessorCallInfo).None));
   ca_recv := match(ca_pargs.get(usize(0)), .Some(r) => r, .None => return(Option(AccessorCallInfo).None));
   ca_name_tok := match(
     ca_pargs.get(usize(1)),
@@ -10295,7 +10295,7 @@ Fix: wrap the call:
         (fv_forall_arg_exprs : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
         if(match(args.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(&a0, "generic", Option(usize).None), .None => false), {
           fv_g_node := match(args.get(usize(0)), .Some(a0) => a0, .None => make_err_expr());
-          fv_g_args := match(fv_g_node, .FnCall(_, _, Rc(g_as), _, _) => g_as, .Atom(_, _) => ArrayList(AstExpr).new());
+          fv_g_args := match(fv_g_node, .FnCall(_, _, Rc(g_as), _, _) => g_as.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           fv_forall_arg_exprs = Option(ArrayList(AstExpr)).Some(fv_g_args.clone());
           fv_peeled := ArrayList(AstExpr).new();
           {

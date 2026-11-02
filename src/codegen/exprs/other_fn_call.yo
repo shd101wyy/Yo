@@ -1287,7 +1287,7 @@ _ctor_args_from_labeled :: (fn(wrapped : &TypeValue, fncall_args : &ArrayList(As
       match(
         fncall_args.get(ai),
         .Some(arg) => if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), {
-          ca := match(arg, .FnCall(_, _, Rc(ca2), _, _) => ca2, .Atom(_, _) => ArrayList(AstExpr).new());
+          ca := match(arg, .FnCall(_, _, Rc(ca2), _, _) => ca2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           lbl := match(ca.get(usize(0)), .Some(l) => if(ast_expr_is_atom(&l), ast_expr_text(&l).*.clone(), String.from("")), .None => String.from(""));
           if(lbl == flabel, {
             found = match(ca.get(usize(1)), .Some(v) => Option(AstExpr).Some(v), .None => Option(AstExpr).None);
@@ -2617,7 +2617,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           match(
             u_args.get(usize(0)),
             .Some(u_arg) => if(ast_expr_is_fn_call_of(&u_arg, ":", Option(usize).Some(usize(2))), {
-              u_pair := match(u_arg, .FnCall(_, _, Rc(pa), _, _) => pa, .Atom(_, _) => ArrayList(AstExpr).new());
+              u_pair := match(u_arg, .FnCall(_, _, Rc(pa), _, _) => pa.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
               u_label_e := match(u_pair.get(usize(0)), .Some(le) => le, .None => make_err_expr());
               u_field_e := match(u_pair.get(usize(1)), .Some(fe) => fe, .None => make_err_expr());
               if(ast_expr_is_atom(&u_label_e), {

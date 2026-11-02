@@ -1467,7 +1467,7 @@ nullable_arm_selects_payload :: (fn(enum_type : &TypeValue, case_value : &AstExp
 nullable_arm_payload_binder :: (fn(case_value : &AstExpr) -> Option(AstExpr))({
   params := arm_params(case_value);
   is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None), .None => false));
-  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, Rc(ca), _, _) => ca, .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
+  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, Rc(ca), _, _) => ca.clone(), .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
   match(
     dparams.get(usize(0)),
     .Some(p) => {
