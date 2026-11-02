@@ -395,8 +395,12 @@ How a fused site lowers, as built:
   same nodes are emitted again in the wrapper's own state machine.
 - **End of the site.** The tail is stored into the outer await's result
   field. The block's drops follow, then the site's capture is released and
-  zeroed. The caller's dispose releases the fields of a site that was live
-  when the task died.
+  zeroed, and the site's `<prefix>live` flag is cleared (it is set when the
+  capture is stored). The caller's dispose releases a site's fields only
+  while that flag is set, i.e. for a site that was live when the task died:
+  a zeroed move-only value is not an empty one, so releasing a finished
+  site's zeroed fields ran a `Drop` a second time
+  (issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
 - **Scope.** Fields are per wrapper block, shared by that wrapper's sites in
   one caller. Nested fusion is off (F3).
 

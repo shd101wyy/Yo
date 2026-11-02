@@ -317,6 +317,17 @@ source order.
   `is_owning_the_same_rc_value_as`, and NAMED RC locals (next item) never
   share. Two RC locals of ONE scope always overlap (both live to its end);
   sibling scopes are what share.
+- **A zeroed move-only slot is not empty.** Zeroing makes an RC handle NULL,
+  whose release is skipped, but a move-only value (`type_is_move_only`: a
+  value type with a `Drop` impl, or an aggregate holding one) is still a
+  value when zeroed, and its drop runs the user's `Drop` on it. A dispose
+  that relies on "a finished region's fields are zeroed, so releasing them
+  is a no-op" must gate the release on a flag instead: a fused await site's
+  fields are released only under its `<prefix>live` flag
+  (`_emit_fused_sites_dispose`,
+  issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
+  The abort dispose of a slot that was never stored is still open
+  (issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md).
 - **A moved-from name still reads its value.** `(cur : T) = t` moves `t`
   without a dup, and `t` may still be read while `cur` holds the value (sync
   code keeps the C local as it is). So a named local's slot is NOT emptied by
