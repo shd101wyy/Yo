@@ -6860,7 +6860,11 @@ deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
 /// marker before it dropped.
 reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
   if(deref_rule_recording(), {
-    if(kind == u8(3), record_deref_edit_site(tok, &v.name, u8(2)), record_deref_site(tok, &v.name));
+    // An overload trial is speculative: the candidate it tries may never be
+    // called, so its reads are recorded by the real call's evaluation.
+    if(!ctx.is_in_function_call_checking_phase, {
+      if(kind == u8(3), record_deref_edit_site(tok, &v.name, u8(2)), record_deref_site(tok, &v.name));
+    });
     return(());
   });
   name := v.name.clone();
