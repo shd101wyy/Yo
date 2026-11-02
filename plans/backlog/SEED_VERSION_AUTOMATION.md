@@ -403,6 +403,23 @@ the spelled bound reports (`_check_counted_cell_payload`,
 cli-cases and tests that pin the message keep passing. W6b's amendment of
 O9/O10 (the collector's removal) is not pre-empted by either half.
 
+## Seed-gated follow-up (2026-11-02): std and src read references with `.*` (decision 43 N3)
+
+Decision 43 step 2's N1e-1 (v0.2.74, VERDICTS-13 §11 and §14) makes a
+reference binding outside std and the compiler's own source read and write
+its referent with `.*` (E0926 for a bare whole-value use; `yo fix
+--migrate deref`), with `r.*` lowered to the C a bare `r` read was. std,
+src, `scripts/`, `build.yo` and a fetched dependency keep the old reading
+(`is_deref_rule_exempt`, `src/evaluator/memory_safety.yo`) because the
+v0.2.73 seed that compiles them rejects `.*` on a borrow (E0920).
+
+**Generation B (N3, once `SEED_VERSION` carries N1e-1, v0.2.74):** run
+`yo fix std src scripts build.yo --migrate deref` (`YO_AUDIT_DEREF=1` sizes
+it first; std's prelude alone records several hundred sites), then delete
+`is_deref_rule_exempt` and the old-reading branches it guards: the
+`deref_rule_applies` exemption, E0920 in `property_access.yo`, and the
+recording mode's `v.*` → `v.*.*` rewrite once no exempt tree is left.
+
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
 V5 Generation A completion (`plans/VALUES_BY_DEFAULT.md` §V5 and §3.5 "Left to V5") retypes the two counted

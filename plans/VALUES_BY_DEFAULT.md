@@ -189,8 +189,12 @@ Progress:
     a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
     payload carrying an origin as E0909, `&h.*.x` and `{ x : &h.*.x }`
     through a read-only handle with the handle frozen (O9, O10);
-    `RefCell.get()`/`get_mut()` split out to N3. Step 3's N2a (#1713) and
-    N2b (#1720).
+    `RefCell.get()`/`get_mut()` split out to N3 (#1724); N1e-1 — a
+    reference binding reads and writes its referent with `.*` outside std
+    and src, a bare whole-value use is E0926 (`yo fix --migrate deref`),
+    `r.*` lowers to the C a bare read was, a bare `match(r, …)` matches
+    through (VERDICTS-13 §11, §14); N1e-2 (reference-typed bindings) is
+    v0.2.75. Step 3's N2a (#1713) and N2b (#1720).
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
