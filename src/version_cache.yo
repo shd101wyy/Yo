@@ -292,9 +292,9 @@ is_version_cached :: (
     // Look in the INSTALL root first, then the download cache. P3 item 1's
     // "installer/cache unification": scripts/install.sh lays versions out at
     // <prefix>/lib/yo/<tag> in exactly the same bundle shape the cache uses,
-    // but nothing looked there — so a `.yo-__probe_version` pin could not see a
-    // script-installed __probe_version and would offer to re-download it.
-    // Install root wins because it is the __probe_version the user deliberately
+    // but nothing looked there — so a `.yo-version` pin could not see a
+    // script-installed version and would offer to re-download it.
+    // Install root wins because it is the version the user deliberately
     // installed; the cache is a download side-effect.
     // The await is HOISTED out of the match arm on purpose. Inside an
     // `io.async` block `io.await` may not sit in a `cond` condition or in a
@@ -657,11 +657,11 @@ download_version :: (
     version_dir := get_version_cache_dir(&__probe_version);
     // 1. Download the tarball to a temp directory. The EXTRACTION STAGING
     // dir lives INSIDE the versions cache (~/.cache/yo/versions/), not the
-    // system temp root: the final move into the __probe_version directory is a
+    // system temp root: the final move into the version directory is a
     // rename(2), which fails with EXDEV across filesystems — tmpfs `/tmp` +
     // disk `$HOME` is the common Linux desktop layout, and it aborted every
-    // `yo __probe_version install` after a completed download+extraction
-    // (issues/__probe_version-install-cross-device-link.md). Same-filesystem staging
+    // `yo version install` after a completed download+extraction
+    // (issues/version-install-cross-device-link.md). Same-filesystem staging
     // makes the rename structural, with no cross-device fallback needed
     // (catch-and-continue inside io.async closures is not expressible:
     // `unwind` from a handler aborts the closure rather than resuming it).
@@ -678,9 +678,9 @@ download_version :: (
       // NOT named `short`: that shadows the prelude C-interop integer type,
       // and builtin-first dispatch makes the interpolation below resolve the
       // BUILTIN — the def-eval swallow then hollowed this whole async body,
-      // which is what broke `yo __probe_version install` in v0.2.19/v0.2.20
+      // which is what broke `yo version install` in v0.2.19/v0.2.20
       // (issues/questions/builtin-name-shadows-user-definition.md, third face;
-      // issues/fixed/wrong-arity-call-silently-accepted-__probe_version-install-broken.md).
+      // issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
       short_name := host_bundle_name(&__probe_version, e.exn);
       println(`No ${bundle_name}.tar.gz on v${__probe_version} — retrying the pre-triple bundle name (${short_name})...`);
       bundle_name = short_name;
@@ -751,7 +751,7 @@ download_version :: (
       e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (no directory with bin/ and std/).`));
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
-    // entry), then MOVE the extracted bundle root to the __probe_version directory.
+    // entry), then MOVE the extracted bundle root to the version directory.
     ver_exists := e.io.await(exists(Path.new(&version_dir), e.io), e.io);
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(&version_dir), e.io), e);
@@ -779,8 +779,8 @@ ensure_cached_version :: (
     // wrong-arity calls, and the missing `exn` record made `cached` read
     // stack garbage at runtime: truthy garbage silently no-opped the install
     // (rc=0, nothing cached), falsy garbage continued into corrupted state
-    // (rc=134) — `yo __probe_version install` was broken in every release
-    // (issues/fixed/wrong-arity-call-silently-accepted-__probe_version-install-broken.md).
+    // (rc=134) — `yo version install` was broken in every release
+    // (issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
     cached := e.io.await(is_version_cached(&__probe_version, e.io, e.exn), e);
     if(cached, {
       return(get_version_cache_dir(&__probe_version));

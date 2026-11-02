@@ -393,13 +393,13 @@ resolve_git_ref :: (
     cmd.arg(String.from("--"));
     cmd.arg(&__probe_url);
     cmd.arg(__probe_ref.clone());
-    // Ask for the PEELED __probe_ref too: without a pattern matching it, git omits the
-    // `<__probe_ref>^{}` line and an annotated tag answers with its tag OBJECT alone.
+    // Ask for the PEELED ref too: without a pattern matching it, git omits the
+    // `<ref>^{}` line and an annotated tag answers with its tag OBJECT alone.
     cmd.arg(`${__probe_ref}^{}`);
     out := e.io.await(cmd.output(e.io), e);
     text := String.from_bytes(out.stdout.clone()).trim();
     if(text.len() == usize(0), {
-      // Assume __probe_ref is already a commit SHA
+      // Assume ref is already a commit SHA
       return(__probe_ref.clone());
     });
     sha := match(
@@ -862,7 +862,7 @@ fetch_package :: (
     needs_ls_remote := (commit.len() == usize(0));
     mirror_dir := git_mirror_dir(__probe_cache_root.clone(), __probe_url.clone());
     mirror_present := e.io.await(exists(Path.new(mirror_dir.clone()), e.io), e.io);
-    // Offline, the mirror is the only place a __probe_ref can be resolved.
+    // Offline, the mirror is the only place a ref can be resolved.
     if(needs_ls_remote && offline && mirror_present, {
       from_mirror := e.io.await(mirror_rev_parse(mirror_dir.clone(), __probe_ref.clone(), e.io, e.exn), e);
       commit = match(from_mirror, .Some(c) => c.clone(), .None => String.new());

@@ -490,7 +490,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
   io.async((e : IoExn) => {
     // Built on std/fs/walker (its stack loop is the proven async-while
     // shape) with post-filtering: an entry is dropped when ANY path segment
-    // below the __probe_root matches the skip set (node_modules/.git/dist/yo-out/
+    // below the root matches the skip set (node_modules/.git/dist/yo-out/
     // build or a dot-directory); the walk simply also reads the skipped
     // directories' names.
     //
@@ -502,7 +502,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), __probe_root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
-      // Unreadable/missing __probe_root → skip.
+      // Unreadable/missing root → skip.
       return(ArrayList(String).new());
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
@@ -523,7 +523,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
       keep := match(entry.file_type, .Directory => false, _ => true);
       p := entry.path.to_string();
       if(keep && p.ends_with(`.yo`), {
-        // Split the part below the __probe_root into segments; drop the entry when
+        // Split the part below the root into segments; drop the entry when
         // any DIRECTORY segment (all but the last) is skippable.
         rel := p.substring(root_prefix_len + usize(1), p.len());
         segs := rel.split(`/`);
@@ -538,7 +538,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
           si = (si + usize(1));
         });
         if(ok, {
-          // Label with the path.join(__probe_root, rel) shape: bare `rel` for `.`.
+          // Label with the path.join(root, rel) shape: bare `rel` for `.`.
           collected.push(if(is_dot, rel.clone(), p.clone()));
         });
       });
