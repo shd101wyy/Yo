@@ -6046,7 +6046,7 @@ evaluate_module_value :: (
               match(
                 g_check_self_constraints_fn,
                 .Some(cf) => match(
-                  cf(&receiver_ty, &ctt, &local_env),
+                  &cf(&receiver_ty, &ctt, &local_env),
                   .Some(sc_msg) => {
                     exn.throw(
                       dyn(format_error_message(ast_expr_token(expr), &sc_msg))
@@ -6154,10 +6154,8 @@ evaluate_module_value :: (
         // impl registered under the same receiver id in the global
         // registry — fields attach progressively to the current trait entry.
         c3_rec.current_trait_ty = current_trait_ty.clone();
-        old_wt_labels_c3 := ctx.current_impl_trait_field_labels;
-        old_wt_values_c3 := ctx.current_impl_trait_field_types;
-        ctx.current_impl_trait_field_labels = ArrayList(String).new();
-        ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
+        old_wt_labels_c3 := replace(&mut ctx.current_impl_trait_field_labels, ArrayList(String).new());
+        old_wt_values_c3 := replace(&mut ctx.current_impl_trait_field_types, ArrayList(TypeValue).new());
         (mj : usize) = usize(0);
         while(mj < method_exprs.len(), {
           match(
@@ -6962,9 +6960,11 @@ _check_copy_clone_exclusion :: (
       key := get_trait_key(trait_ty);
       if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
-          g_user_clone_sites.with_mut(m => m.insert(site.clone(), true));
+          site_owned := site.clone();
+          g_user_clone_sites.with_mut({ site_owned }(m) => m.insert(site_owned.clone(), true));
         });
-        g_hand_written_clone_sites.with_mut(m => m.insert(site.clone(), true));
+        site_owned_ := site.clone();
+        g_hand_written_clone_sites.with_mut({ site_owned_ }(m) => m.insert(site_owned_.clone(), true));
         if(_implements_via_hook(receiver_ty, &cc.copy_tt, env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
         });
