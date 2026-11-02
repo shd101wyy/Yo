@@ -22,6 +22,7 @@ pragma(Pragma.AllowUnsafe);
 { panic } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ replace } :: import("std/mem");
 {
   AstExpr,
   ast_expr_token,
@@ -5395,9 +5396,22 @@ evaluate_module_value :: (
       fields : c2_fields,
       current_top_index : usize(0),
       current_trait_ty : Option(TypeValue).None,
-      forall_names : forall_names
+      forall_names : forall_names.clone()
     );
     push_impl_in_flight(&c2_rec);
+    // `where(...)` clauses may also appear AFTER the receiver
+    // (`impl(generic(T), Channel(T), where(T <: Send), ...)`). Collect them
+    // all before the field loop: every entry the loop registers carries the
+    // impl's whole where list. (Before B8 the list was a shared handle, so an
+    // entry registered ahead of a later `where` field saw it appended; a list
+    // is a value now, so the entries take it complete.)
+    (wj : usize) = (receiver_arg_idx + usize(1));
+    while(wj < n_args, wj = (wj + usize(1)), {
+      w_expr := match(args.get(wj), .None => make_err_expr(), .Some(e) => e);
+      if(ast_expr_is_fn_call_of(&w_expr, BK_WHERE, .None), {
+        _collect_impl_where_constraints(&w_expr, &forall_names, &forall_some_types, &forall_env, ctx, exn, &mut impl_where_some_types, &mut impl_where_traits);
+      });
+    });
     (fj : usize) = (receiver_arg_idx + usize(1));
     while(fj < n_args, {
       mf_expr := match(args.get(fj), .None => make_err_expr(), .Some(e) => e);
@@ -5422,16 +5436,16 @@ evaluate_module_value :: (
           .Some(neg_trait_ty) => {
             neg_entry := GenericImplEntry(
               get_trait_key(&neg_trait_ty),
-              forall_names,
-              forall_some_types,
+              forall_names.clone(),
+              forall_some_types.clone(),
               Rc.clone(receiver_type_pattern),
               neg_trait_ty,
               ArrayList(String).new(),
               ArrayList(TypeValue).new(),
               ArrayList(EvalValue).new(),
               forall_env,
-              impl_where_some_types,
-              impl_where_traits,
+              impl_where_some_types.clone(),
+              impl_where_traits.clone(),
               _impl_site_string(ast_expr_token(expr))
             );
             register_negative_generic_impl(&neg_entry);
@@ -5450,7 +5464,7 @@ evaluate_module_value :: (
               c2_pf.state,
               .Done => (),
               .Failed => {
-                exn.throw(dyn(match(c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
+                exn.throw(dyn(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
               },
               .Forcing => {
                 exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
@@ -5484,13 +5498,8 @@ evaluate_module_value :: (
       // registered immediately. Previously these fields were silently
       // skipped, so generic TRAIT impls registered no methods at all and
       // `x(i)` Index dispatch on `ArrayList(u8)` found nothing.
-      // `where(...)` clauses may also appear AFTER the receiver
-      // (`impl(generic(T), Channel(T), where(T <: Send), ...)`); they are
-      // not fields — capture their constraints (for try_match_generic_impl),
-      // then skip them like the pre-receiver capture above.
-      if(ast_expr_is_fn_call_of(&mf_expr, BK_WHERE, .None), {
-        _collect_impl_where_constraints(&mf_expr, &forall_names, &forall_some_types, &forall_env, ctx, exn, &mut impl_where_some_types, &mut impl_where_traits);
-      });
+      // A `where(...)` after the receiver is not a field: its constraints
+      // were collected before this loop; skip it like the pre-receiver one.
       if(ast_expr_is_fn_call(&mf_expr) && !ast_expr_is_fn_call_of(&mf_expr, BK_COLON, .Some(usize(2))) && !ast_expr_is_fn_call_of(&mf_expr, BK_WHERE, .None), {
         trait_fn_expr2 := match(
           mf_expr,
@@ -5510,7 +5519,7 @@ evaluate_module_value :: (
           .Some(gtt) => match(
             g_receiver_kind_trait_fn,
             .Some(cof) => match(
-              cof(&receiver_type_pattern, &gtt, &forall_env),
+              &cof(&receiver_type_pattern, &gtt, &forall_env),
               .Some(co_msg) => {
                 exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), &co_msg)));
               },
@@ -5526,10 +5535,8 @@ evaluate_module_value :: (
         // Working-trait bindings: fields already evaluated for THIS trait
         // entry, visible to later fields' `Self.X` references (e.g.
         // `Output : T` before `index : fn(...) -> *(Self.Output)`).
-        old_wt_labels := ctx.current_impl_trait_field_labels;
-        old_wt_values := ctx.current_impl_trait_field_types;
-        ctx.current_impl_trait_field_labels = ArrayList(String).new();
-        ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
+        old_wt_labels := replace(&mut ctx.current_impl_trait_field_labels, ArrayList(String).new());
+        old_wt_values := replace(&mut ctx.current_impl_trait_field_types, ArrayList(TypeValue).new());
         trait_inner_args2 := match(
           mf_expr,
           .FnCall(_, _, Rc(tia2), _, _) => tia2.clone(),
@@ -5556,7 +5563,7 @@ evaluate_module_value :: (
                   c2_ipf.state,
                   .Done => (),
                   .Failed => {
-                    exn.throw(dyn(match(c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
+                    exn.throw(dyn(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
                   },
                   .Forcing => {
                     exn.throw(dyn(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`)));
@@ -5628,9 +5635,9 @@ evaluate_module_value :: (
         g_entry := GenericImplEntry(
           get_base_trait_key(&g_trait_ty),
           // 1. trait_key — the trait's own key, NOT the inherent "" key
-          forall_names,
+          forall_names.clone(),
           // 2. forall_names
-          forall_some_types,
+          forall_some_types.clone(),
           // 3. forall_some_types
           Rc.clone(receiver_type_pattern),
           // 4. receiver_type_pattern
@@ -5644,9 +5651,9 @@ evaluate_module_value :: (
           // 8. field_values
           forall_env,
           // 9. definition_env
-          impl_where_some_types,
+          impl_where_some_types.clone(),
           // 10. where_constraint_some_types
-          impl_where_traits,
+          impl_where_traits.clone(),
           // 11. where_constraint_traits
           _impl_site_string(ast_expr_token(expr)) // 12. site
         );
@@ -6180,7 +6187,7 @@ evaluate_module_value :: (
                   c3_pf.state,
                   .Done => (),
                   .Failed => {
-                    exn.throw(dyn(match(c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
+                    exn.throw(dyn(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
                   },
                   .Forcing => {
                     exn.throw(dyn(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`)));
@@ -6420,7 +6427,7 @@ evaluate_module_value :: (
                             match(
                               g_mat_default_err.with(xs => xs.get(usize(0))),
                               .Some(d_kept) => {
-                                d_kept_code := match(d_kept.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c, .None => String.from("-")), .None => String.from("-"));
+                                d_kept_code := match(d_kept.diagnostics.get_cloned(usize(0)), .Some(d) => match(&d.code, .Some(c) => c.clone(), .None => String.from("-")), .None => String.from("-"));
                                 eprintln(`[kept] site=mat-default code=${d_kept_code} owner=${d_label}`);
                               },
                               .None => ()

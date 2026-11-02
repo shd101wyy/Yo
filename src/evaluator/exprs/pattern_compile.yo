@@ -44,7 +44,8 @@
 { Token, TokenKind } :: import("../../token.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, struct_effective_ctor_fid, migrate_rc_pattern_on, record_rc_pattern_site } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx, _handles_copy } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ replace } :: import("std/mem");
 { EvalValue, is_unknown_val, ValueCell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -1576,7 +1577,9 @@ compile_pattern :: (
   if(ast_expr_is_fn_call_of(e, "|", Option(usize).Some(usize(2))), {
     alts_ast := _flatten_or(e);
     alts := ArrayList(Pattern).new();
-    outer_binds := _handles_copy(BindInfo, &pc.binds);
+    // Taken out (the list is a value): each alternative compiles into a
+    // fresh list, and the outer list is put back after the loop.
+    outer_binds := replace(&mut pc.binds, ArrayList(BindInfo).new());
     (first_binds : Option(ArrayList(BindInfo))) = Option(ArrayList(BindInfo)).None;
     (first_names : ArrayList(String)) = ArrayList(String).new();
     (ai : usize) = usize(0);
@@ -1584,7 +1587,7 @@ compile_pattern :: (
       alt_ast := match(alts_ast.get(ai), .Some(a) => a, .None => make_err_expr());
       pc.binds = ArrayList(BindInfo).new();
       alt := compile_pattern(&alt_ast, position_ty, value_opt, pc, env, ctx, exn);
-      alt_binds := _handles_copy(BindInfo, &pc.binds);
+      alt_binds := replace(&mut pc.binds, ArrayList(BindInfo).new());
       alt_names := _bind_names_sorted(&alt_binds);
       match(
         &first_binds,

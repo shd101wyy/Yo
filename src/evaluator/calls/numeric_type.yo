@@ -97,8 +97,8 @@ _get_enum_discriminant :: (
     true => variant.clone()
   );
   n := variant_names.len();
-  (i : usize) = usize(0);
-  (result : Option(i64)) = Option(i64).None;
+  (mut(i) : usize) = usize(0);
+  (mut(result) : Option(i64)) = Option(i64).None;
   while((i < n) && result.is_none(), {
     match(
       variant_names.get_cloned(i),
@@ -191,7 +191,7 @@ _make_yo_as_node :: (
       input : Rc.clone(orig_tok.input)
     )
   );
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(evaluated);
   args.push(type_expr);
   AstExpr.FnCall(orig_id, func_atom, Rc.new(args), false, orig_tok)
@@ -217,7 +217,7 @@ try_to_convert_to_numeric_type :: (
   // Evaluate the argument with no expectedType (let it resolve its natural type).
   saved_expected := ctx.expected_type;
   ctx.expected_type = .None;
-  evaluated_gout := ArrayList(AstExpr).new();
+  mut(evaluated_gout) := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
   match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
@@ -240,7 +240,7 @@ try_to_convert_to_numeric_type :: (
   // -----------------------------------------------------------------------
   // Case 0: Enum value → integer discriminant
   // -----------------------------------------------------------------------
-  (enum_disc_raw : Option(String)) = Option(String).None;
+  (mut(enum_disc_raw) : Option(String)) = Option(String).None;
   if(is_enum_type(&arg_type), {
     match(
       arg_val,
@@ -440,7 +440,7 @@ try_to_convert_to_numeric_type :: (
     yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), &evaluated, &type_expr);
     yo_as_info := new_expr_info(&env, target_type);
     yo_as_info.value = .None;
-    yo_as_rt := ArrayList(AstExpr).new();
+    mut(yo_as_rt) := ArrayList(AstExpr).new();
     // `evaluated` is already owned by the __yo_as node's args (above); push an
     // independent handle here so `runtime_arg_exprs` does not share that single
     // ref (codegen omits the dup for a variable passed to a function
