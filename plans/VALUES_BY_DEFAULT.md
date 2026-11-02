@@ -184,6 +184,13 @@ Progress:
   - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
     --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
     with it (V2c's "As built").
+  - decision 43 step 2, Generation A: N1a (#1698), N1b (#1705), N1c-1
+    (#1711), N1c-3 (#1712), and N1d — the `Escapable` marker derived from
+    a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
+    payload carrying an origin as E0909, `&h.*.x` and `{ x : &h.*.x }`
+    through a read-only handle with the handle frozen (O9, O10);
+    `RefCell.get()`/`get_mut()` split out to N3. Step 3's N2a (#1713) and
+    N2b (#1720).
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
