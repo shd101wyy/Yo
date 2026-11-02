@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -250,6 +250,12 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
   args.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(args), true, dot_tok)
 });
+/// Whether the `*` of a `.*` is written in the source: the auto-deref
+/// hooks synthesize `w.*` at the field's or method's position
+/// (`make_deref_expr`), which keeps the payload's reading.
+_is_written_star :: (fn(tok : &Token) -> bool)(
+  match(tok.input.get_byte(usize(tok.byte_offset)), .Some(b) => (b == u8(42)), .None => false)
+);
 /// Whether the old reading of `v.*` on a reference binding whose pointee is
 /// `ty` reached THROUGH the pointee (a cell handle's payload, a `Box`'s, a
 /// raw pointer's target, or a declared field `*`): `yo fix --migrate deref`
@@ -784,7 +790,7 @@ _evaluate_property_access_node :: (
       obj_info_opt,
       .Some(rd_oi) => match(
         rd_oi.source_variable,
-        .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && variable_is_reference_binding(&rd_v) && deref_rule_applies(ast_expr_token(&object_expr), ctx), {
+        .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && variable_is_reference_binding(&rd_v) && deref_rule_applies(ast_expr_token(&object_expr), ctx) && !is_reference_deref_site(ast_expr_token(&object_expr)) && _is_written_star(ast_expr_token(&property_expr)), {
           if(deref_rule_recording(), {
             if(_deref_reads_through(&rd_oi.ty), {
               record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
@@ -796,7 +802,22 @@ _evaluate_property_access_node :: (
             // re-evaluation see exactly the bare read `r` was, with this
             // id's info an atom read's. The name keeps its exemption
             // (`note_reference_deref_site`).
-            rd_tok := ast_expr_token(&object_expr);
+            // The name keeps `r`'s spelling at the `*`'s position: a deref
+            // site no source name occupies, so a later `.*` on it (`r.*.*`,
+            // also in a clone of this body) is the payload's deref, not a
+            // second reference deref.
+            rd_name_tok := ast_expr_token(&object_expr);
+            rd_star_tok := ast_expr_token(&property_expr);
+            rd_tok := Token(
+              kind : rd_name_tok.kind,
+              value : Rc.clone(rd_name_tok.value),
+              row : rd_star_tok.row,
+              column : rd_star_tok.column,
+              character : rd_star_tok.character,
+              byte_offset : rd_star_tok.byte_offset,
+              module_path : Rc.clone(rd_name_tok.module_path),
+              input : Rc.clone(rd_name_tok.input)
+            );
             note_reference_deref_site(&rd_tok);
             out_rd := new_expr_info(&env, &rd_oi.ty);
             out_rd.value = rd_oi.value;
