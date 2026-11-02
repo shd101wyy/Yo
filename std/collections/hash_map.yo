@@ -335,7 +335,7 @@ impl(
   /// and every pair moves into the map: nothing is copied. A repeated key
   /// keeps the LAST pair's value, as a run of `insert`s does.
   from : (fn(generic(N : usize), sink(pairs) : Array(Tuple(K, V), N)) -> Self)({
-    out := Self.with_capacity(N);
+    mut(out) := Self.with_capacity(N);
     // `ArrayList.from` moves the pairs into a buffer and `pop` moves each one
     // out of its slot; reversing first inserts them in array order.
     mut(rest) := ArrayList(Tuple(K, V)).from(pairs);
