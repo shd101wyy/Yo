@@ -1,0 +1,78 @@
+//! Regression tests: an early `return` inside a loop body whose last
+//! statement is a `return` drops the function's locals. Before the fix the
+//! body's `return` made the `while(true, …)` the function block's diverging
+//! last statement, its result name was taken from the body's returned
+//! projection, and the scope-end drop of that local was never scheduled: every
+//! exit leaked it
+//! (issues/fixed/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md).
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+(mut(g_lbr_dropped) : i32) = i32(0);
+LbrFd :: struct(n : i32, s : String);
+impl(
+  LbrFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_lbr_dropped = (g_lbr_dropped + i32(1));
+    })
+  )
+);
+_lbr_take :: (fn(f : LbrFd) -> i32)(
+  f.n
+);
+_lbr_plain :: (fn(k : i32) -> i32)({
+  f := LbrFd(n : k, s : String.from("a heap string owned by the local"));
+  while(true, {
+    if(k >= i32(5), {
+      return(i32(-2));
+    });
+    return(f.n);
+  });
+  i32(0)
+});
+_lbr_move_before_return :: (fn(k : i32) -> i32)({
+  f := LbrFd(n : k, s : String.from("a heap string owned by the local"));
+  while(true, {
+    if(k >= i32(5), {
+      return(i32(-2));
+    });
+    return(_lbr_take(f));
+  });
+  i32(0)
+});
+_lbr_conditional_break :: (fn(k : i32) -> i32)({
+  f := LbrFd(n : k, s : String.from("a heap string owned by the local"));
+  while(true, {
+    if(k >= i32(5), {
+      return(i32(-2));
+    });
+    if(k == i32(4), {
+      break;
+    });
+    return(f.n);
+  });
+  i32(0)
+});
+test("An early return in a loop body that ends in a return drops the locals", {
+  before := g_lbr_dropped;
+  assert(_lbr_plain(i32(7)) == i32(-2), "the early return");
+  assert((g_lbr_dropped - before) == i32(1), "the early return drops the local");
+  assert(_lbr_plain(i32(3)) == i32(3), "the final return");
+  assert((g_lbr_dropped - before) == i32(2), "the final return drops the local");
+});
+test("An early return before a move in a loop body drops the local", {
+  before := g_lbr_dropped;
+  assert(_lbr_move_before_return(i32(7)) == i32(-2), "the early return");
+  assert((g_lbr_dropped - before) == i32(1), "the early return drops the local");
+  assert(_lbr_move_before_return(i32(3)) == i32(3), "the moving return");
+  assert((g_lbr_dropped - before) == i32(2), "the callee drops the moved local once");
+});
+test("An early return in a loop body with a conditional break drops the locals", {
+  before := g_lbr_dropped;
+  assert(_lbr_conditional_break(i32(7)) == i32(-2), "the early return");
+  assert((g_lbr_dropped - before) == i32(1), "the early return drops the local");
+  assert(_lbr_conditional_break(i32(4)) == i32(0), "the break");
+  assert((g_lbr_dropped - before) == i32(2), "the break path drops the local");
+  assert(_lbr_conditional_break(i32(3)) == i32(3), "the final return");
+  assert((g_lbr_dropped - before) == i32(3), "the final return drops the local");
+});
