@@ -415,13 +415,16 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(newt
 cell := Rc(T)(__yo_cell(T)(value, alloc));
 ```
 
-The v0.2.73 seed lowers everything about the view except `dyn(...)`'s auto-box. `_create_box_type_via` kept only
-a `ref` object as the box type, so every value `dyn(...)` in src and std failed in the C compiler
-(`issues/2026-11-02-dyn-auto-box-drops-a-cell-handle-view-box-type.md`).
+The v0.2.73 seed lowers almost everything about the view; the exceptions are three gaps
+(`issues/2026-11-02-a-retyped-rc-surfaces-three-cell-handle-view-gaps.md`):
 
-**Generation A (v0.2.74, `vbd/v5-gen-a-completion`):** the compiler accepts a view as the box type. The arm is
-dead in the tree, and `src/main.yo`'s C is byte-identical. A tree-binary probe over the retyped std is recorded
-in the PR.
+- `dyn(...)`'s auto-box keeps only a `ref` object as the box type, so every value `dyn(...)` in src and std
+  fails in the C compiler.
+- A `Dyn(..., Clone)` clone calls the cell constructor without its scope argument.
+- Borrow marks land on a cell header whose bits are the weak count.
+
+**Generation A (v0.2.74, `vbd/v5-gen-a-completion`):** the compiler fixes all three. A tree-binary probe over the
+retyped std is recorded in the PR.
 
 **Generation B (v0.2.75, once `SEED_VERSION` carries Generation A):** the parked branch `vbd/v5-cells-gen-b`
 (`std/prelude.yo` only; regenerate it on the tip, since the edit is the two type definitions plus the four
