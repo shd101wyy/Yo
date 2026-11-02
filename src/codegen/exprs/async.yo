@@ -2100,7 +2100,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
 /// make the dispose's release a no-op
 /// (issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
 _fused_site_has_releases :: (fn(site : &FusedAwaitSite) -> bool)({
-  if(match(&site.block.capture_type, .Some(ct) => type_contains_rc_cell_or_move_only(&ct), .None => false), {
+  if(_fused_capture_has_releases(site), {
     return(true);
   });
   lfs := _fused_local_fields(site);
@@ -2112,6 +2112,10 @@ _fused_site_has_releases :: (fn(site : &FusedAwaitSite) -> bool)({
   });
   false
 });
+/// Whether a fused site's capture struct holds an RC or move-only value.
+_fused_capture_has_releases :: (fn(site : &FusedAwaitSite) -> bool)(
+  match(&site.block.capture_type, .Some(ct) => type_contains_rc_cell_or_move_only(&ct), .None => false)
+);
 /// The caller's dispose of its fused sites' fields. Each site's capture is
 /// released while that site is live; a local field is released once, while
 /// any site that has it is live (a wrapper block reached at two depths shares
@@ -2125,9 +2129,11 @@ _emit_fused_sites_dispose :: (fn(sites : &ArrayList(FusedAwaitSite), context : &
     match(
       sites.get(si),
       .Some(site) => if(_fused_site_has_releases(&site), {
-        em.emit_string_line(`  if (sm->${site.prefix}live) {`);
-        _emit_fused_capture_releases(&site, String.from("    "), false, context);
-        em.emit_line("  }");
+        if(_fused_capture_has_releases(&site), {
+          em.emit_string_line(`  if (sm->${site.prefix}live) {`);
+          _emit_fused_capture_releases(&site, String.from("    "), false, context);
+          em.emit_line("  }");
+        });
         lfs := _fused_local_fields(&site);
         (li : usize) = usize(0);
         while(li < lfs.len(), li = (li + usize(1)), {
