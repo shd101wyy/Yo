@@ -5076,7 +5076,7 @@ _collect_impl_where_constraints :: (
                   // `impl(generic(T), where(T <: (Send, Sync)), Arc(T), Send())`)
                   // sees T with ZERO constraints and the atomic-Send
                   // enforcement wrongly rejects the prelude.
-                  _stamp_impl_where_bound(&st, tr);
+                  _stamp_impl_where_bound(&st, &tr);
                 },
                 .None => ()
               );
@@ -5089,7 +5089,7 @@ _collect_impl_where_constraints :: (
                 out_some_types.push(st.clone());
                 out_traits.push(Rc.clone(tr));
                 // Stamp on the SomeT too — see the tuple arm above.
-                _stamp_impl_where_bound(&st, tr);
+                _stamp_impl_where_bound(&st, &tr);
               },
               .None => ()
             );
