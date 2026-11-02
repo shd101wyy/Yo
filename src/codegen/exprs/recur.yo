@@ -31,7 +31,7 @@
 generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
-    ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => {
       args_list := String.from("");
       n := arg_exprs.len();
@@ -49,7 +49,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
             match(
               context.base.get_expr_info(&arg),
               .Some(aei) => match(
-                aei.variable_name,
+                &aei.variable_name,
                 .Some(vn) => {
                   arg_vars := scope_variables(ast_expr_id(&arg), &aei.env, vn.clone());
                   if((arg_vars.len() > usize(0)) && arg_code.starts_with("(*") && arg_code.ends_with(")"), {
@@ -82,7 +82,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
                 expr_info_deferred_dup_expressions(&aei2),
                 .Some(dups) => if(dups.len() > usize(0), {
                   match(
-                    aei2.variable_name,
+                    &aei2.variable_name,
                     .Some(avn) => {
                       sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(&arg), avn.clone(), Option(Environment).Some(aei2.env));
                       if(!(arg_code == sanitized_arg_temp), {
@@ -114,7 +114,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
                       match(
                         context.base.get_expr_info(&de),
                         .Some(dei) => match(
-                          dei.variable_name,
+                          &dei.variable_name,
                           .Some(dvn) => {
                             arg_code = get_variable_name_for_codegen_at(ast_expr_id(&de), dvn.clone(), Option(Environment).Some(dei.env));
                           },
@@ -143,7 +143,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       call_code.push_str(")");
       // Result-temp: emit `<cType> <temp> = <call>;` then return the temp.
       match(
-        ei.variable_name,
+        &ei.variable_name,
         .Some(temp_var) => if(!is_unit_type(&ei.ty), {
           c_type := get_type_string(&ei.ty, &context.base);
           temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
