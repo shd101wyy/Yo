@@ -6648,8 +6648,12 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
     );
     i = (i + usize(1));
   });
-  g_move_only_in_flight.with_mut(m => m.remove(key.clone()));
-  g_move_only_memo.with_mut(m => m.insert(key.clone(), found.clone()));
+  // Owned key/value per sink callback (`with_mut`'s callback).
+  in_flight_key := key.clone();
+  g_move_only_in_flight.with_mut({ in_flight_key }(m) => m.remove(&in_flight_key));
+  memo_key := key.clone();
+  memo_found := found.clone();
+  g_move_only_memo.with_mut({ memo_key, memo_found }(m) => m.insert(memo_key, memo_found));
   _record_move_only_fast(ty, key_epoch, &found);
   found
 });
