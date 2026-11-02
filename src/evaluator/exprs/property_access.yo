@@ -804,9 +804,12 @@ _evaluate_property_access_node :: (
             out_rd.variable_name = rd_oi.variable_name.clone();
             out_rd.source_variable = rd_oi.source_variable;
             out_rd.path_collection = rd_oi.path_collection.clone();
-            note_rewritten_node(&AstExpr.Atom(ast_expr_id(expr), rd_tok));
+            rd_atom := AstExpr.Atom(ast_expr_id(expr), rd_tok);
+            note_rewritten_node(&rd_atom);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rd);
-            return(expr);
+            // The caller keeps the node it is handed (an argument list, a
+            // stored result): hand it the name.
+            return(rd_atom);
           });
         }),
         .None => ()
