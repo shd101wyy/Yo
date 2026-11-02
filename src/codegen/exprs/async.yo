@@ -746,7 +746,7 @@ _add_deferred_dep :: (
   fn(dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), dep_struct_name : &String, b_struct_name : &String) -> unit
 )({
   match(
-    dependents.get(dep_struct_name.clone()),
+    dependents.get_cloned(dep_struct_name.clone()),
     .Some(ds0) => {
       if(ds0.contains(b_struct_name.clone()), return());
       // A local of the set, written and stored back: the binding is a copy
@@ -882,7 +882,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
     head = (head + usize(1));
     ordered.push(n.clone());
     match(
-      dependents.get(&n),
+      dependents.get_cloned(&n),
       .Some(ds) => {
         // Read the dependents in place: an owning iterator over a shared set
         // copies each move-only key out of the bucket.
@@ -1938,7 +1938,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
       prologue : prologue,
       io_async_call : io_call,
       block : block,
-      cross_ids : _block_cross_boundary(&block, context).cross_boundary_ids
+      cross_ids : _block_cross_boundary(&block, context).cross_boundary_ids.clone()
     )
   )
 });
@@ -3140,7 +3140,19 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
 });
 _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  saved_evidence_params := context.current_evidence_params;
+  // A shallow copy (the map is a value since B9; `EvidenceParameter` is a
+  // ref record with no `Clone`, so the copy re-inserts the same handles).
+  saved_evidence_params := match(
+    &context.current_evidence_params,
+    .Some(ep) => {
+      mut(ep_copy) := HashMap(String, EvidenceParameter).new();
+      for(&ep, (k, v) => {
+        ep_copy.insert(k.clone(), v);
+      });
+      Option(HashMap(String, EvidenceParameter)).Some(ep_copy)
+    },
+    .None => Option(HashMap(String, EvidenceParameter)).None
+  );
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
