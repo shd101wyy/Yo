@@ -636,11 +636,11 @@ emit_async_block_struct_definition :: (
         is_outer := match(v.kind, .Outer => true, _ => false);
         if(!is_outer, {
           keep := match(
-            info.cross_boundary_ids,
+            &info.cross_boundary_ids,
             .Some(cbi) => {
               in_cb := cbi.contains(v.base.id.to_string());
-              aliased_future := match(info.await_future_temp_var_aliases, .Some(m) => m.contains_key(v.base.id.to_string()), .None => false);
-              aliased_slot := match(info.overlapping_slot_aliases, .Some(m) => m.contains_key(v.base.id.to_string()), .None => false);
+              aliased_future := match(&info.await_future_temp_var_aliases, .Some(m) => m.contains_key(v.base.id.to_string()), .None => false);
+              aliased_slot := match(&info.overlapping_slot_aliases, .Some(m) => m.contains_key(v.base.id.to_string()), .None => false);
               in_cb && !aliased_future && !aliased_slot
             },
             .None => true
