@@ -1819,6 +1819,100 @@ test("move-only: an exit in a later arm than the move drops the local once", {
   assert(g_mo_disposed == (before3 + i32(2)), "5 by the callee");
   assert(g_mo_sum == i32(16), "nothing disposed twice");
 });
+// The same exit one branch deeper, in a function body: the inner branch's
+// earlier arm moves the local and its later arm returns, inside an arm of an
+// outer branch whose other arms keep the local (`_mo_nl_cond_cond`) or move
+// it too (`_mo_nl_match_cond`, the shape of `std/encoding/toml.yo`'s
+// `_parse_header`). The return still owns the local
+// (issues/fixed/2026-10-24-an-exit-in-a-nested-later-arm-skips-the-drop-of-the-moved-local.md).
+_mo_nl_cond_cond :: (fn(keep : bool, move : bool, k : i32) -> i32)({
+  f := _MoFd(n : k);
+  (mut(total) : i32) = i32(0);
+  cond(
+    keep => (),
+    true => {
+      cond(
+        move => {
+          total = _mo_take(f);
+        },
+        true => {
+          return(i32(-1));
+        }
+      );
+    }
+  );
+  total
+});
+_mo_nl_match_cond :: (fn(p : _MoPick, move : bool, k : i32) -> i32)({
+  f := _MoFd(n : k);
+  (mut(total) : i32) = i32(0);
+  match(
+    p,
+    .Take => {
+      total = _mo_take(f);
+    },
+    .Stop => {
+      cond(
+        move => {
+          total = _mo_take(f);
+        },
+        true => {
+          return(i32(-1));
+        }
+      );
+    },
+    .Skip => {
+      return(i32(-2));
+    }
+  );
+  total
+});
+_mo_nl_cond_match :: (fn(keep : bool, p : _MoPick, k : i32) -> i32)({
+  f := _MoFd(n : k);
+  (mut(total) : i32) = i32(0);
+  cond(
+    keep => (),
+    true => {
+      match(
+        p,
+        .Take => {
+          total = _mo_take(f);
+        },
+        .Stop => {
+          return(i32(-1));
+        },
+        .Skip => {
+          return(i32(-2));
+        }
+      );
+    }
+  );
+  total
+});
+test("move-only: an exit in a nested later arm than the move drops the local once", {
+  d0 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_cond(false, false, i32(7)), i32(-1), d0, i32(1), i32(7)), "cond > cond: the return");
+  d1 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_cond(false, true, i32(7)), i32(7), d1, i32(1), i32(7)), "cond > cond: the move");
+  d2 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_cond(true, false, i32(7)), i32(0), d2, i32(1), i32(7)), "cond > cond: the keeping arm");
+  d3 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Stop, false, i32(7)), i32(-1), d3, i32(1), i32(7)), "match > cond: the return");
+  d4 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Stop, true, i32(7)), i32(7), d4, i32(1), i32(7)), "match > cond: the move");
+  d5 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Take, false, i32(7)), i32(7), d5, i32(1), i32(7)), "match > cond: the outer move");
+  d6 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Skip, false, i32(7)), i32(-2), d6, i32(1), i32(7)), "match > cond: the outer return");
+  d7 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(false, _MoPick.Stop, i32(7)), i32(-1), d7, i32(1), i32(7)), "cond > match: the first return");
+  d8 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(false, _MoPick.Skip, i32(7)), i32(-2), d8, i32(1), i32(7)), "cond > match: the second return");
+  d9 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(false, _MoPick.Take, i32(7)), i32(7), d9, i32(1), i32(7)), "cond > match: the move");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(true, _MoPick.Take, i32(7)), i32(0), d10, i32(1), i32(7)), "cond > match: the keeping arm");
+});
 // A value passed by value moves when the call runs, after its later
 // arguments: a `break` inside one of them still owns it
 // (issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md).
