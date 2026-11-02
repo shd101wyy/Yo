@@ -1865,25 +1865,11 @@ impl(
     to_json : (fn(self : &Self) -> JsonValue)({
       mut(keys) := ArrayList(String).new();
       mut(values) := ArrayList(JsonValue).new();
-      mut(it) := self.keys();
-      (mut(go) : bool) = true;
-      while(go, {
-        match(
-          it.next(),
-          .Some(k) => {
-            match(
-              self.get(k.clone()),
-              .Some(x) => {
-                keys.push(k.clone());
-                values.push(x.to_json());
-              },
-              .None => ()
-            );
-          },
-          .None => {
-            go = false;
-          }
-        );
+      // Read in place through the borrowed walk: `keys()` consumes the map,
+      // and `get` would copy each value out (B9: the map is a value).
+      for(&self, (k, x) => {
+        keys.push(k.clone());
+        values.push(x.to_json());
       });
       JsonValue.Object(keys : keys, values : values)
     })
@@ -1898,7 +1884,7 @@ impl(
       match(
         v,
         .Object(keys, values) => {
-          out := Self.new();
+          mut(out) := Self.new();
           (mut(i) : usize) = usize(0);
           // Keys and values are read in place; the key is cloned into the
           // map, which owns its keys (B8).
