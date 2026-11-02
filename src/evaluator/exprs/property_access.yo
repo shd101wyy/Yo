@@ -1602,7 +1602,7 @@ Raw pointer operations may dereference invalid memory.`
         st_prop_name := ast_expr_text(&property_expr).*;
         st_rtt := match(
           type_val_inner,
-          Rc(.SomeT(_, _, _, _, rtt, _, _, _, _, _)) => rtt,
+          Rc(.SomeT(_, _, _, _, rtt_bnd, _, _)) => { rtt := rtt_bnd.required(); rtt },
           _ => ArrayList(TypeValue).new()
         );
         // Build the list of candidate traits: explicit

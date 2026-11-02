@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee } :: import("./definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -421,10 +421,7 @@ t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
       name.clone(),
       frame_level,
       Rc.new(TypeValueNode.TypeUni(usize(0))),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
+      some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
       Option(TypeValue).None,
       Option(TypeValue).None
     )
@@ -453,10 +450,7 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
             String.from(""),
             frame_level,
             Rc.new(TypeValueNode.TypeUni(usize(0))),
-            dpw_rtt.items.clone(),
-            dpw_rtl.items.clone(),
-            dpw_ntt.items.clone(),
-            dpw_ntl.items.clone(),
+            some_t_bounds(dpw_rtt.items.clone(), dpw_rtl.items.clone(), dpw_ntt.items.clone(), dpw_ntl.items.clone()),
             Option(TypeValue).None,
             Option(TypeValue).None
           )
@@ -472,20 +466,17 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
 t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _)) => Rc.new(
+    Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt_bnd, wr_kft, _)) => { wr_rtt := wr_rtt_bnd.required(); wr_rtl := wr_rtt_bnd.required_levels(); wr_ntt := wr_rtt_bnd.negative(); wr_ntl := wr_rtt_bnd.negative_levels(); Rc.new(
       TypeValueNode.SomeT(
         wr_id.clone(),
         wr_nm.clone(),
         wr_fl,
         Rc.clone(wr_pt),
-        wr_rtt.clone(),
-        wr_rtl.clone(),
-        wr_ntt.clone(),
-        wr_ntl.clone(),
+        some_t_bounds(wr_rtt.clone(), wr_rtl.clone(), wr_ntt.clone(), wr_ntl.clone()),
         wr_kft.clone(),
         Option(TypeValue).Some(Rc.clone(concrete))
       )
-    ),
+    ) },
     _ => Rc.clone(t)
   )
 );
@@ -518,20 +509,17 @@ t_extern_opaque :: (fn(name : &String, c_name : &String) -> TypeValue)(
 clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
   match(
     s,
-    Rc(.SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _)) => Rc.new(
+    Rc(.SomeT(sid, snm, sfl, spt, sreq_bnd, skind, _)) => { sreq := sreq_bnd.required(); sreql := sreq_bnd.required_levels(); sneg := sreq_bnd.negative(); snegl := sreq_bnd.negative_levels(); Rc.new(
       TypeValueNode.SomeT(
         generate_some_type_id(),
         snm.clone(),
         sfl,
         Rc.clone(spt),
-        sreq.clone(),
-        sreql.clone(),
-        sneg.clone(),
-        snegl.clone(),
+        some_t_bounds(sreq.clone(), sreql.clone(), sneg.clone(), snegl.clone()),
         skind.clone(),
         Option(TypeValue).None
       )
-    ),
+    ) },
     _ => Rc.clone(s)
   )
 );
@@ -547,10 +535,7 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
       name.clone(),
       frame_level,
       Rc.new(TypeValueNode.TypeUni(usize(0))),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
+      some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
       Option(TypeValue).Some(Rc.clone(kind)),
       Option(TypeValue).None
     )

@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
@@ -311,7 +311,7 @@ _dyn_target_requires_send :: (fn(expected : &Option(ExpectedTypeCtx), value_type
   match(
     from_expected,
     .Some(b) => b,
-    .None => match(value_type, Rc(.SomeT({ required_trait_types : vrt })) => _traits_name_send(&vrt), _ => false)
+    .None => match(value_type, Rc(.SomeT({ bounds : vrt_bnd })) => { vrt := vrt_bnd.required(); _traits_name_send(&vrt) }, _ => false)
   )
 });
 _traits_name_send :: (fn(tys : &ArrayList(TypeValue)) -> bool)(!_thread_marker_named_in(tys).is_empty());
@@ -994,7 +994,7 @@ _dyn_clone_payload_identity :: (fn(payload_ty : &TypeValue, dyn_type : &TypeValu
     t_dyn_payload_wrapper(dyn_type, frame_level),
     .Some(w) => match(
       w,
-      Rc(.SomeT(w_id, _, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _)) => Rc.new(TypeValueNode.SomeT(w_id, String.from("Impl"), w_fl, Rc.clone(w_pt), w_rtt, w_rtl, w_ntt, w_ntl, w_kft.clone(), Option(TypeValue).Some(concrete))),
+      Rc(.SomeT(w_id, _, w_fl, w_pt, w_rtt_bnd, w_kft, _)) => { w_rtt := w_rtt_bnd.required(); w_rtl := w_rtt_bnd.required_levels(); w_ntt := w_rtt_bnd.negative(); w_ntl := w_rtt_bnd.negative_levels(); Rc.new(TypeValueNode.SomeT(w_id, String.from("Impl"), w_fl, Rc.clone(w_pt), some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl), w_kft.clone(), Option(TypeValue).Some(concrete))) },
       _ => payload_ty.clone()
     ),
     .None => payload_ty.clone()
@@ -1215,12 +1215,9 @@ _dyn_type_from_payload_or_throw :: (
     payload_type,
     Rc(
       .SomeT(
-        required_trait_types : rtt,
-        required_trait_levels : rtl,
-        negative_trait_types : ntt,
-        negative_trait_levels : ntl
+        bounds : rtt_bnd
       )
-    ) => t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()),
+    ) => { rtt := rtt_bnd.required(); rtl := rtt_bnd.required_levels(); ntt := rtt_bnd.negative(); ntl := rtt_bnd.negative_levels(); t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()) },
     _ => {
       if(have_payload_ty, {
         exn.throw(
@@ -1510,17 +1507,14 @@ evaluate_dyn_value :: (
               // global misses there (round-5 finding).
               .Some(iec) => match(
                 &iec.ty,
-                Rc(.SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _)) => {
+                Rc(.SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt_bnd, bx_kft, _)) => { bx_rtt := bx_rtt_bnd.required(); bx_rtl := bx_rtt_bnd.required_levels(); bx_ntt := bx_rtt_bnd.negative(); bx_ntl := bx_rtt_bnd.negative_levels(); 
                   ne_box_inner_ty = Rc.new(
                     TypeValueNode.SomeT(
                       bx_id.clone(),
                       bx_nm.clone(),
                       bx_fl,
                       Rc.clone(bx_pt),
-                      bx_rtt.clone(),
-                      bx_rtl.clone(),
-                      bx_ntt.clone(),
-                      bx_ntl.clone(),
+                      some_t_bounds(bx_rtt.clone(), bx_rtl.clone(), bx_ntt.clone(), bx_ntl.clone()),
                       bx_kft.clone(),
                       Option(TypeValue).Some(Rc.clone(cci.capture_type))
                     )
@@ -1750,13 +1744,10 @@ evaluate_dyn_value :: (
         ),
       Rc(
         .SomeT(
-          required_trait_types : rtt,
-          required_trait_levels : rtl,
-          negative_trait_types : ntt,
-          negative_trait_levels : ntl
+          bounds : rtt_bnd2
         )
       ) =>
-        t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()),
+        { rtt := rtt_bnd2.required(); rtl := rtt_bnd2.required_levels(); ntt := rtt_bnd2.negative(); ntl := rtt_bnd2.negative_levels(); t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()) },
       _ => {
         exn.throw(
           dyn(

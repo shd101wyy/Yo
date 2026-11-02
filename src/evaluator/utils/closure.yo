@@ -225,7 +225,7 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
 _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT({ required_trait_types : dbr_rtts })) => {
+    Rc(.SomeT({ bounds : dbr_rtts_bnd })) => { dbr_rtts := dbr_rtts_bnd.required(); 
       want := type_to_string(trait_type);
       (dbr_i : usize) = usize(0);
       (dbr_found : bool) = false;
@@ -271,7 +271,7 @@ _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> boo
 /// struct, it would be `Send` whatever its code reaches.
 (g_closure_fids_by_capture : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 _some_id_of :: (fn(ty : &TypeValue) -> String)(
-  match(ty, Rc(.SomeT(sid, _, _, _, _, _, _, _, _, _)) => sid.clone(), _ => String.new())
+  match(ty, Rc(.SomeT(sid, _, _, _, _, _, _)) => sid.clone(), _ => String.new())
 );
 _capture_id_of :: (fn(ty : &TypeValue) -> String)(
   if(is_closure_capture_struct(ty), match(ty, Rc(.Struct({ id : cid })) => cid.clone(), _ => String.new()), String.new())
@@ -427,7 +427,7 @@ record_closure_capture_verdicts :: (
 _declares_marker :: (fn(ty : &TypeValue, marker : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT({ required_trait_types : rtts })) => {
+    Rc(.SomeT({ bounds : rtts_bnd })) => { rtts := rtts_bnd.required(); 
       want := type_to_string(marker);
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -738,7 +738,7 @@ validate_send_closure_global_reach :: (
   // `Sync` closure slot as well as a `Send` one (decision 38 E).
   thread_marker := match(
     wrapper_type,
-    Rc(.SomeT({ required_trait_types : rtts })) => {
+    Rc(.SomeT({ bounds : rtts_bnd2 })) => { rtts := rtts_bnd2.required(); 
       (found : String) = String.new();
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
@@ -806,7 +806,7 @@ validate_capture_trait_requirements :: (
 )({
   match(
     wrapper_type,
-    Rc(.SomeT({ required_trait_types : rtts })) => {
+    Rc(.SomeT({ bounds : rtts_bnd3 })) => { rtts := rtts_bnd3.required(); 
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
         trait_type := Rc.clone(rtts(ti));

@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -426,7 +426,7 @@ validate_function_return_type :: (
       .Some(st) =>
         match(
           &st,
-          Rc(.SomeT(_, name, _, _, required_trait_types, _, _, _, _, _)) => {
+          Rc(.SomeT(_, name, _, _, required_trait_types_bnd, _, _)) => { required_trait_types := required_trait_types_bnd.required(); 
             // Determine whether this SomeT should be skipped.
             // An extern opaque type (`atomic_int : Type`) is a concrete C type
             // wearing a SomeT, nothing to infer: a closure capturing an
@@ -466,7 +466,7 @@ validate_function_return_type :: (
                                   .Some(tst) => {
                                     match(
                                       tst,
-                                      Rc(.SomeT(_, tname, _, _, _, _, _, _, _, _)) => {
+                                      Rc(.SomeT(_, tname, _, _, _, _, _)) => {
                                         if(tname == name, {
                                           found_transitively = true;
                                         });
@@ -676,7 +676,7 @@ _wrapper_fn_result_needs_refine :: (fn(ty : &TypeValue) -> bool)(
 _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> TypeValue)(
   match(
     ty,
-    Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)) => {
+    Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt_bnd, rf_kft, rf_rc)) => { rf_rtt := rf_rtt_bnd.required(); rf_rtl := rf_rtt_bnd.required_levels(); rf_ntt := rf_rtt_bnd.negative(); rf_ntl := rf_rtt_bnd.negative_levels(); 
       new_rtt := ArrayList(TypeValue).new();
       (rf_i : usize) = usize(0);
       while(rf_i < rf_rtt.len(), {
@@ -689,7 +689,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
         );
         rf_i = (rf_i + usize(1));
       });
-      Rc.new(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, Rc.clone(rf_pt), new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft.clone(), rf_rc.clone()))
+      Rc.new(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, Rc.clone(rf_pt), some_t_bounds(new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone()), rf_kft.clone(), rf_rc.clone()))
     },
     Rc(.FnTraitT(_, _, _, _, _, _)) => _refine_one_fn_trait_result(ty, new_result),
     _ => Rc.clone(ty)
@@ -3089,7 +3089,7 @@ _somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args
           fv,
           .TypeVal(ft) => match(
             ft,
-            Rc(.SomeT(fid, _, _, _, _, _, _, _, _, _)) => if(extract_fn_trait_from_type(&ft).is_some(), {
+            Rc(.SomeT(fid, _, _, _, _, _, _)) => if(extract_fn_trait_from_type(&ft).is_some(), {
               ids.push(fid.clone());
             }),
             _ => ()
@@ -3107,7 +3107,7 @@ _somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args
   });
   (si : usize) = usize(0);
   while(si < somes.len(), {
-    sid := match(somes.get(si), .Some(st) => match(st, Rc(.SomeT(sid0, _, _, _, _, _, _, _, _, _)) => sid0, _ => String.new()), .None => String.new());
+    sid := match(somes.get(si), .Some(st) => match(st, Rc(.SomeT(sid0, _, _, _, _, _, _)) => sid0, _ => String.new()), .None => String.new());
     (found : bool) = false;
     (ii : usize) = usize(0);
     while((ii < ids.len()) && !found, {
@@ -3500,7 +3500,7 @@ create_specialized_function_inline :: (
                         while((zbp < zb_pt.len()) && !zb_done, {
                           zb_decl_nm := match(
                             slot_pointee_at(&zb_pt, zbp),
-                            .Some(Rc(.SomeT(_, zdn, _, _, _, _, _, _, _, _))) => zdn,
+                            .Some(Rc(.SomeT(_, zdn, _, _, _, _, _))) => zdn,
                             .Some(_) => String.from(""),
                             .None => String.from("")
                           );
@@ -3626,7 +3626,7 @@ create_specialized_function_inline :: (
                 zrst := match(zret_somes.get(zrsi), .Some(t) => t, .None => t_unit());
                 match(
                   zrst,
-                  Rc(.SomeT(_, zrst_name, zrst_lvl, _, _, _, _, _, _, _)) => {
+                  Rc(.SomeT(_, zrst_name, zrst_lvl, _, _, _, _)) => {
                     (zbni : usize) = usize(0);
                     while(zbni < forall_names.len(), {
                       zbn := match(forall_names.get_cloned(zbni), .Some(n) => n, .None => String.from(""));
@@ -4161,14 +4161,11 @@ create_specialized_function_inline :: (
                             fw_nm,
                             fw_fl,
                             fw_pt,
-                            fw_rtt,
-                            fw_rtl,
-                            fw_ntt,
-                            fw_ntl,
+                            fw_rtt_bnd,
                             fw_kft,
                             _
                           )
-                        ) => {
+                        ) => { fw_rtt := fw_rtt_bnd.required(); fw_rtl := fw_rtt_bnd.required_levels(); fw_ntt := fw_rtt_bnd.negative(); fw_ntl := fw_rtt_bnd.negative_levels(); 
                           // The Future carrier comes from the ARG wrapper when
                           // it has one (its carriers are the call's concrete
                           // types — also what the capture-struct key prints),
@@ -4225,10 +4222,7 @@ create_specialized_function_inline :: (
                                 fw_nm.clone(),
                                 fw_fl,
                                 Rc.clone(fw_pt),
-                                fw_new_rtt,
-                                fw_rtl.clone(),
-                                fw_ntt.clone(),
-                                fw_ntl.clone(),
+                                some_t_bounds(fw_new_rtt, fw_rtl.clone(), fw_ntt.clone(), fw_ntl.clone()),
                                 fw_kft.clone(),
                                 Option(TypeValue).Some(fw_res.clone())
                               )
@@ -4343,24 +4337,18 @@ create_specialized_function_inline :: (
                         sp_nm_c,
                         sp_fl_c,
                         sp_pt_c,
-                        sp_rtt_c,
-                        sp_rtl_c,
-                        sp_ntt_c,
-                        sp_ntl_c,
+                        sp_rtt_c_bnd,
                         sp_kft_c,
                         _
                       )
-                    ) => {
+                    ) => { sp_rtt_c := sp_rtt_c_bnd.required(); sp_rtl_c := sp_rtt_c_bnd.required_levels(); sp_ntt_c := sp_rtt_c_bnd.negative(); sp_ntl_c := sp_rtt_c_bnd.negative_levels(); 
                       bind_pt_cl = Rc.new(
                         TypeValueNode.SomeT(
                           fresh_some_id.clone(),
                           sp_nm_c.clone(),
                           sp_fl_c,
                           Rc.clone(sp_pt_c),
-                          sp_rtt_c.clone(),
-                          sp_rtl_c.clone(),
-                          sp_ntt_c.clone(),
-                          sp_ntl_c.clone(),
+                          some_t_bounds(sp_rtt_c.clone(), sp_rtl_c.clone(), sp_ntt_c.clone(), sp_ntl_c.clone()),
                           sp_kft_c.clone(),
                           Option(TypeValue).Some(Rc.clone(cap_ty))
                         )
@@ -4650,7 +4638,7 @@ create_specialized_function_inline :: (
                 spec_all_sts.get(sws_i),
                 .Some(sws_t) => match(
                   sws_t,
-                  Rc(.SomeT({ required_trait_types : sws_rtt })) => {
+                  Rc(.SomeT({ bounds : sws_rtt_bnd })) => { sws_rtt := sws_rtt_bnd.required(); 
                     (sws_ri : usize) = usize(0);
                     while(sws_ri < sws_rtt.len(), {
                       match(
@@ -5103,7 +5091,7 @@ create_specialized_function_inline :: (
                                       cw_occ.get(cw_oj),
                                       .Some(cw_st) => match(
                                         cw_st,
-                                        Rc(.SomeT(_, cw_st_nm, cw_st_lvl, _, _, _, _, _, _, _)) => {
+                                        Rc(.SomeT(_, cw_st_nm, cw_st_lvl, _, _, _, _)) => {
                                           (cw_bi : usize) = usize(0);
                                           while(cw_bi < forall_names.len(), {
                                             cw_bn := match(forall_names.get_cloned(cw_bi), .Some(n) => n, .None => String.new());
@@ -5381,7 +5369,7 @@ create_specialized_function_inline :: (
                   yrst := match(y_somes.get(yrsi), .Some(t) => t, .None => t_unit());
                   match(
                     yrst,
-                    Rc(.SomeT(_, yrst_name, yrst_lvl, _, _, _, _, _, _, _)) => {
+                    Rc(.SomeT(_, yrst_name, yrst_lvl, _, _, _, _)) => {
                       (ybni : usize) = usize(0);
                       while(ybni < forall_names.len(), {
                         ybn := match(forall_names.get_cloned(ybni), .Some(n) => n, .None => String.from(""));
@@ -5423,7 +5411,7 @@ create_specialized_function_inline :: (
                     slot_pointee_at(&sp_pt, ydb),
                     .Some(ydb_dt) => match(
                       ydb_dt,
-                      Rc(.SomeT(_, ydb_nm, ydb_lvl, _, _, _, _, _, _, _)) => {
+                      Rc(.SomeT(_, ydb_nm, ydb_lvl, _, _, _, _)) => {
                         // ONLY true forall binders: the declared SomeT's name
                         // must be one of this function's generic names. A
                         // WRAPPER param like io.async's `action : Impl(Fn(e :
@@ -6449,7 +6437,7 @@ resolve_param_types_from_expected :: (
   (si : usize) = usize(0);
   while(si < sig_somes.len(), {
     sst := match(sig_somes.get(si), .Some(t) => t, .None => t_unit());
-    snm := match(&sst, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => String.from(""));
+    snm := match(&sst, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => String.from(""));
     if(snm.len() > usize(0), {
       add_variable_to_env(
         &synth_env,
@@ -6763,7 +6751,7 @@ collect_somes_with_fn_sigs :: (fn(t : &TypeValue) -> ArrayList(TypeValue))({
         (fi : usize) = usize(0);
         while(fi < ft_parts.len(), {
           part := match(ft_parts.get(fi), .Some(x) => x, .None => t_unit());
-          match(&part, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => somes.push(Rc.clone(part)), _ => ());
+          match(&part, Rc(.SomeT(_, _, _, _, _, _, _)) => somes.push(Rc.clone(part)), _ => ());
           part_somes := get_all_some_types(&part);
           (pk : usize) = usize(0);
           while(pk < part_somes.len(), {
@@ -6909,7 +6897,7 @@ _restore_rt_spans :: (fn(list : &ArrayList(AstExpr), span_param : &ArrayList(usi
 /// bound (`bound_names`), or `.None`.
 unresolved_own_binder :: (fn(t : &TypeValue, binder_ids : &ArrayList(String), bound_names : &ArrayList(String)) -> Option(String))({
   somes := get_all_some_types(t);
-  match(t, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
+  match(t, Rc(.SomeT(_, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
   (si : usize) = usize(0);
   while(si < somes.len(), {
     match(
@@ -7217,7 +7205,7 @@ try_to_call_function_with_arguments :: (
     while(nf2_walk && (nf2_hops < usize(32)), {
       match(
         Rc.clone(nf2_cur),
-        Rc(.SomeT(_, _, _, _, _, _, _, _, _, nf2_rc)) => match(
+        Rc(.SomeT(_, _, _, _, _, _, nf2_rc)) => match(
           nf2_rc,
           .Some(nf2_next) => {
             nf2_cur = Rc.clone(nf2_next);
@@ -7545,7 +7533,7 @@ try_to_call_function_with_arguments :: (
           (sx_i : usize) = usize(0);
           while(sx_i < sx_all.len(), {
             sx_st := match(sx_all.get(sx_i), .Some(t) => t, .None => t_unit());
-            sx_id := match(&sx_st, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => String.from(""));
+            sx_id := match(&sx_st, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => String.from(""));
             if(sx_id.len() > usize(0), {
               out_ids.push(sx_id);
             });
@@ -7554,7 +7542,7 @@ try_to_call_function_with_arguments :: (
             while(sx_j < sx_nested.len(), {
               sxn_id := match(
                 sx_nested.get(sx_j),
-                .Some(t) => match(t, Rc(.SomeT(id2, _, _, _, _, _, _, _, _, _)) => id2, _ => String.from("")),
+                .Some(t) => match(t, Rc(.SomeT(id2, _, _, _, _, _, _)) => id2, _ => String.from("")),
                 .None => String.from("")
               );
               if(sxn_id.len() > usize(0), {
@@ -7600,8 +7588,8 @@ try_to_call_function_with_arguments :: (
         (sg_i : usize) = usize(0);
         while(sg_i < sig_some_types.len(), {
           sg_st := match(sig_some_types.get(sg_i), .Some(t) => t, .None => t_unit());
-          sg_id := match(&sg_st, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => String.from(""));
-          sg_nm := match(&sg_st, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => String.from(""));
+          sg_id := match(&sg_st, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => String.from(""));
+          sg_nm := match(&sg_st, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => String.from(""));
           (sg_dup : bool) = false;
           (sd_i : usize) = usize(0);
           while((sd_i < seen_st_ids.len()) && !sg_dup, {
@@ -7701,14 +7689,14 @@ try_to_call_function_with_arguments :: (
             match(
               sig_some_types.get(fv_mi),
               .Some(fv_mst) => {
-                fv_mn := match(&fv_mst, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => String.from(""));
+                fv_mn := match(&fv_mst, Rc(.SomeT(_, n, _, _, _, _, _)) => n, _ => String.from(""));
                 // A receiver-embedded SomeT (self-slot-only) merely SHARES the
                 // forall's name — e.g. `.filter(p).fold(init, f)`: fold's
                 // sig_some_types lists filter's F (inside the substituted
                 // `self : IterFilter(_, F-filter)`) BEFORE fold's own F.
                 // Binding the forall to it routes fold's `f` to filter's
                 // predicate — the name search must skip foreign ids.
-                fv_mid := match(&fv_mst, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => String.from(""));
+                fv_mid := match(&fv_mst, Rc(.SomeT(id, _, _, _, _, _, _)) => id, _ => String.from(""));
                 (fv_foreign : bool) = false;
                 (fv_si : usize) = usize(0);
                 while((fv_si < self_only_ids.len()) && !fv_foreign, {
@@ -7761,10 +7749,7 @@ try_to_call_function_with_arguments :: (
                     flabel.clone(),
                     usize(0),
                     t_type(),
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
+                    some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
                     Option(TypeValue).None,
                     Option(TypeValue).None
                   )
@@ -8187,7 +8172,7 @@ try_to_call_function_with_arguments :: (
                         match(
                           sig_some_types.get(ew_mi),
                           .Some(ew_mst) => {
-                            ew_mn := match(&ew_mst, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => String.from(""));
+                            ew_mn := match(&ew_mst, Rc(.SomeT(_, n, _, _, _, _, _)) => n, _ => String.from(""));
                             if(ew_mn == ew_fl, {
                               add_variable_to_env(
                                 &callee_env,
@@ -8825,7 +8810,7 @@ try_to_call_function_with_arguments :: (
                     v,
                     .TypeVal(v_tb) => match(
                       v_tb,
-                      Rc(.SomeT({ resolution : ex_cell, required_trait_types : ex_rtt })) => {
+                      Rc(.SomeT({ resolution : ex_cell, bounds : ex_rtt_bnd })) => { ex_rtt := ex_rtt_bnd.required(); 
                         (ex_res : Option(TypeValue)) = Option(TypeValue).None;
                         if(ex_cell.is_some(), {
                           ex_res = ex_cell.clone();
@@ -8943,7 +8928,7 @@ try_to_call_function_with_arguments :: (
               slot_pointee_at(&pt, s9_pi),
               .Some(s9_pt) => match(
                 s9_pt,
-                Rc(.SomeT(_, s9_pnm, _, _, _, _, _, _, _, _)) => {
+                Rc(.SomeT(_, s9_pnm, _, _, _, _, _)) => {
                   match(
                     arg_vals.get(s9_pi),
                     .Some(s9_ae) => {
@@ -8963,7 +8948,7 @@ try_to_call_function_with_arguments :: (
                             // (issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md).
                             // Wrappers resolve through their own resolutions / the
                             // rte re-eval below, never through a sibling's arg.
-                            Rc(.SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _)) => if((s9_rnm == s9_pnm) && (s9_rnm != "Impl") && (s9_rnm.len() > usize(0)), {
+                            Rc(.SomeT(_, s9_rnm, s9_rlvl, _, _, _, _)) => if((s9_rnm == s9_pnm) && (s9_rnm != "Impl") && (s9_rnm.len() > usize(0)), {
                               subst_add(&s9, s9_rnm.clone(), s9_rlvl, &s9_ae.arg_type);
                               s9_added.push(s9_rnm.clone());
                               s9_any = true;
@@ -8996,7 +8981,7 @@ try_to_call_function_with_arguments :: (
                 s9_ret_somes.get(s9_ri2m),
                 .Some(s9_rst2) => match(
                   &s9_rst2,
-                  Rc(.SomeT(_, s9_rnm2, s9_rlvl2, _, _, _, _, _, _, _)) => {
+                  Rc(.SomeT(_, s9_rnm2, s9_rlvl2, _, _, _, _)) => {
                     (s9_seen2 : bool) = false;
                     (s9_si2 : usize) = usize(0);
                     while(s9_si2 < s9_added.len(), {
@@ -9289,17 +9274,14 @@ try_to_call_function_with_arguments :: (
         if(!is_some_type(&ctl_rt_conc) && !is_unit_type(&ctl_rt_conc), {
           match(
             Rc.clone(return_type),
-            Rc(.SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt, ct_rtl, ct_ntt, ct_ntl, ct_kft, _)) => {
+            Rc(.SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt_bnd, ct_kft, _)) => { ct_rtt := ct_rtt_bnd.required(); ct_rtl := ct_rtt_bnd.required_levels(); ct_ntt := ct_rtt_bnd.negative(); ct_ntl := ct_rtt_bnd.negative_levels(); 
               return_type = Rc.new(
                 TypeValueNode.SomeT(
                   ct_id,
                   ct_nm,
                   ct_fl,
                   Rc.clone(ct_pt),
-                  ct_rtt,
-                  ct_rtl,
-                  ct_ntt,
-                  ct_ntl,
+                  some_t_bounds(ct_rtt, ct_rtl, ct_ntt, ct_ntl),
                   ct_kft.clone(),
                   Option(TypeValue).Some(ctl_rt_conc)
                 )
@@ -9471,7 +9453,7 @@ try_to_call_function_with_arguments :: (
       if(!callee_is_extern && !(__fm8.*.is_control) && !ctx.is_evaluating_function_type, {
         s12_own_ids := ArrayList(String).new();
         s12_somes := collect_somes_with_fn_sigs(&ret_b);
-        match(&ret_b, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => s12_somes.push(Rc.clone(ret_b)), _ => ());
+        match(&ret_b, Rc(.SomeT(_, _, _, _, _, _, _)) => s12_somes.push(Rc.clone(ret_b)), _ => ());
         (s12_i : usize) = usize(0);
         while(s12_i < s12_somes.len(), {
           match(
@@ -9689,17 +9671,14 @@ try_to_call_function_with_arguments :: (
               if(!is_some_type(&ctl_res_conc) && !is_unit_type(&ctl_res_conc), {
                 match(
                   Rc.clone(return_type),
-                  Rc(.SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt, cr_rtl, cr_ntt, cr_ntl, cr_kft, _)) => {
+                  Rc(.SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt_bnd, cr_kft, _)) => { cr_rtt := cr_rtt_bnd.required(); cr_rtl := cr_rtt_bnd.required_levels(); cr_ntt := cr_rtt_bnd.negative(); cr_ntl := cr_rtt_bnd.negative_levels(); 
                     return_type = Rc.new(
                       TypeValueNode.SomeT(
                         cr_id.clone(),
                         cr_nm.clone(),
                         cr_fl,
                         Rc.clone(cr_pt),
-                        cr_rtt.clone(),
-                        cr_rtl.clone(),
-                        cr_ntt.clone(),
-                        cr_ntl.clone(),
+                        some_t_bounds(cr_rtt.clone(), cr_rtl.clone(), cr_ntt.clone(), cr_ntl.clone()),
                         cr_kft.clone(),
                         Option(TypeValue).Some(ctl_res_conc)
                       )

@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -863,7 +863,7 @@ _collect_where_constraints_from_some_t :: (
 )({
   match(
     ty,
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bnd, _, _)) => { required_trait_types := required_trait_types_bnd.required(); negative_trait_types := required_trait_types_bnd.negative(); 
       (ri : usize) = usize(0);
       while(ri < required_trait_types.len(), {
         match(
@@ -1679,24 +1679,28 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    Rc(.SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _)) => {
-      // Dedup by trait id before appending. A SomeT's trait lists are shared by
-      // REFERENCE, so re-validating the same where clause used to append another
-      // copy every time — measured at the entries.yo codegen panic, one SomeT's
-      // identity rendered as `V : (Send + Send + ... x32)` and a `==`/`Hash`
-      // bound repeated ~30 times. The env-frame writer dedups the same way
-      // (env.yo:1883 `add_where_clause_constraint_to_env`, same id scan), as
-      // does its read-side twin (`_merge_trait_list`, env.yo:1846); this SomeT-list
-      // push was the one site that kept appending.
-      if(is_negated, {
-        if(!_wcc_has_trait(&negative_trait_types, trait_ty), {
-          negative_trait_types.push(Rc.clone(trait_ty));
-          negative_trait_levels.push(usize(0));
-        });
-      }, {
-        if(!_wcc_has_trait(&required_trait_types, trait_ty), {
-          required_trait_types.push(Rc.clone(trait_ty));
-          required_trait_levels.push(usize(0));
+    Rc(.SomeT(_, _, _, _, wcc_bounds, _, _)) => {
+      // Dedup by trait id before appending. A SomeT's bounds are shared by
+      // every holder of the SomeT (`SomeTBounds`, one cell; this is one of its
+      // two writers), so re-validating the same where clause used to append
+      // another copy every time — measured at the entries.yo codegen panic,
+      // one SomeT's identity rendered as `V : (Send + Send + ... x32)` and a
+      // `==`/`Hash` bound repeated ~30 times. The env-frame writer dedups the
+      // same way (env.yo:1883 `add_where_clause_constraint_to_env`, same id
+      // scan), as does its read-side twin (`_merge_trait_list`, env.yo:1846);
+      // this SomeT-list push was the one site that kept appending.
+      wcc_trait := Rc.clone(trait_ty);
+      wcc_bounds.with_mut({ wcc_trait, is_negated }(b) => {
+        if(is_negated, {
+          if(!_wcc_has_trait(&b.negative, &wcc_trait), {
+            b.negative.push(wcc_trait);
+            b.negative_levels.push(usize(0));
+          });
+        }, {
+          if(!_wcc_has_trait(&b.required, &wcc_trait), {
+            b.required.push(wcc_trait);
+            b.required_levels.push(usize(0));
+          });
         });
       });
     },
@@ -2590,7 +2594,7 @@ use_id :: (fn(generic(T : Type),
                 new_some := Rc.clone(av_box);
                 match(
                   new_some,
-                  Rc(.SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _)) => {
+                  Rc(.SomeT(_, _, _, _, new_rtt_bnd, _, _)) => { new_rtt := new_rtt_bnd.required(); new_ntt := new_rtt_bnd.negative(); 
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(ri < new_rtt.len(), {
@@ -5199,7 +5203,7 @@ evaluate_function_type :: (
     );
     match(
       &fp.ty,
-      Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+      Rc(.SomeT(_, _, _, _, required_trait_types_bnd3, _, _)) => { required_trait_types := required_trait_types_bnd3.required(); 
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
           tt := match(
@@ -5321,7 +5325,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
   acc := ArrayList(TypeValue).new();
   rtts := match(
     wrapper,
-    Rc(.SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _)) => rts,
+    Rc(.SomeT(_, _, _, _, rts_bnd, _, _)) => rts_bnd.required(),
     _ => ArrayList(TypeValue).new()
   );
   (i : usize) = usize(0);
@@ -5451,7 +5455,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
 _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) -> TypeValue)(
   match(
     wrapper,
-    Rc(.SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_kft, sw_rc)) => {
+    Rc(.SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt_bnd, sw_kft, sw_rc)) => { sw_rtt := sw_rtt_bnd.required(); sw_rtl := sw_rtt_bnd.required_levels(); sw_ntt := sw_rtt_bnd.negative(); sw_ntl := sw_rtt_bnd.negative_levels(); 
       new_rtt := ArrayList(TypeValue).new();
       (i : usize) = usize(0);
       while(i < sw_rtt.len(), {
@@ -5464,7 +5468,7 @@ _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) ->
         match(sw_ntt.get(j), .Some(t) => new_ntt.push(substitute(ns, &t)), .None => ());
         j = (j + usize(1));
       });
-      Rc.new(TypeValueNode.SomeT(sw_id.clone(), sw_nm.clone(), sw_fl, Rc.clone(sw_pt), new_rtt, sw_rtl.clone(), new_ntt, sw_ntl.clone(), sw_kft.clone(), sw_rc.clone()))
+      Rc.new(TypeValueNode.SomeT(sw_id.clone(), sw_nm.clone(), sw_fl, Rc.clone(sw_pt), some_t_bounds(new_rtt, sw_rtl.clone(), new_ntt, sw_ntl.clone()), sw_kft.clone(), sw_rc.clone()))
     },
     _ => substitute(ns, wrapper)
   )
@@ -5500,7 +5504,7 @@ _resolve_wrapper_carriers_from_env :: (fn(wrapper : &TypeValue, env : &Environme
       carriers.get(i),
       .Some(c) => match(
         &c,
-        Rc(.SomeT(_, c_name, c_lvl, _, _, _, _, _, _, _)) => {
+        Rc(.SomeT(_, c_name, c_lvl, _, _, _, _)) => {
           r := get_value_of_some_type_from_env(env, &c);
           if(debug_knob(`YO_DEBUG_FWCARRIER`).is_some(), {
             eprintln(`[fwcarrier] carrier=${c_name} lvl=${c_lvl.to_string()} resolved=${type_to_string(&r)}`);
@@ -5554,7 +5558,7 @@ _resolve_some_types_deep :: (
     if(!is_some_type(&r) && is_function_type(&r), {
       match(
         ty,
-        Rc(.SomeT({ required_trait_types : rsd_rtt })) => {
+        Rc(.SomeT({ bounds : rsd_rtt_bnd })) => { rsd_rtt := rsd_rtt_bnd.required(); 
           (rsd_i : usize) = usize(0);
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
@@ -5614,7 +5618,7 @@ _resolve_some_types_deep :: (
       if(!is_some_type(&nres), {
         match(
           nst,
-          Rc(.SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _)) => {
+          Rc(.SomeT(_, nst_name, nst_lvl, _, _, _, _)) => {
             subst_add(&ns, &nst_name, nst_lvl, &nres);
             nbound = true;
           },
@@ -5670,7 +5674,7 @@ _resolve_some_types_deep :: (
     if(!is_some_type(&resolved) || rebound_to_some, {
       match(
         st,
-        Rc(.SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _)) => {
+        Rc(.SomeT(_, st_name, st_lvl, _, _, _, _)) => {
           subst_add(&s, &st_name, st_lvl, &resolved);
           bound_any = true;
         },
@@ -5908,7 +5912,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
         if(!is_some_type(&tas_r), {
           match(
             tas_st,
-            Rc(.SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _)) => {
+            Rc(.SomeT(tas_id, tas_name, tas_lvl, _, _, _, _)) => {
               if(tas_own && (tas_id.len() > usize(0)), {
                 subst_adopt_own_resolution(&tas_s, &tas_id);
               }, {

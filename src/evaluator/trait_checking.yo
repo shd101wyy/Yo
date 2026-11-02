@@ -2113,7 +2113,7 @@ type_implements_trait :: (
   // via _add_where_clause_constraint (no separate env lookup needed).
   match(
     &target,
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bnd, _, _)) => { required_trait_types := required_trait_types_bnd.required(); negative_trait_types := required_trait_types_bnd.negative(); 
       (found_req : bool) = false;
       (found_neg : bool) = false;
       // Check required_trait_types.
@@ -2651,7 +2651,7 @@ deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValu
 type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bnd2, _, _)) => { required_trait_types := required_trait_types_bnd2.required(); 
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -2704,7 +2704,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
     Rc(.FnTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
       // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
       // stripped by freshening still resolves through `__impl_fn` (which
@@ -2718,7 +2718,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       while(eft_going, {
         match(
           Rc.clone(eft_cur),
-          Rc(.SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, eft_rc)) => {
+          Rc(.SomeT(eft_id, _, _, _, eft_rtt_bnd, _, eft_rc)) => { eft_rtt := eft_rtt_bnd.required(); 
             n := eft_rtt.len();
             (i : usize) = usize(0);
             while((i < n) && eft_out.is_none(), {
@@ -2987,7 +2987,7 @@ function_value_slot_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -
 impl_param_unmet_trait :: (fn(param_type : &TypeValue, arg_type : &TypeValue, env : &Environment, markers_judged : bool) -> Option(TypeValue))(
   match(
     param_type,
-    Rc(.SomeT({ name : ip_nm, required_trait_types : ip_req })) => cond(
+    Rc(.SomeT({ name : ip_nm, bounds : ip_req_bnd })) => { ip_req := ip_req_bnd.required(); cond(
       ((ip_nm != "Impl") || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
       true => {
         (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
@@ -3005,7 +3005,7 @@ impl_param_unmet_trait :: (fn(param_type : &TypeValue, arg_type : &TypeValue, en
         });
         ip_miss
       }
-    ),
+    ) },
     _ => Option(TypeValue).None
   )
 );
@@ -3020,7 +3020,7 @@ judge_function_argument_markers :: (
   (judged : bool) = false;
   match(
     param_type,
-    Rc(.SomeT({ name : pn, required_trait_types : prtts })) => if(pn == "Impl", {
+    Rc(.SomeT({ name : pn, bounds : prtts_bnd })) => { prtts := prtts_bnd.required(); if(pn == "Impl", {
       (pi : usize) = usize(0);
       while(pi < prtts.len(), {
         match(
@@ -3043,7 +3043,7 @@ judge_function_argument_markers :: (
         );
         pi = (pi + usize(1));
       });
-    }),
+    }) },
     _ => ()
   );
   FunctionArgMarkers(judged : judged, offense : Option(String).None)
@@ -3066,7 +3066,7 @@ impl_argument_unmet_trait_message :: (
 type_implements_future :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bnd3, _, _)) => { required_trait_types := required_trait_types_bnd3.required(); 
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -3312,7 +3312,7 @@ extract_future_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
     Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bnd4, _, _)) => { required_trait_types := required_trait_types_bnd4.required(); 
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -3438,7 +3438,7 @@ find_some_type_missing_comptime_constraint :: (
         // Check required_trait_types.
         match(
           ty,
-          Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+          Rc(.SomeT(_, _, _, _, required_trait_types_bnd5, _, _)) => { required_trait_types := required_trait_types_bnd5.required(); 
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;

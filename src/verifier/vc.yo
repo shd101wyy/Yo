@@ -612,7 +612,7 @@ _register_uninterpreted_sort :: (fn(name : &String) -> unit)({
 _is_some_t_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => true,
+    Rc(.SomeT(_, _, _, _, _, _, _)) => true,
     _ => false
   )
 );
@@ -624,7 +624,7 @@ _is_some_t_type :: (fn(t : &TypeValue) -> bool)(
 _uninterpreted_sort_of :: (fn(t : &TypeValue) -> VcSort)(
   match(
     t,
-    Rc(.SomeT(id, name, _, _, _, _, _, _, _, _)) => VcSort.Uninterpreted(
+    Rc(.SomeT(id, name, _, _, _, _, _)) => VcSort.Uninterpreted(
       name : `__yo_T_${_smt_sanitize(`${name}_${id}`)}`
     ),
     _ => VcSort.Uninterpreted(name : String.from("__yo_T_unknown"))

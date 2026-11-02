@@ -809,7 +809,7 @@ is_rc_type :: (fn(t : &TypeValue) -> bool)(
       _ => is_ref
     ),
     Rc(.DynT(required_trait_types : _)) => true,
-    Rc(.SomeT(required_trait_types : req_traits)) => {
+    Rc(.SomeT(bounds : req_traits_bnd)) => { req_traits := req_traits_bnd.required(); 
       // Check if any required trait is a Future trait
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -863,7 +863,7 @@ is_c_compatible_type :: (fn(t : &TypeValue) -> bool)(
 _some_type_implements_future :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT({ required_trait_types : sf_rtts })) => {
+    Rc(.SomeT({ bounds : sf_rtts_bnd })) => { sf_rtts := sf_rtts_bnd.required(); 
       (sf_found : bool) = false;
       (sf_i : usize) = usize(0);
       while((sf_i < sf_rtts.len()) && !sf_found, {

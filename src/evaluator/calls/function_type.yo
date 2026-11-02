@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text, record_copy_loop } :: import("../utils.yo");
@@ -427,7 +427,7 @@ _type_binder_env_value :: (
       sig_some_ts.get(smi),
       .Some(st) => match(
         &st,
-        Rc(.SomeT(_, st_name, _, _, _, _, _, _, _, _)) => if(st_name == name, {
+        Rc(.SomeT(_, st_name, _, _, _, _, _)) => if(st_name == name, {
           sig_match = Option(TypeValue).Some(Rc.clone(st));
         }),
         _ => ()
@@ -472,7 +472,7 @@ _type_binder_env_value :: (
       });
       stamped := match(
         fresh_some,
-        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => Rc.new(TypeValueNode.SomeT(fs_id, fs_name, fs_level, Rc.clone(fs_parent), fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1.clone(), fs_r2.clone())),
+        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, fs_r1, fs_r2)) => Rc.new(TypeValueNode.SomeT(fs_id, fs_name, fs_level, Rc.clone(fs_parent), some_t_bounds(fs_req, fs_req_lv, fs_neg, fs_neg_lv), fs_r1.clone(), fs_r2.clone())),
         other => Rc.clone(other)
       );
       Option(EvalValue).Some(create_type_value(&stamped))
@@ -835,7 +835,7 @@ _build_def_time_body_env :: (
                 rv.value.get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
-                  .TypeVal(Rc(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _))) =>
+                  .TypeVal(Rc(.SomeT(_, rv_sname, rv_slvl, _, _, _, _))) =>
                     resolve_some_binder_kind(&rv_sname, rv_slvl),
                   _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
@@ -1371,7 +1371,7 @@ Result type: ${type_to_string(&result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           slot_pointee_at(&param_types, pti),
-          .Some(Rc(.SomeT(_, name, _, _, _, _, _, _, _, _))) => name,
+          .Some(Rc(.SomeT(_, name, _, _, _, _, _))) => name,
           .Some(_) => String.from(""),
           .None => String.from("")
         );

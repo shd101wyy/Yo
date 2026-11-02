@@ -3922,7 +3922,7 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
     Rc(.Func({ result : _ })) => String.from("closure"),
     // An open type parameter in a definition-time trial: each instantiation
     // reports its concrete type, so this is the generic body itself.
-    Rc(.SomeT({ required_trait_types : st_traits })) => {
+    Rc(.SomeT({ bounds : st_traits_bnd })) => { st_traits := st_traits_bnd.required(); 
       (sti : usize) = usize(0);
       (is_future : bool) = false;
       while(sti < st_traits.len(), {
@@ -5548,7 +5548,7 @@ _drop_in_arms_that_keep :: (
   });
   if(match(
     &v.ty,
-    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => { s_rtt := s_rtt_bnd.required(); (s_rc.is_none() && (s_rtt.len() == usize(0))) },
     _ => false
   ), {
     return(false);
