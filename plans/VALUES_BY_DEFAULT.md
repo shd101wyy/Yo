@@ -785,9 +785,9 @@ cannot be copied.
       covers the predicates on hand-built types. A test file cannot declare
       its own `Rc` (a prelude name cannot be shadowed), which is why the
       recognition is by shape. A safe file spells a local borrow of the
-      payload through auto-dereference (`&h.x`): a written `*` hop there is
-      rejected for every handle
-      (`issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
+      payload through auto-dereference (`&h.x`): a written `*` hop there was
+      rejected for every handle until decision 43's N1d (O9, 2026-11-02)
+      (`issues/fixed/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
     - **The private `_cell` shadows a payload field of the same name:**
       `w._cell` names the wrapper's field before auto-dereference runs. This
       is already true for `Box`, and E0405 rejects the access outside the

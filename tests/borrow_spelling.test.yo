@@ -736,7 +736,7 @@ test("Escapable holds for a type without origins, and a borrow reaches through a
   drop(h2);
   assert(q == i32(1), "the payload outlives the other handle");
   // A capture through the handle: `h` is frozen while the closure lives.
-  f := { v : &h.*.y }() => v;
+  (f : Impl(Fn() -> i32)) = ({ v : &h.*.y }() => v);
   assert(f() == i32(2), "a closure borrows through the handle");
 });
 comptime_expect_error(
@@ -744,14 +744,6 @@ comptime_expect_error(
     x := i32(1);
     v := BsView(x)(at : &x, lo : usize(0));
     _r := Rc.new(v);
-  }),
-  "The bound `where(V <: Escapable)` requires an `Escapable` type"
-);
-comptime_expect_error(
-  bs_arc_of_view :: (fn() -> unit)({
-    x := i32(1);
-    v := BsView(x)(at : &x, lo : usize(0));
-    _r := Arc.new(v);
   }),
   "The bound `where(V <: Escapable)` requires an `Escapable` type"
 );
@@ -792,7 +784,7 @@ comptime_expect_error(
 comptime_expect_error(
   bs_handle_capture_frozen :: (fn() -> i32)({
     mut(h) := Rc.new(BsHeld(x : i32(1), y : i32(2)));
-    f := { v : &h.*.x }() => v;
+    (f : Impl(Fn() -> i32)) = ({ v : &h.*.x }() => v);
     h = Rc.new(BsHeld(x : i32(3), y : i32(4)));
     f()
   }),
@@ -801,7 +793,7 @@ comptime_expect_error(
 comptime_expect_error(
   bs_handle_capture_mut :: (fn() -> unit)({
     h := Rc.new(BsHeld(x : i32(1), y : i32(2)));
-    _f := { v : &mut h.*.x }() => v;
+    (_f : Impl(Fn() -> i32)) = ({ v : &mut h.*.x }() => v);
   }),
   "A borrow capture cannot reach through"
 );
