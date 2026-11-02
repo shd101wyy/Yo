@@ -3203,7 +3203,7 @@ parse_where_clause_constraints :: (
     (is_concrete_type : bool) = false;
     (skip_constraint : bool) = false;
     if(ast_expr_is_atom(&lhs_expr), {
-      var_name := ast_expr_text(&lhs_expr).*;
+      var_name := ast_expr_text(&lhs_expr).*.clone();
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.last(), .Some(v) => v, .None => return(pending_traits));
@@ -3538,7 +3538,7 @@ prepare_where_clause_variables :: (
     lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     // Ensure LHS variable exists — create SomeType if needed
     if(ast_expr_is_atom(&lhs_expr), {
-      var_name := ast_expr_text(&lhs_expr).*;
+      var_name := ast_expr_text(&lhs_expr).*.clone();
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() == usize(0), {
         // Create new SomeType for this variable
