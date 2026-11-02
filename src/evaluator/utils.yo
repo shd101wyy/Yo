@@ -2879,7 +2879,7 @@ record_explicit_copy_site :: (fn(site : ExplicitCopySite) -> unit)({
   g_explicit_copy_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
-  out := g_explicit_copy_sites.with_mut(xs => xs.split_off(usize(0)));
+  out := g_explicit_copy_sites.replace(ArrayList(ExplicitCopySite).new());
   g_explicit_copy_site_keys.with_mut(s => s.clear());
   out
 });
