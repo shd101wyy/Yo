@@ -4555,9 +4555,6 @@ set_expr_as_needs_to_call_dup :: (
           });
         }
       );
-      if(debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some(), {
-        eprintln(`[s1p-dup] path=${copy_path} rhs=${ast_expr_id(rhs)} var=${variable_name} dup=${ast_expr_id(&evaluated_dup)} at ${ast_expr_token(rhs).row}:${ast_expr_token(rhs).column}`);
-      });
       // Stamp the USE SITE's source token for the dup/drop pair optimizer.
       g_dup_use_site_tokens.with_mut(m => m.insert(ast_expr_id(&evaluated_dup), ast_expr_token(rhs)));
       // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
