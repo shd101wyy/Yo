@@ -100,7 +100,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_holds_counted_handle_ignoring_migration } :: import("../../types/utils.yo");
+{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_holds_counted_handle_ignoring_migration, type_lacks_clone } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { trait_impl_epoch, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -7908,7 +7908,10 @@ AccessorCallInfo :: struct(
   recv_ty_text : String,
   has_index : bool,
   has_with : bool,
-  (element_lacks_clone : bool) ?= false
+  (element_lacks_clone : bool) ?= false,
+  /// No `<name>_cloned` sibling resolves: the method itself was accepted
+  /// (`_copying_accessor_info`'s fallback), so there is nothing to rename to.
+  (no_sibling : bool) ?= false
 );
 /// `call` is a method call `r.m(args)` whose receiver type has an `m_cloned`
 /// sibling in the impl registry (B6-b; plans/VALUES_BY_DEFAULT.md decision
@@ -7962,6 +7965,16 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   ca_method := ca_name_tok.value.*.clone();
   ca_cloned := `${ca_method}_cloned`;
   ca_has_cloned := (get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() > usize(0));
+  // The sibling can be registered for an element without `Clone` (its
+  // `where(T <: Clone)` is asked at the call): the help must not name it
+  // then (VERDICTS-8 Q1).
+  (ca_res_lacks_clone : bool) = false;
+  if(ca_has_cloned, {
+    ca_plain0 := get_type_trait_methods_by_name_from_env(env, &ca_method, &ca_recv_ty);
+    if(!ca_plain0.is_empty(), {
+      ca_res_lacks_clone = type_lacks_clone(&_resolve_some_types_deep(&fn_result_slot(&ca_plain0(usize(0)).ty), env));
+    });
+  });
   if(!ca_has_cloned, {
     ca_plain := get_type_trait_methods_by_name_from_env(env, &ca_method, &ca_recv_ty);
     if(ca_plain.is_empty(), {
@@ -7988,7 +8001,8 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
       recv_ty_text : type_to_string(&ca_recv_ty),
       has_index : (get_type_trait_methods_by_name_from_env(env, String.from("index"), &ca_recv_ty).len() > usize(0)),
       has_with : (get_type_trait_methods_by_name_from_env(env, String.from("with"), &ca_recv_ty).len() > usize(0)),
-      element_lacks_clone : !ca_has_cloned
+      element_lacks_clone : (!ca_has_cloned || ca_res_lacks_clone),
+      no_sibling : !ca_has_cloned
     )
   )
 });
@@ -8011,7 +8025,7 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
     if(info.has_with, {
       parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
     });
-    parts.push(`give the element \`Clone\` (a \`derive\`) and copy it with \`${info.recv_text}.${info.method}_cloned(...)\``);
+    parts.push(`give the element \`Clone\` (a \`derive\`) to copy it`);
   }, {
     copy_verb := if(parts.is_empty(), String.from("Copy"), String.from("copy"));
     parts.push(`${copy_verb} it with \`${info.recv_text}.${info.cloned}(...)\``);
