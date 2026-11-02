@@ -36,3 +36,7 @@ and where the field lookup misses on a non-struct receiver whose type is known, 
 `` `x` has type `i32`: `.*` reads through a pointer or a `Box`/`Arc`, and `i32` is neither ``.
 The struct case is pinned by the `unknown-field-is-an-error` cli-case; this one gets a sibling
 case (or a `comptime_expect_error(x.*, "has type `i32`")` test) with the rendered message.
+
+## Also an enum receiver (2026-11-02, yo 0.2.73 seed)
+
+`Option(P)` falls through the same way: `o.n` on an `o : Option(P)` (a forgotten `.unwrap()`) reports `error: Last expression in "begin" is not evaluated correctly: (o.n)` under `yo check`. When the read is a call argument, the message is `evaluate_function_call: arg not evaluated`, which is how V2c's `ca_plain.get_cloned(usize(0)).ty` (`src/evaluator/calls/function.yo`, `_copying_accessor_info`) passed review and surfaced only as a build failure. Neither message names `Option(P)` or says that it has no field `n`.
