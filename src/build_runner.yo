@@ -217,7 +217,10 @@ _git_version :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
-)(
+)({
+  // The task owns its copy of the directory: a borrowed parameter cannot be
+  // captured by the task.
+  git_dir := project_dir.clone();
   io.async((e : IoExn) => {
     // `git -C <dir>` rather than a cwd on the Command — `std/process/command.yo`
     // has no `current_dir`. The output future runs as a SPAWNED TASK that this
@@ -225,7 +228,7 @@ _git_version :: (
     // closure, and `join` reads an abort as `.None`.
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("-C"));
-    cmd.arg(project_dir);
+    cmd.arg(&git_dir);
     cmd.arg(String.from("describe"));
     cmd.arg(String.from("--tags"));
     cmd.arg(String.from("--always"));
@@ -236,7 +239,7 @@ _git_version :: (
     v := String.from_bytes(out.stdout.clone()).trim();
     if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
   })
-);
+});
 /// The compiler binary to invoke for sub-steps (artifact compiles, test runs).
 ///
 /// An earlier version used the literal name `yo-cli`, resolved through `PATH`.

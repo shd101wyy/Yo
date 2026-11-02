@@ -109,7 +109,7 @@ _collect_index_files :: (
   fn(
     dir : &String,
     root : &String,
-    files : &ArrayList(String),
+    files : &mut ArrayList(String),
     io : Io,
     exn : Exception
   ) -> unit
@@ -188,7 +188,7 @@ context_tree_key :: (
   fn(root : &String, prefix : &String, io : Io, exn : Exception) -> String
 )({
   files := ArrayList(String).new();
-  _collect_index_files(root.clone(), root.clone(), &files, io, exn);
+  _collect_index_files(root.clone(), root.clone(), &mut files, io, exn);
   files.sort();
   corpus := `name ${context_corpus_name(root.clone(), prefix)}\nformat ${INDEX_FORMAT_VERSION}\nyo ${String.from(CURRENT_YO_VERSION)}\n`;
   (fi : usize) = usize(0);
@@ -305,7 +305,7 @@ context_index_ensure :: (
   });
   eprintln(`Building the context index for ${root} (key ${key})...`);
   files := ArrayList(String).new();
-  _collect_index_files(root.clone(), root.clone(), &files, io, exn);
+  _collect_index_files(root.clone(), root.clone(), &mut files, io, exn);
   files.sort();
   io.await(create_dir_all(Path.new(idx_dir.clone()).join(Path.new(String.from("modules"))), io), IoExn(io : io, exn : exn));
   std_path := resolve_std_path();
