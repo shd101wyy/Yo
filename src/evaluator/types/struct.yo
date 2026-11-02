@@ -152,7 +152,7 @@ evaluate_struct_type :: (
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !has_dup, {
-      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      existing := match(field_labels.get_cloned(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == field.label, {
         has_dup = true;
       });
@@ -294,7 +294,7 @@ evaluate_struct_type :: (
     (vc_i : usize) = usize(0);
     while(vc_i < patched_types.len(), {
       vc_ft := match(patched_types.get(vc_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-      vc_label := match(field_labels_s.get(vc_i), .Some(l) => l, .None => String.from(""));
+      vc_label := match(field_labels_s.get_cloned(vc_i), .Some(l) => l, .None => String.from(""));
       if(_type_reaches_root_by_value(&vc_ft, struct_id.clone(), struct_id.clone(), ArrayList(String).new()), {
         exn.throw(
           dyn(

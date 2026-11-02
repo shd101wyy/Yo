@@ -822,7 +822,7 @@ fn_result_origin_names :: (fn(ft : &TypeValue) -> Option(SharedList(String)))(t_
 origin_names_contain :: (fn(names : &SharedList(String), name : &String) -> bool)({
   (oi : usize) = usize(0);
   while(oi < names.len(), {
-    if(match(names.get(oi), .Some(n) => (n == name), .None => false), {
+    if(match(names.get_cloned(oi), .Some(n) => (n == name), .None => false), {
       return(true);
     });
     oi = (oi + usize(1));
@@ -835,7 +835,7 @@ origin_names_contain :: (fn(names : &SharedList(String), name : &String) -> bool
 /// (`xs : &(T, p)` under `-> &(U, p)`). Decision 43 step 2 (N1c), O3's
 /// substitution at a call.
 fn_param_in_result_origin :: (fn(ft : &TypeValue, i : usize, names : &SharedList(String)) -> bool)({
-  label := match(ft, Rc(.Func({ meta : pro_m })) => match(pro_m.*.param_labels.get(i), .Some(l) => l, .None => String.new()), _ => String.new());
+  label := match(ft, Rc(.Func({ meta : pro_m })) => match(pro_m.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new()), _ => String.new());
   if((label.len() > usize(0)) && origin_names_contain(names, &label), {
     return(true);
   });

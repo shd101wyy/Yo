@@ -87,7 +87,7 @@ _TraitFieldResult :: struct(
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -1184,7 +1184,7 @@ evaluate_trait_type :: (
     (is_duplicate : bool) = false;
     (li : usize) = usize(0);
     while(li < field_labels.len(), {
-      existing_label := match(field_labels.get(li), .Some(s) => s, .None => String.from(""));
+      existing_label := match(field_labels.get_cloned(li), .Some(s) => s, .None => String.from(""));
       li = (li + usize(1));
       if(existing_label == field_result.label, {
         is_duplicate = true;
@@ -1322,7 +1322,7 @@ evaluate_trait_type :: (
             match(
               find_some_type_missing_comptime_constraint(&vf_ret, &env_mut),
               .Some(vf_missing) => {
-                vf_label := match(field_labels.get(vf_i), .Some(l) => l, .None => String.from("?"));
+                vf_label := match(field_labels.get_cloned(vf_i), .Some(l) => l, .None => String.from("?"));
                 vf_missing_name := match(
                   &vf_missing,
                   Rc(.SomeT(id : _, name : vf_mn)) => vf_mn,

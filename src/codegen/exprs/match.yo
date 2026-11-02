@@ -1452,7 +1452,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
             match(
               dparams.get(fi),
               .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value.* == "_") && !pattern_param_is_literal(&var_expr), {
-                field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
+                field_label := match(labels.get_cloned(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if(!is_unit_type(&ftype), {
                   init := matched_value_code.clone();
@@ -2033,7 +2033,7 @@ _emit_pattern_chain :: (
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-        flabel := match(labels_v.get(fi), .Some(l) => l, .None => String.from(""));
+        flabel := match(labels_v.get_cloned(fi), .Some(l) => l, .None => String.from(""));
         fcode := _variant_field_code(&enum_ty, vname.clone(), &flabel, path.clone(), ptrish, is_raw_ptr);
         recur(&subs(i), &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, v_cell);
         i = (i + usize(1));
@@ -2054,7 +2054,7 @@ _emit_pattern_chain :: (
         });
         (ni : usize) = usize(0);
         while(ni < names.len(), {
-          nm := match(names.get(ni), .Some(n) => n, .None => String.from(""));
+          nm := match(names.get_cloned(ni), .Some(n) => n, .None => String.from(""));
           nt := match(types.get(ni), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(!is_unit_type(&nt), {
             decl := indent.clone();
@@ -2200,7 +2200,7 @@ _emit_pattern_chain :: (
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        flabel := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
+        flabel := match(flabels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
         fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         fcode := cond(
           (newtype && ptrish) => `(*${path})`,

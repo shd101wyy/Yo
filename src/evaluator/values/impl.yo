@@ -1803,7 +1803,7 @@ try_match_generic_impl :: (
                         _ => false
                       );
                       if(wcr_is_this_forall, {
-                        wcr_lbl := match(wcr_alabels.get(wcr_k), .Some(l) => l, .None => String.new());
+                        wcr_lbl := match(wcr_alabels.get_cloned(wcr_k), .Some(l) => l, .None => String.new());
                         wcr_subj_nm := match(&wcr_subj, Rc(.SomeT(name : wsn)) => wsn.clone(), _ => String.new());
                         match(
                           _resolve_one_forall_binding_from(&match_env, &wcr_subj, &wcr_subj_nm, unify_base - usize(1)),
@@ -4150,7 +4150,7 @@ _impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> 
       if(extra.len() > usize(0), {
         extra.push_str(", ");
       });
-      extra.push_string(`\`${match(labels.get(idx), .Some(l) => l, .None => String.from("?"))}\``);
+      extra.push_string(`\`${match(labels.get_cloned(idx), .Some(l) => l, .None => String.from("?"))}\``);
     });
   });
   if(extra.len() == usize(0), Option(String).None, Option(String).Some(extra))
@@ -4180,7 +4180,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
           a_ref := t_slot_is_mut_ref(&a_slot);
           if(a_own && !e_own && !e_ref && !a_ref, {
             fixed_slots.push(t_reference(t_slot_pointee(&a_slot), false));
-            to_fix.push(match(ameta.*.param_labels.get(pi), .Some(l) => l, .None => String.new()));
+            to_fix.push(match(ameta.*.param_labels.get_cloned(pi), .Some(l) => l, .None => String.new()));
           }, {
             fixed_slots.push(a_slot);
           });
@@ -5059,7 +5059,7 @@ _collect_impl_where_constraints :: (
           if(ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None), {
             rhs_args := match(
               rhs,
-              .FnCall(_, _, Rc(ra), _, _) => ra,
+              .FnCall(_, _, Rc(ra), _, _) => ra.clone(),
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
             (rti : usize) = usize(0);
@@ -5140,7 +5140,7 @@ evaluate_module_value :: (
   // Extract args from the FnCall.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := args.len();
@@ -5156,7 +5156,7 @@ evaluate_module_value :: (
     a0 := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     begin_exprs := match(
       a0,
-      .FnCall(_, _, Rc(be), _, _) => be,
+      .FnCall(_, _, Rc(be), _, _) => be.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     saved_expected := ctx.expected_type;
@@ -5191,7 +5191,7 @@ evaluate_module_value :: (
     forall_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     forall_args := match(
       forall_expr,
-      .FnCall(_, _, Rc(fa), _, _) => fa,
+      .FnCall(_, _, Rc(fa), _, _) => fa.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // Snapshot env (share frames — aliasing snapshot) and push a
@@ -5366,7 +5366,7 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call(&c2_pp_expr) && !ast_expr_is_fn_call_of(&c2_pp_expr, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c2_pp_expr, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c2_pp_expr, "!", .Some(usize(1)))), {
         c2_ta := match(
           c2_pp_expr,
-          .FnCall(_, _, Rc(ta), _, _) => ta,
+          .FnCall(_, _, Rc(ta), _, _) => ta.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         (c2_ti : usize) = usize(0);
@@ -5599,7 +5599,7 @@ evaluate_module_value :: (
           Rc(.TraitT({ field_labels : gd_labels, field_types : gd_types, id : gd_trait_id })) => {
             (gdi : usize) = usize(0);
             while(gdi < gd_labels.len(), {
-              gd_label := match(gd_labels.get(gdi), .Some(l) => l, .None => String.from(""));
+              gd_label := match(gd_labels.get_cloned(gdi), .Some(l) => l, .None => String.from(""));
               gd_ty := match(gd_types.get(gdi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               (gd_provided : bool) = false;
               (gpi : usize) = usize(0);
@@ -5862,7 +5862,7 @@ evaluate_module_value :: (
       .Some(c3_te_outer) => if(ast_expr_is_fn_call(&c3_te_outer) && !ast_expr_is_fn_call_of(&c3_te_outer, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c3_te_outer, "!", .Some(usize(1)))), {
         c3_ta := match(
           c3_te_outer,
-          .FnCall(_, _, Rc(ta), _, _) => ta,
+          .FnCall(_, _, Rc(ta), _, _) => ta.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         (c3_ti : usize) = usize(0);
@@ -6006,7 +6006,7 @@ evaluate_module_value :: (
           // (`where(...)` args are skipped — see the generic loop above.)
           trait_inner_args := match(
             field_expr,
-            .FnCall(_, _, Rc(tia), _, _) => tia,
+            .FnCall(_, _, Rc(tia), _, _) => tia.clone(),
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           // Look up the trait type by atom name in the env so we can
@@ -6116,7 +6116,7 @@ evaluate_module_value :: (
             Rc(.TraitT({ field_labels : pv_labels, field_types : pv_types, id : pv_trait_id })) => if(receiver_type_id != "", {
               (pvfi : usize) = usize(0);
               while(pvfi < pv_labels.len(), {
-                pv_lbl := match(pv_labels.get(pvfi), .Some(l) => l, .None => String.from(""));
+                pv_lbl := match(pv_labels.get_cloned(pvfi), .Some(l) => l, .None => String.from(""));
                 pv_fty := match(pv_types.get(pvfi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if((pv_lbl != "") && is_function_type(&pv_fty), {
                   register_provisional_trait_method(
@@ -6223,7 +6223,7 @@ evaluate_module_value :: (
             Rc(.TraitT({ field_labels : dtf_labels, field_types : dtf_types, id : dtf_trait_id })) => {
               (dfi : usize) = usize(0);
               while(dfi < dtf_labels.len(), {
-                d_label := match(dtf_labels.get(dfi), .Some(l) => l, .None => String.from(""));
+                d_label := match(dtf_labels.get_cloned(dfi), .Some(l) => l, .None => String.from(""));
                 d_ty := match(dtf_types.get(dfi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 // Did the impl provide this field?
                 (d_provided : bool) = false;
@@ -6341,7 +6341,7 @@ evaluate_module_value :: (
                           );
                           (d_pi : usize) = usize(0);
                           while(d_pi < d_fvd.*.params.len(), {
-                            d_pn := match(d_fvd.*.params.get(d_pi), .Some(n) => n, .None => String.from(""));
+                            d_pn := match(d_fvd.*.params.get_cloned(d_pi), .Some(n) => n, .None => String.from(""));
                             d_pt := match(slot_pointee_at(&d_pts, d_pi), .Some(t) => t, .None => t_unit());
                             ___dpv := add_variable_to_env(
                               &d_env,
@@ -6600,7 +6600,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   });
   (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
   if(g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
-    fast := match(g_move_only_fast_answers.with(xs => xs.get(slot)), .Some(a) => a, .None => String.new());
+    fast := match(g_move_only_fast_answers.with(xs => xs.get_cloned(slot)), .Some(a) => a, .None => String.new());
     if(type_key_memo_check_enabled(), {
       slow := g_move_only_memo.with(m => m.get(type_key(ty)));
       if(match(slow, .Some(m) => (m != fast), .None => true), {
@@ -7272,7 +7272,7 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
   n_keys := g_impl_registry_keys.with(xs => xs.len());
   (ki : usize) = usize(0);
   while(ki < n_keys, ki = (ki + usize(1)), {
-    entry_list := match(g_impl_registry_entry_lists.with(xs => xs.get(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new());
+    entry_list := match(g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new());
     (ei : usize) = usize(0);
     while(ei < entry_list.len(), ei = (ei + usize(1)), {
       match(
@@ -7318,7 +7318,7 @@ synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(Ty
   (unify_base : usize) = unify_env.frames.len();
   (ui : usize) = usize(0);
   while(ui < names.len(), ui = (ui + usize(1)), {
-    nm := match(names.get(ui), .Some(n) => n, .None => String.new());
+    nm := match(names.get_cloned(ui), .Some(n) => n, .None => String.new());
     sm := match(somes.get(ui), .Some(s) => s, .None => t_unit());
     add_variable_to_env(&unify_env, &nm, t_type(), Option(EvalValue).Some(create_type_value(&sm)), true, false, false, false, synthetic_token(&nm, &env.module_path.*));
   });
@@ -7340,7 +7340,7 @@ synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(Ty
   out := ArrayList(Option(TypeValue)).new();
   (bi : usize) = usize(0);
   while(bi < names.len(), bi = (bi + usize(1)), {
-    nm := match(names.get(bi), .Some(n) => n, .None => String.new());
+    nm := match(names.get_cloned(bi), .Some(n) => n, .None => String.new());
     sm := match(somes.get(bi), .Some(s) => s, .None => t_unit());
     out.push(
       match(

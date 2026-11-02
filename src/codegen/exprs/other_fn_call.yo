@@ -1365,7 +1365,7 @@ _callee_param_fn_type :: (fn(func_expr : &AstExpr, context : &FunctionGeneration
       labels := Rc.clone(cmeta.*.param_labels);
       (i : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
           return(
             match(
               slot_pointee_at(&cpts, i),
@@ -1478,7 +1478,7 @@ _cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String
       (found : Option(TypeValue)) = Option(TypeValue).None;
       (vi : usize) = usize(0);
       while((vi < vns.len()) && found.is_none(), {
-        if(match(vns.get(vi), .Some(vn) => (vn == "Some"), .None => false), {
+        if(match(vns.get_cloned(vi), .Some(vn) => (vn == "Some"), .None => false), {
           found = match(vfs.get(vi), .Some(fs) => fs.get(usize(0)), .None => Option(TypeValue).None);
         });
         vi = (vi + usize(1));
@@ -1552,7 +1552,7 @@ _generate_runtime_enum_construct :: (
                   positional.push_str(", ");
                 });
                 any_field = true;
-                flabel := match(vflabels.get(i), .Some(l) => l, .None => String.from(""));
+                flabel := match(vflabels.get_cloned(i), .Some(l) => l, .None => String.from(""));
                 inits.push_str(".");
                 inits.push_string(sanitize_for_c_identifier(&flabel, false));
                 inits.push_str(" = ");

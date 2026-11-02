@@ -78,14 +78,14 @@ _array_wrapper_names_sorted :: (fn(context : &CodeGenContext) -> ArrayList(Strin
     (min_i : usize) = usize(0);
     (ci : usize) = usize(1);
     while(ci < keys.len(), {
-      cand := match(keys.get(ci), .Some(s) => s, .None => String.new());
-      cur_min := match(keys.get(min_i), .Some(s) => s, .None => String.new());
+      cand := match(keys.get_cloned(ci), .Some(s) => s, .None => String.new());
+      cur_min := match(keys.get_cloned(min_i), .Some(s) => s, .None => String.new());
       if(_array_wrapper_name_lt(&cand, &cur_min), {
         min_i = ci;
       });
       ci = (ci + usize(1));
     });
-    picked := match(keys.get(min_i), .Some(s) => s, .None => String.new());
+    picked := match(keys.get_cloned(min_i), .Some(s) => s, .None => String.new());
     sorted_keys.push(picked);
     keys.drain(min_i .. (min_i + usize(1)));
   });
@@ -136,7 +136,7 @@ _drain_ready_array_wrappers :: (
     progress = false;
     (i : usize) = usize(0);
     while(i < pending.len(), {
-      name := match(pending.get(i), .Some(k) => k, .None => String.from(""));
+      name := match(pending.get_cloned(i), .Some(k) => k, .None => String.from(""));
       child := match(
         context.array_struct_types.get(name.clone()),
         .Some(info) => info.child_type.clone(),
@@ -344,7 +344,7 @@ generate_union_declaration :: (fn(union_type : &TypeValue, c_name : &String, con
       n := field_types.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
         match(
           field_types.get(i),
           .Some(ft) => {
@@ -475,14 +475,14 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
           cfi = (cfi + usize(1));
         });
         if(non_unit > usize(0), {
-          vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+          vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
           context.emitter.emit_declaration_line("  struct {");
           (fi : usize) = usize(0);
           while(fi < nf, {
             match(
               fields.get(fi),
               .Some(ft) => if(!is_unit_type(&ft), {
-                label := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+                label := match(labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
                 fts := get_type_string(&ft, context);
                 fname := sanitize_for_c_identifier(&label, false);
                 context.emitter.emit_declaration_string_line(`    ${fts} ${fname};`);
@@ -1595,7 +1595,7 @@ generate_dyn_forward_declarations :: (fn(context : &CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
       context.types.get(key.clone()),
       .Some(entry) => if(is_dyn_type(&entry.ty), {
@@ -1803,7 +1803,7 @@ generate_dyn_box_types :: (fn(context : &CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
       context.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
@@ -2168,7 +2168,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   sorted_ids := ArrayList(String).new();
   (head : usize) = usize(0);
   while(head < queue.len(), {
-    tid := match(queue.get(head), .Some(t) => t, .None => String.from(""));
+    tid := match(queue.get_cloned(head), .Some(t) => t, .None => String.from(""));
     head = (head + usize(1));
     sorted_ids.push(tid.clone());
     // Decrement in-degree of every node that depends on tid.

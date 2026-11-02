@@ -493,7 +493,7 @@ _ctor_binder_some_ids :: (
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    lbl := match(labels.get(i), .Some(l) => l, .None => String.from(""));
+    lbl := match(labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
     ids.push(
       match(
         find_variable_in_env(env, &lbl),
@@ -547,7 +547,7 @@ _record_ctor_phantom_positions :: (
   flags := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < binder_ids.len(), {
-    bid := match(binder_ids.get(i), .Some(x) => x, .None => String.from(""));
+    bid := match(binder_ids.get_cloned(i), .Some(x) => x, .None => String.from(""));
     (in_payload : bool) = false;
     (j : usize) = usize(0);
     while((j < payload_somes.len()) && !in_payload, {
@@ -845,7 +845,7 @@ _build_def_time_body_env :: (
               (rk_at : Option(usize)) = Option(usize).None;
               (rk_si : usize) = usize(0);
               while(rk_si < rk_names.len(), {
-                if(match(rk_names.get(rk_si), .Some(n) => (n == rv.name), .None => false), {
+                if(match(rk_names.get_cloned(rk_si), .Some(n) => (n == rv.name), .None => false), {
                   rk_at = Option(usize).Some(rk_si);
                 });
                 rk_si = (rk_si + usize(1));
@@ -893,7 +893,7 @@ _build_def_time_body_env :: (
       .Some(rk_o) => match(
         rk_o,
         .Some(rk_bty) => {
-          rk_n := match(rk_names.get(rk_bi), .Some(n) => n, .None => String.from(""));
+          rk_n := match(rk_names.get_cloned(rk_bi), .Some(n) => n, .None => String.from(""));
           rk_r := match(rk_reassign.get(rk_bi), .Some(b) => b, .None => false);
           rk_ml := match(rk_module_level.get(rk_bi), .Some(b) => b, .None => false);
           rk_var_opt := add_variable_to_env(
@@ -980,13 +980,13 @@ _build_def_time_body_env :: (
     fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => Rc.clone(__fa_t), _ => no_types());
     (fa_i : usize) = usize(0);
     while(fa_i < fa_labels.len(), {
-      fa_name := match(fa_labels.get(fa_i), .Some(n) => n, .None => String.from(""));
+      fa_name := match(fa_labels.get_cloned(fa_i), .Some(n) => n, .None => String.from(""));
       fa_ty := match(fa_types.get(fa_i), .Some(t) => t, .None => t_unit());
       is_param_too := {
         (fp_i : usize) = usize(0);
         (fp_hit : bool) = false;
         while((fp_i < param_labels.len()) && !fp_hit, {
-          if(match(param_labels.get(fp_i), .Some(l) => (l == fa_name), .None => false), {
+          if(match(param_labels.get_cloned(fp_i), .Some(l) => (l == fa_name), .None => false), {
             fp_hit = true;
           });
           fp_i = (fp_i + usize(1));
@@ -1035,7 +1035,7 @@ _build_def_time_body_env :: (
     );
     (o_i : usize) = usize(0);
     while(o_i < o_labels.len(), {
-      o_name := match(o_labels.get(o_i), .Some(n) => n, .None => String.from(""));
+      o_name := match(o_labels.get_cloned(o_i), .Some(n) => n, .None => String.from(""));
       if(o_name.len() > usize(0), {
         o_names := ArrayList(String).new();
         o_names.push(o_name.clone());
@@ -1058,7 +1058,7 @@ _build_def_time_body_env :: (
   };
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
-    pn := match(param_labels.get(pi), .Some(n) => n, .None => String.from(""));
+    pn := match(param_labels.get_cloned(pi), .Some(n) => n, .None => String.from(""));
     pt := match(param_types.get(pi), .Some(t) => t_slot_pointee(&t), .None => t_unit());
     p_ref := match(param_types.get(pi), .Some(t) => t_slot_is_mut_ref(&t), .None => false);
     p_own := match(param_types.get(pi), .Some(t) => t_slot_is_by_value(&t), .None => false);
@@ -1651,7 +1651,7 @@ Result type: ${type_to_string(&result_box)}`
           pred_env.push_frame(false);
           (pv_i : usize) = usize(0);
           while(pv_i < param_labels.len(), {
-            pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
+            pv_name := match(param_labels.get_cloned(pv_i), .Some(l) => l, .None => String.new());
             pv_ty := match(slot_pointee_at(&param_types, pv_i), .Some(t) => t, .None => t_unit());
             if(pv_name.len() > usize(0), {
               add_variable_to_env(
@@ -2522,7 +2522,7 @@ Result type: ${type_to_string(&result_box)}`
                         (dg_found : bool) = false;
                         (dg_fi : usize) = usize(0);
                         while(dg_fi < forall_labels.len(), {
-                          if(match(forall_labels.get(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
+                          if(match(forall_labels.get_cloned(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
                             dg_found = true;
                           });
                           dg_fi = (dg_fi + usize(1));

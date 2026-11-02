@@ -683,7 +683,7 @@ register_refine_annotation :: (fn(expr_id : usize, pred_fid : &String) -> unit)(
 });
 refine_annotation_pred :: (fn(expr_id : usize) -> String)(
   match(
-    g_refine_annotation_preds.with(m => m.get(&expr_id)),
+    g_refine_annotation_preds.with(m => m.get_cloned(&expr_id)),
     .Some(fid) => fid,
     .None => String.from("")
   )
@@ -969,7 +969,7 @@ _origin_error :: (fn(at : &AstExpr, msg : &String, help : &String) -> YoError)(
 _names_contain :: (fn(names : &ArrayList(String), name : &String) -> bool)({
   (ni : usize) = usize(0);
   while(ni < names.len(), {
-    if(match(names.get(ni), .Some(n) => (n == name), .None => false), {
+    if(match(names.get_cloned(ni), .Some(n) => (n == name), .None => false), {
       return(true);
     });
     ni = (ni + usize(1));
@@ -1396,7 +1396,7 @@ FuncParamsResult :: struct(
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -2766,7 +2766,7 @@ _unmet_trait_message :: (fn(concrete : &TypeValue, tv : &TypeValue, env : &Envir
   wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => Rc.clone(t), _ => no_types());
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    label := match(labels.get(i), .Some(l) => l, .None => String.new());
+    label := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
     want := match(wants.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     i = (i + usize(1));
     if(!is_some_type(&want) && (get_all_some_types(&want).len() == usize(0)), {

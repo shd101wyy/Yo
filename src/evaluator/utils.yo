@@ -5348,7 +5348,7 @@ _keep_body_end_move :: (fn(v : &Variable, ct : &Token, loc : &Token, after : boo
 _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(Token)) -> Option(Token))({
   (si : usize) = usize(0);
   while(si < snap.var_ids.len(), {
-    if(match(snap.var_ids.get(si), .Some(x) => (x == id), .None => false), {
+    if(match(snap.var_ids.get_cloned(si), .Some(x) => (x == id), .None => false), {
       return(match(snap.consumed.get(si), .Some(c) => c, .None => pre));
     });
     si = (si + usize(1));
@@ -7086,7 +7086,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (stop : bool) = false;
   while((k > usize(0)) && !stop, {
     k = (k - usize(1));
-    step := match(steps.get(k), .Some(s) => s, .None => String.from("?"));
+    step := match(steps.get_cloned(k), .Some(s) => s, .None => String.from("?"));
     recv_ty := match(
       recvs.get(k),
       .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
@@ -7130,7 +7130,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (ci : usize) = usize(0);
   while(ci < cell.len(), {
     cell_text.push_str(".");
-    cell_text.push_string(match(cell.get(ci), .Some(s) => s, .None => String.new()));
+    cell_text.push_string(match(cell.get_cloned(ci), .Some(s) => s, .None => String.new()));
     ci = (ci + usize(1));
   });
   Option(CellRootedPlace).Some(
@@ -7155,7 +7155,7 @@ cell_rooted_same_cell :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) -> bool
   });
   (i : usize) = usize(0);
   while(i < p.cell_steps.len(), {
-    if(match(p.cell_steps.get(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(p.cell_steps.get_cloned(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get_cloned(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
@@ -7169,7 +7169,7 @@ cell_rooted_places_overlap :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) ->
   n := cond((p.below.len() < q.below.len()) => p.below.len(), true => q.below.len());
   (i : usize) = usize(0);
   while(i < n, {
-    if(match(p.below.get(i), .Some(x) => x, .None => String.new()) != match(q.below.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(p.below.get_cloned(i), .Some(x) => x, .None => String.new()) != match(q.below.get_cloned(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
@@ -7347,17 +7347,17 @@ _lb_raise_conflict :: (
     }
   );
   match(
-    info.elided_origin,
+    &info.elided_origin,
     .Some(eo) => {
       (ek : usize) = usize(0);
       while(ek < eo.roots.len(), {
-        if(match(eo.roots.get(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
-          frozen_label := match(eo.labels.get(ek), .Some(l) => l, .None => String.new());
+        if(match(eo.roots.get_cloned(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
+          frozen_label := match(eo.labels.get_cloned(ek), .Some(l) => l, .None => String.new());
           keep := String.new();
           (kk : usize) = usize(0);
           while(kk < eo.labels.len(), {
             match(
-              eo.labels.get(kk),
+              eo.labels.get_cloned(kk),
               .Some(l) => if(!(l == frozen_label) && !_lb_label_listed(&eo.labels, kk), {
                 if(keep.len() > usize(0), {
                   keep.push_str(", ");
@@ -7392,7 +7392,7 @@ _lb_raise_conflict :: (
 _lb_label_listed :: (fn(labels : &ArrayList(String), k : usize) -> bool)({
   (j : usize) = usize(0);
   while(j < k, {
-    if(match(labels.get(j), .Some(a) => match(labels.get(k), .Some(b) => (a == b), .None => false), .None => false), {
+    if(match(labels.get_cloned(j), .Some(a) => match(labels.get_cloned(k), .Some(b) => (a == b), .None => false), .None => false), {
       return(true);
     });
     j = (j + usize(1));
@@ -8346,7 +8346,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
 });
 /// The label of parameter `i` of the `Func` `ft` (empty past the end).
 _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(
-  match(ft, Rc(.Func({ meta : pla_m })) => match(pla_m.*.param_labels.get(i), .Some(l) => l, .None => String.new()), _ => String.new())
+  match(ft, Rc(.Func({ meta : pla_m })) => match(pla_m.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new()), _ => String.new())
 );
 /// One ground place an origin-carrying composite freezes, with the mode the
 /// reference holding it has (decision 43 step 3, T8/T9).
@@ -8354,6 +8354,7 @@ OriginRootPlace :: struct(
   place : LocalBorrowPlace,
   is_mut : bool
 );
+derive(OriginRootPlace, Clone);
 /// The ground places a value of an origin-carrying INLINE COMPOSITE (N2b)
 /// freezes: the places its producing call lent — every argument whose type
 /// is a reference (`&x`, `&mut xs`, a struct constructor's `&` field, a
@@ -8450,7 +8451,7 @@ _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, 
         (pi : usize) = usize(0);
         while(pi < info.places.len(), {
           match(
-            info.places.get(pi),
+            info.places.get_cloned(pi),
             .Some(p) => out.push(OriginRootPlace(place : p, is_mut : info.is_mut)),
             .None => ()
           );
@@ -8479,12 +8480,11 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
   range := local_borrow_range_of(binding, var_name.clone(), name_tok);
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
-    root := roots(ri);
     // No access check HERE: the lend itself was checked where it was made
     // (the argument marker at the call, T9), and a same-name entry from this
     // binding's own def-time trial pass would self-conflict. The freeze is
     // enforced at every later access against the entry registered below.
-    local_borrow_register(var_name.clone(), name_tok, root.is_mut, &root.place, &range, &Option(Variable).None);
+    local_borrow_register(var_name.clone(), name_tok, roots(ri).is_mut, &roots(ri).place, &range, &Option(Variable).None);
     ri = (ri + usize(1));
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
@@ -8510,15 +8510,14 @@ reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx
       });
       (oi : usize) = usize(0);
       while(oi < roots.len(), {
-        root := roots(oi);
         match(
-          get_variables_from_env(env, root.place.root_name.clone()).last(),
+          get_variables_from_env(env, roots(oi).place.root_name.clone()).last(),
           .Some(rv) => if(!rv.is_parameter && !rv.is_module_level, {
             raise_flow_violation(
               with_code(
                 format_error_message_with_help(
                   ast_expr_token(e),
-                  `Cannot return a value holding \`${_lb_place_text(&root.place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                  `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
                   Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
                 ),
                 E_LOCAL_BORROW_ESCAPES

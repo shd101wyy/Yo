@@ -2678,7 +2678,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
     .StructVal(_, labels, values) => {
       (i : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get(i), .Some(l) => (l == "main"), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == "main"), .None => false), {
           match(
             values.get(i),
             .Some(v) => match(

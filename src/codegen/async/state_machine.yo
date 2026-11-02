@@ -889,7 +889,7 @@ compute_overlapping_slots :: (
   (next_slot_index : usize) = usize(0);
   (ot : usize) = usize(0);
   while(ot < ordered_c_types.len(), {
-    ctype := match(ordered_c_types.get(ot), .Some(c) => c, .None => String.new());
+    ctype := match(ordered_c_types.get_cloned(ot), .Some(c) => c, .None => String.new());
     var_ids := match(by_type.get(ctype.clone()), .Some(g) => g, .None => ArrayList(String).new());
     if(var_ids.len() >= usize(2), {
       // Interference graph: two vars conflict if their ranges overlap.
@@ -955,7 +955,7 @@ compute_overlapping_slots :: (
         if(!color_to_vars.contains_key(&col), {
           ordered_colors.push(col);
         });
-        cgroup := match(color_to_vars.get(&col), .Some(g) => g, .None => ArrayList(String).new());
+        cgroup := match(color_to_vars.get_cloned(&col), .Some(g) => g, .None => ArrayList(String).new());
         cgroup.push(var_id.clone());
         color_to_vars.insert(col, cgroup);
         cti = (cti + usize(1));
@@ -964,7 +964,7 @@ compute_overlapping_slots :: (
       (oci : usize) = usize(0);
       while(oci < ordered_colors.len(), {
         col := match(ordered_colors.get(oci), .Some(c) => c, .None => usize(0));
-        group_var_ids := match(color_to_vars.get(&col), .Some(g) => g, .None => ArrayList(String).new());
+        group_var_ids := match(color_to_vars.get_cloned(&col), .Some(g) => g, .None => ArrayList(String).new());
         if(group_var_ids.len() >= usize(2), {
           field_name := String.from("slot_");
           field_name.push_string(next_slot_index.to_string());
@@ -1122,7 +1122,7 @@ _build_combined_sm_variables :: (
       ftypes := match(ct, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
-        lbl := match(flabels.get(j), .Some(l) => l, .None => String.from(""));
+        lbl := match(flabels.get_cloned(j), .Some(l) => l, .None => String.from(""));
         ty := match(ftypes.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         cv := CapturedVariable(
           base : SuspensionCapturedVariable(
@@ -1216,7 +1216,7 @@ emit_effect_record_injection_for_sm :: (
   field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
   (fi : usize) = usize(0);
   while(fi < field_labels.len(), {
-    flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+    flabel := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
     ftype := match(field_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(is_function_type(&ftype), {
       (member_code : Option(String)) = Option(String).None;
@@ -1370,7 +1370,7 @@ emit_effect_injection_for_sm :: (
             eff_types := match(&ftrait, Rc(.FutureTraitT({ effect_types : et })) => Rc.clone(et), _ => no_types());
             (i : usize) = usize(0);
             while(i < eff_labels.len(), {
-              elabel := match(eff_labels.get(i), .Some(l) => l, .None => String.from(""));
+              elabel := match(eff_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
               etype := match(eff_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               if(is_function_type(&etype), {
                 has_forall := match(etype, Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);

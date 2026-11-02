@@ -168,7 +168,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
   field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
-    flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+    flbl := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
     fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(is_function_type(&fty), {
       (member_code : Option(String)) = Option(String).None;

@@ -1263,8 +1263,8 @@ _synthesize_types_impl :: (
         (sl_i : usize) = usize(0);
         (sl_eq : bool) = true;
         while((sl_i < exp_lbls.len()) && sl_eq, {
-          sl_e := match(exp_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
-          sl_g := match(giv_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
+          sl_e := match(exp_lbls.get_cloned(sl_i), .Some(x) => x, .None => String.from(""));
+          sl_g := match(giv_lbls.get_cloned(sl_i), .Some(x) => x, .None => String.from(""));
           if(sl_e != sl_g, {
             sl_eq = false;
           });
@@ -1363,8 +1363,8 @@ _synthesize_types_impl :: (
         (vni : usize) = usize(0);
         (vn_ok : bool) = (exp_vn.len() > usize(0));
         while((vni < exp_vn.len()) && vn_ok, {
-          evn := match(exp_vn.get(vni), .Some(x) => x, .None => String.from(""));
-          gvn := match(giv_vn.get(vni), .Some(x) => x, .None => String.from("?"));
+          evn := match(exp_vn.get_cloned(vni), .Some(x) => x, .None => String.from(""));
+          gvn := match(giv_vn.get_cloned(vni), .Some(x) => x, .None => String.from("?"));
           if(!(evn == gvn), {
             vn_ok = false;
           });

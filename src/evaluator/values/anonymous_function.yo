@@ -234,7 +234,7 @@ _synthesize_default_func_type :: (
   (i : usize) = usize(0);
   n := names.len();
   while(i < n, {
-    name := match(names.get(i), .Some(s) => s, .None => String.from("_p"));
+    name := match(names.get_cloned(i), .Some(s) => s, .None => String.from("_p"));
     param_types.push(t_some_t(&name, frame_level));
     i = (i + usize(1));
   });
@@ -875,7 +875,7 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
   (ri : usize) = rev.len();
   while(ri > usize(0), {
     ri = (ri - usize(1));
-    fields.push(match(rev.get(ri), .Some(f) => f, .None => String.new()));
+    fields.push(match(rev.get_cloned(ri), .Some(f) => f, .None => String.new()));
   });
   Option(AstExpr).Some(cur)
 });
@@ -1723,7 +1723,7 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   (fa_env_i : usize) = usize(0);
   while(fa_env_i < forall_labels.len(), {
-    fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n, .None => String.from(""));
+    fl_name := match(forall_labels.get_cloned(fa_env_i), .Some(n) => n, .None => String.from(""));
     fl_ty := Rc.new(
       TypeValueNode.SomeT(
         fl_name.clone(),
@@ -1757,7 +1757,7 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   (il_env_i : usize) = usize(0);
   while(il_env_i < implicit_labels.len(), {
-    il_name := match(implicit_labels.get(il_env_i), .Some(n) => n, .None => String.from(""));
+    il_name := match(implicit_labels.get_cloned(il_env_i), .Some(n) => n, .None => String.from(""));
     il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     il_tok := synthetic_token(il_name.clone(), &env.module_path.*);
     il_val := create_unknown_val(il_ty.clone());
@@ -1787,7 +1787,7 @@ evaluate_anonymous_function_implementation :: (
   (rp_i : usize) = usize(0);
   while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
-    exp_label := match(param_labels.get(rp_i), .Some(n) => n, .None => String.from(""));
+    exp_label := match(param_labels.get_cloned(rp_i), .Some(n) => n, .None => String.from(""));
     rp_ty_raw := match(slot_pointee_at(&param_types, rp_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     // Substitute generic SomeTypes (e.g. `E`) in the param type with their
     // concrete bindings from the callee env.
@@ -2528,7 +2528,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
             (rv_found : bool) = false;
             (rv_i : usize) = usize(0);
             while(rv_i < forall_labels.len(), {
-              if(match(forall_labels.get(rv_i), .Some(l) => (l == rv_name), .None => false), {
+              if(match(forall_labels.get_cloned(rv_i), .Some(l) => (l == rv_name), .None => false), {
                 rv_found = true;
               });
               rv_i = (rv_i + usize(1));
@@ -2953,7 +2953,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   (dgc_found : bool) = false;
                   (dgc_fi : usize) = usize(0);
                   while(dgc_fi < forall_labels.len(), {
-                    if(match(forall_labels.get(dgc_fi), .Some(l) => (l == dgc_sname), .None => false), {
+                    if(match(forall_labels.get_cloned(dgc_fi), .Some(l) => (l == dgc_sname), .None => false), {
                       dgc_found = true;
                     });
                     dgc_fi = (dgc_fi + usize(1));

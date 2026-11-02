@@ -1216,8 +1216,7 @@ evaluate_yo_build_functions :: (
   });
   // ── Registry-mutating builtins (all return unit) ────────────────────
   reg := get_build_registry();
-  ht := host_target();
-  host_triple := ht.triple.clone();
+  host_triple := host_target().triple.clone();
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE, Option(usize).None), {
     _build_require_args(&args, usize(2), String.from("__yo_build_executable expects at least 2 arguments (name, root)"), expr, exn);
     reg.register_executable(

@@ -2,6 +2,8 @@
 
 **Kind:** design question: an open decision, not a defect. Filed 2026-10-27 while preparing B8's goldens (`plans/handover/VBD_LOOKAHEAD_2026-10-23.md` §4.5, "Goldens").
 
+**Status:** DECIDED 2026-11-01 (consultation #12, re-ratified by #13 at 0.85): Option 1, then Option 3 after B11. B8 and each later flip move the fixtures to a type that is still `ref`. B11 deletes both tools and their cli-cases. The V5 split does not move the retirement point: part B's `src/` migration is scripted, never a user-facing `--migrate explicit-copy` run.
+
 ## The question
 
 Two transition tools find the implicit copies that unique ownership turns into explicit ones:

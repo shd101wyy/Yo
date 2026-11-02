@@ -166,7 +166,7 @@ _reject_gadt_unreachable_variant :: (
   if(!gadt_branch_reachable(enum_id.clone(), variant_idx), {
     idx := match(
       get_gadt_variant_args(enum_id),
-      .Some(all) => match(all.get(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new()),
+      .Some(all) => match(all.get_cloned(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new()),
       .None => ArrayList(TypeValue).new()
     );
     idx_s := String.from("");
@@ -528,7 +528,7 @@ _evaluate_property_access_node :: (
   if(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(1))), {
     all_args_1 := match(
       expr,
-      .FnCall(_, _, Rc(args), _, _) => args,
+      .FnCall(_, _, Rc(args), _, _) => args.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     prop_expr_1 := match(
@@ -682,7 +682,7 @@ _evaluate_property_access_node :: (
   });
   all_args := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (object_expr : AstExpr) = match(
@@ -1083,7 +1083,7 @@ Raw pointer operations may dereference invalid memory.`
       n_wt := ctx.current_impl_trait_field_labels.len();
       (wt_i : usize) = usize(0);
       while(wt_i < n_wt, {
-        wt_lbl := match(ctx.current_impl_trait_field_labels.get(wt_i), .Some(l) => l, .None => String.from(""));
+        wt_lbl := match(ctx.current_impl_trait_field_labels.get_cloned(wt_i), .Some(l) => l, .None => String.from(""));
         if(wt_lbl == wt_prop, {
           match(
             ctx.current_impl_trait_field_types.get(wt_i),
@@ -2461,7 +2461,7 @@ Raw pointer operations may dereference invalid memory.`
                   .Some(eov) => match(
                     eov,
                     .EnumVal(ev_vn, ev_flds) => {
-                      dv_name := match(ev_vnames.get(dv_idx), .Some(nm) => nm, .None => String.from(""));
+                      dv_name := match(ev_vnames.get_cloned(dv_idx), .Some(nm) => nm, .None => String.from(""));
                       dv_dot_sel := `.${ dv_name }`;
                       if(ev_vn == dv_dot_sel, {
                         match(

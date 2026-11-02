@@ -960,7 +960,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       (i : usize) = usize(0);
       while(i < sfts.len(), {
         ft := match(sfts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
-        fl := match(sfls.get(i), .Some(x) => x, .None => String.from(""));
+        fl := match(sfls.get_cloned(i), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(&fl);
         out.push_str(":");
@@ -995,7 +995,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       out.push_string(&eid);
       (vi : usize) = usize(0);
       while(vi < evfs.len(), {
-        vn := match(evns.get(vi), .Some(x) => x, .None => String.from(""));
+        vn := match(evns.get_cloned(vi), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(&vn);
         match(

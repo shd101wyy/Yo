@@ -617,7 +617,7 @@ require_no_inout_write_through_borrow :: (
         match(
           local_borrow_place_of(&arg, env, ctx),
           .Some(lbp) => {
-            lb_label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            lb_label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.from("?"));
             lb_how := cond(
               (lb_label == "self") => `call a method that writes its receiver on \`${_place_source_text(&arg)}\``,
               true => `pass \`${_place_source_text(&arg)}\` to the \`&mut\` parameter \`${lb_label}\`, which the callee writes`
@@ -653,7 +653,7 @@ require_no_inout_write_through_borrow :: (
           shared_borrow_param_root_of_place(&arg, env, ctx),
           .Some(sbv) => {
             is_shared_param_write = true;
-            sb_label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            sb_label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.from("?"));
             sb_target := cond((sb_label == "self") => String.from("the `self : &mut Self` receiver"), true => `the \`&mut\` parameter \`${sb_label}\``);
             pending.push(
               D3PendingInout(
@@ -681,7 +681,7 @@ require_no_inout_write_through_borrow :: (
           _borrowed_root_walk(&arg, env, ctx, _g_audit_inout_borrow),
           .Some(bv) => if(is_judged || !_is_dispose_receiver(&bv, ast_expr_token(&arg)), {
             what := cond(bv.is_parameter => "a `&T` parameter", true => "a `match` or `for` binding");
-            label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            label := match(param_labels.get_cloned(i), .Some(l) => l, .None => String.from("?"));
             target := cond((label == "self") => String.from("the `self : &mut Self` receiver"), true => `the \`&mut\` parameter \`${label}\``);
             pending.push(
               D3PendingInout(
@@ -1717,7 +1717,7 @@ evaluate_assignment :: (
                     n_sf := s_flabels.len();
                     (k_sf : usize) = usize(0);
                     while(k_sf < n_sf, {
-                      s_lbl := match(s_flabels.get(k_sf), .Some(s) => s, .None => String.from(""));
+                      s_lbl := match(s_flabels.get_cloned(k_sf), .Some(s) => s, .None => String.from(""));
                       if(s_lbl == pc_field_or_idx, {
                         struct_fi = i64(k_sf);
                         k_sf = n_sf;
@@ -1730,7 +1730,7 @@ evaluate_assignment :: (
                     n_tf := t_flabels.len();
                     (k_tf : usize) = usize(0);
                     while(k_tf < n_tf, {
-                      t_lbl := match(t_flabels.get(k_tf), .Some(s) => s, .None => String.from(""));
+                      t_lbl := match(t_flabels.get_cloned(k_tf), .Some(s) => s, .None => String.from(""));
                       if(t_lbl == pc_field_or_idx, {
                         struct_fi = i64(k_tf);
                         k_tf = n_tf;
@@ -1833,7 +1833,7 @@ evaluate_assignment :: (
                         (k_vn : usize) = usize(0);
                         (vi : usize) = n_vn; // sentinel: not found
                         while(k_vn < n_vn, {
-                          vn := match(ev_vnames.get(k_vn), .Some(s) => s, .None => String.from(""));
+                          vn := match(ev_vnames.get_cloned(k_vn), .Some(s) => s, .None => String.from(""));
                           // `EnumT.variant_names` holds bare names ("Circle"), an
                           // `EnumVal` the dotted form (".Circle")
                           // (issues/fixed/comptime-enum-payload-field-assignment-is-a-silent-no-op.md).
@@ -1849,7 +1849,7 @@ evaluate_assignment :: (
                           n_vfl := vf_labels.len();
                           (k_vfl : usize) = usize(0);
                           while(k_vfl < n_vfl, {
-                            fl := match(vf_labels.get(k_vfl), .Some(s) => s, .None => String.from(""));
+                            fl := match(vf_labels.get_cloned(k_vfl), .Some(s) => s, .None => String.from(""));
                             if(fl == pc_field_or_idx, {
                               ev_fi = i64(k_vfl);
                               k_vfl = n_vfl;

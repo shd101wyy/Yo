@@ -383,7 +383,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
   if(is_cond || is_match, {
     cargs := match(
       expr,
-      .FnCall(_, _, Rc(xs), _, _) => xs,
+      .FnCall(_, _, Rc(xs), _, _) => xs.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // match: search the scrutinee first.
@@ -2778,7 +2778,7 @@ _evaluate_begin_expression_impl :: (
   is_begin_call := ast_expr_is_fn_call_of(expr, BK_BEGIN, .None);
   begin_args := if(is_begin_call, match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   ), {
     single := ArrayList(AstExpr).new();
@@ -3728,7 +3728,7 @@ _evaluate_begin_expression_impl :: (
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();
                           while((own_i < n_own) && !own_found, {
-                            lbl_match := match(own_labels.get(own_i), .Some(lbl) => (lbl == rv_name), .None => false);
+                            lbl_match := match(own_labels.get_cloned(own_i), .Some(lbl) => (lbl == rv_name), .None => false);
                             flag_match := match(own_flags.get(own_i), .Some(fl) => fl, .None => false);
                             if(lbl_match && flag_match, {
                               own_found = true;

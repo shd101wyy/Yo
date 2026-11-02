@@ -2308,7 +2308,7 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
           match(
             idx,
             .Some(existing_idx) => {
-              lst := match(trait_implementors.get(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
+              lst := match(trait_implementors.get_cloned(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
               if(!lst.contains(&t.name), {
                 lst.push(t.name.clone());
               });
@@ -2353,7 +2353,7 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
       match(
         trait_names.index_of(&tr.name),
         .Some(found_idx) => {
-          impls := match(trait_implementors.get(found_idx), .Some(l) => l, .None => ArrayList(String).new());
+          impls := match(trait_implementors.get_cloned(found_idx), .Some(l) => l, .None => ArrayList(String).new());
           sorted := ArrayList(String).new();
           (si : usize) = usize(0);
           while(si < impls.len(), {
@@ -2803,7 +2803,7 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
           (found_trait : Option(String)) = Option(String).None;
           (ii : usize) = usize(0);
           while((ii < ty.trait_impls.len()) && found_doc.is_none(), {
-            tn := match(ty.trait_impls.get(ii), .Some(x) => x, .None => String.new());
+            tn := match(ty.trait_impls.get_cloned(ii), .Some(x) => x, .None => String.new());
             match(
               t_names.index_of(tn.clone()),
               .Some(k) => {
@@ -2909,7 +2909,7 @@ _function_params_to_doc_params :: (
       defaults := get_func_param_defaults(&origin);
       (i : usize) = usize(0);
       while((i < labels.len()) && (i < param_types.len()), {
-        label := match(labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
         ty := match(
           slot_pointee_at(&param_types, i),
           .Some(t) => t,
@@ -2965,7 +2965,7 @@ _forall_params_to_doc_params :: (
       labels := Rc.clone(meta.*.forall_labels);
       (i : usize) = usize(0);
       while((i < labels.len()) && (i < forall_types.len()), {
-        label := match(labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
         ty := match(
           forall_types.get(i),
           .Some(t) => t,
@@ -3290,7 +3290,7 @@ _enum_variants_to_doc_variants :: (
     Rc(.EnumT({ variant_names, variant_fields, variant_field_labels, variant_discriminants })) => {
       (i : usize) = usize(0);
       while(i < variant_names.len(), {
-        v_name := match(variant_names.get(i), .Some(n) => n, .None => String.new());
+        v_name := match(variant_names.get_cloned(i), .Some(n) => n, .None => String.new());
         v_field_types := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
         v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
         (fields_opt : Option(ArrayList(DocField))) = Option(ArrayList(DocField)).None;
@@ -3442,7 +3442,7 @@ build_doc_module :: (
   value_list := match(module_value, .StructVal(_, _, field_values) => Rc.clone(field_values), _ => empty_value_cell());
   (i : usize) = usize(0);
   while(i < ns_field_labels.len(), {
-    field_name := match(ns_field_labels.get(i), .Some(l) => l, .None => String.new());
+    field_name := match(ns_field_labels.get_cloned(i), .Some(l) => l, .None => String.new());
     field_type := match(
       ns_field_types.get(i),
       .Some(t) => t,
@@ -3734,7 +3734,7 @@ build_doc_module :: (
               Rc(.Struct({ field_labels : mfl, field_types : mft })) => {
                 (fi : usize) = usize(0);
                 while((fi < mfl.len()) && (fi < mft.len()), {
-                  m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
+                  m_label := match(mfl.get_cloned(fi), .Some(l) => l, .None => String.new());
                   m_type := match(
                     mft.get(fi),
                     .Some(t) => t,
@@ -4015,7 +4015,7 @@ build_doc_module :: (
               Rc(.Struct({ field_labels : mfl, field_types : mft })) => {
                 (fi : usize) = usize(0);
                 while((fi < mfl.len()) && (fi < mft.len()), {
-                  m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
+                  m_label := match(mfl.get_cloned(fi), .Some(l) => l, .None => String.new());
                   m_type := match(
                     mft.get(fi),
                     .Some(t) => t,

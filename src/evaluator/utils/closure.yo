@@ -287,7 +287,7 @@ _note_fid_in :: (fn(registry : &mut HashMap(String, ArrayList(String)), sid : &S
       (seen : bool) = false;
       (fi : usize) = usize(0);
       while((fi < fids.len()) && !seen, {
-        if(match(fids.get(fi), .Some(x) => (x == fid), .None => false), {
+        if(match(fids.get_cloned(fi), .Some(x) => (x == fid), .None => false), {
           seen = true;
         });
         fi = (fi + usize(1));
@@ -406,7 +406,7 @@ record_closure_capture_verdicts :: (
       markers.push(String.from("Acyclic"));
       (mi : usize) = usize(0);
       while(mi < markers.len(), {
-        mn := match(markers.get(mi), .Some(m) => m, .None => String.new());
+        mn := match(markers.get_cloned(mi), .Some(m) => m, .None => String.new());
         match(
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
@@ -517,7 +517,7 @@ _closure_copy_offense :: (fn(ty : &TypeValue, trait_name : &String, env : &Envir
         ft := match(co_fields.get(i), .Some(f) => f, .None => t_unit());
         (part_ok : bool) = match(&trait_tt, .Some(tt) => type_implements_trait_bool(&ft, &tt, env), .None => true);
         if(!part_ok, {
-          label := match(co_labels.get(i), .Some(l) => l, .None => String.new());
+          label := match(co_labels.get_cloned(i), .Some(l) => l, .None => String.new());
           return(`its capture \`${label}\` has type \`${type_to_string(&ft)}\`, which is not ${trait_name}; a closure is ${trait_name} exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36)`);
         });
         i = (i + usize(1));
@@ -885,7 +885,7 @@ validate_capture_trait_requirements :: (
                       if(details.len() > usize(0), {
                         details.push_str("\n  ");
                       });
-                      fl := match(fls.get(fi), .Some(l) => l, .None => String.from(""));
+                      fl := match(fls.get_cloned(fi), .Some(l) => l, .None => String.from(""));
                       details.push_string(`'${fl}' has type ${type_to_string(&fty)} which does not implement ${trait_name}`);
                     }),
                     .None => ()
@@ -1150,7 +1150,7 @@ create_capture_type_and_value :: (
       cap_key.push_str("|");
       (csi : usize) = usize(0);
       while(csi < field_labels.len(), {
-        cap_key.push_string(match(field_labels.get(csi), .Some(l) => l, .None => String.from("")));
+        cap_key.push_string(match(field_labels.get_cloned(csi), .Some(l) => l, .None => String.from("")));
         cap_key.push_str(":");
         cap_key.push_string(match(field_types.get(csi), .Some(t) => type_to_string(&t), .None => String.from("")));
         // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
@@ -1694,7 +1694,7 @@ structural_clone_expansion :: (
     code := String.from("_(");
     (ri : usize) = usize(0);
     while(ri < fields_labels.len(), {
-      label := match(fields_labels.get(ri), .Some(l) => l, .None => String.new());
+      label := match(fields_labels.get_cloned(ri), .Some(l) => l, .None => String.new());
       ft := match(fields_types.get(ri), .Some(t) => t, .None => t_unit());
       if(ri > usize(0), {
         code.push_str(", ");
@@ -1737,7 +1737,7 @@ structural_clone_expansion :: (
   inits := ArrayList(CaptureFieldInit).new();
   (ci : usize) = usize(0);
   while(ci < fields_labels.len(), {
-    label := match(fields_labels.get(ci), .Some(l) => l, .None => String.new());
+    label := match(fields_labels.get_cloned(ci), .Some(l) => l, .None => String.new());
     ft := match(fields_types.get(ci), .Some(t) => t, .None => t_unit());
     read := `${BF_YO_CAPTURE_FIELD}(${_CLONE_RECV_HOLE}, ${ci.to_string()})`;
     init_code := if(type_implements_trait_bool(&ft, &copy_tt, env), read, _clone_template_of(&read, &ft));

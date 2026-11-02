@@ -152,11 +152,12 @@ evaluate_derive_rule :: (
     );
   });
   // Store in the global registry (value + Func type).
-  k1 := key.clone();
-  g_derive_rules.with_mut({ k1, derive_fn_val }(m) => m.insert(k1, derive_fn_val));
-  k2 := key.clone();
-  tv := EvalValue.TypeVal(Rc.clone(derive_fn_info.ty));
-  g_derive_rule_types.with_mut({ k2, tv }(m) => m.insert(k2, tv));
+  // Owned key/value per sink callback (`with_mut`'s callback).
+  rule_key := key.clone();
+  g_derive_rules.with_mut({ rule_key, derive_fn_val }(m) => m.insert(rule_key, derive_fn_val));
+  type_key := key.clone();
+  rule_type := EvalValue.TypeVal(Rc.clone(derive_fn_info.ty));
+  g_derive_rule_types.with_mut({ type_key, rule_type }(m) => m.insert(type_key, rule_type));
   out := new_expr_info(env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);

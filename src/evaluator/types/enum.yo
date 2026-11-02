@@ -578,7 +578,7 @@ evaluate_enum_type :: (
           (dup_idx : usize) = usize(0);
           (has_dup : bool) = false;
           while((dup_idx < v_field_labels.len()) && !has_dup, {
-            existing := match(v_field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+            existing := match(v_field_labels.get_cloned(dup_idx), .Some(l) => l, .None => String.from(""));
             if(existing == field.label, {
               has_dup = true;
             });
@@ -704,7 +704,7 @@ evaluate_enum_type :: (
               (tci : usize) = usize(0);
               n_tcp := fc_plabels.len();
               while(tci < n_tcp, {
-                p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
+                p_lbl := match(fc_plabels.get_cloned(tci), .Some(l) => l, .None => String.from(""));
                 p_ty := match(slot_pointee_at(&fc_ptypes, tci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
                 if(is_type_0(&p_ty), {
@@ -763,7 +763,7 @@ evaluate_enum_type :: (
   if(!force_reference_semantics, {
     (vi2 : usize) = usize(0);
     while(vi2 < variant_fields.len(), {
-      vname := match(variant_names.get(vi2), .Some(n) => n, .None => String.new());
+      vname := match(variant_names.get_cloned(vi2), .Some(n) => n, .None => String.new());
       vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => no_types());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {

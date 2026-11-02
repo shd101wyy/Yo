@@ -564,7 +564,7 @@ _resolve_for_match :: (fn(p : &String) -> String)({
   (rebuilt : String) = String.from("");
   (ki : usize) = usize(0);
   while(ki < kept.len(), {
-    seg := match(kept.get(ki), .Some(s) => s, .None => String.from(""));
+    seg := match(kept.get_cloned(ki), .Some(s) => s, .None => String.from(""));
     rebuilt.push_string(String.from("/"));
     rebuilt.push_string(&seg);
     ki = (ki + usize(1));
@@ -632,7 +632,7 @@ _index_std_dir :: (
   _sort_strings(&mut dirs);
   (fi : usize) = usize(0);
   while(fi < files.len(), {
-    name := match(files.get(fi), .Some(n) => n, .None => String.new());
+    name := match(files.get_cloned(fi), .Some(n) => n, .None => String.new());
     fi = (fi + usize(1));
     if(has_index && (name != "index.yo"), {
       continue;
@@ -793,12 +793,12 @@ collect_check_files :: (
   out := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < raw.len(), {
-    fp := match(raw.get(ri), .Some(p) => p, .None => String.from(""));
+    fp := match(raw.get_cloned(ri), .Some(p) => p, .None => String.from(""));
     fp_res := _resolve_for_match(fp.clone());
     (skip : bool) = false;
     (ei : usize) = usize(0);
     while((ei < resolved_excludes.len()) && !skip, {
-      ex := match(resolved_excludes.get(ei), .Some(e) => e, .None => String.from(""));
+      ex := match(resolved_excludes.get_cloned(ei), .Some(e) => e, .None => String.from(""));
       if((fp_res == ex) || fp_res.starts_with(`${ex}/`), {
         skip = true;
       });
@@ -1063,7 +1063,7 @@ _apply_fixes_to_file :: (
     match(
       fixes.get(fi),
       .Some(f) => if(f.row < lines.len(), {
-        old_line := match(lines.get(f.row), .Some(l) => l, .None => String.new());
+        old_line := match(lines.get_cloned(f.row), .Some(l) => l, .None => String.new());
         lines(f.row) = _splice_runes(&old_line, f.col, f.len, f.replacement.clone());
         applied = (applied + usize(1));
       }),
@@ -1147,8 +1147,8 @@ _run_migrate_params :: (
   (n_stale : usize) = usize(0);
   (ci : usize) = usize(0);
   while(ci < canon_targets.len(), ci = (ci + usize(1)), {
-    canon := match(canon_targets.get(ci), .Some(c) => c, .None => String.new());
-    file := match(targets.get(ci), .Some(f) => f, .None => String.new());
+    canon := match(canon_targets.get_cloned(ci), .Some(c) => c, .None => String.new());
+    file := match(targets.get_cloned(ci), .Some(f) => f, .None => String.new());
     pending := ArrayList(_PendingFix).new();
     seen := HashSet(String).new();
     (ei : usize) = usize(0);
@@ -1157,7 +1157,7 @@ _run_migrate_params :: (
       // One parameter can be recorded under both spellings of its module
       // path (the entry's as typed, a demand load's `file://` key), so the
       // evaluator's key does not dedupe it: keep the first edit per span.
-      if(match(edit_paths.get(ei), .Some(ep) => (ep == canon), .None => false) && !seen.contains(`${e.row.to_string()}:${e.col.to_string()}`), {
+      if(match(edit_paths.get_cloned(ei), .Some(ep) => (ep == canon), .None => false) && !seen.contains(`${e.row.to_string()}:${e.col.to_string()}`), {
         seen.insert(`${e.row.to_string()}:${e.col.to_string()}`);
         pending.push(_PendingFix(row : e.row, col : e.col, len : e.len, replacement : e.replacement.clone(), description : e.expect.clone()));
       });
@@ -4045,7 +4045,7 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       load_err := _take_load_error();
@@ -4110,7 +4110,7 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
   (n_skipped_tests : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get_cloned(ti), .Some(f) => f, .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position per copied expression, and one closure per `=>` with the
     // names it copies. A position recorded at two spellings is a generic
@@ -5111,7 +5111,7 @@ _mbl_method_call :: (fn(w : &mut _MblWalk, c : &_MblCtx, recv : &AstExpr, m : &S
   match(
     _mbl_place_root(recv, &c.methods),
     .Some((rt, step)) => {
-      head := if(step == _MBL_S_NONE, match(_mbl_lookup(w, &rt.value.*), .Some(d) => match(c.heads.get(&d.key), .Some(h) => h, .None => String.new()), .None => String.new()), String.new());
+      head := if(step == _MBL_S_NONE, match(_mbl_lookup(w, &rt.value.*), .Some(d) => match(c.heads.get_cloned(&d.key), .Some(h) => h, .None => String.new()), .None => String.new()), String.new());
       if(_mbl_method_lends_mut(&c.methods, m, &head), {
         _mbl_write(w, c, &rt.value.*, &ast_expr_token(recv), _MBL_W_RECV, step);
       });
@@ -6098,7 +6098,7 @@ run_fix :: (
     // local: the only module that leaves the cache is one whose bytes changed.
     (fi : usize) = usize(0);
     while(fi < files.len(), {
-      file := match(files.get(fi), .Some(f) => f, .None => String.new());
+      file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
       fi = (fi + usize(1));
       outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
       fix_dbg := proc_env.get(`YO_DEBUG_FIX`).is_some();
@@ -7285,7 +7285,7 @@ export(windows_path_with_dir_first);
 /// Put the ASan runtime DLL directory on this process's PATH (see
 /// `windows_path_with_dir_first`); children inherit it.
 _put_asan_dll_dir_on_path :: (fn(dll_dir : &String) -> unit)({
-  cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
+  cur_path := match(proc_env.get_cloned(`PATH`), .Some(pv) => pv, .None => String.from(""));
   _sv_path := proc_env.set(String.from("PATH"), windows_path_with_dir_first(&cur_path, dll_dir));
 });
 /// Windows: the directory holding clang's ASan runtime DLL, to prepend to
@@ -7700,7 +7700,7 @@ _compile_chunks_parallel :: (
   ) -> ArrayList(String)
 )({
   objs := ArrayList(String).new();
-  no_cache := (force_recompile || match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v == "1"), .None => false));
+  no_cache := (force_recompile || match(proc_env.get_cloned(`YO_BUILD_NO_CACHE`), .Some(v) => (v == "1"), .None => false));
   flags_key := String.from(" ").join(flags);
   // Per-chunk decision: reuse the cached `.o`, or add a compile line.
   lines := ArrayList(String).new();
@@ -7760,7 +7760,7 @@ _compile_chunks_parallel :: (
       (li : usize) = usize(0);
       while(li < chunk_c_files.len(), {
         cf := match(chunk_c_files.get_cloned(li), .Some(x) => x, .None => String.new());
-        obj := match(objs.get(li), .Some(x) => x, .None => String.new());
+        obj := match(objs.get_cloned(li), .Some(x) => x, .None => String.new());
         seq := _cc_command(cc.clone(), flags);
         seq.arg(String.from("-c"));
         seq.arg(cf.clone());
@@ -7781,7 +7781,7 @@ _compile_chunks_parallel :: (
       (li : usize) = usize(0);
       (in_wave : usize) = usize(0);
       while(li < lines.len(), {
-        script.push_string(match(lines.get(li), .Some(l) => l, .None => String.new()));
+        script.push_string(match(lines.get_cloned(li), .Some(l) => l, .None => String.new()));
         script.push_str(" & pids=\"$pids $!\"\n");
         in_wave = (in_wave + usize(1));
         if(in_wave >= jobs, {
@@ -7807,8 +7807,8 @@ _compile_chunks_parallel :: (
   (wi : usize) = usize(0);
   while(wi < stamp_paths.len(), {
     _chunk_write_stamp(
-      match(stamp_paths.get(wi), .Some(p) => p, .None => String.new()),
-      match(stamps.get(wi), .Some(s) => s, .None => String.new()),
+      match(stamp_paths.get_cloned(wi), .Some(p) => p, .None => String.new()),
+      match(stamps.get_cloned(wi), .Some(s) => s, .None => String.new()),
       io
     );
     wi = (wi + usize(1));
@@ -9747,7 +9747,7 @@ run_compile :: (
           cbody.push_str("#include \"");
           cbody.push_string(shared_h_base.clone());
           cbody.push_str("\"\n");
-          cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x, .None => String.new()));
+          cbody.push_string(match(chunk_parts.get_cloned(pi2), .Some(x) => x, .None => String.new()));
           io.await(write_string(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
           chunk_c_files.push(cf);
           chunk_text_hashes.push(sha256_hex(cbody.to_bytes()));
@@ -10197,7 +10197,7 @@ run_compile :: (
       // alone, and the link line below still compiles them once.
       (rfi : usize) = usize(0);
       while(rfi < cmd.recorded.len(), {
-        rf := match(cmd.recorded.get(rfi), .Some(x) => x, .None => String.new());
+        rf := match(cmd.recorded.get_cloned(rfi), .Some(x) => x, .None => String.new());
         if(!link_only_sources.contains(rf.clone()), {
           chunk_compile_flags.push(rf);
         });
@@ -11000,8 +11000,8 @@ _test_fork_replay_ready :: (fn(pool : &mut _TestForkPool, bail : bool) -> unit)(
     i := pool.next;
     ready := match(pool.done.get(i), .Some(d) => d, .None => false);
     if(ready, {
-      base := match(pool.bases.get(i), .Some(b) => b, .None => String.new());
-      wfile := match(pool.files.get(i), .Some(f) => f, .None => String.new());
+      base := match(pool.bases.get_cloned(i), .Some(b) => b, .None => String.new());
+      wfile := match(pool.files.get_cloned(i), .Some(f) => f, .None => String.new());
       st := match(pool.statuses.get(i), .Some(s) => s, .None => i32(0));
       v := _test_fork_collect(&base, &wfile, st, !pool.bailed, bail);
       if(!pool.bailed, {
@@ -11547,7 +11547,7 @@ run_test :: (
     .None => true
   );
   nlv_san_choice := match(
-    proc_env.get(`YO_TEST_SANITIZE`),
+    proc_env.get_cloned(`YO_TEST_SANITIZE`),
     .Some(sv) => sv,
     .None => String.from("address")
   );
@@ -12031,7 +12031,7 @@ run_test :: (
         // MSVC and emcc take no sanitizer. The child compile owns the flag
         // mapping and the ASan-usability probe.
         san_choice := match(
-          proc_env.get(`YO_TEST_SANITIZE`),
+          proc_env.get_cloned(`YO_TEST_SANITIZE`),
           .Some(sv) => sv,
           .None => String.from("address")
         );
@@ -12544,7 +12544,7 @@ run_effects :: (
     (seen_fns : usize) = usize(0);
     (li : usize) = usize(0);
     while(li < labels.len(), {
-      name := match(labels.get(li), .Some(l) => l, .None => String.new());
+      name := match(labels.get_cloned(li), .Some(l) => l, .None => String.new());
       ty := match(types.get(li), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       li = (li + usize(1));
       match(
@@ -12557,7 +12557,7 @@ run_effects :: (
           param_labels := Rc.clone(meta.*.param_labels);
           (pi : usize) = usize(0);
           while((pi < param_labels.len()) && (pi < param_types.len()), {
-            plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
+            plabel := match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.new());
             pty := match(slot_pointee_at(&param_types, pi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             pi = (pi + usize(1));
             kinds := _effect_kinds_of_type(&pty, usize(0));
@@ -12569,7 +12569,7 @@ run_effects :: (
           implicit_labels := Rc.clone(meta.*.implicit_labels);
           (ii : usize) = usize(0);
           while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
-            ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
+            ilabel := match(implicit_labels.get_cloned(ii), .Some(l) => l, .None => String.new());
             ity := match(implicit_types.get(ii), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             ii = (ii + usize(1));
             // An implicit (`using`) parameter is an effect by construction.
@@ -12588,7 +12588,7 @@ run_effects :: (
           _collect_future_effects(&t_slot_pointee(&result), &mut fut_labels, &mut fut_types);
           (ei : usize) = usize(0);
           while((ei < fut_labels.len()) && (ei < fut_types.len()), {
-            elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
+            elabel := match(fut_labels.get_cloned(ei), .Some(l) => l, .None => String.new());
             ety := match(fut_types.get(ei), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             ei = (ei + usize(1));
             kinds := _effect_kinds_of_type(&ety, usize(0));
@@ -12640,7 +12640,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
       (has_async : bool) = false;
       (fi : usize) = usize(0);
       while(fi < field_types.len(), {
-        flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.new());
+        flabel := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.new());
         fty := match(field_types.get(fi), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         fi = (fi + usize(1));
         match(

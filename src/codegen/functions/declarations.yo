@@ -64,7 +64,7 @@ collect_evidence_from_record :: (
       n := field_labels.len();
       (i : usize) = usize(0);
       while(i < n, {
-        field_label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+        field_label := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
         field_ty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         cond(
           is_function_type(&field_ty) => {
@@ -256,7 +256,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+        vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
         fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
         nf := fields.len();
@@ -270,7 +270,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
-              flabel := match(labels.get(pi), .Some(l) => l, .None => String.from(""));
+              flabel := match(labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
               params.push_string(get_type_string(&ft, context));
               params.push_str(" ");
               params.push_string(sanitize_for_c_identifier(&flabel, false));

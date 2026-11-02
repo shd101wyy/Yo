@@ -103,7 +103,7 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
   labels := match(&ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.*.param_labels), _ => return(Option(_ProjRootError).None));
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+    if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
       if(fn_param_in_result_origin(&ft, i, &names), {
         return(Option(_ProjRootError).None);
       });
@@ -153,7 +153,7 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
       (own : bool) = false;
       (i : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
           own = true;
         });
         i = (i + usize(1));
@@ -293,7 +293,7 @@ _is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
             (i : usize) = usize(0);
             n := bp_m.*.param_labels.len();
             while(i < n, {
-              if(match(bp_m.*.param_labels.get(i), .Some(l) => (l == v.name), .None => false), {
+              if(match(bp_m.*.param_labels.get_cloned(i), .Some(l) => (l == v.name), .None => false), {
                 return(
                   !fn_param_is_mut_ref(&ft, i) && !fn_param_is_by_value(&ft, i) && !fn_param_is_ptr_borrow(&ft, i)
                 );
