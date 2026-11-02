@@ -243,7 +243,7 @@ _append_step_save_drop :: (fn(step : &AstExpr, ctx : &EvalContext, exn : Excepti
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(step)),
     .Some(si) => match(
-      si.variable_name,
+      &si.variable_name,
       .Some(tname) => match(
         get_variables_from_env(&si.env, &tname).last(),
         .Some(tv) => if(tv.is_owning_the_rc_value && type_contains_rc_type(&tv.ty) && tv.consumed_at_token.is_none(), {
@@ -253,7 +253,7 @@ _append_step_save_drop :: (fn(step : &AstExpr, ctx : &EvalContext, exn : Excepti
           // would double-release at runtime.
           (already : bool) = false;
           match(
-            si.deferred_drop_expressions,
+            &si.deferred_drop_expressions,
             .Some(ds) => {
               (di : usize) = usize(0);
               while((di < ds.len()) && !already, {
@@ -281,7 +281,7 @@ _append_step_save_drop :: (fn(step : &AstExpr, ctx : &EvalContext, exn : Excepti
           );
           if(!already, {
             evaluated := evaluate_expression_raw(generate_expr_from_code(`${BF_DROP}(${tname})`, exn), &si.env, ctx, exn);
-            list := match(si.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+            list := match(&si.deferred_drop_expressions, .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
             list.push(evaluated);
             si.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(list);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(step), &si);
@@ -573,7 +573,7 @@ evaluate_while :: (
         prop_cf := ControlFlowFlags(return_flag : cf_ret, unwind_flag : cf_esc, break_flag : false, continue_flag : false);
         out_info := new_expr_info(&body_info.env, &body_info.ty);
         out_info.value = body_info.value;
-        out_info.path_collection = body_info.path_collection;
+        out_info.path_collection = body_info.path_collection.clone();
         out_info.control_flow = Option(ControlFlowFlags).Some(prop_cf);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       }, {
