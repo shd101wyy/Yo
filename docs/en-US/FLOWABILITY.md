@@ -159,12 +159,13 @@ borrows from it"`) instead of corrupting memory. Same-cache-line load
 Containers hand out **values**, never pointers into their buffers:
 
 ```yo
-e := xs.get(i); // object elements: a HANDLE to the element
-e.push_str("!"); //   mutates the element in place; the handle
-//   survives xs.push / realloc — it points at
-//   the String object, not into xs's buffer
+e := xs.get_cloned(i); // a String element: a copy (a String is a value
+//   since B8); it survives xs.push / realloc
+xs.with(i, s => s.push_str("!")); // write the element in place
+h := xs.get(i); // a `ref(struct(...))` element: a HANDLE to the
+//   object, which mutates it in place
 xs(i) = v; // index WRITE for in-place element replacement
-t := xs.get(i).unwrap(); // struct elements: copy out …
+t := xs.get(i).unwrap(); // Copy struct elements: copy out …
 xs(i) = t2; //   … write back
 for(xs, x => { ... }); // iteration is the value form (into_iter)
 ```
@@ -178,7 +179,7 @@ for(&mut enemies, e => {
 }); // struct elements, in place
 for(&mut names, s => {
   s.push_str("!");
-}); // RC elements, no dup per element
+}); // String elements, written in place
 for(&mut counts, c => {
   bump(c);
 }); // hand the element to a &mut param

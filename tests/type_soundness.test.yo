@@ -480,7 +480,7 @@ _outer_at :: (fn(generic(T : Type), xs : &ArrayList(T), less : &Impl(Fn(x : &T, 
   _inner_at(usize(0), usize(1), (i, j) => less(&xs(i), &xs(j)))
 );
 test("soundness canary: a closure keeps the inner instantiation's parameter type", {
-  xs := ArrayList(_TwoTRec).new();
+  mut(xs) := ArrayList(_TwoTRec).new();
   xs.push(_TwoTRec(key : i32(1), tag : i32(0)));
   xs.push(_TwoTRec(key : i32(2), tag : i32(1)));
   assert(_outer_at(&xs, (p, q) => (p.key < q.key)), "compares the records through indices");
@@ -547,14 +547,14 @@ _count_items :: (fn(generic(T : Type), items : ArrayList(T)) -> usize)(items.len
 _count_both :: (fn(labels : ArrayList(String), nums : ArrayList(i32)) -> usize)(_count_items(labels.clone()) + _count_items(nums.clone()));
 _count_then_own_t :: (fn(generic(T : Type), xs : ArrayList(T), names : ArrayList(String)) -> usize)({
   n := _count_items(names.clone());
-  ys := ArrayList(T).new();
+  mut(ys) := ArrayList(T).new();
   ys.push(xs(usize(0)));
   n + ys.len()
 });
 test("soundness canary: two method-call arguments bind one callee's type parameter per call", {
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(`a`);
-  nums := ArrayList(i32).new();
+  mut(nums) := ArrayList(i32).new();
   nums.push(i32(1));
   nums.push(i32(2));
   assert(_count_both(labels.clone(), nums.clone()) == usize(3), "String then i32");
@@ -563,15 +563,15 @@ test("soundness canary: two method-call arguments bind one callee's type paramet
 // issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md
 // (Phase 2.4): a kind-annotated binder is inferred from an argument's
 // instantiation, and `F(A)` in the result is applied.
-_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : &F(A)) -> F(A))(x);
+_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
 test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
   o := Option(i32).Some(i32(7));
-  r := _hk_identity(&o);
+  r := _hk_identity(o);
   (r2 : Option(i32)) = r;
   assert(match(r2, .Some(v) => v, .None => i32(0)) == i32(7), "the constructor was applied");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(3));
-  ys := _hk_identity(&xs);
+  ys := _hk_identity(xs);
   assert(ys.len() == usize(1), "a struct constructor too");
 });
 // issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md (Phase 2.4):
@@ -615,9 +615,9 @@ impl(
   )
 );
 test("soundness canary: two .map chains at different Item types keep their own Item", {
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   it := _SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x * i32(2)));
-  it.for_each(x => {
+  it.for_each({ &mut out }(x) => {
     out.push(x);
   });
   m := _SoundRange64(_cur : i64(-3), _end : i64(4)).map(x => (x * i64(2))).min();
@@ -657,7 +657,7 @@ test("soundness: a free fn binds an associated type from its where-clause", {
   assert(match(wide.get(usize(2)), .Some(v) => v, .None => i64(0)) == i64(3), "J from the closure body");
   comptime_expect_error(_sound_sum_i32(_SoundRange64(_cur : i64(1), _end : i64(4))), "its associated type Item is i64, not i32");
   // The self-referential bound is still judged, at the candidate.
-  flags := ArrayList(bool).new();
+  mut(flags) := ArrayList(bool).new();
   flags.push(true);
   comptime_expect_error(_sound_sum(flags.into_iter(), false), "Type bool does not implement required trait");
 });
@@ -786,12 +786,12 @@ test("soundness: an instantiation does not adopt an earlier, different one", {
 // struct types" (reported by a peer session, 2026-09-24).
 _P34Row :: struct(name : String, dt : u8);
 _p34_rows_anon :: (fn() -> usize)({
-  xs := ArrayList(struct(name : String, dt : u8)).new();
+  mut(xs) := ArrayList(struct(name : String, dt : u8)).new();
   xs.push({ name : String.from("a"), dt : u8(1) });
   xs.len()
 });
 _p34_rows_named :: (fn() -> usize)({
-  ys := ArrayList(_P34Row).new();
+  mut(ys) := ArrayList(_P34Row).new();
   ys.push(_P34Row(name : String.from("b"), dt : u8(2)));
   ys.push(_P34Row(name : String.from("c"), dt : u8(3)));
   ys.len()
@@ -957,7 +957,7 @@ test("soundness: a value struct cannot reach itself by value", {
 test("soundness: a ref struct's Option(Self) survives a generic specialization", {
   _osf_env :: ref(struct(n : i64, memo : Option(Self)));
   _osf_first :: (fn(l : &ArrayList(_osf_env)) -> Option(_osf_env))(l.get(usize(0)));
-  l := ArrayList(_osf_env).new();
+  mut(l) := ArrayList(_osf_env).new();
   l.push(_osf_env(n : i64(5), memo : Option(_osf_env).None));
   match(
     _osf_first(&l),
@@ -1010,7 +1010,7 @@ _p5_early_return_kept :: (fn(c : bool, keep : &mut ArrayList(_P5Box)) -> i32)({
   b.tag + i32(1)
 });
 test("soundness: the returning arm releases its moved value once", {
-  keep := ArrayList(_P5Box).new();
+  mut(keep) := ArrayList(_P5Box).new();
   before := g_p5_disposed;
   assert(_p5_early_return_kept(true, &mut keep) == i32(5), "the returning path moved the box");
   assert(g_p5_disposed == before, `the keeper still holds the box, got ${(g_p5_disposed - before).to_string()} disposals`);
@@ -1047,7 +1047,7 @@ _p5_tail_move_three_way :: (fn(k : i32, keep : &mut ArrayList(_P5Box)) -> i32)({
   _p5_sink(b)
 });
 test("soundness: a returning arm's move is released once when the tail moves the value too", {
-  keep := ArrayList(_P5Box).new();
+  mut(keep) := ArrayList(_P5Box).new();
   before := g_p5_disposed;
   assert(_p5_tail_move_kept(true, &mut keep) == i32(5), "the returning path moved the box");
   assert(_p5_tail_move_kept(false, &mut keep) == i32(5), "the tail moved the box");
@@ -1056,7 +1056,7 @@ test("soundness: a returning arm's move is released once when the tail moves the
   assert(g_p5_disposed == (before + i32(2)), `each released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
 });
 test("soundness: a sibling arm's return still releases the value the tail moves", {
-  keep := ArrayList(_P5Box).new();
+  mut(keep) := ArrayList(_P5Box).new();
   before := g_p5_disposed;
   assert(_p5_tail_move_three_way(i32(0), &mut keep) == i32(10), "the moving arm returned");
   assert(_p5_tail_move_three_way(i32(1), &mut keep) == i32(-1), "the other arm returned");
@@ -1159,11 +1159,13 @@ test("soundness: a `&mut` argument overlapping a `&` one on a value root is E091
   assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
   assert(x.s.starts_with(`fresh-value-2`), "the `&mut` write reached the caller");
 });
-// The same overlap on a collection, which is a reference type: the dup/drop
-// pair optimizer cancelled the caller-owned +1 against `xs`'s scope-end drop,
-// so the callee's `&` argument read the freed first list and the last list
-// leaked
+// The same overlap on a collection. While a collection was a reference type
+// the dup/drop pair optimizer cancelled the caller-owned +1 against `xs`'s
+// scope-end drop, so the callee's `&` argument read the freed first list and
+// the last list leaked
 // (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
+// Since B8 a collection is a value, so the overlap is decision 28's
+// value-root E0910, as for the struct above.
 _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> usize)({
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
@@ -1173,18 +1175,22 @@ _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> u
   });
   b.len()
 });
-_p5_clobber_list_caller :: (fn() -> usize)({
-  mut(xs) := ArrayList(_P5Box).new();
-  xs.push(_P5Box(tag : i32(7)));
-  xs.push(_P5Box(tag : i32(8)));
-  n := _p5_clobber_list(&mut xs, &xs);
-  n
-});
-test("soundness: a collection lent both &mut and & to one call keeps its share", {
+test("soundness: a collection lent both &mut and & to one call is E0910", {
+  comptime_expect_error({
+    mut(xs) := ArrayList(_P5Box).new();
+    xs.push(_P5Box(tag : i32(7)));
+    _p5_clobber_list(&mut xs, &xs)
+  }, "decision 28's value-root rule");
   before := g_p5_disposed;
-  n := _p5_clobber_list_caller();
-  assert(n == usize(2), `the borrowed list survived the writes, len ${n.to_string()}`);
-  assert(g_p5_disposed == (before + i32(5)), `every box released once, got ${(g_p5_disposed - before).to_string()}`);
+  {
+    mut(xs) := ArrayList(_P5Box).new();
+    xs.push(_P5Box(tag : i32(7)));
+    ys := ArrayList(_P5Box).new();
+    n := _p5_clobber_list(&mut xs, &ys);
+    assert(n == usize(0), "the separate list was lent beside it");
+    assert(xs.len() == usize(1), "the `&mut` write reached the caller");
+  };
+  assert(g_p5_disposed == (before + i32(4)), `every box released once, got ${(g_p5_disposed - before).to_string()}`);
 });
 // issues/fixed/std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md:
 // std/assert's `panic` is `-> never`, so it fits an arm that must produce a value.

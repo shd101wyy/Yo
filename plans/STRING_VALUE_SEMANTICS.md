@@ -4,7 +4,7 @@
 (E0908 on `inout` writes through a borrowed value) landed (#1161); S2 done;
 S3a (the model-independent half of S3) in review (#1190); S3b dropped (§0);
 S4 (docs) in review (#1175).** Decision by the user, after
-`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
+`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
 (S1). This supersedes DESIGN §Type inference's "String is a
 reference-semantics type", and is the fix for that issue. No backward
 compatibility is kept (AGENTS.md): signatures change and call sites migrate.

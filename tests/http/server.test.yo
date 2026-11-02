@@ -11,6 +11,7 @@ pragma(Pragma.AllowUnsafe);
 { SocketAddr } :: import("std/net/addr");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
 { String } :: import("std/string");
@@ -29,7 +30,7 @@ _echo :: (fn(req : &HttpRequest) -> HttpResponse)({
 // Read one full response off a raw stream (until the server closes).
 _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async({ &stream }(e : IoExn) => {
-    out := ArrayList(u8).new();
+    mut(out) := ArrayList(u8).new();
     buf := (*u8)(malloc(usize(4096)).unwrap());
     mut(done) := false;
     while(!done, {
@@ -54,16 +55,17 @@ _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
 // Send one raw request on a fresh connection and read the whole response.
 // The write count is asserted so a short `send` shows up as a failure here
 // rather than as the server waiting forever for the rest of the body.
-_raw_exchange :: (fn(port : u16, request : &String, io : Io) -> Impl(Future(String, IoExn)))(
+_raw_exchange :: (fn(port : u16, request : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  __probe_request := request.clone();
   io.async(e => {
     s := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
-    w := e.io.await(s.write_string(request, e.io), e);
-    assert(w == request.len(), `short write: ${w} of ${request.len()} bytes`);
+    w := e.io.await(s.write_string(&__probe_request, e.io), e);
+    assert(w == __probe_request.len(), `short write: ${w} of ${__probe_request.len()} bytes`);
     raw := e.io.await(_read_all(&s, e.io), e);
     e.io.await(s.close(e.io), e);
     raw
   })
-);
+});
 // 12 000 bytes — more than the 8 KiB `read_http_message` reads at a time, so
 // the body only arrives in full when `Content-Length` really framed it.
 _big_body :: (fn() -> String)({
@@ -195,10 +197,11 @@ test("a request that does not parse gets 400 with the reason, handler not called
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
-  called := ArrayList(i32).new();
+  called := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  seen := Rc.clone(called);
   task := io.spawn(
     server.serve_once(req => {
-      called.push(i32(1));
+      seen.with_mut(l => l.push(i32(1)));
       HttpResponse.with_status(StatusCode.OK())
     }, io),
     IoExn(io : io, exn : exn)
@@ -208,7 +211,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Unknown method: BREW`), `reason in body: ${raw}`);
-  assert(called.len() == usize(0), "handler must not run for a malformed request");
+  assert(called.with(l => l.len()) == usize(0), "handler must not run for a malformed request");
   io.await(s.close(io), ioe);
   task.await(io);
   io.await(server.close(io), ioe);
@@ -225,17 +228,18 @@ test("serve loops until stop(); local_addr reports the bound port", {
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19974)), io), IoExn(io : io, exn : exn));
   assert(server.local_addr().port == u16(19974), `local_addr port ${server.local_addr().port}`);
-  hits := ArrayList(i32).new();
+  hits := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  seen := Rc.clone(hits);
   task := io.spawn(
     server.serve(req => {
-      hits.push(i32(1));
+      seen.with_mut(l => l.push(i32(1)));
       cond(
         (req.path == `/last`) => {
           server.stop();
         },
         true => ()
       );
-      HttpResponse.with_status(StatusCode.OK()).with_body(`n=${hits.len()}`)
+      HttpResponse.with_status(StatusCode.OK()).with_body(`n=${seen.with(l => l.len())}`)
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -244,7 +248,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
   r3 := io.await(fetch(`http://127.0.0.1:19974/last`, io), IoExn(io : io, exn : exn));
   assert((r1.body == "n=1") && ((r2.body == "n=2") && (r3.body == "n=3")), `three sequential requests: ${r1.body} ${r2.body} ${r3.body}`);
   task.await(io);
-  assert(hits.len() == usize(3), "serve returned after stop()");
+  assert(hits.with(l => l.len()) == usize(3), "serve returned after stop()");
   io.await(server.close(io), ioe);
 });
 // The request direction of the binary-body pin: parse_request must slice the
@@ -268,7 +272,7 @@ test("the server round-trips a binary request body byte-for-byte", {
     }, io),
     IoExn(io : io, exn : exn)
   );
-  payload := ArrayList(u8).new();
+  mut(payload) := ArrayList(u8).new();
   payload.push(u8(0x80));
   payload.push(u8(0));
   payload.push(u8(0xFF));
@@ -318,7 +322,7 @@ test("Content-Length framing: OWS after the colon is optional, and only a real f
       n := req.body.len();
       tail := cond(
         (n >= usize(8)) => req.body.substring(n - usize(8), n),
-        true => req.body
+        true => req.body.clone()
       );
       HttpResponse.with_status(StatusCode.OK()).with_body(`${n}|${tail}`)
     }, io),
@@ -403,10 +407,11 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
-  hits := ArrayList(i32).new();
+  hits := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  seen := Rc.clone(hits);
   task := io.spawn(
     server.serve(req => {
-      hits.push(i32(1));
+      seen.with_mut(l => l.push(i32(1)));
       cond(
         (req.path == `/last`) => {
           server.stop();
@@ -423,12 +428,12 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Content-Length`), `reason names the header: ${raw}`);
   io.await(s.close(io), ioe);
-  assert(hits.len() == usize(0), "handler must not run for a malformed frame");
+  assert(hits.with(l => l.len()) == usize(0), "handler must not run for a malformed frame");
   // The server is still there for the next client.
   r := io.await(fetch(`http://127.0.0.1:19976/last`, io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), `next request served: ${r.status}`);
   task.await(io);
-  assert(hits.len() == usize(1), "exactly the good request reached the handler");
+  assert(hits.with(l => l.len()) == usize(1), "exactly the good request reached the handler");
   io.await(server.close(io), ioe);
 });
 test("a request over max_request_bytes gets 413 and serve keeps serving", {

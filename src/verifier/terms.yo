@@ -54,6 +54,7 @@ VcSort :: ref(
     Uninterpreted(name : String)
   )
 );
+impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self)));
 derive(VcSort, Eq(VcSort));
 // SAFETY: a VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
@@ -263,6 +264,8 @@ VcQuery :: ref(
     datatypes : ArrayList(String)
   )
 );
+derive(VcAssumption, Clone);
+derive(VcFunDecl, Clone);
 impl(
   VcQuery,
   /// Builder: push a declaration.
@@ -312,7 +315,7 @@ vc_and :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(1), {
     return(match(ts.get(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(true))));
   });
-  Rc.new(VcTermNode.App(VcOp.AndOp, ts))
+  Rc.new(VcTermNode.App(VcOp.AndOp, ts.clone()))
 });
 /// N-ary disjunction.
 vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
@@ -322,7 +325,7 @@ vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(1), {
     return(match(ts.get(usize(0)), .Some(t) => t, .None => Rc.new(VcTermNode.BoolLit(false))));
   });
-  Rc.new(VcTermNode.App(VcOp.OrOp, ts))
+  Rc.new(VcTermNode.App(VcOp.OrOp, ts.clone()))
 });
 /// Implication `a => b` (right-associative chain when built pairwise).
 vc_imp :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({

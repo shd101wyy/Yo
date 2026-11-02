@@ -288,6 +288,7 @@ _LineKind :: enum(
   /// Blank, comment, or the continuation of a multi-line value.
   Other
 );
+derive(_LineKind, Clone);
 _Line :: ref(
   struct(
     kind : _LineKind,
@@ -373,7 +374,7 @@ _find_table_header :: (fn(kinds : &ArrayList(_Line), table : &String) -> Option(
   (i : usize) = usize(0);
   while(i < kinds.len(), {
     match(
-      &kinds(i).kind,
+      &kinds(i).kind.clone(),
       .Header(path, array) => {
         if(!array && ((path.len() == usize(1)) && (path(usize(0)) == table)), {
           return(Option(usize).Some(i));
@@ -390,7 +391,7 @@ _section_end :: (fn(kinds : &ArrayList(_Line), from : usize) -> usize)({
   (i : usize) = from;
   while(i < kinds.len(), {
     match(
-      &kinds(i).kind,
+      &kinds(i).kind.clone(),
       .Header(_, _) => {
         return(i);
       },
@@ -426,7 +427,7 @@ _entry_ranges :: (
       (i : usize) = (h + usize(1));
       while(i < end, {
         match(
-          &kinds(i).kind,
+          &kinds(i).kind.clone(),
           .Entry(path) => {
             if((path.len() >= usize(1)) && (path(usize(0)) == key), {
               ranges.push(_Range(start : i, end : (kinds(i).end + usize(1))));
@@ -441,7 +442,7 @@ _entry_ranges :: (
   (j : usize) = usize(0);
   while(j < kinds.len(), {
     match(
-      &kinds(j).kind,
+      &kinds(j).kind.clone(),
       .Header(path, _) => {
         if((path.len() >= usize(2)) && (path(usize(0)) == table) && (path(usize(1)) == key), {
           ranges.push(_Range(start : j, end : _section_end(kinds, j + usize(1))));
@@ -604,7 +605,7 @@ set_entry :: (
           (i : usize) = (h + usize(1));
           while(i < end, {
             match(
-              &pruned_kinds(i).kind,
+              &pruned_kinds(i).kind.clone(),
               .Entry(_) => {
                 insert_at = (pruned_kinds(i).end + usize(1));
               },

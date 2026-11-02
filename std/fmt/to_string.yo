@@ -353,12 +353,12 @@ impl(
   String,
   ToString(
     to_string : (fn(self : &Self) -> String)(
-      // Shares the receiver until B8 (plans/VALUES_BY_DEFAULT.md B3's
-      // deferred list), which makes it the `.clone()` an owned result needs.
-      // String interpolation routes a `String` part through here only in a
+      // An owned result of a borrowed receiver is a copy (B8,
+      // plans/VALUES_BY_DEFAULT.md): `String` owns its buffer. String
+      // interpolation routes a `String` part through here only in a
       // one-part template (`${s}`); in a longer one every part is appended
       // by borrow through `append_to` (D10).
-      self
+      self.clone()
     ),
     // An interpolated `String` part is appended by borrow (D10).
     append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_string(self))
@@ -396,7 +396,7 @@ impl(
       // copy. `self.char` is a raw u32, so the lossy entry point is the right
       // one — a `rune` built by hand around a surrogate stringifies as U+FFFD
       // rather than emitting CESU-8.
-      out := ArrayList(u8).with_capacity(usize(4));
+      mut(out) := ArrayList(u8).with_capacity(usize(4));
       utf8.encode_lossy_into(self.char, &mut out);
       String.from_bytes(out)
     })

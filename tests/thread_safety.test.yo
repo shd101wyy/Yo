@@ -59,10 +59,10 @@ comptime_expect_error({
 // ============================================================================
 // issues/fixed/send-was-not-enforced-at-spawn-boundaries.md — the closure
 // created for `Impl(Fn(io : Io) -> unit, Send)` is checked against `Send`
-// capture by capture: a non-atomic `ref` struct (an ArrayList, a String, any
-// plain ref(struct)) may not cross an OS thread.
+// capture by capture: a non-atomic `ref` struct (any plain ref(struct)) may
+// not cross an OS thread. A value `ArrayList` or `String` may since B8: it is
+// the only owner of its buffer (tests/send_sync.test.yo).
 { Thread } :: import("std/thread");
-{ ArrayList } :: import("std/collections/array_list");
 // The offending value must be a FUNCTION LOCAL: the check runs over a
 // closure's captures, and a module-level binding is a global, not a capture
 // (globals reached from a spawned closure are a separate, open question).
@@ -78,25 +78,14 @@ comptime_expect_error({
   });
   _spawn_with_ref_struct();
 });
-comptime_expect_error({
-  _spawn_with_array_list :: (fn() -> unit)({
-    items := ArrayList(i32).new();
-    t := Thread(unit).spawn(io => {
-      items.push(i32(1));
-      ()
-    });
-    t.join();
-  });
-  _spawn_with_array_list();
-});
 // A captured CLOSURE is judged by ITS captures (Rust's auto trait): one over
-// atomics is Send, one over an ArrayList is not.
+// atomics is Send, one over a ref struct is not.
 comptime_expect_error({
   _spawn_with_closure_over_ref :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := NotSendCell(v : i32(1));
     (worker : Impl(Fn() -> unit)) = (
       () => {
-        items.push(i32(1));
+        _v := items.v;
       }
     );
     t := Thread(unit).spawn(io => worker());
@@ -145,10 +134,10 @@ _forward_a_bounded_callback :: (
 // exemption above.
 comptime_expect_error({
   _bind_non_send_to_a_send_bound :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := NotSendCell(v : i32(1));
     (leaky : Impl(Fn() -> unit, Send)) = (
       () => {
-        items.push(i32(1));
+        _v := items.v;
       }
     );
     leaky();
@@ -187,20 +176,20 @@ _helper_with_send_captures :: (fn() -> unit)({
 // …and the same shape with one non-Send capture is still refused: directly,
 comptime_expect_error({
   _helper_with_a_non_send_capture :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := NotSendCell(v : i32(1));
     _run_on_thread(() => {
-      items.push(i32(1));
+      _v := items.v;
     });
   });
   _helper_with_a_non_send_capture();
-}, "Captured variable 'items' (type ArrayList(i32)) does not implement Send");
+}, "Captured variable 'items' (type NotSendCell) does not implement Send");
 // The refusal's advice names what `Arc` asks of its contents: `Send + Sync`,
 // with no `Acyclic` since decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2).
 comptime_expect_error({
   _helper_with_a_non_send_capture_advice :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := NotSendCell(v : i32(1));
     _run_on_thread(() => {
-      items.push(i32(1));
+      _v := items.v;
     });
   });
   _helper_with_a_non_send_capture_advice();
@@ -208,10 +197,10 @@ comptime_expect_error({
 // …and one closure further in.
 comptime_expect_error({
   _helper_with_a_nested_non_send_capture :: (fn() -> unit)({
-    items := ArrayList(i32).new();
+    items := NotSendCell(v : i32(1));
     (inner : Impl(Fn() -> unit)) = (
       () => {
-        items.push(i32(1));
+        _v := items.v;
       }
     );
     _run_on_thread(() => {
@@ -219,7 +208,7 @@ comptime_expect_error({
     });
   });
   _helper_with_a_nested_non_send_capture();
-}, "its captured variable 'items' (type ArrayList(i32)) does not implement Send");
+}, "its captured variable 'items' (type NotSendCell) does not implement Send");
 // `arc` of a closure over a closure crosses a thread. `Arc(T)` is `Send` when
 // `T` is `Send` and `Sync`, and `T` here is `outer`'s capture struct, whose one
 // field is `inner`'s closure type. That field counts by `inner`'s captures, an

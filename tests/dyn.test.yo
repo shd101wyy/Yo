@@ -143,7 +143,7 @@ import("std/string");
 { ToString, print } :: import("std/fmt");
 test("Test downcast success", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_cat := downcast(animal, Cat);
@@ -159,9 +159,9 @@ test("Test downcast success", {
 });
 test("Test downcast failure", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : (self -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_dog := downcast(animal, Dog);
@@ -177,9 +177,9 @@ test("Test downcast failure", {
 });
 test("Test downcast type check via is_some", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : (self -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
@@ -190,11 +190,13 @@ test("Test downcast type check via is_some", {
 // wraps used to fall back to the object cast — `((StructType)__yo_incr_rc(...))`
 // — which is not valid C ("used type … where arithmetic or pointer type is
 // required"), so the whole build died inside the C compiler. Nothing in this
-// file boxes a `NeverDynnedValue` or a `String` into a Dyn, so no vtable carries
-// their type ids and both answers are statically `.None`.
+// file boxes a `NeverDynnedValue` or a `NeverDynnedPoint` into a Dyn, so no
+// vtable carries their type ids and both answers are statically `.None`. (The
+// second was `String` until B8 made it move-only: a downcast to a move-only type
+// needs a Dyn that lists `Clone`, E0901.)
 test("Test downcast to a value type that no dyn() in the program wraps", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   // A PAYLOAD variant matters: a fieldless enum lowers to a C integer, and the
   // old object-cast fallback then compiled (as a pointer-to-int cast) instead of
   // failing loudly. The struct-shaped variants are what the C compiler rejects.
@@ -203,7 +205,8 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
-  assert(downcast(animal, String).is_none(), "a never-dyn'd String can never be inside a Dyn");
+  NeverDynnedPoint :: struct(x : i32, y : i32);
+  assert(downcast(animal, NeverDynnedPoint).is_none(), "a never-dyn'd value struct can never be inside a Dyn");
   // Over-rejection canary in the same batch: the target that IS wrapped here
   // must still be found.
   assert(downcast(animal, Cat).is_some(), "Expected animal to still be a Cat");
@@ -222,21 +225,21 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
 // supply one (an annotated binding, a declared return type) keep working.
 test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
-  comptime_expect_error(downcast(dyn(Cat(`shadow`)), String), "cannot infer the Dyn type");
+  comptime_expect_error(downcast(dyn(Cat(`shadow`)), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
   (animal : Animal) = dyn(Cat(`shadow`));
-  assert(downcast(animal, String).is_none(), "the annotated-binding spelling supplies the Dyn");
+  assert(downcast(animal, Cat).is_some(), "the annotated-binding spelling supplies the Dyn");
   make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
-  assert(downcast(make_animal(), String).is_none(), "the declared-return spelling supplies the Dyn");
+  assert(downcast(make_animal(), Cat).is_some(), "the declared-return spelling supplies the Dyn");
 });
 test("Test downcast with multiple concrete types", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : (self -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : (self -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Dyn(ToString);
   (cat_animal : Animal) = dyn(Cat(`kitty`));
   (dog_animal : Animal) = dyn(Dog(`buddy`));
@@ -610,7 +613,7 @@ test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
 // (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
 _os_show :: (fn(v : &Dyn(ToString)) -> String)(v.to_string());
 test("Dyn: a trait from a generic impl builds its vtable", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   assert(_os_show(dyn(xs)) == String.from("[1, 2]"), "ArrayList(T)'s blanket ToString");
@@ -725,7 +728,7 @@ test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
 // to hand `ArrayList(Dyn(T))._ptr`, so reading an element back did not compile.
 { ToString : _AlToString } :: import("std/fmt/to_string");
 test("Test an ArrayList of trait objects reads its elements back", {
-  (xs : ArrayList(Dyn(_AlToString))) = ArrayList(Dyn(_AlToString)).new();
+  (mut(xs) : ArrayList(Dyn(_AlToString))) = ArrayList(Dyn(_AlToString)).new();
   xs.push(dyn(i32(7), _AlToString));
   xs.push(dyn(i32(9), _AlToString));
   got := xs(usize(1)).to_string();
@@ -792,7 +795,7 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
       xs.push(i32(7));
     })
   );
-  (ys : ArrayList(i32)) = ArrayList(i32).new();
+  (mut(ys) : ArrayList(i32)) = ArrayList(i32).new();
   p.push(&mut ys);
   _dio_push_through(&mut ys, &p);
   assert(ys.len() == usize(2), "a local ArrayList is pushed through the callback, directly and forwarded");
@@ -876,7 +879,7 @@ test("dyn of a named function calls the function", {
   assert(x == i32(42), "a &mut parameter writes through to the caller's place");
   (o : Dyn(FnOnce() -> i32)) = dyn(_dnf_nine);
   assert(o() == i32(9), "a Dyn(FnOnce) of a named fn");
-  (fs : ArrayList(Dyn(Fn() -> i32))) = ArrayList(Dyn(Fn() -> i32)).new();
+  (mut(fs) : ArrayList(Dyn(Fn() -> i32))) = ArrayList(Dyn(Fn() -> i32)).new();
   fs.push(dyn(_dnf_nine));
   fs.push(dyn(() => i32(1)));
   assert((fs(usize(0))() + fs(usize(1))()) == i32(10), "a named fn and a closure share one Dyn type");
@@ -957,7 +960,7 @@ test("the last use of a Dyn moves it", {
 // `continue` reaches the next iteration.
 test("a Dyn copy on a path that breaks out of its loop is its last use", {
   d := _ud_tally(i32(1));
-  xs := ArrayList(Dyn(_UdCounter, Clone)).new();
+  mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
   while(true, {
     xs.push(d);
     break;
@@ -984,7 +987,7 @@ test("a Dyn copy reached again on another path is E0901", {
   comptime_expect_error({
     (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
     c := runtime(true);
-    xs := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
     xs.push(d);
     if(c, {
       d = _ud_tally(i32(2));
@@ -994,7 +997,7 @@ test("a Dyn copy reached again on another path is E0901", {
   comptime_expect_error({
     (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
     c := runtime(true);
-    xs := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
     while(c, {
       xs.push(d);
       if(c, {
@@ -1007,7 +1010,7 @@ test("a Dyn copy reached again on another path is E0901", {
   comptime_expect_error({
     (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
     c := runtime(true);
-    xs := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
     while(c, {
       xs.push(d);
       if(c, {
@@ -1018,7 +1021,7 @@ test("a Dyn copy reached again on another path is E0901", {
   comptime_expect_error({
     (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
     c := runtime(true);
-    xs := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
     while(c, {
       xs.push(d);
       if(c, {
@@ -1057,7 +1060,7 @@ test("a Dyn copy whose source is used again is E0901", {
   comptime_expect_error({
     d := _ud_tally(i32(1));
     (mut(i) : usize) = usize(0);
-    xs := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
     while(i < usize(2), {
       xs.push(d);
       i = (i + usize(1));
@@ -1116,7 +1119,9 @@ test("a Dyn(Fn(...), Clone) clones its closure", {
   (h : Dyn(Fn(x : i32) -> i32, Clone)) = dyn((x : i32) => (x + n));
   k := h.clone();
   assert((h(i32(1)) + k(i32(2))) == i32(9), "a closure of Copy captures clones by copy");
-  (b : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(s.len())));
+  // `s` moved into `f`'s closure (a `String` is a value since B8).
+  t := String.from("abc");
+  (b : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(t.len())));
   (e : Dyn(Fn(x : i32) -> i32, Clone)) = dyn(b);
   e2 := e.clone();
   assert((e(i32(1)) + e2(i32(2))) == i32(9), "a typed closure binding clones too");

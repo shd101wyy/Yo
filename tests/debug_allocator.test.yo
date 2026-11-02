@@ -21,6 +21,7 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { Exception, IoExn } :: import("std/error");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { env, args } :: import("std/env");
 { GlobalAllocator } :: import("std/allocator");
 { exit } :: import("std/libc/stdlib");
@@ -78,7 +79,7 @@ test("a block freed through every entry point leaves nothing live", {
   a := match(GlobalAllocator.aligned_alloc(usize(256), usize(100)), .Some(b) => b, .None => __yo_panic("aligned_alloc"));
   assert((unsafe.cast(&a, usize) % usize(256)) == usize(0), "aligned_alloc honours the alignment");
   unsafe(GlobalAllocator.aligned_free(.Some(a)));
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(100), {
     xs.push(i.to_string());
@@ -104,7 +105,7 @@ test("a double free aborts and names the block", {
     },
     .None => if(_debug_on(), {
       out := _run_child("double-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("debug allocator: double free: free of block #"), `the abort names the double free, got: ${err}`);
       assert(err.contains("(32 bytes), already freed"), `the abort names the size, got: ${err}`);
@@ -121,7 +122,7 @@ test("a free of a pointer it never handed out aborts", {
     },
     .None => if(_debug_on(), {
       out := _run_child("foreign-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("which this allocator did not hand out"), `the abort names a foreign pointer, got: ${err}`);
     })
@@ -137,7 +138,7 @@ test("a write after free is reported at exit", {
     },
     .None => if(_debug_on(), {
       out := _run_child("write-after-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("(40 bytes) was written after it was freed (first changed byte at offset 3)"), `the report names the write, got: ${err}`);
     })
@@ -151,7 +152,7 @@ test("a block still live when main returns fails the run with status 23", {
     },
     .None => if(_debug_on(), {
       out := _run_child("leak", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.code().unwrap_or(i32(-1)) == i32(23), `the leak check exits with 23, got: ${err}`);
       // `g_kept` below is a module global, reachable and not counted.
       assert(err.contains("debug allocator: leak check failed: 1 blocks / 48 bytes leaked"), `the report counts the block, got: ${err}`);
@@ -167,7 +168,7 @@ test("an exit before main returns lists its live blocks without judging them", {
     },
     .None => if(_debug_on(), {
       out := _run_child("exit-early", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.success(), `exit(0) keeps its status, got: ${err}`);
       assert(err.contains("56 bytes"), `the report lists the block, got: ${err}`);
       assert(err.contains("so its live blocks are not judged"), `the report says why, got: ${err}`);
@@ -176,20 +177,21 @@ test("an exit before main returns lists its live blocks without judging them", {
 });
 // A module global is never dropped: what it still holds at exit is in use,
 // not leaked, so the exit check must not fail on it.
-g_kept := ArrayList(String).new();
+g_kept := RefCell(ArrayList(String)).new(ArrayList(String).new());
 test("blocks a module global still reaches at exit are not leaks", {
   match(
     _child_mode(),
     .Some(_) => {
       (mut(k) : usize) = usize(0);
       while(k < usize(20), {
-        g_kept.push(k.to_string());
+        s := k.to_string();
+        g_kept.with_mut({ s }(l) => l.push(s));
         k = (k + usize(1));
       });
     },
     .None => if(_debug_on(), {
       out := _run_child("reachable", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.success(), `the run passes the leak check, got: ${err}`);
       assert(err.contains("still reachable from module globals"), `the report counts the reachable blocks, got: ${err}`);
       assert(!err.contains("leaked block"), `nothing is reported leaked, got: ${err}`);
@@ -208,7 +210,7 @@ test("a double free of a block bigger than the quarantine is still named", {
     },
     .None => if(_debug_on(), {
       out := _run_child("big-double-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("debug allocator: double free: free of block #"), `the abort names the double free, got: ${err}`);
       assert(err.contains("(73400320 bytes), already freed"), `the abort names the size, got: ${err}`);
@@ -229,7 +231,7 @@ test("a free of a block that already left the quarantine is rejected without rea
     },
     .None => if(_debug_on(), {
       out := _run_child("evicted-free", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(!out.status.success(), "the child must not succeed");
       assert(err.contains("whose block already left the quarantine"), `the abort names the pointer as unknown, got: ${err}`);
     })
@@ -243,7 +245,7 @@ test("YO_DEBUG_ALLOC_VERDICT=0 lists a leaked block without failing the run", {
     },
     .None => if(_debug_on(), {
       out := _run_child_with_verdict("verdict-off", "0", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.success(), `the run keeps its status, got: ${err}`);
       assert(err.contains("leaked block #"), `the report still lists the block, got: ${err}`);
       assert(err.contains("the leak verdict is off (YO_DEBUG_ALLOC_VERDICT=0)"), `the report says why, got: ${err}`);
@@ -264,7 +266,7 @@ test("a detached thread that finishes after main returns is waited for, not repo
     },
     .None => if(_debug_on(), {
       out := _run_child("late-thread", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.success(), `the run passes the leak check, got: ${err}`);
       assert(!err.contains("leaked block"), `nothing is reported leaked, got: ${err}`);
     })
@@ -283,7 +285,7 @@ test("a thread still running past the wait leaves the live blocks unjudged", {
     },
     .None => if(_debug_on(), {
       out := _run_child("running-thread", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.success(), `a running thread is no leak, got: ${err}`);
       assert(err.contains("threads of the program were still running"), `the report says why, got: ${err}`);
     })
@@ -298,7 +300,7 @@ test("a pool's finished tasks are judged after its workers exit", {
       while(i < usize(32), {
         k := i;
         spawn(&pool, io => {
-          xs := ArrayList(String).new();
+          mut(xs) := ArrayList(String).new();
           xs.push(k.to_string());
           assert(xs.len() == usize(1), "the task ran");
         });
@@ -308,7 +310,7 @@ test("a pool's finished tasks are judged after its workers exit", {
     },
     .None => if(_debug_on(), {
       out := _run_child("pool", io);
-      err := String.from_bytes(out.stderr);
+      err := String.from_bytes(out.stderr.clone());
       assert(out.status.success(), `the run passes the leak check, got: ${err}`);
       assert(!err.contains("leaked block"), `nothing is reported leaked, got: ${err}`);
       assert(!err.contains("not judged"), `the workers exited within the wait, got: ${err}`);

@@ -75,7 +75,7 @@ _dyn_type_id :: (fn(rtt : &ArrayList(TypeValue), ntt : &ArrayList(TypeValue)) ->
   (a : usize) = usize(1);
   while(a < keys.len(), {
     (b : usize) = a;
-    while((b > usize(0)) && (match(keys.get(b), .Some(y) => y, .None => String.new()) < match(keys.get(b - usize(1)), .Some(x) => x, .None => String.new())), {
+    while((b > usize(0)) && (match(keys.get_cloned(b), .Some(y) => y, .None => String.new()) < match(keys.get_cloned(b - usize(1)), .Some(x) => x, .None => String.new())), {
       keys.swap(b - usize(1), b);
       b = (b - usize(1));
     });
@@ -246,9 +246,12 @@ record_owned_expr_id :: (fn(id : usize) -> unit)({
   });
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  ids := match(g_owned_expr_ids.with_mut(m => m.remove(cur_owner.clone())), .Some(l) => l, .None => ArrayList(usize).new());
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  rm_key := cur_owner.clone();
+  ids := match(g_owned_expr_ids.with_mut({ rm_key }(m) => m.remove(&rm_key)), .Some(l) => l, .None => ArrayList(usize).new());
   ids.push(id);
-  g_owned_expr_ids.with_mut(m => m.insert(cur_owner.clone(), ids));
+  ins_key := cur_owner.clone();
+  g_owned_expr_ids.with_mut({ ins_key, ids }(m) => m.insert(ins_key, ids));
 });
 /// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
 owned_id_log_entry_count :: (fn() -> usize)({
@@ -280,24 +283,31 @@ owned_id_log_entry_count :: (fn() -> usize)({
   n
 });
 /// Remove and return the expression ids `owner`'s evaluation recorded.
-take_owned_expr_ids :: (fn(owner : &String) -> ArrayList(usize))(
-  match(g_owned_expr_ids.with_mut(m => m.remove(owner)), .Some(ids) => ids, .None => ArrayList(usize).new())
-);
+take_owned_expr_ids :: (fn(owner : &String) -> ArrayList(usize))({
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  owner_owned := owner.clone();
+  match(g_owned_expr_ids.with_mut({ owner_owned }(m) => m.remove(&owner_owned)), .Some(ids) => ids, .None => ArrayList(usize).new())
+});
 /// Record `func_id` under the current owner (no-op outside a module load).
 record_owned_func_id :: (fn(func_id : &String) -> unit)({
   cur_owner := _registration_owner.clone();
   if((cur_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
-  ids := match(g_owned_func_ids.with_mut(m => m.remove(cur_owner.clone())), .Some(m) => m, .None => HashMap(String, bool).new());
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  frm_key := cur_owner.clone();
+  ids := match(g_owned_func_ids.with_mut({ frm_key }(m) => m.remove(&frm_key)), .Some(m) => m, .None => HashMap(String, bool).new());
   _old := ids.insert(func_id.clone(), true);
-  g_owned_func_ids.with_mut(m => m.insert(cur_owner.clone(), ids));
+  fins_key := cur_owner.clone();
+  g_owned_func_ids.with_mut({ fins_key, ids }(m) => m.insert(fins_key, ids));
 });
 /// Remove and return the function ids `owner`'s evaluation registered.
 take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
+  // Owned capture (`with_mut`'s callback is a sink parameter).
+  tf_key := owner.clone();
   match(
-    g_owned_func_ids.with_mut(m => m.remove(owner)),
+    g_owned_func_ids.with_mut({ tf_key }(m) => m.remove(&tf_key)),
     .Some(ids) => {
       it := ids.keys();
       nx := it.next();
@@ -331,7 +341,9 @@ _canonical_owner :: (fn(owner : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(owner));
-      _canonical_owner_memo.with_mut({ c : Rc.clone(c), owner }(m) => m.insert(owner.clone(), Rc.clone(c)));
+      // Owned captures (`with_mut`'s callback is a sink parameter).
+      co_key := owner.clone();
+      _canonical_owner_memo.with_mut({ c : Rc.clone(c), co_key }(m) => m.insert(co_key, Rc.clone(c)));
       c
     }
   )
@@ -385,12 +397,18 @@ register_type_trait_method :: (
   });
   // Taken out of the maps and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(_type_trait_methods.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  // Owned captures (`with_mut`'s callback is a sink parameter): the key
+  // clones once per lookup and once per store-back.
+  tm_key := type_id.clone();
+  list := match(_type_trait_methods.with_mut({ tm_key }(m) => m.remove(&tm_key)), .Some(l) => l, .None => ArrayList(MethodEntry).new());
   list.push(entry);
-  _type_trait_methods.with_mut(m => m.insert(type_id.clone(), list));
-  olist := match(_type_trait_method_owners.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(String).new());
+  tm_key2 := type_id.clone();
+  _type_trait_methods.with_mut({ tm_key2, list }(m) => m.insert(tm_key2, list));
+  to_key := type_id.clone();
+  olist := match(_type_trait_method_owners.with_mut({ to_key }(m) => m.remove(&to_key)), .Some(l) => l, .None => ArrayList(String).new());
   olist.push(owner);
-  _type_trait_method_owners.with_mut(m => m.insert(type_id.clone(), olist));
+  to_key2 := type_id.clone();
+  _type_trait_method_owners.with_mut({ to_key2, olist }(m) => m.insert(to_key2, olist));
 });
 /// Drop every method entry registered by `owner` (a `file://` abs module
 /// path). Called with each module the LSP invalidates, right before its
@@ -418,9 +436,9 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
     match(
       it.next(),
       .Some(key) => match(
-        _type_trait_methods.with(m => m.get(key.clone())),
+        _type_trait_methods.with(m => m.get_cloned(key.clone())),
         .Some(found_list) => match(
-          _type_trait_method_owners.with(m => m.get(key.clone())),
+          _type_trait_method_owners.with(m => m.get_cloned(key.clone())),
           .Some(found_olist) => {
             list := found_list;
             olist := found_olist;
@@ -428,7 +446,7 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
             (i : usize) = olist.len();
             while(i > usize(0), {
               i = (i - usize(1));
-              hit := match(olist.get(i), .Some(o) => (o == owner), .None => false);
+              hit := match(olist.get_cloned(i), .Some(o) => (o == owner), .None => false);
               if(hit && (i < list.len()), {
                 list.drain(i .. (i + usize(1)));
                 olist.drain(i .. (i + usize(1)));
@@ -452,9 +470,15 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   });
   (ui : usize) = usize(0);
   while(ui < upd_keys.len(), {
-    k := upd_keys(ui).clone();
-    _ml := _type_trait_methods.with_mut(m => m.insert(k.clone(), upd_lists(ui)));
-    _ol := _type_trait_method_owners.with_mut(m => m.insert(k, upd_owners(ui)));
+    // Owned per-iteration copies, then owned captures: the maps' inserts
+    // take their key and value by value, and `with_mut`'s callback is a
+    // sink parameter (no borrow captures).
+    k := match(upd_keys.get_cloned(ui), .Some(v) => v, .None => String.new());
+    l := match(upd_lists.get_cloned(ui), .Some(v) => v, .None => ArrayList(MethodEntry).new());
+    _ml := _type_trait_methods.with_mut({ k, l }(m) => m.insert(k, l));
+    k2 := match(upd_keys.get_cloned(ui), .Some(v) => v, .None => String.new());
+    o := match(upd_owners.get_cloned(ui), .Some(v) => v, .None => ArrayList(String).new());
+    _ol := _type_trait_method_owners.with_mut({ k2, o }(m) => m.insert(k2, o));
     ui = (ui + usize(1));
   });
 });
@@ -470,14 +494,14 @@ type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue
     match(
       it.next(),
       .Some(key) => match(
-        _type_trait_methods.with(m => m.get(key.clone())),
+        _type_trait_methods.with(m => m.get_cloned(key.clone())),
         .Some(list) => match(
-          _type_trait_method_owners.with(m => m.get(key.clone())),
+          _type_trait_method_owners.with(m => m.get_cloned(key.clone())),
           .Some(olist) => {
             (i : usize) = usize(0);
             while((i < olist.len()) && (i < list.len()), {
-              if(match(olist.get(i), .Some(o) => (o == owner), .None => false), {
-                match(list.get(i), .Some(m) => match(m.value, .Some(v) => out.push(v), .None => ()), .None => ());
+              if(match(olist.get_cloned(i), .Some(o) => (o == owner), .None => false), {
+                match(list.get_cloned(i), .Some(m) => match(m.value, .Some(v) => out.push(v), .None => ()), .None => ());
               });
               i = (i + usize(1));
             });
@@ -502,7 +526,7 @@ type_trait_methods_entry_count :: (fn() -> usize)({
     match(
       it.next(),
       .Some(key) => match(
-        _type_trait_methods.with(m => m.get(&key)),
+        _type_trait_methods.with(m => m.get_cloned(&key)),
         .Some(list) => {
           total = (total + list.len());
         },
@@ -521,7 +545,7 @@ get_type_trait_methods_for_type :: (
   fn(type_id : &String) -> ArrayList(MethodEntry)
 )(
   match(
-    _type_trait_methods.with(m => m.get(type_id)),
+    _type_trait_methods.with(m => m.get_cloned(type_id)),
     .Some(list) => list,
     .None => ArrayList(MethodEntry).new()
   )
@@ -547,16 +571,18 @@ get_type_trait_methods_for_type :: (
 register_provisional_trait_method :: (
   fn(type_id : &String, entry : &MethodEntry) -> unit
 )({
-  list := match(_provisional_trait_methods.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  type_id_own____ := type_id.clone();
+  list := match(_provisional_trait_methods.with_mut({ type_id_own____ }(m) => m.remove(type_id_own____.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
   list.push(entry);
-  _provisional_trait_methods.with_mut(m => m.insert(type_id.clone(), list));
+  type_id_own_____ := type_id.clone();
+  _provisional_trait_methods.with_mut({ type_id_own_____, list : list.clone() }(m) => m.insert(type_id_own_____.clone(), list.clone()));
 });
 get_provisional_trait_methods_by_name :: (
   fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   result := ArrayList(MethodEntry).new();
   match(
-    _provisional_trait_methods.with(m => m.get(type_id)),
+    _provisional_trait_methods.with(m => m.get_cloned(type_id)),
     .Some(all) => {
       n := all.len();
       (i : usize) = usize(0);
@@ -578,7 +604,8 @@ get_provisional_trait_methods_by_name :: (
   result
 });
 clear_provisional_trait_methods :: (fn(type_id : &String) -> unit)({
-  _provisional_trait_methods.with_mut(m => m.remove(type_id));
+  type_id_owned := type_id.clone();
+  _provisional_trait_methods.with_mut({ type_id_owned }(m) => m.remove(&type_id_owned));
 });
 /// Return only the method entries whose `label` matches `method_name`.
 get_type_trait_methods_by_name :: (
@@ -681,13 +708,15 @@ note_inherent_method_site :: (
 )({
   key := `${type_id}\n${label}`;
   match(
-    _inherent_method_sites.with(m => m.get(key.clone())),
+    _inherent_method_sites.with(m => m.get_cloned(key.clone())),
     .Some(prev) => cond(
       (prev == site) => Option(String).None,
       true => Option(String).Some(prev)
     ),
     .None => {
-      _inherent_method_sites.with_mut(m => m.insert(key.clone(), site.clone()));
+      key_own := key.clone();
+      site_own_ := site.clone();
+      _inherent_method_sites.with_mut({ key_own, site_own_ }(m) => m.insert(key_own.clone(), site_own_.clone()));
       Option(String).None
     }
   )
@@ -705,14 +734,18 @@ note_inherent_method_site :: (
 note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &String) -> Option(String))({
   key := `${type_id}\n${trait_key}`;
   match(
-    _trait_impl_sites.with(m => m.get(key.clone())),
+    _trait_impl_sites.with(m => m.get_cloned(key.clone())),
     .Some(prev) => cond(
       (prev == site) => Option(String).None,
       true => Option(String).Some(prev)
     ),
     .None => {
-      _trait_impl_sites.with_mut(m => m.insert(key.clone(), site.clone()));
-      _trait_impl_site_owners.with_mut(m => m.insert(key.clone(), registration_owner()));
+      key_own_ := key.clone();
+      site_own__ := site.clone();
+      _trait_impl_sites.with_mut({ key_own_, site_own__ }(m) => m.insert(key_own_.clone(), site_own__.clone()));
+      key_own__ := key.clone();
+      registration_owner_own := registration_owner.clone();
+      _trait_impl_site_owners.with_mut({ key_own__, registration_owner_own }(m) => m.insert(key_own__.clone(), registration_owner_own()));
       Option(String).None
     }
   )
@@ -720,7 +753,7 @@ note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &Stri
 /// The site of the impl of trait `trait_key` for the type `type_id`, if one
 /// is registered (`note_trait_impl_site`), without recording anything.
 trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(String))(
-  _trait_impl_sites.with(m => m.get(`${type_id}\n${trait_key}`))
+  _trait_impl_sites.with(m => m.get_cloned(`${type_id}\n${trait_key}`))
 );
 /// Drop the trait-impl site recorded for (`type_id`, `trait_key`) when it was
 /// recorded FROM `site` — the undo of `note_trait_impl_site` for an impl whose
@@ -730,9 +763,10 @@ trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(Stri
 forget_trait_impl_site_if_from :: (fn(type_id : &String, trait_key : &String, site : &String) -> unit)({
   key := `${type_id}\n${trait_key}`;
   match(
-    _trait_impl_sites.with(m => m.get(key.clone())),
+    _trait_impl_sites.with(m => m.get_cloned(key.clone())),
     .Some(prev) => if(prev == site, {
-      _trait_impl_sites.with_mut(m => m.remove(key.clone()));
+      key_own___ := key.clone();
+      _trait_impl_sites.with_mut({ key_own___ }(m) => m.remove(key_own___.clone()));
       _trait_impl_site_owners.with_mut(m => m.remove(&key));
     }),
     .None => ()
@@ -750,7 +784,7 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
   while(go, {
     match(
       it.next(),
-      .Some(k) => if(match(_trait_impl_site_owners.with(m => m.get(k.clone())), .Some(o) => (o == owner), .None => false), {
+      .Some(k) => if(match(_trait_impl_site_owners.with(m => m.get_cloned(k.clone())), .Some(o) => (o == owner), .None => false), {
         stale.push(k.clone());
       }),
       .None => {
@@ -760,8 +794,9 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
   });
   (si : usize) = usize(0);
   while(si < stale.len(), {
-    sk := match(stale.get(si), .Some(k) => k, .None => String.new());
-    _trait_impl_sites.with_mut(m => m.remove(sk.clone()));
+    sk := match(stale.get_cloned(si), .Some(k) => k, .None => String.new());
+    sk_own := sk.clone();
+    _trait_impl_sites.with_mut({ sk_own }(m) => m.remove(sk_own.clone()));
     _trait_impl_site_owners.with_mut(m => m.remove(&sk));
     si = (si + usize(1));
   });
@@ -778,7 +813,11 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
 register_trait_default :: (fn(trait_id : &String, label : &String, value : &EvalValue) -> unit)({
   key := (trait_id.clone() + String.from("::") + label.clone());
   owned_keys_record(&_trait_default_owned, key.clone());
-  _trait_method_defaults.with_mut(m => m.insert(key.clone(), value));
+  key_own____ := key.clone();
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  tmd_key := key.clone();
+  tmd_val := value.clone();
+  _trait_method_defaults.with_mut({ tmd_key, tmd_val }(m) => m.insert(tmd_key, tmd_val));
 });
 /// Registered trait defaults (the B2 plateau test's probe).
 trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.with(m => m.len()));
@@ -789,7 +828,7 @@ purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < keys.len(), {
     match(
-      keys.get(i),
+      keys.get_cloned(i),
       .Some(k) => {
         _r := _trait_method_defaults.with_mut(m => m.remove(&k));
       },
@@ -818,33 +857,40 @@ register_trait_method_contracts :: (
   fn(trait_id : &String, label : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
 )({
   key := (trait_id.clone() + String.from("::") + label.clone());
-  _trait_method_requires.with_mut(m => m.insert(key.clone(), reqs.clone()));
-  _trait_method_ensures.with_mut(m => m.insert(key.clone(), enss.clone()));
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  tmc_key := key.clone();
+  tmc_reqs := reqs.clone();
+  _trait_method_requires.with_mut({ tmc_key, tmc_reqs }(m) => m.insert(tmc_key, tmc_reqs));
+  tmc_key2 := key.clone();
+  tmc_enss := enss.clone();
+  _trait_method_ensures.with_mut({ tmc_key2, tmc_enss }(m) => m.insert(tmc_key2, tmc_enss));
   match(
     ret,
     .Some(r) => {
-      _trait_method_return_labels.with_mut(m => m.insert(key.clone(), r.clone()));
+      r_own_ := key.clone();
+      key_own_______ := r.clone();
+      _trait_method_return_labels.with_mut({ key_own_______, r_own_ }(m) => m.insert(key_own_______.clone(), r_own_.clone()));
     },
     .None => ()
   );
 });
 trait_method_requires :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
-    _trait_method_requires.with(m => m.get(trait_id.clone() + String.from("::") + label.clone())),
+    _trait_method_requires.with(m => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
 trait_method_ensures :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
-    _trait_method_ensures.with(m => m.get(trait_id.clone() + String.from("::") + label.clone())),
+    _trait_method_ensures.with(m => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
 trait_method_return_label :: (fn(trait_id : &String, label : &String) -> Option(String))(
   match(
-    _trait_method_return_labels.with(m => m.get(trait_id.clone() + String.from("::") + label.clone())),
+    _trait_method_return_labels.with(m => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
     .Some(r) => Option(String).Some(r.clone()),
     .None => Option(String).None
   )

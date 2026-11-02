@@ -187,7 +187,7 @@ _ptr_hit_is_privilege_token :: (fn(text : &ArrayList(u8), offset : usize) -> boo
   labels.push(`spare`);
   (li : usize) = usize(0);
   while(li < labels.len(), {
-    lbl := labels.get(li);
+    lbl := labels.get_cloned(li);
     match(
       lbl,
       .Some(l) => {
@@ -731,19 +731,20 @@ scan_class1_extractions :: (fn(file : &String, src_str : &String, out : &mut Arr
 });
 /// The same .yo tree walk as unsafe_report.yo's (see its comment for the `.`
 /// and skip-set handling); deliberately duplicated rather than shared.
-_psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
+_psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))({
+  __probe_root := root.clone();
   io.async((e : IoExn) => {
-    is_dot := (root == ".");
-    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
+    is_dot := (__probe_root == ".");
+    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), __probe_root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
       return(ArrayList(String).new());
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
     if(!md.is_dir(), {
-      if(root.ends_with(`.yo`), {
+      if(__probe_root.ends_with(`.yo`), {
         single := ArrayList(String).new();
-        single.push(root.clone());
+        single.push(__probe_root.clone());
         return(single);
       });
       return(ArrayList(String).new());
@@ -753,7 +754,7 @@ _psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Futu
     collected := ArrayList(String).new();
     (i : usize) = usize(0);
     while(i < entries.len(), {
-      entry := entries(i);
+      entry := entries(i).clone();
       keep := match(entry.file_type, .Directory => false, _ => true);
       p := entry.path.to_string();
       if(keep && p.ends_with(`.yo`), {
@@ -778,11 +779,12 @@ _psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Futu
     collected.sort();
     collected
   })
-);
+});
 /// Generate the report.
-generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> Impl(Future(PublicSafeReport, IoExn)))(
+generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> Impl(Future(PublicSafeReport, IoExn)))({
+  __probe_root_path := root_path.clone();
   io.async((e : IoExn) => {
-    files := e.io.await(_psr_walk_yo_files(root_path.clone(), e.io, e.exn), e);
+    files := e.io.await(_psr_walk_yo_files(__probe_root_path.clone(), e.io, e.exn), e);
     findings := ArrayList(PublicSafeFinding).new();
     class1 := ArrayList(Class1Extraction).new();
     (public_decls_scanned : usize) = usize(0);
@@ -830,7 +832,7 @@ generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception
       totals : totals
     )
   })
-);
+});
 /// The class-1 section of the human format; empty when no scanned file has
 /// a panicking `Option`/`Result` method, so a tree without the prelude
 /// renders as before.

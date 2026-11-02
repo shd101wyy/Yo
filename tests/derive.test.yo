@@ -486,12 +486,12 @@ derive(generic(A : Type), where(A <: Clone), ClonePeek(A), Clone);
 CloneSlot :: (fn(comptime(A) : Type) -> comptime(Type))(enum(Empty, Full(v : Option(A))));
 derive(generic(A : Type), where(A <: Clone, A <: Eq(A)), CloneSlot(A), Clone, Eq(CloneSlot(A)));
 test("derive Clone for a generic struct over containers of its parameter", {
-  items := ArrayList(String).new();
+  mut(items) := ArrayList(String).new();
   items.push(`x`);
   p := ClonePeek(String)(n : i32(1), peeked : .Some(`p`), items : items, cell : Box.new(`c`));
   q := p.clone();
   assert(q.n == i32(1), "n");
-  assert(match(q.peeked, .Some(s) => (s == `p`), .None => false), "the Option field");
+  assert(match(&q.peeked, .Some(s) => (s == `p`), .None => false), "the Option field");
   assert(q.items.len() == usize(1), "the ArrayList field");
   assert(q.cell.* == `c`, "the Box field");
 });
@@ -921,10 +921,10 @@ derive(_ListItem, Clone, Copy);
 _Holder :: struct(x : usize, rel : ArrayList(_ListItem));
 derive(_Holder, Clone);
 test("a derived Clone over an ArrayList field deep-clones and stays independent of the original", {
-  src := ArrayList(_ListItem).new();
+  mut(src) := ArrayList(_ListItem).new();
   src.push(_ListItem(a : usize(10)));
   h := _Holder(x : usize(1), rel : src);
-  c := h.clone();
+  mut(c) := h.clone();
   assert(c.x == usize(1), "the scalar field clones");
   assert(c.rel.len() == usize(1), "the container deep-clones its elements");
   c.rel.push(_ListItem(a : usize(20)));
@@ -972,7 +972,7 @@ test("a local derive in a generic body serves every specialization", {
 test("a local derive's error reaches comptime_expect_error", {
   comptime_expect_error(derive(_LdBare, Copy), "derive(_LdBare, Copy, Clone)");
   LdS :: struct(s : String);
-  comptime_expect_error(derive(LdS, Copy, Clone), "its field `s` has type `String`");
+  comptime_expect_error(derive(LdS, Copy, Clone), "holds a move-only value in its field `s`");
 });
 // ============================================================================
 // An exit from a derive-generated body before a value local is moved drops

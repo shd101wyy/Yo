@@ -90,7 +90,7 @@ impl(
   IntoIterator(
     Item : TypeValue,
     IntoIter : ArrayListIter(TypeValue),
-    into_iter : (fn(self : Self) -> ArrayListIter(TypeValue))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(TypeValue))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -100,7 +100,7 @@ impl(
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(String))(self.*.items.get(i)),
+  get : (fn(self : &Self, i : usize) -> Option(String))(self.*.items.get_cloned(i)),
   /// A clone of the element at `i`, or `.None` past the end (`ArrayList`'s
   /// spelling, so a list read out of a `StructVal`/`TraitVal` reads the same).
   get_cloned : (fn(self : &Self, i : usize) -> Option(String))(self.*.items.get_cloned(i)),
@@ -113,7 +113,7 @@ impl(
   IntoIterator(
     Item : String,
     IntoIter : ArrayListIter(String),
-    into_iter : (fn(self : Self) -> ArrayListIter(String))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(String))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -133,7 +133,7 @@ impl(
   IntoIterator(
     Item : bool,
     IntoIter : ArrayListIter(bool),
-    into_iter : (fn(self : Self) -> ArrayListIter(bool))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(bool))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -153,7 +153,7 @@ impl(
   IntoIterator(
     Item : usize,
     IntoIter : ArrayListIter(usize),
-    into_iter : (fn(self : Self) -> ArrayListIter(usize))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(usize))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -173,7 +173,7 @@ impl(
   IntoIterator(
     Item : i64,
     IntoIter : ArrayListIter(i64),
-    into_iter : (fn(self : Self) -> ArrayListIter(i64))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(i64))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -193,7 +193,7 @@ impl(
   IntoIterator(
     Item : SharedList(TypeValue),
     IntoIter : ArrayListIter(SharedList(TypeValue)),
-    into_iter : (fn(self : Self) -> ArrayListIter(SharedList(TypeValue)))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(SharedList(TypeValue)))(self.*.items.clone().into_iter())
   )
 );
 impl(
@@ -213,7 +213,7 @@ impl(
   IntoIterator(
     Item : SharedList(String),
     IntoIter : ArrayListIter(SharedList(String)),
-    into_iter : (fn(self : Self) -> ArrayListIter(SharedList(String)))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(SharedList(String)))(self.*.items.clone().into_iter())
   )
 );
 // A `SharedList` copy is one count bump, `Rc.clone(xs)` (see `SharedList`;
@@ -916,7 +916,7 @@ fn_param_by_value_flags :: (fn(ft : &TypeValue) -> SharedList(bool))({
 register_struct_field_comptime_flags :: (
   fn(struct_id : &String, flags : &ArrayList(bool)) -> unit
 )({
-  g_struct_field_comptime_flags.with_mut(m => m.insert(struct_id.clone(), flags.clone()));
+  g_struct_field_comptime_flags.with_mut({ &struct_id, &flags }(m) => m.insert(struct_id.clone(), flags.clone()));
   ()
 });
 /// Get the per-field compile-time-only flags for a struct id (`.None` if the
@@ -924,7 +924,7 @@ register_struct_field_comptime_flags :: (
 get_struct_field_comptime_flags :: (
   fn(struct_id : &String) -> Option(ArrayList(bool))
 )(
-  g_struct_field_comptime_flags.with(m => m.get(struct_id.clone()))
+  g_struct_field_comptime_flags.with(m => m.get_cloned(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, origin_names_contain, fn_param_in_result_origin);

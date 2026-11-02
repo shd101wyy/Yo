@@ -279,7 +279,7 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   for(xs, x => {
     invariant(out == produced(xs));
     out.push(x);

@@ -15,7 +15,7 @@ _rows :: (fn(text : &String) -> ArrayList(ArrayList(String)))(
     }
   )
 );
-_field :: (fn(rows : &ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f));
+_field :: (fn(rows : &ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f).clone());
 test("simple records, LF and CRLF terminators, optional final terminator", {
   a := _rows(String.from("a,b,c\n1,2,3\n"));
   assert(a.len() == usize(2), "two records");
@@ -60,7 +60,7 @@ test("typed errors with byte positions", {
   e2 := csv.parse(String.from("a,\"unterminated\n"));
   assert(match(e2, .Err(e) => match(e, .UnterminatedQuote({ start }) => (start == usize(2)), _ => false), .Ok(_) => false), "unterminated quote");
   e3 := csv.parse(String.from("a\rb\n"));
-  assert(match(e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos == usize(1)), _ => false), .Ok(_) => false), "bare CR");
+  assert(match(&e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos == usize(1)), _ => false), .Ok(_) => false), "bare CR");
   msg := match(e3, .Err(e) => e.to_string(), .Ok(_) => String.new());
   assert(msg == "bare carriage return at byte 1", "ToString");
 });
@@ -78,16 +78,16 @@ test("other delimiters (TSV, semicolon)", {
   assert(_field(&s, usize(0), usize(1)) == "b,c", "comma is data here");
 });
 test("writer quotes only when needed and round-trips", {
-  rows := ArrayList(ArrayList(String)).new();
-  r0 := ArrayList(String).new();
+  mut(rows) := ArrayList(ArrayList(String)).new();
+  mut(r0) := ArrayList(String).new();
   r0.push(String.from("name"));
   r0.push(String.from("note"));
   rows.push(r0);
-  r1 := ArrayList(String).new();
+  mut(r1) := ArrayList(String).new();
   r1.push(String.from("Doe, John"));
   r1.push(String.from("said \"hi\"\nthen left"));
   rows.push(r1);
-  r2 := ArrayList(String).new();
+  mut(r2) := ArrayList(String).new();
   r2.push(String.from("plain"));
   r2.push(String.from(""));
   rows.push(r2);

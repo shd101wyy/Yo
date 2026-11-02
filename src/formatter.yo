@@ -230,7 +230,7 @@ _trim_trailing_h_ws :: (fn(s : &String) -> String)({
     });
   });
   cond(
-    (k == usize(0)) => s,
+    (k == usize(0)) => s.clone(),
     true => s.substring(usize(0), s.len() - k)
   )
 });
@@ -1758,7 +1758,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
   });
   g_fmt_canonicalized_callee_parens = open_before_indices.len();
   cond(
-    (open_before_indices.len() == usize(0)) => tokens,
+    (open_before_indices.len() == usize(0)) => tokens.clone(),
     true => {
       out := ArrayList(Token).new();
       (k : usize) = usize(0);
@@ -2118,7 +2118,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
       (li : usize) = usize(1);
       while(li < n_lines, {
         match(
-          lines.get(li),
+          lines.get_cloned(li),
           .None => (),
           .Some(line) => {
             // Skip blank lines
@@ -2161,7 +2161,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
             // Build new list: keep lines[0], strip ci from lines[1..]
             out := ArrayList(String).new();
             match(
-              lines.get(usize(0)),
+              lines.get_cloned(usize(0)),
               .Some(first) => {
                 out.push(first);
               },
@@ -2170,7 +2170,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
             (oi : usize) = usize(1);
             while(oi < n_lines, {
               match(
-                lines.get(oi),
+                lines.get_cloned(oi),
                 .None => (),
                 .Some(line) => {
                   ll_bytes := line;
@@ -2423,7 +2423,7 @@ _format_yo_source_impl :: (
             );
             previous := previous_token;
             next := next_token(&significant_tokens, &skipped_paren_indices, index);
-            raw := match(raw_values.get(index), .Some(s) => s, .None => String.new());
+            raw := match(raw_values.get_cloned(index), .Some(s) => s, .None => String.new());
             // ---- Comment handling ----
             cond(
               is_comment_token(token.kind) => {
@@ -3506,7 +3506,7 @@ find_yo_format_files :: (
       defaults.push(String.from("."));
       defaults
     },
-    true => input_paths
+    true => input_paths.clone()
   );
   pn := paths_to_format.len();
   (pi : usize) = usize(0);
@@ -3534,13 +3534,13 @@ find_yo_format_files :: (
   (fi2 : usize) = usize(0);
   while(fi2 < fn2, {
     match(
-      files.get(fi2),
+      files.get_cloned(fi2),
       .None => (),
       .Some(f) => {
         is_dup := cond(
           (deduped.len() == usize(0)) => false,
           true => match(
-            deduped.last(),
+            deduped.last_cloned(),
             .Some(last) => (last == f),
             .None => false
           )

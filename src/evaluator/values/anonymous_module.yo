@@ -104,7 +104,7 @@ _find_field_label_index :: (fn(field_labels : &ArrayList(String), label : &Strin
   n := field_labels.len();
   while((i < n) && idx.is_none(), {
     match(
-      field_labels.get(i),
+      field_labels.get_cloned(i),
       .Some(lbl) => if(lbl == label, {
         idx = .Some(i);
       }),
@@ -121,7 +121,7 @@ _is_excluded_label :: (fn(excluded : &ArrayList(String), label : &String) -> boo
   n := excluded.len();
   while((i < n) && !found, {
     match(
-      excluded.get(i),
+      excluded.get_cloned(i),
       .Some(lbl) => if(lbl == label, {
         found = true;
       }),
@@ -314,7 +314,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             def.state,
             .Done => true,
             .Failed => {
-              exn.throw(dyn(match(def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))));
+              exn.throw(dyn(match(&def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))));
               true
             },
             .Forcing => {
@@ -344,7 +344,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
           skip_statement,
           (),
           if(ast_expr_is_fn_call(&expr) && ast_expr_is_fn_call_of(&expr, BK_EXPORT, .None), {
-            export_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+            export_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
             (j : usize) = usize(0);
             nj := export_args.len();
             while((j < nj) && !should_stop, {
@@ -360,7 +360,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       ast_expr_is_fn_call(&export_expr) &&
                         ast_expr_is_fn_call_of(&export_expr, "...", .None)
                     ) => {
-                      spread_args := match(export_expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+                      spread_args := match(export_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                       ext_mod_expr := match(spread_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                       // Optional exclude(...) second arg
                       exclude_expr_opt := spread_args.get(usize(1));
@@ -412,13 +412,13 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               ast_expr_is_fn_call(&exclude_expr_raw) &&
                                 ast_expr_is_fn_call_of(&exclude_expr_raw, ":", .Some(usize(2))) &&
                                   match(
-                                    match(exclude_expr_raw, .FnCall(_, _, Rc(ea), _, _) => ea, _ => ArrayList(AstExpr).new()).get(usize(0)),
+                                    match(exclude_expr_raw, .FnCall(_, _, Rc(ea), _, _) => ea.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
                                     .Some(first) => ast_expr_is_atom_of(&first, "exclude"),
                                     .None => false
                                   )
                             ) =>
                               match(
-                                match(exclude_expr_raw, .FnCall(_, _, Rc(ea), _, _) => ea, _ => ArrayList(AstExpr).new()).get(usize(1)),
+                                match(exclude_expr_raw, .FnCall(_, _, Rc(ea), _, _) => ea.clone(), _ => ArrayList(AstExpr).new()).get(usize(1)),
                                 .Some(e2) => e2,
                                 .None => exclude_expr_raw
                               ),
@@ -456,7 +456,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               ast_expr_is_fn_call(&exclude_expr) &&
                                 ast_expr_is_fn_call_of(&exclude_expr, "tuple", .None)
                             ) => {
-                              tuple_args := match(exclude_expr, .FnCall(_, _, Rc(ta), _, _) => ta, _ => ArrayList(AstExpr).new());
+                              tuple_args := match(exclude_expr, .FnCall(_, _, Rc(ta), _, _) => ta.clone(), _ => ArrayList(AstExpr).new());
                               (k : usize) = usize(0);
                               nk := tuple_args.len();
                               while((k < nk) && !should_stop, {
@@ -533,7 +533,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             ext_type := match(efts.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
-                                ext_mod_path,
+                                &ext_mod_path,
                                 .Some(mp) => record_module_ordered_read(&env.module_path.*, &mp, ext_label.clone()),
                                 .None => ()
                               );
@@ -597,7 +597,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           ast_expr_is_fn_call(&export_expr) &&
                             ast_expr_is_fn_call_of(&export_expr, ":", .Some(usize(2)))
                         ) => {
-                          colon_args := match(export_expr, .FnCall(_, _, Rc(ca), _, _) => ca, _ => ArrayList(AstExpr).new());
+                          colon_args := match(export_expr, .FnCall(_, _, Rc(ca), _, _) => ca.clone(), _ => ArrayList(AstExpr).new());
                           label_expr := match(colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                           name_expr := match(colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
                           if(!ast_expr_is_atom(&label_expr), {
@@ -802,7 +802,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     .Some(li) => if(li.value.is_none(), {
                       record_module_level_init_expr(&evaluated);
                       _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
-                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&init_lhs).*));
+                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&init_lhs).*.clone()));
                     }),
                     .None => ()
                   );
@@ -814,12 +814,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                   // A `(x : T) = v` binding at module-begin scope is a module-level
                   // runtime global by construction — the LHS is a `:` binding.
                   if(ast_expr_is_fn_call_of(&assign_lhs, ":", Option(usize).Some(usize(2))), {
-                    binding_args := match(assign_lhs, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+                    binding_args := match(assign_lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                     binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                     if(ast_expr_is_atom(&binding_lhs), {
                       record_module_level_init_expr(&evaluated);
                       _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
-                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&binding_lhs).*));
+                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&binding_lhs).*.clone()));
                     });
                   }, {
                     // Bare-atom reassignment of a previously recorded static.
@@ -960,7 +960,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
     match(
       snapshot_env.frames.get(fi),
       .Some(fr) => {
-        fv := fr.variables;
+        fv := fr.variables.clone();
         (i : usize) = usize(0);
         while(i < fv.len(), {
           match(
@@ -1003,7 +1003,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(stmt)),
       .Some(si) => {
-        existing := match(si.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+        existing := match(&si.deferred_drop_expressions, .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
         (j : usize) = usize(0);
         while(j < drops.len(), {
           match(
@@ -1085,8 +1085,8 @@ evaluate_anonymous_module_begin_exprs :: (
   // An impl abandoned in its field loop leaves its working-trait bindings
   // (`Output : i32`) installed; the abort edge restores them with the forcing
   // stacks (issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md).
-  wt_labels := ctx.current_impl_trait_field_labels;
-  wt_types := ctx.current_impl_trait_field_types;
+  wt_labels := ctx.current_impl_trait_field_labels.clone();
+  wt_types := ctx.current_impl_trait_field_types.clone();
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
   ___ca := _take_walk_abort();

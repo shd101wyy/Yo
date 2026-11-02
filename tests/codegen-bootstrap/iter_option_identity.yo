@@ -14,19 +14,19 @@ import("std/string");
 
 sum_via_for :: (fn(al : &ArrayList(i32)) -> i32)({
   (mut(s) : i32) = 0;
-  for(al, x => {
+  for(al.clone(), x => {
     s = (s + x);
   });
   s
 });
 
 main :: (fn() -> unit)({
-  al := ArrayList(i32).new();
+  mut(al) := ArrayList(i32).new();
   al.push(10);
   al.push(20);
   al.push(30);
   // Manual iterator: into_iter().next() returns Option(i32).
-  mut(it) := al.into_iter();
+  mut(it) := al.clone().into_iter();
   match(it.next(), .Some(v) => println(`first ${v.to_string()}`), .None => println(`empty`));
   // for-loop sum (exercises the iterator next() Option(i32) end to end).
   println(`sum ${sum_via_for(&al).to_string()}`);

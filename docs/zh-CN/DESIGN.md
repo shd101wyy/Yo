@@ -614,19 +614,19 @@ _ := unsafe(unistd.close(fd));
 ### 类型推断
 
 ```yo
-// String 的字节存放在堆上，由引用计数的缓冲区持有
+// String 是值类型，独占堆上的字节
 (my_string : String) = String.from("Hello, world"); // 字节在堆上分配
-my_string_2 := my_string; // 目前副本与原值共享缓冲区；my_string.clone() 才是独立的副本
+my_string_2 := my_string.clone(); // 独立的副本；`my_string_2 := my_string` 则会移动它
 // 原始类型是复制的
 my_int := 1; // 栈分配
 my_int_2 := my_int; // my_int_2 是一个副本
 // 固定大小数组是值类型
 (my_int_array : Array(i32, 3)) = [1, 2, 3]; // 栈分配
 my_int_array := [1, 2, 3]; // Array(i32, 3)
-// ArrayList 是一个引用语义类型
-(my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // 堆分配，RC
+// ArrayList 也是值类型：独占自己的堆缓冲区
+(my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // 缓冲区在堆上分配，只有一个所有者
 // 枚举/ADT 可以是值类型或引用语义类型，取决于定义方式
-Person :: struct(name : String, age : i32); // 值类型（但包含引用语义类型字段）
+Person :: struct(name : String, age : i32); // 值类型（其 String 字段也是值）
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -1236,7 +1236,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Drop` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；是 `Clone` 但不是 `Copy` 的记录或闭包按字段克隆：`Copy` 的部分被复制，其余部分被克隆。闭包的组成部分就是它的捕获记录，与 Rust 相同：按值捕获按其自身类型计算（列出的 `{ s }`，以及隐式捕获——绑定到名字的闭包拥有它捕获的东西），`&` 捕获是指针，因此是 `Copy`，`&mut` 捕获使闭包既不是 `Copy` 也不是 `Clone`。所以拥有 `String` 的闭包是 `Clone` 而不是 `Copy`：`d := c` 会移动它，`c.clone()` 则得到持有自己 `String` 的第二个闭包。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
+这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`String` 字段：`holds a move-only value in its field \`name\``）。实现了 `Drop` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；是 `Clone` 但不是 `Copy` 的记录或闭包按字段克隆：`Copy` 的部分被复制，其余部分被克隆。闭包的组成部分就是它的捕获记录，与 Rust 相同：按值捕获按其自身类型计算（列出的 `{ s }`，以及隐式捕获——绑定到名字的闭包拥有它捕获的东西），`&` 捕获是指针，因此是 `Copy`，`&mut` 捕获使闭包既不是 `Copy` 也不是 `Clone`。所以拥有 `String` 的闭包是 `Clone` 而不是 `Copy`：`d := c` 会移动它，`c.clone()` 则得到持有自己 `String` 的第二个闭包。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
 
 `Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。`&T` 参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请按值接受参数（`p : Point`，不写 `&`）。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
 
@@ -1279,7 +1279,7 @@ export(main);
 
 - **复制是 E0901。** `g := f` 移动文件，之后再使用 `f` 是 E0901（使用已移动的值）。把一个句柄存两次、或在两个闭包中捕获它，同样是 E0901。在这次改动之前，`File` 是引用句柄，副本共享它的描述符和位置。
 - **借出它。** 每个方法都取 `self : &Self`，所以 `f.read_to_string(io)` 借用 `f`。只使用资源的函数取 `&File`。
-- **通过引用类型共享。** 在单个线程内，`Rc.new(f)` 得到 `Rc(File)`，它的所有句柄都指向同一个文件（`h.*.read_to_string(io)`）。跨线程时用 `Arc(Mutex(TcpStream))`；这要求资源是 `Send` 的，目前包括 `UnixListener` 以外的套接字、`Child` 及其管道和 `Thread`。`File`、临时文件和 `UnixListener` 持有 `String` 路径，会随集合类型（V2b）成为 `Send`；`Watcher`、`TlsStream` 和 `HttpClient` 留在自己的线程上。持有资源的 `ref` 结构体出于同样的原因把它存为 `Rc` 字段，就像 `HttpServer` 持有它的监听器那样。
+- **通过引用类型共享。** 在单个线程内，`Rc.new(f)` 得到 `Rc(File)`，它的所有句柄都指向同一个文件（`h.*.read_to_string(io)`）。跨线程时用 `Arc(Mutex(TcpStream))`；这要求资源是 `Send` 的：各种套接字、`File`、临时文件、`Child` 及其管道和 `Thread`（`File`、临时文件和 `UnixListener` 持有 `String` 路径，自 B8 起它是值类型）。`Watcher`、`TlsStream` 和 `HttpClient` 留在自己的线程上。持有资源的 `ref` 结构体出于同样的原因把它存为 `Rc` 字段，就像 `HttpServer` 持有它的监听器那样。
 - **把它移出来。** `Option(T).unwrap` 通过借用读取，不能把只能移动的载荷移出来。改用消耗型 match：`f := match(opt, .Some(x) => x, .None => …)`。
 - **交出所有权。** `BufReader(File).new(f)` 和 `TcpListener.incoming()` 取得所有权（`sink`）；`get_ref()` 和 `Incoming.listener()` 把它借回来，`BufReader.into_inner()` / `BufWriter.into_parts()` 按值把它交还。要在派生的任务中服务一个套接字，把它移入该任务。
 - **丢弃即释放。** 未经 `wait()` 就被丢弃的 `Child` 会关闭它仍持有的管道端（但不等待进程）。
@@ -1608,7 +1608,7 @@ Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后�
 ### 使用 `..` 的区间
 
 ```yo
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 list.push(i32(3));
@@ -1857,11 +1857,11 @@ for(iter_expr, variable => {
 });
 ```
 
-`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。`into_iter` 按值接收集合，所以值形式会**消耗** `coll`：迭代器拥有它。循环之后还要读取的集合，用下文的 `for(&coll, x => body)` 就地遍历，或迭代一份副本 `for(coll.clone(), x => body)`。其他持有源的迭代器同理：`String` 的 `chars()`、`bytes()`、`char_indices()` 与 `lines()`，映射的 `keys()` 与 `values()`，列表的 `chunks(n)` 与 `windows(n)`。在 `String` 与各集合仍是共享句柄期间，按值传递只是共享，因此之后的使用仍能编译，直到该类型变为值类型（`plans/VALUES_BY_DEFAULT.md` V2b）。集合的 `iter()` 产出指向其存储的裸指针，持有的是存储而非集合本身：它只用于 `pragma(Pragma.AllowUnsafe)` 代码，且集合必须比遍历活得更久。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(&mut coll, x => body)`，或索引循环 + 索引写：
+`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。`into_iter` 按值接收集合，所以值形式会**消耗** `coll`：迭代器拥有它。循环之后还要读取的集合，用下文的 `for(&coll, x => body)` 就地遍历，或迭代一份副本 `for(coll.clone(), x => body)`。其他持有源的迭代器同理：`String` 的 `chars()`、`bytes()`、`char_indices()` 与 `lines()`，映射的 `keys()` 与 `values()`，列表的 `chunks(n)` 与 `windows(n)`。`String` 与 `ArrayList` 是值类型（`plans/VALUES_BY_DEFAULT.md` B8），因此之后再使用被循环消耗的那一个是 E0901；其他集合在各自的步骤（B9–B11）之前仍是共享句柄，按值传递只是共享。集合的 `iter()` 产出指向其存储的裸指针，持有的是存储而非集合本身：它只用于 `pragma(Pragma.AllowUnsafe)` 代码，且集合必须比遍历活得更久。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(&mut coll, x => body)`，或索引循环 + 索引写：
 
 ```yo
 // 值形式 — 每个 `x` 按值产出。
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 for(list, value => {
@@ -1870,14 +1870,14 @@ for(list, value => {
 
 // 引用语义元素是句柄 — 变异落在集合里。
 Counter :: ref(struct(n : i32));
-counters := ArrayList(Counter).new();
+mut(counters) := ArrayList(Counter).new();
 counters.push(Counter(n : i32(1)));
 for(counters, c => {
   c.n = (c.n + i32(1));
 });
 
 // struct/标量元素：索引写就地变异。
-arr := Array(i32, 3)(1, 2, 3);
+mut(arr) := Array(i32, 3)(1, 2, 3);
 i := usize(0);
 while(i < usize(3), {
   arr(i) = (arr(i) * i32(10));
@@ -1891,7 +1891,7 @@ while(i < usize(3), {
 借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。借用符号写在来源上，元素的模式随之而定。对映射，`for(&mut m, (k, v) => body)` 借出每个值（键为只读）。循环在整个过程中持有集合的一个局部借用，并在其上走一个游标（`BorrowedWalk` 与 `BorrowedWalkMut`，`plans/VALUES_BY_DEFAULT.md` 决策 39），因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。只读遍历 `for(&coll, x => body)`（映射为 `for(&m, (k, v) => body)`）改为持有只读借用，并经由 `walk_ref` 投影以只读方式绑定每个元素：不复制任何东西，经由 `x` 写入是 E0908，循环体可以读取集合但不能写入它（E0911）。每个 std 集合都支持只读遍历；`HashSet` 与 `PriorityQueue` 没有原地遍历，`String` 两者都没有（请遍历 `s.chars()`）。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。同一集合的其他句柄由其运行时借用标志守护，经由它们让集合增长或缩短会 panic（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
 
 ```yo
-xs := ArrayList(i32).new();
+mut(xs) := ArrayList(i32).new();
 xs.push(i32(1));
 for(&mut xs, x => {
   x = (x + i32(10));
@@ -2673,14 +2673,13 @@ s3 := (s + s2); // 创建一个新字符串。
 看到，反之亦然，无论原值是否为空。每个修改方法都接受 `self : &mut Self` 并就地写入，空
 `String` 在第一次写入之前不分配任何内存。
 
-普通的复制（`t := s`、结构体的复制、从集合中读出的值）目前仍只复制句柄。非空的缓冲区
-是共享的，所以通过副本的写入会通过原值看到；空字符串还没有缓冲区，副本的第一次写入会
-为自己分配一个，原值永远看不到这次写入。
-
-**已知缺陷（S1，`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`）。**
-这种分歧是该问题尚未修复的一半。`plans/VALUES_BY_DEFAULT.md` 的 V2b 让 `String`
-成为唯一所有的值，从而修复它：`t := s` 变为移动；如果之后还使用 `s`，则报错并提示
-`s.clone()`。在此之前，不要通过普通副本写入。
+`String` 唯一地拥有自己的字节（`newtype(_bytes : ArrayList(u8))`，而 `ArrayList`
+是值类型）。因此普通的复制就是移动：`t := s`、用 `s` 构造结构体、按值传递 `s`，都会把
+字符串交出去，之后再使用 `s` 是 E0901，其帮助信息会给出 `s.clone()`。从集合中读出的值
+要么就地借用，要么克隆（`xs.get_cloned(i)`）。没有任何缓冲区是共享的，所以写入不会经由
+另一个名字影响到字符串
+（`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`，
+由此修复）。
 
 写入落在被写的位置上：
 
@@ -2722,12 +2721,12 @@ main :: (fn() -> unit)({
   f.push_str("x"); // 无论是否为空，克隆都是独立的
   println(`"${e}" "${f}"`); // "" "x"
 
-  c := String.new();
+  mut(c) := String.new();
   append_mut(&mut c);
   d := with_bang(&a);
   println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
 
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.new());
   names.push(String.from("n"));
   for(&mut names, s => {
@@ -2850,7 +2849,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 { ArrayList } :: import("std/collections/array_list");
 
 // 创建新的 ArrayList
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 
 // 添加元素
 list.push(i32(42));
@@ -3219,7 +3218,7 @@ takes_fn(y => (y + k), 5); // 正确
 ```yo
 (k1 : Impl(Fn() -> unit)) = (() => println(&a));
 (k2 : Impl(Fn() -> unit)) = (() => println(&s));
-l1 := ArrayList(type_of(k1)).new();
+mut(l1) := ArrayList(type_of(k1)).new();
 l1.push(k1); // OK
 l1.push(k2); // 错误：k2 是另一种闭包类型
 ```
@@ -3286,6 +3285,8 @@ assert(sum(&t) == 3);
   `Box(T)` 才实现 `Clone`，所以装着仅可移动值的 `Box` 也是仅可移动的。
 - **一次释放。** 丢弃 `Box` 时会丢弃其载荷并释放单元。`ref_count(b)` 是编译错误：
   它没有计数。
+- **移出载荷。** `b.into_inner()` 消耗 `Box`、释放单元并返回载荷，因此仅可移动的载荷
+  无需复制即可离开单元（`RefCell.into_inner` 和 `BufWriter.into_parts` 用的就是它）。
 - **`Eq`、`Hash` 和 `Default`** 比较、哈希和构造的都是载荷。`T` 是 `Send`/`Sync`
   时 `Box(T)` 才是。
 - **布局。** `Box` 值是一个指针，`Option(Box(T))` 也是一个指针（`NULL` 即
@@ -3673,7 +3674,7 @@ main :: (fn() -> unit)({
 Shape :: trait(area : (fn(self : Self) -> f64));
 
 // 异构列表：每个元素的具体类型已经消失，只剩 `Shape`。
-shapes := ArrayList(Dyn(Shape)).new();
+mut(shapes) := ArrayList(Dyn(Shape)).new();
 shapes.push(dyn(Circle(r : f64(1.0))));
 shapes.push(dyn(Square(side : f64(2.0))));
 for(shapes, s => println(s.area()));

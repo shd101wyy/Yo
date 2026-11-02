@@ -28,11 +28,11 @@ test("Test single-hop forwarded closure param", {
   analyze1 :: (
     fn(depth : i32, get_info : &Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
   )({
-    out := ArrayList(i32).new();
+    mut(out) := ArrayList(i32).new();
     walk1(depth, get_info, &mut out);
     out
   });
-  tbl := ArrayList(i32).new();
+  mut(tbl) := ArrayList(i32).new();
   tbl.push(i32(100));
   r := analyze1(i32(2), (k : i32) => (match(tbl.get(usize(0)), .Some(v) => v, .None => i32(0)) + k));
   assert(r.len() == usize(2), "walk should push once per depth level");
@@ -54,8 +54,8 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
   analyze2 :: (
     fn(depth : i32, get_info : &Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
   )({
-    out := ArrayList(i32).new();
-    extras := ArrayList(i32).new();
+    mut(out) := ArrayList(i32).new();
+    mut(extras) := ArrayList(i32).new();
     extras.push(i32(7));
     // The detector's dyn closure captures the SAME forwarded closure param —
     // the shape suspension-analysis uses (get_info captured by the detect
@@ -113,7 +113,7 @@ test("Test a captured generic callback at T = unit", {
   // `void* t = <void call>;` (the call-site temp) and then `void* t = ;` (the
   // binding's spill), for a program `yo check` accepts.
   // See issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
-  hits := ArrayList(i32).new();
+  mut(hits) := ArrayList(i32).new();
   call_unit4 :: (fn(f : &Impl(Fn(n : i32) -> unit)) -> unit)({
     f(i32(7));
   });
@@ -123,7 +123,7 @@ test("Test a captured generic callback at T = unit", {
       ()
     });
   });
-  run4((n : i32) => {
+  run4({ &mut hits }(n : i32) => {
     hits.push(n);
   });
   // The call must still RUN: the fix turns the binding into a statement, and a
@@ -175,7 +175,8 @@ test("a generic function's closure parameter owns a closure literal holding a Dr
 // released once (a second release is a use-after-free under ASan).
 test("a generic function's closure parameter owns a closure literal holding a counted value", {
   s := String.from("counted");
-  assert(_cpf_sink_relay(() => s.len()) == usize(7), "the sink relay ran the closure over a String");
-  assert(_cpf_plain_relay(() => s.len()) == usize(7), "the by-value relay ran the closure over a String");
+  // A `String` is a value (B8): each closure captures its own clone.
+  assert(_cpf_sink_relay({ s : s.clone() }() => s.len()) == usize(7), "the sink relay ran the closure over a String");
+  assert(_cpf_plain_relay({ s : s.clone() }() => s.len()) == usize(7), "the by-value relay ran the closure over a String");
   assert(s.len() == usize(7), "the caller's String is still alive");
 });

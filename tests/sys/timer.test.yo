@@ -81,7 +81,7 @@ _one_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _many_sleeps_in_one_tick :: (fn(io : Io) -> unit)({
-  hs := ArrayList(JoinHandle(i32)).new();
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(1500), i = (i + usize(1)), {
     hs.push(io.spawn(_one_sleep(io), io));

@@ -68,11 +68,7 @@ _tables_lock := RawMutex.new();
 /// caller, or `.None`.
 _lookup_entity :: (fn(name : &String) -> Option(String))({
   _tables_lock.lock();
-  found := match(
-    _entity_map.get(name),
-    .Some(decoded) => Option(String).Some(decoded.clone()),
-    .None => Option(String).None
-  );
+  found := _entity_map.get_cloned(name);
   _tables_lock.unlock();
   found
 });
@@ -86,7 +82,7 @@ _is_legacy_entity :: (fn(name : &String) -> bool)({
 // Parse a hex string to i32
 _parse_hex :: (fn(s : &String) -> i32)({
   (mut(result) : i32) = i32(0);
-  mut(it) := s.chars();
+  mut(it) := s.clone().chars();
   while(true, {
     match(
       it.next(),
@@ -122,7 +118,7 @@ _parse_hex :: (fn(s : &String) -> i32)({
 // Parse a decimal string to i32
 _parse_dec :: (fn(s : &String) -> i32)({
   (mut(result) : i32) = i32(0);
-  mut(it) := s.chars();
+  mut(it) := s.clone().chars();
   while(true, {
     match(
       it.next(),
@@ -160,8 +156,8 @@ _is_alpha_numeric :: (fn(c : rune) -> bool)(
 // happens once instead of per character.
 // ---------------------------------------------------------------------------
 _char_table :: (fn(s : &String) -> ArrayList(IterPair(usize, rune)))({
-  out := ArrayList(IterPair(usize, rune)).new();
-  mut(it) := s.char_indices();
+  mut(out) := ArrayList(IterPair(usize, rune)).new();
+  mut(it) := s.clone().char_indices();
   while(true, {
     match(
       it.next(),
@@ -213,7 +209,7 @@ _slice_runes :: (
 /// Supports named (`&amp;`), decimal (`&#38;`), and hexadecimal (`&#x26;`) character
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
 decode :: (fn(input : &String) -> String)({
-  if(input.chars().count() == usize(0), {
+  if(input.len() == usize(0), {
     return(input.clone());
   });
   // Quick check: if no '&', return as-is

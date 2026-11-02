@@ -485,7 +485,8 @@ _scan_line :: (
 });
 /// Recursively collect .yo files under `p`, skipping node_modules/.git/dist/
 /// yo-out/build and every dot-directory (but not a `.`/`..` root argument).
-_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
+_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))({
+  __probe_root := root.clone();
   io.async((e : IoExn) => {
     // Built on std/fs/walker (its stack loop is the proven async-while
     // shape) with post-filtering: an entry is dropped when ANY path segment
@@ -497,8 +498,8 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     // (every fs call on it fails), and entries must be labeled bare (no
     // `./` prefix) — so walk the CWD by absolute path but label entries
     // with their path-join shape.
-    is_dot := (root == ".");
-    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
+    is_dot := (__probe_root == ".");
+    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), __probe_root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
       // Unreadable/missing root → skip.
@@ -506,9 +507,9 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
     if(!md.is_dir(), {
-      if(root.ends_with(`.yo`), {
+      if(__probe_root.ends_with(`.yo`), {
         single := ArrayList(String).new();
-        single.push(root.clone());
+        single.push(__probe_root.clone());
         return(single);
       });
       return(ArrayList(String).new());
@@ -518,7 +519,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     collected := ArrayList(String).new();
     (i : usize) = usize(0);
     while(i < entries.len(), {
-      entry := entries(i);
+      entry := entries(i).clone();
       keep := match(entry.file_type, .Directory => false, _ => true);
       p := entry.path.to_string();
       if(keep && p.ends_with(`.yo`), {
@@ -551,11 +552,12 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     collected.sort();
     collected
   })
-);
+});
 /// Generate the report for every .yo file under `root_path`.
-generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))(
+generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))({
+  __probe_root_path := root_path.clone();
   io.async((e : IoExn) => {
-    yo_files := e.io.await(_walk_yo_files(root_path.clone(), e.io, e.exn), e);
+    yo_files := e.io.await(_walk_yo_files(__probe_root_path.clone(), e.io, e.exn), e);
     privileged_files := ArrayList(String).new();
     findings := ArrayList(UnsafeFinding).new();
     // First pass: read every file once; harvest extern "c" names.
@@ -619,7 +621,7 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
       cond(
         (f.kind == "unsafe") => {
           n_unsafe = (n_unsafe + usize(1));
-          sk := match(f.sub_kind, .Some(s) => s.clone(), .None => String.from("other"));
+          sk := match(&f.sub_kind, .Some(s) => s.clone(), .None => String.from("other"));
           cond(
             (sk == "extern-call") => {
               n_extern_call = (n_extern_call + usize(1));
@@ -638,7 +640,7 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
             }
           );
           match(
-            f.callee_name,
+            &f.callee_name,
             .Some(callee) => {
               prev_count := callee_counts.get(callee.clone()).unwrap_or(usize(0));
               if(prev_count == usize(0), {
@@ -706,7 +708,7 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
       top_extern_callees : top
     )
   })
-);
+});
 /// Format the report for human consumption.
 /// line for line.
 format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
@@ -753,15 +755,15 @@ format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
       label := if(
         f.kind == "unsafe",
         match(
-          f.callee_name,
+          &f.callee_name,
           .Some(callee) => `unsafe(extern-call:${callee})`,
-          .None => `unsafe(${match(f.sub_kind, .Some(s) => s.clone(), .None => String.from("other"))})`
+          .None => `unsafe(${match(&f.sub_kind, .Some(s) => s.clone(), .None => String.from("other"))})`
         ),
         `${f.kind}()`
       );
       out.write_string(`  ${f.file}:${f.line.to_string()}:${f.column.to_string()}: ${label} — ${f.snippet}\n`);
       match(
-        f.safety_comment,
+        &f.safety_comment,
         .Some(sc) => out.write_string(`    ${sc}\n`),
         .None => ()
       );
@@ -842,18 +844,18 @@ unsafe_report_to_json :: (fn(report : &UnsafeReport) -> String)({
     });
     out.write_string(`\n    {\n      "file": ${_json_str(f.file.clone())},\n      "line": ${f.line},\n      "column": ${f.column},\n      "kind": ${_json_str(f.kind.clone())}`);
     match(
-      f.sub_kind,
+      &f.sub_kind,
       .Some(sk) => out.write_string(`,\n      "subKind": ${_json_str(sk.clone())}`),
       .None => ()
     );
     match(
-      f.callee_name,
+      &f.callee_name,
       .Some(cn) => out.write_string(`,\n      "calleeName": ${_json_str(cn.clone())}`),
       .None => ()
     );
     out.write_string(`,\n      "snippet": ${_json_str(f.snippet.clone())}`);
     match(
-      f.safety_comment,
+      &f.safety_comment,
       .Some(sc) => out.write_string(`,\n      "safetyComment": ${_json_str(sc.clone())}`),
       .None => ()
     );

@@ -96,7 +96,9 @@ test("capture list: a by-value capture of an RC value retains it", {
   s := String.from("abcd");
   {
     (f : Impl(Fn() -> i32)) = ({ t }() => t.v);
-    (g : Impl(Fn() -> usize)) = ({ n : s }() => n.len());
+    // A `String` is a value (B8): the renamed capture takes a clone, so the
+    // source stays usable.
+    (g : Impl(Fn() -> usize)) = ({ n : s.clone() }() => n.len());
     assert(f() == i32(7), "the handle is read through the capture");
     assert(g() == usize(4), "a renamed by-value String capture");
     assert(g_cl_rc_disposed == i32(0), "nothing is disposed while the owners live");
@@ -112,11 +114,11 @@ test("capture list: a by-value capture of a NON-OWNING temp of an RC value", {
   // identifier", C compile failure). Only this shape broke: an atom
   // initializer's dup targets a declared local, an owning temp is consumed
   // (a move), and a non-RC initializer needs no reference at all.
-  src := ArrayList(String).new();
+  mut(src) := ArrayList(String).new();
   src.push(String.from("a"));
   src.push(String.from("b"));
   {
-    (f : Impl(Fn() -> usize)) = ({ first : src(usize(0)) }() => first.len());
+    (f : Impl(Fn() -> usize)) = ({ first : (src(usize(0))).clone() }() => first.len());
     assert(f() == usize(1), "the captured element is \"a\"");
   };
   assert(src.len() == usize(2), "the source list outlives the closure");
@@ -667,6 +669,6 @@ test("an FnOnce body moves a capture-list entry named `_x` or `var_x`", {
   var_moved := String.from("b");
   cell.with_mut({ var_moved }(xs) => xs.push(var_moved));
   assert(cell.with(xs => xs.len()) == usize(2), "both entries moved in");
-  assert(cell.with(xs => match(xs.get(usize(0)), .Some(s) => (s == String.from("a")), .None => false)), "the `_` entry");
-  assert(cell.with(xs => match(xs.get(usize(1)), .Some(s) => (s == String.from("b")), .None => false)), "the `var_` entry");
+  assert(cell.with(xs => (xs(usize(0)) == String.from("a"))), "the `_` entry");
+  assert(cell.with(xs => (xs(usize(1)) == String.from("b"))), "the `var_` entry");
 });

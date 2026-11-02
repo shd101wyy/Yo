@@ -310,7 +310,7 @@ _bind_some_type :: (
       // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
         old_var.value.get(usize(0)),
-        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid, _ => variable_bound_some_id(&old_var)), _ => String.from("")),
+        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
       identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id));
@@ -418,7 +418,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     n := visited.len();
     while((vi < n) && !found_visited, {
       v := match(
-        visited.get(vi),
+        visited.get_cloned(vi),
         .Some(s) => s,
         .None => {
           vi = n;
@@ -1058,7 +1058,7 @@ _synthesize_types_impl :: (
     bound := get_value_of_some_type_from_env(&ee, expected_ty);
     exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
     exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``);
-    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts, _ => ArrayList(TypeValue).new());
+    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts.clone(), _ => ArrayList(TypeValue).new());
     if(is_some_type(&bound) && match(&bound, Rc(.SomeT(bid, _, _, _, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
       // Unbound — bind to given_ty
       // Occurs check
@@ -1536,8 +1536,8 @@ _synthesize_types_impl :: (
     exp_trait_id := match(expected_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(), _ => ``);
     giv_trait_id := match(given_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(), _ => ``);
     if(exp_trait_id == giv_trait_id, {
-      exp_ft := match(expected_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
-      giv_ft := match(given_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
+      exp_ft := match(expected_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts.clone(), _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts.clone(), _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {

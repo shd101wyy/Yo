@@ -81,15 +81,19 @@ test("callback-style ref params remain legal", {
   assert(doubled == i32(42), "callback received the field by ref");
 });
 
-// Positive: returning the VALUE is the idiom — object values are
-// handles that mutate in place.
+// Positive: returning the VALUE is the idiom. A `String` is a value, so the
+// returned clone is the caller's own; a write reaches the holder only
+// through the handle.
 Holder :: ref(struct(s : String));
 test("returning the value instead of a ref", {
   get_s :: (fn(h : &Holder) -> String)(
-    h.s
+    h.s.clone()
   );
   h := Holder(s : String.from("hello"));
   mut(s) := get_s(&h);
   s.push_str(" world");
-  assert(h.s == "hello world", "returned handle mutates the same object");
+  assert(s == "hello world", "the returned value is the caller's");
+  assert(h.s == "hello", "the holder keeps its own string");
+  h.s.push_str("!");
+  assert(h.s == "hello!", "a write through the handle reaches the holder");
 });
