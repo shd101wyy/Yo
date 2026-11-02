@@ -156,7 +156,7 @@ try_to_call_type_with_arguments :: (
       i = (i + usize(1));
     });
     arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr);
-    field_opt := type_fields.get(i);
+    field_opt := type_fields.get_cloned(i);
     member_element := match(
       field_opt,
       .Some(f) => f.clone(),
@@ -212,7 +212,7 @@ try_to_call_type_with_arguments :: (
       (search_i : usize) = usize(0);
       while(search_i < n_fields, {
         match(
-          type_fields.get(search_i),
+          type_fields.get_cloned(search_i),
           .Some(f) => {
             if(f.label == label_tok, {
               found_idx = .Some(search_i);
@@ -230,7 +230,7 @@ try_to_call_type_with_arguments :: (
           // old `.None => member_element` fallback copied the loop-carried
           // TypeField out of a previous iteration.
           match(
-            type_fields.get(idx),
+            type_fields.get_cloned(idx),
             .Some(found_field) => {
               // Cannot label an already-assigned field.
               if(found_field.assigned_value.is_some(), {
@@ -425,7 +425,7 @@ try_to_call_type_with_arguments :: (
     while(ci < n_fields, {
       already_checked := match(checked_indices.get(&ci), .Some(_) => true, .None => false);
       if(!already_checked, {
-        field_opt2 := type_fields.get(ci);
+        field_opt2 := type_fields.get_cloned(ci);
         match(
           field_opt2,
           .Some(field) => {
