@@ -6855,7 +6855,7 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
   );
-  raise_flow_violation(&with_code(format_error_message_with_help(tok, msg, Option(String).Some(help)), E_REFERENCE_READ_WITHOUT_DEREF), ctx, exn);
+  raise_flow_violation(&with_code(format_error_message_with_help(tok, &msg, Option(String).Some(help)), E_REFERENCE_READ_WITHOUT_DEREF), ctx, exn);
 });
 /// `stmt` declares a local borrow: `y := &place` or `y := &mut place`.
 local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
