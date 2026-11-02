@@ -1,0 +1,11 @@
+# plans/VALUES_BY_DEFAULT.md decision 18 rule 4 at the borrowed `for`: the
+# loop's hidden borrow of a place through a reference cell (`h.items`) is live
+# for the whole loop, so an `await` in the body is E0911 even after the element
+# `x` is dead. The prelude macro declared that borrow in its own module, and
+# the across-await check never saw it; the parse-time desugar (macro plan B1)
+# declares it at the `for` call
+# (issues/fixed/2026-11-02-a-borrowed-for-loop-through-a-cell-is-not-checked-across-an-await-in-its-body.md).
+# A whole-program error inside an `io.async` body, so a language test cannot
+# pin it.
+stdout_keep_match=error(\[E[0-9]+\])?: .*|--> main\.yo:[0-9]+:[0-9]+|help: .*
+timeout=120

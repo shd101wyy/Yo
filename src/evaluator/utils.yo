@@ -7643,6 +7643,8 @@ _lb_first_site_in :: (fn(sites : &ArrayList(Token), decl : &Token, end : &Token)
 /// the declaration note.
 _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &Token, last_use : &Token, decl_note : String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
+  // The hidden borrow of a desugared `for` (macro plan B1) spans the loop.
+  for_site := match(info.macro_site, .Some(fs) => if((name == info.name) && for_desugar_site_of(&fs).is_some(), Option(Token).Some(fs), Option(Token).None), .None => Option(Token).None);
   entries := ArrayList(TokenAndError).new();
   entries.push(
     TokenAndError(
@@ -7650,11 +7652,28 @@ _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &To
       error_message : `\`${name}\` is live across this \`await\`, and its place passes through ${why}: another task can reach that place while this one is suspended.`
     )
   );
-  entries.push(TokenAndError(token : decl, error_message : `\`${name}\` ${decl_note}`));
-  entries.push(TokenAndError(token : last_use, error_message : String.from("and is used again here:")));
+  match(
+    for_site,
+    .Some(fs) => {
+      ftext := match(info.places.get(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => name.clone());
+      entries.push(TokenAndError(token : fs, error_message : `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${name}\`):`));
+    },
+    .None => {
+      entries.push(TokenAndError(token : decl, error_message : `\`${name}\` ${decl_note}`));
+      entries.push(TokenAndError(token : last_use, error_message : String.from("and is used again here:")));
+    }
+  );
   raise_flow_violation(
     with_code(
-      format_error_messages_with_help(&entries, Option(String).Some(String.from("end the borrow before the `await` and borrow again after it, or borrow a place the task owns (a local value)"))),
+      format_error_messages_with_help(
+        &entries,
+        Option(String).Some(
+          cond(
+            for_site.is_some() => String.from("make the `await` outside the loop, or walk a place the task owns (a local value)"),
+            true => String.from("end the borrow before the `await` and borrow again after it, or borrow a place the task owns (a local value)")
+          )
+        )
+      ),
       E_LOCAL_BORROW_CONFLICT
     ),
     ctx,

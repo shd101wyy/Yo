@@ -926,7 +926,8 @@ _fail_subset :: (fn(ctx : &mut VcCtx, construct : &String, at : &AstExpr) -> uni
       ctx.subset_error = Option(VcSubsetError).Some(
         VcSubsetError(
           construct : construct.clone(),
-          source : ast_expr_to_string(at)
+          // A desugared `for` (macro plan B1) reads as the call it was written as.
+          source : ast_expr_to_string(match(_desugared_for_call(at), .Some(fc) => fc, .None => at))
         )
       );
     }
