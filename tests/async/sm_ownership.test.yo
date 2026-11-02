@@ -943,6 +943,52 @@ test("a destructured await result is released", {
   assert(g_disposed == (before + i32(2)), "each destructured Thing is disposed once");
 });
 
+// issues/fixed/2026-10-25-an-await-result-read-by-a-while-condition-or-a-field-reading-scrutinee-is-never-released.md
+// An await result whose only consumer reads a field of it (a match scrutinee,
+// a while condition) is released once per evaluation. `_rec_later` is fused at
+// the await site; `_rec_later_owned` (a capture list) is not.
+_Rec :: struct(n : i32, t : Thing);
+_rec_later :: (fn(n : i32, io : Io) -> Impl(Future(_Rec, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    _Rec(n : n, t : Thing(n : n))
+  })
+);
+_rec_later_owned :: (fn(n : i32, io : Io) -> Impl(Future(_Rec, Io)))(
+  io.async({ n }(io : Io) => {
+    io.await(yield(io), io);
+    _Rec(n : n, t : Thing(n : n))
+  })
+);
+test("an await result read by a field-reading match scrutinee is released", {
+  before := g_disposed;
+  f := io.async((io : Io) => {
+    a := match(io.await(_rec_later(i32(2), io), io).n, i32(2) => i32(1), _ => i32(0));
+    b := match(io.await(_rec_later_owned(i32(3), io), io).t.n, i32(3) => i32(10), _ => i32(0));
+    a + b
+  });
+  r := io.await(f, io);
+  assert(r == i32(11), "both scrutinees read their field");
+  assert(g_disposed == (before + i32(2)), `each awaited result is released once, released ${(g_disposed - before).to_string()}`);
+});
+test("an await result read by a while condition is released on every evaluation", {
+  before := g_disposed;
+  f := io.async((io : Io) => {
+    (mut(j) : i32) = i32(0);
+    while(io.await(_rec_later(j, io), io).n < i32(3), {
+      j = (j + i32(1));
+    });
+    (mut(k) : i32) = i32(0);
+    while(io.await(_rec_later_owned(k, io), io).t.n < i32(2), {
+      k = (k + i32(1));
+    });
+    j + k
+  });
+  r := io.await(f, io);
+  assert(r == i32(5), "both loops ran to their bound");
+  assert(g_disposed == (before + i32(7)), `every evaluated condition's result is released, released ${(g_disposed - before).to_string()}`);
+});
+
 // issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md
 // The wrapper drops its by-value parameter, so a named local passed to it at
 // a fused await site needs the caller's +1, as an ordinary call gives it.
