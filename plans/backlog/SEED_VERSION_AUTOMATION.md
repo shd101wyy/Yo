@@ -382,6 +382,43 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
+
+V5 Generation A completion (`plans/VALUES_BY_DEFAULT.md` §V5 and §3.5 "Left to V5") retypes the two counted
+handles and moves their constructors onto the cell, which takes the allocator itself:
+
+```yo ignore
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(newtype(_cell : __yo_cell(V)));
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(newtype(_cell : __yo_atomic_cell(V)));
+// Rc.new, and likewise Arc.new, __yo_rc_cell and __yo_arc_cell:
+cell := Rc(T)(__yo_cell(T)(value, alloc));
+```
+
+The v0.2.73 seed lowers everything about the view except `dyn(...)`'s auto-box. `_create_box_type_via` kept only
+a `ref` object as the box type, so every value `dyn(...)` in src and std failed in the C compiler
+(`issues/2026-11-02-dyn-auto-box-drops-a-cell-handle-view-box-type.md`).
+
+**Generation A (v0.2.74, `vbd/v5-gen-a-completion`):** the compiler accepts a view as the box type. The arm is
+dead in the tree, and `src/main.yo`'s C is byte-identical. A tree-binary probe over the retyped std is recorded
+in the PR.
+
+**Generation B (v0.2.75, once `SEED_VERSION` carries Generation A):** the parked branch `vbd/v5-cells-gen-b`
+(`std/prelude.yo` only; regenerate it on the tip, since the edit is the two type definitions plus the four
+constructor bodies).
+
+- Delete the scope swap in `Rc.new`, `Arc.new`, `__yo_rc_cell` and `__yo_arc_cell`, and delete the three
+  `__yo_scope_ctx`/`__yo_scope_vtable`/`__yo_scope_set` externs. B2b (`plans/backlog/ALLOCATOR_PLACEMENT.md` §6)
+  follows.
+- Migrate the tests' direct constructions `Rc(T)(v)`/`Arc(T)(v)`, which become E0405 (the field is private), to
+  `Rc.new(v)`/`Arc.new(v)`.
+- Add the dyn auto-box reuse test: a `dyn` over a placed `Rc` reuses the wrapper's cell.
+- Correct the doc comments that say "until V5 builds cells through `__yo_cell`" (`std/prelude.yo` above
+  `__yo_rc_cell`, `src/evaluator/values/dyn.yo` `_prelude_cell_constructor`, the H1 note in
+  `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` §5).
+- Re-baseline the allocation ratchet.
+- The make_mut owner entry below declares its two hooks "beside `__yo_scope_ctx`"; it keeps them in that
+  `extern` block after the three scope externs leave.
+
 ## Seed-gated follow-up (2026-10-30): make_mut reuses the owner (Rc/Arc.allocator)
 
 `Rc.make_mut` and `Arc.make_mut` place their fresh cell (another strong
