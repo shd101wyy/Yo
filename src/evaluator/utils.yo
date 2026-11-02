@@ -4827,13 +4827,16 @@ _place_root_is_runtime_variable :: (fn(e : &AstExpr, env : &Environment) -> bool
 /// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
 /// Widening is safe by construction: the marker no-ops when the argument's
 /// temp already OWNS its value.
-arg_is_rc_projection_place :: (fn(e : &AstExpr, env : &Environment) -> bool)(
+arg_is_rc_projection_place :: (fn(e0 : &AstExpr, env : &Environment) -> bool)({
+  // `r.*` on a reference binding reads as the name `r` (decision 43 step 2
+  // N1e-1): it lends the referent, as the bare `r` did, and projects nothing.
+  e := ast_rewritten_node(e0);
   match(
-    e,
+    &e,
     .Atom(_, _) => false,
-    .FnCall(_, _, _, e_infix, _) => ((!e_infix || ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))) && _place_root_is_runtime_variable(e, env))
+    .FnCall(_, _, _, e_infix, _) => ((!e_infix || ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2)))) && _place_root_is_runtime_variable(&e, env))
   )
-);
+});
 /// Aliasing Stage 0 through a read-only handle: the `Rc`/`Arc` whose payload
 /// holds the evaluated place `ev` (`h` in `h.*`, `h.*.f`), or `.None`.
 ///
