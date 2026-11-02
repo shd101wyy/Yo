@@ -12678,9 +12678,16 @@ Fix: wrap the call:
           // 32): the receiver is written in call form, so its marker is a
           // call-site marker (Rust's `Rc::make_mut(&mut h)`), checked and
           // peeled against `self`'s mode here. The call below is
-          // method-form, which leaves position 0 unpeeled.
+          // method-form, which leaves position 0 unpeeled. Any static call
+          // (`T.m(&x, ...)`: no receiver is prepended) has the same shape:
+          // its argument 0 is a call-site argument, peeled against the
+          // method's first parameter. An impl member still being evaluated
+          // (a method calling itself, or one a sibling forced early) is
+          // reached only through this path, so its `&x` first argument was
+          // left unpeeled and rejected
+          // (issues/fixed/2026-11-02-an-impl-method-calling-itself-or-a-sibling-forced-early-rejects-a-borrow-argument.md).
           uc_args := cond(
-            uc_inf.bound => match(
+            (uc_inf.bound || method_info.is_static) => match(
               &method_info.method_ty,
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
