@@ -427,6 +427,10 @@ test("an element borrow beside a value that cannot reach the container", {
 // owner, so the callee's list is a different one
 // (issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md).
 _ListBox :: struct(lists : ArrayList(String));
+// A value that owns one list and shares another: the shared one may be the
+// container. A `_MixedBox` sibling of a `_MixedBox` root is a hit that does
+// not count (a different value), and the walk still follows its `Rc`.
+_MixedBox :: struct(copy : ArrayList(String), shared : Rc(ArrayList(String)));
 test("an element borrow beside a value that can reach the container", {
   hold_beside :: (fn(dst : &mut String, other : &_ListBox) -> unit)(());
   owner_beside :: (fn(dst : &mut String, other : &_StrLists) -> unit)(());
@@ -440,6 +444,13 @@ test("an element borrow beside a value that can reach the container", {
   h2 := h;
   comptime_expect_error(owner_beside(&mut h.lists(usize(0)), &h2), "could hold a handle");
   comptime_expect_error(owner_value_beside(&mut h.lists(usize(0)), h2), "could hold a handle");
+  mixed_beside :: (fn(dst : &mut String, other : _MixedBox) -> unit)(());
+  shared := Rc.new(ArrayList(String).new());
+  m := _MixedBox(copy : ArrayList(String).new(), shared : Rc.clone(shared));
+  comptime_expect_error(mixed_beside(&mut xs(usize(0)), m), "could hold a handle");
+  mut(mb) := _MixedBox(copy : ArrayList(String).new(), shared : Rc.clone(shared));
+  mb.copy.push(String.from("c"));
+  comptime_expect_error(mixed_beside(&mut mb.copy(usize(0)), m), "could hold a handle");
   assert(xs.len() == usize(1), "nothing ran");
 });
 test("an element borrow beside a value that owns a list of the container's type", {
