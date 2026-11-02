@@ -89,7 +89,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, handle_payload_is_read_only } :: import("../utils.yo");
 { is_mut_binding, is_thread_local_binding } :: import("../../expr.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
@@ -317,16 +317,7 @@ _evaluate_inout_local_binding :: (
       hops.get(hi),
       .Some(hop) => if(ast_expr_is_atom_of(&hop.field, "*") && rhs_is_privileged, {
         place_has_deref = true;
-      }, if(ast_expr_is_atom_of(&hop.field, "*") && !rhs_is_privileged, {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(&hop.field),
-              `A local borrow cannot reach through a pointer dereference (\`p.*\`): the storage has no owner the borrow could keep alive. Iterate the collection with \`for(&mut coll, x => ...)\` to borrow an element, or copy the value out.`
-            )
-          )
-        );
-      })),
+      }),
       .None => ()
     );
     hi = (hi + usize(1));
@@ -364,6 +355,38 @@ _evaluate_inout_local_binding :: (
   env_adopt(&env, &rhs_info.env);
   prohibit_void_type(&rhs_info.ty, ast_expr_token(rhs), exn);
   require_expr_not_consumed(&evaluated_rhs, env, ctx, exn);
+  // Outside privileged code a `*` hop is legal only as the deref of a handle
+  // whose payload is read-only through it (an `Rc` or an `Arc`,
+  // `handle_payload_is_read_only`; decision 43, REFERENCES_AND_ORIGINS.md O9):
+  // `&h.*.x` has the handle's place as its origin, so the borrow is rooted
+  // at `h`, which stays frozen (no drop, move or reassignment) while it
+  // lives, and the payload is never written through a handle (a `&mut`
+  // borrow through it is E0919 below). Any other dereference has no owner
+  // the borrow could keep alive.
+  if(!rhs_is_privileged, {
+    (dk : usize) = usize(0);
+    while(dk < hops.len(), {
+      match(
+        hops.get(dk),
+        .Some(dhop) => if(ast_expr_is_atom_of(&dhop.field, "*"), {
+          d_recv := if((dk + usize(1)) < hops.len(), match(hops.get(dk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()), root_atom);
+          d_recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d_recv)), .Some(dri) => Rc.clone(dri.ty), .None => t_unit());
+          if(!handle_payload_is_read_only(&d_recv_ty), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(&dhop.field),
+                  `A local borrow cannot reach through a pointer dereference (\`p.*\`): the storage has no owner the borrow could keep alive. Iterate the collection with \`for(&mut coll, x => ...)\` to borrow an element, or copy the value out.`
+                )
+              )
+            );
+          });
+        }),
+        .None => ()
+      );
+      dk = (dk + usize(1));
+    });
+  });
   // Decision 47 step 2: `y := &mut place` lends the place exclusively, so the
   // binding at its root needs `mut(name)`.
   if(is_mut && !place_has_deref, {

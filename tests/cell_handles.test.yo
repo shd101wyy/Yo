@@ -166,9 +166,9 @@ test("S3: Option of a cell handle keeps the one-pointer niche; of an atomic one,
   some := Option(TRc(i32)).Some(trc(i32(7)));
   assert(match(some, .Some(h) => (h.* == i32(7)), .None => false), "the payload through the folded Option");
 });
-// A safe file spells the borrow through auto-dereference: a written `*` hop
-// in a local borrow is rejected there for every handle
-// (issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md).
+// A safe file may spell the borrow through auto-dereference or, since
+// decision 43's N1d (O9), with the written `*` hop
+// (issues/fixed/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md).
 test("S13: a borrow of a place in a handle's payload pins the cell", {
   h := trc(_p(i32(2)));
   {

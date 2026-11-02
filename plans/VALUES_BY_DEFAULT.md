@@ -184,6 +184,13 @@ Progress:
   - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
     --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
     with it (V2c's "As built").
+  - decision 43 step 2, Generation A: N1a (#1698), N1b (#1705), N1c-1
+    (#1711), N1c-3 (#1712), and N1d — the `Escapable` marker derived from
+    a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
+    payload carrying an origin as E0909, `&h.*.x` and `{ x : &h.*.x }`
+    through a read-only handle with the handle frozen (O9, O10);
+    `RefCell.get()`/`get_mut()` split out to N3. Step 3's N2a (#1713) and
+    N2b (#1720).
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
@@ -785,9 +792,9 @@ cannot be copied.
       covers the predicates on hand-built types. A test file cannot declare
       its own `Rc` (a prelude name cannot be shadowed), which is why the
       recognition is by shape. A safe file spells a local borrow of the
-      payload through auto-dereference (`&h.x`): a written `*` hop there is
-      rejected for every handle
-      (`issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
+      payload through auto-dereference (`&h.x`): a written `*` hop there was
+      rejected for every handle until decision 43's N1d (O9, 2026-11-02)
+      (`issues/fixed/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
     - **The private `_cell` shadows a payload field of the same name:**
       `w._cell` names the wrapper's field before auto-dereference runs. This
       is already true for `Box`, and E0405 rejects the access outside the
@@ -1036,6 +1043,14 @@ Each kind of root gets its own check:
   a plain value, not only behind `Rc`/`Arc`:
   `issues/questions/refcell-inside-a-plain-value.md` (recommendation: yes,
   anywhere, verifier-excluded).
+  **Projection form under review at N3 (2026-11-02, Fable consultation,
+  VERDICTS-13 §8):** `get()`/`get_mut()` were split out of decision 43
+  step 2's N1d — they have no v0.2.74 consumer (B5 put std and src on
+  `with`/`with_mut`) and no seed relevance. Their shape is decided at N3
+  (v0.2.75); the recommendation is Rust-style guard values (an
+  origin-carrying struct whose `Drop` releases the mark, so the release
+  rides the deferred drops and runs on unwind) instead of the
+  expression-scoped projection and binding ban above.
 - **Why a type and not a per-site marker.** A marker leaves every `Rc`
   cell carrying marks because some site elsewhere might write; the type
   makes the fact modular: it works across static libraries, and a struct
