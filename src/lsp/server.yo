@@ -298,7 +298,7 @@ _note_document_change :: (
       (i : usize) = usize(0);
       while(i < pending.uris.len(), {
         match(
-          pending.uris.get(i),
+          pending.uris.get_cloned(i),
           .Some(u) => {
             if(u == uri.clone(), {
               known = true;
@@ -985,7 +985,7 @@ _handle_message :: (
             .Some(reason) => {
               rn_rejected = true;
               match(
-                id_opt,
+                &id_opt,
                 .Some(id) => write_lsp_message(
                   json.stringify(
                     j_error_response(&id, i64(0) - i64(32803), `rename rejected: ${reason}`)
@@ -1047,7 +1047,7 @@ _handle_message :: (
                 match(
                   st.diags.get_cloned(di),
                   .Some(d) => match(
-                    d.repair,
+                    &d.repair,
                     .Some(r) => if((d.row >= from_line) && (d.row <= to_line), {
                       edits := ArrayList(JsonValue).new();
                       edits.push(
