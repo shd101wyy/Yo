@@ -147,16 +147,6 @@ pragma(Pragma.AllowUnsafe);
 /// borrow is listed exactly while its block evaluates; `comptime_expect_error`
 /// restores the length a thrown-through body left.
 (g_local_borrows : RefCell(ArrayList(LocalBorrowInfo))) = RefCell(ArrayList(LocalBorrowInfo)).new(ArrayList(LocalBorrowInfo).new());
-/// B9: the borrow registry is a value list whose elements are `ref`-struct
-/// handles — reading one out by index dups the handle, which these walks
-/// collect up front so the loops below keep their `get` shape.
-_lb_handles :: (fn() -> ArrayList(LocalBorrowInfo))(
-  g_local_borrows.with(xs => {
-    mut(out) := ArrayList(LocalBorrowInfo).new();
-    for(&xs, x => { out.push(x); });
-    out
-  })
-);
 (g_local_borrow_patterns : RefCell(ArrayList(LocalBorrowPatternBinding))) = RefCell(ArrayList(LocalBorrowPatternBinding)).new(ArrayList(LocalBorrowPatternBinding).new());
 /// The `mut` places `match` arms bind over a local borrow (decision 25's
 /// cursor), with their live ranges: rule 4 checks them at an `await`.
@@ -2956,8 +2946,7 @@ record_copying_accessor_site :: (fn(site : CopyingAccessorSite) -> unit)({
   if(!g_copying_accessor_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
-  rec := site.clone();
-  g_copying_accessor_sites.with_mut({ rec }(xs) => xs.push(rec));
+  g_copying_accessor_sites.with_mut(xs => xs.push(site.clone()));
 });
 take_copying_accessor_sites :: (fn() -> ArrayList(CopyingAccessorSite))({
   out := g_copying_accessor_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -7230,12 +7219,11 @@ _lb_verb :: (fn(kind : &LocalBorrowAccess) -> str)(
 _lb_is_read :: (fn(kind : &LocalBorrowAccess) -> bool)(match(kind, .Read => true, _ => false));
 /// The local borrow named `name` and declared at `decl`, newest first.
 local_borrow_info_of :: (fn(name : &String, decl : &Token) -> Option(LocalBorrowInfo))({
-  lbs := _lb_handles();
-  (i : usize) = lbs.len();
+  (i : usize) = g_local_borrows.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      lbs.get(i),
+      g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl), {
         return(Option(LocalBorrowInfo).Some(info));
       }),
@@ -7364,17 +7352,17 @@ _lb_raise_conflict :: (
     }
   );
   match(
-    &info.elided_origin,
+    info.elided_origin,
     .Some(eo) => {
       (ek : usize) = usize(0);
       while(ek < eo.roots.len(), {
-        if(match(eo.roots.get_cloned(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
-          frozen_label := match(eo.labels.get_cloned(ek), .Some(l) => l, .None => String.new());
+        if(match(eo.roots.get(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
+          frozen_label := match(eo.labels.get(ek), .Some(l) => l, .None => String.new());
           keep := String.new();
           (kk : usize) = usize(0);
           while(kk < eo.labels.len(), {
             match(
-              eo.labels.get_cloned(kk),
+              eo.labels.get(kk),
               .Some(l) => if(!(l == frozen_label) && !_lb_label_listed(&eo.labels, kk), {
                 if(keep.len() > usize(0), {
                   keep.push_str(", ");
@@ -7409,7 +7397,7 @@ _lb_raise_conflict :: (
 _lb_label_listed :: (fn(labels : &ArrayList(String), k : usize) -> bool)({
   (j : usize) = usize(0);
   while(j < k, {
-    if(match(labels.get_cloned(j), .Some(a) => match(labels.get_cloned(k), .Some(b) => (a == b), .None => false), .None => false), {
+    if(match(labels.get(j), .Some(a) => match(labels.get(k), .Some(b) => (a == b), .None => false), .None => false), {
       return(true);
     });
     j = (j + usize(1));
@@ -7421,12 +7409,11 @@ _lb_tok_after :: (fn(a : &Token, b : &Token) -> bool)((a.module_path == b.module
 /// borrow (decision 18, rule 2). A read conflicts with a live `mut` borrow;
 /// a write, a move or an exclusive borrow with any live borrow.
 local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  lbs := _lb_handles();
-  (i : usize) = lbs.len();
+  (i : usize) = g_local_borrows.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      lbs.get(i),
+      g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if((info.is_mut || !_lb_is_read(kind)) && _lb_live_at(&info, tok), {
         (pi : usize) = usize(0);
         while(pi < info.places.len(), {
@@ -7584,12 +7571,11 @@ local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, 
 /// Rule 3 (decision 18): a borrow of a module-level place may not be live
 /// across a call, which could reach the place by name. `tok` is the call.
 local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalContext, exn : Exception) -> unit)({
-  lbs := _lb_handles();
-  (i : usize) = lbs.len();
+  (i : usize) = g_local_borrows.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      lbs.get(i),
+      g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if(info.module_root && _lb_live_at(&info, tok), {
         root_text := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
         entries := ArrayList(TokenAndError).new();
@@ -7633,12 +7619,11 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
   while(si < g_lb_macro_sites.with(xs => xs.len()), si = (si + usize(1)), {
     match(g_lb_macro_sites.with(xs => xs.get_cloned(si)), .Some(ms) => sites.push(ms.site), .None => ());
   });
-  lbs := _lb_handles();
-  (i : usize) = lbs.len();
+  (i : usize) = g_local_borrows.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      lbs.get(i),
+      g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if(info.crosses_cell || info.module_root, {
         match(
           _lb_first_site_in(&sites, &info.decl, &info.end),
@@ -8120,17 +8105,13 @@ local_borrow_register :: (
     },
     .None => ()
   );
-  // B9: `LocalBorrowInfo` has no Clone before V5 — the parents leave as
-  // the same handles, collected in place.
-  parents_h := ArrayList(LocalBorrowInfo).new();
-  for(&parents, p => { parents_h.push(p); });
   info := LocalBorrowInfo(
     name : name.clone(),
     decl : decl,
     start : start,
     macro_site : macro_site,
     is_mut : is_mut,
-    places : places.clone(),
+    places : places,
     last_use : last_use,
     end : end,
     // Cloned into the record: the transitive-freeze loop below still reads
@@ -8163,12 +8144,11 @@ local_borrow_register :: (
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
 /// derived from its current target is live.
 local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  lbs := _lb_handles();
-  (i : usize) = lbs.len();
+  (i : usize) = g_local_borrows.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      lbs.get(i),
+      g_local_borrows.with(xs => xs.get(i)),
       .Some(d) => if(match(d.parents.get(usize(0)), .Some(p) => _lb_same_decl(p.name.clone(), &p.decl, info.name.clone(), &info.decl), .None => false) && _lb_live_at(&d, tok), {
         entries := ArrayList(TokenAndError).new();
         entries.push(

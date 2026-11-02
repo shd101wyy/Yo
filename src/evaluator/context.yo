@@ -2649,9 +2649,7 @@ begin_module_walk :: (
     );
     hi = (hi + usize(1));
   });
-  dc_k := module_path.clone();
-  dc_v := defs.len();
-  _ := g_module_def_count.with_mut({ dc_k, dc_v }(m) => m.insert(dc_k, dc_v));
+  _ := g_module_def_count.with_mut(m => m.insert(module_path.clone(), defs.len()));
   g_module_walks.with_mut(xs => xs.push(walk));
   walk
 });

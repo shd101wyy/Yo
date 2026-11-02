@@ -1369,8 +1369,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       });
       cond(
         (inner.len() == usize(1)) => {
-          one := inner.get_cloned(usize(0)).unwrap();
-          g_scope_one.with_mut({ one, id }(m) => m.insert(id, one));
+          g_scope_one.with_mut(m => m.insert(id, inner.get(usize(0)).unwrap()));
         },
         (inner.len() > usize(1)) => {
           g_scope_inner.with_mut(m => m.insert(id, inner.clone()));
@@ -2692,9 +2691,6 @@ record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, descri
     // (`with_mut`'s callback is a sink parameter).
     g_spec_instantiations.with_mut({ spec_fid_owned, description_owned, call_token }(m) => m.insert(spec_fid_owned.clone(), SpecInstantiation(call_token : call_token, description : description_owned)));
   });
-  k := spec_fid.clone();
-  v := SpecInstantiation(call_token : call_token, description : description.clone());
-  g_spec_instantiations.with_mut({ k, v }(m) => m.insert(k, v));
   ()
 });
 lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation))(g_spec_instantiations.with(m => m.get_cloned(spec_fid)));
@@ -3318,8 +3314,7 @@ migrate_markers_on :: (fn() -> bool)(g_migrate_markers);
 /// position and marker.
 record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}:${marker}`;
-  ik := key.clone();
-  if(!g_marker_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
+  if(!g_marker_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   expect_owned__ := expect.clone();
@@ -3352,8 +3347,7 @@ migrate_rc_pattern_on :: (fn() -> bool)(g_migrate_rc_pattern);
 /// position.
 record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  ik := key.clone();
-  if(!g_rc_pattern_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
+  if(!g_rc_pattern_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   expect_owned___ := expect.clone();
@@ -3385,8 +3379,7 @@ migrate_dyn_spelling_on :: (fn() -> bool)(g_migrate_dyn_spelling);
 /// position.
 record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  ik := key.clone();
-  if(!g_dyn_spelling_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
+  if(!g_dyn_spelling_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   expect_owned____ := expect.clone();
@@ -3422,8 +3415,7 @@ migrate_handle_ctors_on :: (fn() -> bool)(g_migrate_handle_ctors);
 /// Record one site, once per (position, type argument, argument shape).
 record_handle_ctor_site :: (fn(site : HandleCtorSite) -> unit)({
   key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty_key}:${site.arg_kind}`;
-  ik := key.clone();
-  if(!g_handle_ctor_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
+  if(!g_handle_ctor_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   g_handle_ctor_sites.with_mut(xs => xs.push(site.clone()));
@@ -3452,8 +3444,7 @@ migrate_mutable_globals_on :: (fn() -> bool)(g_migrate_mutable_globals);
 /// Record the declaration `decl` of the written global `name`, once.
 record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
   key := `${_mg_canon(&decl.module_path.*)}:${decl.row.to_string()}:${decl.column.to_string()}`;
-  ik := key.clone();
-  if(!g_mutable_global_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
+  if(!g_mutable_global_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   name_owned_______ := name.clone();
@@ -3489,7 +3480,7 @@ _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   if(!g_mut_binding_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
-  g_mut_binding_sites.with_mut({ site }(xs) => xs.push(site));
+  g_mut_binding_sites.with_mut(xs => xs.push(site.clone()));
 });
 /// A write inside a `comptime_expect_error` argument is HELD, not recorded:
 /// whether its binding needs `mut` depends on what the case expects, which
