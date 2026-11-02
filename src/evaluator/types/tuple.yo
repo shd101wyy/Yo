@@ -107,7 +107,7 @@ evaluate_tuple_type :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit type.
   if(args.len() == usize(0), {
     unit_val := create_type_value(Rc.new(TypeValueNode.Unit));

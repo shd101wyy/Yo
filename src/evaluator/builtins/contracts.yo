@@ -1551,6 +1551,15 @@ set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
   g_verify_mode_override.replace(m.clone());
   ()
 });
+/// B9 (decision 18 rule 3): the override moved into a `RefCell`, so reads
+/// lend the cell instead of a mutable global.
+_verify_override_value :: (fn() -> String)(
+  g_verify_mode_override.with(m => match(
+    m,
+    .Some(v) => v.clone(),
+    .None => String.from("runtime")
+  ))
+);
 /// Declare the verification target file set (and reset any previous one).
 /// The verification mode for a module: `"runtime"` | `"verify"` |
 /// `"verify+"` | `"ignore"`. The FILE's pragma is the source of truth when
@@ -1783,7 +1792,7 @@ register_impl_inheritance_task :: (
           result_type : ret_ty,
           requires_exprs : evh_reqs,
           ensures_exprs : evh_enss,
-          return_label : __t_ret,
+          return_label : __t_ret.clone(),
           table : ctx.expr_info_table.clone(),
           mode : __mode.clone(),
           func_val : method_val,

@@ -2570,7 +2570,7 @@ _variant_local_hint :: (
   if(!ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))), {
     return(Option(ExpectedTypeCtx).None);
   });
-  sargs := match(stmt, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  sargs := match(stmt, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(sargs.get(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs := match(sargs.get(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs_is_async := is_io_async_call(&rhs);

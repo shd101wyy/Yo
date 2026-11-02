@@ -571,7 +571,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     needs_check := (p_is_ref || _slice_src);
     if(needs_check, {
       match(
-        eff_args.get(pi),
+        eff_args.get_cloned(pi),
         .Some(a) => {
           if(!recur(&a, ctx, opts), {
             all_ok = false;
@@ -676,7 +676,7 @@ require_ref_own_argument_exclusivity :: (
     // (decision 30) every plain parameter is by value.
     is_owning := (
       cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi), .Some(o) => o, .None => false), true => false) && !match(
-        args.get(pi),
+        args.get_cloned(pi),
         .Some(oa) => match(_info(ctx, &oa), .Some(oi) => type_is_bitwise_copy(Rc.clone(oi.ty)), .None => false),
         .None => false
       )
@@ -686,7 +686,7 @@ require_ref_own_argument_exclusivity :: (
     }, {
       lbl := cond((pi < param_labels.len()) => match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
       match(
-        args.get(pi),
+        args.get_cloned(pi),
         .Some(arg) => {
           root_atom_opt := match(
             _info(ctx, &arg),
@@ -1008,9 +1008,10 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
       match(
         wb.get_cloned(ri),
         .Some(e) => xs.push(e),
-        .None => ()
+        .None => {
+          pgo = false;
+        }
       );
-      ri = (ri + usize(1));
     });
   }));
   match(
@@ -1191,7 +1192,7 @@ _reject_if_container_reachable :: (
             )
           );
           is_closure || match(
-            holder_types,
+            &holder_types,
             .Some(targets) => {
               // F1: a function-typed sibling is NOT given to the walk — the
               // walk answers yes for every `Func`/`Fn` trait type, which

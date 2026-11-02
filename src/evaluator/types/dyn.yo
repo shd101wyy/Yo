@@ -78,7 +78,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
       while(i < fls.len(), {
         ft := match(fts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
-          match(fls.get(i), .Some(l) => out.push(l), .None => ());
+          match(fls.get_cloned(i), .Some(l) => out.push(l), .None => ());
         });
         i = (i + usize(1));
       });
@@ -97,11 +97,11 @@ _reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token,
     names := _dyn_trait_slot_names(&tt);
     (ni : usize) = usize(0);
     while(ni < names.len(), {
-      nm := match(names.get(ni), .Some(x) => x, .None => String.new());
+      nm := match(names.get_cloned(ni), .Some(x) => x, .None => String.new());
       (si : usize) = usize(0);
       while(si < seen_names.len(), {
-        if(match(seen_names.get(si), .Some(x) => (x == nm), .None => false), {
-          other := match(seen_owner.get(si), .Some(x) => x, .None => String.new());
+        if(match(seen_names.get_cloned(si), .Some(x) => (x == nm), .None => false), {
+          other := match(seen_owner.get_cloned(si), .Some(x) => x, .None => String.new());
           exn.throw(
             dyn(
               with_code(
@@ -143,7 +143,7 @@ evaluate_dyn_type :: (
   });
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   required_traits := ArrayList(TypeValue).new();
@@ -238,7 +238,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < negative_ids.len(), {
-        existing := match(negative_ids.get(j), .Some(s) => s, .None => String.from(""));
+        existing := match(negative_ids.get_cloned(j), .Some(s) => s, .None => String.from(""));
         if(existing == tid, {
           already = true;
         });
@@ -271,7 +271,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < required_ids.len(), {
-        existing := match(required_ids.get(j), .Some(s) => s, .None => String.from(""));
+        existing := match(required_ids.get_cloned(j), .Some(s) => s, .None => String.from(""));
         if(existing == tid, {
           already = true;
         });
@@ -312,7 +312,7 @@ evaluate_dyn_type :: (
     cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());
     scs := match(
       cur_trait,
-      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc,
+      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc.clone(),
       _ => ArrayList(TypeValue).new()
     );
     k := usize(0);
@@ -322,7 +322,7 @@ evaluate_dyn_type :: (
       already := false;
       m := usize(0);
       while(m < required_ids.len(), {
-        eid := match(required_ids.get(m), .Some(s) => s, .None => String.from(""));
+        eid := match(required_ids.get_cloned(m), .Some(s) => s, .None => String.from(""));
         if(eid == cid, {
           already = true;
         });

@@ -5140,7 +5140,7 @@ evaluate_module_value :: (
   // Extract args from the FnCall.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := args.len();
@@ -6628,7 +6628,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   (i : usize) = usize(0);
   while((i < g_move_only_decls.with(xs => xs.len())) && found.is_empty(), {
     match(
-      g_move_only_decls.with(xs => xs.get(i)),
+      g_move_only_decls.with(xs => xs.get_cloned(i)),
       .Some(d) => {
         hit := match(
           &d.generic,
@@ -6674,7 +6674,7 @@ generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_move_only_decls.with(xs => xs.len()), i = (i + usize(1)), {
     match(
-      g_move_only_decls.with(xs => xs.get(i)),
+      g_move_only_decls.with(xs => xs.get_cloned(i)),
       .Some(d) => match(
         &d.generic,
         .Some(ge) => if(_generic_drop_impl_covers(&ge, &cfid, &args), {
@@ -7272,11 +7272,11 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
   n_keys := g_impl_registry_keys.with(xs => xs.len());
   (ki : usize) = usize(0);
   while(ki < n_keys, ki = (ki + usize(1)), {
-    entry_list := match(g_impl_registry_entry_lists.with(xs => xs.get(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new());
+    entry_list := match(g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new());
     (ei : usize) = usize(0);
     while(ei < entry_list.len(), ei = (ei + usize(1)), {
       match(
-        entry_list.get(ei),
+        entry_list.get_cloned(ei),
         .Some(entry) => {
           (fi : usize) = usize(0);
           (found : Option(TypeValue)) = .None;
@@ -7288,7 +7288,7 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
           match(
             found,
             .Some(mty) => {
-              owner := match(g_impl_registry_entry_owners.with(xs => xs.get(ki)), .Some(ol) => match(ol.get(ei), .Some(o) => o.clone(), .None => String.new()), .None => String.new());
+              owner := match(g_impl_registry_entry_owners.with(xs => xs.get_cloned(ki)), .Some(ol) => match(ol.get(ei), .Some(o) => o.clone(), .None => String.new()), .None => String.new());
               if(is_function_type(&mty) && (instance_constructor_fid(&entry.receiver_type_pattern) == ctor_fid) && owner_visible_from_current(&owner), {
                 names := entry.forall_names.clone();
                 somes := entry.forall_some_types.clone();

@@ -1001,6 +1001,9 @@ derive(ExprInfoTable, Clone);
 // Only while `compile`'s shared table is live (`scope_release_set_table`).
 // ---------------------------------------------------------------------------
 ScopeNameRecord :: struct(name : String, vars : ArrayList(Variable));
+/// B9: read out of `g_scope_names` through `get_cloned` (the map no longer
+/// shares its value lists; `Variable`'s clone is its handle copy).
+derive(ScopeNameRecord, Clone);
 /// A binding the evaluator made at an atom: the name, and the binding
 /// node's env (its frames shared, so a release-time lookup sees the scope as
 /// codegen will).
@@ -1339,7 +1342,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       // record only the latter (and the shared length when it falls short).
       inner := ArrayList(Variable).new();
       match(
-        bound,
+        &bound,
         .Some(br) => {
           shared := if(capture_shaped, get_variables_from_env(&husk, &br.name), get_variables_from_env_before(&husk, k, &br.name));
           bvars := get_variables_from_env(&br.env, &br.name);
@@ -1366,7 +1369,8 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       });
       cond(
         (inner.len() == usize(1)) => {
-          g_scope_one.with_mut(m => m.insert(id, inner.get(usize(0)).unwrap()));
+          one := inner.get_cloned(usize(0)).unwrap();
+          g_scope_one.with_mut({ one, id }(m) => m.insert(id, one));
         },
         (inner.len() > usize(1)) => {
           g_scope_inner.with_mut(m => m.insert(id, inner.clone()));
@@ -1454,7 +1458,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
   g_scope_path = usize(4);
   base := match(g_scope_klen.with(m => m.get(&key)), .Some(k) => get_variables_from_env_before(husk, k, name), .None => get_variables_from_env(husk, name));
   match(
-    g_scope_one.with(m => m.get(&key)),
+    g_scope_one.with(m => m.get_cloned(&key)),
     .Some(v) => if((v.name == name) && !_scope_has_id(&base, v.id), {
       g_scope_path = usize(3);
       base.push(v);
@@ -1622,6 +1626,10 @@ path_collection_of_name :: (fn(name : &String) -> PathCollection)(
   if(
     !g_share_name_paths,
     _fresh_name_path_collection(name),
+    // B9 interim: the cached collection is a VALUE map's entry now, so a hit
+    // clones it exactly as a miss builds one — the name-sharing lever's
+    // handle sharing is gone until the field moves to `Rc` (V5); recorded in
+    // issues/ by this flip.
     match(
       g_name_path_collections.with(xs => xs.get_cloned(name)),
       .Some(pc) => pc,
@@ -1662,7 +1670,10 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
 codegen_read_log_set :: (fn(on : bool) -> unit)({
   g_codegen_read_log_on = on;
 });
-codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.with(s => s));
+/// B9: `take()` moves the logged keys out of the cell (D11's whole-set copy
+/// per call is gone); the read log is drained once, after `codegen_c.yo`
+/// switches it off, and nothing reads the cell afterwards.
+codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.take());
 _logged_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
   _i := g_codegen_read_keys.with_mut(s => s.insert(id));
   table.data.with(m => m.get(&id))
@@ -1678,13 +1689,14 @@ expr_info_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprIn
 );
 /// Drop every entry whose key `keep` does not hold; returns how many went.
 /// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
-expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize)) -> usize)(
-  table.data.with_mut(m => {
+expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize)) -> usize)({
+  keep_own := keep.clone();
+  table.data.with_mut({ keep_own }(m) => {
     before := m.len();
-    m.retain((k, _v) => keep.contains(k));
+    m.retain((k, _v) => keep_own.contains(k));
     before - m.len()
   })
-);
+});
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
 //
@@ -2019,7 +2031,7 @@ register_module_level_global :: (fn(module_path : &String, name : &String) -> un
 /// True if module `module_path` declared the module-level runtime global
 /// `name`.
 is_module_level_global :: (fn(module_path : &String, name : &String) -> bool)(
-  g_module_level_globals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
+  g_module_level_globals.with(m => m.contains_key(`${_mg_canon(module_path)}|#|${name}`))
 );
 /// The C-name suffix for a module-level global declared in `module_path`
 /// (`_m<hash_one-of-canonical-path>`). Hashes the CANONICAL path so the
@@ -2043,7 +2055,7 @@ register_mut_global :: (fn(module_path : &String, name : &String) -> unit)({
 });
 /// True if module `module_path` declared `name` with `mut(name)`.
 is_mut_global :: (fn(module_path : &String, name : &String) -> bool)(
-  g_mut_globals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
+  g_mut_globals.with(m => m.contains_key(`${_mg_canon(module_path)}|#|${name}`))
 );
 /// True if module `module_path` declared `name` as a thread-local.
 is_thread_local :: (fn(module_path : &String, name : &String) -> bool)(
@@ -2668,6 +2680,7 @@ lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_
 /// instantiation it asked for (`twice` with T = bool). Keyed by the
 /// specialization's func id; written once, by the first call that minted it.
 SpecInstantiation :: struct(call_token : Token, description : String);
+derive(SpecInstantiation, Clone);
 (g_spec_instantiations : RefCell(HashMap(String, SpecInstantiation))) = RefCell(HashMap(String, SpecInstantiation)).new(HashMap(String, SpecInstantiation).new());
 record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, description : &String) -> unit)({
   if(g_spec_instantiations.with(m => m.get_cloned(spec_fid.clone())).is_none(), {
@@ -2677,6 +2690,9 @@ record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, descri
     // (`with_mut`'s callback is a sink parameter).
     g_spec_instantiations.with_mut({ spec_fid_owned, description_owned, call_token }(m) => m.insert(spec_fid_owned.clone(), SpecInstantiation(call_token : call_token, description : description_owned)));
   });
+  k := spec_fid.clone();
+  v := SpecInstantiation(call_token : call_token, description : description.clone());
+  g_spec_instantiations.with_mut({ k, v }(m) => m.insert(k, v));
   ()
 });
 lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation))(g_spec_instantiations.with(m => m.get_cloned(spec_fid)));
@@ -3300,7 +3316,8 @@ migrate_markers_on :: (fn() -> bool)(g_migrate_markers);
 /// position and marker.
 record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}:${marker}`;
-  if(!g_marker_site_keys.with_mut(s => s.insert(key.clone())), {
+  ik := key.clone();
+  if(!g_marker_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
   expect_owned__ := expect.clone();
@@ -3333,7 +3350,8 @@ migrate_rc_pattern_on :: (fn() -> bool)(g_migrate_rc_pattern);
 /// position.
 record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(!g_rc_pattern_site_keys.with_mut(s => s.insert(key.clone())), {
+  ik := key.clone();
+  if(!g_rc_pattern_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
   expect_owned___ := expect.clone();
@@ -3365,7 +3383,8 @@ migrate_dyn_spelling_on :: (fn() -> bool)(g_migrate_dyn_spelling);
 /// position.
 record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(!g_dyn_spelling_site_keys.with_mut(s => s.insert(key.clone())), {
+  ik := key.clone();
+  if(!g_dyn_spelling_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
   expect_owned____ := expect.clone();
@@ -3401,7 +3420,8 @@ migrate_handle_ctors_on :: (fn() -> bool)(g_migrate_handle_ctors);
 /// Record one site, once per (position, type argument, argument shape).
 record_handle_ctor_site :: (fn(site : HandleCtorSite) -> unit)({
   key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty_key}:${site.arg_kind}`;
-  if(!g_handle_ctor_site_keys.with_mut(s => s.insert(key.clone())), {
+  ik := key.clone();
+  if(!g_handle_ctor_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
   g_handle_ctor_sites.with_mut(xs => xs.push(site.clone()));
@@ -3430,7 +3450,8 @@ migrate_mutable_globals_on :: (fn() -> bool)(g_migrate_mutable_globals);
 /// Record the declaration `decl` of the written global `name`, once.
 record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
   key := `${_mg_canon(&decl.module_path.*)}:${decl.row.to_string()}:${decl.column.to_string()}`;
-  if(!g_mutable_global_site_keys.with_mut(s => s.insert(key.clone())), {
+  ik := key.clone();
+  if(!g_mutable_global_site_keys.with_mut({ ik }(s) => s.insert(ik)), {
     return(());
   });
   name_owned_______ := name.clone();
@@ -3466,7 +3487,7 @@ _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   if(!g_mut_binding_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
-  g_mut_binding_sites.with_mut(xs => xs.push(site.clone()));
+  g_mut_binding_sites.with_mut({ site }(xs) => xs.push(site));
 });
 /// A write inside a `comptime_expect_error` argument is HELD, not recorded:
 /// whether its binding needs `mut` depends on what the case expects, which

@@ -1080,7 +1080,7 @@ evaluate_trait_type :: (
   );
   // Push a scoped env frame for trait evaluation
   env_mut.push_frame(false);
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
   top_frame := env_mut.frames.len();
   self_frame_level := if(top_frame > usize(0), top_frame - usize(1), usize(0));

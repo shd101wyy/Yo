@@ -11,7 +11,7 @@
 { MapEntry } :: import("./entry");
 { SIZE_MAX } :: import("std/libc/stdint");
 test("HashSet delegates to one backing HashMap, reachable as the private _map", {
-  set := HashSet(i32).new();
+  mut(set) := HashSet(i32).new();
   set.insert(i32(1));
   set.insert(i32(2));
   assert(set._map.len() == usize(2), "the set's length IS the backing map's");
@@ -19,14 +19,14 @@ test("HashSet delegates to one backing HashMap, reachable as the private _map", 
   assert(set._map.contains_key(i32(2)), "membership IS key presence in the backing map");
 });
 test("HashSet.remove of an isolated element leaves no tombstone in the backing map", {
-  set := HashSet(i32).new();
+  mut(set) := HashSet(i32).new();
   set.insert(i32(7));
   set.remove(i32(7));
   assert(set._map.tombstones() == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
   assert(set._map.len() == usize(0));
 });
 test("HashSet churn keeps the backing map's live + tombstones under the load threshold", {
-  set := HashSet(i32).new();
+  mut(set) := HashSet(i32).new();
   (mut(k) : i32) = i32(0);
   while(k < i32(2000), k = (k + i32(1)), {
     set.insert(k);

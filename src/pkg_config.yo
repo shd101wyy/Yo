@@ -205,12 +205,15 @@ query_pkg_config :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Option(PkgConfigResult), IoExn))
-)(
-  io.async((e : IoExn) => {
+)({
+  // B9: the async body owns its copy of the name (a borrowed parameter
+  // cannot be captured by a closure that outlives the call).
+  name_own := pkg_name.clone();
+  io.async({ name_own }(e : IoExn) => {
     // Run pkg-config --cflags
     cflags_cmd := Command.new(String.from("pkg-config"));
     cflags_cmd.arg(String.from("--cflags"));
-    cflags_cmd.arg(pkg_name);
+    cflags_cmd.arg(&name_own);
     cflags_out := e.io.await(cflags_cmd.output(e.io), e);
     if(!cflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
@@ -218,7 +221,7 @@ query_pkg_config :: (
     // Run pkg-config --libs
     ldflags_cmd := Command.new(String.from("pkg-config"));
     ldflags_cmd.arg(String.from("--libs"));
-    ldflags_cmd.arg(pkg_name);
+    ldflags_cmd.arg(&name_own);
     ldflags_out := e.io.await(ldflags_cmd.output(e.io), e);
     if(!ldflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
@@ -229,7 +232,7 @@ query_pkg_config :: (
     result_with_ld := parse_ldflags_into(&ldflags_raw, &result);
     Option(PkgConfigResult).Some(result_with_ld)
   })
-);
+});
 /// Resolve a single system library to its compiler/linker flags.
 /// Tries pkg-config first, then falls back to user-provided paths.
 resolve_system_library :: (
@@ -264,13 +267,19 @@ resolve_all_system_libraries :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
-)(
-  io.async((e : IoExn) => {
+)({
+  // B8-era site unmasked by the types/utils root: the async body cannot
+  // capture a borrowed parameter (a closure that outlives the call). It owns
+  // its copy of the list; elements are ref-struct handles, so the clone
+  // copies handles, not the libraries.
+  libs_own := ArrayList(BuildSystemLibrary).new();
+  for(&libs, l => { libs_own.push(l); });
+  io.async({ libs_own, verbose }(e : IoExn) => {
     merged := _empty_result();
     k := usize(0);
-    n := libs.len();
+    n := libs_own.len();
     while(k < n, {
-      lib_opt := libs.get(k);
+      lib_opt := libs_own.get(k);
       lib := match(
         lib_opt,
         .None => {
@@ -285,7 +294,7 @@ resolve_all_system_libraries :: (
     });
     merged
   })
-);
+});
 export(
   PkgConfigResult,
   BuildSystemLibrary,

@@ -136,8 +136,9 @@ _trial_eval_test_body :: (
         .None => {
           if(copy_migration_recording_on() || migrate_handle_ctors_on(), {
             message := match(trial_err, .Some(te) => render_any_error(&te), .None => String.from("the trial evaluation failed"));
-            first_line := match(message.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.new());
-            g_skipped_test_bodies.with_mut(xs => xs.push(SkippedTestBody(test_tok : test_tok.clone(), name : test_name.clone(), error : first_line.clone())));
+            first_line := match(message.split("\n").get_cloned(usize(0)), .Some(l) => l.trim(), .None => String.new());
+            name_own := test_name.clone();
+            g_skipped_test_bodies.with_mut({ name_own, first_line, test_tok }(xs) => xs.push(SkippedTestBody(test_tok : test_tok.clone(), name : name_own, error : first_line.clone())));
           });
           return(());
         }

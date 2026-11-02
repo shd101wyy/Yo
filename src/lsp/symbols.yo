@@ -128,6 +128,7 @@ SymbolEntry :: struct(
   kind : usize,
   range : JsonValue
 );
+derive(SymbolEntry, Clone);
 /// The bound-name token of a declaration left side: the atom itself
 /// (`name :=`), or the atom inside `thread_local(name)`, `mut(name)` or
 /// `thread_local(mut(name))` (decision 47).
@@ -352,7 +353,7 @@ handle_workspace_symbols :: (fn(query : &String, docs : &ArrayList(WorkspaceDoc)
     (ei : usize) = usize(0);
     while(ei < entries.len(), {
       match(
-        entries.get(ei),
+        entries.get_cloned(ei),
         .Some(en) => {
           if((q.len() == usize(0)) || en.name.to_lowercase().contains(q.clone()), {
             out.push(

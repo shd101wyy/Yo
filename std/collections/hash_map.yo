@@ -101,43 +101,48 @@ HashMap :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      /// Control bytes, one per bucket: `CTRL_EMPTY`, `CTRL_DELETED`, or the
-      /// key's 7-bit `h2`. `.None` only before the first allocation.
-      ///
-      /// An implementation detail that is public by accident — see the
-      /// module's `## Stability` note.
-      ctrl : ?*u8,
-      /// The bucket array itself, parallel to `ctrl`. An implementation
-      /// detail that is public by accident.
-      data : ?*MapEntry(K, V),
-      /// Number of buckets — always a power of two, because bucket selection
-      /// masks the hash. An implementation detail that is public by accident.
-      capacity : usize,
-      /// Live entries. `len()` reads this. An implementation detail that is
-      /// public by accident.
-      size : usize,
-      /// Slots holding `CTRL_DELETED`. A tombstone keeps probe chains intact
-      /// but is never `EMPTY`, so it costs exactly what a live entry costs on
-      /// every miss; `_needs_resize` therefore counts `size + tombstones`, and
-      /// a table that is mostly tombstones is rehashed IN PLACE instead of
-      /// doubled (hashbrown's rule). Before this, insert/remove churn drove
-      /// every probe to O(capacity) — issues/fixed/hash-tombstones-are-never-reclaimed.md.
-      ///
-      /// The top bit is not a count: set, both buffers came from an explicit
-      /// `Allocator` and carry its owner prefix (`std/allocator.yo`), so they
-      /// are resized and released through it. Keeping the bit in an existing
-      /// word keeps the map object's size (plans/archive/EXPLICIT_ALLOCATORS.md §3.3).
-      /// Read the count with `tombstones()`.
-      _tombstones : usize,
-      /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
-      /// iteration order is reproducible; `with_keys` keys this map alone.
-      k0 : u64,
-      k1 : u64
-    )
+  struct(
+    /// Control bytes, one per bucket: `CTRL_EMPTY`, `CTRL_DELETED`, or the
+    /// key's 7-bit `h2`. `.None` only before the first allocation.
+    ///
+    /// An implementation detail that is public by accident — see the
+    /// module's `## Stability` note.
+    ctrl : ?*u8,
+    /// The bucket array itself, parallel to `ctrl`. An implementation
+    /// detail that is public by accident.
+    data : ?*MapEntry(K, V),
+    /// Number of buckets — always a power of two, because bucket selection
+    /// masks the hash. An implementation detail that is public by accident.
+    capacity : usize,
+    /// Live entries. `len()` reads this. An implementation detail that is
+    /// public by accident.
+    size : usize,
+    /// Slots holding `CTRL_DELETED`. A tombstone keeps probe chains intact
+    /// but is never `EMPTY`, so it costs exactly what a live entry costs on
+    /// every miss; `_needs_resize` therefore counts `size + tombstones`, and
+    /// a table that is mostly tombstones is rehashed IN PLACE instead of
+    /// doubled (hashbrown's rule). Before this, insert/remove churn drove
+    /// every probe to O(capacity) — issues/fixed/hash-tombstones-are-never-reclaimed.md.
+    ///
+    /// The top bit is not a count: set, both buffers came from an explicit
+    /// `Allocator` and carry its owner prefix (`std/allocator.yo`), so they
+    /// are resized and released through it. Keeping the bit in an existing
+    /// word keeps the map object's size (plans/archive/EXPLICIT_ALLOCATORS.md §3.3).
+    /// Read the count with `tombstones()`.
+    _tombstones : usize,
+    /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
+    /// iteration order is reproducible; `with_keys` keys this map alone.
+    k0 : u64,
+    k1 : u64
   )
 );
+// SAFETY: a value `HashMap(K, V)` is the only owner of its ctrl and bucket
+// buffers (B9, plans/VALUES_BY_DEFAULT.md): moving the map moves every entry
+// with it, and no other handle reaches the buffers, so it is `Send`/`Sync`
+// exactly when `K` and `V` are. The raw pointer fields derive neither
+// (decision 38 E), as `ArrayList`'s do not (std/collections/array_list.yo).
+impl(generic(K : Type, V : Type), where(K <: Send, V <: Send), HashMap(K, V), Send());
+impl(generic(K : Type, V : Type), where(K <: Sync, V <: Sync), HashMap(K, V), Sync());
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
@@ -275,7 +280,7 @@ impl(
   /// (`std/crypto/random`) to defeat collision flooding. `new()` uses fixed
   /// keys so iteration order is reproducible.
   with_keys : (fn(k0 : u64, k1 : u64) -> Self)({
-    map := Self.new();
+    mut(map) := Self.new();
     map.k0 = k0;
     map.k1 = k1;
     map
@@ -497,7 +502,7 @@ impl(
   _resize : (fn(self : &mut Self, new_capacity : usize) -> Result(unit, HashMapError))({
     // The new table lives where the old one does. Bound to a local, not a
     // `match` binding: its fields are written below.
-    new_map := match(
+    mut(new_map) := match(
       Self._alloc_with_capacity(new_capacity, self._alloc_of()),
       .Ok(m) => m,
       .Err(err) => return(.Err(err))
@@ -1531,7 +1536,7 @@ impl(
   clone_in : (fn(self : &Self, a : Allocator) -> Self)(self._clone_placed(.Some(a))),
   // A deep copy whose buffers live in `alloc` (`.None`: the global allocator).
   _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
-    result := Self.new(alloc : alloc);
+    mut(result) := Self.new(alloc : alloc);
     result.k0 = self.k0;
     result.k1 = self.k1;
     mut(it) := self.iter();
@@ -1620,8 +1625,9 @@ impl(
       HashMap(K, V).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &MapEntry(K, V)) -> Self)({
-      acc.insert(item.key, item.value);
-      acc
+      mut(out) := acc;
+      out.insert(item.key, item.value);
+      out
     })
   )
 );

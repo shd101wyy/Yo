@@ -101,7 +101,7 @@ _get_enum_discriminant :: (
   (result : Option(i64)) = Option(i64).None;
   while((i < n) && result.is_none(), {
     match(
-      variant_names.get(i),
+      variant_names.get_cloned(i),
       .Some(name) => {
         if(name == stripped, {
           match(
@@ -280,7 +280,7 @@ try_to_convert_to_numeric_type :: (
     );
     // Enum with known discriminant + comptime-capable target → direct comptime conversion
     match(
-      enum_disc_raw,
+      &enum_disc_raw,
       .Some(disc_raw) => {
         if(is_numeric_type(target_type), {
           out_info := _make_comptime_info(&disc_raw, target_type, &env, ast_expr_token(expr), exn);
@@ -335,8 +335,8 @@ try_to_convert_to_numeric_type :: (
   // Extract comptime raw string value (IntLit or FloatLit), or from enum disc.
   // -----------------------------------------------------------------------
   (comptime_raw : Option(String)) = match(
-    enum_disc_raw,
-    .Some(r) => .Some(r),
+    &enum_disc_raw,
+    .Some(r) => .Some(r.clone()),
     .None => match(
       arg_val,
       .Some(v) => cond(
@@ -351,7 +351,7 @@ try_to_convert_to_numeric_type :: (
   // Case 1: Compile-time value → comptime-capable target type
   // -----------------------------------------------------------------------
   match(
-    comptime_raw,
+    &comptime_raw,
     .Some(raw) => {
       if(is_numeric_type(target_type), {
         // `T(comptime_int)` is a checked conversion: `u8(300)` is an E1102
@@ -371,7 +371,7 @@ try_to_convert_to_numeric_type :: (
         int_raw := cond(
           (!is_float_type(target_type) && !is_comptime_float_type(target_type) && match(arg_val, .Some(av) => is_float_lit(&av), .None => false)) =>
             _float_raw_to_int_raw(raw.clone(), target_type, ast_expr_token(arg_expr), exn),
-          true => raw
+          true => raw.clone()
         );
         out_info := _make_comptime_info(&int_raw, target_type, &env, ast_expr_token(expr), exn);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -403,7 +403,7 @@ try_to_convert_to_numeric_type :: (
   if((is_comptime_int_type(&arg_type) || is_comptime_float_type(&arg_type)) &&
     is_numeric_type(target_type), {
     match(
-      comptime_raw,
+      &comptime_raw,
       .Some(raw) => {
         // Already covered by Case 1, but handle here for completeness.
         out_info := _make_comptime_info(&raw, target_type, &env, ast_expr_token(expr), exn);
@@ -466,7 +466,7 @@ try_to_convert_to_numeric_type :: (
   // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)
   // -----------------------------------------------------------------------
   match(
-    comptime_raw,
+    &comptime_raw,
     .Some(raw) => {
       out_info := _make_comptime_info(&raw, target_type, &env, ast_expr_token(expr), exn);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

@@ -107,7 +107,7 @@ max_comptime_loop_iterations :: (fn() -> usize)(
 _find_misplaced_invariant :: (fn(expr : &AstExpr) -> Option(AstExpr))({
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => return(Option(AstExpr).None)
   );
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), {
@@ -139,7 +139,7 @@ _enforce_loop_invariant_placement :: (fn(body_expr : &AstExpr) -> Option(Invaria
   stmts := cond(
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None) => match(
       body_expr,
-      .FnCall(_, _, Rc(a), _, _) => a,
+      .FnCall(_, _, Rc(a), _, _) => a.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     ),
     true => {
@@ -447,7 +447,7 @@ evaluate_while :: (
       if(ast_expr_is_fn_call_of(&inner_cond_expr, "begin", .None), {
         inner_args_lb := match(
           inner_cond_expr,
-          .FnCall(_, _, Rc(a), _, _) => a,
+          .FnCall(_, _, Rc(a), _, _) => a.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         if(inner_args_lb.len() == usize(1), {
@@ -676,7 +676,7 @@ evaluate_while :: (
         if(ast_expr_is_fn_call_of(&inner_cond_expr, "begin", .None), {
           inner_args_lt := match(
             inner_cond_expr,
-            .FnCall(_, _, Rc(a), _, _) => a,
+            .FnCall(_, _, Rc(a), _, _) => a.clone(),
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           if(inner_args_lt.len() == usize(1), {

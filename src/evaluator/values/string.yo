@@ -27,7 +27,8 @@
 decode_str_lit_escapes :: (fn(raw : &String) -> String)({
   chars := ArrayList(rune).new();
   {
-    it := raw.chars();
+    owned := raw.clone();
+    it := owned.chars();
     while(true, {
       match(it.next(), .None => break, .Some(r) => chars.push(r));
     });
