@@ -34,10 +34,13 @@ test("FnMut: a by-value entry is the closure's own state, kept across calls", {
   assert(f() == i32(3), "and the third");
 });
 test("FnMut: own state through a `&mut Impl(FnMut(...))` parameter", {
-  assert(_fm_twice({ n : i32(10) }() => {
-    n = (n + i32(1));
-    n
-  }) == i32(23), "11 + 12: a literal is a temporary, lent exclusively");
+  assert(
+    _fm_twice({ n : i32(10) }() => {
+      n = (n + i32(1));
+      n
+    }) == i32(23),
+    "11 + 12: a literal is a temporary, lent exclusively"
+  );
   (mut(g) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
     n = (n + i32(5));
     n
@@ -57,7 +60,7 @@ test("FnMut: an entry write is the four writes decision 47 gates", {
   (mut(f) : Impl(FnMut(x : i32) -> i32)) = ({ acc : Array(i32, 2)(i32(0), i32(0)) }(x : i32) => {
     acc(usize(0)) = (acc(usize(0)) + x);
     acc(usize(1)) = (acc(usize(1)) + i32(1));
-    (acc(usize(0)) * acc(usize(1)))
+    acc(usize(0)) * acc(usize(1))
   });
   assert(f(i32(3)) == i32(3), "3 * 1");
   assert(f(i32(4)) == i32(14), "7 * 2: both element writes persisted");
@@ -128,10 +131,13 @@ test("FnMut: a `&mut` capture written by an FnMut closure reaches the caller", {
 test("FnMut: the Q10 exemption admits a `&mut`-capturing literal at an Fn slot", {
   mut(z) := i32(0);
   {
-    assert(_fm_call_fn_twice({ &mut z }() => {
-      z = (z + i32(1));
-      z
-    }) == i32(3), "1 + 2: the write goes through the capture's pointer");
+    assert(
+      _fm_call_fn_twice({ &mut z }() => {
+        z = (z + i32(1));
+        z
+      }) == i32(3),
+      "1 + 2: the write goes through the capture's pointer"
+    );
   };
   assert(z == i32(2), "both calls wrote z");
 });
@@ -234,13 +240,16 @@ comptime_expect_error(
 );
 _fm_rebind_by_value :: (fn(sink(f) : Impl(FnMut() -> i32)) -> i32)({
   mut(g) := f;
-  (g() + g())
+  g() + g()
 });
 test("FnMut: a by-value parameter is rebound to call it", {
-  assert(_fm_rebind_by_value({ n : i32(0) }() => {
-    n = (n + i32(1));
-    n
-  }) == i32(3), "1 + 2");
+  assert(
+    _fm_rebind_by_value({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    }) == i32(3),
+    "1 + 2"
+  );
 });
 comptime_expect_error(
   _fm_call_through_shared_param :: (fn(f : &Impl(FnMut() -> i32)) -> i32)(f()),
