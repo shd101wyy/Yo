@@ -1756,16 +1756,18 @@ _add_where_clause_constraint :: (
       // same way (env.yo:1883 `add_where_clause_constraint_to_env`, same id
       // scan), as does its read-side twin (`_merge_trait_list`, env.yo:1846);
       // this SomeT-list push was the one site that kept appending.
-      wcc_trait := Rc.clone(trait_ty);
-      wcc_bounds.with_mut({ wcc_trait, is_negated }(b) => {
-        if(is_negated, {
-          if(!_wcc_has_trait(&b.negative, &wcc_trait), {
-            b.negative.push(Rc.clone(&wcc_trait));
+      // The membership test reads a snapshot, outside the write: rendering a
+      // trait id can reach this same SomeT (`T <: Eq(T)`), and a read of a
+      // cell inside its own `with_mut` is the RefCell's re-borrow panic.
+      present := _wcc_has_trait(&cond(is_negated => wcc_bounds.negative(), true => wcc_bounds.required()), trait_ty);
+      if(!present, {
+        wcc_trait := Rc.clone(trait_ty);
+        wcc_bounds.with_mut({ wcc_trait, is_negated }(b) => {
+          if(is_negated, {
+            b.negative.push(wcc_trait);
             b.negative_levels.push(usize(0));
-          });
-        }, {
-          if(!_wcc_has_trait(&b.required, &wcc_trait), {
-            b.required.push(Rc.clone(&wcc_trait));
+          }, {
+            b.required.push(wcc_trait);
             b.required_levels.push(usize(0));
           });
         });
