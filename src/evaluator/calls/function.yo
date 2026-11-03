@@ -8610,26 +8610,34 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
   });
   consume_called_fnonce_closure(callee, &v, env, ctx, exn);
 });
-/// The callee is called as an `FnMut(...)`: the closure trait its type
-/// carries says so, or — when the callee's type is the bare capture record a
-/// specialized body binds a closure parameter to — the trait of the binding's
-/// declared type (an `FnMut` closure moved into a `sink(f) :
-/// Impl(FnOnce(...))` parameter is called there as an `FnOnce`). Only a
-/// callee with no closure trait anywhere is judged by how its literal was
-/// typed (`type_is_typed_fnmut_closure`).
-_callee_slot_is_fnmut :: (fn(callee_info : &ExprInfo, env : &Environment) -> bool)({
-  if(closure_fn_trait_of(&callee_info.ty).is_some(), {
-    return(type_is_typed_fnmut_closure(&callee_info.ty));
-  });
-  match(
+/// The binding a variable callee names: the one its `ExprInfo` records, else
+/// the atom's own name (a specialized body's parameter callee carries none).
+_callee_binding_of :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment) -> Option(Variable))({
+  name := match(
     callee_info.variable_name,
-    .Some(sn) => match(
-      get_variables_from_env(env, sn.clone()).last(),
-      .Some(sv) => if(closure_fn_trait_of(&sv.ty).is_some(), {
-        return(type_is_typed_fnmut_closure(&sv.ty));
-      }),
-      .None => ()
-    ),
+    .Some(sn) => sn.clone(),
+    .None => {
+      if(!ast_expr_is_atom(callee), {
+        return(Option(Variable).None);
+      });
+      ast_expr_token(callee).value.*.clone()
+    }
+  );
+  get_variables_from_env(env, name).last()
+});
+/// The callee is called as an `FnMut(...)`. The binding's declared closure
+/// trait decides first: inside a specialized body a closure parameter binds
+/// to its slot's type, while the callee's own type is the argument's (an
+/// `FnMut` closure moved into a `sink(f) : Impl(FnOnce(...))` parameter is
+/// called there as an `FnOnce`). Then the trait the callee's type carries;
+/// only a callee with no closure trait anywhere is judged by how its literal
+/// was typed (`type_is_typed_fnmut_closure`).
+_callee_slot_is_fnmut :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment) -> bool)({
+  match(
+    _callee_binding_of(callee, callee_info, env),
+    .Some(sv) => if(closure_fn_trait_of(&sv.ty).is_some(), {
+      return(type_is_typed_fnmut_closure(&sv.ty));
+    }),
     .None => ()
   );
   type_is_typed_fnmut_closure(&callee_info.ty)
@@ -8643,7 +8651,7 @@ _callee_slot_is_fnmut :: (fn(callee_info : &ExprInfo, env : &Environment) -> boo
 /// `&mut` parameter, a `mut(f)` local, a `&mut` local borrow and a temporary
 /// callee are exclusive already.
 _require_exclusive_fnmut_callee :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(!_callee_slot_is_fnmut(callee_info, env), {
+  if(!_callee_slot_is_fnmut(callee, callee_info, env), {
     return(());
   });
   tok := ast_expr_token(callee);
