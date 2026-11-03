@@ -78,10 +78,8 @@ same := Arc(i32)(i32(42));
 
 `Arc.new(value, alloc : .Some(a))` allocates the cell from the allocator `a`. The last handle's drop frees the cell through `a`, on
 whichever thread drops it. Without `alloc`, the cell is on the global allocator
-([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). Unlike `Box.new`, `Arc.new` makes `a`
-the thread's allocation scope while the cell is allocated, so `a`'s own callbacks
-must not create a reference-counted object without an `alloc` argument (see
-"Writing your own allocator" there):
+([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). As with `Box.new`, the cell calls `a`'s
+`alloc` directly:
 
 ```yo
 // `alloc_a` is any `Allocator` value, e.g. `Allocator.global()`.

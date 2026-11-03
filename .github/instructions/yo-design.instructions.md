@@ -122,24 +122,21 @@ the NULL niche, and `ref_count(b)` is an error. `src/` cannot use it until
 `SEED_VERSION` carries this (the v0.2.59 seed rejects `b.*` on it, E0406).
 
 `Rc.new(v, (alloc : Option(Allocator)) ?= .None)` and `Arc.new(v, (alloc : Option(Allocator)) ?= .None)`
-take the same parameter. The `.Some(a)` arm sets the thread's allocation scope to `a` around
-the `Rc(V)(v)` / `Arc(V)(v)` constructor (which allocates from the current scope) and restores
-it, through the prelude's `__yo_scope_set` extern: no codegen, and the default path is
-unchanged. That swap is the stopgap until V5's `__yo_cell`/`__yo_atomic_cell` take the
-allocator themselves (VALUES_BY_DEFAULT §3.2). Both bind that `match` (`cell := match(…); cell`)
-instead of ending in it: a tail `match` is typed by the declared `Rc(V)`/`Arc(V)`, and for the
-cell call that `dyn(...)` synthesizes around a closure capturing a generic function's
-`Impl(Fn)` parameter that `V` is unbound, a second C type for the result
+take the same parameter. `Rc(V)` and `Arc(V)` are views over the cell primitives
+(`newtype(_cell : __yo_cell(V))`, `newtype(_cell : __yo_atomic_cell(V))`, V5 cells Generation B),
+and the constructor hands the allocator to the cell: `Rc(T)(__yo_cell(T)(value, alloc))`, no
+swap of the thread's scope, so `a`'s callbacks run with no scope as `Box.new`'s do. A direct
+`Rc(T)(v)` is E0405 (the field is private): construct with `Rc.new`/`Arc.new`. Both bind the
+handle (`cell := Rc(T)(…); cell`) instead of ending in it: a tail expression is typed by the
+declared `Rc(V)`/`Arc(V)`, and for the cell call that `dyn(...)` synthesizes around a closure
+capturing a generic function's `Impl(Fn)` parameter that `V` is unbound, a second C type for the
+result
 (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
 the evaluator gap is open as `issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
-Unlike `Box.new`'s
-explicit path, it runs `a`'s callbacks with `a` current, so an allocator whose callbacks
-create a reference-counted object without `alloc` (a `ref` constructor, `Rc.new`/`Arc.new`/`dyn` with
-no `alloc`) recurses until the stack overflows
-(`issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
-That swap is the ONLY setter of the thread scope left: `with_allocator`/`current_allocator`
-were deleted (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1), and B2b deletes the thread-local
-once V5 moves `Rc.new`/`Arc.new` onto the cell.
+The payload carries `where(V <: Escapable)` (decision 43 O9; E0909). The thread scope's ONLY
+setter left is the clone of a `Dyn` over a placed cell (`_emit_dyn_clone_function`), which B2b
+(`plans/backlog/ALLOCATOR_PLACEMENT.md` §6) converts to an explicit allocator argument when it
+deletes the thread-local.
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,

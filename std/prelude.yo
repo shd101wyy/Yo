@@ -9785,10 +9785,7 @@ impl(
   /// `alloc : .Some(a)` places the cell in `a`; the default, `.None`, places
   /// it on the global allocator. The last handle's drop frees the cell through
   /// that allocator. Panics when the allocator is out of memory. As with
-  /// `Arc.new`, and unlike `Box.new`, `a` is the thread's allocation scope for
-  /// the construction, so `a`'s callbacks must not create a
-  /// reference-counted object without an `alloc` argument
-  /// (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own allocator").
+  /// `Box.new`, the cell calls `a`'s `alloc` directly.
   ///
   /// ```yo
   /// a := Rc(i32).new(i32(42));
@@ -10400,13 +10397,8 @@ impl(
   /// whose `ref_count` is 1. `alloc : .Some(a)` places the cell in `a`; the
   /// default, `.None`, places it on the global allocator. The last handle's
   /// drop, on whichever thread, frees the cell through that allocator. Panics
-  /// when the allocator is out of memory.
-  ///
-  /// Unlike `Box.new`, which calls `a`'s `alloc` directly, `Arc.new` makes
-  /// `a` the thread's allocation scope for the construction, so `a`'s
-  /// callbacks must not create a reference-counted object without an `alloc`
-  /// argument (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own
-  /// allocator").
+  /// when the allocator is out of memory. As with `Box.new`, the cell calls
+  /// `a`'s `alloc` directly.
   ///
   /// ```yo
   /// a := Arc(i32).new(i32(42));
