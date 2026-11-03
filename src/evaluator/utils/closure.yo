@@ -1579,6 +1579,14 @@ _clone_receiver_is_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
     e,
     .Atom(_, _) => true,
     .FnCall(_, cr_callee, Rc(cr_args), cr_infix, _) => cond(
+      // `ptr.*` over a pure address (`p.add(i)` with a place `p` and place
+      // or literal offsets) is a place: the expansion reads it once per
+      // field, and re-evaluating the address has no effect.
+      (ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(cr_args.get(usize(1)), .Some(.Atom(_, cr_deref_tok)) => (cr_deref_tok.value.* == "*"), _ => false)) => match(
+        cr_args.get(usize(0)),
+        .Some(cr_addr) => (recur(&cr_addr, ctx) || _clone_address_is_pure(&cr_addr, ctx)),
+        .None => false
+      ),
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => (
         match(cr_args.get(usize(1)), .Some(.Atom(_, _)) => true, _ => false) && match(cr_args.get(usize(0)), .Some(cr_base) => recur(&cr_base, ctx), .None => false)
       ),
@@ -1587,6 +1595,27 @@ _clone_receiver_is_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
       (!cr_infix && _is_index_read_place(e, ctx)) => recur(&cr_callee, ctx),
       true => false
     )
+  )
+);
+/// `p.add(i)`: pointer arithmetic over a place `p` with place or literal
+/// offsets, an address whose re-evaluation reads nothing new.
+_clone_address_is_pure :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    e,
+    .FnCall(_, ca_callee, Rc(ca_args), false, _) => (
+      ast_expr_is_fn_call_of(&ca_callee, BF_DOT, Option(usize).Some(usize(2)))
+      && match(
+        &ca_callee,
+        .FnCall(_, _, Rc(ca_dot_args), _, _) => (
+          match(ca_dot_args.get(usize(1)), .Some(.Atom(_, ca_m)) => (ca_m.value.* == "add"), _ => false)
+          && match(ca_dot_args.get(usize(0)), .Some(ca_p) => _clone_receiver_is_place(&ca_p, ctx), .None => false)
+        ),
+        .Atom(_, _) => false
+      )
+      && (ca_args.len() == usize(1))
+      && match(ca_args.get(usize(0)), .Some(.Atom(_, _)) => true, .Some(ca_off) => _clone_receiver_is_place(&ca_off, ctx), .None => false)
+    ),
+    _ => false
   )
 );
 /// `e` was dispatched as an element read through an `Index` method
