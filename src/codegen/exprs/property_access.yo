@@ -284,7 +284,47 @@ _tuple_field_access :: (fn(object_type : &TypeValue, object_code : &String, fiel
 );
 /// Generate field access for structs, objects, enums, pointers, tuples, dyn,
 /// newtypes, and module namespaces.
+/// The field `field_name` of `object_type` (through raw pointers) is a
+/// reference (decision 43 step 3, N2b's `const T*` / `T*` field).
+_field_is_reference :: (fn(object_type : &TypeValue, field_name : &String) -> bool)({
+  (t : TypeValue) = Rc.clone(object_type);
+  while(is_pointer_type(&t), {
+    t = match(&t, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(t));
+  });
+  labels := match(&t, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), Rc(.Tuple(tl, _)) => Rc.clone(tl), _ => return(false));
+  types := match(&t, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), Rc(.Tuple(_, tt)) => Rc.clone(tt), _ => return(false));
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    if(match(labels.get(i), .Some(l) => (l == field_name), .None => false), {
+      return(match(types.get(i), .Some(Rc(.Reference(_, _, _))) => true, _ => false));
+    });
+    i = (i + usize(1));
+  });
+  // A tuple's element is named by its index.
+  match(
+    field_name.parse_i64(),
+    .Some(ix) => match(types.get(usize(ix)), .Some(Rc(.Reference(_, _, _))) => is_tuple_type(&t), _ => false),
+    .None => false
+  )
+});
+/// A field access. A reference field (N1e-2) reads as the place it refers
+/// to: its C is the pointer's dereference, which a lend folds back to the
+/// pointer (`_apply_ref_amp`).
 generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  code := _generate_field_access_raw(expr, indent, context);
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  is_ref_field := match(
+    args.get(usize(0)),
+    .Some(obj) => match(
+      args.get(usize(1)),
+      .Some(fld) => (ast_expr_is_atom(&fld) && match(context.base.get_expr_info(&obj), .Some(oei) => _field_is_reference(&oei.ty, &ast_expr_text(&fld).*.clone()), .None => false)),
+      .None => false
+    ),
+    .None => false
+  );
+  if(is_ref_field && (code.len() > usize(0)), `(*${code})`, code)
+});
+_generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {

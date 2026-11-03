@@ -123,6 +123,8 @@
   projection_call_root_args,
   projection_call_callee_type,
   freeze_origin_carrying_binding,
+  origin_carrying_value_roots,
+  OriginRootPlace,
   LocalBorrowElidedOrigin
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
@@ -689,7 +691,25 @@ _bind_projection_result :: (
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     root := roots(ri);
-    if(!is_mut || root.is_mut, {
+    // A holder passed by value (N1e-2): the places its references point
+    // into, as its own binding froze them (`origin_carrying_value_roots`).
+    holder_roots := if(
+      !root.is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty), .None => false),
+      origin_carrying_value_roots(&root.arg, env, ctx),
+      ArrayList(OriginRootPlace).new()
+    );
+    (hri2 : usize) = usize(0);
+    while(hri2 < holder_roots.len(), {
+      hr := holder_roots(hri2);
+      if(!is_mut || hr.is_mut, {
+        match(get_variables_from_env(env, hr.place.root_name.clone()).last(), .Some(rv) => root_vars.push(rv), .None => ());
+        root_labels.push(root.label.clone());
+        root_names.push(hr.place.root_name.clone());
+        places.push(hr.place);
+      });
+      hri2 = (hri2 + usize(1));
+    });
+    if((holder_roots.len() == usize(0)) && (!is_mut || root.is_mut), {
       match(
         local_borrow_place_of(&root.arg, env, ctx),
         .Some(lp) => {

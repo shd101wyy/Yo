@@ -906,7 +906,22 @@ fn_param_in_result_origin :: (fn(ft : &TypeValue, i : usize, names : &SharedList
         });
         false
       },
-      .None => false
+      // A by-value parameter whose type spells origins (`v : _View(p)`, an
+      // N2b holder) points into those places: it is in the result's origin
+      // when it names one the result lists (N1e-2, a reference read out of
+      // a holder parameter).
+      .None => if(t_slot_is_by_value(&pro_s), {
+        held := ArrayList(String).new();
+        _spelled_origins_into(&pro_s, &mut held, usize(0));
+        (hj : usize) = usize(0);
+        while(hj < held.len(), {
+          if(origin_names_contain(names, &held(hj)), {
+            return(true);
+          });
+          hj = (hj + usize(1));
+        });
+        false
+      }, false)
     ),
     .None => false
   )

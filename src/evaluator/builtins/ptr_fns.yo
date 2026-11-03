@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, record_copy_pointer_place } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, record_copy_pointer_place, is_reference_field_read } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -232,7 +232,17 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
         // A raw-pointer deref: the place is wherever the pointer points.
         .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(_ProjRootError).None, {
           base := match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-          _projection_root_error(&base, is_mut, env, ctx)
+          // A reference field of a holder parameter (N1e-2: `v.r` with
+          // `v : _View(p)`, `r : &(T, p)`) is a place OUTSIDE the holder,
+          // in the places its origins name: the result's origin must list
+          // them (`fn_param_in_result_origin`'s holder rule).
+          if(is_reference_field_read(ast_expr_id(place)) && match(ast_rewritten_node(&base), .Atom(_, rb_tok) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last(), .Some(rb_v) => (rb_v.is_parameter && !rb_v.is_compile_time_only), .None => false), _ => false), {
+            match(
+              ast_rewritten_node(&base),
+              .Atom(_, rb_tok2) => _spelled_origin_error(&rb_tok2.value.*, ctx),
+              _ => Option(_ProjRootError).None
+            )
+          }, _projection_root_error(&base, is_mut, env, ctx))
         }),
         .None => Option(_ProjRootError).None
       ),

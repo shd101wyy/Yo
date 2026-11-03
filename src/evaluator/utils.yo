@@ -6807,14 +6807,50 @@ local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
-/// Before evaluating `e` where a bare reference binding is not a
-/// whole-value read (`g_deref_exempt_id`): only an atom is marked.
-deref_exempt_mark :: (fn(e : &AstExpr) -> unit)(
-  if(ast_expr_is_atom(e), {
-    g_deref_exempt_id = ast_expr_id(e);
-    g_deref_exempt_armed = true;
-  })
+/// Before evaluating `e` where a bare reference (a binding, or a field read
+/// of a reference field, N1e-2) is not a whole-value read
+/// (`g_deref_exempt_id`).
+deref_exempt_mark :: (fn(e : &AstExpr) -> unit)({
+  g_deref_exempt_id = ast_expr_id(e);
+  g_deref_exempt_armed = true;
+});
+/// The ids of field reads whose field is a reference (decision 43 step 2,
+/// N1e-2): `v.at` with `at : &(T, p)` reads as the place it refers to, of
+/// type `T`, as a reference binding does, so `v.at.*` is that place and a
+/// bare `v.at` in a by-value position is E0926.
+(g_reference_field_reads : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
+note_reference_field_read :: (fn(id : usize) -> unit)({
+  _new := g_reference_field_reads.with_mut(s => s.insert(id));
+  ()
+});
+is_reference_field_read :: (fn(id : usize) -> bool)(
+  (g_reference_field_reads.with(s => s.len()) > usize(0)) && g_reference_field_reads.with(s => s.contains(&id))
 );
+/// E0926 at a field read `text` whose field is the reference `ref_ty`, used
+/// as a whole value without `.*` (N1e-2; the binding form is
+/// `reject_reference_without_deref`). `tok` is the field label's token.
+reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  if(deref_rule_recording(), {
+    record_deref_site(tok, label);
+    return(());
+  });
+  shown := type_to_string_for_message(ref_ty);
+  raise_flow_violation(
+    &with_code(
+      format_error_message_with_help(
+        tok,
+        `\`${text}\` is a reference (\`${shown}\`): reading the value it refers to is spelled \`${text}.*\``,
+        Option(String).Some(`write \`${text}.*\`; \`${text}.field\`, \`${text}.method()\` and \`${text}(i)\` read through it, and \`f(${text})\` passes it to a reference parameter`)
+      ),
+      E_REFERENCE_READ_WITHOUT_DEREF
+    ),
+    ctx,
+    exn
+  );
+});
 /// After `e` was evaluated.
 deref_exempt_clear :: (fn() -> unit)({
   g_deref_exempt_armed = false;
@@ -8474,7 +8510,14 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
     p_own := match(param_is_owning.get(i), .Some(b) => b, .None => true);
     p_in := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
-    if((p_ref || !p_own) && p_in, {
+    // A holder passed by value (an N2b composite carrying origins, N1e-2):
+    // the result may point where its references do.
+    p_holder := p_own && !p_ref && match(
+      args.get(i),
+      .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty), .None => false),
+      .None => false
+    );
+    if((p_ref || (!p_own || p_holder)) && p_in, {
       match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref, label : _param_label_at(&meta_ty, i))), .None => ());
     });
     i = (i + usize(1));
@@ -8730,6 +8773,9 @@ export(
   deref_exempt_mark,
   deref_exempt_clear,
   deref_exempt_take,
+  note_reference_field_read,
+  is_reference_field_read,
+  reject_reference_field_without_deref,
   note_reference_deref_site,
   is_reference_deref_site,
   note_synthesized_deref_star,
