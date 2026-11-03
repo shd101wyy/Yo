@@ -981,11 +981,11 @@ test("A reference field reads and writes through with .*", {
   };
   assert(y == i32(5), "a write through a `&mut` field writes the referent");
 });
-// issues/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md:
+// issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md:
 // the holder stores the place's address, and the list is still dropped at
 // its own scope end (the runner's leak check sees a miss).
 test("A place lent into a reference field is dropped at its own scope end", {
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(3), i = (i + usize(1)), {
     x := i32(1);
     mut(l) := ArrayList(i32).new();

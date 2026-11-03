@@ -2,6 +2,8 @@
 
 **Severity:** S1: a memory leak in generated code. A local whose place is lent into a holder's reference field (`V(l)(xs : &l)`) is never dropped, and in a loop the leak is unbounded.
 
+**Status:** FIXED 2026-11-03 (vbd/d43-step2-n1e2, N1e-2a): a reference field store records no dup. The regression test fails on the pre-fix binary with "Memory leak detected" and passes after.
+
 ## Reproducer
 
 `issues/repros/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.yo`:
