@@ -39,7 +39,7 @@
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-make_fields :: (fn(vs : &ArrayList(EvalValue)) -> ArrayList(EvalValue))(vs);
+make_fields :: (fn(vs : &ArrayList(EvalValue)) -> ArrayList(EvalValue))(vs.clone());
 make_empty_list :: (fn() -> ArrayList(EvalValue))(
   ArrayList(EvalValue).new()
 );
@@ -382,7 +382,7 @@ test("SharedList(EvalValue): an enum's fields read by index", {
   fs.push(.BoolVal(true));
   v := EvalValue.EnumVal(String.from(".Some"), shared_values(fs));
   match(
-    v,
+    &v,
     .EnumVal(_, fields) => {
       assert(fields.len() == usize(1), "one field");
       assert(fields(usize(0)) == EvalValue.BoolVal(true), "the field reads back");
