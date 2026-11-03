@@ -79,7 +79,7 @@ test("two concurrent yo test runs over one directory both finish green", {
   fixture := `tmp/yo-runner-conc-fixture`;
   _remove_tolerant(fixture.clone(), io);
   io.await(create_dir_all(Path.new(fixture.clone()), io), e);
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(`a`);
   names.push(`b`);
   names.push(`c`);
@@ -89,7 +89,7 @@ test("two concurrent yo test runs over one directory both finish green", {
   (mut(ni) : usize) = usize(0);
   while(ni < names.len(), {
     n := match(
-      names.get(ni),
+      names.get_cloned(ni),
       .Some(x) => x,
       .None => String.from("")
     );

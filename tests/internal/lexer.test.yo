@@ -12,7 +12,7 @@ lex_or_panic :: (fn(source : &String, exn : Exception) -> ArrayList(Token))(
 );
 // Filter out Whitespace tokens.
 non_ws :: (fn(toks : &ArrayList(Token)) -> ArrayList(Token))({
-  result := ArrayList(Token).new();
+  mut(result) := ArrayList(Token).new();
   mut(i) := usize(0);
   n := toks.len();
   while(i < n, {
@@ -1306,7 +1306,7 @@ test("A lone surrogate escape in a template is a lex error", {
   // synthetic StringLit re-decoded to the EMPTY string — `x\uD800y`
   // silently became "" and lost the whole literal part around it
   // (issues/fixed/a-lone-surrogate-unicode-escape-is-silently-accepted.md).
-  cases := ArrayList(String).new();
+  mut(cases) := ArrayList(String).new();
   cases.push(String.from("s :: `x\\uD800y`;"));
   cases.push(String.from("s :: `x\\uDC00y`;"));
   for(cases, src => {
@@ -1335,7 +1335,7 @@ test("A lone surrogate escape in a double-quoted literal is a lex error", {
   // the evaluator's decoder then encoded it as CESU-8 — invalid UTF-8.
   // Text (or another escape) between two halves makes BOTH halves lone:
   // `"\uD83Dx\uDE00"` is two rejects, not one pair.
-  cases := ArrayList(String).new();
+  mut(cases) := ArrayList(String).new();
   cases.push(String.from("s :: \"x\\uD800y\";"));
   cases.push(String.from("s :: \"x\\uDC00y\";"));
   cases.push(String.from("s :: \"\\uD83Dx\\uDE00\";"));

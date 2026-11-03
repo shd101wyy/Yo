@@ -113,7 +113,7 @@ test("a same-named impl member keeps its own receiver's doc comment", {
     )
   );
   tokens := tokenize(_twin_new_source(), `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  mut(lookup) := build_doc_lookup(extract_doc_comments(&tokens));
   impls := extract_impl_info_from_tokens(&tokens, &mut lookup);
   vs_methods := match(
     impls.get(`Vs`),
@@ -147,7 +147,7 @@ test("the impl scan records receiver-qualified doc keys for the registry lookups
     )
   );
   tokens := tokenize(_twin_new_source(), `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  mut(lookup) := build_doc_lookup(extract_doc_comments(&tokens));
   extract_impl_info_from_tokens(&tokens, &mut lookup);
   assert(_is_doc(lookup.get(`Vs.new`), `Make one.`), "a qualified key for Vs.new");
   assert(_is_doc(lookup.get(`Rs.new`), `Make a ref one.`), "a qualified key for Rs.new");
@@ -168,7 +168,7 @@ test("a doc comment separated from the member by a plain note still attaches", {
   );
   source := `impl(\n  Vs,\n  /// Make one.\n  // grouped under construction\n  new : (fn(x : i32) -> Self)(Self(x))\n);\n`;
   tokens := tokenize(&source, `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  mut(lookup) := build_doc_lookup(extract_doc_comments(&tokens));
   impls := extract_impl_info_from_tokens(&tokens, &mut lookup);
   vs_methods := match(
     impls.get(`Vs`),

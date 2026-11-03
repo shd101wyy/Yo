@@ -187,18 +187,16 @@ evaluate_panic :: (
   // inside a runtime body's def-time evaluation runs with it false even on
   // its taken path.
   if(fn_ctx.ctfe_live && (ctx.ctfe_untaken_arm_depth == fn_ctx.ctfe_arm_depth), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          match(
-            ct_msg,
-            .Some(m) => `compile-time panic: ${m}`,
-            .None => String.from("compile-time panic")
-          )
-        )
-      )
+    // Bound before the throw: a match inside the throw argument drops the
+    // matched local again on the unwind path
+    // (issues/fixed/2026-11-03-a-local-moved-by-a-match-inside-a-throw-argument-is-dropped-again-on-unwind.md;
+    // kept until SEED_VERSION carries the template-token fix).
+    panic_text := match(
+      ct_msg,
+      .Some(m) => `compile-time panic: ${m}`,
+      .None => String.from("compile-time panic")
     );
+    exn.throw(dyn(format_error_message(ast_expr_token(expr), &panic_text)));
   });
   info := new_expr_info(&cur_env, &return_ty);
   // panic never returns a value — leave info.value as .None

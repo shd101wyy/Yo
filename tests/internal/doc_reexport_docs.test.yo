@@ -46,7 +46,7 @@ _method :: (fn(name : &String, doc : &Option(String)) -> DocFunction)(
 /// A `Point` entry. `documented` decides whether this is the declaring
 /// module's copy or the bare re-export.
 _point :: (fn(documented : bool, signature : &String) -> DocType)({
-  fields := ArrayList(DocField).new();
+  mut(fields) := ArrayList(DocField).new();
   fields.push(
     DocField(
       name : `x`,
@@ -55,7 +55,7 @@ _point :: (fn(documented : bool, signature : &String) -> DocType)({
       default_value : Option(String).None
     )
   );
-  methods := ArrayList(DocFunction).new();
+  mut(methods) := ArrayList(DocFunction).new();
   methods.push(
     _method(`origin`, if(documented, Option(String).Some(`Make a point at the origin.`), Option(String).None))
   );
@@ -75,7 +75,7 @@ _point :: (fn(documented : bool, signature : &String) -> DocType)({
   )
 });
 _module_with :: (fn(name : &String, t : &DocType) -> DocModule)({
-  types := ArrayList(DocType).new();
+  mut(types) := ArrayList(DocType).new();
   types.push(t);
   DocModule(
     name : name.clone(),
@@ -91,7 +91,7 @@ _module_with :: (fn(name : &String, t : &DocType) -> DocModule)({
 });
 test("a re-exported type takes the declaring module's documentation", {
   sig := `Point :: struct(x : i32, y : i32)`;
-  modules := ArrayList(DocModule).new();
+  mut(modules) := ArrayList(DocModule).new();
   // The re-exporting module is FIRST on purpose: the pass must not depend on
   // walk order, and must not let the bare entry claim the donor slot.
   modules.push(_module_with(`index`, _point(false, sig.clone())));
@@ -118,7 +118,7 @@ test("a re-exported type takes the declaring module's documentation", {
 test("a DIFFERENT type of the same name is not a donor", {
   // Same name, different declaration — the signatures differ, so nothing is
   // copied. This is what keeps `std/`'s several same-named types apart.
-  modules := ArrayList(DocModule).new();
+  mut(modules) := ArrayList(DocModule).new();
   modules.push(_module_with(`index`, _point(false, `Point :: struct(x : i32, y : i32)`)));
   modules.push(_module_with(`other`, _point(true, `Point :: struct(lat : f64, lon : f64)`)));
   build_cross_references(&modules);
@@ -132,7 +132,7 @@ test("a module that documents its own re-export keeps what it wrote", {
   sig := `Point :: struct(x : i32, y : i32)`;
   mut(own) := _point(false, sig.clone());
   own.doc = Option(String).Some(`Re-exported here with a note of its own.`);
-  modules := ArrayList(DocModule).new();
+  mut(modules) := ArrayList(DocModule).new();
   modules.push(_module_with(`index`, &own));
   modules.push(_module_with(`point`, _point(true, sig.clone())));
   build_cross_references(&modules);
