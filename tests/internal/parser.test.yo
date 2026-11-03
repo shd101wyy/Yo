@@ -1234,6 +1234,56 @@ test("every token of a parse shares the module's source and path cells", {
   });
   assert(shared > usize(8), "the walk saw the program's tokens");
 });
+// A template's lowering is positioned at the template: every token of
+// `y := `${p}`` and of the builder block `z := `a${p}b`` lies at or after
+// the binding's name. The lowering's `.`/`to_string`/`format` tokens used to
+// sit at row 0 / character 0 of the module's own stream, so they read as the
+// earliest token of the function, and an arm holding `${p}` "began" before an
+// early return above it: the arm's undone-drop window swallowed that return's
+// exit drop of `p`
+// (issues/fixed/2026-11-03-a-template-string-in-a-later-arm-skips-an-early-returns-drop-of-the-interpolated-local.md).
+test("a template's lowered tokens sit at the template, not at the start of the module", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected parse error");
+        unwind(());
+      }
+    )
+  );
+  source := String.from("pad_to_move_the_templates := 0;\ny := `${p}`;\nz := `a${p}b`;\nw := `${p:>4}`;\n");
+  prog := parse(&source, `positions.yo`, exn);
+  (mut(checked) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
+  while(i < prog.len(), i = (i + usize(1)), {
+    mut(toks) := ArrayList(Token).new();
+    _tokens_of(&prog(i), &mut toks);
+    (mut(start) : Option(u32)) = .None;
+    (mut(k) : usize) = usize(0);
+    while(k < toks.len(), k = (k + usize(1)), {
+      t := toks(k);
+      if((t.value.* == `y`) || ((t.value.* == `z`) || (t.value.* == `w`)), {
+        start = .Some(t.character);
+      });
+    });
+    match(
+      start,
+      .Some(c0) => {
+        (mut(j) : usize) = usize(0);
+        while(j < toks.len(), j = (j + usize(1)), {
+          t := toks(j);
+          if(t.character < c0, {
+            println(`token "${t.value.*}" at character ${t.character} precedes its statement at ${c0}`);
+            assert(false, "a template's lowered token precedes the template");
+          });
+        });
+        checked = (checked + usize(1));
+      },
+      .None => ()
+    );
+  });
+  assert(checked == usize(3), "the walk saw the three template bindings");
+});
 // Token text is interned (`Token.value`,
 // issues/fixed/2026-10-28-how-token-text-stays-shared-once-string-is-a-value.md):
 // every identifier, keyword, operator and number token holds the ONE
