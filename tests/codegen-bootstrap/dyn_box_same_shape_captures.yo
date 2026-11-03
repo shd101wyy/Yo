@@ -12,7 +12,7 @@ t_auto :: (fn() -> unit)({
   assert(x == 13, "ax");
   y := use_cb(20, dyn(u => (u * 2))); // capture nothing
   assert(y == 40, "ay");
-  b := Rc(i32)(5);
+  b := Rc(i32).new(5);
   z := use_cb(10, dyn(u => (u + 1 + b.*))); // capture variable 'b'
   assert(z == 16, "az");
 });
@@ -23,7 +23,7 @@ t_manual :: (fn() -> unit)({
   assert(x == 13, "mx");
   y := use_cb(20, dyn(Rc.new(u => (u * 2)))); // capture nothing
   assert(y == 40, "my");
-  b := Rc(i32)(5);
+  b := Rc(i32).new(5);
   z := use_cb(10, dyn(Rc.new(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16, "mz");
 });

@@ -543,17 +543,17 @@ test("ArrayList large number of elements", {
 // ===== Reference-Counted Type Tests =====
 test("ArrayList.pop with Rc doesn't leak memory", {
   mut(list) := ArrayList(Rc(i32)).new();
-  list.push(Rc(i32)(10));
-  list.push(Rc(i32)(20));
+  list.push(Rc(i32).new(10));
+  list.push(Rc(i32).new(20));
   popped := list.pop();
   assert(popped.is_some());
   // Popped value should be properly ref-counted and cleaned up
 });
 test("ArrayList.pop all Rc elements doesn't leak", {
   mut(list) := ArrayList(Rc(i32)).new();
-  list.push(Rc(i32)(1));
-  list.push(Rc(i32)(2));
-  list.push(Rc(i32)(3));
+  list.push(Rc(i32).new(1));
+  list.push(Rc(i32).new(2));
+  list.push(Rc(i32).new(3));
   list.pop();
   list.pop();
   list.pop();
@@ -562,28 +562,28 @@ test("ArrayList.pop all Rc elements doesn't leak", {
 });
 test("ArrayList disposal after pop doesn't leak remaining elements", {
   mut(list) := ArrayList(Rc(i32)).new();
-  list.push(Rc(i32)(100));
-  list.push(Rc(i32)(200));
-  list.push(Rc(i32)(300));
+  list.push(Rc(i32).new(100));
+  list.push(Rc(i32).new(200));
+  list.push(Rc(i32).new(300));
   list.pop();
   // list now has 2 elements
   // When list goes out of scope, remaining elements should be cleaned up
 });
 test("ArrayList.clear with Rc elements properly cleans up", {
   mut(list) := ArrayList(Rc(i32)).new();
-  list.push(Rc(i32)(10));
-  list.push(Rc(i32)(20));
-  list.push(Rc(i32)(30));
+  list.push(Rc(i32).new(10));
+  list.push(Rc(i32).new(20));
+  list.push(Rc(i32).new(30));
   list.clear();
   assert(list.len() == usize(0));
   // All Rc elements should be properly disposed
 });
 test("ArrayList.remove with Rc elements properly cleans up", {
   mut(list) := ArrayList(Rc(i32)).new();
-  list.push(Rc(i32)(1));
-  list.push(Rc(i32)(2));
-  list.push(Rc(i32)(3));
-  list.push(Rc(i32)(4));
+  list.push(Rc(i32).new(1));
+  list.push(Rc(i32).new(2));
+  list.push(Rc(i32).new(3));
+  list.push(Rc(i32).new(4));
   drained := list.drain(usize(1) .. usize(3));
   assert(drained.len() == usize(2));
   assert(list.len() == usize(2));
@@ -591,9 +591,9 @@ test("ArrayList.remove with Rc elements properly cleans up", {
 });
 test("ArrayList index assignment with Rc replaces and drops the old value", {
   mut(list) := ArrayList(Rc(i32)).new();
-  list.push(Rc(i32)(10));
-  list.push(Rc(i32)(20));
-  old_box := Rc(i32)(99);
+  list.push(Rc(i32).new(10));
+  list.push(Rc(i32).new(20));
+  old_box := Rc(i32).new(99);
   addr_of(list(usize(1))).* = old_box;
   // Old value (20) should be dropped, new value (99) should be in place
   assert(list(usize(1)).* == i32(99));
@@ -601,10 +601,10 @@ test("ArrayList index assignment with Rc replaces and drops the old value", {
 test("ArrayList mixed operations with Rc elements", {
   mut(list) := ArrayList(Rc(i32)).new();
   // Push several elements
-  list.push(Rc(i32)(1));
-  list.push(Rc(i32)(2));
-  list.push(Rc(i32)(3));
-  list.push(Rc(i32)(4));
+  list.push(Rc(i32).new(1));
+  list.push(Rc(i32).new(2));
+  list.push(Rc(i32).new(3));
+  list.push(Rc(i32).new(4));
   // Pop one
   list.pop();
   // Remove one from middle
@@ -620,7 +620,7 @@ test("ArrayList stress test with Rc - push 100 and remove from front", {
   // Push 100 elements
   mut(i) := 0;
   while(i < 100, i = (i + 1), {
-    list.push(Rc(i32)(i32(i) * 10));
+    list.push(Rc(i32).new(i32(i) * 10));
   });
   assert(list.len() == usize(100));
   // Remove elements one by one from the front
@@ -639,7 +639,7 @@ test("ArrayList stress test with Rc - remove multiple elements at once", {
   // Push 20 elements
   mut(i) := 0;
   while(i < 20, i = (i + 1), {
-    list.push(Rc(i32)(i32(i)));
+    list.push(Rc(i32).new(i32(i)));
   });
   assert(list.len() == usize(20));
   // Remove 10 elements from the middle

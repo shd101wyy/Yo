@@ -38,7 +38,7 @@ test("Rc.new(v) builds an Rc(T) whose handles share one cell", {
   assert(b.* == i32(42), "a read through one handle sees the cell the other holds");
   // The payload is read-only through the handle (decision 46).
   comptime_expect_error(b.* = i32(7), "read-only through the handle");
-  c := Rc(i32)(i32(3));
+  c := Rc(i32).new(i32(3));
   assert(c.* == i32(3), "the type constructor builds the same cell");
 });
 // The shared cell's legacy `Box` spelling is gone (Generation B part 2);
@@ -120,7 +120,7 @@ test("a cell type built by a comptime function is the same Rc", {
 });
 test("dyn over an Rc dispatches on its payload", {
   assert(probe(dyn(Rc.new(i32(42)))) == i32(42), "dyn(Rc.new(v))");
-  assert(probe(dyn(Rc(i32)(i32(43)))) == i32(43), "dyn(Rc(T)(v))");
+  assert(probe(dyn(Rc(i32).new(i32(43)))) == i32(43), "dyn(Rc(T).new(v))");
   (d : Dyn(Probe)) = dyn(Rc.new(Square(side : i32(3))));
   assert(probe(&d) == i32(9), "a struct payload");
   match(
