@@ -363,20 +363,19 @@ Thread(unit).spawn(io => {
 
 ## Memory Model
 
-### Thread-Local GC
+### Thread-Local Reference Counting
 
 Each OS thread has:
 
-- **Separate heap**: GC-managed allocations are thread-local
+- **Thread-local values**: a non-atomic reference cell (`ref`, `Rc`) never leaves its thread
 - **Non-atomic RC**: Reference counting uses non-atomic operations
-- **Thread-local cycle collector**: GC runs independently per thread
 - **Thread-local event loop**: I/O state is `_Thread_local`
 
 This means:
 
-- No data races on GC-managed values (they can't be shared)
+- No data races on reference-counted values (they can't be shared)
 - No atomic overhead for reference counting
-- No stop-the-world GC pauses
+- No garbage-collection pauses: there is no collector
 - No contention on async I/O
 
 ## Comparison: Thread vs ThreadPool
@@ -432,7 +431,7 @@ val := ch.recv();
 
 1. **Separation of concerns** - Thread/ThreadPool = execution, Channel = communication
 2. **Send trait** - only Send types can cross thread boundaries
-3. **Thread-local GC** - no cross-thread GC coordination
+3. **Thread-local RC** - no cross-thread coordination of non-atomic counts
 4. **Non-atomic RC** - no atomic overhead for thread-local objects
 5. **Thread affinity** - pool tasks stay on assigned OS thread
 6. **Per-thread event loop** - each thread gets independent async I/O

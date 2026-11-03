@@ -354,7 +354,7 @@ Around them:
 | locals, parameters, results, block and arm results | yes |
 | fields of inline composites (named/anonymous structs, enums, tuples, `Array(T, N)`, `Option`, `Result`, any user constructor) | yes — the composite gains the origin parameters of its fields' types |
 | buffer containers (`ArrayList`, `HashMap`, …) | yes, over a declared union (O6) |
-| cells — `Box`, `RefCell`, `Dyn`, an escaping closure's capture, a spawned value | **`Box`, `RefCell` and `Dyn`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5). `Dyn(Trait, p)` admits a payload whose origins are within `p` (Rust's `Box<dyn Trait + 'a>`), and `Dyn(Trait)` written without an origin is `Dyn(Trait, ∅)`, an `Escapable` payload (O10) — decided 2026-10-20, it was "initially no". An escaping closure's capture is the same thing: a closure whose capture list carries origins stands wherever they follow, including in a `Dyn(Fn(...), p)`. **Spawn: no** (E0909) |
+| cells — `Box`, `RefCell`, `Dyn`, an escaping closure's capture, a spawned value | **`Box`, `RefCell` and `Dyn`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5). `Dyn(Trait, p)` admits a payload whose origins are within `p` (Rust's `Box<dyn Trait + 'a>`), and `Dyn(Trait)` written without an origin is `Dyn(Trait, ∅)`, an `Escapable` payload (O10) — decided 2026-10-20, it was "initially no". An escaping closure's capture is the same thing: a closure whose capture list carries origins stands wherever they follow, including in a `Dyn(Fn(...), p)`. **`Rc` and `Arc`: no, pending the follow-up** (O9's second rule: the collector reason is retired by decision 48 W6b, 2026-11-03, and the bound stays until origin propagation through counted cells lands, §6's row). **Spawn: no** (E0909) |
 | `Send` values, thread boundaries | no — structurally: a type with origin parameters is not `Send`, and a reference type is `Send` only when its pointee is `Sync` (`&(T, ∅) : Send ⇔ T <: Sync`, Rust's rule; corrected 2026-10-21 — the first text covered only origin PARAMETERS, so `&(Rc(X), ∅)`, a lend of an unmarked global holding an `Rc`, was `Send` and its non-atomic count could race) |
 | module-level bindings | no, initially (§7) |
 | `extern` signatures | no — FFI takes raw pointers, the existing unsafe boundary |
@@ -367,7 +367,9 @@ second-class wall; the bound a generic body writes to satisfy it is O10's
 `RefCell(&(T, p))` legal beside it (the cell's dynamic marks govern the
 payload's mutation, the origin governs the borrow — orthogonal); a
 `Dyn(Trait, p)` payload may carry them; an `Rc`/`Arc` payload accepts
-none (O9's second rule, for the collector's reason).
+none yet (O9's second rule; its collector reason is gone since decision
+48 W6b, and the bound stays until origin propagation through counted
+cells lands, §6's row).
 
 ### O5. No self-reference, therefore no `Pin`
 
@@ -531,12 +533,8 @@ consequences, one relaxed on 2026-10-20 (review round 2) to Rust's rule:
   decremented while the borrow lives — the payload is therefore never
   freed: not by `h`, and not by a collection some OTHER handle's drop
   triggers (`h2 := h; r := &h.*.x; drop(h2)` is legal), because the frozen
-  `h` is a reference from outside any cycle, so the collector's trial
-  deletion leaves the payload's count above zero and ScanBlack restores
-  it (`CYCLE_COLLECTION.md`; restated 2026-10-21 on the premise of §7's
-  N0 finding "O9's 'never a collection candidate' is too strong" — the
-  first text said the payload was never a candidate, which another
-  handle's drop makes false) — and heap storage
+  `h` keeps the count above zero and nothing else frees a cell (decision
+  48 W6b deleted the cycle collector, 2026-11-03) — and heap storage
   never relocates (decision 40). The
   first text kept R5's "no origin crosses an `Rc`/`Arc` deref; hold the
   handle and re-derive at each use", whose reason — a plain `Rc` holds no
@@ -549,16 +547,23 @@ consequences, one relaxed on 2026-10-20 (review round 2) to Rust's rule:
   while the closure lives, so decision 38 D's "closure borrow captures
   keep the rule whole" narrows with the predicate at N1 exactly as A2's
   future captures did at #1421.
-- **`Rc(T)` and `Arc(T)` payloads accept no origin parameters** —
-  `where(T <: Escapable)` (O10). Rust allows `Rc<&'a T>`; Yo does not,
-  and the reason is the cycle collector, not the borrow model: a leaked
-  cycle in Rust never runs `Drop`, while Yo's collector runs the
-  payloads' drops at an unbounded later time (`CYCLE_COLLECTION.md`,
-  CollectWhite), after the places an inner reference names may have
-  died — a user `Drop` on such a payload could dereference a dead place.
-  `Box` and `Dyn` have one owner and die at a known point, so they may
-  carry origins; a counted cell may not. A plain `Rc` carries no borrow
-  marks (decision 41) and costs what Rust's `Rc<T>` costs (CP2d).
+- **`Rc(T)` and `Arc(T)` payloads accept no origin parameters — for now**
+  (`where(T <: Escapable)`, O10). The reason was the cycle collector, not
+  the borrow model: a leaked cycle in Rust never runs `Drop`, while Yo's
+  collector ran the payloads' drops at an unbounded later time, after the
+  places an inner reference names may have died. **Amended 2026-11-03
+  (decision 48 W6b; VERDICTS-16 Q2) to Rust's rule — the reason is
+  retired, the bound is kept:** the collector is deleted, so a counted
+  cell's payload drops at its last strong handle, a deterministic point,
+  or never (a leaked cycle, whose `Drop` never runs — Rust's `Rc<&'a T>`
+  argument). The target is Rust's: an `Rc`/`Arc` payload may carry
+  origins, and the cell then carries them as `Box` does (O4's cell row;
+  an origin-carrying `Rc` is neither `Escapable` nor `Send`, and the
+  deref carries flowability and E0911 through `h.*`). The bound stays
+  enforced until origin propagation through counted cells lands (§6's
+  row, post-campaign and unscheduled): lifting it is new type-system
+  surface, not a deletion. A plain `Rc` carries no borrow marks
+  (decision 41) and costs what Rust's `Rc<T>` costs (CP2d).
 - **Shared mutation keeps the three doors**: `RefCell(T)` in the payload's
   type — the one spelling of the dynamic exclusivity check, unchanged —
   `Rc.get_mut` (`.None` unless the count is 1) and `Rc.make_mut`
@@ -567,8 +572,8 @@ consequences, one relaxed on 2026-10-20 (review round 2) to Rust's rule:
   origin governs the borrow — orthogonal. A borrow INTO a `RefCell`'s
   payload goes through its guard and carries the guard's place.
 - **Mutable cycles** stay `Rc(RefCell(Node))` with the runtime check, as
-  in Rust and as today; immutable cycles stay plain `Rc` plus the cycle
-  collector. The `Rc(T, p)` extension that would have made cycles
+  in Rust and as today; an immutable cycle of plain `Rc` handles leaks
+  unless a `Weak` breaks it (decision 48 W6b deleted the collector). The `Rc(T, p)` extension that would have made cycles
   writable without runtime checks was considered and rejected — §6's row
   records why.
 
@@ -583,7 +588,8 @@ review of #1483; the alternatives are in §6).
   future are not `Escapable`; `Send` implies `Escapable`. `TypeInfo`
   answers it from the origin list; no impl is ever written by hand.
 - **O4's no-origin positions are where the language requires it.** The
-  payload parameter of `Rc` and `Arc`, `io.spawn`'s task, an `extern`
+  payload parameter of `Rc` and `Arc` (kept until origin propagation
+  through counted cells, O9), `io.spawn`'s task, an `extern`
   signature and a module-level binding carry `where(T <: Escapable)`;
   `Dyn(Trait, p)` bounds its payload's origins by `p` instead, and
   `Dyn(Trait)` is `Dyn(Trait, ∅)`, whose bound is the same `Escapable`
@@ -664,7 +670,7 @@ is subset coercion into a union, `'static` is the empty origin.
 | `Box<dyn Trait + 'a>`, `Box<dyn Fn(&E) + 'a>` | `Dyn(Trait, p)` | **filled 2026-10-20** — O4; `Dyn(Trait)` is `Dyn(Trait, ∅)` |
 | `PhantomData<&'a T>` | a phantom origin parameter | **filled 2026-10-20** — O1 |
 | `let r = &make();` (temporary lifetime extension to the block) | rejected today ("a root that is a temporary") | **fills at decision 18's phase** — §7: the temporary is bound to a hidden local of the enclosing block, Rust's rule |
-| `Rc<&'a T>` | `Rc(T)` requires `T <: Escapable` | **stays closed** — the cycle collector runs drops at an unbounded later time (O9); Rust escapes only because leaked cycles never run `Drop` |
+| `Rc<&'a T>` | `Rc(T)` requires `T <: Escapable` | **closed pending the follow-up, reason retired by W6b** — amended 2026-11-03: the reason it stayed closed, the cycle collector running drops at an unbounded later time (O9), went with decision 48 W6b; the fill is origin propagation through counted cells (§6's row), the cell carrying its payload's origins as `Box` does |
 | `thread::scope`, rayon over a local `Vec` | none: a borrow is never `Send` | **parked on decision 43's trigger 2** — the fill is a scoped spawn whose join is structural, with origins ⊆ the scope's lent places and `Sync` for `&`; a parallelism-runtime design, not a borrow-model one |
 | `type Item<'a>` (GATs) for lending iterators | not needed for an inherent `next`, or a trait whose `next` signature spells the origin: the elided `next(self : &mut Self) -> Option(&T)` IS the lending reading (O2) | **not a gap for inherent cursors**; a lending `next` dispatched through `Iterator`'s fixed `Self.Item` still needs §7's associated type constructor over `Origin` (narrowed 2026-10-21) |
 | self-referential values via `Pin` + `unsafe` | unrepresentable in safe code (O5); `AllowUnsafe` raw pointers otherwise | **not a gap in safe code** — Rust's safe subset cannot either |
@@ -787,13 +793,14 @@ position, and every such position is one of the eight above.
 **Shared cells:** a reference into a shared payload carries the handle it
 went through (O9), and that handle is frozen while the reference lives —
 so the payload cannot be freed (the handle's count is never decremented,
-so it is not dropped, and a collection another handle's drop triggers
-scans it black — O9) and cannot be written through any
+so it is not dropped, and another handle's drop leaves the count above
+zero — O9) and cannot be written through any
 handle (decision 46; `&mut` through a deref is E0919). Mutation of a
 shared payload happens only through `RefCell`'s dynamic marks (§3.10),
 whose guard is the origin of any borrow into it. A payload never carries
-origins of its own (`Escapable`), because the collector runs drops at an
-unbounded later time. Leaks stay possible, as before.
+origins of its own (`Escapable`) yet: the collector that ran drops at an
+unbounded later time is deleted (decision 48 W6b), and the relaxation to
+Rust's rule is pending (O9). Leaks stay possible, as before.
 
 **Async:** what a future's type names (`p`, A2) are caller-frame places
 the await site freezes for the future's life; the body's own locals, and
@@ -848,6 +855,7 @@ as a closure capture with `h` frozen (O9).
 | Ante's unstable-place invalidation (`!` — mutation kills outstanding borrows) | **rejected** — it contradicts "`&` means unchanged" (§3.10), which the verifier's alias reasoning leans on; Yo freezes the base instead, and last-use liveness already legalizes the stale-view-then-mutate patterns |
 | Ante's shared-mutable `ref`/`mut` kinds (exclusivity dropped single-threaded) | **rejected** — Yo keeps exclusivity everywhere; shared mutation stays behind `RefCell` (decision 46), and `Rc` remains read-only like Rust's |
 | `Rc(T, p)`: statically checked shared mutation through origin-tracked handles | **rejected** (maintainer, 2026-10-20: Rust's design makes sense — the runtime exclusivity check happens on `RefCell` only, and `Rc` stays read-only) — it would put a second mutation mechanism beside `RefCell` for the narrow statically-provable case `Rc.get_mut`'s count check already covers, while the genuinely shared cases (async channel and mutex states) are not statically provable and use `RefCell` anyway. Honest cost, recorded: mutable cycles keep the runtime check (`Rc(RefCell(Node))`), as in Rust |
+| origin propagation through counted cells (`Rc(T)`/`Arc(T)` admitting a payload with origins, Rust's `Rc<&'a T>`) | **backlog, post-campaign, unscheduled** (VERDICTS-16 Q2, 2026-11-03) — its one obstacle, the cycle collector (O9), went with decision 48 W6b. The fill: `Rc(T)` propagates `T`'s origins (non-`Escapable`, non-`Send` when `T` carries `p`, as O4's `Box` row), the deref carries flowability and E0911 through `h.*`, and the corpus gains a row per lowering. Not a migration (no `--migrate` mode; nothing in std or src needs `Rc(&T)`) and not seed-gated: the std side deletes one `where` line |
 | Ante's body-inferred `Mutate` effect | **rejected** — signature-based checking keeps `Dyn` dispatch, effect handlers and the incremental checker sound; Ante's own handler interaction is their experimental part |
 | keeping R5's "no origin crosses an `Rc`/`Arc` deref; hold the handle, re-derive" | **rejected** (2026-10-20, review round 2) — its reason was the pre-decision-46 writable `Rc`; with the payload read-only through every handle the handle's place is a sound origin (O9), the A2 predicate already took that step for futures, and Rust's `&*rc` is the model |
 | Swift's `~Escapable` split (implicit `Escapable` bound on every generic parameter, suppressed by opt-in) | **rejected** (2026-10-20) — O10 takes the positive bound instead: no negative-bound spelling, fewer annotations over std, `Send`'s and Rust's `'static` shape |
@@ -992,13 +1000,15 @@ rows that pin it.
   handle to the same cell can still be dropped while `&(X, h)` lives:
   `h2 := h; r := &h.*.x; drop(h2)` is legal, since `h2` holds no loan.
   Decrementing a count to a non-zero value is exactly what makes an
-  object a candidate (`docs/en-US/CYCLE_COLLECTION.md`). The conclusion
+  object a candidate (the cycle collector's rule then). The conclusion
   holds on a different premise: the frozen `h` is a reference from outside
   any cycle, so trial deletion leaves the payload's count above zero and
   ScanBlack restores it. Position: O9's argument is restated on that
   premise (done by the 2026-10-21 audit, O9 and §5 "Shared cells"). The
   model does not run a collector, so this is a correction to the prose,
-  not something the model checks. Rows: `rc-guard-and-clone`, `rc-guard-handle-dropped`.
+  not something the model checks. Since decision 48 W6b (2026-11-03) no
+  collector exists, and O9 states the premise alone: the frozen handle
+  keeps the count above zero. Rows: `rc-guard-and-clone`, `rc-guard-handle-dropped`.
 - **`f(&mut xs, &xs)` is accepted today because decision 28's value-root
   rule has not landed, not because decision 28 allows it.** Decision 28's
   "Value roots" makes a `&mut` argument that overlaps any other argument a

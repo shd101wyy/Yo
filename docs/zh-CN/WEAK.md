@@ -108,18 +108,15 @@ test("a Weak back edge keeps a type Acyclic", {
 `Tree` 只演示推导，并不是可用的树：它的 `parent` 只能指向一个由 `Rc` 持有的根，因为 `Box` 拥有的子节点没有可降级的单元。
 子节点是 `Rc` 句柄的树（如上面的父指针示例）不是 `Acyclic`：它的类型并不阻止子节点的边指回祖先。
 目前经由 `ArrayList` 递归的类型也不是：列表是共享对象，因此列表可以持有一个持有该列表的值。
-推导拒绝的类型可以声明该标记 `impl(T, Acyclic())`，无需 `pragma(Pragma.AllowUnsafe)`：错误的声明只会泄漏，
-不会产生悬垂指针。该声明还会让这个类型的单元不被环回收器跟踪，它只与回收器同存续。
 
-## 与环回收器
+该标记不能声明。`impl(T, Acyclic())` 是错误，无论是否泛型：与 `Escapable` 一样，该标记就是类型的结构。
+要让一个类型成为 `Acyclic`，就在它的回边上使用 `Weak`。`impl(T, !Acyclic)` 让类型退出该标记。
 
-`Weak` 不是所有权图中的边。回收器的遍历不访问 `Weak` 字段，手写的 `Trace` 也不得访问，因此经由 `Weak`
-闭合的环不算环：唯一回边是 `Weak` 的类型是无环的，它的单元永远不会被跟踪。在
-`--cycle-collector off`（[CYCLE_COLLECTION.md](./CYCLE_COLLECTION.md)）下，正是 `Weak` 回边让这类结构不泄漏。
+## 环会泄漏
 
-回收器释放一个垃圾环时，在它运行的 `Drop` 中调用 `upgrade`：对该环中的单元得到 `.None`，对存活单元则成功。
-若环外仍有 `Weak` 指向某个垃圾单元，该单元的载荷会被释放，分配保留到那个 `Weak` 消失为止；
-`tracked_count()` 不再计入它。
+Yo 没有环回收器：强句柄组成的环永远不会被释放，其单元的 `Drop` 也永远不会运行
+（[MEMORY_SAFETY.md](./MEMORY_SAFETY.md#引用环会泄漏)）。`Weak` 不是所有权图中的边，因此经由 `Weak`
+闭合的环不算环，正是 `Weak` 回边让这类结构不泄漏。
 
 ## `ArcWeak(T)`：线程安全的形式
 
@@ -148,5 +145,4 @@ t.join();
 ## 相关文档
 
 - [ARC.md](./ARC.md) — 原子计数的句柄 `Arc(T)`
-- [CYCLE_COLLECTION.md](./CYCLE_COLLECTION.md) — 回收器与 `--cycle-collector off`
-- [MEMORY_SAFETY.md](./MEMORY_SAFETY.md) — 泄漏检测
+- [MEMORY_SAFETY.md](./MEMORY_SAFETY.md) — 引用环与泄漏检测
