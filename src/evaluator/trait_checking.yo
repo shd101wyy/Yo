@@ -5,7 +5,7 @@
 //! `type_implements_fn`, `type_implements_future`,
 //! `extract_fn_trait_from_type`, `extract_future_trait_from_type`,
 //! `type_implements_send`, `type_implements_dispose`,
-//! `type_implements_acyclic`, `validate_type_availability`,
+//! `validate_type_availability`,
 //! `find_some_type_missing_comptime_constraint`,
 //! `check_type_implements_self_constraints`.
 //!
@@ -413,7 +413,7 @@ type_implements_comptime_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
 /// isize, usize, char`. These can't be registered via the type-id-keyed
 /// auto-derive registry (primitives have no id — there's no per-type slot),
 /// so this builtin encodes the prelude's primitive Send impls. NOT comptime_int/float/string
-/// (those have only `impl(_, Acyclic())`, no Send), NOT other C scalar types,
+/// (those are `Acyclic` but not Send), NOT other C scalar types,
 /// NOT type-level values — none of which the prelude marks Send. `.None` =
 /// defer to the registry / generic impls (nominal types, `*(T)`, etc.).
 type_implements_send_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
@@ -433,11 +433,12 @@ type_implements_send_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     _ => Option(bool).None
   )
 );
-/// Returns Some(true) for EXACTLY the primitives the prelude declares
-/// `impl(<prim>, Acyclic())` for: the Send set PLUS `comptime_int,
+/// Returns Some(true) for the primitive leaves, which are `Acyclic` by
+/// construction (no declaration exists, decision 48 W6b): the Send set PLUS `comptime_int,
 /// comptime_float, comptime_str, Expr` (comptime data + Expr are acyclic but
-/// NOT Send). NOT other C scalar types, NOT type-level values. Same rationale as
-/// the Send builtin (encodes the prelude's primitive Acyclic impls).
+/// NOT Send). Every other leaf (the C scalar types, extern opaque types,
+/// functions) is answered by the reach walk, which finds no edge in it.
+/// Same rationale as the Send builtin.
 type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
   match(
     ty,
@@ -481,9 +482,9 @@ type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
 // whether the object is ON a cycle, not whether it reaches one
 // (issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md).
 //
-// A node with a negative impl (`impl(T, !Acyclic)`) reaches a cycle; a node
-// with a declared impl, concrete or generic, is trusted and not entered (the
-// declared form exists until W6b). A leaf the walk cannot see into (an open
+// A node with a negative impl (`impl(T, !Acyclic)`) reaches a cycle. There is
+// no positive impl to trust: `Acyclic` is never implemented by hand (decision
+// 48 W6b, `_throw_if_acyclic_impl` in values/impl.yo). A leaf the walk cannot see into (an open
 // type parameter, a `Dyn`, an unapplied constructor) is asked through
 // `type_implements_trait`, so a `where(T <: Acyclic)` bound still holds.
 /// Tarjan's bookkeeping for one walk, one entry per node in discovery order.
@@ -519,11 +520,6 @@ _acy_walk_new :: (fn() -> _AcyWalk)(
 /// registered later can declare or negate `Acyclic` on a node).
 (g_acy_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 (mut(g_acy_memo_epoch) : u64) = u64(0);
-/// Nodes whose generic-impl check is in progress: the impl's where-clause
-/// can ask about the node again (`impl(generic(T), where(T <: Acyclic),
-/// Mutex(T), Acyclic())` over a `T` that holds the `Mutex`), and the
-/// re-entered check answers "not declared", inductively.
-(g_acy_generic_guard : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _acy_memo_get :: (fn(key : &String) -> Option(bool))({
   if(g_acy_memo_epoch != trait_impl_epoch(), {
     g_acy_memo.with_mut(m => m.clear());
@@ -593,20 +589,6 @@ _acy_node_contents :: (fn(t : &TypeValue, nodes : &mut ArrayList(TypeValue), lea
     _ => ()
   )
 );
-/// Does a nominal node declare `Acyclic` (a concrete or a generic impl)?
-_acy_declared :: (fn(t : &TypeValue, key : &String, at : &TypeValue, env : &Environment) -> bool)({
-  tid := _type_id_for_trait_check(t);
-  if(!tid.is_empty() && is_type_registered_as_trait(&tid, at, env), {
-    return(true);
-  });
-  if(g_acy_generic_guard.with(xs => xs.contains(key)), {
-    return(false);
-  });
-  g_acy_generic_guard.with_mut(xs => xs.push(key.clone()));
-  declared := _find_matching_generic_impl(t, at, env);
-  g_acy_generic_guard.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
-  declared
-});
 /// Tarjan's visit of one nominal node; returns its index in `st`.
 _acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeValue, env : &Environment) -> usize)({
   v := st.keys.len();
@@ -625,10 +607,9 @@ _acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeV
   );
   st.self_edge.push(false);
   st.reach.push(false);
-  // An unresolved self shell reads as an empty type, and a re-entered
-  // generic-impl check answers "not declared" for this query only: neither
-  // verdict is final.
-  if(g_acy_generic_guard.with(xs => xs.contains(key)) || match(
+  // An unresolved self shell reads as an empty type: its verdict is not
+  // final.
+  if(match(
     t,
     Rc(.Struct({ field_types : sfts })) => (sfts.len() == usize(0)),
     Rc(.EnumT({ variant_names : evns })) => (evns.len() == usize(0)),
@@ -640,7 +621,6 @@ _acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeV
     (has_negative_impl(type_id_or_empty(t), get_trait_key(at)) || find_matching_negative_generic_impl(t, at, env)) => {
       st.reach(v) = true;
     },
-    _acy_declared(t, key, at, env) => (),
     true => {
       nodes := ArrayList(TypeValue).new();
       leaves := ArrayList(TypeValue).new();
@@ -1791,9 +1771,9 @@ type_implements_trait :: (
   });
   // 2b. Acyclic: the builtin fast path for primitive leaves (the rationale
   // is Send's), then the strong-cycle reach walk for every shape it covers
-  // (`_acyclic_by_reach`). The walk is the whole answer for those shapes: a
-  // declared impl is one of its node checks, and no auto-derived `Acyclic`
-  // is registered.
+  // (`_acyclic_by_reach`). The walk is the whole answer for those shapes:
+  // `Acyclic` is never implemented by hand, and no auto-derived `Acyclic` is
+  // registered.
   match(
     get_trait_type_from_env(env, String.from("Acyclic")),
     .None => (),
@@ -2593,19 +2573,6 @@ type_implements_dispose :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
     get_trait_type_from_env(env, String.from("Drop")),
     .Some(drop_trait) => type_implements_trait_bool(ty, &drop_trait, env),
     .None => false
-  )
-);
-// ---------------------------------------------------------------------------
-// type_implements_acyclic
-// ---------------------------------------------------------------------------
-/// Check if a type implements the Acyclic trait.
-///
-///
-type_implements_acyclic :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
-  match(
-    get_trait_type_from_env(env, String.from("Acyclic")),
-    .None => false,
-    .Some(acyclic_trait) => type_implements_trait_bool(ty, &acyclic_trait, env)
   )
 );
 /// `trait_type` is the prelude's `Escapable` marker (decision 43, O10).
@@ -3578,7 +3545,7 @@ export(type_clone_runs_no_user_code);
 export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
-export(type_implements_send, type_implements_sync, type_implements_dispose, type_implements_acyclic, is_escapable_trait);
+export(type_implements_send, type_implements_sync, type_implements_dispose, is_escapable_trait);
 export(deref_target_type, copy_structural_parts);
 export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);

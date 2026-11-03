@@ -126,7 +126,7 @@ impl(
     })
   )
 );
-test("Test a generic 'Drop' impl runs once, and 'Trace'/a blanket receiver are rejected", {
+test("Test a generic 'Drop' impl runs once, and a blanket receiver is rejected", {
   before := g_generic_ref_pair_disposed;
   {
     p := GenericRefPair(i32)(a : i32(1), b : i32(2));
@@ -143,16 +143,6 @@ test("Test a generic 'Drop' impl runs once, and 'Trace'/a blanket receiver are r
   comptime_expect_error(
     impl(
       generic(T : Type),
-      GenericValuePair(T),
-      Trace(
-        trace : (fn(self : Self, tracer : GcTracer) -> unit)(())
-      )
-    ),
-    "cannot implement \"Trace\""
-  );
-  comptime_expect_error(
-    impl(
-      generic(T : Type),
       T,
       Drop(
         drop : (fn(self : &mut Self) -> unit)(())
@@ -161,11 +151,11 @@ test("Test a generic 'Drop' impl runs once, and 'Trace'/a blanket receiver are r
     "cannot implement \"Drop\""
   );
 });
-// `Trace` is implementable on reference types only, and `Drop` on a
-// reference type or a value nominal type; the gate is at the impl site (it
+// `Drop` is implementable on a reference type or a value nominal type; the
+// gate is at the impl site (it
 // replaced the deleted `Rc` marker trait's `where(Self <: Rc)`,
 // plans/VALUES_BY_DEFAULT.md §3.6, re-scoped by V3).
-test("Test 'Drop' and 'Trace' receivers", {
+test("Test 'Drop' receivers", {
   MyBox :: ref(
     struct(
       value : i32
@@ -179,7 +169,6 @@ test("Test 'Drop' and 'Trace' receivers", {
       })
     )
   );
-  AnotherBox :: struct(value : i32);
   comptime_expect_error(
     impl(
       i32,
@@ -188,15 +177,6 @@ test("Test 'Drop' and 'Trace' receivers", {
       )
     ),
     "cannot implement \"Drop\""
-  );
-  comptime_expect_error(
-    impl(
-      AnotherBox,
-      Trace(
-        trace : (fn(self : Self, tracer : GcTracer) -> unit)(())
-      )
-    ),
-    "cannot implement \"Trace\""
   );
 });
 // S0 C6 (plans/archive/STD_API_AUDIT.md §2): floats are not bit patterns and

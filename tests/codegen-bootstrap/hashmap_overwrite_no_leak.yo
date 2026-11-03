@@ -12,32 +12,37 @@
 // skipped) AND dup the raw-deref struct copy at the copy site
 // (`generate_dup_code_for_value`), matching TS.
 //
-// Observable: `Gc.tracked_count()`. `Node` is self-referential (cyclable) so
-// each live instance is tracked; the count is kept below the GC's auto-collect
-// threshold so the collector cannot mask a missing drop. With the fix the live
-// count stays tiny after the overwrite loop (the map holds ONE value); the
-// pre-fix leak left ~one live Node per overwrite. The bounded assert PASSES
-// identically under the TS reference compiler and the fixed self-hosted binary
-// (both print "hashmap-overwrite ok"); a regression re-introducing the leak
-// trips the assert (non-zero exit / DIFF in the differential harness).
+// Observable: `Node`'s `Drop` counts the nodes dropped against the ones the
+// loop makes. With the fix exactly one is live after the overwrite loop (the
+// map holds ONE value); the pre-fix leak left one live Node per overwrite and
+// trips the assert (non-zero exit in the corpus harness).
 { assert } :: import("std/assert");
 { println } :: import("std/fmt");
-Gc :: import("std/gc");
 { HashMap } :: import("std/collections/hash_map");
 
+(mut(g_dropped) : i64) = i64(0);
+(mut(g_made) : i64) = i64(0);
 Node :: ref(struct(x : i32, next : Option(Self)));
+impl(
+  Node,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dropped = (g_dropped + i64(1));
+    })
+  )
+);
 
 main :: (fn() -> unit)({
   m := HashMap(i32, Node).new();
   (mut(j) : i32) = i32(0);
   while(j < i32(64), {
     m.insert(i32(7), Node(x : j, next : .None));
+    g_made = (g_made + i64(1));
     j = (j + i32(1));
   });
   // Map holds exactly one entry (key 7); every replaced Node must have been
-  // freed. Post-fix the live tracked count is a small constant; the pre-fix
-  // leak made it grow with the loop count. Bound well under the loop count.
-  assert(Gc.tracked_count() < u64(10), "hashmap same-key overwrite leaked the replaced value");
+  // dropped.
+  assert((g_made - g_dropped) == i64(1), "hashmap same-key overwrite leaked the replaced value");
   assert(m.len() == usize(1), "map holds exactly one entry");
   println(`hashmap-overwrite ok`);
 });

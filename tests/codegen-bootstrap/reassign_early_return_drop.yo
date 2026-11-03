@@ -18,14 +18,22 @@
 // both Environments per hit — the envs then pinned their Frame chains
 // (~1.6M Variables on the parser.yo proxy).
 //
-// Observable: `Gc.tracked_count()` with a CYCLABLE ref-struct (Option(Self)
-// field) and counts kept below the GC auto-collect threshold. Pre-fix yo-self
-// leaks both envs per call (count 20); TS and fixed yo-self return to 0.
+// Observable: `Env`'s `Drop` counts the envs dropped against the ones main
+// makes. Pre-fix yo-self leaks both envs per call (20 live); fixed, 0.
 { assert } :: import("std/assert");
-Gc :: import("std/gc");
 { String } :: import("std/string");
 
+(mut(g_dropped) : i64) = i64(0);
+(mut(g_made) : i64) = i64(0);
 Env :: ref(struct(x : i32, cyc : Option(Self)));
+impl(
+  Env,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dropped = (g_dropped + i64(1));
+    })
+  )
+);
 Res :: ref(struct(expected_env : Env, given_env : Env));
 
 name_of :: (fn(e : &Env) -> String)(`n${e.x}`);
@@ -54,9 +62,10 @@ main :: (fn() -> unit)({
   while(i < i32(10), {
     e := Env(x : i, cyc : Option(Env).None);
     e2 := Env(x : i, cyc : Option(Env).None);
+    g_made = (g_made + i64(2));
     r := f(&e, &e2, false);
     i = (i + i32(1));
   });
-  assert(Gc.tracked_count() == u64(0), `expected 0 live tracked objects, got ${Gc.tracked_count()}`);
+  assert(g_made == g_dropped, `expected 0 live envs, got ${(g_made - g_dropped).to_string()}`);
 });
 export(main);

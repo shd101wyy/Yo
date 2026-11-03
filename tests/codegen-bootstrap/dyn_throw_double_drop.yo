@@ -7,15 +7,24 @@
 // source gets a deferred dup. Without it, every
 // `exn.throw(dyn(make_err(...)))` double-dropped the payload (the pre-existing
 // stage-2 startup heap corruption). See
-// issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "done tracked=0".
+// issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "done live=0".
 { ToString, println } :: import("std/fmt");
 { String } :: import("std/string");
 { Error, Exception } :: import("std/error");
-Gc :: import("std/gc");
-// A cyclable ref-struct error (Gc.tracked_count sees it) built by a helper
+// A ref-struct error, counted when made and when dropped, built by a helper
 // call — the format_error_message analog. The dyn(make_err(...)) consumes the
 // fresh call result; the escape path after exn.throw must NOT also drop it.
+(mut(g_dropped) : i64) = i64(0);
+(mut(g_made) : i64) = i64(0);
 ErrObj :: ref(struct(msg : String, next : Option(Self)));
+impl(
+  ErrObj,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dropped = (g_dropped + i64(1));
+    })
+  )
+);
 impl(
   ErrObj,
   ToString(to_string : (self -> self.msg.clone()))
@@ -24,12 +33,16 @@ impl(ErrObj, Error());
 impl(
   ErrObj,
   Clone(
-    clone : (fn(self : &Self) -> Self)(ErrObj(msg : self.msg.clone(), next : self.next))
+    clone : (fn(self : &Self) -> Self)({
+      g_made = (g_made + i64(1));
+      ErrObj(msg : self.msg.clone(), next : self.next)
+    })
   )
 );
-make_err :: (fn(m : &String) -> ErrObj)(
+make_err :: (fn(m : &String) -> ErrObj)({
+  g_made = (g_made + i64(1));
   ErrObj(msg : m, next : .None)
-);
+});
 fail_op :: (fn(x : i32, exn : Exception) -> i32)({
   // extra RC locals so the escape drop list is populated
   note := String.from("context note");
@@ -55,6 +68,6 @@ main :: (fn() -> unit)({
     run_once(j);
     j = (j + i32(1));
   });
-  println(`done tracked=${Gc.tracked_count()}`);
+  println(`done live=${(g_made - g_dropped).to_string()}`);
 });
 export(main);

@@ -60,16 +60,14 @@ test("AllowUnsafe + unsafe(...) is transparent inside a begin-block", {
 // ============================================================================
 // Phase A (THREAD_SAFETY): Manual impl(T, Send()) under pragma.
 // Derived Acyclic is withheld from self-referential atomic objects
-// (correctly — the compiler can't prove no cycles form). Code can
-// declare Acyclic when it audit-establishes immutability; since decision
-// 48 W5 the declaration needs no pragma.
+// (correctly — the compiler can't prove no cycles form). No pragma lets
+// code declare it instead: `Acyclic` is never implemented by hand, a
+// generic impl included (decision 48 W6b).
 // ============================================================================
-test("AllowUnsafe + manual impl(T, Acyclic()) for self-referential atomic object", {
-  ImmNode :: atomic(ref(struct(_value : i32, _next : Option(Self))));
-  // SAFETY: ImmNode is immutable — its fields are never mutated after
-  // construction, so no cycles can form at runtime.
-  impl(ImmNode, Acyclic());
-  comptime_assert(Type.impls(ImmNode, Acyclic), "manual Acyclic impl should work");
+test("AllowUnsafe does not admit a manual generic impl(T, Acyclic())", {
+  ImmNode :: (fn(comptime(T) : Type) -> comptime(Type))(atomic(ref(struct(_value : T, _next : Option(Self)))));
+  comptime_assert(!Type.impls(ImmNode(i32), Acyclic), "a self-referential atomic object is not Acyclic");
+  comptime_expect_error(impl(generic(T : Type), ImmNode(T), Acyclic()), "never implemented by hand");
 });
 test("AllowUnsafe + manual impl(T, Send()) for a wrapper type", {
   Wrapper :: newtype(inner : i32);

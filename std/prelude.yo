@@ -274,10 +274,13 @@ Sync :: trait(
   id := "Sync"
 );
 export(Sync);
-/// Acyclic trait - indicates a type that cannot form reference cycles.
-/// Types that implement Acyclic don't need cycle collection tracking.
-/// Primitive types, value types without object fields, and objects that
-/// don't reference back to themselves (directly or indirectly) are Acyclic.
+/// Acyclic — a type whose values cannot reach a reference cycle: no cycle of
+/// STRONG edges (`Rc`, `Arc`, a `ref` object) is reachable from `T`, and a
+/// `Weak`/`ArcWeak` edge does not count (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+/// §4). It is derived from the type's structure, like `Escapable`, and never
+/// implemented by hand: a positive `impl(T, Acyclic())` is an error, and
+/// `impl(T, !Acyclic)` opts a type out. A `where(T <: Acyclic)` bound is how
+/// an API promises its values cannot leak a cycle; nothing in std requires it.
 Acyclic :: trait(
   id := "Acyclic"
 );
@@ -1045,7 +1048,6 @@ export(ComptimeToString);
 // for these types, Send is a structural property of the underlying C types.
 // === Builtin types ===
 /// unit
-impl(unit, Acyclic());
 impl(unit, Comptime());
 impl(unit, Runtime());
 impl(unit, Send());
@@ -1081,12 +1083,10 @@ impl(unit, Clone(clone : (fn(self : &Self) -> Self)(())));
 impl(unit, Copy());
 impl(unit, Default(default : (fn() -> Self)(())));
 /// void
-impl(void, Acyclic());
 impl(void, Runtime());
 impl(void, Send());
 impl(void, Sync());
 /// comptime_int
-impl(comptime_int, Acyclic());
 impl(comptime_int, Comptime());
 impl(
   comptime_int,
@@ -1206,7 +1206,6 @@ impl(
 _comptime_int :: comptime_int;
 export(comptime_int : _comptime_int);
 /// comptime_float
-impl(comptime_float, Acyclic());
 impl(comptime_float, Comptime());
 impl(
   comptime_float,
@@ -1301,7 +1300,6 @@ impl(
 _comptime_float :: comptime_float;
 export(comptime_float : _comptime_float);
 /// comptime_str
-impl(comptime_str, Acyclic());
 impl(comptime_str, Comptime());
 impl(
   comptime_str,
@@ -1374,7 +1372,6 @@ export(comptime_str : _comptime_string);
 /// bool
 impl(bool, Send());
 impl(bool, Sync());
-impl(bool, Acyclic());
 impl(
   bool,
   Eq(bool)(
@@ -1436,7 +1433,6 @@ impl(
 );
 impl(i8, Send());
 impl(i8, Sync());
-impl(i8, Acyclic());
 impl(i8, Comptime());
 impl(i8, Runtime());
 impl(
@@ -1732,7 +1728,6 @@ impl(
 );
 impl(i16, Send());
 impl(i16, Sync());
-impl(i16, Acyclic());
 impl(i16, Comptime());
 impl(i16, Runtime());
 impl(
@@ -2028,7 +2023,6 @@ impl(
 );
 impl(i32, Send());
 impl(i32, Sync());
-impl(i32, Acyclic());
 impl(i32, Comptime());
 impl(i32, Runtime());
 impl(
@@ -2326,7 +2320,6 @@ impl(
 );
 impl(i64, Send());
 impl(i64, Sync());
-impl(i64, Acyclic());
 impl(i64, Comptime());
 impl(i64, Runtime());
 impl(
@@ -2622,7 +2615,6 @@ impl(
 );
 impl(u8, Send());
 impl(u8, Sync());
-impl(u8, Acyclic());
 impl(u8, Comptime());
 impl(u8, Runtime());
 impl(
@@ -2901,7 +2893,6 @@ impl(
 );
 impl(u16, Send());
 impl(u16, Sync());
-impl(u16, Acyclic());
 impl(u16, Comptime());
 impl(u16, Runtime());
 impl(
@@ -3180,7 +3171,6 @@ impl(
 );
 impl(u32, Send());
 impl(u32, Sync());
-impl(u32, Acyclic());
 impl(u32, Comptime());
 impl(u32, Runtime());
 impl(
@@ -3459,7 +3449,6 @@ impl(
 );
 impl(u64, Send());
 impl(u64, Sync());
-impl(u64, Acyclic());
 impl(u64, Comptime());
 impl(u64, Runtime());
 impl(
@@ -3728,7 +3717,6 @@ export(u64 : _u64);
 /// f32
 impl(f32, Send());
 impl(f32, Sync());
-impl(f32, Acyclic());
 impl(f32, Comptime());
 impl(f32, Runtime());
 impl(
@@ -3922,7 +3910,6 @@ export(f32 : _f32);
 /// f64
 impl(f64, Send());
 impl(f64, Sync());
-impl(f64, Acyclic());
 impl(f64, Comptime());
 impl(f64, Runtime());
 impl(
@@ -4119,7 +4106,6 @@ impl(
 );
 impl(isize, Send());
 impl(isize, Sync());
-impl(isize, Acyclic());
 impl(isize, Comptime());
 impl(isize, Runtime());
 impl(
@@ -4414,7 +4400,6 @@ impl(
 );
 impl(usize, Send());
 impl(usize, Sync());
-impl(usize, Acyclic());
 impl(usize, Comptime());
 impl(usize, Runtime());
 impl(
@@ -5831,7 +5816,6 @@ impl(
 /// char
 impl(char, Send());
 impl(char, Sync());
-impl(char, Acyclic());
 impl(char, Runtime());
 impl(
   char,
@@ -5943,7 +5927,6 @@ export(char : _char);
 /// int
 impl(int, Send());
 impl(int, Sync());
-impl(int, Acyclic());
 impl(int, Runtime());
 impl(
   int,
@@ -6055,7 +6038,6 @@ export(int : _int);
 /// uint
 impl(uint, Send());
 impl(uint, Sync());
-impl(uint, Acyclic());
 impl(uint, Runtime());
 impl(
   uint,
@@ -6167,7 +6149,6 @@ export(uint : _uint);
 /// short
 impl(short, Send());
 impl(short, Sync());
-impl(short, Acyclic());
 impl(short, Runtime());
 impl(
   short,
@@ -6279,7 +6260,6 @@ export(short : _short);
 /// ushort
 impl(ushort, Send());
 impl(ushort, Sync());
-impl(ushort, Acyclic());
 impl(ushort, Runtime());
 impl(
   ushort,
@@ -6391,7 +6371,6 @@ export(ushort : _ushort);
 /// long
 impl(long, Send());
 impl(long, Sync());
-impl(long, Acyclic());
 impl(long, Runtime());
 impl(
   long,
@@ -6503,7 +6482,6 @@ export(long : _long);
 /// ulong
 impl(ulong, Send());
 impl(ulong, Sync());
-impl(ulong, Acyclic());
 impl(ulong, Runtime());
 impl(
   ulong,
@@ -6615,7 +6593,6 @@ export(ulong : _ulong);
 /// longlong
 impl(longlong, Send());
 impl(longlong, Sync());
-impl(longlong, Acyclic());
 impl(longlong, Runtime());
 impl(
   longlong,
@@ -6727,7 +6704,6 @@ export(longlong : _longlong);
 /// ulonglong
 impl(ulonglong, Send());
 impl(ulonglong, Sync());
-impl(ulonglong, Acyclic());
 impl(ulonglong, Runtime());
 impl(
   ulonglong,
@@ -6839,7 +6815,6 @@ export(ulonglong : _ulonglong);
 /// longdouble
 impl(longdouble, Send());
 impl(longdouble, Sync());
-impl(longdouble, Acyclic());
 impl(longdouble, Runtime());
 impl(
   longdouble,
@@ -7593,7 +7568,6 @@ impl(
 // `std/assert`. The prelude itself never imports other modules.)
 /// ComptimeList
 impl(generic(T : Type), ComptimeList(T), Comptime());
-impl(generic(T : Type), ComptimeList(T), Acyclic());
 impl(
   generic(T : Type),
   where(T <: Comptime),
@@ -7680,7 +7654,6 @@ ComptimeValue :: enum(
   Table(keys : ComptimeList(comptime_str), values : ComptimeList(Self))
 );
 impl(ComptimeValue, Comptime());
-impl(ComptimeValue, Acyclic());
 /// Walk a table's parallel lists for `key`. Written in Yo rather than as a
 /// builtin on purpose: a prelude binding that names a builtin the SEED lacks
 /// fails the bootstrap, and this needs no evaluator support beyond what
@@ -7754,7 +7727,6 @@ ExprList :: ComptimeList(Expr);
 export(ExprList);
 /// Expr
 impl(Expr, Comptime());
-impl(Expr, Acyclic());
 impl(
   Expr,
   ComptimeEq(Expr)(
@@ -13391,7 +13363,6 @@ FutureState :: enum(
 derive(FutureState, Copy, Clone);
 // SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send.
-impl(FutureState, Acyclic());
 impl(FutureState, Runtime());
 impl(FutureState, Send());
 impl(FutureState, Sync());

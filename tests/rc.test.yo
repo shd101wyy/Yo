@@ -4156,3 +4156,67 @@ test("a generic body copies a handle that is its T implicitly", {
   o := match(_v2c_some(), .Some(v) => v, .None => Rc.new(i32(0)));
   assert(ref_count(o) == usize(1), "a match binding of a temporary moves");
 });
+// A `Weak` is not an edge (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.4): a
+// cycle closed through one frees itself by reference counting, and so does
+// the Rust shape for a parent pointer, strong children and a weak parent.
+// Moved from tests/cycle_collector.test.yo when the collector was deleted
+// (decision 48 W6b); the cli-case `weak-frees-its-cell-at-the-last-weak`
+// pins the freed cells with the debug-heap oracle.
+(mut(g_weak_loop_dropped) : i32) = i32(0);
+_WeakLoop :: struct(me : Weak(RefCell(Self)), tag : i32);
+impl(
+  _WeakLoop,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_weak_loop_dropped = (g_weak_loop_dropped + i32(1));
+    })
+  )
+);
+test("a cycle closed through a Weak frees itself", {
+  before := g_weak_loop_dropped;
+  {
+    a := Rc.new(RefCell(_WeakLoop).new(_WeakLoop(me : Weak(RefCell(_WeakLoop)).new(), tag : i32(1))));
+    w := Rc.downgrade(&a);
+    a.with_mut({ w }(v) => {
+      v.me = Weak.clone(&w);
+    });
+    assert(a.with(v => v.me.upgrade().is_some()), "the cell reaches itself through its Weak");
+  };
+  assert(g_weak_loop_dropped == (before + i32(1)), "the payload is dropped by reference counting");
+});
+(mut(g_weak_tree_dropped) : i32) = i32(0);
+_WeakTree :: struct(parent : Weak(RefCell(Self)), children : ArrayList(Rc(RefCell(Self))), tag : i32);
+impl(
+  _WeakTree,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_weak_tree_dropped = (g_weak_tree_dropped + i32(1));
+    })
+  )
+);
+_weak_tree_node :: (fn(parent : Weak(RefCell(_WeakTree)), tag : i32) -> Rc(RefCell(_WeakTree)))(
+  Rc.new(RefCell(_WeakTree).new(_WeakTree(parent : parent, children : ArrayList(Rc(RefCell(_WeakTree))).new(), tag : tag)))
+);
+test("a tree with Weak parent pointers frees itself", {
+  before := g_weak_tree_dropped;
+  {
+    root := _weak_tree_node(Weak(RefCell(_WeakTree)).new(), i32(1));
+    (mut(i) : i32) = i32(2);
+    while(i <= i32(4), {
+      leaf := _weak_tree_node(Rc.downgrade(&root), i);
+      root.with_mut({ leaf : Rc.clone(leaf) }(v) => {
+        v.children.push(Rc.clone(leaf));
+      });
+      i = (i + i32(1));
+    });
+    sum := root.with(v => {
+      (mut(acc) : i32) = i32(0);
+      for(&v.children, c => {
+        acc = (acc + c.with(cv => match(cv.parent.upgrade(), .Some(p) => p.with(pv => pv.tag), .None => i32(0))));
+      });
+      acc
+    });
+    assert(sum == i32(3), "each of the three leaves reaches its parent");
+  };
+  assert(g_weak_tree_dropped == (before + i32(4)), "the root and its three leaves are dropped by reference counting");
+});

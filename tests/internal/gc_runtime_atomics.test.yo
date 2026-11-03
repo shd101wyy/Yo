@@ -8,10 +8,8 @@
 //! its source:
 //!   1. `__yo_incr_rc_atomic` uses atomic_fetch_add_explicit + relaxed.
 //!   2. `__yo_decr_rc_atomic` uses atomic_fetch_sub_explicit + acq_rel.
-//!   3. Drop dispatch runs INSIDE the decrement function (lightweight variant —
-//!      the path the TS test's `arc(i32(42))` program hits; the full-GC variant
-//!      dispatches via `header->dispose_fn` instead, so pins 1-2 are asserted on
-//!      BOTH variants while pin 3 is lightweight-only, exactly like the TS test).
+//!   3. Drop dispatch runs INSIDE the decrement function (the type-tag
+//!      dispatch, the path the TS test's `arc(i32(42))` program hits).
 //!   4. `__yo_worker_pool_init` is guarded (idempotent).
 //!   5. The allocator interface the runtime speaks follows the shape of std's
 //!      `AllocatorVTable` (version 1 unchanged, version 2 aligned and sized).
@@ -34,9 +32,9 @@
 /// Build a fresh per-function generation context over an empty program,
 /// mirroring codegen_c.yo's construction (`Emitter.new()` → `CodeGenContext.new`
 /// → `FunctionGenerationContext.new`). The RC-runtime emitters only touch
-/// `base.emitter`, `base.target_info`, `base.needs_cycle_gc` and the (empty)
-/// `unwind_value_c_types`, so empty registries are the production shape here.
-mk_context :: (fn(needs_cycle_gc : bool) -> FunctionGenerationContext)({
+/// `base.emitter`, `base.target_info` and the (empty) `unwind_value_c_types`,
+/// so empty registries are the production shape here.
+mk_context :: (fn() -> FunctionGenerationContext)({
   base := CodeGenContext.new(
     Emitter.new(),
     expr_info_table_new(),
@@ -46,17 +44,15 @@ mk_context :: (fn(needs_cycle_gc : bool) -> FunctionGenerationContext)({
     false,
     false,
     false,
-    false,
     false
   );
-  base.needs_cycle_gc = needs_cycle_gc;
   FunctionGenerationContext.new(&base)
 });
-/// Emit the RC runtime through the production dispatcher
-/// (`generate_atomic_gc_runtime_functions`: full when needs_cycle_gc, else
-/// lightweight) and return the full C text (headers + declarations + code).
-emit_rc_runtime :: (fn(needs_cycle_gc : bool) -> String)({
-  ctx := mk_context(needs_cycle_gc);
+/// Emit the RC runtime through the production entry point
+/// (`generate_atomic_gc_runtime_functions`) and return the full C text
+/// (headers + declarations + code).
+emit_rc_runtime :: (fn() -> String)({
+  ctx := mk_context();
   generate_atomic_gc_runtime_functions(&ctx);
   em := ctx.base.emitter;
   em.print()
@@ -84,21 +80,17 @@ must_find :: (fn(hay : &String, needle : str, from : usize) -> usize)(
 );
 test("__yo_incr_rc_atomic uses atomic_fetch_add_explicit with relaxed", {
   incr_line := "atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed)";
-  c_light := emit_rc_runtime(false);
-  assert(c_light.contains("atomic_fetch_add_explicit"), "lightweight: incr uses atomic_fetch_add_explicit");
-  assert(c_light.contains(&incr_line), "lightweight: incr fetch_add is memory_order_relaxed");
-  c_full := emit_rc_runtime(true);
-  assert(c_full.contains(&incr_line), "full-GC: incr fetch_add is memory_order_relaxed");
+  c := emit_rc_runtime();
+  assert(c.contains("atomic_fetch_add_explicit"), "incr uses atomic_fetch_add_explicit");
+  assert(c.contains(&incr_line), "incr fetch_add is memory_order_relaxed");
 });
 test("__yo_decr_rc_atomic uses atomic_fetch_sub_explicit with acq_rel", {
   decr_line := "atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel)";
-  c_light := emit_rc_runtime(false);
-  assert(c_light.contains(&decr_line), "lightweight: decr fetch_sub is memory_order_acq_rel");
-  c_full := emit_rc_runtime(true);
-  assert(c_full.contains(&decr_line), "full-GC: decr fetch_sub is memory_order_acq_rel");
+  c := emit_rc_runtime();
+  assert(c.contains(&decr_line), "decr fetch_sub is memory_order_acq_rel");
 });
 test("drop dispatch runs within the decrement function", {
-  c := emit_rc_runtime(false);
+  c := emit_rc_runtime();
   // Mirror the TS slice: from the decr definition to its first `}` (which
   // closes the `if (header->type_id)` block, past the dispatch call) + 500.
   start := must_find(&c, "static void __yo_decr_rc_atomic", usize(0));
@@ -127,54 +119,12 @@ fn_body :: (fn(c : &String, signature : str) -> String)({
   close := must_find(c, "\n}", start);
   c.substring(start, close)
 });
-// A cycle-incapable object carries the 16-byte __yo_ref_header_small_t, and a
-// member access through the 56-byte __yo_ref_header_t on it is undefined
-// behavior (UBSan object-size fired on the first incr of a self-built
-// compiler: issues/fixed/small-rc-header-accessed-through-the-full-header-type.md).
-// Code that can see either layout must read through __yo_rc_prefix_t, and
-// may cast to the full header only after the TRACKED test.
-/// Pin: `sig`'s body reads the header only through `__yo_rc_prefix_t`.
-assert_prefix_only :: (fn(c : &String, sig : str) -> unit)({
-  body := fn_body(c, sig);
-  assert(!body.contains("(__yo_ref_header_t*)"), `${sig} reads through the full header`);
-  assert(body.contains("(__yo_rc_prefix_t*)"), `${sig} reads through the prefix`);
-});
-/// Pin: `sig`'s body tests TRACKED through the prefix before its first
-/// full-header cast.
-assert_tracked_first :: (fn(c : &String, sig : str) -> unit)({
-  body := fn_body(c, sig);
-  test_at := must_find(&body, "((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED", usize(0));
-  cast_at := must_find(&body, "(__yo_ref_header_t*)ptr", usize(0));
-  assert(test_at < cast_at, `${sig} casts to the full header before the TRACKED test`);
-});
-test("full-GC prefix-only RC paths never cast to the full header", {
-  c := emit_rc_runtime(true);
-  assert_prefix_only(&c, "static inline void __yo_decr_rc(void* ptr) {");
-  assert_prefix_only(&c, "static inline void* __yo_incr_rc(void* ptr) {");
-  assert_prefix_only(&c, "static void* __yo_incr_rc_atomic(void* ptr) {");
-  assert_prefix_only(&c, "static void __yo_decr_rc_atomic(void* ptr) {");
-  assert_prefix_only(&c, "static inline void __yo_borrow_acquire(void* ptr) {");
-  assert_prefix_only(&c, "static inline void __yo_borrow_release(void* ptr) {");
-  assert_prefix_only(&c, "static inline void __yo_borrow_assert_unborrowed(void* ptr) {");
-});
-test("every full-GC visitor tests TRACKED through the prefix before a full-header cast", {
-  c := emit_rc_runtime(true);
-  assert_tracked_first(&c, "static void __yo_gc_unregister(void* ptr) {");
-  assert_tracked_first(&c, "static void __yo_gc_mark_gray_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(&c, "static void __yo_gc_scan_black_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(&c, "static void __yo_gc_scan_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(&c, "static void __yo_gc_gather_white_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(&c, "static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(&c, "static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {");
-});
 // The uniqueness lock behind Arc.make_mut and Arc.try_unwrap is one CAS of
 // the strong count from 1 to 0, acquire on success, and gives the count back
 // with release; the end of a locked cell sets the dead bit in one acq_rel RMW
 // (issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md).
-// Both runtimes emit the same text.
-/// Pin: the uniqueness-lock primitives in the runtime `full` selects.
-assert_unique_lock :: (fn(full : bool) -> unit)({
-  c := emit_rc_runtime(full);
+test("the Arc uniqueness lock is a CAS from 1 to 0 with acquire, the unlock a release", {
+  c := emit_rc_runtime();
   lock := fn_body(&c, "static inline bool __yo_arc_lock_unique(void* ptr) {");
   assert(lock.contains("if ((cur & __YO_RC_COUNT) != 1u) return false;"), "the lock takes only a count of 1");
   assert(
@@ -189,17 +139,13 @@ assert_unique_lock :: (fn(full : bool) -> unit)({
   assert(dead.contains("*(void**)slot = NULL;"), "the end of a locked cell clears the holder's handle");
   assert(dead.contains("(uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel)"), "the dead bit is set in one acq_rel RMW");
 });
-test("the Arc uniqueness lock is a CAS from 1 to 0 with acquire, the unlock a release", {
-  assert_unique_lock(false);
-  assert_unique_lock(true);
-});
-/// Pin: a cycle-GC `dispose_fn` slot holds a `void*` thunk, never the typed
-/// `___dispose` behind a cast. The runtime calls the slot as `void (*)(void*)`,
+/// Pin: the dispose dispatch calls a `void*` thunk, never the typed
+/// `___dispose` behind a cast. The dispatch calls it as `void (*)(void*)`,
 /// and a typed function called that way is UB, which UBSan's
 /// `-fsanitize=function` aborts on at the first release
 /// (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
-test("a dispose_fn slot holds a void* thunk, emitted once per dispose function", {
-  ctx := mk_context(true);
+test("a dispose thunk is a void* forwarder, emitted once per dispose function", {
+  ctx := mk_context();
   by_value := String.new();
   id7 := String.from("yo_id_7");
   id8 := String.from("yo_id_8");
@@ -218,8 +164,8 @@ test("a dispose_fn slot holds a void* thunk, emitted once per dispose function",
 });
 /// Pin: a `Drop` impl's `___dispose` takes `self : &mut Self`, so its thunk
 /// passes the address of a local holding the handle (decision 45, #1343).
-test("a pointer-receiver dispose_fn thunk passes the address of the handle", {
-  ctx := mk_context(true);
+test("a pointer-receiver dispose thunk passes the address of the handle", {
+  ctx := mk_context();
   id9 := String.from("yo_id_9");
   handle_c := String.from("struct yo_id_10*");
   thunk := dispose_fn_thunk(&id9, &handle_c, &ctx);
@@ -231,7 +177,7 @@ test("a pointer-receiver dispose_fn thunk passes the address of the handle", {
 /// The type runtime preamble (the RC header, the allocator prefix and the
 /// allocation scope) as the allocator interface `alloc_abi_v2` selects it.
 emit_type_preamble :: (fn(alloc_abi_v2 : bool) -> String)({
-  ctx := mk_context(false);
+  ctx := mk_context();
   ctx.base.alloc_abi_v2 = alloc_abi_v2;
   _emit_type_runtime_preamble(&ctx.base);
   em := ctx.base.emitter;
@@ -316,7 +262,7 @@ test("allocator interface version 1 keeps the 16-byte prefix and the unsized vta
   assert(c.contains("((const __yo_alloc_vtable_t*)pre->vtable)->free(pre->ctx, raw);"), "v1: the release passes the raw block only");
   assert(c.contains("static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {"), "v1: the scoped allocation takes no alignment");
   assert(!c.contains("__yo_alloc_extent_t"), "v1: no extent record");
-  ctx := mk_context(false);
+  ctx := mk_context();
   call := ctx.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &String.from("T"));
   assert(call == "__yo_rc_alloc_scoped(__yo_sc, sizeof(T))", "v1: the call passes the size only");
 });
@@ -336,7 +282,7 @@ test("allocator interface version 2 aligns, records the extent and frees by size
   assert(c.contains("static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size, size_t align) {"), "v2: the scoped allocation takes the alignment");
   // The owner stays where version 1 keeps it, so the scope lookup is shared.
   assert(c.contains("return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);"), "v2: the owner is the 16 bytes before the object");
-  ctx := mk_context(false);
+  ctx := mk_context();
   ctx.base.alloc_abi_v2 = true;
   call := ctx.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &String.from("T"));
   assert(call == "__yo_rc_alloc_scoped(__yo_sc, sizeof(T), _Alignof(T))", "v2: the call passes the alignment");
