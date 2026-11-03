@@ -18,8 +18,8 @@ words	§3 words, O6	pos	N2	ACCEPT	-|carries an origin
 words-then-write	O3 step 2	neg	N2	E0911	-|carries an origin
 get2-mut-pair	O3 step 2	pos	N2	ACCEPT	-|lends a place to a `&mut T` parameter
 get2-mut-twice	O3 step 2	neg	N1	E0911	E0911|Cannot read `xs` here
-cursor-two-items	O3 step 2	pos	N2	ACCEPT	-|is a reference value
-copy-mut-holder	§5 route 3	neg	N2	E0901	-|is a reference value
+cursor-two-items	O3 step 2	pos	N2	ACCEPT	accept
+copy-mut-holder	§5 route 3	neg	N2	E0901	E0901|use of moved value: `it`
 call-arg-overlap	O3 step 2, decision 28	neg	N1	E0910	accept
 drop-root-while-borrowed	§5 route 6	neg	N1	E0911	E0911|Cannot move `x` here
 store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0908|`slot` is a `&` borrow, which is read-only
@@ -76,5 +76,5 @@ index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E09
 place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	-|carries an origin
 match-arm-binding-origin	O3, §4 match lowering (superseded row)	neg	N2	E0911	-|Failed to evaluate
 list-mut-two-pushes	O3 step 2, O6 (superseded row)	neg	N2	E0911	-|carries an origin
-copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	-|is a reference value
-ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	-|is a reference value
+copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	E0601|Cannot unify incompatible types: "i32" and "&i32"
+ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	accept
