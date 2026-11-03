@@ -1,0 +1,38 @@
+// Regression: a consuming `match` of a local inside an effect throw's
+// argument, whose arm is a template string over the payload. The match moves
+// `msg`; on the unwind out of the throw the escape block must not drop `msg`
+// again. The compiler emitted "Drop consumed variables (unwind propagation)"
+// for `msg` here — a double free of the String (glibc: "free(): double free
+// detected in tcache 2", rc=134) that hung `yo compile` on a comptime panic
+// carrying a message (src/evaluator/builtins/panic.yo, evaluate_panic). A
+// plain arm (`m`, `m.clone()`) is not affected, and neither is the same code
+// after the template is desugared by hand, so `yo test` (whose batch reprints
+// the test file) cannot reproduce it.
+// See issues/2026-11-03-a-local-moved-by-a-match-inside-a-throw-argument-is-dropped-again-on-unwind.md.
+// Expected output: "-1".
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ Exception } :: import("std/error");
+throw_matched :: (fn(fail : bool, exn : Exception) -> i32)({
+  (msg : Option(String)) = .Some(String.from("boom"));
+  if(fail, {
+    exn.throw(
+      dyn(
+        match(
+          msg,
+          .Some(m) => `failed: ${m}`,
+          .None => String.from("failed")
+        )
+      )
+    );
+  });
+  i32(0)
+});
+run_throw_matched :: (fn() -> i32)({
+  exn := Exception(throw : (_err -> unwind(i32(-1))));
+  throw_matched(true, exn)
+});
+main :: (fn() -> unit)({
+  println(run_throw_matched());
+});
+export(main);
