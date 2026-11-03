@@ -18,12 +18,10 @@ append_all :: (
   });
 });
 
-// REFUTED at the call: one list passed as both. The evaluator should reject
-// this call itself (E0910) and does not yet:
-// issues/2026-11-04-a-mut-reference-parameter-lent-as-both-arguments-of-one-call-is-accepted.md.
-onto_itself :: (fn(xs : &mut ArrayList(i32), requires((xs.len() + xs.len()) >= xs.len()), ensures(xs.len() >= old(xs.len()))) -> unit)({
-  append_all(xs, xs);
-});
+// One list passed as both (`onto_itself`, `append_all(xs, xs)` for an
+// `xs : &mut ArrayList(i32)`) is E0910 at evaluation, before the verifier's
+// `distinct(src, dst)` sees it
+// (issues/fixed/2026-11-04-a-mut-reference-parameter-lent-as-both-arguments-of-one-call-is-accepted.md).
 
 // SUBSET ERROR: without distinct, a body mutating one of two same-typed
 // list parameters is rejected.

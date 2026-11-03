@@ -663,7 +663,7 @@ test("a for over a list (the read walk) verifies with produced(xs); a double pus
   );
 });
 
-test("distinct(a, b) lets a body mutate one of two same-typed lists; one list passed as both refutes", {
+test("distinct(a, b) lets a body mutate one of two same-typed lists; without it the body is a subset error", {
   if(!_have_z3(), {
     return(());
   });
@@ -681,9 +681,11 @@ test("distinct(a, b) lets a body mutate one of two same-typed lists; one list pa
     io,
     true
   );
+  // One list passed as both (`append_all(xs, xs)`) no longer reaches the
+  // verifier: it is E0910 at evaluation, so the fixture leaves it out.
   assert(
-    _count_outcome(&bad_reports, String.from("refuted")) == usize(1),
-    `onto_itself must refute, got: [${_reports_dump(&bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(0),
+    `no refutation is left in the fixture, got: [${_reports_dump(&bad_reports)}]`
   );
   assert(
     _count_outcome(&bad_reports, String.from("subset-error")) == usize(1),
