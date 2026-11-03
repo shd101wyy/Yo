@@ -1192,6 +1192,57 @@ test("soundness: a collection lent both &mut and & to one call is E0910", {
   };
   assert(g_p5_disposed == (before + i32(4)), `every box released once, got ${(g_p5_disposed - before).to_string()}`);
 });
+// A borrow binding passed bare lends what it borrows: `xs` of a
+// `xs : &mut ArrayList(i32)` parameter bound to a `&` and a `&mut` parameter
+// of one call is the same overlap as `f(&ys, &mut ys)` on a value local. On
+// develop it was accepted, and `_p5_append_all` read `src` through the buffer
+// its `dst.push` reallocated (heap-use-after-free under ASan)
+// (issues/fixed/2026-11-04-a-mut-reference-parameter-lent-as-both-arguments-of-one-call-is-accepted.md).
+_p5_append_all :: (fn(src : &ArrayList(i32), dst : &mut ArrayList(i32)) -> unit)({
+  (mut(i) : usize) = usize(0);
+  n := src.len();
+  while(i < n, {
+    dst.push(src(i));
+    i = (i + usize(1));
+  });
+});
+_p5_prepend_all :: (fn(dst : &mut ArrayList(i32), src : &ArrayList(i32)) -> unit)(_p5_append_all(src, dst));
+_p5_sum_both :: (fn(a : &ArrayList(i32), b : &ArrayList(i32)) -> usize)(a.len() + b.len());
+_p5_append_generic :: (fn(generic(T : Type), src : &ArrayList(T), dst : &mut ArrayList(T)) -> unit)({
+  (mut(i) : usize) = usize(0);
+  while(i < src.len(), {
+    dst.push(src(i));
+    i = (i + usize(1));
+  });
+});
+_p5_append_between :: (fn(xs : &mut ArrayList(i32), ys : &mut ArrayList(i32)) -> unit)(_p5_append_all(xs, ys));
+_p5_sum_shared :: (fn(xs : &mut ArrayList(i32)) -> usize)(_p5_sum_both(xs, xs));
+test("soundness: a `&mut` reference parameter lent both & and &mut to one call is E0910", {
+  comptime_expect_error({
+    _p5_onto_itself :: (fn(xs : &mut ArrayList(i32)) -> unit)(_p5_append_all(xs, xs));
+    ()
+  }, "decision 28's value-root rule");
+  comptime_expect_error({
+    _p5_onto_itself_rev :: (fn(xs : &mut ArrayList(i32)) -> unit)(_p5_prepend_all(xs, xs));
+    ()
+  }, "decision 28's value-root rule");
+  comptime_expect_error({
+    _p5_onto_itself_generic :: (fn(xs : &mut ArrayList(i32)) -> unit)(_p5_append_generic(xs, xs));
+    ()
+  }, "decision 28's value-root rule");
+  comptime_expect_error({
+    _p5_onto_itself_method :: (fn(xs : &mut ArrayList(i32)) -> unit)(xs.extend_cloned(xs));
+    ()
+  }, "decision 28's value-root rule");
+  // Two separate borrows, or two shared lends of one, pass.
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  mut(ys) := ArrayList(i32).new();
+  _p5_append_between(&mut xs, &mut ys);
+  assert(ys.len() == usize(2), "the separate list received both elements");
+  assert(_p5_sum_shared(&mut xs) == usize(4), "two shared lends of one borrow pass");
+});
 // issues/fixed/std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md:
 // std/assert's `panic` is `-> never`, so it fits an arm that must produce a value.
 test("soundness: std panic types a value arm", {
