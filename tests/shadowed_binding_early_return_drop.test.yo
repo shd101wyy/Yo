@@ -269,3 +269,34 @@ test("the same function without an unwind balances every key", {
   // The initial cell_key (replaced), the second iteration's k, and the final cell_key.
   assert(g_sb_key_drops == (before + i32(3)), `every key dropped once, dropped ${(g_sb_key_drops - before).to_string()}`);
 });
+// Two same-named locals, the first in an inner block: an unwind inside that
+// block released the first one twice, once for its own drop and once for the
+// later local's drop resolved by name.
+_sb_mk :: (fn(fail : bool, exn : Exception) -> usize)({
+  if(fail, {
+    exn.throw(dyn(String.from("x")));
+  });
+  usize(1)
+});
+_sb_take :: (fn(k : _SbKey) -> usize)(k.n);
+_sb_twice :: (fn(flag : bool, fail : bool, exn : Exception) -> usize)({
+  if(flag, {
+    k := _SbKey(n : usize(1));
+    t := _sb_mk(fail, exn);
+    return(_sb_take(k) + t);
+  });
+  k := _SbKey(n : usize(2));
+  _sb_take(k)
+});
+_sb_twice_run :: (fn(flag : bool, fail : bool) -> usize)({
+  exn := Exception(throw : (_err -> unwind(usize(99))));
+  _sb_twice(flag, fail, exn)
+});
+test("an unwind before a later same-named local drops the earlier one once", {
+  before := g_sb_key_drops;
+  assert(_sb_twice_run(true, true) == usize(99), "the call unwound");
+  assert(g_sb_key_drops == (before + i32(1)), `the inner k is dropped once, dropped ${(g_sb_key_drops - before).to_string()}`);
+  before2 := g_sb_key_drops;
+  assert(_sb_twice_run(true, false) == usize(2), "no unwind");
+  assert(g_sb_key_drops == (before2 + i32(1)), "the consumed k is dropped once by its consumer");
+});
