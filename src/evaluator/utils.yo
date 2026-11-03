@@ -127,7 +127,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -650,8 +650,9 @@ _clone_hint :: (fn(name : &String, ty : &TypeValue) -> String)(
 /// decision 32).
 _counted_handle_ctor :: (fn(ty : &TypeValue) -> String)(cond(is_arc_type(&t_refine_inner(ty)) => String.from("Arc"), true => String.from("Rc")));
 /// The migration sentence that ends a counted handle's E0901 help. An
-/// accessor site's help drops it: there the clone is `get_cloned`, which
-/// `--migrate cloned-accessors` spells (VERDICTS-8 Q1).
+/// accessor site's help drops it: there std's reader makes the copy, which
+/// `--migrate rc-clone` cannot spell, and the help names `get_cloned`
+/// instead (VERDICTS-8 Q1).
 RC_CLONE_MIGRATE_HINT :: " `yo fix <path> --migrate rc-clone` spells the clones.";
 /// The E0901 note for a named value of a type decision 17 copies only
 /// explicitly (`type_holds_counted_handle`): a handle's `Rc.clone(h)` /
@@ -2969,9 +2970,6 @@ _ic_migrate_site :: (
   cond(
     !g_migrate_rc_clone => Option(ExplicitCopySite).None,
     !type_holds_counted_handle_ignoring_migration(ty) => Option(ExplicitCopySite).None,
-    // A std generic body's copies are not judged by the rule (B6 gives them
-    // their spelling), so the migration does not spell them either.
-    counted_handle_std_generic_on() => Option(ExplicitCopySite).None,
     // A copy inside a `comptime_expect_error` argument is the error the
     // program expects.
     propagate_def_time_errors() => Option(ExplicitCopySite).None,

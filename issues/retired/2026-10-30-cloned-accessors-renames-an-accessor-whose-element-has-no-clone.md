@@ -1,5 +1,7 @@
 # `--migrate cloned-accessors` renames an accessor whose element has no `Clone`
 
+**Retired 2026-11-03:** `yo fix --migrate cloned-accessors` was deleted with the `BTreeMap` flip (B10; consultation #17, `VERDICTS-17.md`), and with it this fix's cli case `fix-migrate-cloned-accessors-lists-non-clone`. The `src/` half stays: `_TypeWalkFrame` and `VcAssumption` derive `Clone`, and the E0901 help at an accessor whose element has no `Clone` names the in-place reads and the `derive` instead of a `_cloned` call; `tests/cli-cases/check-accessor-copy-no-clone-names-derive` is the test now.
+
 **Severity:** S3. `yo fix <path> --migrate cloned-accessors` rewrote `xs.get(i)` to `xs.get_cloned(i)` even when the element type had no `Clone`. `get_cloned` is declared `where(T <: Clone)`, so the rewritten file no longer evaluated (E0610, `No method "clone"`). The migration's output had to be reverted by hand.
 
 **Found:** 2026-10-30, while dropping V2c's std-generic-body exemption (`vbd/v2c-drop-std-exemption`). The migration, extended there to counted-handle results, renamed `w.path.get(pi)` in `src/types/utils.yo`, whose element `_TypeWalkFrame` holds a `TypeValue` and derived no `Clone`, and `check ./src` then failed in 204 files at that call. The unique-buffer half had the same gap: a dry run on the base tree offered `q.assumptions.get(ai)` in `src/verifier/encode.yo`, whose `VcAssumption` had no `Clone` either.
@@ -14,4 +16,4 @@
 
 The accessor driver asks the same question after its generic-body guards. A site whose result has no `Clone` is listed with the two repairs: read it in place, or give the element `Clone`. In `src/`, `_TypeWalkFrame` and `VcAssumption` now derive `Clone`, so their two `get_cloned` calls resolve.
 
-The test is `tests/cli-cases/fix-migrate-cloned-accessors-lists-non-clone`. Its `ArrayList(Holder).get` call has an element with no `Clone`, and the golden records the listing and an unchanged file.
+The test was `tests/cli-cases/fix-migrate-cloned-accessors-lists-non-clone` (deleted with the migration). Its `ArrayList(Holder).get` call has an element with no `Clone`, and the golden records the listing and an unchanged file.

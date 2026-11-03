@@ -3326,8 +3326,7 @@ Yo 提供了 `Rc`（用 `Rc.new` 构造）用于将值类型堆分配并自动�
 > 读取方法也同样检查：`ArrayList(Rc(T)).get(i)`、`HashMap.get` 通过 `T` 拷贝元素，
 > 所以元素是句柄时，这个调用就是 E0901，报在你的调用处，std 内的位置作为附注。
 > 请用不拷贝的访问器读取句柄元素：原地读取 `xs(i)`、用 `xs.get_cloned(i)` 取得
-> 第二个句柄，或 `xs.with(i, ...)`。`yo fix <path> --migrate cloned-accessors`
-> 会写出这些 `_cloned` 调用。
+> 第二个句柄，或 `xs.with(i, ...)`。
 >
 > 引用计数是 Yo **通用**的对象模型，并非某个容器的可选策略：每个
 > `ref(struct(...))` 都是引用计数的，`Rc` 只是其中单字段的特例。

@@ -1471,8 +1471,8 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
   )
 );
 /// Decision 17's rule is on (`type_holds_counted_handle`); `yo fix
-/// --migrate rc-clone` and `cloned-accessors` turn it off while they record
-/// the copies they spell (`set_counted_handle_rule`).
+/// --migrate rc-clone` turns it off while it records the copies it spells
+/// (`set_counted_handle_rule`).
 (mut(g_counted_handle_rule_on) : bool) = true;
 set_counted_handle_rule :: (fn(on : bool) -> unit)({
   g_counted_handle_rule_on = on;
@@ -1498,8 +1498,8 @@ type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(t
 /// them implicitly.
 type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)(g_counted_handle_rule_on && type_holds_counted_handle_ignoring_migration(ty));
 /// `type_holds_counted_handle` whether or not the rule is suspended (by `yo
-/// fix --migrate rc-clone` or `cloned-accessors`): what the migrations record
-/// a copy by, so they spell exactly the copies the rule rejects.
+/// fix --migrate rc-clone`): what the migration records a copy by, so it
+/// spells exactly the copies the rule rejects.
 type_holds_counted_handle_ignoring_migration :: (fn(ty : &TypeValue) -> bool)({
   w := _type_walk_new();
   _holds_counted_handle_inner(ty, &mut w, u32(0))

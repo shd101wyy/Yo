@@ -7908,10 +7908,7 @@ AccessorCallInfo :: struct(
   recv_ty_text : String,
   has_index : bool,
   has_with : bool,
-  (element_lacks_clone : bool) ?= false,
-  /// No `<name>_cloned` sibling resolves: the method itself was accepted
-  /// (`_copying_accessor_info`'s fallback), so there is nothing to rename to.
-  (no_sibling : bool) ?= false
+  (element_lacks_clone : bool) ?= false
 );
 /// `call` is a method call `r.m(args)` whose receiver type has an `m_cloned`
 /// sibling in the impl registry (B6-b; plans/VALUES_BY_DEFAULT.md decision
@@ -8001,8 +7998,7 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
       recv_ty_text : type_to_string(&ca_recv_ty),
       has_index : (get_type_trait_methods_by_name_from_env(env, String.from("index"), &ca_recv_ty).len() > usize(0)),
       has_with : (get_type_trait_methods_by_name_from_env(env, String.from("with"), &ca_recv_ty).len() > usize(0)),
-      element_lacks_clone : (!ca_has_cloned || ca_res_lacks_clone),
-      no_sibling : !ca_has_cloned
+      element_lacks_clone : (!ca_has_cloned || ca_res_lacks_clone)
     )
   )
 });
@@ -8014,8 +8010,7 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
 /// to the help sentence before it (`_with_primary_help`), so it starts with a
 /// capital and ends with a period. Where the element has no `Clone` the
 /// `_cloned` spelling does not resolve (`where(T <: Clone)`), so the sentence
-/// names the in-place reads and the `derive` instead of it. The last
-/// sentence is the migration that spells the `_cloned` calls.
+/// names the in-place reads and the `derive` instead of it.
 _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
   parts := ArrayList(String).new();
   if(info.has_index, {
@@ -8047,7 +8042,7 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
     out.push_string(&parts(pi));
     pi = (pi + usize(1));
   });
-  out.push_str(". Or run `yo fix <path> --migrate cloned-accessors`.");
+  out.push_str(".");
   out
 });
 /// An error raised inside the standard library while evaluating a call

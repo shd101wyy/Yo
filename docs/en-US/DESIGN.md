@@ -3494,7 +3494,6 @@ Yo provides `Rc` (built with `Rc.new`) for heap-allocating value types with auto
 > the call is E0901, reported at your call with the std location as a note.
 > Read handle elements through the accessors that do not copy: `xs(i)` in
 > place, `xs.get_cloned(i)` for a second handle, or `xs.with(i, ...)`.
-> `yo fix <path> --migrate cloned-accessors` spells the `_cloned` calls.
 >
 > Reference counting is Yo's *universal* object model, not one container's
 > opt-in policy: every `ref(struct(...))` is reference counted, and `Rc` is
