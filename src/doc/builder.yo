@@ -4184,7 +4184,19 @@ build_doc_module :: (
     );
     i = (i + usize(1));
   });
-  result
+  // The lists were filled after `result` took its (then empty) copies:
+  // they are values, so the module gets them here.
+  DocModule(
+    name : name.clone(),
+    path : path.clone(),
+    doc : module_doc.clone(),
+    stability : module_stability(&module_doc),
+    functions : functions,
+    types : types,
+    traits : traits,
+    constants : constants,
+    submodules : ArrayList(Rc(DocModule)).new()
+  )
 });
 export(
   DocSections,
