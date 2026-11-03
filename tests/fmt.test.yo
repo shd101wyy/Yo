@@ -201,7 +201,7 @@ test("StringBuilder.clear keeps the capacity and drops the length", {
   // `capacity()` exists so this is observable at all -- `with_capacity` could
   // be set but never read, which made the contract untestable. A fix nothing
   // can observe is the failure mode this corpus is full of.
-  b := StringBuilder.with_capacity(usize(64));
+  mut(b) := StringBuilder.with_capacity(usize(64));
   before := b.capacity();
   assert(before >= usize(64), "with_capacity reserves at least what was asked");
   b.write_str("hello world");
@@ -218,7 +218,7 @@ test("StringBuilder.clear on a grown builder keeps the grown capacity", {
   // The case that actually motivates the contract: capacity acquired by
   // GROWING (not by with_capacity) must survive too, or a reuse loop still
   // reallocates.
-  b := StringBuilder.new();
+  mut(b) := StringBuilder.new();
   mut(i) := usize(0);
   while(i < usize(200), {
     b.write_str("x");
@@ -237,7 +237,7 @@ test("StringBuilder.to_string detaches the buffer: later writes never mutate a r
   // same bytes). `StringBuilder` inherits the fixed hand-over from the
   // retired `Writer`, including its O(1) move: it used to COPY every byte out
   // and then reset, which made an N-byte build O(N) again to read.
-  w := StringBuilder.new();
+  mut(w) := StringBuilder.new();
   w.write_str("abc");
   first := w.to_string();
   w.write_str("def");
@@ -251,7 +251,7 @@ test("StringBuilder.to_string detaches the buffer: later writes never mutate a r
   assert(empty.len() == usize(0), "an empty builder yields an empty String");
 });
 test("StringBuilder Default is an empty builder", {
-  w := StringBuilder.default();
+  mut(w) := StringBuilder.default();
   assert(w.to_string() == ``, "default builder renders empty");
   w.write_str("hi");
   assert(w.to_string() == `hi`, "the default builder is a usable builder");
@@ -261,31 +261,31 @@ test("StringBuilder.write_padded pads to a RUNE width, not a byte width", {
   // "héllo" is 6 bytes and 5 runes, so padding it to 8 emitted two spaces
   // where a column needs three — and `FormatSpec` next door has always
   // counted runes.
-  w := StringBuilder.new();
+  mut(w) := StringBuilder.new();
   w.write_padded("héllo", usize(8), rune.from_u32(u32(32)).unwrap(), Alignment.Left);
   assert(w.to_string() == `héllo   `, "three trailing spaces, not two");
-  w2 := StringBuilder.new();
+  mut(w2) := StringBuilder.new();
   w2.write_padded("héllo", usize(8), rune.from_u32(u32(32)).unwrap(), Alignment.Right);
   assert(w2.to_string() == `   héllo`, "and three leading ones");
   // ASCII is unchanged — the byte and rune counts agree there, which is why
   // the defect stayed invisible.
-  w3 := StringBuilder.new();
+  mut(w3) := StringBuilder.new();
   w3.write_padded("ab", usize(5), rune.from_u32(u32(46)).unwrap(), Alignment.Left);
   assert(w3.to_string() == `ab...`, "ASCII left-pads as before");
-  w4 := StringBuilder.new();
+  mut(w4) := StringBuilder.new();
   w4.write_padded("ab", usize(5), rune.from_u32(u32(46)).unwrap(), Alignment.Center);
   assert(w4.to_string() == `.ab..`, "centre puts the odd pad on the right");
   // A multi-byte PAD rune must count as one column too.
-  w5 := StringBuilder.new();
+  mut(w5) := StringBuilder.new();
   w5.write_padded("x", usize(3), rune.from_u32(u32(0x00E9)).unwrap(), Alignment.Right);
   assert(w5.to_string() == `ééx`, "two pad RUNES (4 bytes), not two pad bytes");
   // Already at or over the width: written through untouched.
-  w6 := StringBuilder.new();
+  mut(w6) := StringBuilder.new();
   w6.write_padded("héllo", usize(3), rune.from_u32(u32(32)).unwrap(), Alignment.Left);
   assert(w6.to_string() == `héllo`, "no truncation, no padding");
 });
 test("StringBuilder.write_hex renders lowercase hexadecimal", {
-  w := StringBuilder.new();
+  mut(w) := StringBuilder.new();
   w.write_hex(u64(255));
   assert(w.to_string() == `ff`, "255 is ff");
   w.write_hex(u64(0));
