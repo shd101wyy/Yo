@@ -1705,21 +1705,17 @@ _read_depfile :: (fn(path : &String, io : Io) -> Impl(Future(ArrayList(String), 
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
     bytes_opt := e.io.await(_cache_read_file(__probe_path.clone(), e.io), e);
-    text := match(bytes_opt, .Some(bytes) => String.from_bytes(bytes), .None => String.new());
+    // No consuming `match` here while `SEED_VERSION` is v0.2.73:
+    // `artifact_input_stamp` awaits this wrapper twice, and that seed's fused
+    // lowering emits such a match's C labels twice in one function
+    // (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
+    text := String.from_bytes(bytes_opt.unwrap_or(ArrayList(u8).new()));
     lines := text.split("\n");
-    (i : usize) = usize(0);
-    while(i < lines.len(), {
-      match(
-        lines.get_cloned(i),
-        .Some(l) => {
-          trimmed := l.trim();
-          if(trimmed.len() > usize(0), {
-            out.push(trimmed);
-          });
-        },
-        .None => ()
-      );
-      i = (i + usize(1));
+    for(&lines, l => {
+      trimmed := l.trim();
+      if(trimmed.len() > usize(0), {
+        out.push(trimmed);
+      });
     });
     out
   })
