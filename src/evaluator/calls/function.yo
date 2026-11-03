@@ -9814,9 +9814,6 @@ Fix: wrap the call:
               eprintln(`[call-struct-out] ty=${type_to_string(&func_type)}`);
             });
             out_s := new_expr_info(&call_result_s.caller_env, _instantiate_struct_over_closure_args(&func_type, &fields, &call_result_s.arg_types));
-            if(debug_knob(`YO_DEBUG_ORIGIN_STAMP`).is_some(), {
-              eprintln(`[origin-stamp] struct-call callee=${type_to_string(&func_type)} result=${type_to_string(&out_s.ty)}`);
-            });
             out_s.value = struct_val;
             out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_s);

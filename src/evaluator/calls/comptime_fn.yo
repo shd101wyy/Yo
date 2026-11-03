@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { replace, swap } :: import("std/mem");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom_of, make_err_expr, clone_expr_fresh_ids, next_global_expr_id } :: import("../../expr.yo");
-{ register_type_display_name } :: import("../../types/string.yo");
+{ register_type_display_name, register_type_display_origin_template, DISPLAY_ORIGIN_MARK } :: import("../../types/string.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee, SharedList } :: import("../../types/definitions.yo");
@@ -514,10 +514,8 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
           .Some(cache) => if(_arg_vals_equal(&cache.arg_values, &want_args), {
             match(
               _resolved_type_of(&cache.value),
-              // The memo's instance records the FIRST call's origins
-              // (`_arg_vals_equal` erases them): restamp this type's own.
               .Some(rt) => if(is_struct_type(&rt), {
-                return(match(_restamp_instance_origins(EvalValue.TypeVal(Rc.clone(rt)), &want_args), .TypeVal(rt2) => Rc.clone(rt2), _ => rt));
+                return(rt);
               }),
               .None => ()
             );
@@ -1191,19 +1189,6 @@ evaluate_comptime_fn_call :: (
         eprintln(`[ctfe-hit] fid=${func_id_str} result=${value_to_string(&cached_val)}`);
       });
       hit_val := _restamp_instance_origins(cached_val, &all_arg_vals);
-      if(debug_knob(`YO_DEBUG_ORIGIN_STAMP`).is_some(), {
-        (dbg_args : String) = String.new();
-        (dbg_i : usize) = usize(0);
-        while(dbg_i < all_arg_vals.len(), {
-          match(all_arg_vals.get(dbg_i), .Some(dbg_v) => dbg_args.push_string(value_to_string(&dbg_v)), .None => ());
-          dbg_args.push_str(", ");
-          dbg_i = (dbg_i + usize(1));
-        });
-        dbg_carry := match(all_arg_vals.get(usize(0)), .Some(.TypeVal(dbg_t)) => type_carries_origin(&dbg_t).to_string(), .Some(_) => String.from("not-typeval"), .None => String.from("none"));
-        dbg_kind := match(all_arg_vals.get(usize(0)), .Some(.TypeVal(Rc(.OriginSet(_, _)))) => String.from("originset"), .Some(.TypeVal(_)) => String.from("other-type"), _ => String.from("-"));
-        dbg_stas := match(&cached_val, .TypeVal(Rc(.Struct({ type_arguments : dbg_tas }))) => dbg_tas.len().to_string(), .TypeVal(_) => String.from("not-struct"), _ => String.from("not-typeval"));
-        eprintln(`[origin-stamp] fid=${func_id_str} args=${dbg_args} n_args=${all_arg_vals.len().to_string()} carry0=${dbg_carry} kind0=${dbg_kind} stas=${dbg_stas} cached=${value_to_string(&cached_val)} hit=${value_to_string(&hit_val)}`);
-      });
       _check_counted_cell_payload(&hit_val, function_callee_expr, exn);
       return(
         ComptimeFnCallResult(
@@ -1489,6 +1474,37 @@ evaluate_comptime_fn_call :: (
           });
           disp.push_str(")");
           register_type_display_name(&disp_id, &disp);
+          // An origin argument is the call's own (the memo shares the id
+          // across origins): its template marks each one for the instance's
+          // rendering to fill.
+          (has_origin_arg : bool) = false;
+          (hoi : usize) = usize(0);
+          while(hoi < all_arg_vals.len(), {
+            if(match(all_arg_vals.get(hoi), .Some(.TypeVal(Rc(.OriginSet(_, _)))) => true, _ => false), {
+              has_origin_arg = true;
+            });
+            hoi = (hoi + usize(1));
+          });
+          if(has_origin_arg, {
+            tpl := String.from("");
+            tpl.push_string(ctfe_display_head.clone());
+            tpl.push_str("(");
+            (tpl_i : usize) = usize(0);
+            while(tpl_i < all_arg_vals.len(), {
+              if(tpl_i > usize(0), {
+                tpl.push_str(", ");
+              });
+              match(
+                all_arg_vals.get(tpl_i),
+                .Some(.TypeVal(Rc(.OriginSet(_, _)))) => tpl.push_str(DISPLAY_ORIGIN_MARK),
+                .Some(tav) => tpl.push_string(value_to_string(&tav)),
+                .None => ()
+              );
+              tpl_i = (tpl_i + usize(1));
+            });
+            tpl.push_str(")");
+            register_type_display_origin_template(&disp_id, &tpl);
+          });
         });
       },
       _ => ()
