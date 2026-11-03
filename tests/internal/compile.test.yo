@@ -47,7 +47,7 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
       (mut(ai) : usize) = usize(0);
       while(ai < cc_argv.len(), {
         match(
-          cc_argv.get(ai),
+          cc_argv.get_cloned(ai),
           .Some(a) => {
             if(a == "-fsanitize=address", {
               saw_asan_flag = true;
@@ -204,7 +204,7 @@ test("a value enum's drop and dup are one function each, not a switch per site",
   (mut(li) : usize) = usize(0);
   while(li < lines.len(), li = (li + usize(1)), {
     match(
-      lines.get(li),
+      lines.get_cloned(li),
       .Some(l) => {
         t := l.trim();
         if(t.starts_with("case ") && t.ends_with("_VEHOLD: {"), {
