@@ -41,10 +41,11 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { Environment, Variable, env_adopt } :: import("../../env.yo");
-{ TypeValue, t_reference_with_origin, t_origin_named, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue, t_reference, t_reference_with_origin, t_origin_named, shared_list } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
+{ is_pointer_type } :: import("../../types/guards.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
@@ -357,14 +358,25 @@ try_to_call_type_with_arguments :: (
         Rc(.Reference(_, _, _)) => (),
         _ => {
           (t9w_cur : AstExpr) = evaluated_arg;
-          while(ast_expr_is_fn_call_of(&t9w_cur, BF_DOT, Option(usize).Some(usize(2))), {
-            t9w_cur = match(
+          // A raw pointer's dereference (`p.add(k).*` in unsafe code, a
+          // cursor's item): the place is wherever the pointer points, which
+          // no name roots, so the lend carries the elided origin and the
+          // slot's declared origin is the unsafe code's claim.
+          (t9w_raw : bool) = false;
+          while(!t9w_raw && ast_expr_is_fn_call_of(&t9w_cur, BF_DOT, Option(usize).Some(usize(2))), {
+            t9w_base := match(
               t9w_cur,
               .FnCall(_, _, t9w_args, _, _) => match(t9w_args.get(usize(0)), .Some(t9w_b) => t9w_b, .None => make_err_expr()),
               .Atom(_, _) => make_err_expr()
             );
+            t9w_star := match(&t9w_cur, .FnCall(_, _, t9w_sargs, _, _) => match(t9w_sargs.get(usize(1)), .Some(t9w_l) => ast_expr_is_atom_of(&t9w_l, "*"), .None => false), .Atom(_, _) => false);
+            t9w_raw = (t9w_star && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&t9w_base)), .Some(t9w_bi) => is_pointer_type(&t9w_bi.ty), .None => false));
+            t9w_cur = t9w_base;
           });
-          if(ast_expr_is_atom(&t9w_cur), {
+          if(t9w_raw, {
+            t9w_lend_ty = Option(TypeValue).Some(t_reference(&arg_info.ty, t9w_mut));
+          });
+          if(!t9w_raw && ast_expr_is_atom(&t9w_cur), {
             t9w_names := ArrayList(String).new();
             t9w_names.push(ast_expr_token(&t9w_cur).value.*.clone());
             t9w_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9w_mut, t_origin_named(&shared_list(t9w_names))));

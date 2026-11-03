@@ -961,7 +961,7 @@ comptime_expect_error(
 // origins, and `m.at.* = v` writes through a `&mut` field.
 BsRV :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), xs : &(ArrayList(i32), p)));
 BsRM :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &mut(i32, p)));
-bs_rv_first :: (fn(generic(p : Origin), v : BsRV(p)) -> &(i32, p))(v.at);
+bs_rv_first :: (fn(generic(p : Origin), v : BsRV(p)) -> &(i32, p))(&v.at.*);
 bs_rv_len :: (fn(xs : &ArrayList(i32)) -> usize)(xs.len());
 test("A reference field reads and writes through with .*", {
   x := i32(41);
