@@ -1,5 +1,7 @@
-# plans/STRING_VALUE_SEMANTICS.md S1: a by-value `for` element is a borrowed
-# copy; an inout(self) write into it is E0908. `for(xs, inout(s) => ...)` writes
-# the elements.
+# plans/STRING_VALUE_SEMANTICS.md S1: the borrowed walk `for(&xs, s => ...)`
+# binds `s : &String`, and a `self : &mut Self` write through it is E0908.
+# `for(&mut xs, s => ...)` writes the elements. (Since the value flip, B8, a
+# by-value `for(xs, s => ...)` moves each element out and a write to `s` is
+# E0917 instead: a `for` binding is immutable, decision 47.)
 stdout_keep_match=error(\[E[0-9]+\])?: .*|--> main\.yo:[0-9]+:[0-9]+
 timeout=120
