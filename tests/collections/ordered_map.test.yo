@@ -4,14 +4,14 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 test("OrderedMap empty new", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   assert(m.len() == usize(0), "new map should be empty");
   assert(m.is_empty(), "is_empty true");
   assert(!m.contains_key(`x`), "contains_key false");
   assert(m.get(`x`).is_none(), "get returns None");
 });
 test("OrderedMap set and get", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   r1 := m.insert(`a`, i32(1));
   assert(r1.is_none(), "no previous value");
   r2 := m.insert(`b`, i32(2));
@@ -22,7 +22,7 @@ test("OrderedMap set and get", {
   assert(m.get(`b`).unwrap() == i32(2), "b is 2");
 });
 test("try_insert is the allocator-aware form (D9)", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   assert(match(m.try_insert(`k`, i32(1)), .Ok(prev) => prev.is_none(), .Err(_) => false), "new key");
   assert(
     match(m.try_insert(`k`, i32(2)), .Ok(prev) => (prev.unwrap() == i32(1)), .Err(_) => false),
@@ -31,7 +31,7 @@ test("try_insert is the allocator-aware form (D9)", {
   assert(m.len() == usize(1), "still one key");
 });
 test("OrderedMap update existing key preserves order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   r1 := m.insert(`alpha`, i32(1));
   r2 := m.insert(`beta`, i32(2));
   m.insert(`gamma`, i32(3));
@@ -42,7 +42,7 @@ test("OrderedMap update existing key preserves order", {
   assert(m.len() == usize(3), "len still 3");
   assert(m.get(`beta`).unwrap() == i32(20), "new value");
   // Iteration order should still be alpha, beta, gamma
-  it := m.keys();
+  mut(it) := m.keys();
   k1 := it.next().unwrap();
   k2 := it.next().unwrap();
   k3 := it.next().unwrap();
@@ -52,13 +52,14 @@ test("OrderedMap update existing key preserves order", {
   assert(it.next().is_none(), "no more");
 });
 test("OrderedMap iteration in insertion order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`z`, i32(26));
   m.insert(`a`, i32(1));
   m.insert(`m`, i32(13));
-  // keys
+  // keys — `keys()` consumes its map (B10), and the same map is walked by
+  // `values()` below, so the keys walk takes an explicit clone.
   mut(ks) := ArrayList(String).new();
-  it := m.keys();
+  mut(it) := m.clone().keys();
   while(true, {
     n := it.next();
     cond(
@@ -74,7 +75,7 @@ test("OrderedMap iteration in insertion order", {
   assert(ks(usize(2)) == `m`, "m third");
   // values
   mut(vs) := ArrayList(i32).new();
-  vit := m.values();
+  mut(vit) := m.values();
   while(true, {
     n := vit.next();
     cond(
@@ -90,10 +91,10 @@ test("OrderedMap iteration in insertion order", {
   assert(vs(usize(2)) == i32(13), "13 third");
 });
 test("OrderedMap iter yields entry POINTERS in insertion order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`one`, i32(1));
   m.insert(`two`, i32(2));
-  it := m.iter();
+  mut(it) := m.iter();
   e1 := it.next().unwrap();
   e2 := it.next().unwrap();
   assert(it.next().is_none(), "two entries");
@@ -103,7 +104,7 @@ test("OrderedMap iter yields entry POINTERS in insertion order", {
   assert(e2.*.value == i32(2), "second value");
 });
 test("OrderedMap iter pointers alias the map — writing through one updates it", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   for(m.iter(), ptr => {
@@ -113,7 +114,7 @@ test("OrderedMap iter pointers alias the map — writing through one updates it"
   assert(m.get(`b`).unwrap() == i32(102), "b updated in place");
 });
 test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`one`, i32(1));
   m.insert(`two`, i32(2));
   mut(keys) := ArrayList(String).new();
@@ -128,7 +129,7 @@ test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
   assert(total == i32(3), "values summed");
 });
 test("OrderedMap remove", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
@@ -137,8 +138,9 @@ test("OrderedMap remove", {
   assert(removed.unwrap() == i32(2), "old value 2");
   assert(m.len() == usize(2), "len 2");
   assert(!m.contains_key(`b`), "b gone");
-  // Order should be a, c
-  it := m.keys();
+  // Order should be a, c — the map is removed from again below, so the keys
+  // walk takes a clone (B10: `keys()` consumes).
+  mut(it) := m.clone().keys();
   k1 := it.next().unwrap();
   k2 := it.next().unwrap();
   assert(it.next().is_none(), "two keys");
@@ -150,7 +152,7 @@ test("OrderedMap remove", {
   assert(m.len() == usize(2), "len unchanged");
 });
 test("OrderedMap clear", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.clear();
@@ -159,13 +161,14 @@ test("OrderedMap clear", {
   assert(m.keys().next().is_none(), "no keys");
 });
 test("OrderedMap re-insert after remove appends to end", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
   m.remove(`a`);
   m.insert(`a`, i32(99));
-  it := m.keys();
+  // `m` is read once more below, so the walk takes a clone (B10: `keys()` consumes).
+  mut(it) := m.clone().keys();
   k1 := it.next().unwrap();
   k2 := it.next().unwrap();
   k3 := it.next().unwrap();
@@ -175,14 +178,14 @@ test("OrderedMap re-insert after remove appends to end", {
   assert(m.get(`a`).unwrap() == i32(99), "a is 99");
 });
 test("OrderedMap many entries preserves order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   mut(i) := i32(0);
   while(i < i32(50), i = (i + i32(1)), {
     key := i.to_string();
     m.insert(key, i);
   });
   assert(m.len() == usize(50), "50 entries");
-  it := m.keys();
+  mut(it) := m.keys();
   mut(expected) := i32(0);
   while(true, {
     n := it.next();
@@ -198,7 +201,7 @@ test("OrderedMap many entries preserves order", {
   assert(expected == i32(50), "saw all 50");
 });
 test("OrderedMap Default is the empty map", {
-  m := OrderedMap(String, i32).default();
+  mut(m) := OrderedMap(String, i32).default();
   assert(m.len() == usize(0), "default map is empty");
   m.insert(`k`, i32(7));
   assert(m.len() == usize(1), "the default map is a usable map");
@@ -206,9 +209,12 @@ test("OrderedMap Default is the empty map", {
 // `swap_remove` moves the LAST key into the removed slot — Rust's
 // `IndexMap::swap_remove`. O(1), and the iteration order changes: that trade
 // is the reason it exists beside the order-preserving O(n) `remove`.
+// `keys()` consumes its map (B10), and the callers below keep theirs, so the
+// helper walks an explicit clone — the value-semantics replacement for the old
+// shared-handle key walk.
 _keys :: (fn(m : &OrderedMap(String, i32)) -> ArrayList(String))({
   mut(out) := ArrayList(String).new();
-  it := m.keys();
+  mut(it) := m.clone().keys();
   while(true, {
     match(
       it.next(),
@@ -221,7 +227,7 @@ _keys :: (fn(m : &OrderedMap(String, i32)) -> ArrayList(String))({
   out
 });
 test("OrderedMap swap_remove returns the value and moves the last key in", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
@@ -243,7 +249,7 @@ test("OrderedMap swap_remove returns the value and moves the last key in", {
   assert(m.get(`d`).unwrap() == i32(4), "d");
 });
 test("OrderedMap swap_remove of the last key does not disturb the order", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
@@ -253,7 +259,7 @@ test("OrderedMap swap_remove of the last key does not disturb the order", {
   assert(ks.len() == usize(2), "two keys");
 });
 test("OrderedMap swap_remove of a missing key is None and changes nothing", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   assert(m.swap_remove(`zzz`).is_none(), "a missing key is .None");
   assert(m.len() == usize(1), "nothing was removed");
@@ -264,7 +270,7 @@ test("OrderedMap swap_remove of a missing key is None and changes nothing", {
 // recorded position is stale, and the next swap_remove then removes the wrong
 // slot. Interleave the operations and re-read the order after each one.
 test("OrderedMap swap_remove keeps its position index in step", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(6), i = (i + i32(1)), {
     m.insert(`k${i.to_string()}`, i);
@@ -291,7 +297,7 @@ test("OrderedMap swap_remove keeps its position index in step", {
   assert(m.swap_remove(`tail`).unwrap() == i32(99), "and is removable");
 });
 test("OrderedMap remove still preserves order after a swap_remove", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
@@ -306,7 +312,7 @@ test("OrderedMap remove still preserves order after a swap_remove", {
   assert(m.get(`c`).unwrap() == i32(3), "c");
 });
 test("OrderedMap clear resets the position index too", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.clear();
@@ -318,7 +324,7 @@ test("OrderedMap clear resets the position index too", {
 // `index_of` / `get_index` — the positional half of `IndexMap`'s surface,
 // which the position index answers in O(1).
 test("OrderedMap index_of and get_index address entries by position", {
-  m := OrderedMap(String, i32).new();
+  mut(m) := OrderedMap(String, i32).new();
   m.insert(`a`, i32(1));
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
@@ -358,7 +364,7 @@ impl(
   )
 );
 _om_same_hash_map :: (fn(n : i32) -> OrderedMap(_OmSameHash, i32))({
-  m := OrderedMap(_OmSameHash, i32).new();
+  mut(m) := OrderedMap(_OmSameHash, i32).new();
   (mut(i) : i32) = i32(0);
   while(i < n, i = (i + i32(1)), {
     m.insert(_OmSameHash(id : i), i * i32(10));
@@ -366,7 +372,7 @@ _om_same_hash_map :: (fn(n : i32) -> OrderedMap(_OmSameHash, i32))({
   m
 });
 test("OrderedMap keys sharing one hash: every insert lands in the shared position list", {
-  m := _om_same_hash_map(i32(5));
+  mut(m) := _om_same_hash_map(i32(5));
   assert(m.len() == usize(5), "five entries");
   (mut(i) : i32) = i32(0);
   while(i < i32(5), i = (i + i32(1)), {
@@ -384,7 +390,7 @@ test("OrderedMap keys sharing one hash: every insert lands in the shared positio
   assert(m.len() == usize(5), "and adds no entry");
 });
 test("OrderedMap keys sharing one hash: remove drops and shifts the shared positions", {
-  m := _om_same_hash_map(i32(5));
+  mut(m) := _om_same_hash_map(i32(5));
   k1 := _OmSameHash(id : i32(1));
   assert(m.remove(&k1).unwrap() == i32(10), "remove returns the value");
   assert(!m.contains_key(&k1), "the removed key is gone");
@@ -409,7 +415,7 @@ test("OrderedMap keys sharing one hash: remove drops and shifts the shared posit
   assert(m.index_of(&k1).is_none(), "index_of agrees");
 });
 test("OrderedMap keys sharing one hash: swap_remove moves the last position", {
-  m := _om_same_hash_map(i32(5));
+  mut(m) := _om_same_hash_map(i32(5));
   k0 := _OmSameHash(id : i32(0));
   assert(m.swap_remove(&k0).unwrap() == i32(0), "swap_remove returns the value");
   assert(!m.contains_key(&k0), "the removed key is gone");
@@ -437,7 +443,7 @@ test("OrderedMap keys sharing one hash: swap_remove moves the last position", {
 });
 // ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
 test("get_cloned and get_index_cloned clone in place", {
-  m := OrderedMap(String, String).new();
+  mut(m) := OrderedMap(String, String).new();
   m.insert(`a`, `1`);
   m.insert(`b`, `2`);
   mut(c) := m.get_cloned(&`b`).unwrap();
@@ -447,4 +453,18 @@ test("get_cloned and get_index_cloned clone in place", {
   e := m.get_index_cloned(usize(0)).unwrap();
   assert((e.key == `a`) && (e.value == `1`), "the pair at position 0");
   assert(m.get_index_cloned(usize(2)).is_none(), "out of range: none");
+});
+// ===== B10: a map is a value (plans/VALUES_BY_DEFAULT.md) =====
+test("clone is a deep copy: the clone's writes never reach the source (B10)", {
+  mut(m) := OrderedMap(String, i32).new();
+  m.insert(`a`, i32(1));
+  m.insert(`b`, i32(2));
+  mut(c) := m.clone();
+  c.insert(`b`, i32(20));
+  c.insert(`c`, i32(3));
+  _ := c.swap_remove(`a`);
+  assert(m.len() == usize(2), "the source keeps its own length");
+  assert(m.get(`b`).unwrap() == i32(2), "and its own value for a replaced key");
+  assert(m.contains_key(`a`), "the source never saw the removal");
+  assert((c.len() == usize(2)) && (c.get(`b`).unwrap() == i32(20)), "the clone saw every write");
 });

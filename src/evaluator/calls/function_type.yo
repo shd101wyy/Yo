@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
-{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text, record_copy_loop } :: import("../utils.yo");
+{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
@@ -669,8 +669,10 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
 /// `_build_def_time_body_env` binds each parameter with its token, so a
 /// parameter's `Variable.token` names its own declaration. The interned
 /// `synthetic_token` sits at byte offset 0 for every name in a module, which
-/// gave every parameter of a module one `_ic_decl_key` and let a write to
-/// one parameter list a copy out of another
+/// gave every parameter of a module one declaration identity (a token's
+/// module and position, as the local-borrow checks compare declarations);
+/// the retired explicit-copy migration's key then let a write to one
+/// parameter list a copy out of another
 /// (issues/fixed/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md).
 /// The tokens are the AST's own handles, so nothing is minted per binding.
 _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
@@ -1591,9 +1593,6 @@ Result type: ${type_to_string(&result_box)}`
       // random_id func_id and previously skipped registration — leaving
       // get_func_type → t_unit → a wrong `void f(void)` prototype.
       register_func_type(fn_val_id.clone(), function_type.clone());
-      // `yo fix --migrate explicit-copy`: a function runs again on its next
-      // call, after a copy it stored outside itself (`record_copy_loop`).
-      record_copy_loop(expr, is_function : true);
       // Re-key the per-parameter optional-flags side-table (registered by
       // `evaluate_function_type` under the `fn(...)` type-expression id)
       // under this FuncVal's id, which is what the call site sees. The

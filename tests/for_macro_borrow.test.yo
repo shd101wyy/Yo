@@ -352,21 +352,21 @@ test("for(map, (k, inout(v)) => body): key read-only, value borrowed", {
   assert(scores.len() == usize(3), "insert after the loop");
 });
 test("borrowed for over Deque, BTreeMap and OrderedMap", {
-  dq := Deque(i32).new();
+  mut(dq) := Deque(i32).new();
   dq.push_back(i32(1));
   dq.push_back(i32(2));
   for(&mut dq, x => {
     x = (x + i32(100));
   });
   assert(dq.pop_front() == Option(i32).Some(i32(101)), "deque element mutated in place");
-  bt := BTreeMap(i32, i32).new();
+  mut(bt) := BTreeMap(i32, i32).new();
   bt.insert(i32(1), i32(10));
   bt.insert(i32(2), i32(20));
   for(&mut bt, (k, v) => {
     v = (v + k);
   });
   assert(bt.get(i32(2)) == Option(i32).Some(i32(22)), "btree value mutated in place");
-  om := OrderedMap(i32, i32).new();
+  mut(om) := OrderedMap(i32, i32).new();
   om.insert(i32(7), i32(1));
   for(&mut om, (k, v) => {
     v = (v + k);
@@ -465,7 +465,7 @@ test("indices(): a walk that grows its list reads the re-derived buffer", {
   });
   assert(seen == i32(6), "the three original elements, read through the moved buffer");
   assert(xs.len() > cap0, "the list grew past its first buffer");
-  dq := Deque(i32).new();
+  mut(dq) := Deque(i32).new();
   dq.push_back(i32(5));
   dq.push_back(i32(6));
   mut(dsum) := i32(0);

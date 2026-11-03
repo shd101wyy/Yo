@@ -38,12 +38,13 @@ pragma(Pragma.AllowUnsafe);
 /// `PriorityQueue(Reverse(T))` rather than negating keys — negation is wrong
 /// for unsigned types and for the minimum of a signed type.
 PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _data : ArrayList(T)
-    )
+  struct(
+    _data : ArrayList(T)
   )
 );
+// A value since B10 (plans/VALUES_BY_DEFAULT.md): cloning clones the backing
+// list, which needs `T <: Clone` (ArrayList's Clone).
+derive(generic(T : Type), where(T <: Clone), PriorityQueue(T), Clone);
 impl(
   generic(T : Type),
   PriorityQueue(T),
