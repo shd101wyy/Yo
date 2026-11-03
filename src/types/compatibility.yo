@@ -179,8 +179,8 @@ _wrapper_carrier_args_concrete :: (fn(rtts : &ArrayList(TypeValue)) -> bool)({
 AlphaPair :: struct(a_name : String, a_level : usize, e_name : String, e_level : usize);
 derive(AlphaPair, Clone);
 (g_alpha_pairs : RefCell(ArrayList(AlphaPair))) = RefCell(ArrayList(AlphaPair)).new(ArrayList(AlphaPair).new());
-_alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e_level : usize) -> bool)({
-  // Read in place, newest first: a `get_cloned` per probe copies both names.
+/// Read in place, newest first: a `get_cloned` per probe copies both names.
+_alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e_level : usize) -> bool)(
   g_alpha_pairs.with(xs => {
     (mut(i) : usize) = xs.len();
     (mut(found) : bool) = false;
@@ -190,7 +190,7 @@ _alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e
     });
     found
   })
-});
+);
 /// The frame level of the first SomeT named `label` among `types`.
 _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(usize))({
   (i : usize) = usize(0);

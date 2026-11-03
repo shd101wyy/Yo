@@ -737,9 +737,9 @@ purge_inherent_method_sites_owned_by :: (fn(owner : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < keys.len(), {
     match(
-      keys.get(i),
+      keys.get_cloned(i),
       .Some(k) => {
-        _r := _inherent_method_sites.with_mut(m => m.remove(&k));
+        _r := _inherent_method_sites.with_mut({ k }(m) => m.remove(&k));
       },
       .None => ()
     );
