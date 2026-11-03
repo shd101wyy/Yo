@@ -160,7 +160,7 @@ _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &Stri
       .Some(obl) => {
         name_ok := obl.name.contains(name_prefix.clone());
         match(
-          obl.verdict,
+          &obl.verdict,
           .Refuted(ce) => {
             ce_all := _join(&ce, String.from("; "));
             if(name_ok && ce_all.contains(needle.clone()), {
@@ -181,7 +181,7 @@ _join :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < ss.len(), {
     match(
-      ss.get(i),
+      ss.get_cloned(i),
       .Some(s) => {
         if(i > usize(0), {
           sb.write_string(sep.clone());
@@ -261,7 +261,7 @@ test("positive battery: every function in verify_straight_line proves", {
             br.obligations.get(oj),
             .Some(obl) => {
               match(
-                obl.verdict,
+                &obl.verdict,
                 .Refuted(ce) => {
                   ids.push(`  ${obl.name}: ${_join(&ce, String.from(", "))}`);
                 },
@@ -333,7 +333,7 @@ test("obligation names are unique and guard obligations carry their site", {
         obl := rp.obligations(i);
         if(obl.name.contains("divisor-nonzero"), {
           match(
-            obl.site,
+            &obl.site,
             .Some(gs) => {
               assert(gs.class == "divisor-nonzero", "the site names its guard class");
               assert(gs.module.ends_with("obligation_sites.yo"), `the site names its module (got ${gs.module})`);
