@@ -207,6 +207,10 @@ Progress:
     item 3's B10). The flip-bound modes `--migrate explicit-copy` and
     `--migrate cloned-accessors` retired with it (§6, "After V5",
     "Flip-bound modes").
+  - V2's B11: `StringBuilder`, `HeaderMap` and `HttpHeader` are values
+    (`Clone` derived; `StringBuilder.into_string` hands its buffer over,
+    `HeaderMap.entries()` borrows the map's list, D24/D26; §6 V2, item 3's
+    B11).
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
