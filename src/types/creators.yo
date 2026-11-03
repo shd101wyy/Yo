@@ -466,17 +466,23 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
 t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt_bnd, wr_kft, _)) => { wr_rtt := wr_rtt_bnd.required(); wr_rtl := wr_rtt_bnd.required_levels(); wr_ntt := wr_rtt_bnd.negative(); wr_ntl := wr_rtt_bnd.negative_levels(); Rc.new(
-      TypeValueNode.SomeT(
-        wr_id.clone(),
-        wr_nm.clone(),
-        wr_fl,
-        Rc.clone(wr_pt),
-        some_t_bounds(wr_rtt.clone(), wr_rtl.clone(), wr_ntt.clone(), wr_ntl.clone()),
-        wr_kft.clone(),
-        Option(TypeValue).Some(Rc.clone(concrete))
+    Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt_bnd, wr_kft, _)) => {
+      wr_rtt := wr_rtt_bnd.required();
+      wr_rtl := wr_rtt_bnd.required_levels();
+      wr_ntt := wr_rtt_bnd.negative();
+      wr_ntl := wr_rtt_bnd.negative_levels();
+      Rc.new(
+        TypeValueNode.SomeT(
+          wr_id.clone(),
+          wr_nm.clone(),
+          wr_fl,
+          Rc.clone(wr_pt),
+          some_t_bounds(wr_rtt.clone(), wr_rtl.clone(), wr_ntt.clone(), wr_ntl.clone()),
+          wr_kft.clone(),
+          Option(TypeValue).Some(Rc.clone(concrete))
+        )
       )
-    ) },
+    },
     _ => Rc.clone(t)
   )
 );
@@ -509,17 +515,23 @@ t_extern_opaque :: (fn(name : &String, c_name : &String) -> TypeValue)(
 clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
   match(
     s,
-    Rc(.SomeT(sid, snm, sfl, spt, sreq_bnd, skind, _)) => { sreq := sreq_bnd.required(); sreql := sreq_bnd.required_levels(); sneg := sreq_bnd.negative(); snegl := sreq_bnd.negative_levels(); Rc.new(
-      TypeValueNode.SomeT(
-        generate_some_type_id(),
-        snm.clone(),
-        sfl,
-        Rc.clone(spt),
-        some_t_bounds(sreq.clone(), sreql.clone(), sneg.clone(), snegl.clone()),
-        skind.clone(),
-        Option(TypeValue).None
+    Rc(.SomeT(sid, snm, sfl, spt, sreq_bnd, skind, _)) => {
+      sreq := sreq_bnd.required();
+      sreql := sreq_bnd.required_levels();
+      sneg := sreq_bnd.negative();
+      snegl := sreq_bnd.negative_levels();
+      Rc.new(
+        TypeValueNode.SomeT(
+          generate_some_type_id(),
+          snm.clone(),
+          sfl,
+          Rc.clone(spt),
+          some_t_bounds(sreq.clone(), sreql.clone(), sneg.clone(), snegl.clone()),
+          skind.clone(),
+          Option(TypeValue).None
+        )
       )
-    ) },
+    },
     _ => Rc.clone(s)
   )
 );

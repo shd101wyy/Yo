@@ -973,7 +973,10 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
               );
               some_undroppable := match(
                 &v.ty,
-                Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => { s_rtt := s_rtt_bnd.required(); (s_rc.is_none() && (s_rtt.len() == usize(0))) },
+                Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
+                  s_rtt := s_rtt_bnd.required();
+                  (s_rc.is_none() && (s_rtt.len() == usize(0)))
+                },
                 _ => false
               );
               if(minted_here && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty) && !v.is_module_level && !v.is_ref && !some_undroppable && v.consumed_at_token.is_none(), {

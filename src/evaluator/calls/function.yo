@@ -36,7 +36,8 @@ pragma(Pragma.AllowUnsafe);
   desugar_if_calls,
   BF_YO_AS,
   ast_expr_strip_borrow_marker,
-  AUTO_REF_RECEIVER_PATH
+  AUTO_REF_RECEIVER_PATH,
+  is_for_desugar_target
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
@@ -3499,11 +3500,11 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // codegen lowers it as before), carries the assumed borrows.
     assumed_ty := match(
       &info.ty,
-      Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bnd2, kind_function_type : skft })) => {
-        srtt := srtt_bnd2.required();
-        srtl := srtt_bnd2.required_levels();
-        sntt := srtt_bnd2.negative();
-        sntl := srtt_bnd2.negative_levels();
+      Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bounds, kind_function_type : skft })) => {
+        srtt := srtt_bounds.required();
+        srtl := srtt_bounds.required_levels();
+        sntt := srtt_bounds.negative();
+        sntl := srtt_bounds.negative_levels();
         Rc.new(
           TypeValueNode.SomeT(
             generate_some_type_id(),
@@ -6522,8 +6523,8 @@ _rre_binder_ids :: (
         somes.get(si),
         .Some(sv) => match(
           sv,
-          Rc(.SomeT({ id : sid, name : snm, bounds : srt_bnd2 })) => {
-            srt := srt_bnd2.required();
+          Rc(.SomeT({ id : sid, name : snm, bounds : srt_bounds })) => {
+            srt := srt_bounds.required();
             (ni : usize) = usize(0);
             while(ni < forall_names.len(), {
               match(
@@ -6613,8 +6614,8 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
         somes.get(si),
         .Some(sv) => match(
           sv,
-          Rc(.SomeT({ name : sn, bounds : srt_bnd3 })) => {
-            srt := srt_bnd3.required();
+          Rc(.SomeT({ name : sn, bounds : srt_bounds })) => {
+            srt := srt_bounds.required();
             (ni : usize) = usize(0);
             while((ni < ids.len()) && !found, {
               match(
@@ -10556,6 +10557,13 @@ Fix: wrap the call:
         // issues/fixed/yo-self-macro-dispatch-corruption.md). `is_macro_fn`
         // reads the REGISTRY (quoted params / unquote returns).
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
+        // Every `for(coll, handle)` is desugared at parse time (macro plan
+        // B1); the prelude's `for` macro stays only for the seed, and a call
+        // the desugar missed would still expand silently through it.
+        // `YO_DEBUG_FOR_MACRO_REACHED` makes such a call an error.
+        if(fv_is_macro && is_for_desugar_target(expr) && debug_knob(`YO_DEBUG_FOR_MACRO_REACHED`).is_some(), {
+          exn.throw(dyn(format_error_message(&tok, String.from("YO_DEBUG_FOR_MACRO_REACHED: this `for(...)` call reached the prelude's `for` macro; the parse-time desugar (`desugar_if_calls`, plans/backlog/MACRO_AND_ISO_REMOVAL.md B1) missed it."))));
+        });
         // Early generic synthesis from the expected return type. When this call has an expected type, the function has
         // `generic` parameters, and there is NO explicit `generic(...)` argument,
         // resolve the parameter types from the expected type so that a
@@ -12698,9 +12706,16 @@ Fix: wrap the call:
           // 32): the receiver is written in call form, so its marker is a
           // call-site marker (Rust's `Rc::make_mut(&mut h)`), checked and
           // peeled against `self`'s mode here. The call below is
-          // method-form, which leaves position 0 unpeeled.
+          // method-form, which leaves position 0 unpeeled. Any static call
+          // (`T.m(&x, ...)`: no receiver is prepended) has the same shape:
+          // its argument 0 is a call-site argument, peeled against the
+          // method's first parameter. An impl member still being evaluated
+          // (a method calling itself, or one a sibling forced early) is
+          // reached only through this path, so its `&x` first argument was
+          // left unpeeled and rejected
+          // (issues/fixed/2026-11-02-an-impl-method-calling-itself-or-a-sibling-forced-early-rejects-a-borrow-argument.md).
           uc_args := cond(
-            uc_inf.bound => match(
+            (uc_inf.bound || method_info.is_static) => match(
               &method_info.method_ty,
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();

@@ -78,7 +78,7 @@ test("empty Tuple → TypeUni(0)", {
 });
 test("Tuple of primitives → TypeUni(0)", {
   labels := ArrayList(String).new();
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(Rc.new(TypeValueNode.BoolT));
   result := type_of_type(Rc.new(TypeValueNode.Tuple(shared_list(labels), shared_list(types))));
@@ -86,7 +86,7 @@ test("Tuple of primitives → TypeUni(0)", {
 });
 test("Tuple containing TypeUni(0) → TypeUni(1)", {
   labels := ArrayList(String).new();
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(Rc.new(TypeValueNode.TypeUni(usize(0))));
   types.push(t_i32());
   result := type_of_type(Rc.new(TypeValueNode.Tuple(shared_list(labels), shared_list(types))));
@@ -96,19 +96,19 @@ test("Tuple containing TypeUni(0) → TypeUni(1)", {
 // Struct
 // ---------------------------------------------------------------------------
 test("Struct with primitive fields → TypeUni(0)", {
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from("x"));
   labels.push(String.from("y"));
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(Rc.new(TypeValueNode.BoolT));
   result := type_of_type(Rc.new(TypeValueNode.Struct(id : String.from(""), name : String.from("Point"), field_labels : shared_list(labels), field_types : shared_list(types), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false), "Struct with primitive fields → TypeUni(0)");
 });
 test("Struct with TypeUni(0) field → TypeUni(1)", {
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from("ty"));
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(Rc.new(TypeValueNode.TypeUni(usize(0))));
   result := type_of_type(Rc.new(TypeValueNode.Struct(id : String.from(""), name : String.from("TypeBox"), field_labels : shared_list(labels), field_types : shared_list(types), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(1)), _ => false), "Struct with TypeUni(0) field → TypeUni(1)");
@@ -117,13 +117,13 @@ test("Struct with TypeUni(0) field → TypeUni(1)", {
 // EnumT
 // ---------------------------------------------------------------------------
 test("EnumT with primitive variants → TypeUni(0)", {
-  vnames := ArrayList(String).new();
+  mut(vnames) := ArrayList(String).new();
   vnames.push(String.from("None"));
   vnames.push(String.from("Some"));
   none_fields := ArrayList(TypeValue).new();
-  some_fields := ArrayList(TypeValue).new();
+  mut(some_fields) := ArrayList(TypeValue).new();
   some_fields.push(t_i32());
-  vfields := ArrayList(SharedList(TypeValue)).new();
+  mut(vfields) := ArrayList(SharedList(TypeValue)).new();
   vfields.push(shared_list(none_fields));
   vfields.push(shared_list(some_fields));
   result := type_of_type(Rc.new(TypeValueNode.EnumT(String.from(""), String.from("Option"), shared_list(vnames), shared_list(vfields), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types())));

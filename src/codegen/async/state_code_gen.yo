@@ -59,7 +59,14 @@ is_io_future_type :: (fn(ty : &TypeValue) -> bool)({
     .None => ()
   );
   // Branch (2): any required trait is a `Concrete(...)` trait.
-  rts := match(ty, Rc(.SomeT({ bounds : required_trait_types_bnd })) => { required_trait_types := required_trait_types_bnd.required(); required_trait_types.clone() }, _ => ArrayList(TypeValue).new());
+  rts := match(
+    ty,
+    Rc(.SomeT({ bounds : required_trait_types_bnd })) => {
+      required_trait_types := required_trait_types_bnd.required();
+      required_trait_types.clone()
+    },
+    _ => ArrayList(TypeValue).new()
+  );
   (i : usize) = usize(0);
   while(i < rts.len(), {
     rt := match(rts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));

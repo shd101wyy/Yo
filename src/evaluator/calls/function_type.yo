@@ -1195,7 +1195,11 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
     rp_i = (rp_i + usize(1));
   });
   g_pending_def_evals.with_mut(xs => xs.clear());
-  g_pending_def_evals.with_mut(xs => xs.append(&mut kept));
+  // The list moves in through the capture list: an implicit capture lent
+  // `&mut` inside the closure is a copy under the v0.2.73 seed, so the local
+  // would still own (and drop) the moved elements
+  // (issues/fixed/2026-11-03-an-implicit-capture-lent-mut-in-a-closure-is-a-copy-under-the-seed.md).
+  g_pending_def_evals.with_mut({ kept }(xs) => xs.extend(kept));
   g_rerunning_def_evals = false;
   rp_failure
 });

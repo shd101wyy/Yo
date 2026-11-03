@@ -745,8 +745,8 @@ validate_send_closure_global_reach :: (
   // `Sync` closure slot as well as a `Send` one (decision 38 E).
   thread_marker := match(
     wrapper_type,
-    Rc(.SomeT({ bounds : rtts_bnd2 })) => {
-      rtts := rtts_bnd2.required();
+    Rc(.SomeT({ bounds : rtts_bounds })) => {
+      rtts := rtts_bounds.required();
       (found : String) = String.new();
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
@@ -814,8 +814,8 @@ validate_capture_trait_requirements :: (
 )({
   match(
     wrapper_type,
-    Rc(.SomeT({ bounds : rtts_bnd3 })) => {
-      rtts := rtts_bnd3.required();
+    Rc(.SomeT({ bounds : rtts_bounds })) => {
+      rtts := rtts_bounds.required();
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
         trait_type := Rc.clone(rtts(ti));

@@ -644,7 +644,8 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       });
       res
     },
-    Rc(.TraitT(_, field_types_body, _, _, _, _)) => { field_types := field_types_body.field_types(); 
+    Rc(.TraitT(_, field_types_body, _, _, _, _)) => {
+      field_types := field_types_body.field_types();
       (res : bool) = false;
       i := usize(0);
       while((i < field_types.len()) && !res, {
@@ -978,10 +979,12 @@ _synthesize_types_impl :: (
     if(exp_some_id != giv_some_id, {
       match(
         expected_ty,
-        Rc(.SomeT(_, _, _, _, expected_traits_bnd, _, _)) => { expected_traits := expected_traits_bnd.required(); 
+        Rc(.SomeT(_, _, _, _, expected_traits_bnd, _, _)) => {
+          expected_traits := expected_traits_bnd.required();
           match(
             given_ty,
-            Rc(.SomeT(_, _, _, _, given_traits_bnd, _, _)) => { given_traits := given_traits_bnd.required(); 
+            Rc(.SomeT(_, _, _, _, given_traits_bnd, _, _)) => {
+              given_traits := given_traits_bnd.required();
               n_et := expected_traits.len();
               (eti : usize) = usize(0);
               while(eti < n_et, {
@@ -1537,7 +1540,7 @@ _synthesize_types_impl :: (
     giv_trait_id := match(given_ty, Rc(.TraitT(_, _, id, _, _, _)) => id.clone(), _ => ``);
     if(exp_trait_id == giv_trait_id, {
       exp_ft := match(expected_ty, Rc(.TraitT(_, fts_body, _, _, _, _)) => fts_body.field_types(), _ => ArrayList(TypeValue).new());
-      giv_ft := match(given_ty, Rc(.TraitT(_, fts_body2, _, _, _, _)) => fts_body2.field_types(), _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty, Rc(.TraitT(_, fts_body3, _, _, _, _)) => fts_body3.field_types(), _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {

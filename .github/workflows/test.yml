@@ -2507,6 +2507,19 @@ jobs:
     # 38262413827 attempt 2 and 38333980990, both cut off in the verifier
     # files at ~12 min each, every file before them passing). Six shards put
     # each near 70-100 min; shards 4 and 5 carry no heavy file.
+    # Duration-weighted since 2026-11-03
+    # (issues/fixed/2026-11-03-the-differential-shards-were-striped-by-name-not-by-duration.md):
+    # round-robin striping balances file COUNT, not time, and the six shards
+    # drifted to s0 143 / s1 44 / s2 83 / s3 70 / s4 24 / s5 114 min (run
+    # 41472964105) and s0 143 / s1 66 / s2 75 / s3 35 / s4 45 / s5 109 min
+    # (run 41337442878); shard 0 (lsp_protocol 30 + compile 22 +
+    # module_prelude_outcome 12.5 + four verifier files at 12-13.5) was then
+    # cut off at 150 min on run 41506787582. scripts/bootstrap/differential_shard.sh
+    # now assigns files longest-first onto the least-loaded shard from the
+    # measured per-file minutes in scripts/bootstrap/differential-shard-weights.tsv
+    # (the SLOWEST sample of three batteries, ~545 min in all): 90.7-90.8 min
+    # predicted per shard. The next step, if the tier outgrows ~110 min a
+    # shard, is more shards (8 would predict ~68), not a longer timeout.
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -2582,47 +2595,36 @@ jobs:
           # (UAF/double-free) stays fully armed — only detect_leaks is off.
           YO_TEST_LEAK_VERDICT: "0"
         run: |
-          # Shard selection (same as the retired TS arm): the three heavy
-          # quote/reflection files (each compiles the whole evaluator) go
-          # one per shard (shards 0-2; 3-5 get none); the rest stripe
-          # round-robin over the sorted glob order. The fourth heavy,
-          # macro_expansion, was deleted with the user-macro fixtures
-          # (2026-10-24, plans/backlog/MACRO_AND_ISO_REMOVAL.md C5).
+          # Shard selection: duration-weighted, longest file first onto the
+          # least-loaded shard, from the measured per-file minutes in
+          # scripts/bootstrap/differential-shard-weights.tsv (see the job
+          # comment above). It replaced the retired TS arm's selection (heavy
+          # quote/reflection files one per shard, the rest round-robin over
+          # the sorted glob), which balanced file count, not time. A file
+          # missing from the table gets a 10 min default and a warning; add
+          # its measured time (its `::group::` block below) when it lands.
           #
           # A shard number alone does not say WHICH file failed, and the job
           # log is unavailable until the whole run completes — so when four
           # shards went red at once on 2026-09-13 the map had to be
           # reconstructed by hand before any of it could be read. Print it
           # instead (`shard N files:` below already does, once the job runs);
-          # to get it WITHOUT waiting for CI, run the same selection locally:
+          # to get it WITHOUT waiting for CI, with each shard's predicted
+          # minutes:
           #
-          #   heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
-          #   for shard in 0 1 2 3 4 5; do
-          #     echo "== shard $shard =="
-          #     echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p"
-          #     i=0
-          #     for f in tests/internal/*.test.yo; do
-          #       case " $heavies " in *" $f "*) continue ;; esac
-          #       [ $((i % 6)) -eq "$shard" ] && echo "$f"
-          #       i=$((i + 1))
-          #     done
-          #   done
+          #   scripts/bootstrap/differential_shard.sh --table 6
           #
-          # Do NOT hardcode the resulting map: it is round-robin over the
-          # sorted glob, so adding ONE file to tests/internal/ reshuffles
-          # every shard after it.
-          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          # Do NOT hardcode the resulting map: adding ONE file to
+          # tests/internal/ (or re-measuring one) can move others.
           shard=${{ matrix.shard }}
-          files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
-          i=0
-          for f in tests/internal/*.test.yo; do
-            case " $heavies " in *" $f "*) continue ;; esac
-            if [ $((i % 6)) -eq "$shard" ]; then
-              files="$files $f"
-            fi
-            i=$((i + 1))
-          done
-          echo "shard $shard files:$files"
+          # No pipe here: `bash -e` without pipefail would let a failing
+          # selection through as an empty, green shard.
+          files=$(scripts/bootstrap/differential_shard.sh "$shard" 6)
+          if [ -z "$files" ]; then
+            echo "::error::shard $shard selected no files"
+            exit 1
+          fi
+          echo "shard $shard files: $(echo $files)"
           # `rc_all`, not `status` — `status` is read-only in some shells.
           rc_all=0
           failed=""

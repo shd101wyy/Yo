@@ -47,7 +47,8 @@ pragma(Pragma.AllowUnsafe);
   BF_ADDR_OF,
   BF_ADDRESS_OF,
   is_mut_binding,
-  ast_rewritten_node
+  ast_rewritten_node,
+  for_desugar_site_of
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -1464,13 +1465,16 @@ place_cell_hops :: (fn(ev : &AstExpr, ctx : &EvalContext) -> PlaceCellHops)({
   out
 });
 /// Decision 38 D: no hop of the evaluated place `ev` may pass through a cell
-/// (an `Rc`/`Arc`, any `ref` object, a pointer dereference `p.*`, or an index
-/// into a buffer behind a pointer; `place_cell_hops`). A borrow capture could
-/// not hold the cell's run-time mark: the closure may be copied, and a
-/// per-call mark would leave the pointer dangling between calls.
-capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
+/// (any `ref` object, a pointer dereference `p.*`, or an index into a buffer
+/// behind a pointer; `place_cell_hops`). A borrow capture could not hold the
+/// cell's run-time mark: the closure may be copied, and a per-call mark
+/// would leave the pointer dangling between calls. A shared capture through
+/// the deref of a handle whose payload is read-only (an `Rc` or an `Arc`)
+/// is the exception (O9, decision 43): it needs no mark, and the capture
+/// freezes the handle; a `&mut` one (`is_mut`) is not.
+capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext, is_mut : bool) -> bool)({
   h := place_cell_hops(ev, ctx);
-  h.read_only_handle || h.mutable_cell
+  (h.read_only_handle && is_mut) || h.mutable_cell
 });
 /// Decision 46 (plans/VALUES_BY_DEFAULT.md): the `Rc` handle whose payload
 /// the evaluated place `ev` lies in, or `.None`. The walk follows field steps
@@ -2955,8 +2959,8 @@ take_copying_accessor_sites :: (fn() -> ArrayList(CopyingAccessorSite))({
 });
 /// Print one audit line, once per line.
 audit_print_copying_accessor :: (fn(line : &String) -> unit)({
-  line_owned_ := line.clone();
-  if(g_audit_copying_accessor && g_copying_accessor_printed.with_mut({ line_owned_ }(s) => s.insert(line_owned_.clone())), {
+  line_owned := line.clone();
+  if(g_audit_copying_accessor && g_copying_accessor_printed.with_mut({ line_owned }(s) => s.insert(line_owned.clone())), {
     eprintln(line);
   });
 });
@@ -3181,10 +3185,10 @@ _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool
       .Some(v) => {
         src := _ic_decl_key(&v.token);
         if(src != dest_decl, {
-          dest_decl_owned_ := dest_decl.clone();
+          dest_decl_owned2 := dest_decl.clone();
           src_owned := src.clone();
-          at_module_owned_ := at_module.clone();
-          g_copy_flows.with_mut({ dest_decl_owned_, src_owned, at_module_owned_, at : at.clone() }(xs) => xs.push(CopyFlow(src : src_owned, dst : dest_decl_owned_.clone(), at_module : at_module_owned_, at_offset : at.byte_offset)));
+          at_module_owned2 := at_module.clone();
+          g_copy_flows.with_mut({ dest_decl_owned2, src_owned, at_module_owned2, at : at.clone() }(xs) => xs.push(CopyFlow(src : src_owned, dst : dest_decl_owned2.clone(), at_module : at_module_owned2, at_offset : at.byte_offset)));
         });
       },
       .None => ()
@@ -3537,8 +3541,8 @@ audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(Implicit
 audit_print_implicit_copy :: (fn(line : &String) -> unit)({
   // An empty line is a site held for the migration only, whose audit line
   // already printed (`audit_record_implicit_copy`'s `temp-payload`).
-  line_owned__ := line.clone();
-  if((g_audit_implicit_copy || audit_copy_trait_enabled()) && !line.is_empty() && g_implicit_copy_printed.with_mut({ line_owned__ }(s) => s.insert(line_owned__.clone())), {
+  line_owned := line.clone();
+  if((g_audit_implicit_copy || audit_copy_trait_enabled()) && !line.is_empty() && g_implicit_copy_printed.with_mut({ line_owned }(s) => s.insert(line_owned.clone())), {
     eprintln(line);
   });
 });
@@ -3922,7 +3926,8 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
     Rc(.Func({ result : _ })) => String.from("closure"),
     // An open type parameter in a definition-time trial: each instantiation
     // reports its concrete type, so this is the generic body itself.
-    Rc(.SomeT({ bounds : st_traits_bnd })) => { st_traits := st_traits_bnd.required(); 
+    Rc(.SomeT({ bounds : st_traits_bnd })) => {
+      st_traits := st_traits_bnd.required();
       (sti : usize) = usize(0);
       (is_future : bool) = false;
       while(sti < st_traits.len(), {
@@ -5548,7 +5553,10 @@ _drop_in_arms_that_keep :: (
   });
   if(match(
     &v.ty,
-    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => { s_rtt := s_rtt_bnd.required(); (s_rc.is_none() && (s_rtt.len() == usize(0))) },
+    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
+      s_rtt := s_rtt_bnd.required();
+      (s_rc.is_none() && (s_rtt.len() == usize(0)))
+    },
     _ => false
   ), {
     return(false);
@@ -7326,12 +7334,22 @@ _lb_raise_conflict :: (
       error_message : `Cannot ${_lb_verb(kind)} \`${_lb_place_text(place)}\` here: \`${info.name}\` borrows \`${ftext}\` with \`${_lb_mode(info)}\` and is still live, and ${rule}${cell_note}.`
     )
   );
+  // The borrowed `for`'s hidden `c := &mut coll`, which a desugared loop
+  // (macro plan B1) or a macro's own code took.
+  is_for_site := match(info.macro_site, .Some(fs) => for_desugar_site_of(&fs).is_some(), .None => false);
   match(
     info.macro_site,
     .Some(site) => {
-      // A borrow the macro's own code took (the borrowed `for`'s hidden
-      // `c := &mut coll`): point at the call, which it spans.
-      entries.push(TokenAndError(token : site, error_message : `this macro call borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`));
+      // Point at the loop (the call), which it spans.
+      entries.push(
+        TokenAndError(
+          token : site,
+          error_message : cond(
+            is_for_site => `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`,
+            true => `this macro call borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`
+          )
+        )
+      );
     },
     .None => {
       entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${ftext}\` here:`));
@@ -7382,6 +7400,7 @@ _lb_raise_conflict :: (
     .None => ()
   );
   help := cond(
+    is_for_site => `the borrow lasts for the whole \`for\` loop: make the access after the loop, or through the element the loop binds (\`x\` in a borrowed \`for(&mut coll, x => ...)\`; to read or grow an \`ArrayList\` or a \`Deque\` in the body, walk \`for(coll.indices(), i => ...)\` with \`coll(i)\` instead)`,
     info.macro_site.is_some() => `the borrow lasts for the whole macro call: make the access after the call, or through the bindings the macro gives you (in a borrowed \`for(&mut coll, x => ...)\`, the element \`x\`; to read or grow an \`ArrayList\` or a \`Deque\` in the body, walk \`for(coll.indices(), i => ...)\` with \`coll(i)\` instead)`,
     info.is_mut => `make the access after \`${info.name}\`'s last use, or make it through \`${info.name}\``,
     true => `make the access after \`${info.name}\`'s last use, or borrow with \`${info.name} := &mut ...\` to write through the borrow`
@@ -7573,11 +7592,13 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
       g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if(info.module_root && _lb_live_at(&info, tok), {
         root_text := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
+        // A call a desugared `for` makes (macro plan B1) is the loop's.
+        shown := match(for_desugar_site_of(tok), .Some(fc) => ast_expr_token(&fc).value.*.clone(), .None => callee_text.clone());
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(
             token : tok,
-            error_message : `Cannot call \`${callee_text}\` while \`${info.name}\` is live: \`${info.name}\` borrows \`${root_text}\`, a module-level place, which has no run-time borrow flag, and a callee can reach a module-level place by name.`
+            error_message : `Cannot call \`${shown}\` while \`${info.name}\` is live: \`${info.name}\` borrows \`${root_text}\`, a module-level place, which has no run-time borrow flag, and a callee can reach a module-level place by name.`
           )
         );
         entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${root_text}\` here:`));
@@ -7670,6 +7691,8 @@ _lb_first_site_in :: (fn(sites : &ArrayList(Token), decl : &Token, end : &Token)
 /// the declaration note.
 _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &Token, last_use : &Token, decl_note : String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
+  // The hidden borrow of a desugared `for` (macro plan B1) spans the loop.
+  for_site := match(info.macro_site, .Some(fs) => if((name == info.name) && for_desugar_site_of(&fs).is_some(), Option(Token).Some(fs), Option(Token).None), .None => Option(Token).None);
   entries := ArrayList(TokenAndError).new();
   entries.push(
     TokenAndError(
@@ -7677,11 +7700,28 @@ _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &To
       error_message : `\`${name}\` is live across this \`await\`, and its place passes through ${why}: another task can reach that place while this one is suspended.`
     )
   );
-  entries.push(TokenAndError(token : decl, error_message : `\`${name}\` ${decl_note}`));
-  entries.push(TokenAndError(token : last_use, error_message : String.from("and is used again here:")));
+  match(
+    for_site,
+    .Some(fs) => {
+      ftext := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => name.clone());
+      entries.push(TokenAndError(token : fs, error_message : `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${name}\`):`));
+    },
+    .None => {
+      entries.push(TokenAndError(token : decl, error_message : `\`${name}\` ${decl_note}`));
+      entries.push(TokenAndError(token : last_use, error_message : String.from("and is used again here:")));
+    }
+  );
   raise_flow_violation(
     with_code(
-      format_error_messages_with_help(&entries, Option(String).Some(String.from("end the borrow before the `await` and borrow again after it, or borrow a place the task owns (a local value)"))),
+      format_error_messages_with_help(
+        &entries,
+        Option(String).Some(
+          cond(
+            for_site.is_some() => String.from("make the `await` outside the loop, or walk a place the task owns (a local value)"),
+            true => String.from("end the borrow before the `await` and borrow again after it, or borrow a place the task owns (a local value)")
+          )
+        )
+      ),
       E_LOCAL_BORROW_CONFLICT
     ),
     ctx,
@@ -8098,7 +8138,19 @@ local_borrow_register :: (
       end = site.end;
       macro_site = .Some(site.site);
     },
-    .None => ()
+    // Declared by a desugared `for` (macro plan B1): the hidden borrow is
+    // live over the whole loop, the extent the macro's template borrow had.
+    .None => match(
+      for_desugar_site_of(decl),
+      .Some(for_call) => {
+        for_tok := ast_expr_token(&for_call);
+        start = for_tok;
+        last_use = _last_token_of(&for_call, &for_tok);
+        end = last_use;
+        macro_site = .Some(for_tok);
+      },
+      .None => ()
+    )
   );
   info := LocalBorrowInfo(
     name : name.clone(),
@@ -8227,13 +8279,13 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
 local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
   last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => return(()));
   end := _lb_region_end(body, name.clone(), decl);
-  name_owned_ := name.clone();
+  name_owned := name.clone();
   // Owned captures (`with_mut`'s callback is a sink parameter).
   lbmp_decl := decl.clone();
   lbmp_last := last.clone();
   lbmp_end := end.clone();
   lbmp_borrow := borrow.clone();
-  g_local_borrow_match_places.with_mut({ name_owned_, lbmp_decl, lbmp_last, lbmp_end, lbmp_borrow }(xs) => xs.push(LocalBorrowMatchPlace(name : name_owned_.clone(), decl : lbmp_decl, last_use : lbmp_last, end : lbmp_end, borrow : lbmp_borrow)));
+  g_local_borrow_match_places.with_mut({ name_owned, lbmp_decl, lbmp_last, lbmp_end, lbmp_borrow }(xs) => xs.push(LocalBorrowMatchPlace(name : name_owned.clone(), decl : lbmp_decl, last_use : lbmp_last, end : lbmp_end, borrow : lbmp_borrow)));
 });
 // ---------------------------------------------------------------------------
 // Direct projection calls (plans/VALUES_BY_DEFAULT.md decision 24, V2b)

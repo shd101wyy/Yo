@@ -2165,6 +2165,9 @@ _contains_desugar_target :: (fn(e : &AstExpr) -> bool)(
       if(_strip_mut_binders(e, false).is_some(), {
         return(true);
       });
+      if(is_for_desugar_target(e), {
+        return(true);
+      });
       if(recur(&func_box), {
         return(true);
       });
@@ -2246,6 +2249,346 @@ _wrap_glob_destructure :: (fn(decl : &AstExpr) -> AstExpr)({
     tok
   )
 });
+// ---------------------------------------------------------------------------
+// `for` (plans/backlog/MACRO_AND_ISO_REMOVAL.md Part B, B1)
+// ---------------------------------------------------------------------------
+// Every two-argument `for(coll, handle)` call is rewritten here into the loop
+// the prelude's `for` macro expands to, node for node, so the macro is never
+// reached (it stays in the prelude for the seed until Part C). The rewrite
+// runs after decision 42's sigil rewrite (`_bs_for_handle`): the borrowed
+// forms arrive as `for(coll, __yo_mut(x) => body)` / `for(coll, __yo_imm(x)
+// => body)` and the map forms as `(k, __yo_mut(v)) => body`. The cursor
+// protocol stays in prelude functions (`__borrow_guard`, `walk_*`,
+// `__yo_borrow_check`), so a later retarget of the borrowed `for` edits std,
+// not this lowering. The built tree is the macro's quote template with the
+// caller's pieces unquoted into it; `desugar_if_calls` then recurses into it,
+// as the macro splice does into an expansion (the `&`/`&mut` local borrows,
+// the `mut(...)` binders).
+/// The `for` loops this desugar rewrote, keyed by the call's token position
+/// (`_borrowed_match_site_key`, which a cloned or rebuilt node keeps): the
+/// call as the desugar received it. Every node the desugar synthesizes
+/// carries a token at that position, so the evaluator reads a binding
+/// declared there as one of the loop's hidden locals (the hidden borrow is
+/// live for the whole loop, the `.Some(x)` element rebinds like a
+/// parameter), and the verifier finds the loop's collection and element.
+(g_for_desugar_sites : RefCell(HashMap(String, AstExpr))) = RefCell(HashMap(String, AstExpr)).new(HashMap(String, AstExpr).new());
+/// The ordinal of the next desugared `for` of the module being desugared
+/// (`desugar_program_if_calls` resets it), the suffix of its hidden locals'
+/// names: deterministic per parse, so two parses of one text build equal
+/// trees (`yo fmt`'s re-parse gate).
+(mut(g_for_desugar_ordinal) : usize) = usize(0);
+/// The `for` call (after decision 42's rewrite) whose desugared loop
+/// synthesized a node at `tok`'s position, or `.None`.
+for_desugar_site_of :: (fn(tok : &Token) -> Option(AstExpr))(
+  cond(
+    (g_for_desugar_sites.with(m => m.len()) == usize(0)) => Option(AstExpr).None,
+    true => g_for_desugar_sites.with(m => m.get(_borrowed_match_site_key(tok)))
+  )
+);
+export(for_desugar_site_of, is_for_desugar_target);
+/// A two-argument `for(...)` call: the desugar's target.
+is_for_desugar_target :: (fn(e : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2)))
+);
+_fd_atom :: (fn(kind : TokenKind, value : str, at : &Token) -> AstExpr)(
+  AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(kind, value, at))
+);
+/// One use of a hidden local: a fresh atom sharing the name's cell.
+_fd_name :: (fn(name : &Rc(String), at : &Token) -> AstExpr)(
+  AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, Rc.clone(name), at))
+);
+/// `head(args...)`.
+_fd_call :: (fn(head : str, args : ArrayList(AstExpr), at : &Token) -> AstExpr)({
+  htok := _synth_desugar_tok(TokenKind.Identifier, head, at);
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), htok), Rc.new(args), false, htok)
+});
+_fd_call1 :: (fn(head : str, a : &AstExpr, at : &Token) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(a);
+  _fd_call(head, args, at)
+});
+_fd_call2 :: (fn(head : str, a : &AstExpr, b : &AstExpr, at : &Token) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(a);
+  args.push(b);
+  _fd_call(head, args, at)
+});
+/// The prefix operator call `op(a)`: `&a`, `&mut a`.
+_fd_prefix :: (fn(op : str, a : &AstExpr, at : &Token) -> AstExpr)({
+  otok := _synth_desugar_tok(TokenKind.Operator, op, at);
+  args := ArrayList(AstExpr).new();
+  args.push(a);
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), otok), Rc.new(args), false, otok)
+});
+/// `a op b`.
+_fd_infix :: (fn(op : str, a : &AstExpr, b : &AstExpr, at : &Token) -> AstExpr)({
+  otok := _synth_desugar_tok(TokenKind.Operator, op, at);
+  args := ArrayList(AstExpr).new();
+  args.push(a);
+  args.push(b);
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), otok), Rc.new(args), true, otok)
+});
+/// `recv.field`.
+_fd_dot :: (fn(recv : &AstExpr, field : str, at : &Token) -> AstExpr)({
+  dtok := _synth_desugar_tok(TokenKind.Dot, ".", at);
+  args := ArrayList(AstExpr).new();
+  args.push(recv);
+  args.push(_fd_atom(TokenKind.Identifier, field, at));
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dtok), Rc.new(args), true, dtok)
+});
+/// `recv.method(args...)`.
+_fd_method :: (fn(recv : &AstExpr, method : str, args : ArrayList(AstExpr), at : &Token) -> AstExpr)(
+  AstExpr.FnCall(alloc_global_expr_id(), _fd_dot(recv, method, at), Rc.new(args), false, _synth_desugar_tok(TokenKind.Dot, ".", at))
+);
+/// `recv.method(&cur)`: a cursor method.
+_fd_cursor_call :: (fn(recv : &Rc(String), method : str, cur : &Rc(String), at : &Token) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(_fd_prefix(BF_ADDRESS_OF, &_fd_name(cur, at), at));
+  _fd_method(&_fd_name(recv, at), method, args, at)
+});
+/// The enum-variant pattern `.Variant(args...)`, or `.Variant` without `args`.
+_fd_variant :: (fn(variant : str, payload : Option(AstExpr), at : &Token) -> AstExpr)({
+  dtok := _synth_desugar_tok(TokenKind.Dot, ".", at);
+  vargs := ArrayList(AstExpr).new();
+  vargs.push(_fd_atom(TokenKind.Identifier, variant, at));
+  head := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dtok), Rc.new(vargs), false, dtok);
+  match(
+    payload,
+    .Some(p) => {
+      pargs := ArrayList(AstExpr).new();
+      pargs.push(p);
+      AstExpr.FnCall(alloc_global_expr_id(), head, Rc.new(pargs), false, _synth_desugar_tok(TokenKind.Dot, ".", at))
+    },
+    .None => head
+  )
+});
+/// `{ stmts... }`, with the unit a block ending in `;` parses with when
+/// `trailing_unit`.
+_fd_block :: (fn(stmts : &ArrayList(AstExpr), trailing_unit : bool, at : &Token) -> AstExpr)({
+  all := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while(i < stmts.len(), i = (i + usize(1)), {
+    match(stmts.get(i), .Some(s) => all.push(s), .None => ());
+  });
+  if(trailing_unit, {
+    all.push(_fd_call(BK_TUPLE, ArrayList(AstExpr).new(), at));
+  });
+  _fd_call(BK_BEGIN, all, at)
+});
+/// `mut(name) := value`.
+_fd_mut_bind :: (fn(name : &Rc(String), value : &AstExpr, at : &Token) -> AstExpr)(
+  _fd_infix(BK_INIT_ASSIGN, &_fd_call1("mut", &_fd_name(name, at), at), value, at)
+);
+/// `name := value`.
+_fd_bind :: (fn(name : &Rc(String), value : &AstExpr, at : &Token) -> AstExpr)(
+  _fd_infix(BK_INIT_ASSIGN, &_fd_name(name, at), value, at)
+);
+/// A hidden local's name: the macro's `gensym` prefix and the loop's ordinal.
+_fd_hidden :: (fn(prefix : str, ordinal : usize) -> Rc(String))({
+  n := String.from(prefix);
+  n.push_string(ordinal.to_string());
+  Rc.new(n)
+});
+/// `comptime_assert(false, "message")`: what the macro's own assertion
+/// reports for a handle it does not accept.
+_fd_reject :: (fn(message : str, at : &Token) -> AstExpr)({
+  lit := String.from("\"");
+  lit.push_str(message);
+  lit.push_str("\"");
+  _fd_call2(
+    BF_COMPTIME_ASSERT,
+    &_fd_atom(TokenKind.Bool, "false", at),
+    &AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.StringLit, Rc.new(lit), at)),
+    at
+  )
+});
+/// `e` is a call of a deleted mode word, `mut(...)`, `inout(...)` or `imm(...)`.
+_fd_is_deleted_mode_word :: (fn(e : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, "mut", Option(usize).None) || ast_expr_is_fn_call_of(e, "inout", Option(usize).None) || ast_expr_is_fn_call_of(e, "imm", Option(usize).None)
+);
+/// The borrowed `for`'s source is a place the loop borrows where it stands:
+/// a variable, or a field path rooted at one (`xs`, `self.items`, `a.b.c`).
+/// Anything else (`make()`, `xs.into_iter()`) is first bound to a hidden
+/// owning local (the macro's `__for_source_is_place`).
+_fd_source_is_place :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => true,
+    .FnCall(_, f, Rc(args), _, _) => cond(
+      ast_expr_is_atom_of(&f, ".") => match(args.get(usize(0)), .Some(a) => recur(&a), .None => false),
+      true => false
+    )
+  )
+);
+/// The statements of `body` after a leading `invariant(...)`, or `.None` when
+/// `body` is not a block that starts with one. A verified loop's invariant
+/// (R2 task 4) is hoisted to the front of the generated `while` body.
+_fd_invariant_split :: (fn(body : &AstExpr) -> Option(ArrayList(AstExpr)))({
+  if(!ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  stmts := _bs_args(body);
+  if(stmts.len() <= usize(1), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  if(!ast_expr_is_fn_call_of(match(stmts.get(usize(0)), .Some(s) => s, .None => make_err_expr()), "invariant", Option(usize).None), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  Option(ArrayList(AstExpr)).Some(stmts)
+});
+/// The loop `for(coll, handle)` expands to, before `desugar_if_calls`
+/// recurses into it (the outer block keeps the call's id and token).
+_desugar_for_call :: (fn(e : &AstExpr) -> AstExpr)({
+  tok := ast_expr_token(e);
+  fargs := _bs_args(e);
+  coll := match(fargs.get(usize(0)), .Some(c) => c, .None => make_err_expr());
+  handle := match(fargs.get(usize(1)), .Some(h) => h, .None => make_err_expr());
+  if(!ast_expr_is_fn_call_of(&handle, "=>", .None), {
+    return(_fd_reject("for macro requires a function handle with `=>`", &tok));
+  });
+  hargs := _bs_args(&handle);
+  if(hargs.len() != usize(2), {
+    return(_fd_reject("'for' macro requires 2 arguments in the function handle", &tok));
+  });
+  variable := match(hargs.get(usize(0)), .Some(v) => v, .None => make_err_expr());
+  body := match(hargs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
+  if(_fd_is_deleted_mode_word(&variable), {
+    return(_fd_reject("`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.", &tok));
+  });
+  is_ref_form := (ast_expr_is_fn_call_of(&variable, BK_MUT, .None) || ast_expr_is_fn_call_of(&variable, BK_IMM, .None));
+  is_imm_form := ast_expr_is_fn_call_of(&variable, BK_IMM, .None);
+  // `(k, __yo_mut(v))` / `(k, __yo_imm(v))`: the map forms.
+  (map_val : Option(AstExpr)) = Option(AstExpr).None;
+  if(ast_expr_is_fn_call_of(&variable, BK_TUPLE, Option(usize).Some(usize(2))), {
+    second := _bs_arg(&variable, usize(1));
+    if(_fd_is_deleted_mode_word(&second), {
+      return(_fd_reject("`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (`for(&map, (k, v) => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.", &tok));
+    });
+    if(ast_expr_is_fn_call_of(&second, BK_MUT, .None) || ast_expr_is_fn_call_of(&second, BK_IMM, .None), {
+      map_val = Option(AstExpr).Some(second);
+    });
+  });
+  ordinal := g_for_desugar_ordinal;
+  g_for_desugar_ordinal = (ordinal + usize(1));
+  _old_site := g_for_desugar_sites.with_mut(m => m.insert(_borrowed_match_site_key(&tok), e));
+  inv_split := _fd_invariant_split(&body);
+  out := ArrayList(AstExpr).new();
+  cond(
+    (is_ref_form || map_val.is_some()) => {
+      // The borrowed forms (plans/VALUES_BY_DEFAULT.md decision 39, the
+      // cursor protocol): a local borrow `c := &mut coll` (the read walk's
+      // `c := &coll`) live for the whole loop, a guard holding the run-time
+      // borrow flag until the block ends, and a cursor with no handle to the
+      // collection, each element re-derived through `walk_elem`/`walk_ref`.
+      (elem_mode : AstExpr) = match(map_val, .Some(mv) => mv, .None => variable);
+      elem_args := _bs_args(&elem_mode);
+      if(elem_args.len() != usize(1), {
+        return(
+          _fd_reject(
+            cond(
+              map_val.is_some() => "'for(&map, (k, v) => ...)' / 'for(&mut map, (k, v) => ...)' binds exactly one value name",
+              true => "'for(&coll, x => ...)' / 'for(&mut coll, x => ...)' binds exactly one name"
+            ),
+            &tok
+          )
+        );
+      });
+      elem := match(elem_args.get(usize(0)), .Some(x) => x, .None => make_err_expr());
+      walk_imm := ast_expr_is_fn_call_of(&elem_mode, BK_IMM, .None);
+      src_var := _fd_hidden("for_src", ordinal);
+      c_var := _fd_hidden("for_coll", ordinal);
+      guard_var := _fd_hidden("for_guard", ordinal);
+      cur_var := _fd_hidden("for_cur", ordinal);
+      src_is_place := _fd_source_is_place(&coll);
+      out.push(cond(src_is_place => _fd_call(BK_TUPLE, ArrayList(AstExpr).new(), &tok), true => _fd_mut_bind(&src_var, &coll, &tok)));
+      src_place := cond(src_is_place => coll, true => _fd_name(&src_var, &tok));
+      out.push(_fd_bind(&c_var, &_fd_prefix(cond(walk_imm => BF_ADDRESS_OF, true => BK_BORROW_MUT), &src_place, &tok), &tok));
+      out.push(_fd_bind(&guard_var, &_fd_call1("__borrow_guard", &_fd_name(&c_var, &tok), &tok), &tok));
+      // The cursor is reassigned by the loop's step: `mut`, which the
+      // macro's prelude-token local never needed.
+      out.push(_fd_mut_bind(&cur_var, &_fd_method(&_fd_name(&c_var, &tok), "walk_start", ArrayList(AstExpr).new(), &tok), &tok));
+      project := _fd_cursor_call(&c_var, cond(walk_imm => "walk_ref", true => "walk_elem"), &cur_var, &tok);
+      // The element bindings: `x := c.walk_elem(&cur)`, or, for a map, the
+      // entry and its key (read-only) and value (in the loop's mode).
+      lead := ArrayList(AstExpr).new();
+      match(
+        map_val,
+        .Some(_) => {
+          entry_var := _fd_hidden("for_entry", ordinal);
+          key_name := _bs_arg(&variable, usize(0));
+          lead.push(_fd_bind(&entry_var, &project, &tok));
+          lead.push(_fd_infix(BK_INIT_ASSIGN, &key_name, &_fd_prefix(BF_ADDRESS_OF, &_fd_dot(&_fd_name(&entry_var, &tok), "key", &tok), &tok), &tok));
+          lead.push(_fd_infix(BK_INIT_ASSIGN, &elem, &_fd_prefix(cond(walk_imm => BF_ADDRESS_OF, true => BK_BORROW_MUT), &_fd_dot(&_fd_name(&entry_var, &tok), "value", &tok), &tok), &tok));
+        },
+        .None => lead.push(_fd_infix(BK_INIT_ASSIGN, &elem, &project, &tok))
+      );
+      walk_body := match(
+        inv_split,
+        .Some(stmts) => {
+          wb := ArrayList(AstExpr).new();
+          wb.push(match(stmts.get(usize(0)), .Some(s) => s, .None => make_err_expr()));
+          (li : usize) = usize(0);
+          while(li < lead.len(), li = (li + usize(1)), {
+            wb.push(match(lead.get(li), .Some(s) => s, .None => make_err_expr()));
+          });
+          (ri : usize) = usize(1);
+          while(ri < stmts.len(), ri = (ri + usize(1)), {
+            wb.push(match(stmts.get(ri), .Some(s) => s, .None => make_err_expr()));
+          });
+          _fd_block(&wb, true, &tok)
+        },
+        .None => {
+          lead.push(body);
+          _fd_block(&lead, false, &tok)
+        }
+      );
+      wargs := ArrayList(AstExpr).new();
+      wargs.push(_fd_cursor_call(&c_var, "walk_valid", &cur_var, &tok));
+      wargs.push(_fd_infix(BK_ASSIGN, &_fd_name(&cur_var, &tok), &_fd_cursor_call(&c_var, "walk_next", &cur_var, &tok), &tok));
+      wargs.push(walk_body);
+      out.push(_fd_call2(BF_YO_BORROW_CHECK, &_fd_name(&c_var, &tok), &_fd_call(BK_WHILE, wargs, &tok), &tok));
+    },
+    true => {
+      // The value form: `coll.into_iter()`, the collection moved into the
+      // iterator, and each `.Some(x)` bound by the caller's pattern.
+      iter_var := _fd_hidden("for_iter_var", ordinal);
+      temp_var := _fd_hidden("for_temp_var", ordinal);
+      out.push(_fd_mut_bind(&iter_var, &_fd_method(&coll, "into_iter", ArrayList(AstExpr).new(), &tok), &tok));
+      loop_stmts := ArrayList(AstExpr).new();
+      (some_body : AstExpr) = body;
+      match(
+        inv_split,
+        .Some(stmts) => {
+          loop_stmts.push(match(stmts.get(usize(0)), .Some(s) => s, .None => make_err_expr()));
+          rest := ArrayList(AstExpr).new();
+          (ri : usize) = usize(1);
+          while(ri < stmts.len(), ri = (ri + usize(1)), {
+            rest.push(match(stmts.get(ri), .Some(s) => s, .None => make_err_expr()));
+          });
+          some_body = _fd_block(&rest, true, &tok);
+        },
+        .None => ()
+      );
+      loop_stmts.push(_fd_bind(&temp_var, &_fd_method(&_fd_name(&iter_var, &tok), "next", ArrayList(AstExpr).new(), &tok), &tok));
+      brk := ArrayList(AstExpr).new();
+      brk.push(_fd_atom(TokenKind.Identifier, BK_BREAK, &tok));
+      margs := ArrayList(AstExpr).new();
+      margs.push(_fd_name(&temp_var, &tok));
+      margs.push(_fd_infix("=>", &_fd_variant("Some", Option(AstExpr).Some(variable), &tok), &some_body, &tok));
+      margs.push(_fd_infix("=>", &_fd_variant("None", Option(AstExpr).None, &tok), &_fd_block(&brk, true, &tok), &tok));
+      loop_stmts.push(_fd_call(BK_MATCH, margs, &tok));
+      out.push(_fd_call2(BK_WHILE, &_fd_atom(TokenKind.Bool, "true", &tok), &_fd_block(&loop_stmts, false, &tok), &tok));
+    }
+  );
+  out.push(_fd_call(BK_TUPLE, ArrayList(AstExpr).new(), &tok));
+  // The block keeps the call's id and token, as the `if` → `cond` rewrite
+  // keeps the `if` call's.
+  match(
+    e,
+    .FnCall(id, _, _, _, _) => AstExpr.FnCall(id, AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_BEGIN, &tok)), Rc.new(out), false, tok),
+    .Atom(_, _) => e
+  )
+});
 desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
@@ -2279,6 +2622,11 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
         .Some(mb) => return(recur(&mb)),
         .None => ()
       );
+      // `for(coll, handle)`: the loop the prelude's `for` macro expands to
+      // (macro plan B1), desugared like the macro's expansion is.
+      if(is_for_desugar_target(e), {
+        return(recur(&_desugar_for_call(e)));
+      });
       n_args := args.len();
       if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
         cond_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -2433,6 +2781,7 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
 /// `c_include(...)` / `extern(...)` statement → its glob destructure. Returns a new statement list (ArrayList has no
 /// in-place `set`).
 desugar_program_if_calls :: (fn(program : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  g_for_desugar_ordinal = usize(0);
   out := ArrayList(AstExpr).new();
   (pi : usize) = usize(0);
   pn := program.len();

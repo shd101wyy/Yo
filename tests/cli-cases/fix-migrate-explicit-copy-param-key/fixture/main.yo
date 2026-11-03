@@ -1,26 +1,27 @@
 //! Every parameter of a module used to share one `_ic_decl_key`, so a write
 //! to one parameter (`bump`'s `other`) or a flow out of one (`grow`'s `p`
 //! into `local`, which is written) listed a copy out of another as "its
-//! source is written afterwards". `x := entry.yes` and `bytes := s` copy out
-//! of parameters nothing writes and are cloned; `local := p` is written
-//! afterwards and stays listed.
-{ ArrayList } :: import("std/collections/array_list");
-{ String } :: import("std/string");
-VEntry :: struct(yes : ArrayList(i32), no : ArrayList(i32));
+//! source is written afterwards". The maps are `BTreeMap`s (still a `ref`, so
+//! a copy dups the handle; decision Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+//! `x := entry.yes` and `bytes := s` copy out of parameters nothing writes
+//! and are cloned; `local := p` is written afterwards and stays listed.
+{ BTreeMap } :: import("std/collections/btree_map");
+VEntry :: struct(yes : BTreeMap(i32, i32), no : BTreeMap(i32, i32));
 plain :: (fn(entry : VEntry) -> usize)({
   x := entry.yes;
   x.len()
 });
-bump :: (fn(other : &mut ArrayList(i32)) -> unit)({
-  other.push(i32(1));
+bump :: (fn(other : &mut BTreeMap(i32, i32)) -> unit)({
+  other.insert(i32(1), i32(1));
 });
-peek :: (fn(s : &String) -> usize)({
+peek :: (fn(s : &BTreeMap(i32, i32)) -> usize)({
   bytes := s;
   bytes.len()
 });
-grow :: (fn(p : &String) -> String)({
+grow :: (fn(p : &BTreeMap(i32, i32)) -> BTreeMap(i32, i32))({
   mut(local) := p;
-  local.push_str("x");
+  local.insert(i32(2), i32(2));
   local
 });
 main :: (fn() -> unit)(());

@@ -73,7 +73,9 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
   match(
     t,
     Rc(.FnTraitT(_, _, _, _, _, _)) => out.push(String.from("call")),
-    Rc(.TraitT({ body : fls_body })) => { fls := fls_body.field_labels(); fts := fls_body.field_types(); 
+    Rc(.TraitT({ body : fls_body })) => {
+      fls := fls_body.field_labels();
+      fts := fls_body.field_types();
       (i : usize) = usize(0);
       while(i < fls.len(), {
         ft := match(fts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));

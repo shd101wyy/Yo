@@ -88,7 +88,7 @@ main :: (fn() -> unit)({
   free(f);
   free(e2);
   // RC objects: String/ArrayList headers ride __yo_rc_alloc under fixed.
-  words := ArrayList(String).new();
+  mut(words) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(200), {
     words.push(`fixed-${i.to_string()}`);
@@ -97,7 +97,7 @@ main :: (fn() -> unit)({
   (mut(j) : usize) = usize(0);
   while(j < words.len(), {
     match(
-      words.get(j),
+      words.get_cloned(j),
       .Some(w) => {
         sum = (sum + w.len());
       },

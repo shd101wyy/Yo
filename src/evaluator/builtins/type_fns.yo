@@ -1264,7 +1264,9 @@ evaluate_yo_type_get_info :: (
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
     //
-    Rc(.SomeT({ name : st_name, bounds : st_req_bnd, resolution : st_res })) => { st_req := st_req_bnd.required(); st_neg := st_req_bnd.negative(); 
+    Rc(.SomeT({ name : st_name, bounds : st_req_bnd, resolution : st_res })) => {
+      st_req := st_req_bnd.required();
+      st_neg := st_req_bnd.negative();
       req_name := _ti_bind_trait_info_list(&local_env, &st_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(&local_env, &st_neg, String.from("neg"), ctx, exn);
       res_name := match(
@@ -1300,7 +1302,10 @@ evaluate_yo_type_get_info :: (
     },
     // === Trait(fields, kind) ===. Traits split into
     // TraitT / FnTraitT / FutureTraitT — one arm each.
-    Rc(.TraitT(_, tt_assoc_names_body, _, _, _, _)) => { tt_assoc_names := tt_assoc_names_body.assoc_type_names(); tt_flabels := tt_assoc_names_body.field_labels(); tt_ftypes := tt_assoc_names_body.field_types(); 
+    Rc(.TraitT(_, tt_assoc_names_body, _, _, _, _)) => {
+      tt_assoc_names := tt_assoc_names_body.assoc_type_names();
+      tt_flabels := tt_assoc_names_body.field_labels();
+      tt_ftypes := tt_assoc_names_body.field_types();
       fl_name := _ti_bind_trait_field_info_list(&local_env, &tt_flabels, &tt_ftypes, &tt_assoc_names, ctx, exn);
       {
         tc := String.from("TypeInfo.Trait(");

@@ -5,16 +5,14 @@
 //! refcount and scope-end drops over-released). Temp names use `random_id`
 //! (only uniqueness is needed).
 { String } :: import("std/string");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
+{ AstExpr } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
-{ Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen_at, fresh_local_name, element_wise_dup_target } :: import("../utils/index.yo");
-{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ get_type_string, get_variable_type_string, fresh_local_name } :: import("../utils/index.yo");
+{ emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { sequence_operand } :: import("./other_fn_call.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
 /// when the array has a result variable name. Returns `.None` when the node is
@@ -35,42 +33,13 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
             if(i > usize(0), {
               args_list.push_str(", ");
             });
-            arg_code := _call_generate_expr(&arg, indent.clone(), context);
-            (elem_code : String) = arg_code;
-            // Deferred dup for a moved RC element:
-            // emit the element's deferred `___dup` expressions, then reference
-            // the DUP RESULT temp in the literal instead of the original —
-            // the literal now owns its own +1 per element.
-            match(
-              context.base.get_expr_info(&arg),
-              .Some(arg_ei) => match(
-                expr_info_deferred_dup_expressions(&arg_ei),
-                .Some(arg_dups) => if(arg_dups.len() > usize(0), {
-                  generate_deferred_dup_expressions(&arg, indent.clone(), context);
-                  match(
-                    arg_dups.get(usize(0)),
-                    // An element-wise dup's temp is one element of the
-                    // source (`element_wise_dup_target`): read the source.
-                    .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr) && element_wise_dup_target(&dup_expr).is_none(), {
-                      match(
-                        context.base.get_expr_info(&dup_expr),
-                        .Some(dup_ei) => match(
-                          &dup_ei.variable_name,
-                          .Some(dup_vn) => {
-                            elem_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env));
-                          },
-                          .None => ()
-                        ),
-                        .None => ()
-                      );
-                    }),
-                    .None => ()
-                  );
-                }),
-                .None => ()
-              ),
-              .None => ()
-            );
+            // The element's deferred `___dup` (an element store): the literal
+            // owns its own +1 per RC element, through the store rule every
+            // other store position uses (`emit_deferred_dup_or_code`, the
+            // tuple literal's twin in tuple_fn.yo): a projection's temp is
+            // declared before the dup names it, and an element-wise dup keeps
+            // the source, which it retained in place.
+            elem_code := emit_deferred_dup_or_code(&arg, _call_generate_expr(&arg, indent.clone(), context), indent.clone(), context);
             // Sequenced against the later elements (`sequence_operand`,
             // other_fn_call.yo): C leaves initializers unordered, and a later
             // element's statements run before this literal.

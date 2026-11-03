@@ -1821,6 +1821,100 @@ test("move-only: an exit in a later arm than the move drops the local once", {
   assert(g_mo_disposed == (before3 + i32(2)), "5 by the callee");
   assert(g_mo_sum == i32(16), "nothing disposed twice");
 });
+// The same exit one branch deeper, in a function body: the inner branch's
+// earlier arm moves the local and its later arm returns, inside an arm of an
+// outer branch whose other arms keep the local (`_mo_nl_cond_cond`) or move
+// it too (`_mo_nl_match_cond`, the shape of `std/encoding/toml.yo`'s
+// `_parse_header`). The return still owns the local
+// (issues/fixed/2026-10-24-an-exit-in-a-nested-later-arm-skips-the-drop-of-the-moved-local.md).
+_mo_nl_cond_cond :: (fn(keep : bool, move : bool, k : i32) -> i32)({
+  f := _MoFd(n : k);
+  (mut(total) : i32) = i32(0);
+  cond(
+    keep => (),
+    true => {
+      cond(
+        move => {
+          total = _mo_take(f);
+        },
+        true => {
+          return(i32(-1));
+        }
+      );
+    }
+  );
+  total
+});
+_mo_nl_match_cond :: (fn(p : _MoPick, move : bool, k : i32) -> i32)({
+  f := _MoFd(n : k);
+  (mut(total) : i32) = i32(0);
+  match(
+    p,
+    .Take => {
+      total = _mo_take(f);
+    },
+    .Stop => {
+      cond(
+        move => {
+          total = _mo_take(f);
+        },
+        true => {
+          return(i32(-1));
+        }
+      );
+    },
+    .Skip => {
+      return(i32(-2));
+    }
+  );
+  total
+});
+_mo_nl_cond_match :: (fn(keep : bool, p : _MoPick, k : i32) -> i32)({
+  f := _MoFd(n : k);
+  (mut(total) : i32) = i32(0);
+  cond(
+    keep => (),
+    true => {
+      match(
+        p,
+        .Take => {
+          total = _mo_take(f);
+        },
+        .Stop => {
+          return(i32(-1));
+        },
+        .Skip => {
+          return(i32(-2));
+        }
+      );
+    }
+  );
+  total
+});
+test("move-only: an exit in a nested later arm than the move drops the local once", {
+  d0 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_cond(false, false, i32(7)), i32(-1), d0, i32(1), i32(7)), "cond > cond: the return");
+  d1 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_cond(false, true, i32(7)), i32(7), d1, i32(1), i32(7)), "cond > cond: the move");
+  d2 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_cond(true, false, i32(7)), i32(0), d2, i32(1), i32(7)), "cond > cond: the keeping arm");
+  d3 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Stop, false, i32(7)), i32(-1), d3, i32(1), i32(7)), "match > cond: the return");
+  d4 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Stop, true, i32(7)), i32(7), d4, i32(1), i32(7)), "match > cond: the move");
+  d5 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Take, false, i32(7)), i32(7), d5, i32(1), i32(7)), "match > cond: the outer move");
+  d6 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_match_cond(_MoPick.Skip, false, i32(7)), i32(-2), d6, i32(1), i32(7)), "match > cond: the outer return");
+  d7 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(false, _MoPick.Stop, i32(7)), i32(-1), d7, i32(1), i32(7)), "cond > match: the first return");
+  d8 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(false, _MoPick.Skip, i32(7)), i32(-2), d8, i32(1), i32(7)), "cond > match: the second return");
+  d9 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(false, _MoPick.Take, i32(7)), i32(7), d9, i32(1), i32(7)), "cond > match: the move");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nl_cond_match(true, _MoPick.Take, i32(7)), i32(0), d10, i32(1), i32(7)), "cond > match: the keeping arm");
+});
 // A value passed by value moves when the call runs, after its later
 // arguments: a `break` inside one of them still owns it
 // (issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md).
@@ -2963,9 +3057,9 @@ _mo_rb_escape_before_move :: (fn(k : i32) -> i32)({
 // The move stands on every path after it until the path leaves the loop:
 // an exit after a conditional `break` on the move's own path drops nothing,
 // and an exit in a sibling arm of the moving one still drops the local. (The
-// bodies end in `break`: an early `return` in a loop body whose last
-// statement is a `return` skips every drop,
-// issues/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md.)
+// bodies end in `break`; a body whose last statement is a `return` is
+// covered by tests/loop_body_return_drops.test.yo,
+// issues/fixed/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md.)
 _mo_rb_move_then_choose :: (fn(k : i32) -> i32)({
   (mut(i) : i32) = i32(0);
   f := _MoFd(n : k);
@@ -3412,10 +3506,11 @@ test("move-only: a generic function moves a match binding out of a compile-time-
 });
 // A wrapper whose body holds a consuming `match`, fused at two awaits of one
 // task, gets its own C labels at each site
-// (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
-// The drop count is not asserted here: a consuming match whose arm moves a
-// `Drop` payload out of a call result before an await drops it twice
-// (issues/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
+// (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md),
+// and each site's payload is dropped once: the caller's dispose releases a
+// fused site's fields only while the site is live, so a finished site's
+// zeroed `_MoFd` is not dropped again
+// (issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
 _mo_res :: (fn(n : i32) -> Result(_MoFd, i32))(
   if(n > i32(0), Result(_MoFd, i32).Ok(_MoFd(n : n)), Result(_MoFd, i32).Err(n))
 );
@@ -3434,6 +3529,57 @@ _mo_fused_twice :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   })
 );
 test("move-only: a wrapper's consuming match fused at two awaits of one task", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
   r := io.await(_mo_fused_twice(io), IoExn(io : io, exn : Exception(throw : (_err -> unwind(())))));
   assert(r == i32(3), "both fused sites ran");
+  assert(g_mo_disposed == (before + i32(2)), `each site's payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(3)), "the dropped payloads are the moved ones");
+});
+// The same wrapper fused once, with an exit inside the site (after its await)
+// and after it: a site that finished leaves nothing for the dispose, a site
+// the task died in is released by the dispose once.
+_mo_fused_exit :: (fn(n : i32, fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(String.from("not positive"))));
+    e.io.await(yield(e.io), e.io);
+    if(fail, {
+      e.exn.throw(dyn(String.from("inside the site")));
+    });
+    fd.n
+  })
+);
+_mo_fused_once :: (fn(n : i32, fail_in : bool, fail_after : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    a := e.io.await(_mo_fused_exit(n, fail_in, e.io), e);
+    if(fail_after, {
+      e.exn.throw(dyn(String.from("after the site")));
+    });
+    a
+  })
+);
+_mo_run_fused_once :: (fn(io : Io, n : i32, fail_in : bool, fail_after : bool) -> i32)({
+  r := io.await(_mo_fused_once(n, fail_in, fail_after, io), IoExn(io : io, exn : Exception(throw : (_err -> unwind(i32(-1))))));
+  r
+});
+test("move-only: a consuming match of a call result before an await in a fused wrapper drops the payload once", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  assert(_mo_run_fused_once(io, i32(7), false, false) == i32(7), "the fused site ran");
+  assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(7)), "the dropped payload is the moved one");
+});
+test("move-only: a task that dies inside a fused site drops the site's payload once", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  assert(_mo_run_fused_once(io, i32(7), true, false) == i32(-1), "the site unwound");
+  assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(7)), "the dropped payload is the moved one");
+});
+test("move-only: a task that dies after a fused site finished does not drop the site's payload again", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  assert(_mo_run_fused_once(io, i32(7), false, true) == i32(-1), "the task unwound after the site");
+  assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
+  assert(g_mo_sum == (sum_before + i32(7)), "the dropped payload is the moved one");
 });

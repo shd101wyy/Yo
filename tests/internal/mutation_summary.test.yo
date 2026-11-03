@@ -34,17 +34,17 @@ _tok :: (fn(v : str) -> Token)(
 );
 /// Register `fn(<labels> : i32 ...) -> unit` under `fid`.
 _register :: (fn(fid : str, label0 : str, label1 : str) -> unit)({
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from(label0));
   labels.push(String.from(label1));
-  tys := ArrayList(TypeValue).new();
+  mut(tys) := ArrayList(TypeValue).new();
   tys.push(t_i32());
   tys.push(t_i32());
   register_func_type(String.from(fid), t_func_simple(labels, tys, t_unit()));
 });
 /// `<head>(<arg>)` with fresh node ids.
 _call1 :: (fn(head : str, arg : str, id : usize) -> AstExpr)({
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(AstExpr.Atom(id + usize(2), _tok(arg)));
   AstExpr.FnCall(id, AstExpr.Atom(id + usize(1), _tok(head)), Rc.new(args), false, _tok(head))
 });

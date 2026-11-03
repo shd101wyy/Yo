@@ -232,9 +232,9 @@ install_dependencies :: (
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )({
-  __probe_mode := mode.clone();
+  owned_mode := mode.clone();
   io.async((e : IoExn) => {
-    options := ResolveOptions(mode : __probe_mode.clone(), locked : locked, offline : offline, verbose : verbose);
+    options := ResolveOptions(mode : owned_mode.clone(), locked : locked, offline : offline, verbose : verbose);
     lock := e.io.await(resolve_and_fetch(manifest, &options, e.io, e.exn), e);
     (i : usize) = usize(0);
     while(i < lock.packages.len(), {
@@ -457,17 +457,17 @@ run_remove :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )({
-  __probe_name := name.clone();
+  owned_name := name.clone();
   io.async((e : IoExn) => {
     manifest := load_project_manifest(e.exn);
-    if(manifest.find_dependency(__probe_name.clone()).is_none(), {
-      e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${__probe_name}"`));
+    if(manifest.find_dependency(owned_name.clone()).is_none(), {
+      e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${owned_name}"`));
     });
     text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
     (edited : String) = text.clone();
     (removed_from : String) = String.new();
     match(
-      remove_entry(text.clone(), String.from("dependencies"), __probe_name.clone()),
+      remove_entry(text.clone(), String.from("dependencies"), owned_name.clone()),
       .Ok(.Some(t)) => {
         edited = t;
         removed_from = String.from("dependencies");
@@ -479,7 +479,7 @@ run_remove :: (
     );
     if(removed_from.len() == usize(0), {
       match(
-        remove_entry(text.clone(), String.from("dev-dependencies"), __probe_name.clone()),
+        remove_entry(text.clone(), String.from("dev-dependencies"), owned_name.clone()),
         .Ok(.Some(t)) => {
           edited = t;
           removed_from = String.from("dev-dependencies");
@@ -491,10 +491,10 @@ run_remove :: (
       );
     });
     if(removed_from.len() == usize(0), {
-      e.exn.throw(dyn(`Error: ${manifest.path}: could not locate the entry for "${__probe_name}"`));
+      e.exn.throw(dyn(`Error: ${manifest.path}: could not locate the entry for "${owned_name}"`));
     });
     e.io.await(write_string(Path.new(manifest.path.clone()), &edited, e.io), e);
-    println(`Removed ${__probe_name} from [${removed_from}] in ${MANIFEST_FILENAME}`);
+    println(`Removed ${owned_name} from [${removed_from}] in ${MANIFEST_FILENAME}`);
     updated := match(
       load_manifest(manifest.path.clone(), e.exn),
       .Ok(m) => m,
@@ -542,7 +542,7 @@ _bump_ranges_to_latest :: (
     exn : Exception
   ) -> Impl(Future(Manifest, IoExn))
 )({
-  __probe_names := names.clone();
+  owned_names := names.clone();
   io.async((e : IoExn) => {
     text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
     (edited : String) = text;
@@ -566,10 +566,10 @@ _bump_ranges_to_latest :: (
         },
         .Path(_) => ()
       );
-      (named : bool) = (__probe_names.len() == usize(0));
+      (named : bool) = (owned_names.len() == usize(0));
       (ni : usize) = usize(0);
-      while(ni < __probe_names.len(), {
-        if(__probe_names(ni) == dep.name, {
+      while(ni < owned_names.len(), {
+        if(owned_names(ni) == dep.name, {
           named = true;
         });
         ni = (ni + usize(1));

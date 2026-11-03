@@ -114,7 +114,9 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
-      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt), Option(TypeValue).Some(Rc.clone(bt)), Option(TypeValue).None), _ => Option(TypeValue).None)
+      // The cell is a `ref` object, or a cell handle (`cell_handle_view`): V5's
+      // `Rc`/`Arc`, a newtype over `__yo_cell`/`__yo_atomic_cell`.
+      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt) || cell_handle_view(&bt).is_some(), Option(TypeValue).Some(Rc.clone(bt)), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
   )
 });
@@ -1770,14 +1772,14 @@ evaluate_dyn_value :: (
         ),
       Rc(
         .SomeT(
-          bounds : rtt_bnd2
+          bounds : rtt_bounds
         )
       ) =>
         {
-          rtt := rtt_bnd2.required();
-          rtl := rtt_bnd2.required_levels();
-          ntt := rtt_bnd2.negative();
-          ntl := rtt_bnd2.negative_levels();
+          rtt := rtt_bounds.required();
+          rtl := rtt_bounds.required_levels();
+          ntt := rtt_bounds.negative();
+          ntl := rtt_bounds.negative_levels();
           t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone())
         },
       _ => {

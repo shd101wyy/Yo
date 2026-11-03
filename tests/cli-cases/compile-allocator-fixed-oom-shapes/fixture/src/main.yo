@@ -84,7 +84,7 @@ main :: (fn(io : Io) -> unit)({
   // verdict (issues/fixed/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md).
   argv := args();
   match(
-    argv.get(usize(1)),
+    argv.get_cloned(usize(1)),
     .Some(shape) => {
       cond(
         (shape == "task") => _child_task(io),
@@ -98,7 +98,7 @@ main :: (fn(io : Io) -> unit)({
     },
     .None => ()
   );
-  shapes := ArrayList(String).new();
+  mut(shapes) := ArrayList(String).new();
   shapes.push(String.from("task"));
   shapes.push(String.from("thread"));
   shapes.push(String.from("string"));
