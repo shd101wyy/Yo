@@ -133,14 +133,14 @@ test("two recursive enums of one shape have distinct ArrayList(Self) instantiati
     (ys : ArrayList(RecA)) = xs;
     consume(ys);
   });
-  xs := ArrayList(RecB).new();
+  mut(xs) := ArrayList(RecB).new();
   xs.push(RecB.Leaf(v : i32(1)));
-  ys := ArrayList(RecB).new();
+  mut(ys) := ArrayList(RecB).new();
   ys.push(RecB.Leaf(v : i32(2)));
   assert(RecB.Node(kids : xs) != RecB.Node(kids : ys), "RecB compares its own elements structurally");
-  ra := ArrayList(RecA).new();
+  mut(ra) := ArrayList(RecA).new();
   ra.push(RecA.Leaf(v : i32(1)));
-  bs := ArrayList(RecA).new();
+  mut(bs) := ArrayList(RecA).new();
   bs.push(RecA.Leaf(v : i32(2)));
   assert(RecA.Node(kids : ra) == RecA.Node(kids : bs), "RecA keeps its always-true ==");
 });

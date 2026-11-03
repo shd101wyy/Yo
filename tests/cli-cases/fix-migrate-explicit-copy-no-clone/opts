@@ -3,8 +3,10 @@
 # (issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md),
 # and counts `StringBuilder` and `HeaderMap` as unique buffers
 # (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.4 P8). main.yo is the issue's
-# four-setter program: `set_a` and `set_d` are cloned, `set_b` and `set_c`
-# (element types without `Clone`) are listed. builders.yo stores a borrowed
+# four-setter program over a `BTreeMap` (still a `ref`; decision Option 1 of
+# issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md):
+# `set_a` and `set_d` are cloned, `set_b` and `set_c` (value types without
+# `Clone`) are listed. builders.yo stores a borrowed
 # `StringBuilder` and `HeaderMap` into fields; both are listed. The trailing
 # checks prove both files still evaluate.
 stdout_keep=^fix:

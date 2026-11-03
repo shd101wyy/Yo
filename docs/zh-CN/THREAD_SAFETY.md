@@ -42,7 +42,7 @@ Raw :: struct(p : ?*u8);
 
 标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)` 和 `RwLock(T)`（并发的读守卫）要求 `T <: (Send, Sync)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: Send`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
 
-`String` 和各集合类型目前还不是 `Send`：它们的缓冲区现在是一个共享的、非原子计数的单元，留在发送线程上的副本会在计数上产生竞争。一旦它们的缓冲区变为唯一所有（`plans/VALUES_BY_DEFAULT.md` V2b），移动一个值就是交出它唯一的所有者，`Channel(String)` 无需修改编译器即可工作。在那之前，`String` 或集合不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值，该值是 `Send` 时就可以移动。过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除（`plans/backlog/MACRO_AND_ISO_REMOVAL.md`）。
+`String` 和 `ArrayList(T)` 唯一地拥有自己的缓冲区：它们是值，移动一个值就是交出它唯一的所有者。`String` 是 `Send` 与 `Sync` 的；`T` 是 `Send`（`Sync`）时，`ArrayList(T)` 也是。`String` 或 `ArrayList(String)` 可以移入 `Thread(...).spawn` 的闭包体、经由 `join()` 取回，也可以通过 `Channel(String)` 传递；移动之后在发送方再使用它是 E0901。其他集合（`HashMap`、`HashSet`、`Deque` 等）在各自转为值类型之前仍是共享的、非原子计数的单元，因此暂时不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值，该值是 `Send` 时就可以移动。过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除（`plans/backlog/MACRO_AND_ISO_REMOVAL.md`）。
 
 ### 手动 Send 与 Sync 实现需要 Pragma
 
@@ -176,14 +176,14 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 模块级运行期绑定（在任何函数之外的 `name := init` 或 `(name : T) = init`）是一个被所有线程共享的静态变量。它是不可变的（Rust 的 `static`），除非它的名字被包在 `mut(...)` 里（`mut(name) := init`、`(mut(name) : T) = init`，在 `thread_local(...)` 里同样可用），这使它成为 Rust 的 `static mut`。写入不可变的全局变量是 E0917；把 `mut(...)` 全局变量或它下面的位置借给调用是 E0916（先把它读到局部变量里）。详见[错误参考](ERROR_DIAGNOSTICS.md)。在安全代码中：
 
-- 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(FnOnce(...), Send)`、`Impl(Fn(...), Send)` 或 `Impl(Fn(...), Sync)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Sync` 的全局变量。全局变量被所有线程共享，所以问题在于共享。非原子引用计数的全局变量（`ArrayList`、`String`、任何 `ref(struct)`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
+- 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(FnOnce(...), Send)`、`Impl(Fn(...), Send)` 或 `Impl(Fn(...), Sync)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Sync` 的全局变量。全局变量被所有线程共享，所以问题在于共享。非原子引用计数的全局变量（`HashMap`、任何 `ref(struct)`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
 - 在任何地方被**写入**的 `Sync` 值类型全局变量（标量或内部不含引用的结构体）—— 被赋值、以它为根做字段或索引写入、或交给被调用者会通过其写入的 `&mut` 参数 —— 是可变静态变量，在另一个线程上运行的闭包不能触及它。只在一个线程上读写时，它是普通的全局变量；被所有线程读取但从不写入时，它是共享常量。错误报在编译器第二个看到的那个位置上，并指出另一个位置。
 
 ```yo
 LIMIT :: i32(5); // 常量：任何线程都可读
 hits := AtomicI32.new(i32(0)); // 原子对象：共享状态，可以
 (thread_local(mut(scratch)) : i32) = i32(0); // 每线程可变状态：可以
-g := ArrayList(i32).new(); // 只在主线程上可用
+mut(g) := ArrayList(i32).new(); // 只在主线程上可用
 fill :: (fn() -> unit)({
   g.push(i32(1));
 });
@@ -210,7 +210,7 @@ Thread(i32).spawn(io => counter); // 错误：……但另一个线程读取了 
 编译器看不到值的裸 `fn(...)` 类型**不是 `Send`**：结构体字段、集合元素、`Channel(fn() -> unit)` 的载荷，以及被另一个线程的闭包捕获的普通局部变量 `f := count`，都属于这种情况。承载这一承诺的函数类型是 `Impl(Fn(...), Send)`，应写成 `(f : Impl(Fn(Io) -> unit, Send)) = count`。一个值只在被转换成它的地方检查一次（参数、返回值、带类型声明的绑定）。
 
 ```yo
-g := ArrayList(i32).new(); // 只在主线程上可用
+mut(g) := ArrayList(i32).new(); // 只在主线程上可用
 hits := AtomicI32.new(i32(0));
 fill :: (fn(io : Io) -> unit)({
   g.push(i32(1));

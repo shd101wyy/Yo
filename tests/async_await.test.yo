@@ -3623,7 +3623,7 @@ future_opt_bytes :: (fn(n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8))
   count := Rc(usize)(n);
   io.async((io : Io) => {
     io.await(yield(io), io);
-    b := ArrayList(u8).new();
+    mut(b) := ArrayList(u8).new();
     (mut(i) : usize) = usize(0);
     while(i < count.*, {
       b.push(u8(7));
@@ -4159,8 +4159,10 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
 (mut(g_cached_identity) : Option(String)) = Option(String).None;
 _cached_identity :: (fn(rio : Io) -> Impl(Future(String, Io)))(
   rio.async((aio : Io) => {
+    // The scrutinee is a copy (`String` owns its bytes since B8), so `known`
+    // is still a by-value pattern binding returned as an atom.
     match(
-      g_cached_identity,
+      g_cached_identity.clone(),
       .Some(known) => {
         return(known);
       },
@@ -4308,7 +4310,7 @@ test("Test same-named locals in sibling branches used as struct-literal argument
 test("Test a match arm early-returning a freshly built value before an await", {
   probe := (fn(seed : i32, rio : Io) -> Impl(Future(String, Io)))(
     rio.async((aio : Io) => {
-      stack := ArrayList(i32).new();
+      mut(stack) := ArrayList(i32).new();
       if(seed > i32(0), {
         stack.push(seed);
       });
@@ -4434,7 +4436,7 @@ Cargo :: ref(
 CargoKind :: enum(A, B);
 derive(CargoKind, Copy, Clone);
 find_cargo :: (fn(tag : &String) -> Option(Cargo))(
-  Option(Cargo).Some(Cargo(label : tag, size : i32(7)))
+  Option(Cargo).Some(Cargo(label : tag.clone(), size : i32(7)))
 );
 describe_cargo :: (fn(c : &Cargo, rio : Io) -> Impl(Future(String, Io)))(
   rio.async((aio : Io) => {
@@ -4654,7 +4656,7 @@ test("await nested in an if inside an if inside an async while keeps looping", {
   drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
     rio.async((aio : Io) => {
       (mut(count) : usize) = usize(0);
-      stack := ArrayList(usize).new();
+      mut(stack) := ArrayList(usize).new();
       stack.push(usize(3));
       while(stack.len() > usize(0), {
         n := match(stack.pop(), .Some(x) => x, .None => usize(0));
@@ -4676,7 +4678,7 @@ test("await nested in a cond inside a cond inside an async while keeps looping",
   drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
     rio.async((aio : Io) => {
       (mut(count) : usize) = usize(0);
-      stack := ArrayList(usize).new();
+      mut(stack) := ArrayList(usize).new();
       stack.push(usize(3));
       while(stack.len() > usize(0), {
         n := match(stack.pop(), .Some(x) => x, .None => usize(0));
@@ -4762,28 +4764,29 @@ IndexElem :: ref(struct(name : String, n : usize));
 /// binding's deferred dup there while still emitting the loop-end drop — a
 /// net -1 per element per pass. TWO passes are required: the elements start at
 /// refcount 2, so a single pass only masks the imbalance.
-_index_elems_twice :: (fn(items : &ArrayList(IndexElem), io : Io) -> Impl(Future(usize, Io)))(
+_index_elems_twice :: (fn(items : &ArrayList(IndexElem), io : Io) -> Impl(Future(usize, Io)))({
+  items_owned := items.clone();
   io.async((io : Io) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < items.len(), {
-      it := items(i);
+    while(i < items_owned.len(), {
+      it := items_owned(i);
       total = (total + it.n);
       io.await(yield(io), io);
       i = (i + usize(1));
     });
     (mut(j) : usize) = usize(0);
-    while(j < items.len(), {
-      it2 := items(j);
+    while(j < items_owned.len(), {
+      it2 := items_owned(j);
       total = (total + it2.n);
       io.await(yield(io), io);
       j = (j + usize(1));
     });
     return(total);
   })
-);
+});
 test("async index binding keeps the element alive (two passes over the list)", {
-  items := ArrayList(IndexElem).new();
+  mut(items) := ArrayList(IndexElem).new();
   items.push(IndexElem(name : String.from("alpha"), n : usize(1)));
   items.push(IndexElem(name : String.from("beta"), n : usize(2)));
   items.push(IndexElem(name : String.from("gamma"), n : usize(3)));
@@ -4822,7 +4825,7 @@ test("an async while whose body awaits then runs a nested awaiting while", {
   drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
     rio.async((aio : Io) => {
       (mut(count) : usize) = usize(0);
-      outer := ArrayList(usize).new();
+      mut(outer) := ArrayList(usize).new();
       outer.push(usize(1));
       outer.push(usize(1));
       outer.push(usize(1));
@@ -4833,7 +4836,7 @@ test("an async while whose body awaits then runs a nested awaiting while", {
           .None => (),
           .Some(d) => {
             aio.await(yield(aio), aio);
-            inner := ArrayList(usize).new();
+            mut(inner) := ArrayList(usize).new();
             inner.push(d);
             inner.push(d);
             mut(i) := usize(0);
@@ -4871,14 +4874,14 @@ test("an awaiting match arm keeps its locals alive across a nested awaiting whil
   drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
     rio.async((aio : Io) => {
       (mut(count) : usize) = usize(0);
-      seed := ArrayList(usize).new();
+      mut(seed) := ArrayList(usize).new();
       seed.push(usize(1));
       match(
         seed.get(usize(0)),
         .None => (),
         .Some(d) => {
           aio.await(yield(aio), aio);
-          inner := ArrayList(usize).new();
+          mut(inner) := ArrayList(usize).new();
           inner.push(d);
           inner.push(d);
           mut(i) := usize(0);
@@ -4913,7 +4916,7 @@ test("an outer non-awaiting while keeps a match arm's locals across a nested awa
   drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
     rio.async((aio : Io) => {
       (mut(count) : usize) = usize(0);
-      outer := ArrayList(usize).new();
+      mut(outer) := ArrayList(usize).new();
       outer.push(usize(1));
       outer.push(usize(10));
       outer.push(usize(100));
@@ -4923,7 +4926,7 @@ test("an outer non-awaiting while keeps a match arm's locals across a nested awa
           outer.get(r),
           .None => (),
           .Some(d) => {
-            inner := ArrayList(usize).new();
+            mut(inner) := ArrayList(usize).new();
             inner.push(d);
             inner.push(d);
             mut(i) := usize(0);
@@ -4969,7 +4972,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
   // never crashed.
   probe := (fn(io2 : Io, exn2 : Exception) -> Impl(Future(usize, IoExn)))(
     io2.async((e : IoExn) => {
-      outer := ArrayList(String).new();
+      mut(outer) := ArrayList(String).new();
       outer.push(String.from("."));
       outer.push(String.from("."));
       outer.push(String.from("."));
@@ -4982,7 +4985,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
           .Some(d) => {
             got := e.io.await(exists(Path.new(d.clone()), e.io), e.io);
             if(got, {
-              inner := ArrayList(String).new();
+              mut(inner) := ArrayList(String).new();
               inner.push(String.from("."));
               inner.push(String.from("."));
               mut(i) := usize(0);
@@ -5024,6 +5027,7 @@ shape_ten :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     return(i32(10))
   })
 );
+impl(IndexElem, Clone(clone : (fn(self : &Self) -> Self)(self)));
 shape_twenty :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
@@ -5300,7 +5304,7 @@ test("cond mixes an anonymous branch with a named future branch (reverse order)"
 // ---------------------------------------------------------------------------
 test("Test spawn inside a loop runs tasks concurrently", {
   t0 := Instant.now();
-  handles := ArrayList(JoinHandle(u64)).new();
+  mut(handles) := ArrayList(JoinHandle(u64)).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(4), {
     task := io.async((io : Io) => {
@@ -5657,6 +5661,7 @@ _NestedParsed :: enum(
   Path(name : String, rel : String),
   Other
 );
+derive(_NestedParsed, Clone);
 _nested_resolve :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
@@ -5664,19 +5669,21 @@ _nested_resolve :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
     s
   })
 );
-_nested_append :: (fn(line : &String, io : Io) -> Impl(Future(bool, IoExn)))(
+_nested_append :: (fn(line : &String, io : Io) -> Impl(Future(bool, IoExn)))({
+  line_owned := line.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    line.len() > usize(0)
+    line_owned.len() > usize(0)
   })
-);
+});
 /// Shape A — the reproducer: a value-producing inner match whose `.None` arm
 /// awaits (tail await) and whose `.Some` arm is synchronous, followed by
 /// statements that use the bound value and an outer pattern binding.
-_nested_shape_a :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+_nested_shape_a :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))({
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     out := match(
-      parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
@@ -5688,7 +5695,7 @@ _nested_shape_a :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, 
       ) => {
         ref_str := match(
           g_pinned_ref,
-          .Some(r) => r,
+          .Some(r) => r.clone(),
           .None => e.io.await(_nested_resolve(e.io), e)
         );
         tail := `${ref_str};${g_name}`;
@@ -5697,14 +5704,15 @@ _nested_shape_a :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, 
     );
     out
   })
-);
+});
 /// Shape B — the `yo install` shape: the inner match, then a SECOND await
 /// bound to a local, then an `if` whose body awaits; a sibling arm binds the
 /// same local name from its own await.
-_nested_shape_b :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+_nested_shape_b :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))({
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     out := match(
-      parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
@@ -5719,7 +5727,7 @@ _nested_shape_b :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, 
       ) => {
         ref_str := match(
           g_pinned_ref,
-          .Some(r) => r,
+          .Some(r) => r.clone(),
           .None => e.io.await(_nested_resolve(e.io), e)
         );
         added := e.io.await(_nested_append(`${g_name}@${ref_str}`, e.io), e);
@@ -5732,24 +5740,25 @@ _nested_shape_b :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, 
     );
     out
   })
-);
+});
 /// Shape C — two nesting levels: match → match → cond with an awaiting arm.
-_nested_shape_c :: (fn(parsed : &_NestedParsed, deep : bool, io : Io) -> Impl(Future(String, IoExn)))(
+_nested_shape_c :: (fn(parsed : &_NestedParsed, deep : bool, io : Io) -> Impl(Future(String, IoExn)))({
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     out := match(
-      parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
         _
-      ) => p_name,
+      ) => p_name.clone(),
       .Git(
         g_name,
         g_pinned_ref
       ) => {
         inner := match(
           g_pinned_ref,
-          .Some(r) => r,
+          .Some(r) => r.clone(),
           .None => {
             picked := cond(
               deep => e.io.await(_nested_resolve(e.io), e),
@@ -5763,7 +5772,7 @@ _nested_shape_c :: (fn(parsed : &_NestedParsed, deep : bool, io : Io) -> Impl(Fu
     );
     out
   })
-);
+});
 /// Shape D — a value-producing cond whose arm awaits TWICE (two plain bound
 /// awaits): the arm's tail value after the second await must reach the bound
 /// result (issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md).
@@ -5782,23 +5791,24 @@ _nested_two_awaits :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
 );
 /// Shape E — an awaiting `if` STATEMENT after a bound await, then the arm's
 /// tail value (the `yo install` `.Git` arm with `if(added, { … await fetch … })`).
-_nested_if_statement :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+_nested_if_statement :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(String, IoExn)))({
+  parsed_owned := parsed.clone();
   io.async((e : IoExn) => {
     (mut(log) : String) = String.new();
     out := match(
-      parsed,
+      &parsed_owned,
       .Other => String.from("other"),
       .Path(
         p_name,
         _
-      ) => p_name,
+      ) => p_name.clone(),
       .Git(
         g_name,
         g_pinned_ref
       ) => {
         ref_str := match(
           g_pinned_ref,
-          .Some(r) => r,
+          .Some(r) => r.clone(),
           .None => e.io.await(_nested_resolve(e.io), e)
         );
         added := e.io.await(_nested_append(g_name.clone(), e.io), e);
@@ -5811,7 +5821,7 @@ _nested_if_statement :: (fn(parsed : &_NestedParsed, io : Io) -> Impl(Future(Str
     );
     out
   })
-);
+});
 /// Shape F — dispatch-mode nested arms mixing a NAMED future with an
 /// anonymous one of a different shape: the suspension must go through each
 /// nested arm's own access (a representative would read the named future's
@@ -5947,20 +5957,22 @@ _sibling_second_awaits :: (fn(k : &_SibKind, io : Io) -> Impl(Future(String, IoE
 /// BEFORE the inner loop and another AFTER it
 /// (issues/fixed/nested-while-loops-in-an-async-body-redefine-c-labels.md).
 _NwArtifact :: ref(struct(name : String, mods : ArrayList(String)));
-_nw_resolve :: (fn(m : &String, io : Io) -> Impl(Future(Option(String), IoExn)))(
+_nw_resolve :: (fn(m : &String, io : Io) -> Impl(Future(Option(String), IoExn)))({
+  m_owned := m.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    if(m.len() > usize(1), Option(String).Some(m.clone()), Option(String).None)
+    if(m_owned.len() > usize(1), Option(String).Some(m_owned.clone()), Option(String).None)
   })
-);
-_nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(String, IoExn)))(
+});
+_nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(String, IoExn)))({
+  arts_owned := arts.clone();
   io.async((e : IoExn) => {
     (mut(log) : String) = String.new();
     pre := e.io.await(_nw_resolve(String.from("pre"), e.io), e);
     match(pre, .Some(p) => log.push_string(`${p};`), .None => ());
     (mut(ai) : usize) = usize(0);
-    while(ai < arts.len(), {
-      artifact := arts(ai);
+    while(ai < arts_owned.len(), {
+      artifact := arts_owned(ai);
       head := e.io.await(_nw_resolve(artifact.name.clone(), e.io), e);
       match(head, .Some(h) => log.push_string(`head-${h};`), .None => ());
       (mut(i) : usize) = usize(0);
@@ -5979,7 +5991,7 @@ _nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(St
     });
     log
   })
-);
+});
 /// Shape L — a local named like a struct FIELD read in the same async body,
 /// of a different type, both used after an await
 /// (issues/fixed/async-body-local-shares-its-state-machine-slot-type-with-a-same-named-struct-field.md).
@@ -5990,6 +6002,7 @@ _field_resolve :: (fn(io : Io) -> Impl(Future(_FieldRes, IoExn)))(
     _FieldRes(root : Option(String).Some(String.from("/dep")), n : usize(1))
   })
 );
+impl(_NwArtifact, Clone(clone : (fn(self : &Self) -> Self)(self)));
 _field_named_local :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     (mut(log) : String) = String.new();
@@ -6098,30 +6111,33 @@ test("nested cond arms mixing a named and an anonymous future await through thei
 // block was a C redefinition
 // (issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
 _MmParsed :: enum(Git(name : String, url : String), Path(name : String, rel : String));
-_mm_probe :: (fn(what : &String, io : Io) -> Impl(Future(bool, IoExn)))(
+_mm_probe :: (fn(what : &String, io : Io) -> Impl(Future(bool, IoExn)))({
+  what_owned := what.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    what.len() > usize(1)
+    what_owned.len() > usize(1)
   })
-);
-_mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))(
+});
+_mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  url_owned := url.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    `^1.0.0(${url})`
+    `^1.0.0(${url_owned})`
   })
-);
-_match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, IoExn)))(
+});
+_match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  spec_owned := spec.clone();
   io.async((e : IoExn) => {
     parsed := match(
-      spec.starts_with("./"),
-      true => _MmParsed.Path(String.from("mylib"), spec.clone()),
-      false => _MmParsed.Git(String.from("repo"), spec.clone())
+      spec_owned.starts_with("./"),
+      true => _MmParsed.Path(String.from("mylib"), spec_owned.clone()),
+      false => _MmParsed.Git(String.from("repo"), spec_owned.clone())
     );
     (mut(name) : String) = String.new();
     (mut(url) : String) = String.new();
     (mut(needs_latest) : bool) = false;
     match(
-      parsed,
+      &parsed,
       .Path(n, rel) => {
         name = n.clone();
         url = rel.clone();
@@ -6132,7 +6148,7 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
         needs_latest = true;
       }
     );
-    is_path := match(parsed, .Path(_, _) => true, .Git(_, _) => false);
+    is_path := match(&parsed, .Path(_, _) => true, .Git(_, _) => false);
     (mut(version) : String) = String.new();
     (mut(present) : bool) = false;
     if(is_path, {
@@ -6146,22 +6162,25 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
     kind := match(parsed, .Path(_, _) => "path", .Git(_, _) => "git");
     `${kind} ${name} ${url} ${version} ${present.to_string()}`
   })
-);
+});
 _MmSrc :: enum(Git(url : String, tag : String), Path(p : String));
-_mm_tags_of :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))(
+derive(_MmSrc, Clone);
+_mm_tags_of :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  url_owned := url.clone();
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
-    `tags(${url})`
+    `tags(${url_owned})`
   })
-);
-_match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Future(String, IoExn)))(
+});
+_match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Future(String, IoExn)))({
+  srcs_owned := srcs.clone();
   io.async((e : IoExn) => {
     mut(out) := String.new();
     (mut(i) : usize) = usize(0);
-    while(i < srcs.len(), {
-      src := srcs(i);
+    while(i < srcs_owned.len(), {
+      src := srcs_owned(i).clone();
       i = (i + usize(1));
-      requirement := match(src, .Git(_, t) => t.clone(), .Path(p) => p.clone());
+      requirement := match(&src, .Git(_, t) => t.clone(), .Path(p) => p.clone());
       url := match(src, .Git(u, _) => u, .Path(_) => String.from("local"));
       (mut(chosen) : String) = requirement.clone();
       if(requirement.len() == usize(0), {
@@ -6172,7 +6191,7 @@ _match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Futur
     });
     out
   })
-);
+});
 test("a nested arm that loops with an await runs its post-loop code for that arm only", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -6202,11 +6221,11 @@ test("a sibling arm's second-await binding is assigned when its continuation is 
 test("nested while loops in one async body with awaits before, inside and after the inner loop", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
-  arts := ArrayList(_NwArtifact).new();
-  m1 := ArrayList(String).new();
+  mut(arts) := ArrayList(_NwArtifact).new();
+  mut(m1) := ArrayList(String).new();
   m1.push(String.from("aa"));
   m1.push(String.from("b"));
-  m2 := ArrayList(String).new();
+  mut(m2) := ArrayList(String).new();
   m2.push(String.from("cc"));
   arts.push(_NwArtifact(name : String.from("AA"), mods : m1));
   arts.push(_NwArtifact(name : String.from("BB"), mods : m2));
@@ -6231,7 +6250,7 @@ test("two matches on the same match-bound local in one async body", {
 test("two matches on a loop local in an async while body", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
-  srcs := ArrayList(_MmSrc).new();
+  mut(srcs) := ArrayList(_MmSrc).new();
   srcs.push(_MmSrc.Git(String.from("u1"), String.new()));
   srcs.push(_MmSrc.Git(String.from("u2"), String.from("v2")));
   srcs.push(_MmSrc.Path(String.from("p")));
@@ -6393,12 +6412,13 @@ _cap_sm_opt :: (fn(o : &Option(_CapHandle), io : Io) -> Impl(Future(i32, IoExn))
   })
 );
 // state-machine body, a String captured and read after an await (a value-shaped capture)
-_cap_sm_str :: (fn(s : &String, io : Io) -> Impl(Future(String, IoExn)))(
+_cap_sm_str :: (fn(s : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  s_owned := s.clone();
   io.async((e : IoExn) => {
     k := e.io.await(_cap_tick(e.io), e);
-    `${s}:${k.to_string()}`
+    `${s_owned}:${k.to_string()}`
   })
-);
+});
 test("an io.async closure releases its captured values when the future dies", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -6441,12 +6461,13 @@ test("an io.async closure releases its captured values when the future dies", {
 _nb_size :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async((e : IoExn) => n)
 );
-_nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+_nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
+  sizes_owned := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < sizes.len(), {
-      n := sizes(i);
+    while(i < sizes_owned.len(), {
+      n := sizes_owned(i);
       i = (i + usize(1));
       if(n == usize(0), {
         total = (total + usize(1000));
@@ -6459,13 +6480,14 @@ _nb_cond_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize,
     });
     total
   })
-);
-_nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+});
+_nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
+  sizes_owned := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < sizes.len(), {
-      n := sizes(i);
+    while(i < sizes_owned.len(), {
+      n := sizes_owned(i);
       i = (i + usize(1));
       if(n == usize(0), {
         total = (total + usize(1000));
@@ -6476,13 +6498,14 @@ _nb_cond_flat :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, I
     });
     total
   })
-);
-_nb_match_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+});
+_nb_match_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))({
+  sizes_owned := sizes.clone();
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
-    while(i < sizes.len(), {
-      n := sizes(i);
+    while(i < sizes_owned.len(), {
+      n := sizes_owned(i);
       i = (i + usize(1));
       kind := if(n == usize(0), Option(usize).None, Option(usize).Some(n));
       match(
@@ -6500,7 +6523,7 @@ _nb_match_nested :: (fn(sizes : &ArrayList(usize), io : Io) -> Impl(Future(usize
     });
     total
   })
-);
+});
 _nb_top_nested :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async((e : IoExn) => {
     (mut(total) : usize) = usize(7);
@@ -6512,7 +6535,7 @@ _nb_top_nested :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   })
 );
 _nb_sizes :: (fn() -> ArrayList(usize))({
-  s := ArrayList(usize).new();
+  mut(s) := ArrayList(usize).new();
   s.push(usize(3));
   s.push(usize(0));
   s.push(usize(5));
@@ -6600,7 +6623,7 @@ test("return(io.await(...)) in a cond branch inside io.async", {
 _sm_ret_ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(io.async((io : Io) => true));
 _sm_ret_list :: (fn(early : bool, io : Io) -> Impl(Future(ArrayList(i32), Io)))(
   io.async((io : Io) => {
-    out := ArrayList(i32).new();
+    mut(out) := ArrayList(i32).new();
     out.push(i32(7));
     _ready := io.await(_sm_ret_ready(io), io);
     if(early, {
@@ -7385,7 +7408,7 @@ test("an inout binding written in a loop that awaits", {
 });
 _inout_arm :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     e.await(yield(e), e);
     mut(n) := i32(1);
@@ -7402,7 +7425,7 @@ test("an inout binding in an arm, written after an await in the arm", {
 });
 _inout_for :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     xs.push(i32(2));
     e.await(yield(e), e);
@@ -7626,7 +7649,7 @@ test("a borrowing future is awaited where it is made: never bound, spawned or ca
 // lend through the handle is E0919, and a place reached through any other cell
 // is still E0909.
 test("a borrowing future may hold a & place lent through an Rc deref, not a &mut one (decisions 38 D and 46, §3.13 A2)", {
-  items := ArrayList(i32).new();
+  mut(items) := ArrayList(i32).new();
   items.push(i32(1));
   r := Rc.new(_A2Shared(items : items));
   assert(io.await(_a2_count(&r.*.items, io), io) == usize(1), "a & lend through the Rc deref crosses the await");
@@ -7706,7 +7729,7 @@ _A2Cells :: struct(cells : Array(i32, 2));
 // another handle can reallocate while the future waits
 // (issues/fixed/an-index-place-lent-to-a-borrowing-future-skips-the-shared-cell-check.md).
 test("a borrowing future cannot hold an element lent through an index (decision 38 D, §3.13 A2)", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   // The sibling-reachability rule defers to §3.13 A2 for a borrowing future
   // (the `io` sibling sits beside the borrow in every async call; A2 owns
@@ -7961,8 +7984,10 @@ test("borrowed temporaries and closure-borrowed locals of an awaiting io.async b
 _a2_gen_push :: (fn(generic(T : Type), x : ArrayList(T), v : T, io : Io) -> Impl(Future(usize, Io)))(
   io.async({ x, v }(io : Io) => {
     io.await(yield(io), io);
-    x.push(v);
-    x.len()
+    // A capture-list entry is immutable (decision 47): rebind it to write.
+    mut(xs) := x;
+    xs.push(v);
+    xs.len()
   })
 );
 test("a generic io.async body's capture move flag belongs to its specialization", {
@@ -8108,10 +8133,13 @@ test("a local whose address a method call lends lives in the task across a suspe
   assert(rb.unwrap() == i32(0), "task B reads back its own 64 bytes and cell through the lent pointers");
 });
 // An argument lent both `&mut` and `&` to one call inside an `io.async` body
-// takes the same caller-owned +1 as outside one: `xs` lives in a task slot, and
-// the state-machine call path emitted only a by-value parameter's share, so a
-// callee replacing `xs` read the freed first list through its `&` argument
+// took the same caller-owned +1 as outside one while a list was a reference
+// type: `xs` lives in a task slot, and the state-machine call path emitted only
+// a by-value parameter's share, so a callee replacing `xs` read the freed first
+// list through its `&` argument
 // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
+// Since B8 a list is a value, so that overlap is decision 28's E0910; the task
+// still lends a slot local `&mut` beside a separate `&` list on each call path.
 (mut(g_alias_disposed) : i32) = i32(0);
 (mut(g_alias_seen) : usize) = usize(0);
 _AliasBox :: ref(struct(tag : i32));
@@ -8149,24 +8177,34 @@ _alias_clobber_in_task :: (fn(io : Io) -> Impl(Future(usize, Io)))(
     mut(xs) := ArrayList(_AliasBox).new();
     xs.push(_AliasBox(tag : i32(7)));
     xs.push(_AliasBox(tag : i32(8)));
+    mut(ys) := ArrayList(_AliasBox).new();
+    ys.push(_AliasBox(tag : i32(20)));
     io.await(yield(io), io);
-    _alias_clobber_unit(&mut xs, &xs);
+    _alias_clobber_unit(&mut xs, &ys);
     io.await(yield(io), io);
     xs.push(_AliasBox(tag : i32(9)));
-    n := _alias_clobber(&mut xs, &xs);
+    n := _alias_clobber(&mut xs, &ys);
     io.await(yield(io), io);
     xs.push(_AliasBox(tag : i32(10)));
-    m := io.await(_alias_clobber_then(&mut xs, &xs, io), io);
+    m := io.await(_alias_clobber_then(&mut xs, &ys, io), io);
     ((n + m) + xs.len())
   })
 );
-test("an argument lent both &mut and & to one call in an io.async body keeps its share", {
+test("a slot local lent &mut beside a separate & list in an io.async body", {
+  comptime_expect_error(
+    io.async((io : Io) => {
+      mut(xs) := ArrayList(_AliasBox).new();
+      io.await(yield(io), io);
+      _alias_clobber(&mut xs, &xs)
+    }),
+    "decision 28's value-root rule"
+  );
   before := g_alias_disposed;
   n := io.await(_alias_clobber_in_task(io), io);
   seen := g_alias_seen;
-  assert(seen == usize(2), `the statement call's borrowed list survived the writes, len ${seen.to_string()}`);
-  assert(n == usize(5), `the bound and the awaited calls' borrowed lists survived the writes, got ${n.to_string()}`);
-  assert(g_alias_disposed == (before + i32(13)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+  assert(seen == usize(1), `the statement call read the separate list, len ${seen.to_string()}`);
+  assert(n == usize(3), `the bound and the awaited calls read the separate list, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(14)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
 });
 // The share a borrowed projection takes for one call is declared at every
 // fused site of its wrapper: awaiting one wrapper twice in a task emits the
@@ -8191,7 +8229,7 @@ test("a borrowed projection's share is declared at each fused site of one wrappe
   before := g_alias_disposed;
   n := io.await(
     io.async((io : Io) => {
-      xs := ArrayList(_AliasBox).new();
+      mut(xs) := ArrayList(_AliasBox).new();
       xs.push(_AliasBox(tag : i32(1)));
       lock := _AliasLock(file : xs);
       a := io.await(_alias_release(lock, io), io);
@@ -8211,7 +8249,10 @@ test("a borrowed projection's share is declared at each fused site of one wrappe
 _alias_prologue :: (fn(io : Io) -> Impl(Future(usize, Io)))({
   mut(ys) := ArrayList(_AliasBox).new();
   ys.push(_AliasBox(tag : i32(3)));
-  n := _alias_clobber(&mut ys, &ys);
+  // A separate `&` list: lending `ys` twice is E0910 since B8.
+  mut(zs) := ArrayList(_AliasBox).new();
+  zs.push(_AliasBox(tag : i32(4)));
+  n := _alias_clobber(&mut ys, &zs);
   io.async((io : Io) => {
     io.await(yield(io), io);
     n
@@ -8228,7 +8269,7 @@ test("an aliased call in a wrapper's prologue compiles at each fused site of one
     io
   );
   assert(n == usize(2), `each prologue's borrowed list survived the writes, got ${n.to_string()}`);
-  assert(g_alias_disposed == (before + i32(8)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+  assert(g_alias_disposed == (before + i32(10)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
 });
 // A template of several parts lowers to one builder block (D10): an await in
 // a later part sits in a statement of that block, after the builder local is

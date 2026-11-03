@@ -12,7 +12,7 @@ append_backwards :: (
     ensures(seq_of(r) == seq_append(seq_of(b), seq_of(a)))
   ) -> (r : ArrayList(i32))
 )({
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   (mut(i) : usize) = usize(0);
   while(i < a.len(), {
     invariant(i <= a.len(), out.len() == i, forall(k : usize, (k < i) ==> (out(k) == a(k))));
@@ -35,7 +35,7 @@ append_backwards :: (
 
 // REFUTED: the copy drops the first element.
 copy_all :: (fn(a : ArrayList(i32), ensures(seq_of(r) == seq_of(a))) -> (r : ArrayList(i32)))({
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   (mut(i) : usize) = usize(1);
   while(i < a.len(), {
     invariant(i >= usize(1), out.len() == (i - usize(1)), forall(k : usize, (k < out.len()) ==> (out(k) == a(k + usize(1)))));

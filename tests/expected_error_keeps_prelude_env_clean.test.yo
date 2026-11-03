@@ -15,7 +15,7 @@ comptime_expect_error((p : *i32) = i32(0));
 // `assert` in its own module env, which must not contain ours.
 { yield } :: import("std/async");
 test("a module loaded after an expected error does not see this module's bindings", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   assert(xs.len() == usize(1), "the file's own ArrayList binding still works");
 });

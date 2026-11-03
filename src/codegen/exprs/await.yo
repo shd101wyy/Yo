@@ -94,7 +94,7 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
       for(&svs, (_k, cv) => {
         is_outer := match(cv.kind, .Outer => true, _ => false);
         if((cv.base.name == field_label) && is_outer, {
-          o := `sm->${context.sm_capture_slot}.`;
+          mut(o) := `sm->${context.sm_capture_slot}.`;
           o.push_string(sanitize_for_c_identifier(field_label.clone(), false));
           return(Option(String).Some(o));
         });
@@ -120,7 +120,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
   implicit_vars := get_variables_from_env_by_filter(&call_env, (v : Variable) => true);
   // Reverse iteration: innermost (most-recently bound) given binding first.
   n := implicit_vars.len();
-  (k : usize) = n;
+  (mut(k) : usize) = n;
   while(k > usize(0), {
     k = (k - usize(1));
     match(
@@ -130,7 +130,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
         .Some(val) => if(is_struct_val(&val), {
           field_names := match(val, .StructVal(_, fns, _) => Rc.clone(fns), _ => no_labels());
           field_values := match(val, .StructVal(_, _, fvs) => Rc.clone(fvs), _ => empty_value_cell());
-          (fi : usize) = usize(0);
+          (mut(fi) : usize) = usize(0);
           while(fi < field_names.len(), {
             flbl := match(field_names.get_cloned(fi), .Some(l) => l, .None => String.from(""));
             if(flbl == field_label, {
@@ -166,12 +166,12 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
 emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_type : &TypeValue, future_var : &String, indent : &String, context : &FunctionGenerationContext, expr : &AstExpr) -> unit)({
   field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
   field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < field_labels.len(), {
-    flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+    flbl := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
     fty := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(is_function_type(&fty), {
-      (member_code : Option(String)) = Option(String).None;
+      (mut(member_code) : Option(String)) = Option(String).None;
       // Inside SM: member captured in state-machine variables.
       match(
         context.state_machine_variables,
@@ -179,7 +179,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
           for(&svs, (_k, cv) => {
             is_outer := match(cv.kind, .Outer => true, _ => false);
             if((cv.base.name == flbl) && is_outer, {
-              o := `sm->${context.sm_capture_slot}.`;
+              mut(o) := `sm->${context.sm_capture_slot}.`;
               o.push_string(sanitize_for_c_identifier(flbl.clone(), false));
               member_code = Option(String).Some(o);
               break;
@@ -345,7 +345,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // then the legacy sid globals, are fallbacks only.
   // (The poisoned-global order emitted `int32_t r0 = ;` — the await returned
   // "" as unit while the binding knew i32.)
-  (result_type : TypeValue) = match(future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => Rc.clone(future_type));
+  (mut(result_type) : TypeValue) = match(future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => Rc.clone(future_type));
   if(is_some_type(&result_type), {
     own_cell := match(&result_type, Rc(.SomeT({ resolution : orc })) => orc.clone(), _ => Option(TypeValue).None);
     cond(
@@ -404,7 +404,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // variable name, fall back to the call's unique expr id so multiple `io.await`
   // calls in one function don't collide on the fixed `__sync_future` /
   // `__pre_await_state` defaults (C "redefinition" errors).
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => ast_expr_id(expr).to_string());
+  name_suffix := match(&expr_ei.variable_name, .Some(n) => n.clone(), .None => ast_expr_id(expr).to_string());
   sync_future_var := if(name_suffix.len() > usize(0), `__sync_future_${name_suffix.clone()}`, String.from("__sync_future"));
   pre_await_state_var := if(name_suffix.len() > usize(0), `__pre_await_state_${name_suffix.clone()}`, String.from("__pre_await_state"));
   em.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
@@ -442,17 +442,17 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     // Drop in-scope locals (excluding the not-yet-declared await result var).
     saved_drops := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     match(
-      saved_drops,
+      &saved_drops,
       .Some(drops) => {
         result_var_to_skip := expr_ei.variable_name.clone();
-        filtered := ArrayList(AstExpr).new();
-        (di : usize) = usize(0);
+        mut(filtered) := ArrayList(AstExpr).new();
+        (mut(di) : usize) = usize(0);
         while(di < drops.len(), {
           match(
             drops.get(di),
             .Some(dexpr) => {
               target := get_deferred_drop_target_atom_name(&dexpr);
-              skip := match(result_var_to_skip, .Some(rv) => match(target, .Some(t) => (t == rv), .None => false), .None => false);
+              skip := match(&result_var_to_skip, .Some(rv) => match(&target, .Some(t) => (t == rv), .None => false), .None => false);
               if(!skip, {
                 filtered.push(dexpr);
               });
@@ -476,7 +476,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     // its own result: type confusion, a SIGSEGV or a silent rc 0
     // (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
     match(
-      match(context.unwind_catches, .Some(ucs) => unwind_catch_condition(&ucs), .None => Option(String).None),
+      match(&context.unwind_catches, .Some(ucs) => unwind_catch_condition(&ucs), .None => Option(String).None),
       .Some(catch_cond) => {
         em.emit_string_line(`${indent.clone()}    if ${catch_cond} {`);
         em.emit_string_line(`${indent.clone()}      __yo_unwind_target = 0;`);
@@ -526,7 +526,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // Completed future's result) leaves it to the awaiter. No other reader
   // can observe it: the future was moved into this await.
   if(!is_result_unit, {
-    result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
+    result_var := match(&expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
     var_decl := get_variable_type_string(&result_type, result_var.clone(), &context.base);
     // Every abort returned above, so the future is Completed here.
     em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
@@ -553,9 +553,9 @@ generate_state :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   em := context.base.emitter;
   future_code := _call_generate_expr(&future_arg, indent.clone(), context);
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from(""));
+  name_suffix := match(&expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
-  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
+  result_var := match(&expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
   em.emit_string_line(`${indent.clone()}${get_type_string(&future_type, &context.base)} ${fut_var.clone()} = ${future_code};`);
   em.emit_string_line(`${indent.clone()}int ${raw_var.clone()} = ${fut_var.clone()}->state;`);
@@ -610,7 +610,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))));
   func_is_call := match(func_expr, .FnCall(_, _, _, _, _) => true, _ => false);
   handle_arg := if(func_is_call, {
-    fargs := match(func_expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+    fargs := match(func_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
     match(fargs.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   }, {
     args := ast_call_args_unmarked(expr);
@@ -643,10 +643,10 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .${c_variant_member_name(String.from("Some"))} = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
   some_close := if(jh_nullable, String.new(), String.from(" } } }"));
   none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
-  unique_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from("jh"));
+  unique_suffix := match(&expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
-  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));
+  result_var := match(&expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));
   header_struct_name := `__yo_jh_header_${unique_suffix.clone()}`;
   em.emit_string_line(`${indent.clone()}// JoinHandle.await — poll spawned task, return Option(T)`);
   var_decl := get_variable_type_string(&option_type, result_var.clone(), &context.base);
@@ -715,7 +715,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   // (issues/fixed/a-join-handle-await-used-inline-in-a-task-never-releases-its-result.md).
   if(context.in_async_state_machine.is_some(), {
     match(
-      expr_ei.variable_name,
+      &expr_ei.variable_name,
       .Some(rvn) => match(
         context.state_machine_variables,
         .Some(smv) => match(

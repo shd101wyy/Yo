@@ -184,6 +184,16 @@ Progress:
   - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
     --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
     with it (V2c's "As built").
+  - V2b B8, the flip of `ArrayList` and `String`: both are values that own
+    their buffer (`Drop`, `Trace`, `Clone` through the owner; `Send` and
+    `Sync` exactly when the element is), an implicit copy of a live one is
+    E0901, and std, src and tests read elements through `get_cloned`,
+    `clone()` or a borrow. `TypeValue`'s two late-written parts keep their
+    pre-flip sharing through one cell each: `SomeTBounds` for a `SomeT`'s
+    where-clause bounds, and `TraitTBody` for a trait's members and
+    `where(Self <: X)` constraints (consultation #13 §10 and §13; whether
+    to delete them is
+    `issues/questions/2026-11-02-should-a-somet-carry-its-bounds-immutably-from-construction.md`).
   - decision 43 step 2, Generation A: N1a (#1698), N1b (#1705), N1c-1
     (#1711), N1c-3 (#1712), and N1d — the `Escapable` marker derived from
     a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
@@ -6930,7 +6940,7 @@ compiler; the std shapes are plain structs the seed lowers):
         remaining errors by hand, then add decision 27's lint.
       - **It closes an S1.** A write through a `String` copy reaches the
         original only when the original was non-empty
-        (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
+        (`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
         re-triaged 2026-10-14: the local, by-value-parameter and field-copy
         shapes all still split). It closes with the flip. Each of those
         copies then moves or is E0901, and Generation B carries its test.
@@ -8329,7 +8339,7 @@ heavy run, the command is given in item 2.
        `_bytes` sites rewritten; whatever the probe left; the tests that
        assert sharing (`ref_count` of a list or string, e.g.
        `tests/collections/array_list_convenience.test.yo`); the S1's test
-       (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
+       (`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
        moves to `fixed/`); docs in both languages, the instructions and
        the skills cheatsheets; `plans/STRING_VALUE_SEMANTICS.md`'s status.
      - Flips: every implicit copy of a `String`, an `ArrayList` or a value

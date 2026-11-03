@@ -156,7 +156,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(.Some(values(i)));
+              return(.Some(values(i).clone()));
             },
             true => ()
           );
@@ -170,7 +170,7 @@ impl(
   at : (fn(self : &Self, index : usize) -> Option(JsonValue))(
     match(
       self,
-      .Array(items) => items.get(index),
+      .Array(items) => items.get_cloned(index),
       _ => .None
     )
   ),
@@ -205,7 +205,7 @@ impl(
   as_array : (fn(self : &Self) -> Option(ArrayList(JsonValue)))(
     match(
       self,
-      .Array(items) => .Some(items),
+      .Array(items) => .Some(items.clone()),
       _ => .None
     )
   ),
@@ -214,10 +214,10 @@ impl(
     match(
       self,
       .Object(keys, values) => {
-        result := ArrayList(JsonKV).new();
+        mut(result) := ArrayList(JsonKV).new();
         mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
-          result.push(JsonKV(key : keys(i).clone(), value : values(i)));
+          result.push(JsonKV(key : keys(i).clone(), value : values(i).clone()));
         });
         .Some(result)
       },
@@ -228,6 +228,38 @@ impl(
 /// Is `token` a valid RFC 6901 array index — `"0"`, or digits with no leading
 /// zero? The RFC is explicit that `"01"` is not an index, so it must not
 /// silently resolve to element 1.
+/// The value `tokens(ti..)` names below `v` (`JsonValue.pointer`'s walk), a
+/// clone of it, or `.None`. Each step lends the child it descends into.
+_json_pointer_at :: (fn(v : &JsonValue, tokens : &ArrayList(String), ti : usize) -> Option(JsonValue))({
+  if(ti >= tokens.len(), {
+    return(Option(JsonValue).Some(v.clone()));
+  });
+  token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
+  match(
+    v,
+    .Object(keys, values) => {
+      mut(i) := usize(0);
+      while(i < keys.len(), i = (i + usize(1)), {
+        if(keys(i) == token, {
+          return(_json_pointer_at(&values(i), tokens, ti + usize(1)));
+        });
+      });
+      Option(JsonValue).None
+    },
+    .Array(items) => cond(
+      _is_rfc6901_index(&token) => match(
+        token.parse(usize),
+        .Ok(idx) => cond(
+          (idx < items.len()) => _json_pointer_at(&items(idx), tokens, ti + usize(1)),
+          true => Option(JsonValue).None
+        ),
+        .Err(_) => Option(JsonValue).None
+      ),
+      true => Option(JsonValue).None
+    ),
+    _ => Option(JsonValue).None
+  )
+});
 _is_rfc6901_index :: (fn(token : &String) -> bool)({
   b := &token;
   if(b.len() == usize(0), {
@@ -344,7 +376,7 @@ impl(
         mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           if(keys(i) == key, {
-            old := values(i);
+            old := values(i).clone();
             values(i) = value;
             return(Option(JsonValue).Some(old));
           });
@@ -380,11 +412,15 @@ impl(
   /// Append `value` to an array.
   ///
   /// Panics when `self` is not an array.
-  push : (fn(self : &mut Self, value : JsonValue) -> unit)({
-    items := match(self, .Array(xs) => xs, _ => __yo_panic("JsonValue.push: requires the .Array variant"));
-    items.push(value);
-    self = Self.Array(items);
-  }),
+  push : (fn(self : &mut Self, value : JsonValue) -> unit)(
+    // The `&mut` receiver's match binds the list as a `&mut` place
+    // (decision 26), so the value is pushed where the list lives.
+    match(
+      self,
+      .Array(xs) => xs.push(value),
+      _ => __yo_panic("JsonValue.push: requires the .Array variant")
+    )
+  ),
   /// Resolve an RFC 6901 JSON Pointer — `serde_json::Value::pointer`.
   ///
   /// `""` is the whole document. Otherwise the pointer must start with `/`
@@ -394,41 +430,14 @@ impl(
   /// valid index and resolves to `.None`, not to element 1.
   pointer : (fn(self : &Self, path : &String) -> Option(JsonValue))({
     if(path.is_empty(), {
-      return(Option(JsonValue).Some(self));
+      return(Option(JsonValue).Some(self.clone()));
     });
     if(!path.starts_with(`/`), {
       return(Option(JsonValue).None);
     });
     // `"/a/b"`.split("/") is ["", "a", "b"] — drop the leading empty token.
-    tokens := path.split(`/`);
-    (mut(current) : JsonValue) = self;
-    mut(ti) := usize(1);
-    while(ti < tokens.len(), ti = (ti + usize(1)), {
-      token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
-      step := match(
-        current,
-        .Object(_, _) => current.get(&token),
-        .Array(items) => cond(
-          _is_rfc6901_index(&token) => match(
-            token.parse(usize),
-            .Ok(idx) => items.get(idx),
-            .Err(_) => Option(JsonValue).None
-          ),
-          true => Option(JsonValue).None
-        ),
-        _ => Option(JsonValue).None
-      );
-      match(
-        step,
-        .Some(next) => {
-          current = next;
-        },
-        .None => {
-          return(Option(JsonValue).None);
-        }
-      );
-    });
-    Option(JsonValue).Some(current)
+    // The walk lends each step and clones only the value it resolves to.
+    _json_pointer_at(self, &path.split(`/`), usize(1))
   })
 );
 /// Index trait — `v(key)` returns the child JsonValue for `key`, panicking
@@ -564,7 +573,7 @@ impl(
   /// A cursor over `src` positioned at byte 0. `src` is stored by reference
   /// (an `ArrayList` is a `ref` type), so the parser does not copy the input.
   new : (fn(src : &ArrayList(u8)) -> Self)(
-    Self(src : src, pos : usize(0))
+    Self(src : src.clone(), pos : usize(0))
   ),
   /// The byte at the cursor WITHOUT consuming it, or `.None` at end of
   /// input. Every `.None` here becomes `JsonError.UnexpectedEnd` at the
@@ -663,7 +672,7 @@ impl(
   /// See the module's `## Stability` note.
   parse_string : (fn(self : &Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
-    bytes := ArrayList(u8).new();
+    mut(bytes) := ArrayList(u8).new();
     while(true, {
       match(
         self.peek(),
@@ -939,7 +948,7 @@ impl(
       .None => ()
     );
     num_len := (self.pos - start);
-    num_buf := ArrayList(u8).with_capacity(num_len + usize(1));
+    mut(num_buf) := ArrayList(u8).with_capacity(num_len + usize(1));
     mut(j) := usize(0);
     while(j < num_len, j = (j + usize(1)), {
       num_buf.push(self.src(start + j));
@@ -1017,8 +1026,8 @@ _parse_value :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
         (c == u8(123)) => {
           // '{' — parse object
           p.advance();
-          keys := ArrayList(String).new();
-          vals := ArrayList(JsonValue).new();
+          mut(keys) := ArrayList(String).new();
+          mut(vals) := ArrayList(JsonValue).new();
           p.skip_ws();
           match(
             p.peek(),
@@ -1103,7 +1112,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
         (c == u8(91)) => {
           // '[' — parse array
           p.advance();
-          items := ArrayList(JsonValue).new();
+          mut(items) := ArrayList(JsonValue).new();
           p.skip_ws();
           match(
             p.peek(),
@@ -1190,7 +1199,7 @@ parse_bytes :: (fn(bytes : &ArrayList(u8)) -> Result(JsonValue, JsonError))({
 });
 /// Parse a static `str` of JSON into a `JsonValue` tree.
 parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   n := s.len();
   (mut(i) : usize) = usize(0);
   while(i < n, {
@@ -1367,7 +1376,7 @@ _stringify_into :: (fn(value : &JsonValue, out : &mut ArrayList(u8)) -> unit)({
 });
 /// Serialize a `JsonValue` to a compact JSON string.
 stringify :: (fn(value : &JsonValue) -> String)({
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   _stringify_into(value, &mut out);
   String.from_bytes(out)
 });
@@ -1452,7 +1461,7 @@ stringify_pretty :: (fn(value : &JsonValue, indent : usize) -> String)(
   cond(
     (indent == usize(0)) => stringify(value),
     true => {
-      out := ArrayList(u8).new();
+      mut(out) := ArrayList(u8).new();
       _stringify_pretty_into(value, indent, usize(0), &mut out);
       String.from_bytes(out)
     }
@@ -1484,7 +1493,7 @@ _json_clone :: (fn(v : &JsonValue) -> JsonValue)(
     .Int(i) => JsonValue.Int(i),
     .Str(s) => JsonValue.Str(s.clone()),
     .Array(items) => {
-      out := ArrayList(JsonValue).new();
+      mut(out) := ArrayList(JsonValue).new();
       mut(i) := usize(0);
       while(i < items.len(), i = (i + usize(1)), {
         out.push(_json_clone(&items(i)));
@@ -1492,8 +1501,8 @@ _json_clone :: (fn(v : &JsonValue) -> JsonValue)(
       JsonValue.Array(out)
     },
     .Object(keys, values) => {
-      out_keys := ArrayList(String).new();
-      out_values := ArrayList(JsonValue).new();
+      mut(out_keys) := ArrayList(String).new();
+      mut(out_values) := ArrayList(JsonValue).new();
       mut(i) := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
         out_keys.push(keys(i).clone());
@@ -1808,16 +1817,10 @@ impl(
   ArrayList(T),
   ToJson(
     to_json : (fn(self : &Self) -> JsonValue)({
-      items := ArrayList(JsonValue).new();
+      mut(items) := ArrayList(JsonValue).new();
       (mut(i) : usize) = usize(0);
       while(i < self.len(), {
-        match(
-          self.get(i),
-          .Some(x) => {
-            items.push(x.to_json());
-          },
-          .None => ()
-        );
+        items.push(self(i).to_json());
         i = (i + usize(1));
       });
       JsonValue.Array(items : items)
@@ -1833,21 +1836,17 @@ impl(
       match(
         v,
         .Array(items) => {
-          out := Self.new();
+          mut(out) := Self.new();
           (mut(i) : usize) = usize(0);
           while(i < items.len(), {
             match(
-              items.get(i),
-              .Some(jv) => match(
-                _from_json_of(T, &jv),
-                .Ok(x) => {
-                  out.push(x);
-                },
-                .Err(e) => {
-                  return(.Err(e));
-                }
-              ),
-              .None => ()
+              _from_json_of(T, &items(i)),
+              .Ok(x) => {
+                out.push(x);
+              },
+              .Err(e) => {
+                return(.Err(e));
+              }
             );
             i = (i + usize(1));
           });
@@ -1864,8 +1863,8 @@ impl(
   HashMap(String, V),
   ToJson(
     to_json : (fn(self : &Self) -> JsonValue)({
-      keys := ArrayList(String).new();
-      values := ArrayList(JsonValue).new();
+      mut(keys) := ArrayList(String).new();
+      mut(values) := ArrayList(JsonValue).new();
       mut(it) := self.keys();
       (mut(go) : bool) = true;
       while(go, {
@@ -1901,20 +1900,17 @@ impl(
         .Object(keys, values) => {
           out := Self.new();
           (mut(i) : usize) = usize(0);
-          while(i < keys.len(), {
-            k := match(keys.get(i), .Some(key_s) => key_s, .None => String.new());
+          // Keys and values are read in place; the key is cloned into the
+          // map, which owns its keys (B8).
+          while((i < keys.len()) && (i < values.len()), {
             match(
-              values.get(i),
-              .Some(jv) => match(
-                _from_json_of(V, &jv),
-                .Ok(decoded_v) => {
-                  out.insert(k, decoded_v);
-                },
-                .Err(e) => {
-                  return(.Err(e));
-                }
-              ),
-              .None => ()
+              _from_json_of(V, &values(i)),
+              .Ok(decoded_v) => {
+                out.insert(keys(i).clone(), decoded_v);
+              },
+              .Err(e) => {
+                return(.Err(e));
+              }
             );
             i = (i + usize(1));
           });

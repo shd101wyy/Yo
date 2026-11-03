@@ -330,7 +330,11 @@ intern_token_str :: (fn(s : &String) -> Rc(String))(
     .Some(canonical) => canonical,
     .None => {
       c := Rc.new(s.clone());
-      g_token_intern.with_mut({ c : Rc.clone(c), s }(m) => m.insert(s.clone(), Rc.clone(c)));
+      // The key is hoisted and captured OWNED: `with_mut` takes its callback
+      // by value, and a closure carrying a borrow capture (`&s`) is
+      // second-class (E0909), so the intern miss pays one key clone.
+      key := s.clone();
+      g_token_intern.with_mut({ c : Rc.clone(c), key }(m) => m.insert(key, Rc.clone(c)));
       c
     }
   )

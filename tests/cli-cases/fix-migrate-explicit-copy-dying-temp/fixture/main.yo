@@ -2,31 +2,31 @@
 //! right after the copy (`make().name`, returned from a function too) instead
 //! of cloning it: such a copy is usually a move. A `match` binding of a call's
 //! result (`make_opt()`, `m.get(k)`) whose only use is the arm's tail is a
-//! move too. A field of a live local (`h.name`) still gets its `.clone()`.
-{ String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+//! move too. A field of a live local (`h.name`) still gets its `.clone()`. The
+//! copied values are `BTreeMap`s (still a `ref`; decision Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+{ BTreeMap } :: import("std/collections/btree_map");
 { println } :: import("std/fmt");
-Holder :: struct(name : String, tags : ArrayList(String));
-make :: (fn() -> Holder)(Holder(name : String.from("m"), tags : ArrayList(String).new()));
-make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
-hold :: (fn(sink(s) : String) -> usize)(s.len());
-first_name :: (fn() -> String)(make().name);
+Holder :: struct(name : BTreeMap(i32, i32), tags : BTreeMap(i32, BTreeMap(i32, i32)));
+make :: (fn() -> Holder)(Holder(name : BTreeMap(i32, i32).new(), tags : BTreeMap(i32, BTreeMap(i32, i32)).new()));
+make_opt :: (fn() -> Option(BTreeMap(i32, i32)))(.Some(BTreeMap(i32, i32).new()));
+hold :: (fn(sink(s) : BTreeMap(i32, i32)) -> usize)(s.len());
+first_name :: (fn() -> BTreeMap(i32, i32))(make().name);
 main :: (fn() -> unit)({
   a := make().name;
-  b := match(make_opt(), .Some(z) => z, .None => String.new());
-  m := HashMap(String, String).new();
-  m.insert(String.from("k"), String.from("v"));
-  c := match(m.get(String.from("k")), .Some(v) => v, .None => String.new());
-  n := hold(match(make_opt(), .Some(w) => w, .None => String.new()));
+  b := match(make_opt(), .Some(z) => z, .None => BTreeMap(i32, i32).new());
+  m := BTreeMap(i32, BTreeMap(i32, i32)).new();
+  m.insert(i32(1), BTreeMap(i32, i32).new());
+  c := match(m.get(&i32(1)), .Some(v) => v, .None => BTreeMap(i32, i32).new());
+  n := hold(match(make_opt(), .Some(w) => w, .None => BTreeMap(i32, i32).new()));
   h := make();
   d := h.name;
-  println(`${a} ${b} ${c} ${d} ${h.name} ${n.to_string()} ${first_name()}`);
+  println(`${a.len().to_string()} ${b.len().to_string()} ${c.len().to_string()} ${d.len().to_string()} ${h.name.len().to_string()} ${n.to_string()} ${first_name().len().to_string()}`);
   // A field read through a dereference of a dying `Rc` handle: the pointee
   // outlives the handle in `s.h` and is read again, so this one is cloned.
   s := Shelf(h : Rc.new(make()));
   e := grab(&s).*.name;
-  println(`${e} ${s.h.*.name}`);
+  println(`${e.len().to_string()} ${s.h.*.name.len().to_string()}`);
 });
 Shelf :: struct(h : Rc(Holder));
 grab :: (fn(s : &Shelf) -> Rc(Holder))(Rc.clone(s.h));

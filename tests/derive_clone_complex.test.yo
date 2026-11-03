@@ -30,7 +30,7 @@ test("derive Clone for struct with String field", {
 WithList :: struct(items : ArrayList(i32), tag : i32);
 derive(WithList, Clone);
 test("derive Clone for struct with ArrayList field", {
-  lst := ArrayList(i32).new();
+  mut(lst) := ArrayList(i32).new();
   lst.push(i32(10));
   lst.push(i32(20));
   lst.push(i32(30));
@@ -117,7 +117,7 @@ test("derive Clone for enum with Rc variant", {
   );
 });
 test("derive Clone for enum with ArrayList variant", {
-  lst := ArrayList(String).new();
+  mut(lst) := ArrayList(String).new();
   lst.push(`x`);
   lst.push(`y`);
   orig := RichVariant.WithList(lst);
@@ -221,7 +221,7 @@ test("derive Clone for large enum (23 variants)", {
 CompoundRC :: struct(name : String, tags : ArrayList(String), count : usize);
 derive(CompoundRC, Clone);
 test("derive Clone for struct with multiple RC fields", {
-  tags := ArrayList(String).new();
+  mut(tags) := ArrayList(String).new();
   tags.push(`alpha`);
   tags.push(`beta`);
   orig := CompoundRC(name : `compound`, tags : tags, count : usize(2));
@@ -244,7 +244,7 @@ FoldTree :: enum(Leaf, Branch(children : ArrayList(Self)));
 derive(FoldTree, Clone);
 _fold_tree_len :: (fn(t : &FoldTree) -> usize)(match(t, .Branch(cs) => cs.len(), .Leaf => usize(0)));
 test("derive Clone for a nullable-pointer recursive enum over ArrayList(Self)", {
-  xs := ArrayList(FoldTree).new();
+  mut(xs) := ArrayList(FoldTree).new();
   xs.push(FoldTree.Leaf);
   (mut(orig) : FoldTree) = FoldTree.Branch(xs);
   c := orig.clone();
@@ -260,11 +260,11 @@ test("derive Clone for a nullable-pointer recursive enum over ArrayList(Self)", 
   assert(_fold_tree_len(&c) == usize(1), "the clone has its own list");
 });
 test("Option of a nullable-pointer recursive enum, read out of its ArrayList", {
-  xs := ArrayList(FoldTree).new();
+  mut(xs) := ArrayList(FoldTree).new();
   xs.push(FoldTree.Leaf);
-  r := match(xs.get(usize(0)), .Some(_) => i32(1), .None => i32(-1));
+  r := match(xs.get_cloned(usize(0)), .Some(_) => i32(1), .None => i32(-1));
   assert(r == i32(1), "get found the element");
-  assert(xs.get(usize(1)).is_none(), "past the end is None");
+  assert(xs.get_cloned(usize(1)).is_none(), "past the end is None");
 });
 FoldObj :: enum(Null, Obj(m : HashMap(String, Self)));
 derive(FoldObj, Clone);
@@ -283,7 +283,7 @@ test("derive Clone for a nullable-pointer recursive enum over HashMap(String, Se
 FoldOpt :: enum(Null, Opt(o : ArrayList(Option(Self))));
 derive(FoldOpt, Clone);
 test("derive Clone for a nullable-pointer recursive enum over ArrayList(Option(Self))", {
-  xs := ArrayList(Option(FoldOpt)).new();
+  mut(xs) := ArrayList(Option(FoldOpt)).new();
   xs.push(.Some(FoldOpt.Null));
   xs.push(.None);
   c := FoldOpt.Opt(xs).clone();

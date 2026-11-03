@@ -43,16 +43,23 @@ ArrayListError :: enum(
 );
 derive(ArrayListError, Copy, Clone);
 /// Generic growable array similar to Rust's `Vec<T>`.
-/// Heap-allocated with automatic resizing and reference-counted cleanup.
+/// A value (B8, plans/VALUES_BY_DEFAULT.md): the list is the only owner of
+/// its heap buffer, so `ys := xs` moves it, `xs.clone()` copies it, and the
+/// buffer is freed when the owner is dropped.
 ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _ptr : ?*T,
-      _length : usize,
-      _capacity : usize
-    )
+  struct(
+    _ptr : ?*T,
+    _length : usize,
+    _capacity : usize
   )
 );
+// SAFETY: a value `ArrayList(T)` is the only owner of its buffer (B8,
+// plans/VALUES_BY_DEFAULT.md): moving the list moves every element with it,
+// and no other handle reaches the buffer, so it is `Send`/`Sync` exactly when
+// `T` is. The raw `_ptr` field derives neither (decision 38 E), as `Box`'s
+// `_cell` does not (std/prelude.yo).
+impl(generic(T : Type), where(T <: Send), ArrayList(T), Send());
+impl(generic(T : Type), where(T <: Sync), ArrayList(T), Sync());
 impl(
   generic(T : Type),
   ArrayList(T),
@@ -201,45 +208,6 @@ impl(
       .Some(a) => Self._placed(a, usize(0))
     )
   ),
-  /// Owned copy of the elements in `[r.start, r.end)` — JS-style range
-  /// slicing with value semantics (plans/archive/SLICE_REWORK.md: `list(a..b)`
-  /// lowers to this).
-  ///
-  /// The end is CLAMPED to the length rather than checked, so an over-long
-  /// range yields a short list instead of panicking; `slice` is the checked,
-  /// `Result`-returning spelling. Elements are copied (dup'd for a
-  /// refcounted `T`), so the result is independent of the source.
-  slice_copy : (fn(self : &Self, r : Range(usize)) -> Self)({
-    e := cond((r.end > self.len()) => self.len(), true => r.end);
-    out := Self.new();
-    mut(i) := r.start;
-    while(i < e, i = (i + usize(1)), {
-      match(
-        self.get(i),
-        .Some(v) => {
-          out.push(v);
-        },
-        .None => ()
-      );
-    });
-    out
-  }),
-  /// Inclusive-range companion of `slice_copy` (`list(a..=b)`).
-  slice_copy_inclusive : (fn(self : &Self, r : RangeInclusive(usize)) -> Self)({
-    last := cond((r.end >= self.len()) => self.len(), true => (r.end + usize(1)));
-    out := Self.new();
-    mut(i) := r.start;
-    while(i < last, i = (i + usize(1)), {
-      match(
-        self.get(i),
-        .Some(v) => {
-          out.push(v);
-        },
-        .None => ()
-      );
-    });
-    out
-  }),
   /// Consuming constructor from a fixed-size array — Rust's
   /// `Vec::from([T; N])`: `ArrayList(i32).from([i32(1), i32(2), i32(3)])`.
   ///
@@ -252,7 +220,7 @@ impl(
     // At least one slot, so the buffer exists even for `N == 0` and the move
     // below takes no branch (a move on one arm only is E0907 for a
     // move-only `T`).
-    out := Self.with_capacity(cond((N == usize(0)) => usize(1), true => N));
+    mut(out) := Self.with_capacity(cond((N == usize(0)) => usize(1), true => N));
     // The whole array moves into the buffer bitwise — an `Array(T, N)` is `N`
     // contiguous `T`s, the buffer's layout — so no element is copied and none
     // is dropped, and a move-only `T` moves like any other.
@@ -425,7 +393,7 @@ impl(
       // loop of pushes built.
       ensures(
         self.len() == (old(self.len()) + usize(1)),
-        forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))
+        forall(k : usize, (k < self.len()) ==> cond((k == old(self.len())) => (self(k) == value), true => (self(k) == old(self)(k))))
       ),
       assumed()
     ) -> unit
@@ -558,7 +526,7 @@ impl(
       __yo_panic("ArrayList.drain: invalid range for this length");
     });
     count := (r.end - r.start);
-    out := Self.new();
+    mut(out) := Self.new();
     cond(
       (count == usize(0)) => out,
       true =>
@@ -566,74 +534,21 @@ impl(
           self._ptr,
           .None => __yo_panic("ArrayList has length but no ptr"),
           .Some(_ptr) => {
-            // Collect the drained elements FIRST: get dups each one, so the
-            // shift below can drop the originals with balanced RCs. (ci, not
-            // i: the shift arms below redeclare i in their own scopes.)
+            // Move the drained elements out bitwise: `out` owns them now, and
+            // the list gives them up (B8: a value list is its elements' only
+            // owner, so no element is copied or dropped here).
             mut(ci) := usize(0);
             while(ci < count, ci = (ci + usize(1)), {
-              match(
-                self.get(r.start + ci),
-                .Some(e) => out.push(e),
-                .None => __yo_panic("ArrayList.drain: get failed inside bounds")
-              );
+              out.push(__yo_ptr_read(_ptr.add(r.start + ci)));
             });
-            // Shift remaining elements left to fill the gap
-            // We need to move elements from [r.start + count, length) to [r.start, ...)
+            // Shift the tail left over the gap — a bitwise move as well.
             elements_after := (self._length - r.start - count);
-            cond(
-              (elements_after > usize(0)) => {
-                src_ptr := _ptr.add(r.start + count);
-                dst_ptr := _ptr.add(r.start);
-                cond(
-                  Type.contains_rc_type(T) => {
-                    // For RC types, iterate and properly manage RC
-                    // The assignment dst.* = src.* will:
-                    // 1. Dup src.* (RC+1)
-                    // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
-                    // 3. Write to dst.*
-                    mut(i) := usize(0);
-                    while(i < elements_after, i = (i + usize(1)), {
-                      dst := dst_ptr.add(i);
-                      src := src_ptr.add(i);
-                      dst.* = src.*;
-                    });
-                    // Drop the non-overlapping tail stale pointers
-                    mut(j) := usize(0);
-                    tail_start := (r.start + elements_after);
-                    while(j < count, j = (j + usize(1)), {
-                      tail_ptr := _ptr.add(tail_start + j);
-                      drop_in_place(tail_ptr);
-                    });
-                  },
-                  true => {
-                    // For non-RC types, use fast memmove
-                    element_size := size_of(T);
-                    bytes_to_move := (elements_after * element_size);
-                    dst_void := (*void)(dst_ptr);
-                    src_void := (*void)(src_ptr);
-                    // SAFETY: dst_ptr and src_ptr both point into self._ptr's
-                    // contiguous element buffer. `elements_after = self._length - (r.start + count)`
-                    // counts elements still in-bounds after the drain range,
-                    // so `bytes_to_move = elements_after * sizeof(T)` stays within
-                    // the allocated buffer. memmove handles overlap.
-                    unsafe(memmove(dst_void, src_void, bytes_to_move));
-                  }
-                );
-              },
-              true => {
-                // No elements to shift, just drop the drained elements
-                cond(
-                  Type.contains_rc_type(T) => {
-                    mut(i) := usize(0);
-                    while(i < count, i = (i + usize(1)), {
-                      element_ptr := _ptr.add(r.start + i);
-                      drop_in_place(element_ptr);
-                    });
-                  },
-                  true => ()
-                );
-              }
-            );
+            if(elements_after > usize(0), {
+              // SAFETY: both ranges lie inside the list's buffer:
+              // `elements_after = self._length - (r.start + count)` elements
+              // start at `r.start + count`, and memmove handles the overlap.
+              unsafe(memmove((*void)(_ptr.add(r.start)), (*void)(_ptr.add(r.start + count)), elements_after * size_of(T)));
+            });
             // Update length
             self._length = (self._length - count);
             out
@@ -667,15 +582,18 @@ impl(
   }),
   /// Move every element of `other` onto the end of `self`, leaving `other`
   /// EMPTY — Rust's `append`. `extend` copies instead.
-  append : (fn(self : &mut Self, other : &mut Self) -> unit)({
-    (mut(i) : usize) = usize(0);
-    n := other.len();
-    while(i < n, {
-      match(other.get(i), .Some(v) => self.push(v), .None => ());
-      i = (i + usize(1));
-    });
-    other.clear();
-  }),
+  append : (fn(self : &mut Self, other : &mut Self) -> unit)(
+    // The elements move bitwise: `other` gives them up (its length drops to
+    // zero) and keeps its buffer, so nothing is copied or dropped.
+    match(
+      other._ptr,
+      .Some(src) => {
+        self.extend_from_ptr(src, other._length);
+        other._length = usize(0);
+      },
+      .None => ()
+    )
+  ),
   /// First element, or `.None` when empty.
   first : (fn(self : &Self) -> Option(T))(
     self.get(usize(0))
@@ -792,33 +710,6 @@ impl(
       }
     );
   }),
-  /// Resize to exactly `new_len`, dropping the tail when shrinking and
-  /// appending copies of `value` when growing. Rust's `resize`.
-  ///
-  /// Distinct from `resize_with_byte`, which memsets raw storage and is only
-  /// meaningful for a plain-old-data element type.
-  resize : (fn(self : &mut Self, new_len : usize, value : &T) -> unit)({
-    cond(
-      (new_len < self._length) => {
-        self.truncate(new_len);
-      },
-      (new_len > self._length) => {
-        self.reserve(new_len - self._length);
-        while(self._length < new_len, {
-          self.push(value);
-        });
-      },
-      true => ()
-    );
-  }),
-  /// Overwrite every element with `value`, keeping the length. Rust's `fill`.
-  fill : (fn(self : &mut Self, value : &T) -> unit)({
-    (mut(i) : usize) = usize(0);
-    n := self._length;
-    while(i < n, i = (i + usize(1)), {
-      self(i) = value;
-    });
-  }),
   /// Split off `[at, len)` into a new list, leaving `[0, at)` here.
   split_off : (fn(self : &mut Self, at : usize) -> Self)({
     if(at > self._length, {
@@ -862,55 +753,6 @@ impl(
       .None => __yo_panic("ArrayList.remove: no buffer after bounds check")
     )
   }),
-  /// Owned copy of `[start, end)`, or an `.IndexOutOfBounds` error — the
-  /// CHECKED counterpart of `slice_copy`, which clamps instead.
-  ///
-  /// An inverted range reports `.IndexOutOfBounds(index : start, length :
-  /// end)`. O(end - start), one allocation of the exact size.
-  slice : (fn(self : &Self, start : usize, end : usize) -> Result(Self, ArrayListError))(
-    // Validate indices
-    cond(
-      (start > self._length) =>
-        .Err(.IndexOutOfBounds(index : start, length : self._length)),
-      (end > self._length) =>
-        .Err(.IndexOutOfBounds(index : end, length : self._length)),
-      (start > end) =>
-        .Err(.IndexOutOfBounds(index : start, length : end)),
-      true => {
-        slice_length := (end - start);
-        // If slice is empty, return empty ArrayList
-        cond(
-          (slice_length == usize(0)) =>
-            .Ok(Self.new()),
-          true =>
-            match(
-              self._ptr,
-              .None => __yo_panic("ArrayList has length but no ptr"),
-              .Some(src_ptr) => {
-                // Create new ArrayList with exact capacity
-                new_list := Self.with_capacity(slice_length);
-                match(
-                  new_list._ptr,
-                  .None => .Err(.AllocError(.OutOfMemory)),
-                  .Some(dst_ptr) => {
-                    // Copy elements
-                    mut(i) := usize(0);
-                    while(i < slice_length, i = (i + usize(1)), {
-                      src := src_ptr.add(start + i);
-                      dst := dst_ptr.add(i);
-                      consume(dst.* = src.*);
-                    });
-                    // Set the length of the new list
-                    new_list._length = slice_length;
-                    .Ok(new_list)
-                  }
-                )
-              }
-            )
-        )
-      }
-    )
-  ),
   /// Grow the buffer so it holds at least `min_cap` elements in TOTAL,
   /// doubling as it goes; a request under the current capacity does nothing.
   ///
@@ -1173,15 +1015,15 @@ impl(
   )
 );
 // === Iterator support ===
-/// Value iterator over an ArrayList — yields each element BY VALUE, which
-/// dups a refcounted `T`. This is what `into_iter()` (and therefore
-/// `for(list, ...)`) returns; `iter()` yields pointers instead (D14).
+/// Value iterator over an ArrayList — yields each element BY VALUE. This is
+/// what `into_iter()` (and therefore `for(list, ...)`) returns; `iter()`
+/// yields pointers instead (D14).
 ///
-/// It OWNS the list: `into_iter` takes it by value (B7b). Until `ArrayList`
-/// is a value type that is a shared handle, so the elements are still copied
-/// out rather than moved (lookahead D21), and `_length` is re-read on every
-/// `next`: a `push` through another handle during a forward walk extends the
-/// walk. Double-ended: `next_back` takes from the far end.
+/// It OWNS the list: `into_iter` takes it by value (B7b), and each element
+/// MOVES out of its slot bitwise (lookahead D21), so a move-only `T` works and
+/// nothing is copied. Dropping the iterator drops the elements it has not
+/// yielded and then frees the buffer. Double-ended: `next_back` takes from
+/// the far end.
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _list : ArrayList(T),
@@ -1202,7 +1044,8 @@ impl(
       cond(
         ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
-          value := self._list.get(self._index);
+          // Moved out: the slot is behind `_index` now, which `Drop` skips.
+          value := match(self._list._ptr, .Some(p) => Option(T).Some(__yo_ptr_read(p.add(self._index))), .None => Option(T).None);
           self._index = (self._index + usize(1));
           value
         }
@@ -1220,10 +1063,33 @@ impl(
         ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
           self._back_taken = (self._back_taken + usize(1));
-          self._list.get(self._list._length - self._back_taken)
+          match(self._list._ptr, .Some(p) => Option(T).Some(__yo_ptr_read(p.add(self._list._length - self._back_taken))), .None => Option(T).None)
         }
       )
     )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListIter(T),
+  Drop(
+    /// Drops the elements not yet yielded (`_index` up to the ones
+    /// `next_back` took), then empties the list so its own `Drop` frees only
+    /// the buffer: every other slot was moved out.
+    drop : (fn(self : &mut Self) -> unit)({
+      match(
+        self._list._ptr,
+        .Some(p) => {
+          end := (self._list._length - self._back_taken);
+          (mut(i) : usize) = self._index;
+          while(i < end, i = (i + usize(1)), {
+            unsafe(drop_in_place(p.add(i)));
+          });
+        },
+        .None => ()
+      );
+      self._list._length = usize(0);
+    })
   )
 );
 impl(
@@ -1366,30 +1232,27 @@ impl(
     cond(
       (self._length <= usize(1)) => (),
       true => {
-        kept := ArrayList(T).new();
-        (mut(i) : usize) = usize(0);
-        while(i < self._length, {
-          cur := match(self.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.dedup: get failed"));
-          is_dup := cond(
-            (kept.len() == usize(0)) => false,
-            true =>
-              match(
-                kept.last(),
-                .Some(prev) => (prev == cur),
-                .None => false
-              )
-          );
-          if(!is_dup, {
-            kept.push(cur);
-          });
-          i = (i + usize(1));
-        });
-        self.clear();
-        (mut(j) : usize) = usize(0);
-        while(j < kept.len(), {
-          match(kept.get(j), .Some(v) => self.push(v), .None => ());
-          j = (j + usize(1));
-        });
+        // Every element moves out bitwise once (the list gives them up
+        // first): a kept one into `kept`, a duplicate into `cur`, which
+        // drops; `extend` moves the kept ones back.
+        n := self._length;
+        mut(kept) := ArrayList(T).with_capacity(n);
+        match(
+          self._ptr,
+          .Some(_ptr) => {
+            self._length = usize(0);
+            (mut(i) : usize) = usize(0);
+            while(i < n, i = (i + usize(1)), {
+              cur := __yo_ptr_read(_ptr.add(i));
+              is_dup := ((kept.len() > usize(0)) && (kept(kept.len() - usize(1)) == cur));
+              if(!is_dup, {
+                kept.push(cur);
+              });
+            });
+          },
+          .None => ()
+        );
+        self.extend(kept);
       }
     );
   }),
@@ -1402,9 +1265,8 @@ impl(
         (mut(i) : usize) = usize(0);
         (mut(same) : bool) = true;
         while((i < n) && same, {
-          a := match(self.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
-          b := match(prefix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
-          if(!(a == b), {
+          // Compared in place: a copy of either element would clone it.
+          if(!(self(i) == prefix(i)), {
             same = false;
           });
           i = (i + usize(1));
@@ -1423,9 +1285,8 @@ impl(
         (mut(i) : usize) = usize(0);
         (mut(same) : bool) = true;
         while((i < n) && same, {
-          a := match(self.get(off + i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
-          b := match(suffix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
-          if(!(a == b), {
+          // Compared in place, as in `starts_with`.
+          if(!(self(off + i) == suffix(i)), {
             same = false;
           });
           i = (i + usize(1));
@@ -1543,9 +1404,10 @@ _heapsort_by :: (
           );
           cond(
             less((ptr.add(root)).*, (ptr.add(largest)).*) => {
-              tmp := (ptr.add(root)).*;
-              (ptr.add(root)).* = (ptr.add(largest)).*;
-              (ptr.add(largest)).* = tmp;
+              // Bitwise moves: a move-only `T` swaps too.
+              tmp := __yo_ptr_read(ptr.add(root));
+              __yo_ptr_write(ptr.add(root), __yo_ptr_read(ptr.add(largest)));
+              __yo_ptr_write(ptr.add(largest), tmp);
               root = largest;
             },
             true => {
@@ -1560,9 +1422,9 @@ _heapsort_by :: (
   (mut(end) : usize) = n;
   while(end > usize(1), {
     end = (end - usize(1));
-    head := (ptr.add(usize(0))).*;
-    (ptr.add(usize(0))).* = (ptr.add(end)).*;
-    (ptr.add(end)).* = head;
+    head := __yo_ptr_read(ptr.add(usize(0)));
+    __yo_ptr_write(ptr.add(usize(0)), __yo_ptr_read(ptr.add(end)));
+    __yo_ptr_write(ptr.add(end), head);
     (mut(root) : usize) = usize(0);
     (mut(going) : bool) = true;
     while(going, {
@@ -1581,9 +1443,10 @@ _heapsort_by :: (
           );
           cond(
             less((ptr.add(root)).*, (ptr.add(largest)).*) => {
-              tmp := (ptr.add(root)).*;
-              (ptr.add(root)).* = (ptr.add(largest)).*;
-              (ptr.add(largest)).* = tmp;
+              // Bitwise moves: a move-only `T` swaps too.
+              tmp := __yo_ptr_read(ptr.add(root));
+              __yo_ptr_write(ptr.add(root), __yo_ptr_read(ptr.add(largest)));
+              __yo_ptr_write(ptr.add(largest), tmp);
               root = largest;
             },
             true => {
@@ -1663,8 +1526,8 @@ _merge_sort_indices :: (
 _stable_sort_by :: (
   fn(generic(T : Type), ptr : &*T, n : usize, less : &Impl(Fn(a : &T, b : &T) -> bool)) -> unit
 )({
-  order := ArrayList(usize).new();
-  scratch := ArrayList(usize).new();
+  mut(order) := ArrayList(usize).new();
+  mut(scratch) := ArrayList(usize).new();
   (mut(k) : usize) = usize(0);
   while(k < n, {
     order.push(k);
@@ -1689,9 +1552,10 @@ _stable_sort_by :: (
   while(i < n, {
     while(scratch(i) != i, {
       j := scratch(i);
-      tmp := unsafe((ptr.add(i)).*);
-      unsafe((ptr.add(i)).* = (ptr.add(j)).*);
-      unsafe((ptr.add(j)).* = tmp);
+      // Bitwise moves: a move-only `T` is permuted too.
+      tmp := unsafe(__yo_ptr_read(ptr.add(i)));
+      unsafe(__yo_ptr_write(ptr.add(i), __yo_ptr_read(ptr.add(j))));
+      unsafe(__yo_ptr_write(ptr.add(j), tmp));
       scratch(i) = scratch(j);
       scratch(j) = j;
     });
@@ -1749,21 +1613,8 @@ impl(
           (mut(i) : usize) = usize(0);
           (mut(equal) : bool) = true;
           while((i < n) && equal, {
-            match(
-              lhs.get(i),
-              .Some(a) => match(
-                rhs.get(i),
-                .Some(b) => {
-                  equal = (a == b);
-                },
-                .None => {
-                  equal = false;
-                }
-              ),
-              .None => {
-                equal = false;
-              }
-            );
+            // Compared in place: `i < n` is in bounds of both.
+            equal = (lhs(i) == rhs(i));
             i = (i + usize(1));
           });
           equal
@@ -1797,7 +1648,7 @@ impl(
   // allocator).
   _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
     n := self.len();
-    result := Self.with_capacity(n, alloc : alloc);
+    mut(result) := Self.with_capacity(n, alloc : alloc);
     // Each element is cloned in place through the `&T` projection
     // `self(i)`; copying it out first (`self.get(i)`) is E0901 for a
     // move-only `T` (issues/fixed/arraylist-clone-copies-elements-out-through-get.md).
@@ -1834,6 +1685,7 @@ ArrayListChunks :: (fn(comptime(T) : Type) -> comptime(Type))(
 );
 impl(
   generic(T : Type),
+  where(T <: Clone),
   ArrayListChunks(T),
   Iterator(
     Item : ArrayList(T),
@@ -1865,6 +1717,7 @@ ArrayListWindows :: (fn(comptime(T) : Type) -> comptime(Type))(
 );
 impl(
   generic(T : Type),
+  where(T <: Clone),
   ArrayListWindows(T),
   Iterator(
     Item : ArrayList(T),
@@ -1898,7 +1751,7 @@ impl(
   /// clamped to `N`, so an over-long range yields a short list.
   slice_copy : (fn(self : &Array(T, N), r : Range(usize)) -> ArrayList(T))({
     e := cond((r.end > N) => N, true => r.end);
-    out := ArrayList(T).new();
+    mut(out) := ArrayList(T).new();
     mut(i) := r.start;
     while(i < e, i = (i + usize(1)), {
       out.push(self(i));
@@ -1908,7 +1761,7 @@ impl(
   /// Inclusive-range companion of `slice_copy` (`arr(a..=b)`).
   slice_copy_inclusive : (fn(self : &Array(T, N), r : RangeInclusive(usize)) -> ArrayList(T))({
     last := cond((r.end >= N) => N, true => (r.end + usize(1)));
-    out := ArrayList(T).new();
+    mut(out) := ArrayList(T).new();
     mut(i) := r.start;
     while(i < last, i = (i + usize(1)), {
       out.push(self(i));
@@ -1928,8 +1781,9 @@ impl(
       ArrayList(T).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &T) -> Self)({
-      acc.push(item);
-      acc
+      mut(out) := acc;
+      out.push(item);
+      out
     })
   )
 );
@@ -2038,70 +1892,140 @@ impl(
     );
   }),
   /// Keep only the elements `pred` accepts, in place and in order; the
-  /// rejected elements are dropped. One pass: the survivors are collected
-  /// into a fresh list, `clear` releases every original, `extend` moves the
-  /// survivors back — O(n) with a single allocation, and every RC step is one
-  /// of the module's proven public operations (push / clear / extend). The
-  /// first cut compacted through raw pointers and double-released RC elements
-  /// (the Linux-ASan heap-use-after-free on PR #313's first run; local ASan is
-  /// non-functional, so CI was the first to see it); the second walked
-  /// backwards over `drain`, which was O(n²) with an allocation per rejection
-  /// (issues/fixed/array-list-retain-is-quadratic.md).
+  /// rejected elements are dropped. One pass, O(n) with a single allocation:
+  /// every element is moved out of the buffer exactly once (bitwise, after the
+  /// list stops owning it), a survivor into a fresh list and a rejected one into
+  /// a local that drops, and `extend` moves the survivors back. A value list is
+  /// its elements' only owner (B8), so the move is exact for a move-only `T`;
+  /// the old copy-then-`clear` shape was a copy of every element
+  /// (issues/fixed/array-list-retain-is-quadratic.md has the earlier cuts).
   retain : (fn(self : &mut Self, pred : &Impl(Fn(v : &T) -> bool)) -> unit)({
     n := self._length;
-    kept := Self.with_capacity(n);
-    (mut(i) : usize) = usize(0);
-    while(i < n, i = (i + usize(1)), {
-      v := self(i);
-      cond(
-        pred(&v) => {
-          kept.push(v);
-        },
-        true => ()
-      );
-    });
-    self.clear();
+    mut(kept) := Self.with_capacity(n);
+    match(
+      self._ptr,
+      .Some(_ptr) => {
+        // The list gives the elements up before the first move.
+        self._length = usize(0);
+        (mut(i) : usize) = usize(0);
+        while(i < n, i = (i + usize(1)), {
+          v := __yo_ptr_read(_ptr.add(i));
+          cond(
+            pred(&v) => {
+              kept.push(v);
+            },
+            true => ()
+          );
+        });
+      },
+      .None => ()
+    );
     self.extend(kept);
   }),
   /// Append every element of `other`, consuming it — Rust's
   /// `Vec::extend(other)`. `extend_cloned(&other)` appends clones and keeps
   /// `other`.
   ///
-  /// When `other` is the only handle to its list, the elements MOVE: one
-  /// `memcpy`, and the emptied list is freed. While `ArrayList` is still a
-  /// shared handle (until plans/VALUES_BY_DEFAULT.md's B8), another handle
-  /// may share the list; the elements are then copied, so the other handle
-  /// keeps them (lookahead D21's rule for the consuming iterators). That
-  /// copy is decision 20's check, so a move-only `T` is E0901 here until B8.
-  extend : (fn(self : &mut Self, other : ArrayList(T)) -> unit)(
-    cond(
-      (ref_count(other) > usize(1)) => {
-        (mut(i) : usize) = usize(0);
-        n := other.len();
-        while(i < n, i = (i + usize(1)), {
-          self.push(other(i));
-        });
+  /// `other` is the only owner of its buffer (B8), so the elements MOVE: one
+  /// `memcpy`, and the emptied list is freed.
+  extend : (fn(self : &mut Self, other : ArrayList(T)) -> unit)({
+    mut(src_list) := other;
+    match(
+      src_list._ptr,
+      .Some(src) => {
+        // SAFETY: `src_list` owns its buffer outright, and `self` is a
+        // different list. The elements move bitwise; `src_list` then owns
+        // none of them, so dropping it frees only the buffer.
+        self.extend_from_ptr(src, src_list._length);
+        src_list._length = usize(0);
       },
-      true =>
-        match(
-          other._ptr,
-          .Some(src) => {
-            // SAFETY: `other` is the only handle, so no other list shares
-            // its buffer (and `self`, a live handle of its own, is not
-            // it). The elements move bitwise; `other` then owns none of
-            // them, so dropping it frees only the buffer.
-            self.extend_from_ptr(src, other._length);
-            other._length = usize(0);
-          },
-          .None => ()
-        )
-    )
-  )
+      .None => ()
+    );
+  })
 );
 impl(
   generic(T : Type),
   where(T <: Clone),
   ArrayList(T),
+  /// Owned copy of the elements in `[r.start, r.end)` — JS-style range
+  /// slicing with value semantics (plans/archive/SLICE_REWORK.md: `list(a..b)`
+  /// lowers to this).
+  ///
+  /// The end is CLAMPED to the length rather than checked, so an over-long
+  /// range yields a short list instead of panicking; `slice` is the checked,
+  /// `Result`-returning spelling. Each element is cloned in place (B8: an
+  /// element copy is a `Clone`), so the result is independent of the source.
+  slice_copy : (fn(self : &Self, r : Range(usize)) -> Self)({
+    e := cond((r.end > self.len()) => self.len(), true => r.end);
+    mut(out) := Self.new();
+    mut(i) := r.start;
+    while(i < e, i = (i + usize(1)), {
+      out.push(self(i).clone());
+    });
+    out
+  }),
+  /// Inclusive-range companion of `slice_copy` (`list(a..=b)`).
+  slice_copy_inclusive : (fn(self : &Self, r : RangeInclusive(usize)) -> Self)({
+    last := cond((r.end >= self.len()) => self.len(), true => (r.end + usize(1)));
+    mut(out) := Self.new();
+    mut(i) := r.start;
+    while(i < last, i = (i + usize(1)), {
+      out.push(self(i).clone());
+    });
+    out
+  }),
+  /// Owned copy of `[start, end)`, or an `.IndexOutOfBounds` error — the
+  /// CHECKED counterpart of `slice_copy`, which clamps instead.
+  ///
+  /// An inverted range reports `.IndexOutOfBounds(index : start, length :
+  /// end)`. O(end - start), one allocation of the exact size; each element is
+  /// cloned in place.
+  slice : (fn(self : &Self, start : usize, end : usize) -> Result(Self, ArrayListError))(
+    cond(
+      (start > self._length) =>
+        .Err(.IndexOutOfBounds(index : start, length : self._length)),
+      (end > self._length) =>
+        .Err(.IndexOutOfBounds(index : end, length : self._length)),
+      (start > end) =>
+        .Err(.IndexOutOfBounds(index : start, length : end)),
+      true => {
+        mut(new_list) := Self.with_capacity(end - start);
+        mut(i) := start;
+        while(i < end, i = (i + usize(1)), {
+          new_list.push(self(i).clone());
+        });
+        .Ok(new_list)
+      }
+    )
+  ),
+  /// Resize to exactly `new_len`, dropping the tail when shrinking and
+  /// appending clones of `value` when growing. Rust's `resize`.
+  ///
+  /// Distinct from `resize_with_byte`, which memsets raw storage and is only
+  /// meaningful for a plain-old-data element type.
+  resize : (fn(self : &mut Self, new_len : usize, value : &T) -> unit)({
+    cond(
+      (new_len < self._length) => {
+        self.truncate(new_len);
+      },
+      (new_len > self._length) => {
+        self.reserve(new_len - self._length);
+        while(self._length < new_len, {
+          self.push(value.clone());
+        });
+      },
+      true => ()
+    );
+  }),
+  /// Overwrite every element with a clone of `value`, keeping the length.
+  /// Rust's `fill`.
+  fill : (fn(self : &mut Self, value : &T) -> unit)({
+    (mut(i) : usize) = usize(0);
+    n := self._length;
+    while(i < n, i = (i + usize(1)), {
+      self(i) = value.clone();
+    });
+  }),
   /// Append a clone of every element of `other`, which is left as it was.
   /// Each element is cloned in place through `other(i)`.
   extend_cloned : (fn(self : &mut Self, other : &ArrayList(T)) -> unit)({
@@ -2125,7 +2049,14 @@ impl(
   get_cloned : (fn(self : &Self, index : usize) -> Option(T))(
     cond(
       (index >= self._length) => .None,
-      true => .Some(self(index).clone())
+      // Clone straight off the buffer: `self(index)` routes through the
+      // `Index` impl, whose element read is a copy of a move-only `T`
+      // (B8) — this fn exists to BE that one copy.
+      true => match(
+        self._ptr,
+        .None => .None,
+        .Some(p) => .Some((p.add(index)).*.clone())
+      )
     )
   ),
   /// A clone of the first element, or `.None` when empty.
@@ -2153,12 +2084,12 @@ impl(
     (mut(found) : Option(usize)) = Option(usize).None;
     while((lo < hi) && found.is_none(), {
       mid := (lo + ((hi - lo) / usize(2)));
-      cur := self(mid);
+      // Compared in place: a copy of the element would clone it.
       cond(
-        (cur < value) => {
+        (self(mid) < value) => {
           lo = (mid + usize(1));
         },
-        (value < cur) => {
+        (value < self(mid)) => {
           hi = mid;
         },
         true => {

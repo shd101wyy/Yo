@@ -115,7 +115,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
         return(true);
       });
       n := args.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           args.get(i),
@@ -161,7 +161,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
         expr_info_deferred_dup_expressions(&ei),
         .Some(dups) => {
           nd := dups.len();
-          (di : usize) = usize(0);
+          (mut(di) : usize) = usize(0);
           while(di < nd, {
             match(
               dups.get(di),
@@ -176,7 +176,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
         .None => ()
       );
       match(
-        ei.deferred_drop_expressions,
+        &ei.deferred_drop_expressions,
         .Some(drops) => {
           nr := drops.len();
           (ri : usize) = usize(0);
@@ -286,12 +286,12 @@ _register_extern_fn_callee :: (
   match(
     cei_ty,
     Rc(.Func({ meta : __fm4 })) => match(
-      __fm4.*.is_extern,
+      &__fm4.*.is_extern,
       .Some(lang) => {
-        is_internal := match(__fm4.*.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
+        is_internal := match(&__fm4.*.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
         if((lang == "c") || !is_internal, {
           c_name := match(
-            __fm4.*.extern_name,
+            &__fm4.*.extern_name,
             .Some(en) => if(lang == "c", en.clone(), c_symbol_name(en.clone())),
             .None => {
               tok := _callee_token_value(expr);
@@ -548,7 +548,7 @@ _collect_required_function_field :: (
       from_current_module := (
         is_top_level_export && wants_plain_exports
         && match(
-          context.current_module_path,
+          &context.current_module_path,
           .Some(entry_path) => _is_entry_module_path(&ast_expr_token(_func_val_body(value)).module_path.*, &entry_path),
           .None => false
         )
@@ -982,7 +982,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &CodeGenContext, 
         .None => ()
       );
       match(
-        ei.deferred_drop_expressions,
+        &ei.deferred_drop_expressions,
         .Some(drops) => {
           nr := drops.len();
           (ri : usize) = usize(0);
@@ -1034,7 +1034,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &CodeGenContext, 
             // emitted in the pre-pass (consistent with the new/dispose). Falls back
             // to the source arg for non-auto-boxed dyns.
             varg_opt := match(
-              ei.runtime_arg_exprs_in_order,
+              &ei.runtime_arg_exprs_in_order,
               .Some(ra) => match(ra.get(usize(0)), .Some(p) => Option(AstExpr).Some(p), .None => match(expr, .FnCall(_, _, Rc(cargs), _, _) => cargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None)),
               .None => match(expr, .FnCall(_, _, Rc(cargs), _, _) => cargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None)
             );
@@ -1135,7 +1135,7 @@ _specialize_and_register_trace :: (
   p_types := match(method_ty, Rc(.Func({ param_types : __mpt })) => Rc.clone(__mpt), _ => no_types());
   (pi : usize) = usize(0);
   while(pi < p_labels.len(), {
-    plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
+    plabel := match(p_labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
     pty := if(pi == usize(0), ct.clone(), match(slot_pointee_at(&p_types, pi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
     _bp := add_variable_to_env(
       &fresh,
@@ -1274,7 +1274,7 @@ collect_trace_methods_from_generic_impls :: (
     candidates := find_methods_from_generic_impls(&ct, String.from("trace"), module_env);
     if(candidates.len() > usize(0), {
       match(
-        candidates.get(usize(0)),
+        candidates.get_cloned(usize(0)),
         .Some(cand) => match(
           cand.method_value,
           .Some(fv) => if(is_func_val(&fv), {
@@ -1394,7 +1394,7 @@ _destructor_method_name :: (fn(ct : &TypeValue, module_env : &Environment) -> St
       (gi : usize) = usize(0);
       while(gi < gm.len(), gi = (gi + usize(1)), {
         match(
-          gm.get(gi),
+          gm.get_cloned(gi),
           .Some(c) => if((c.source_trait_id == dk) || (c.source_trait_id == dbk), {
             return(String.from("drop"));
           }),
@@ -1515,7 +1515,7 @@ _synthesize_and_register_dispose :: (
   nf := flabels.len();
   (fi : usize) = usize(0);
   while(fi < nf, {
-    lbl := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
+    lbl := match(flabels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
     fty := match(ftypes.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(type_contains_rc_cell_or_move_only(&fty), {
       // Index-based alias (the field label may not be a valid identifier — e.g. the
@@ -1615,7 +1615,7 @@ _synthesize_and_register_enum_dispose :: (
   (rc_variants : usize) = usize(0);
   (vi : usize) = usize(0);
   while(vi < nv, {
-    vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+    vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
     fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
     nf := fields.len();
     (has_rc : bool) = false;

@@ -53,7 +53,7 @@ _load_reports :: (
     )
   );
   std_path := resolve_std_path();
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
@@ -95,7 +95,7 @@ _load_reports_bogus_solver :: (
     )
   );
   std_path := resolve_std_path();
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
@@ -116,7 +116,7 @@ _load_reports_bogus_solver :: (
   verify_and_strip_tasks(&cfg, String.from("/nonexistent/z3-ctfe-probe"), take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
-  ids := ArrayList(String).new();
+  mut(ids) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
@@ -134,7 +134,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     if(j > usize(0), {
       sb.write_string(String.from(", "));
     });
-    sb.write_string(ids.get(j).unwrap().clone());
+    sb.write_string(ids(j).clone());
     j = (j + usize(1));
   });
   sb.to_string()
@@ -236,13 +236,13 @@ test("a caller passing an unconstrained value REFUTES at refine#N (the callee st
             rp.obligations.get(j),
             .Some(obl) => {
               match(
-                obl.verdict,
+                &obl.verdict,
                 .Refuted(ce) => {
                   if(obl.name.contains(String.from("refine#")), {
                     (mut(k) : usize) = usize(0);
                     while(k < ce.len(), {
                       match(
-                        ce.get(k),
+                        ce.get_cloned(k),
                         .Some(pair) => {
                           if(pair.contains(String.from("d = ")), {
                             names_d = true;

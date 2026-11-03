@@ -141,7 +141,7 @@ _strs_of_json :: (fn(j : &JsonValue) -> ArrayList(String))({
       (i : usize) = usize(0);
       while(i < items.len(), {
         match(
-          items.get(i),
+          items.get_cloned(i),
           .Some(item) => {
             // Nested patterns do not parse — match twice.
             match(
@@ -371,7 +371,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
     .Err(msg) => VerifyVerdict.SolverError(msg)
   );
   match(
-    verdict,
+    &verdict,
     .Unproven(_) => {
       retry_opts := EncodeOptions(
         rlimit : (cfg.encode_opts.rlimit * usize(20)),
@@ -390,7 +390,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
     _ => ()
   );
   is_terminal := match(
-    verdict,
+    &verdict,
     .SolverError(_) => false,
     _ => true
   );
@@ -413,7 +413,7 @@ SolverResolution :: enum(
 /// otherwise discovery. No event-loop interaction.
 resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
   match(
-    cfg.solver_path,
+    &cfg.solver_path,
     .Some(p) => if(
       _z3_exists_sync(p.clone()),
       SolverResolution.Resolved(path : p.clone()),
@@ -722,7 +722,7 @@ _proved_ensures :: (fn(obligations : &ArrayList(VerifyFnObligation)) -> ArrayLis
       obligations.get(i),
       .Some(obl) => {
         match(
-          obl.verdict,
+          &obl.verdict,
           .Proved(_) => {
             idx_opt := _ens_obligation_index(obl.name.clone());
             match(
@@ -788,9 +788,9 @@ record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usiz
       (oi : usize) = usize(0);
       while(oi < rp.obligations.len(), {
         obl := rp.obligations(oi);
-        proved := match(obl.verdict, .Proved(_) => true, _ => false);
+        proved := match(&obl.verdict, .Proved(_) => true, _ => false);
         match(
-          obl.site,
+          &obl.site,
           .Some(gs) => if(proved && obl.elidable, {
             record_proved_guard_site(ProvedGuardSite(node_id : gs.node_id, module : gs.module.clone(), row : gs.row, column : gs.column, class : gs.class.clone()));
             n = (n + usize(1));
@@ -962,7 +962,7 @@ verify_and_strip_tasks :: (
                     // this function's id at report-construction time, so
                     // every consumer (text, JSON, tests) sees `x = ...`.
                     clean_verdict := match(
-                      r.verdict,
+                      &r.verdict,
                       .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce)),
                       .Proved(core) => VerifyVerdict.Proved(core.clone()),
                       .Unproven(reason) => VerifyVerdict.Unproven(reason.clone()),
@@ -981,7 +981,7 @@ verify_and_strip_tasks :: (
                     );
                     // 0 ok < 1 unproven < 2 solver-error < 3 refuted
                     rank := match(
-                      r.verdict,
+                      &r.verdict,
                       .Proved(_) => usize(0),
                       .Unproven(_) => usize(1),
                       .SolverError(_) => usize(2),

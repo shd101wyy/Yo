@@ -39,7 +39,7 @@ evaluate_va_start :: (
 )({
   (args : ArrayList(AstExpr)) = match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => fargs,
+    .FnCall(_, _, Rc(fargs), _, _) => fargs.clone(),
     _ => ArrayList(AstExpr).new()
   );
   n := args.len();
@@ -63,7 +63,7 @@ evaluate_va_start :: (
             )
           );
         });
-        var_name := ast_expr_text(&arg).*;
+        var_name := ast_expr_text(&arg).*.clone();
         // Arg 0: mark the va_list variable as initialized.
         if(i == usize(0), {
           variables := get_variables_from_env(env, &var_name);

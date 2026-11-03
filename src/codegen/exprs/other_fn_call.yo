@@ -55,7 +55,7 @@ _scan_ident :: (fn(s : &String, start : usize) -> usize)({
   // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
   n := s.len();
   if((start >= n) || !_is_ident_start(s.byte_at(start)), usize(0), {
-    (i : usize) = (start + usize(1));
+    (mut(i) : usize) = (start + usize(1));
     while((i < n) && _is_word_byte(s.byte_at(i)), {
       i = (i + usize(1));
     });
@@ -67,8 +67,8 @@ _scan_ident :: (fn(s : &String, start : usize) -> usize)({
 _match_bracket :: (fn(s : &String, open_idx : usize, open_b : u8, close_b : u8) -> usize)({
   // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
   n := s.len();
-  (depth : usize) = usize(0);
-  (k : usize) = open_idx;
+  (mut(depth) : usize) = usize(0);
+  (mut(k) : usize) = open_idx;
   while(k < n, {
     b := s.byte_at(k);
     if(b == open_b, {
@@ -89,8 +89,8 @@ _match_bracket :: (fn(s : &String, open_idx : usize, open_b : u8, close_b : u8) 
 /// _split_top_level_args_list's note).
 _byte_slice :: (fn(s : &String, from : usize, to : usize) -> String)({
   bytes := s.clone();
-  out := ArrayList(u8).new();
-  (i : usize) = from;
+  mut(out) := ArrayList(u8).new();
+  (mut(i) : usize) = from;
   while((i < to) && (i < bytes.len()), {
     out.push(match(bytes.get_byte(i), .Some(b) => b, .None => u8(0)));
     i = (i + usize(1));
@@ -118,10 +118,10 @@ _is_pointer_cast_c_expr :: (fn(code : &String) -> bool)({
 /// Whether `code` is an lvalue C expression whose address can be taken (a
 /// deref, or an identifier head + `.`/`->`/`[]` chain).
 _is_addressable_c_expr :: (fn(code : &String) -> bool)({
-  (s : String) = code.trim();
+  (mut(s) : String) = code.trim();
   // Strip balanced fully-enclosing parens. BYTE indices throughout — the
   // scanners read byte_at, and substring is rune-indexed (see _byte_slice).
-  (cont : bool) = true;
+  (mut(cont) : bool) = true;
   while(cont, {
     if(!(s.starts_with("(") && s.ends_with(")")), {
       cont = false;
@@ -142,7 +142,7 @@ _is_addressable_c_expr :: (fn(code : &String) -> bool)({
     return(true);
   });
   n := s.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   if(s.byte_at(usize(0)) == u8(40), {
     close := _match_bracket(&s, usize(0), u8(40), u8(41));
     if(close >= n, {
@@ -203,9 +203,9 @@ _is_addressable_c_expr :: (fn(code : &String) -> bool)({
 });
 /// Split a C arg list at top-level commas, respecting ()/[]/{} nesting.
 _split_top_level_args_list :: (fn(s : &String) -> ArrayList(String))({
-  out := ArrayList(String).new();
-  (depth : usize) = usize(0);
-  cur := String.from("");
+  mut(out) := ArrayList(String).new();
+  (mut(depth) : usize) = usize(0);
+  mut(cur) := String.from("");
   // BYTE count: this loop reads `byte_at(i)`, and `String.len()` counts
   // RUNES (std skips UTF-8 continuation bytes) — a rune-counted bound made
   // the walk stop (bytes − runes) bytes early on multibyte content,
@@ -214,12 +214,12 @@ _split_top_level_args_list :: (fn(s : &String) -> ArrayList(String))({
   // "expected '}'"). Same hardening as comptime_value.yo's
   // _strip_str_delims.
   n := s.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   // Track whether we're inside a C string/char literal (0 = not; else the quote
   // byte). A `)`/`}`/`,` inside a literal (e.g. the `)` in the str initializer
   // `(__yo_str){ .ptr=(const uint8_t*)")", .len=1 }`) must not corrupt the depth
   // count or trigger a split.
-  (in_str : u8) = u8(0);
+  (mut(in_str) : u8) = u8(0);
   while(i < n, {
     b := s.byte_at(i);
     cond(
@@ -289,7 +289,7 @@ bind_owning_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String,
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.variable_name,
+      &ei.variable_name,
       .Some(tv) => {
         em := context.base.emitter;
         em.emit_string_line(`${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &context.base)} = ${code};`);
@@ -311,7 +311,7 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : &String, indent : &
   if(context.in_async_state_machine.is_none(), return(()));
   // Lookup by id key first, then FIRST-MATCH-BY-NAME reading ENTRY fields
   // (never derive emitted names from map keys — the PR #92 capture lesson).
-  (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
+  (mut(found) : Option(CapturedVariable)) = Option(CapturedVariable).None;
   match(
     context.state_machine_variables,
     .Some(smv) => {
@@ -428,12 +428,12 @@ _interior_ref_container_is_atomic :: (fn(arg_expr : &AstExpr, context : &Functio
 /// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
 /// matching release CALLS (caller emits them via `_emit_borrow_releases`).
 _emit_borrow_acquires :: (fn(runtime_arg_exprs : &ArrayList(AstExpr), runtime_param_is_ref : &ArrayList(bool), indent : &String, context : &FunctionGenerationContext) -> ArrayList(String))({
-  containers := ArrayList(String).new();
+  mut(containers) := ArrayList(String).new();
   em := context.base.emitter;
   na := runtime_arg_exprs.len();
   np := runtime_param_is_ref.len();
   limit := if(na < np, na, np);
-  (ai : usize) = usize(0);
+  (mut(ai) : usize) = usize(0);
   while(ai < limit, {
     is_ref := match(runtime_param_is_ref.get(ai), .Some(r) => r, .None => false);
     match(
@@ -458,8 +458,8 @@ _emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, 
   em := context.base.emitter;
   n := containers.len();
   if(n > usize(0), {
-    (ai : usize) = (n - usize(1));
-    (go : bool) = true;
+    (mut(ai) : usize) = (n - usize(1));
+    (mut(go) : bool) = true;
     while(go, {
       match(
         containers.get_cloned(ai),
@@ -480,7 +480,7 @@ _emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, 
 /// (`self` parameter of object type). An `Rc` or `Arc` cell is not one: it
 /// carries no borrow marks (`carries_no_borrow_marks`).
 _is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
-  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
+  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get_cloned(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
 );
 /// Is the current function's `self` a `self : &mut Self` receiver? Such a receiver
 /// is passed as `T** self` (a pointer to the caller's handle slot), so the
@@ -495,7 +495,7 @@ _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : &String, indent : &Stri
     em := context.base.emitter;
     // `self` is the method's Yo parameter, spelled as every parameter is.
     self_c := sanitize_for_c_identifier(String.from("self"), false);
-    line := indent.clone();
+    mut(line) := indent.clone();
     line.push_string(if(_current_self_param_is_ref(context), `__yo_borrow_assert_unborrowed((void*)(*${self_c}));`, `__yo_borrow_assert_unborrowed((void*)${self_c});`));
     em.emit_string_line(&line);
   })
@@ -527,7 +527,7 @@ _is_bare_literal :: (fn(c : &String) -> bool)({
     n == usize(0),
     false,
     if((c == "true") || (c == "false"), true, {
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       if(c.byte_at(usize(0)) == u8(45), {
         i = usize(1);
       });
@@ -544,8 +544,8 @@ _is_bare_literal :: (fn(c : &String) -> bool)({
         if(!(((first_b >= u8(48)) && (first_b <= u8(57))) || (first_b == u8(46))), {
           return(false);
         });
-        (ok : bool) = true;
-        (seen_digit : bool) = false;
+        (mut(ok) : bool) = true;
+        (mut(seen_digit) : bool) = false;
         while(i < n, {
           b := c.byte_at(i);
           if((b >= u8(48)) && (b <= u8(57)), {
@@ -567,9 +567,9 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
   match(
     context.base.get_expr_info(arg),
     .Some(arg_ei) => match(
-      arg_ei.variable_name,
+      &arg_ei.variable_name,
       .Some(vname) => {
-        (arg_code : String) = _call_generate_expr(arg, indent.clone(), context);
+        (mut(arg_code) : String) = _call_generate_expr(arg, indent.clone(), context);
         // Function-typed atom argument → use the registered C function name.
         if(ast_expr_is_atom(arg), {
           match(
@@ -603,7 +603,7 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // shadow the `T* name` param: C "redefinition with different type"). Emit
         // `(*name)` inline.
         deref_form := {
-          d := String.from("(*");
+          mut(d) := String.from("(*");
           d.push_string(sanitized.clone());
           d.push_str(")");
           d
@@ -624,10 +624,10 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // local/param holds the same value, so reuse it.
         vname_c := sanitize_for_c_identifier(vname.clone(), false);
         already_in_scope := context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, vname_c.clone()));
-        (emitted : bool) = false;
+        (mut(emitted) : bool) = false;
         if(!(arg_code == vname_c) && !is_comptime_only && !is_sm && !param_is_ref && !is_deref_read && !already_in_scope, {
           if(!(arg_code == sanitized), {
-            line := indent.clone();
+            mut(line) := indent.clone();
             line.push_string(get_variable_type_string(&arg_ei.ty, vname.clone(), &context.base));
             line.push_str(" = ");
             line.push_string(arg_code.clone());
@@ -676,7 +676,7 @@ _arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerationCont
     .Some(aei) => match(
       expr_info_deferred_dup_expressions(&aei),
       .Some(dl) => {
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < dl.len(), {
           match(
             dl.get(i),
@@ -763,13 +763,13 @@ sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(Ast
     return(code);
   });
   root := _operand_local_root(arg, &code, context);
-  (must : bool) = false;
-  (j : usize) = (index + usize(1));
+  (mut(must) : bool) = false;
+  (mut(j) : usize) = (index + usize(1));
   while((j < n) && !must, {
     match(
       operands.get(j),
       .Some(later) => {
-        must = match(root, .Some(rn) => _operand_mentions(&later, &rn), .None => _operand_may_write(&later, context));
+        must = match(&root, .Some(rn) => _operand_mentions(&later, &rn), .None => _operand_may_write(&later, context));
       },
       .None => ()
     );
@@ -779,7 +779,7 @@ sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(Ast
     return(code);
   });
   if(context.in_async_state_machine.is_some(), {
-    (k : usize) = (index + usize(1));
+    (mut(k) : usize) = (index + usize(1));
     while(k < n, {
       match(
         operands.get(k),
@@ -865,7 +865,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
   if(!is_enum_type(&ei.ty), {
     return(false);
   });
-  rt_empty := match(ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() == usize(0)), .None => true);
+  rt_empty := match(&ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() == usize(0)), .None => true);
   if(!rt_empty, {
     return(false);
   });
@@ -902,7 +902,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
           &ei.ty,
           Rc(.EnumT({ variant_names : vnames, variant_fields : vfields })) => {
             nv := vnames.len();
-            (vi : usize) = usize(0);
+            (mut(vi) : usize) = usize(0);
             while(vi < nv, {
               match(
                 vnames.get(vi),
@@ -932,7 +932,7 @@ _is_c_identifier :: (fn(s : &String) -> bool)({
   if((first >= u8(48)) && (first <= u8(57)), {
     return(false);
   });
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     b := s.byte_at(i);
     if(!(((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))), {
@@ -1005,7 +1005,7 @@ _operand_mentions :: (fn(e : &AstExpr, name : &String) -> bool)(
       if(recur(&f, name), {
         return(true);
       });
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
@@ -1056,8 +1056,8 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
           is_ctor := match(context.base.get_expr_info(&f), .Some(fei) => match(fei.value, .Some(.TypeVal(_)) => true, _ => false), .None => false);
           is_prim_op := (
             _is_primitive_operator_symbol(&op) && {
-              (all_prim : bool) = true;
-              (pi : usize) = usize(0);
+              (mut(all_prim) : bool) = true;
+              (mut(pi) : usize) = usize(0);
               while(pi < n, {
                 match(
                   args.get(pi),
@@ -1080,7 +1080,7 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
           cond(
             is_label => match(args.get(usize(1)), .Some(lv) => recur(&lv, context), .None => false),
             (is_ctor || is_prim_op) => {
-              (ai : usize) = usize(0);
+              (mut(ai) : usize) = usize(0);
               while(ai < n, {
                 match(
                   args.get(ai),
@@ -1105,11 +1105,11 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
 /// spill to a temp).
 _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool), runtime_args : &ArrayList(AstExpr), indent : &String, context : &FunctionGenerationContext) -> ArrayList(String))({
   em := context.base.emitter;
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   na := args.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < na, {
-    pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
+    mut(pref) := match(param_is_ref.get(i), .Some(r) => r, .None => false);
     // N2b (decision 43 step 3, T9): a by-value REFERENCE parameter (an inline
     // composite's `&`/`&mut` field) takes a LEND — the argument is the place
     // and the C field is a pointer, so it is addressed exactly like a ref
@@ -1174,24 +1174,24 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
           c.substring(usize(2), c.len() - usize(1)),
           if(_is_bare_literal(&c), {
             cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(&ra), .Some(rei) => get_type_string(&rei.ty, &context.base), .None => String.from("size_t")), .None => String.from("size_t"));
-            w := String.from("(&((");
+            mut(w) := String.from("(&((");
             w.push_string(&cty);
             w.push_str("){");
             w.push_string(&c);
             w.push_str("}))");
             w
           }, if(_is_addressable_c_expr(c.clone()) && !arg_is_tag_constant, {
-            w := String.from("(&(");
+            mut(w) := String.from("(&(");
             w.push_string(match(_sm_lent_temp_slot(&c, context), .Some(slot) => slot, .None => c.clone()));
             w.push_str("))");
             w
           }, {
             cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(&ra), .Some(rei) => get_type_string(&rei.ty, &context.base), .None => String.from("size_t")), .None => String.from("size_t"));
-            spill := String.from("__yo_ref_spill_");
+            mut(spill) := String.from("__yo_ref_spill_");
             spill_n := g_ref_spill_counter;
             g_ref_spill_counter = (spill_n + usize(1));
             spill.push_string(spill_n.to_string());
-            decl := indent.clone();
+            mut(decl) := indent.clone();
             decl.push_string(&cty);
             decl.push_str(" ");
             decl.push_string(spill.clone());
@@ -1199,7 +1199,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
             decl.push_string(&c);
             decl.push_str(";");
             em.emit_string_line(&decl);
-            w := String.from("(&(");
+            mut(w) := String.from("(&(");
             w.push_string(&spill);
             w.push_str("))");
             w
@@ -1240,7 +1240,7 @@ _lend_field_addr :: (fn(a : &AstExpr, code : &String, context : &FunctionGenerat
     .Some(lei) => match(
       expr_info_converted_runtime_type(&lei),
       .Some(Rc(.Reference(_, _, _))) => {
-        w := String.from("(&(");
+        mut(w) := String.from("(&(");
         w.push_string(code);
         w.push_str("))");
         w
@@ -1274,20 +1274,20 @@ _constructed_struct_type :: (fn(callee_ty : &TypeValue, call_ty : &TypeValue) ->
 /// where the spec body re-eval does not record `runtime_arg_exprs`. Returns the
 /// value exprs in runtime-field order (so positional `__yo_new_(...)` matches).
 _ctor_args_from_labeled :: (fn(wrapped : &TypeValue, fncall_args : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
-  out := ArrayList(AstExpr).new();
+  mut(out) := ArrayList(AstExpr).new();
   rfs := get_runtime_struct_fields(wrapped);
   n := rfs.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     flabel := match(rfs.get(i), .Some(f) => f.label.clone(), .None => String.from(""));
-    (found : Option(AstExpr)) = Option(AstExpr).None;
-    (ai : usize) = usize(0);
+    (mut(found) : Option(AstExpr)) = Option(AstExpr).None;
+    (mut(ai) : usize) = usize(0);
     na := fncall_args.len();
     while((ai < na) && found.is_none(), {
       match(
         fncall_args.get(ai),
         .Some(arg) => if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), {
-          ca := match(arg, .FnCall(_, _, Rc(ca2), _, _) => ca2, .Atom(_, _) => ArrayList(AstExpr).new());
+          ca := match(arg, .FnCall(_, _, Rc(ca2), _, _) => ca2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           lbl := match(ca.get(usize(0)), .Some(l) => if(ast_expr_is_atom(&l), ast_expr_text(&l).*.clone(), String.from("")), .None => String.from(""));
           if(lbl == flabel, {
             found = match(ca.get(usize(1)), .Some(v) => Option(AstExpr).Some(v), .None => Option(AstExpr).None);
@@ -1341,7 +1341,7 @@ _fn_pointer_param_type_string :: (fn(param_types : &SharedList(TypeValue), i : u
     .Some(slot) => {
       t := t_slot_pointee(&slot);
       if(t_slot_is_mut_ref(&slot) || is_ptr, {
-        rs := get_type_string(&t, &context.base);
+        mut(rs) := get_type_string(&t, &context.base);
         rs.push_str("*");
         rs
       }, get_storage_type_string(&t, &context.base))
@@ -1363,9 +1363,9 @@ _callee_param_fn_type :: (fn(func_expr : &AstExpr, context : &FunctionGeneration
     &context.current_function_type,
     .Some(Rc(.Func({ param_types : cpts, meta : cmeta }))) => {
       labels := Rc.clone(cmeta.*.param_labels);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
           return(
             match(
               slot_pointee_at(&cpts, i),
@@ -1386,8 +1386,8 @@ _per_arg_cast :: (fn(args_list : String, param_types : &ArrayList(TypeValue), pa
     parts := _split_top_level_args_list(&args_list);
     np := param_types.len();
     if(!(parts.len() == np), args_list, {
-      out := String.from("");
-      (i : usize) = usize(0);
+      mut(out) := String.from("");
+      (mut(i) : usize) = usize(0);
       while(i < np, {
         if(i > usize(0), {
           out.push_str(", ");
@@ -1426,9 +1426,9 @@ _per_arg_cast :: (fn(args_list : String, param_types : &ArrayList(TypeValue), pa
 );
 /// Join arg codes with ", ".
 _join_args :: (fn(args : &ArrayList(String)) -> String)({
-  out := String.from("");
+  mut(out) := String.from("");
   n := args.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     if(i > usize(0), {
       out.push_str(", ");
@@ -1445,8 +1445,8 @@ _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize
     enum_ty,
     Rc(.EnumT({ variant_names })) => {
       n := variant_names.len();
-      (i : usize) = usize(0);
-      (found : Option(usize)) = Option(usize).None;
+      (mut(i) : usize) = usize(0);
+      (mut(found) : Option(usize)) = Option(usize).None;
       while((i < n) && found.is_none(), {
         match(
           variant_names.get(i),
@@ -1475,10 +1475,10 @@ _cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String
   alloc_ty := match(
     &opt_ty,
     Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
-      (found : Option(TypeValue)) = Option(TypeValue).None;
-      (vi : usize) = usize(0);
+      (mut(found) : Option(TypeValue)) = Option(TypeValue).None;
+      (mut(vi) : usize) = usize(0);
       while((vi < vns.len()) && found.is_none(), {
-        if(match(vns.get(vi), .Some(vn) => (vn == "Some"), .None => false), {
+        if(match(vns.get_cloned(vi), .Some(vn) => (vn == "Some"), .None => false), {
           found = match(vfs.get(vi), .Some(fs) => fs.get(usize(0)), .None => Option(TypeValue).None);
         });
         vi = (vi + usize(1));
@@ -1531,9 +1531,9 @@ _generate_runtime_enum_construct :: (
       // per-variant constructor; value enums use a compound literal.
       is_ref := is_reference_enum_type(enum_ty);
       vidx := _enum_variant_index(enum_ty, variant.clone());
-      inits := String.from("");
-      positional := String.from("");
-      (any_field : bool) = false;
+      mut(inits) := String.from("");
+      mut(positional) := String.from("");
+      (mut(any_field) : bool) = false;
       match(
         enum_ty,
         Rc(.EnumT({ variant_fields, variant_field_labels })) => match(
@@ -1542,7 +1542,7 @@ _generate_runtime_enum_construct :: (
             vftys := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
             vflabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
             n := rt_args.len();
-            (i : usize) = usize(0);
+            (mut(i) : usize) = usize(0);
             while(i < n, {
               fty := match(vftys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               if(!is_unit_type(&fty), {
@@ -1552,7 +1552,7 @@ _generate_runtime_enum_construct :: (
                   positional.push_str(", ");
                 });
                 any_field = true;
-                flabel := match(vflabels.get(i), .Some(l) => l, .None => String.from(""));
+                flabel := match(vflabels.get_cloned(i), .Some(l) => l, .None => String.from(""));
                 inits.push_str(".");
                 inits.push_string(sanitize_for_c_identifier(&flabel, false));
                 inits.push_str(" = ");
@@ -1568,7 +1568,7 @@ _generate_runtime_enum_construct :: (
       );
       cond(
         is_ref => {
-          out := String.from("__yo_new_");
+          mut(out) := String.from("__yo_new_");
           out.push_string(&c_name);
           out.push_str("_");
           out.push_string(variant.clone());
@@ -1578,7 +1578,7 @@ _generate_runtime_enum_construct :: (
           out
         },
         true => {
-          out := String.from("(");
+          mut(out) := String.from("(");
           out.push_string(&c_name);
           out.push_str("){ .tag = ");
           out.push_string(&variant_tag);
@@ -1620,9 +1620,9 @@ _call_may_unwind :: (fn(func_ei_value : &Option(EvalValue), function_type : &Typ
     .Some(v) => match(v, .FuncVal(__fvd3, _) => match(context.base.get_expr_info(&__fvd3.*.body), .Some(bei) => match(expr_info_effect_analysis(&bei), .Some(ea) => ea.has_effects, .None => false), .None => false), _ => false),
     .None => false
   );
-  (param_fn_or_ctl : bool) = false;
+  (mut(param_fn_or_ctl) : bool) = false;
   npt := param_types.len();
-  (pi : usize) = usize(0);
+  (mut(pi) : usize) = usize(0);
   while((pi < npt) && !param_fn_or_ctl, {
     match(
       param_types.get(pi),
@@ -1693,8 +1693,8 @@ _call_is_handler_installation :: (fn(key : ExprId, func_ei : &ExprInfo, function
   //     variable is locally bound in a begin-block frame of the enclosing fn.
   npt := param_types.len();
   _na := runtime_args.len();
-  (result : bool) = false;
-  (pi : usize) = usize(0);
+  (mut(result) : bool) = false;
+  (mut(pi) : usize) = usize(0);
   while((pi < npt) && !result, {
     is_handler_param := match(param_types.get(pi), .Some(t_slot) => (is_function_type(&t_slot_pointee(&t_slot)) || type_is_control_bound(&t_slot_pointee(&t_slot))), .None => false);
     if(is_handler_param, {
@@ -1752,7 +1752,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // `/* skip generating value */` for those holes. Skip the comptime short-cut
   // so the value-struct constructor branch below emits the compound literal /
   // newtype cast from the runtime arg exprs.
-  oc_has_runtime_args := match(ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() > usize(0)), .None => false);
+  oc_has_runtime_args := match(&ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() > usize(0)), .None => false);
   match(
     ei.value,
     .Some(v) => {
@@ -1795,12 +1795,12 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     from_callee := match(expr, .FnCall(_, f, _, _, _) => ast_expr_to_string(&f), .Atom(_, _) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
     if(variant_raw.len() > usize(0), {
-      rt_e := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
+      rt_e := match(&ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
       enum_code := _generate_runtime_enum_construct(&ei.ty, &variant_raw, &rt_e, indent.clone(), context);
       match(
-        ei.variable_name,
+        &ei.variable_name,
         .Some(tv) => {
-          edecl := indent.clone();
+          mut(edecl) := indent.clone();
           edecl.push_string(get_variable_type_string(&ei.ty, tv.clone(), &context.base));
           edecl.push_str(" = ");
           edecl.push_string(&enum_code);
@@ -1826,7 +1826,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // explicit...)`.
   if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
     dmethod_args := match(func_expr, .FnCall(_, _, Rc(da), _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-    dm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
+    dm_runtime := match(&ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
     // `recv_is_dyn` = is the prepended runtime-arg[0] itself a Dyn? Used ONLY by
     // the concrete-dispatch branch below to exclude a `ctl`-FIELD effect call like
     // `exn.throw(dyn(err))`, whose receiver `exn` is NOT prepended so the dyn
@@ -1885,9 +1885,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       dc_c := get_type_string(&ei.ty, &context.base);
       dc_call := `((${dc_c}){ .data = __yo_dyn_clone((void*)(${dc_recv_code}).data, (const void*)(${dc_recv_code}).vtable), .vtable = (${dc_recv_code}).vtable })`;
       match(
-        ei.variable_name,
+        &ei.variable_name,
         .Some(dc_tv) => {
-          dc_decl := indent.clone();
+          mut(dc_decl) := indent.clone();
           dc_decl.push_string(get_variable_type_string(&ei.ty, dc_tv.clone(), &context.base));
           dc_decl.push_str(" = ");
           dc_decl.push_string(&dc_call);
@@ -1907,7 +1907,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       // its slot), so it is sequenced against them.
       recv_code := sequence_operand(&recv_expr, _call_generate_expr(&recv_expr, indent.clone(), context), &dm_runtime, usize(0), false, indent, context);
       method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*, false);
-      dm_call := String.from("(");
+      mut(dm_call) := String.from("(");
       dm_call.push_string(recv_code.clone());
       dm_call.push_str(").vtable->");
       dm_call.push_string(&method_name);
@@ -1924,11 +1924,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         .Some(rvi) => dyn_vtable_slot_param_is_ref(&rvi.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*),
         .None => ArrayList(bool).new()
       );
-      dm_args := ArrayList(String).new();
-      dm_pir := ArrayList(bool).new();
-      dm_rargs := ArrayList(AstExpr).new();
+      mut(dm_args) := ArrayList(String).new();
+      mut(dm_pir) := ArrayList(bool).new();
+      mut(dm_rargs) := ArrayList(AstExpr).new();
       ndm := dm_runtime.len();
-      (dmi : usize) = usize(1);
+      (mut(dmi) : usize) = usize(1);
       while(dmi < ndm, {
         dm_pref := match(dm_slot_pir.get(dmi), .Some(r) => r, .None => false);
         match(
@@ -1943,7 +1943,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         dmi = (dmi + usize(1));
       });
       dm_amped := _apply_ref_amp(&dm_args, &dm_pir, &dm_rargs, indent.clone(), context);
-      (dma : usize) = usize(0);
+      (mut(dma) : usize) = usize(0);
       while(dma < dm_amped.len(), {
         dm_call.push_str(", ");
         match(dm_amped.get_cloned(dma), .Some(dac) => dm_call.push_string(&dac), .None => ());
@@ -1960,7 +1960,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         return(Option(String).Some(`(*${dm_call})`));
       });
       if(is_unit_type(&ei.ty), {
-        dml := indent.clone();
+        mut(dml) := indent.clone();
         dml.push_string(&dm_call);
         dml.push_str(";");
         dm_em := context.base.emitter;
@@ -1969,9 +1969,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         return(Option(String).Some(String.from("")));
       });
       match(
-        ei.variable_name,
+        &ei.variable_name,
         .Some(tv) => {
-          dmd := indent.clone();
+          mut(dmd) := indent.clone();
           dmd.push_string(get_variable_type_string(&ei.ty, tv.clone(), &context.base));
           dmd.push_str(" = ");
           dmd.push_string(_future_init_cast(&ei.ty, context));
@@ -2041,8 +2041,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // generic `C(T)` id, so this concrete-id lookup misses). Falls back to
         // the registry first-hit only when no value was recorded (method
         // resolved via a path that doesn't populate the side-table).
-        (mc_name : Option(String)) = Option(String).None;
-        (method_fv : Option(EvalValue)) = Option(EvalValue).None;
+        (mut(mc_name) : Option(String)) = Option(String).None;
+        (mut(method_fv) : Option(EvalValue)) = Option(EvalValue).None;
         match(
           lookup_method_callee_value(ast_expr_id(expr)),
           .Some(mcv) => if(is_func_val(&mcv), {
@@ -2055,7 +2055,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         if(mc_name.is_none(), {
           entries := get_type_trait_methods_by_name(&tid, mname.clone());
           nme := entries.len();
-          (mei : usize) = usize(0);
+          (mut(mei) : usize) = usize(0);
           while((mei < nme) && mc_name.is_none(), {
             match(
               entries.get(mei),
@@ -2089,9 +2089,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id.clone(), _ => String.from(""));
               ia_ft := get_func_type(&m_fid_amp);
               ia_pir := fn_abi_param_is_ptr(&ia_ft);
-              inline_args := ArrayList(String).new();
+              mut(inline_args) := ArrayList(String).new();
               ia_n := dm_runtime.len();
-              (ia_i : usize) = usize(0);
+              (mut(ia_i) : usize) = usize(0);
               while(ia_i < ia_n, {
                 match(
                   dm_runtime.get(ia_i),
@@ -2151,9 +2151,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // has a real C parameter slot to fill with the dead byte.
             cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(&mv)), .None => Rc.new(TypeValueNode.Unit));
             cm_ptypes := match(&cm_mft, Rc(.Func({ param_types : cpt })) => Rc.clone(cpt), _ => no_types());
-            cm_arg_list := ArrayList(String).new();
+            mut(cm_arg_list) := ArrayList(String).new();
             cnma := dm_runtime.len();
-            (cmi : usize) = usize(0);
+            (mut(cmi) : usize) = usize(0);
             while(cmi < cnma, {
               match(
                 dm_runtime.get(cmi),
@@ -2170,7 +2170,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               cmi = (cmi + usize(1));
             });
             cm_arg_list = _apply_ref_amp(&cm_arg_list, &cm_abi_ptr, &dm_runtime, indent.clone(), context);
-            cm_call := cn.clone();
+            mut(cm_call) := cn.clone();
             cm_call.push_str("(");
             cm_call.push_string(_join_args(&cm_arg_list));
             cm_call.push_str(")");
@@ -2220,7 +2220,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               if(cm_may_unwind, {
                 cm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               });
-              cml := indent.clone();
+              mut(cml) := indent.clone();
               cml.push_string(&cm_call);
               cml.push_str(";");
               cm_em.emit_string_line(&cml);
@@ -2230,14 +2230,14 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               return(Option(String).Some(String.from("")));
             });
             match(
-              ei.variable_name,
+              &ei.variable_name,
               .Some(tv) => {
                 cm_em2 := context.base.emitter;
                 cm_bc2 := _emit_borrow_acquires(&dm_runtime, &cm_param_is_ref.items, indent.clone(), context);
                 if(cm_may_unwind, {
                   cm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
-                cmd := indent.clone();
+                mut(cmd) := indent.clone();
                 cmd.push_string(get_variable_type_string(&ei.ty, tv.clone(), &context.base));
                 cmd.push_str(" = ");
                 cmd.push_string(_future_init_cast(&ei.ty, context));
@@ -2297,7 +2297,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         match(
           _c_func_name(rm_fid.clone(), context),
           .Some(rmcn) => {
-            rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
+            rm_runtime := match(&ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
             // The C pointer flags (a projection's `&T` parameters too); the
             // borrow acquires keep `rm_pir`.
             rm_abi_ft := get_func_type(rm_fid.clone());
@@ -2308,9 +2308,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // when the callee actually has a C parameter at that index.
             rm_mft := get_func_type(rm_fid.clone());
             rm_ptypes := match(&rm_mft, Rc(.Func({ param_types : cpt })) => Rc.clone(cpt), _ => no_types());
-            rm_args := ArrayList(String).new();
+            mut(rm_args) := ArrayList(String).new();
             rm_n := rm_runtime.len();
-            (rmi : usize) = usize(0);
+            (mut(rmi) : usize) = usize(0);
             while(rmi < rm_n, {
               match(
                 rm_runtime.get(rmi),
@@ -2327,7 +2327,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               rmi = (rmi + usize(1));
             });
             rm_args = _apply_ref_amp(&rm_args, &rm_abi_ptr, &rm_runtime, indent.clone(), context);
-            rm_call := rmcn.clone();
+            mut(rm_call) := rmcn.clone();
             rm_call.push_str("(");
             rm_call.push_string(_join_args(&rm_args));
             rm_call.push_str(")");
@@ -2343,7 +2343,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               if(rm_may_unwind, {
                 rm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               });
-              rml := indent.clone();
+              mut(rml) := indent.clone();
               rml.push_string(&rm_call);
               rml.push_str(";");
               rm_em.emit_string_line(&rml);
@@ -2353,14 +2353,14 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               return(Option(String).Some(String.from("")));
             });
             match(
-              ei.variable_name,
+              &ei.variable_name,
               .Some(tv) => {
                 rm_em2 := context.base.emitter;
                 rm_bc2 := _emit_borrow_acquires(&rm_runtime, &rm_pir.items, indent.clone(), context);
                 if(rm_may_unwind, {
                   rm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
-                rmd := indent.clone();
+                mut(rmd) := indent.clone();
                 rmd.push_string(get_variable_type_string(&ei.ty, tv.clone(), &context.base));
                 rmd.push_str(" = ");
                 rmd.push_string(_future_init_cast(&ei.ty, context));
@@ -2387,7 +2387,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // is_function_type guard below treat `cb(x)` as a function call. (Piece C's
   // closure-call lookup re-reads the raw callee type separately, so this does
   // not disturb it.) Mirrors the evaluator's normalization (helper.yo).
-  (function_type : TypeValue) = match(
+  (mut(function_type) : TypeValue) = match(
     &func_ei.ty,
     Rc(.Func({ result : _ })) => Rc.clone(func_ei.ty),
     _ => match(
@@ -2512,7 +2512,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // allocator, which is a constructor parameter and not a field.
           is_cell := is_cell_primitive_type(&wrapped);
           ctor_args := match(
-            ei.runtime_arg_exprs_in_order,
+            &ei.runtime_arg_exprs_in_order,
             .Some(ra) => cond(
               is_cell => ra.clone(),
               (ra.len() == usize(0)) => ctor_labeled,
@@ -2521,11 +2521,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             ),
             .None => ctor_labeled
           );
-          ctor_list := String.from("");
+          mut(ctor_list) := String.from("");
           ctor_fields := get_runtime_struct_fields(wrapped.clone());
           nca := if(is_cell, usize(1), ctor_args.len());
-          (ci : usize) = usize(0);
-          (any_ctor_arg : bool) = false;
+          (mut(ci) : usize) = usize(0);
+          (mut(any_ctor_arg) : bool) = false;
           while(ci < nca, {
             // A `unit` field is zero-sized: the constructor has no parameter
             // for it (functions/constructors.yo), so its argument is not
@@ -2545,7 +2545,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 );
                 cond(
                   field_is_unit => if(cc.len() > usize(0), {
-                    stmt := indent.clone();
+                    mut(stmt) := indent.clone();
                     stmt.push_string(&cc);
                     stmt.push_str(";");
                     em_u := context.base.emitter;
@@ -2576,22 +2576,22 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               ctor_list = payload_tmp;
             });
             scope := match(ctor_args.get(usize(1)), .Some(alloc_arg) => _cell_alloc_scope(&alloc_arg, expr, indent, context), .None => codegen_fatal_expr(String.from("a cell primitive's constructor call reached codegen without its allocator argument")));
-            with_scope := scope.clone();
+            mut(with_scope) := scope.clone();
             if(ctor_list.len() > usize(0), {
               with_scope.push_str(", ");
               with_scope.push_string(&ctor_list);
             });
             ctor_list = with_scope;
           });
-          ctor_call := String.from("__yo_new_");
+          mut(ctor_call) := String.from("__yo_new_");
           ctor_call.push_string(&cname);
           ctor_call.push_str("(");
           ctor_call.push_string(&ctor_list);
           ctor_call.push_str(")");
           match(
-            ei.variable_name,
+            &ei.variable_name,
             .Some(tv) => {
-              decl := indent.clone();
+              mut(decl) := indent.clone();
               decl.push_string(get_variable_type_string(&ei.ty, tv.clone(), &context.base));
               decl.push_str(" = ");
               decl.push_string(&ctor_call);
@@ -2617,13 +2617,13 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           match(
             u_args.get(usize(0)),
             .Some(u_arg) => if(ast_expr_is_fn_call_of(&u_arg, ":", Option(usize).Some(usize(2))), {
-              u_pair := match(u_arg, .FnCall(_, _, Rc(pa), _, _) => pa, .Atom(_, _) => ArrayList(AstExpr).new());
+              u_pair := match(u_arg, .FnCall(_, _, Rc(pa), _, _) => pa.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
               u_label_e := match(u_pair.get(usize(0)), .Some(le) => le, .None => make_err_expr());
               u_field_e := match(u_pair.get(usize(1)), .Some(fe) => fe, .None => make_err_expr());
               if(ast_expr_is_atom(&u_label_e), {
                 u_label := ast_expr_text(&u_label_e).*.clone();
                 u_code := emit_deferred_dup_or_code(&u_field_e, _call_generate_expr(&u_field_e, indent.clone(), context), indent.clone(), context);
-                u_value := String.from("(");
+                mut(u_value) := String.from("(");
                 u_value.push_string(u_cname.clone());
                 u_value.push_str("){ .");
                 u_value.push_string(sanitize_for_c_identifier(&u_label, false));
@@ -2631,9 +2631,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 u_value.push_string(&u_code);
                 u_value.push_str(" }");
                 match(
-                  ei.variable_name,
+                  &ei.variable_name,
                   .Some(u_tv) => {
-                    u_decl := indent.clone();
+                    mut(u_decl) := indent.clone();
                     u_decl.push_string(get_variable_type_string(&ei.ty, u_tv.clone(), &context.base));
                     u_decl.push_str(" = ");
                     u_decl.push_string(&u_value);
@@ -2660,7 +2660,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
           vs_is_newtype := match(&wrapped, Rc(.Struct({ is_newtype : nt })) => nt, _ => false);
           rt_fields := get_runtime_struct_fields(wrapped.clone());
-          vs_args_raw := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
+          vs_args_raw := match(&ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
           // `runtime_arg_exprs_in_order` records a slot for EVERY field, including
           // COMPTIME-ONLY ones (`tag :: "..."`); for a struct with a comptime field
           // it has MORE entries than the runtime-field list, so the per-runtime-
@@ -2680,7 +2680,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               // both release it
               // (issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md).
               inner := match(vs_args.get(usize(0)), .Some(a) => _lend_field_addr(&a, &emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), context), .None => String.from(""));
-              nt_out := String.from("((");
+              mut(nt_out) := String.from("((");
               nt_out.push_string(vs_cname.clone());
               nt_out.push_str(")(");
               nt_out.push_string(&inner);
@@ -2688,12 +2688,12 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               nt_out
             },
             true => {
-              cl_out := String.from("(");
+              mut(cl_out) := String.from("(");
               cl_out.push_string(vs_cname.clone());
               cl_out.push_str("){ ");
               nrf := rt_fields.len();
-              (rfi : usize) = usize(0);
-              (any_init : bool) = false;
+              (mut(rfi) : usize) = usize(0);
+              (mut(any_init) : bool) = false;
               while(rfi < nrf, {
                 // A `unit` field has no C member (types/generation.yo): no
                 // designated initializer. Its value expression still runs.
@@ -2704,7 +2704,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                     .Some(a) => {
                       u_code := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
                       if(u_code.len() > usize(0), {
-                        u_stmt := indent.clone();
+                        mut(u_stmt) := indent.clone();
                         u_stmt.push_string(&u_code);
                         u_stmt.push_str(";");
                         em_u := context.base.emitter;
@@ -2751,9 +2751,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             }
           );
           match(
-            ei.variable_name,
+            &ei.variable_name,
             .Some(tv) => {
-              vs_decl := indent.clone();
+              mut(vs_decl) := indent.clone();
               vs_decl.push_string(get_variable_type_string(&ei.ty, tv.clone(), &context.base));
               vs_decl.push_str(" = ");
               vs_decl.push_string(&vs_value);
@@ -2792,7 +2792,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         if(match(&function_type, Rc(.Array(ae, _, _)) => is_unit_type(&ae), _ => false), {
           idx_code := _call_generate_expr(&idx_expr, indent.clone(), context);
           if(idx_code.len() > usize(0), {
-            idx_stmt := indent.clone();
+            mut(idx_stmt) := indent.clone();
             idx_stmt.push_str("(void)(");
             idx_stmt.push_string(&idx_code);
             idx_stmt.push_str(");");
@@ -2801,7 +2801,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           });
           return(Option(String).Some(String.from("")));
         });
-        out := arr_code;
+        mut(out) := arr_code;
         out.push_str(".data[");
         // Safe mode Phase 1: this fast path bypassed the BF_YO_ARRAY_INDEX
         // inline arm #833 guarded, so `arr(<literal past N>)` folded to a raw
@@ -2819,7 +2819,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   if(!is_function_type(&function_type) && !cc_early_hit, {
     return(Option(String).None);
   });
-  (runtime_args : ArrayList(AstExpr)) = match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(Option(String).None));
+  (mut(runtime_args) : ArrayList(AstExpr)) = match(&ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(Option(String).None));
   // cc_early_hit fallback: a closure-field call inside a SPECIALIZED body can
   // reach codegen with an EMPTY recorded runtime-arg list (the re-evaluated
   // body's call route never populated it — same gap as the reference-struct
@@ -2847,9 +2847,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   match(
     &function_type,
     Rc(.Func({ meta : __fm_sp })) => {
-      sp_is_yo := match(__fm_sp.*.is_extern, .Some(sp_lang) => ((sp_lang == "yo") || (sp_lang == "c")), .None => false);
+      sp_is_yo := match(&__fm_sp.*.is_extern, .Some(sp_lang) => ((sp_lang == "yo") || (sp_lang == "c")), .None => false);
       match(
-        __fm_sp.*.extern_name,
+        &__fm_sp.*.extern_name,
         .Some(sp_name) => if(sp_is_yo, {
           if(sp_name == "__yo_thread_spawn", {
             return(generate_thread_spawn_call(expr, indent.clone(), context));
@@ -2869,9 +2869,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // (`fn_abi_param_is_ptr`). The borrow acquires below keep `param_is_ref`.
   abi_is_ptr := fn_abi_param_is_ptr(&function_type);
   // Materialize args, then auto-`&` ref params.
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   na := runtime_args.len();
-  (ai : usize) = usize(0);
+  (mut(ai) : usize) = usize(0);
   while(ai < na, {
     pref := match(abi_is_ptr.get(ai), .Some(r) => r, .None => false);
     // A `unit` argument materializes to "" (see _materialize_arg). If the callee
@@ -2915,7 +2915,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             return(Option(String).Some(generate_yo_inline_function_call(&name, &args2, expr, context, indent.clone())));
           });
           if(is_unit_type(&r), {
-            line := indent.clone();
+            mut(line) := indent.clone();
             line.push_string(&name);
             line.push_str("(");
             line.push_string(args_list.clone());
@@ -2930,7 +2930,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // the extern registry. `out := name; out.push_str(...)` would mutate
           // that shared String in place, so the first `f(a)` call corrupts the
           // stored name to `f(a)` and the next call to `f` emits `f(a)(b)`.
-          out := name.clone();
+          mut(out) := name.clone();
           out.push_str("(");
           out.push_string(args_list.clone());
           out.push_str(")");
@@ -2940,7 +2940,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // that was never declared, and an inline call left the result with
           // no owner (issues/fixed/a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md).
           match(
-            ei.variable_name,
+            &ei.variable_name,
             .Some(tv) => if(type_contains_rc_cell_or_move_only(&r), {
               already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
               if(!already, {
@@ -2960,7 +2960,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     },
     _ => ()
   );
-  (result_type : TypeValue) = fn_result_pointee(&function_type);
+  (mut(result_type) : TypeValue) = fn_result_pointee(&function_type);
   // A SHARED field-fn type's declared result can be an unresolved per-call
   // generic SomeT (Exception.throw's ResumeType) — the CALL's ExprInfo carries
   // the per-call resolution (try_to_call rebuilds the result SomeT with
@@ -3065,7 +3065,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             if(ou_may_unwind, {
               em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
             });
-            line := indent.clone();
+            mut(line) := indent.clone();
             line.push_string(&c_func_name);
             line.push_str("(");
             line.push_string(&casted);
@@ -3077,9 +3077,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             return(Option(String).Some(String.from("")));
           });
           match(
-            ei.variable_name,
+            &ei.variable_name,
             .Some(tv) => {
-              (c_type : String) = get_type_string(&result_type, &context.base);
+              (mut(c_type) : String) = get_type_string(&result_type, &context.base);
               // A future-returning call's stamped result type can carry a
               // STALE generation's state machine (minted in a def-time trial,
               // never emitted — the C21 escalation's 'incomplete definition
@@ -3124,7 +3124,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 if(ou_may_unwind, {
                   em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
-                line := indent.clone();
+                mut(line) := indent.clone();
                 line.push_string(&c_type);
                 line.push_str(" ");
                 line.push_string(tv.clone());
@@ -3168,7 +3168,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // once, by the declaration the caller is building.
             // See issues/fixed/async-match-arm-early-return-drops-call-result.md.
             .None => {
-              inline_call := String.new();
+              mut(inline_call) := String.new();
               inline_call.push_string(&c_func_name);
               inline_call.push_str("(");
               inline_call.push_string(&casted);
@@ -3191,7 +3191,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // MISS → the function-pointer cast fallback below.
   cc_id := match(
     context.base.get_expr_info(&func_expr),
-    .Some(cei) => match(resolve_some_type_to_concrete(&cei.ty), Rc(.Struct({ id : i })) => i, Rc(.SomeT({ id : i })) => i, _ => String.from("")),
+    .Some(cei) => match(resolve_some_type_to_concrete(&cei.ty), Rc(.Struct({ id : i })) => i.clone(), Rc(.SomeT({ id : i })) => i.clone(), _ => String.from("")),
     .None => String.from("")
   );
   cc_mapped := if(cc_id.len() > usize(0), context.base.impl_closure_call_map.get(&cc_id), Option(ImplClosureCallInfo).None);
@@ -3211,7 +3211,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   (out : String) = match(
     cc_mapped,
     .Some(mp) => {
-      cc := mp.function_c_name.clone();
+      mut(cc) := mp.function_c_name.clone();
       cc.push_str("(&(");
       cc.push_string(func_code.clone());
       cc.push_str(")");
@@ -3234,8 +3234,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         .Some(cei2) => match(
           &cei2.ty,
           Rc(.DynT({ required_trait_types : dfr })) => {
-            (has_fn : bool) = false;
-            (dfi : usize) = usize(0);
+            (mut(has_fn) : bool) = false;
+            (mut(dfi) : usize) = usize(0);
             while(dfi < dfr.len(), {
               match(
                 dfr.get(dfi),
@@ -3252,9 +3252,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         ),
         .None => false
       );
-      (arm_out : String) = String.new();
+      (mut(arm_out) : String) = String.new();
       if(dyn_fn_callee, {
-        o2 := String.from("(");
+        mut(o2) := String.from("(");
         o2.push_string(func_code.clone());
         o2.push_str(").vtable->call((");
         o2.push_string(func_code.clone());
@@ -3301,11 +3301,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             .None => if(fn_result_is_ref(&function_type), `${get_type_string(&result_type, &context.base)}*`, get_type_string(&result_type, &context.base))
           )
         );
-        cast := String.from("(");
+        mut(cast) := String.from("(");
         cast.push_string(&ret_str);
         cast.push_str(" (*)(");
         npt := param_types.len();
-        (pi : usize) = usize(0);
+        (mut(pi) : usize) = usize(0);
         while(pi < npt, {
           if(pi > usize(0), {
             cast.push_str(", ");
@@ -3345,12 +3345,12 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // `void*` slots: `((i32 (*)(i32, void*))exn.throw)(x, 666)` was an
         // int-to-pointer clang error (the algebraic_effects generic
         // struct-record handler family).
-        (casted_args : String) = args_list.clone();
+        (mut(casted_args) : String) = args_list.clone();
         if((args_list.len() > usize(0)) && (npt > usize(0)), {
           fa_parts := _split_top_level_args_list(args_list.clone());
           if(fa_parts.len() == npt, {
-            (fa_out : String) = String.new();
-            (fa_i : usize) = usize(0);
+            (mut(fa_out) : String) = String.new();
+            (mut(fa_i) : usize) = usize(0);
             while(fa_i < npt, {
               if(fa_i > usize(0), {
                 fa_out.push_str(", ");
@@ -3377,7 +3377,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             casted_args = fa_out;
           });
         });
-        o := String.from("((");
+        mut(o) := String.from("((");
         o.push_string(&cast);
         o.push_string(func_code.clone());
         o.push_str(")(");
@@ -3455,7 +3455,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     if(ou_may_unwind, {
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
     });
-    ucall := indent.clone();
+    mut(ucall) := indent.clone();
     ucall.push_string(out.clone());
     ucall.push_str(";");
     em.emit_string_line(&ucall);
@@ -3474,7 +3474,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // (issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md).
   // Only a may-unwind call clears and checks `__yo_effect_escaped`.
   if(ou_may_unwind || ei.variable_name.is_some(), {
-    fp_tv := match(ei.variable_name, .Some(tv) => tv.clone(), .None => `_eu_${ast_expr_id(expr).to_string()}`);
+    fp_tv := match(&ei.variable_name, .Some(tv) => tv.clone(), .None => `_eu_${ast_expr_id(expr).to_string()}`);
     already := match(context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
     if(!already, {
       record_declared_temp_var(context, fp_tv.clone());

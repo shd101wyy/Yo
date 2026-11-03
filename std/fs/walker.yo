@@ -77,6 +77,7 @@ WalkEntry :: struct(
   /// once as `.Symlink` and its contents appear beneath it.
   file_type : FileType
 );
+derive(WalkEntry, Clone);
 
 export(WalkEntry);
 /// Options controlling directory walk behavior.
@@ -103,6 +104,7 @@ WalkOptions :: struct(
   /// files even though intermediate dirs do not match.
   pattern : Option(String)
 );
+derive(WalkOptions, Clone);
 impl(
   WalkOptions,
   /// Unlimited depth, symlinks reported but not followed, directories
@@ -131,19 +133,20 @@ _join_path :: (fn(base : &String, name : &String) -> String)(
 // async fn so the walker's loops keep a SINGLE top-level await per body —
 // awaits nested in cond arms inside its while-in-while trip
 // issues/fixed/async-nested-cond-await-duplicate-while-labels.md.
-_canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))(
+_canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  lp_owned := lp.clone();
   io.async(e => {
-    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
+    is_d := e.io.await(_file.is_dir(Path.new(&lp_owned), e.io), e.io);
     cond(
       is_d => {
-        canon := e.io.await(_file.canonicalize(Path.new(lp), e.io), e);
+        canon := e.io.await(_file.canonicalize(Path.new(&lp_owned), e.io), e);
         return(canon.to_string());
       },
       true => ()
     );
     return(String.new());
   })
-);
+});
 // ============================================================================
 // Walk functions
 // ============================================================================
@@ -158,11 +161,11 @@ _filter_by_pattern :: (fn(results : ArrayList(WalkEntry), root_s : &String, patt
       return(results);
     }
   );
-  kept := ArrayList(WalkEntry).new();
+  mut(kept) := ArrayList(WalkEntry).new();
   prefix_len := (root_s.len() + usize(1));
   (mut(fi) : usize) = usize(0);
   while(fi < results.len(), fi = (fi + usize(1)), {
-    wentry := results(fi);
+    wentry := results(fi).clone();
     full := wentry.path.to_string();
     rel := cond(
       (full.len() > prefix_len) => full.substring(prefix_len, full.len()),
@@ -194,24 +197,25 @@ _filter_by_pattern :: (fn(results : ArrayList(WalkEntry), root_s : &String, patt
 /// (issues/fixed/async-nested-cond-await-duplicate-while-labels.md).
 walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
+  options_owned := options.clone();
   io.async(e => {
-    results := ArrayList(WalkEntry).new();
+    mut(results) := ArrayList(WalkEntry).new();
     // Canonical paths of directories entered VIA a followed symlink — the
     // cycle guard for follow_symlinks (a link to an ancestor would otherwise
     // recurse forever; the second traversal of any followed link is skipped).
     followed := HashSet(String).new();
     // Symlink entries of the CURRENT directory awaiting the follow decision
     // (stat + canonicalize need awaits; see the .Symlink arm's note).
-    pending_links := ArrayList(String).new();
+    mut(pending_links) := ArrayList(String).new();
     // Stack of (path, depth) pairs to process
-    stack := ArrayList(struct(path : String, depth : u32)).new();
+    mut(stack) := ArrayList(struct(path : String, depth : u32)).new();
     stack.push({ path : root_s.clone(), depth : u32(0) });
     while(stack.len() > usize(0), {
       item := stack.pop().unwrap();
       cur_depth := item.depth;
       // Check max depth
       should_continue := match(
-        options.max_depth,
+        options_owned.max_depth,
         .Some(max) => (cur_depth <= max),
         .None => true
       );
@@ -220,13 +224,13 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
           entries := e.io.await(_dir.read_dir(Path.new(&item.path), e.io), e);
           mut(i) := usize(0);
           while(i < entries.len(), {
-            entry := entries(i);
+            entry := entries(i).clone();
             entry_path := _join_path(&item.path, &entry.name);
             match(
               entry.file_type,
               .Directory => {
                 cond(
-                  options.include_dirs => {
+                  options_owned.include_dirs => {
                     results.push(
                       WalkEntry(
                         path : Path.new(&entry_path),
@@ -256,7 +260,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
                   )
                 );
                 cond(
-                  (options.follow_symlinks && _FOLLOW_SUPPORTED) => {
+                  (options_owned.follow_symlinks && _FOLLOW_SUPPORTED) => {
                     pending_links.push(entry_path);
                   },
                   true => ()
@@ -297,7 +301,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
       );
     });
     // The pattern post-filter is a sync helper over the drained results.
-    _filter_by_pattern(results, &root_s, &options.pattern)
+    _filter_by_pattern(results, &root_s, &options_owned.pattern)
   })
 });
 /// `walk_with` taking a NUL-terminated C string as the root, for callers
@@ -372,10 +376,10 @@ glob :: (fn(pattern : &String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))
       pattern : Option(String).Some(parts.rest.clone())
     );
     entries := e.io.await(walk_with(Path.new(&parts.base), &opts, e.io), e);
-    out := ArrayList(Path).new();
+    mut(out) := ArrayList(Path).new();
     (mut(i) : usize) = usize(0);
     while(i < entries.len(), {
-      wentry := entries(i);
+      wentry := entries(i).clone();
       out.push(wentry.path);
       i = (i + usize(1));
     });
@@ -401,7 +405,7 @@ remove_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
     while(n > usize(0), {
       n = (n - usize(1));
       match(
-        entries.get(n),
+        entries.get_cloned(n),
         .None => (),
         .Some(entry) =>
           match(

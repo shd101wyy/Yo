@@ -96,7 +96,9 @@ test("capture list: a by-value capture of an RC value retains it", {
   s := String.from("abcd");
   {
     (f : Impl(Fn() -> i32)) = ({ t }() => t.v);
-    (g : Impl(Fn() -> usize)) = ({ n : s }() => n.len());
+    // A `String` is a value (B8): the renamed capture takes a clone, so the
+    // source stays usable.
+    (g : Impl(Fn() -> usize)) = ({ n : s.clone() }() => n.len());
     assert(f() == i32(7), "the handle is read through the capture");
     assert(g() == usize(4), "a renamed by-value String capture");
     assert(g_cl_rc_disposed == i32(0), "nothing is disposed while the owners live");
@@ -112,11 +114,11 @@ test("capture list: a by-value capture of a NON-OWNING temp of an RC value", {
   // identifier", C compile failure). Only this shape broke: an atom
   // initializer's dup targets a declared local, an owning temp is consumed
   // (a move), and a non-RC initializer needs no reference at all.
-  src := ArrayList(String).new();
+  mut(src) := ArrayList(String).new();
   src.push(String.from("a"));
   src.push(String.from("b"));
   {
-    (f : Impl(Fn() -> usize)) = ({ first : src(usize(0)) }() => first.len());
+    (f : Impl(Fn() -> usize)) = ({ first : (src(usize(0))).clone() }() => first.len());
     assert(f() == usize(1), "the captured element is \"a\"");
   };
   assert(src.len() == usize(2), "the source list outlives the closure");
@@ -673,6 +675,25 @@ test("an FnOnce body moves a capture-list entry named `_x` or `var_x`", {
   var_moved := String.from("b");
   cell.with_mut({ var_moved }(xs) => xs.push(var_moved));
   assert(cell.with(xs => xs.len()) == usize(2), "both entries moved in");
-  assert(cell.with(xs => match(xs.get(usize(0)), .Some(s) => (s == String.from("a")), .None => false)), "the `_` entry");
-  assert(cell.with(xs => match(xs.get(usize(1)), .Some(s) => (s == String.from("b")), .None => false)), "the `var_` entry");
+  assert(cell.with(xs => (xs(usize(0)) == String.from("a"))), "the `_` entry");
+  assert(cell.with(xs => (xs(usize(1)) == String.from("b"))), "the `var_` entry");
+});
+// issues/fixed/2026-11-03-an-implicit-capture-lent-mut-in-a-closure-is-a-copy-under-the-seed.md:
+// an implicit capture moves the list into the closure, and `&mut lines` inside
+// it must write the closure's own capture. The v0.2.73 seed wrote a copy of the
+// environment, so the elements `append` moved out were freed again with the
+// environment and the global held dangling strings (every `yo build` of a
+// seed-built B8 compiler wrote a corrupt `.imports` file).
+(g_cl_moved_lines : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+_cl_fill_moved_lines :: (fn() -> unit)({
+  mut(lines) := ArrayList(String).new();
+  lines.push(String.from("mylib=mylib/src/lib.yo"));
+  lines.push(String.from("other=other/src/lib.yo"));
+  g_cl_moved_lines.with_mut(xs => xs.append(&mut lines));
+});
+test("an implicit capture lent &mut inside a closure moves its elements out exactly once", {
+  _cl_fill_moved_lines();
+  assert(g_cl_moved_lines.with(xs => xs.len()) == usize(2), "both lines moved into the global");
+  assert(g_cl_moved_lines.with(xs => (xs(usize(0)) == "mylib=mylib/src/lib.yo")), "the first line is intact");
+  assert(g_cl_moved_lines.with(xs => (xs(usize(1)) == "other=other/src/lib.yo")), "the second line is intact");
 });

@@ -47,10 +47,7 @@ _same_some_id :: (fn(ty : &TypeValue, id_to_compare : &String) -> bool)(
         id : tid,
         name : _,
         frame_level : _,
-        required_trait_types : _,
-        required_trait_levels : _,
-        negative_trait_types : _,
-        negative_trait_levels : _
+        bounds : _
       )
     ) =>
       (tid == id_to_compare),
@@ -66,12 +63,9 @@ _some_id :: (fn(ty : &TypeValue) -> String)(
         id : tid,
         name : _,
         frame_level : _,
-        required_trait_types : _,
-        required_trait_levels : _,
-        negative_trait_types : _,
-        negative_trait_levels : _
+        bounds : _
       )
-    ) => tid,
+    ) => tid.clone(),
     _ => String.from("")
   )
 );
@@ -84,12 +78,9 @@ _some_name :: (fn(ty : &TypeValue) -> String)(
         id : _,
         name : n,
         frame_level : _,
-        required_trait_types : _,
-        required_trait_levels : _,
-        negative_trait_types : _,
-        negative_trait_levels : _
+        bounds : _
       )
-    ) => n,
+    ) => n.clone(),
     _ => String.from("")
   )
 );
@@ -102,10 +93,7 @@ _some_frame_level :: (fn(ty : &TypeValue) -> Option(usize))(
         id : _,
         name : _,
         frame_level : fl,
-        required_trait_types : _,
-        required_trait_levels : _,
-        negative_trait_types : _,
-        negative_trait_levels : _
+        bounds : _
       )
     ) => Option(usize).Some(fl),
     _ => Option(usize).None
@@ -118,7 +106,7 @@ _id_visited :: (fn(visited_ids : &ArrayList(String), id : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      visited_ids.get(i),
+      visited_ids.get_cloned(i),
       .Some(existing) =>
         cond(
           (existing == id) => {
@@ -486,10 +474,7 @@ _chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &mut
         id : sid,
         name : sn,
         frame_level : sfl,
-        required_trait_types : _,
-        required_trait_levels : _,
-        negative_trait_types : _,
-        negative_trait_levels : _
+        bounds : _
       )
     ) => {
       r := _lookup_by_frame(env, sfl, &sn, &sid);

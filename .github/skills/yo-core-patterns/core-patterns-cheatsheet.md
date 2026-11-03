@@ -33,7 +33,7 @@ Key rules:
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str`. It does NOT auto-convert to `str`. A comptime function returning `str` materializes its `comptime_str` result automatically.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
-- `String`: `t := s.clone()` is an independent copy (O(n)); a plain `t := s` still shares a non-empty buffer until VALUES_BY_DEFAULT V2b makes it a move, so write only through a clone. Mutators take `self : &mut Self`, so writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `s : &mut String`, return the new string, or write a local clone. Bytes: `byte_at(i)` / `get_byte(i)` read in place, `to_bytes()` copies, `into_bytes()` moves out; there is no runtime `s(i)` (E0606) and no `as_bytes`.
+- `String` and `ArrayList` are uniquely owned values (B8): `t := s` MOVES the string (a later use of `s` is E0901, whose help names `s.clone()`), and `t := s.clone()` is an independent copy (O(n)). Read an element in place (`xs(i)`), or copy it with `xs.get_cloned(i)`. Mutators take `self : &mut Self`, so writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `s : &mut String`, return the new string, or write a local clone. Bytes: `byte_at(i)` / `get_byte(i)` read in place, `to_bytes()` copies, `into_bytes()` moves out; there is no runtime `s(i)` (E0606) and no `as_bytes`.
 - **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
 ## Import patterns
@@ -117,7 +117,7 @@ empty `{}` = bind nothing (`.Circle({}) => …`). Bare `{_}` is rejected (E0406:
 { HashSet } :: import("std/collections/hash_set");
 { String } :: import("std/string");
 
-numbers := ArrayList(i32).new();
+mut(numbers) := ArrayList(i32).new();
 numbers.push(i32(1));
 numbers.push(i32(2));
 
@@ -413,9 +413,9 @@ Node :: enum(Leaf, Branch(children : ArrayList(Self)));
 derive(Node, Eq(Node), Clone);
 
 main :: (fn() -> unit)({
-  xs := ArrayList(Node).new();
+  mut(xs) := ArrayList(Node).new();
   xs.push(Node.Leaf);
-  ys := ArrayList(Node).new();
+  mut(ys) := ArrayList(Node).new();
   ys.push(Node.Leaf);
   assert(Node.Branch(xs) == Node.Branch(ys), "same shape");
   assert(Node.Branch(xs) != Node.Branch(ArrayList(Node).new()), "different shape");
@@ -521,7 +521,7 @@ transform :: (fn(values : &mut ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 

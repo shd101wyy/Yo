@@ -17,7 +17,7 @@
   module_cache_hit
 } :: import("../../src/input_record.yo");
 _entry :: (fn(i : usize) -> String)(
-  match(input_file_entries().get(i), .Some(e) => e, .None => String.new())
+  match(input_file_entries().get_cloned(i), .Some(e) => e, .None => String.new())
 );
 _load :: (fn(key : str, file : str, hash : str, deps : &ArrayList(String)) -> unit)({
   mark := module_load_begin();
@@ -49,7 +49,7 @@ test("a hit replays through the modules its load found cached, even ones replaye
   reset_input_files();
   _load("file:///tmp/yo_ir2/b.yo", "/tmp/yo_ir2/b.yo", "h_b", &ArrayList(String).new());
   reset_input_files();
-  b_dep := ArrayList(String).new();
+  mut(b_dep) := ArrayList(String).new();
   b_dep.push(String.from("file:///tmp/yo_ir2/b.yo"));
   // `c` replays `b` first; `a`'s load then finds `b` cached a second time.
   _load("file:///tmp/yo_ir2/c.yo", "/tmp/yo_ir2/c.yo", "h_c", &b_dep);

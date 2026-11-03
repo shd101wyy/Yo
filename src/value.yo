@@ -299,7 +299,7 @@ impl(
   IntoIterator(
     Item : EvalValue,
     IntoIter : ArrayListIter(EvalValue),
-    into_iter : (fn(self : Self) -> ArrayListIter(EvalValue))(self.*.items.into_iter())
+    into_iter : (fn(self : Self) -> ArrayListIter(EvalValue))(self.*.items.clone().into_iter())
   )
 );
 (g_no_opt_values : SharedList(Option(EvalValue))) = Rc.new(SharedListCell(Option(EvalValue))(items : ArrayList(Option(EvalValue)).new()));
@@ -703,7 +703,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           true => ()
         );
         match(
-          __fvd1.*.params.get(pi),
+          __fvd1.*.params.get_cloned(pi),
           .Some(p) => {
             param_str = `${param_str}${p}`;
           },
@@ -1138,11 +1138,13 @@ export(eval_value_eq);
 (g_enum_cfids : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_enum_cfid :: (fn(enum_id : &String, func_id : &String) -> unit)({
   if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)) && !g_enum_cfids.with(m => m.contains_key(enum_id)), {
-    _prev := g_enum_cfids.with_mut(m => m.insert(enum_id.clone(), func_id.clone()));
+    func_id_owned := func_id.clone();
+    enum_id_owned := enum_id.clone();
+    _prev := g_enum_cfids.with_mut({ func_id_owned, enum_id_owned }(m) => m.insert(enum_id_owned, func_id_owned.clone()));
   });
 });
 lookup_enum_cfid :: (fn(enum_id : &String) -> String)(
-  match(g_enum_cfids.with(m => m.get(enum_id)), .Some(f) => f, .None => String.from(""))
+  match(g_enum_cfids.with(m => m.get_cloned(enum_id)), .Some(f) => f, .None => String.from(""))
 );
 export(register_enum_cfid, lookup_enum_cfid);
 // Type-constructor VALUES by func_id: the comptime function (`Option`,
@@ -1156,7 +1158,10 @@ export(register_enum_cfid, lookup_enum_cfid);
 (g_type_ctor_values : RefCell(HashMap(String, EvalValue))) = RefCell(HashMap(String, EvalValue)).new(HashMap(String, EvalValue).new());
 register_type_ctor_value :: (fn(func_id : &String, v : &EvalValue) -> unit)({
   if((func_id.len() > usize(0)) && !g_type_ctor_values.with(m => m.contains_key(func_id)), {
-    _prev := g_type_ctor_values.with_mut(m => m.insert(func_id.clone(), v));
+    // Owned captures (`with_mut`'s callback is a sink parameter).
+    tc_key := func_id.clone();
+    tc_val := v.clone();
+    _prev := g_type_ctor_values.with_mut({ tc_key, tc_val }(m) => m.insert(tc_key, tc_val));
   });
 });
 lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with(m => m.get(func_id)));

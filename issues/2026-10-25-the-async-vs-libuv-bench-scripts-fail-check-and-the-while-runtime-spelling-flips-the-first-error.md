@@ -55,3 +55,7 @@ Why the `runtime(…)` wrapper decides which error is reached first is not fully
 
 - Fix the scripts themselves (migrate the counters to `mut(i)` etc., lend or move the `JoinHandle`s) so both files check clean again; that removes the visible flip along with the rot.
 - Separately, if the analysis-order asymmetry matters, minimize why a `runtime(…)`-wrapped condition makes `check` reach closure-body E0917 sites before the E0901 def-site errors (start from the full file; every small extraction behaves identically under both spellings).
+
+## Addendum 2026-11-03: a third bench script
+
+`scripts/bench/io_bench.yo` fails `check` on develop as well, at `ce827ae52` with `yo-s1labels-4af1ebd87`. The error is E0901 at `io_bench.yo:114:14`: `hs(k).await(io)` copies a move-only `JoinHandle(i32)` out of its list. The B8 flip tree (`vbd/b8-arraylist-string-flip-r4`) reports the same three first errors as develop, so B8 introduces none of them. This was found by the B8 pre-PR sweep over every `.yo` file outside `src/`, `std/` and `tests/`.

@@ -164,7 +164,7 @@ _eval_body_for_ctfe :: (
   n_cap := cap_names.len();
   (cap_i : usize) = usize(0);
   while(cap_i < n_cap, {
-    cn := match(cap_names.get(cap_i), .Some(n) => n, .None => String.from(""));
+    cn := match(cap_names.get_cloned(cap_i), .Some(n) => n, .None => String.from(""));
     ct := match(cap_tys.get(cap_i), .Some(t) => t, .None => t_unit());
     cv := match(cap_vals.get(cap_i), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
     is_ct := match(cv, .Some(_) => true, .None => false);
@@ -201,7 +201,7 @@ _eval_body_for_ctfe :: (
   n_p := param_labels.len();
   (p_i : usize) = usize(0);
   while(p_i < n_p, {
-    plabel := match(param_labels.get(p_i), .Some(l) => l, .None => String.from(""));
+    plabel := match(param_labels.get_cloned(p_i), .Some(l) => l, .None => String.from(""));
     ptype := match(param_types.get(p_i), .Some(t) => t_slot_pointee(&t), .None => t_unit());
     punknown := create_unknown_val(&ptype);
     ptok := synthetic_token(&plabel, &env.module_path.*);
@@ -408,7 +408,7 @@ analyze_ctfe_capability :: (
   // Skip extern functions — they cannot be evaluated at compile time.
   is_extern_fn := match(
     func_type,
-    Rc(.Func({ meta : m })) => match(m.*.is_extern, .Some(_) => true, .None => false),
+    Rc(.Func({ meta : m })) => match(&m.*.is_extern, .Some(_) => true, .None => false),
     _ => false
   );
   // Skip generic functions — they need specialisation first.

@@ -43,7 +43,7 @@ test("a spec applies to a whole expression, not just a name", {
   a := i32(20);
   b := i32(22);
   assert(`${(a + b):>6}` == `    42`, "parenthesized arithmetic");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   assert(`${xs.len():>4}` == `   2`, "method call result");
@@ -64,7 +64,7 @@ test("a template nested inside an interpolation", {
   //   error[E0403]: Module field "to_string" not found in module type
   // (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
   assert(`x${`y`}z` == `xyz`, "nested template literal");
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.from("a"));
   names.push(String.from("b"));
   // The shape that found it: a separator written inline as a template.

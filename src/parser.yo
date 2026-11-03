@@ -61,7 +61,7 @@ FnArgsResult :: struct(
 extract_source_line :: (fn(input : &String, row : usize) -> String)({
   lines_list := input.split(String.from("\n"));
   match(
-    lines_list.get(row),
+    lines_list.get_cloned(row),
     .None => String.from(""),
     .Some(line) => line
   )
@@ -125,7 +125,7 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
       true => match(
         hf,
         .Atom(_, ht) => cond(
-          ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT)) => ht.value.*,
+          ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT)) => ht.value.*.clone(),
           true => String.new()
         ),
         .FnCall(_, _, _, _, _) => String.new()
@@ -318,23 +318,12 @@ impl(
       next_expr_id : usize(0)
     )
   }),
-  get_tokens : (fn(self : &Self) -> ArrayList(Token))(self.tokens),
+  get_tokens : (fn(self : &Self) -> ArrayList(Token))(self.tokens.clone()),
   alloc_id : (fn(self : &mut Self) -> ExprId)({
     id := alloc_global_expr_id();
     self.next_expr_id = (self.next_expr_id + usize(1));
     id
   }),
-  make_syn_tok : (fn(self : &mut Self, kind : TokenKind, value : &String) -> Token)(
-    Token(
-      kind : kind,
-      value : intern_token_str(value),
-      row : u32(0),
-      column : u32(0),
-      character : u32(0),
-      module_path : Rc.clone(self.module_path),
-      input : Rc.clone(self.input_string)
-    )
-  ),
   make_unit_call : (fn(self : &mut Self, ref_tok : &Token) -> AstExpr)({
     unit_tok := Token(
       kind : TokenKind.Identifier,
@@ -587,10 +576,17 @@ impl(
       part_is_expr.push(false);
       part_content.push(String.from(""));
     });
-    // Synthetic tokens for building the expression chain
-    dot_tok := self.make_syn_tok(TokenKind.Dot, String.from("."));
-    to_str_tok := self.make_syn_tok(TokenKind.Identifier, String.from("to_string"));
-    fmt_tok := self.make_syn_tok(TokenKind.Identifier, String.from("format"));
+    // Synthetic tokens for building the expression chain, positioned at the
+    // template like the builder's own (`_template_syn_tok`). A token at
+    // row 0 / character 0 in the module's own stream is still comparable with
+    // every real token there, so it read as the earliest token of the
+    // function: an arm holding `${p}` then "began" before an early return
+    // above it, and the arm's undone-drop record swallowed that return's exit
+    // drop of `p`
+    // (issues/fixed/2026-11-03-a-template-string-in-a-later-arm-skips-an-early-returns-drop-of-the-interpolated-local.md).
+    dot_tok := _template_syn_tok(tok, TokenKind.Dot, &String.from("."));
+    to_str_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("to_string"));
+    fmt_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("format"));
     // Helper: build `e.to_string()` — takes explicit params since local fns
     // can't capture outer values. The four synthetic sub-expressions need
     // UNIQUE expr ids (passed in via `id_*`): hardcoding `usize(0)` made
@@ -748,7 +744,7 @@ impl(
     pi := usize(0);
     while(pi < num_parts, {
       is_expr := match(part_is_expr.get(pi), .Some(b) => b, .None => false);
-      content := match(part_content.get(pi), .Some(s) => s, .None => String.from(""));
+      content := match(part_content.get_cloned(pi), .Some(s) => s, .None => String.from(""));
       (part_expr : AstExpr) = cond(
         is_expr => {
           // Peel a `:spec` suffix BEFORE parsing, so the spec text never reaches
@@ -2210,7 +2206,7 @@ impl(
   /// (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
   get_expression_program : (fn(self : &mut Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
-    self.program
+    self.program.clone()
   }),
   get_program : (fn(self : &mut Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
@@ -2262,7 +2258,7 @@ impl(
       });
       return(result);
     });
-    self.program
+    self.program.clone()
   })
 );
 /// Parse Yo source code and return the top-level expression list.

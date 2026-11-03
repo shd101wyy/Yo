@@ -163,22 +163,27 @@ impl(
 ///
 /// Rust's `BinaryHeap::iter` makes the same no-order promise; drain the queue
 /// with `pop` in a loop when the order matters.
+///
+/// It holds the queue by handle and yields a clone of each element
+/// (`T <: Clone`): the backing list is a value since B8, so the queue keeps
+/// its own.
 PriorityQueueIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _data : ArrayList(T),
+    _pq : PriorityQueue(T),
     _index : usize
   )
 );
 impl(
   generic(T : Type),
+  where(T <: Clone),
   PriorityQueueIter(T),
   Iterator(
     Item : T,
     next : (fn(self : &mut Self) -> Option(T))(
       cond(
-        (self._index >= self._data.len()) => .None,
+        (self._index >= self._pq._data.len()) => .None,
         true => {
-          value := self._data(self._index);
+          value := self._pq._data(self._index).clone();
           self._index = (self._index + usize(1));
           .Some(value)
         }
@@ -193,7 +198,7 @@ impl(
     Item : T,
     IntoIter : PriorityQueueIter(T),
     into_iter : (fn(self : Self) -> PriorityQueueIter(T))(
-      PriorityQueueIter(T)(_data : self._data, _index : usize(0))
+      PriorityQueueIter(T)(_pq : self, _index : usize(0))
     )
   )
 );

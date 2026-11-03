@@ -495,7 +495,7 @@ z3_check_sat_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(String))({
   (i : usize) = usize(0);
   while(i < forms.len(), {
     match(
-      forms.get(i),
+      forms.get_cloned(i),
       .Some(form) => {
         // Nested patterns do not parse — match twice.
         match(
@@ -525,9 +525,9 @@ z3_error_before_verdict :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(String))({
   (i : usize) = usize(0);
   while(i < forms.len(), {
     match(
-      forms.get(i),
+      forms.get_cloned(i),
       .Some(form) => match(
-        form,
+        &form,
         .Atom(t) => {
           if((t == "unsat") || (t == "sat") || (t == "unknown"), {
             return(Option(String).None);
@@ -551,7 +551,7 @@ z3_error_before_verdict :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(String))({
 /// nested-match helper for keyword-led response forms.
 _head_atom_text :: (fn(items : &ArrayList(Z3Sexpr)) -> Option(String))(
   match(
-    items.get(usize(0)),
+    items.get_cloned(usize(0)),
     .Some(.Atom(t)) => Option(String).Some(t.clone()),
     .Some(_) => Option(String).None,
     .None => Option(String).None
@@ -566,7 +566,7 @@ z3_unsat_core_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < forms.len(), {
     match(
-      forms.get(i),
+      forms.get_cloned(i),
       .Some(form) => {
         match(
           form,
@@ -636,7 +636,7 @@ z3_value_pairs_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < forms.len(), {
     match(
-      forms.get(i),
+      forms.get_cloned(i),
       .Some(form) => {
         match(
           form,
@@ -678,13 +678,13 @@ z3_value_pairs_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
                       pair2,
                       .List(kv2) => {
                         n := match(
-                          kv2.get(usize(0)),
+                          kv2.get_cloned(usize(0)),
                           .Some(.Atom(t)) => t.clone(),
                           .Some(_) => String.from("?"),
                           .None => String.from("?")
                         );
                         v := match(
-                          kv2.get(usize(1)),
+                          kv2.get_cloned(usize(1)),
                           .Some(value_form) => z3_sexpr_to_string(&value_form),
                           .None => String.from("?")
                         );

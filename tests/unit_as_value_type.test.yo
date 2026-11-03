@@ -28,7 +28,7 @@ test("unit inside a tuple", {
   assert(p.0 == i32(3), "the non-unit element survives");
 });
 test("unit as a generic container element", {
-  xs := ArrayList(unit).new();
+  mut(xs) := ArrayList(unit).new();
   xs.push(());
   xs.push(());
   assert(xs.len() == usize(2), "ArrayList(unit) stores elements");
@@ -144,11 +144,11 @@ test("an ArrayList of a unit-bearing aggregate round-trips every element", {
   // element back — a short buffer scrambles the sentinels even when it does
   // not fault.
   n := usize(64);
-  first := ArrayList(_UnitFirst).new();
-  mid := ArrayList(_UnitMid).new();
-  last := ArrayList(_UnitLast).new();
-  nested := ArrayList(_NestedUnit).new();
-  wrapped := ArrayList(_AllUnitsWrapped).new();
+  mut(first) := ArrayList(_UnitFirst).new();
+  mut(mid) := ArrayList(_UnitMid).new();
+  mut(last) := ArrayList(_UnitLast).new();
+  mut(nested) := ArrayList(_NestedUnit).new();
+  mut(wrapped) := ArrayList(_AllUnitsWrapped).new();
   (mut(i) : usize) = usize(0);
   while(i < n, {
     v := i32(i);
@@ -211,7 +211,7 @@ test("an ArrayList of an ALL-unit aggregate stores every element", {
   // sizeof(_AllUnits) used to be 0, so this mallocs a ZERO-byte block and then
   // stores a 3-byte struct into it — the store is NOT suppressed the way a bare
   // `unit` store is, because the whole aggregate is written.
-  xs := ArrayList(_AllUnits).new();
+  mut(xs) := ArrayList(_AllUnits).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(64), {
     xs.push(_AllUnits(x : (), y : (), z : ()));
@@ -256,8 +256,8 @@ _RefWithUnit :: ref(struct(a : i32, u : unit, s : String));
 // to be 8 bytes against a model of 4, so 64 elements overran a 256-byte block.
 test("an ArrayList of a unit-payload enum and of Option(unit) round-trips every element", {
   n := usize(64);
-  es := ArrayList(_UnitOnlyPayloadEnum).new();
-  os := ArrayList(Option(unit)).new();
+  mut(es) := ArrayList(_UnitOnlyPayloadEnum).new();
+  mut(os) := ArrayList(Option(unit)).new();
   (mut(i) : usize) = usize(0);
   while(i < n, {
     es.push(cond(((i % usize(2)) == usize(0)) => _UnitOnlyPayloadEnum.A(u : ()), true => _UnitOnlyPayloadEnum.B));
@@ -282,7 +282,7 @@ test("an ArrayList of a unit-payload enum and of Option(unit) round-trips every 
   assert(bad == usize(0), `${bad} scrambled elements`);
 });
 test("an ArrayList of a zero-sized element type grows to any length", {
-  xs := ArrayList(unit).new();
+  mut(xs) := ArrayList(unit).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(1000), {
     xs.push(());
@@ -294,10 +294,10 @@ test("an ArrayList of a zero-sized element type grows to any length", {
   assert(xs.len() == usize(999), "pop shrinks the length");
   assert(match(xs.shrink_to_fit(), .Ok(_) => true, .Err(_) => false), "shrink_to_fit is a no-op, not a realloc(p, 0)");
   assert(xs.len() == usize(999), "shrink_to_fit keeps the elements");
-  ys := ArrayList(unit).with_capacity(usize(10));
+  mut(ys) := ArrayList(unit).with_capacity(usize(10));
   ys.push(());
   assert(ys.len() == usize(1), "with_capacity(10) for a ZST still pushes");
-  all := ArrayList(_AllUnits).new();
+  mut(all) := ArrayList(_AllUnits).new();
   i = usize(0);
   while(i < usize(300), {
     all.push(_AllUnits(x : (), y : (), z : ()));
@@ -311,7 +311,7 @@ test("an ArrayList of a zero-sized element type grows to any length", {
 // `*(void*)p = ()`, which is not C
 // (issues/fixed/2026-10-16-a-pointer-move-of-a-unit-place-emits-invalid-c.md).
 test("an ArrayList of unit swaps, reverses and removes; a HashMap(K, unit) overwrites", {
-  xs := ArrayList(unit).new();
+  mut(xs) := ArrayList(unit).new();
   xs.push(());
   xs.push(());
   xs.push(());

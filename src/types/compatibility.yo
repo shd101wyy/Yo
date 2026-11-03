@@ -29,18 +29,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-_visited_contains :: (fn(visited : &ArrayList(String), key : &String) -> bool)({
-  i := usize(0);
-  n := visited.len();
-  while(i < n, {
-    s := match(visited.get(i), .Some(v) => v, .None => ``);
-    if(s == key, {
-      return(true);
-    });
-    i = (i + usize(1));
-  });
-  false
-});
+_visited_contains :: (fn(visited : &ArrayList(String), key : &String) -> bool)(visited.contains(key));
 _is_in_used :: (fn(used : &ArrayList(usize), idx : usize) -> bool)({
   i := usize(0);
   n := used.len();
@@ -65,7 +54,8 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
   parts.push(Rc.clone(req));
   match(
     req,
-    Rc(.TraitT({ field_types : fts, assoc_constraint_types : acts })) => {
+    Rc(.TraitT({ body : fts_body, assoc_constraint_types : acts })) => {
+      fts := fts_body.field_types();
       (i : usize) = usize(0);
       while(i < fts.len(), {
         match(fts.get(i), .Some(t) => parts.push(t), .None => ());
@@ -189,27 +179,25 @@ _wrapper_carrier_args_concrete :: (fn(rtts : &ArrayList(TypeValue)) -> bool)({
 AlphaPair :: struct(a_name : String, a_level : usize, e_name : String, e_level : usize);
 derive(AlphaPair, Clone);
 (g_alpha_pairs : RefCell(ArrayList(AlphaPair))) = RefCell(ArrayList(AlphaPair)).new(ArrayList(AlphaPair).new());
-_alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e_level : usize) -> bool)({
-  (i : usize) = g_alpha_pairs.with(xs => xs.len());
-  while(i > usize(0), {
-    i = (i - usize(1));
-    match(
-      g_alpha_pairs.with(xs => xs.get(i)),
-      .Some(p) => if((p.a_name == a_name) && (p.a_level == a_level) && (p.e_name == e_name) && (p.e_level == e_level), {
-        return(true);
-      }),
-      .None => ()
-    );
-  });
-  false
-});
+/// Read in place, newest first: a `get_cloned` per probe copies both names.
+_alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e_level : usize) -> bool)(
+  g_alpha_pairs.with(xs => {
+    (mut(i) : usize) = xs.len();
+    (mut(found) : bool) = false;
+    while((i > usize(0)) && !found, {
+      i = (i - usize(1));
+      found = ((xs(i).a_name == a_name) && (xs(i).a_level == a_level) && (xs(i).e_name == e_name) && (xs(i).e_level == e_level));
+    });
+    found
+  })
+);
 /// The frame level of the first SomeT named `label` among `types`.
 _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(usize))({
   (i : usize) = usize(0);
   while(i < types.len(), {
     t := match(types.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
     somes := get_all_some_types(&t);
-    match(&t, Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
+    match(&t, Rc(.SomeT(_, _, _, _, _, _, _)) => somes.push(Rc.clone(t)), _ => ());
     (j : usize) = usize(0);
     while(j < somes.len(), {
       match(
@@ -235,8 +223,8 @@ _push_alpha_pairs :: (fn(a_labels : &ArrayList(String), a_types : &ArrayList(Typ
   (pushed : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < a_labels.len(), {
-    an := match(a_labels.get(i), .Some(l) => l, .None => String.new());
-    en := match(e_labels.get(i), .Some(l) => l, .None => String.new());
+    an := match(a_labels.get_cloned(i), .Some(l) => l, .None => String.new());
+    en := match(e_labels.get_cloned(i), .Some(l) => l, .None => String.new());
     match(
       _binder_level(a_types, an.clone()),
       .Some(al) => match(
@@ -293,7 +281,8 @@ _future_trait_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
     Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(t)),
-    Rc(.SomeT(required_trait_types : rtt)) => {
+    Rc(.SomeT(bounds : rtt_bnd)) => {
+      rtt := rtt_bnd.required();
       (i : usize) = usize(0);
       while(i < rtt.len(), i = (i + usize(1)), {
         match(rtt.get(i), .Some(Rc(.FutureTraitT(base_name : _))) => return(rtt.get(i)), _ => ());
@@ -451,7 +440,7 @@ _compat_impl :: (
   if(!identity && is_some_type(actual) && is_dyn_type(expected), {
     artt := match(
       actual,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt,
+      Rc(.SomeT(bounds : rtt_bounds)) => rtt_bounds.required(),
       _ => ArrayList(TypeValue).new()
     );
     drtt := match(
@@ -493,7 +482,7 @@ _compat_impl :: (
   if(!identity && is_dyn_type(actual) && is_some_type(expected), {
     erts := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt,
+      Rc(.SomeT(bounds : rtt_bounds2)) => rtt_bounds2.required(),
       _ => ArrayList(TypeValue).new()
     );
     adrtt := match(
@@ -579,7 +568,7 @@ _compat_impl :: (
     });
     erts2 := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt2)) => rtt2,
+      Rc(.SomeT(bounds : rtt2_bnd)) => rtt2_bnd.required(),
       _ => ArrayList(TypeValue).new()
     );
     if(erts2.len() == usize(0), {
@@ -648,7 +637,7 @@ _compat_impl :: (
           // such pairs one level up without looking inside
           // (plans/reference/TYPE_IDENTITY.md).
           .None => if(!require_exact, {
-            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq, _ => ArrayList(TypeValue).new());
+            a_reqs := match(actual, Rc(.SomeT(bounds : a_rq_bnd)) => a_rq_bnd.required(), _ => ArrayList(TypeValue).new());
             if(a_reqs.len() == usize(0), {
               return(true);
             });
@@ -1305,7 +1294,7 @@ _compat_impl :: (
         // `Result(unit, HashMapError)` instance
         // (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
         ((aname.len() > usize(0)) && (ename.len() > usize(0)) && (aname != ename)) => false, (avns.len() != evns.len()) => false, true => {
-          vkey := (aid + String.from("=>") + eid);
+          vkey := (aid.clone() + String.from("=>") + eid.clone());
           cond(
             _visited_contains(visited, &vkey) => true,
             true => {
@@ -1415,57 +1404,63 @@ _compat_impl :: (
     // equal-length NON-EMPTY constraint lists, and every Fn/Future carrier
     // argument SomeT-FREE — the pairwise recursion below then only ever
     // descends into concrete types and terminates.
-    Rc(.SomeT(name : aname, frame_level : alvl, required_trait_types : artt)) => match(
-      expected,
-      Rc(.SomeT(name : ename, frame_level : elvl, required_trait_types : ertt)) => cond(
-        // Two resolved annotation wrappers are one type exactly when their
-        // resolutions are: every closure's `Impl(Fn(...))` wrapper carries
-        // the reserved name "Impl", so name + level alone made two different
-        // closures one type (their lists shared one instance, and pushing one
-        // closure into the other's list type-checked;
-        // issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
-        // It is the rule a resolved SomeT meets against a concrete type above,
-        // and the key `type_key` gives such a wrapper in an argument slot.
-        (is_bound_closure_identity(actual) && is_bound_closure_identity(expected)) =>
-          recur(resolve_cell_chain(actual), resolve_cell_chain(expected), mode, visited),
-        ((aname == ename) && (alvl == elvl)) => true,
-        // Corresponding binders of the two `Func` types being compared.
-        _alpha_pair_active(aname.clone(), alvl, ename.clone(), elvl) => true,
-        // Definition-time-trial acceptance: two distinct type
-        // parameters are compatible when the GIVEN side satisfies every
-        // constraint the EXPECTED side carries — trivially true for an
-        // unconstrained forall (`A` in `where(I <: Iterator(Item := A))`
-        // accepting the trait's raw `Item`). Scoped to (a) NON-exact
-        // comparisons — the exact mode keys spec/CTFE caches, where
-        // collapsing `Rc(V)`/`Rc(T)` is the gap-6 identity-split family —
-        // and (b) def-time trials, whose stamps are discardable (the
-        // repair-1 contract); unscoped, the compensations around the
-        // stricter name+level rule regress. EMPTY expected-constraint lists
-        // only: a trait-SUBSET
-        // walk on non-empty lists can self-recurse unboundedly.
-        (!require_exact && trial_flag_get() && (ertt.len() == usize(0))) => true,
-        true => {
-          (xw_ok : bool) = (
-            (aname == ename) && (artt.len() == ertt.len())
-            &&
-              (artt.len() > usize(0))
-              && _wrapper_carrier_args_concrete(&artt) && _wrapper_carrier_args_concrete(&ertt)
-          );
+    Rc(.SomeT(name : aname, frame_level : alvl, bounds : artt_bnd)) => {
+      artt := artt_bnd.required();
+      match(
+        expected,
+        Rc(.SomeT(name : ename, frame_level : elvl, bounds : ertt_bnd)) => {
+          ertt := ertt_bnd.required();
+          cond(
+            // Two resolved annotation wrappers are one type exactly when their
+            // resolutions are: every closure's `Impl(Fn(...))` wrapper carries
+            // the reserved name "Impl", so name + level alone made two different
+            // closures one type (their lists shared one instance, and pushing one
+            // closure into the other's list type-checked;
+            // issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+            // It is the rule a resolved SomeT meets against a concrete type above,
+            // and the key `type_key` gives such a wrapper in an argument slot.
+            (is_bound_closure_identity(actual) && is_bound_closure_identity(expected)) =>
+              recur(resolve_cell_chain(actual), resolve_cell_chain(expected), mode, visited),
+            ((aname == ename) && (alvl == elvl)) => true,
+            // Corresponding binders of the two `Func` types being compared.
+            _alpha_pair_active(aname.clone(), alvl, ename.clone(), elvl) => true,
+            // Definition-time-trial acceptance: two distinct type
+            // parameters are compatible when the GIVEN side satisfies every
+            // constraint the EXPECTED side carries — trivially true for an
+            // unconstrained forall (`A` in `where(I <: Iterator(Item := A))`
+            // accepting the trait's raw `Item`). Scoped to (a) NON-exact
+            // comparisons — the exact mode keys spec/CTFE caches, where
+            // collapsing `Rc(V)`/`Rc(T)` is the gap-6 identity-split family —
+            // and (b) def-time trials, whose stamps are discardable (the
+            // repair-1 contract); unscoped, the compensations around the
+            // stricter name+level rule regress. EMPTY expected-constraint lists
+            // only: a trait-SUBSET
+            // walk on non-empty lists can self-recurse unboundedly.
+            (!require_exact && trial_flag_get() && (ertt.len() == usize(0))) => true,
+            true => {
+              (xw_ok : bool) = (
+                (aname == ename) && (artt.len() == ertt.len())
+                &&
+                  (artt.len() > usize(0))
+                  && _wrapper_carrier_args_concrete(&artt) && _wrapper_carrier_args_concrete(&ertt)
+              );
 
-          (xw_i : usize) = usize(0);
-          while((xw_i < artt.len()) && xw_ok, {
-            xa := match(artt.get(xw_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-            xe := match(ertt.get(xw_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-            if(!recur(&xa, &xe, mode, visited), {
-              xw_ok = false;
-            });
-            xw_i = (xw_i + usize(1));
-          });
-          xw_ok
-        }
-      ),
-      _ => false
-    ),
+              (xw_i : usize) = usize(0);
+              while((xw_i < artt.len()) && xw_ok, {
+                xa := match(artt.get(xw_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                xe := match(ertt.get(xw_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                if(!recur(&xa, &xe, mode, visited), {
+                  xw_ok = false;
+                });
+                xw_i = (xw_i + usize(1));
+              });
+              xw_ok
+            }
+          )
+        },
+        _ => false
+      )
+    },
     // -----------------------------------------------------------------------
     // Phase 2f variants
     // -----------------------------------------------------------------------
@@ -1487,8 +1482,8 @@ _compat_impl :: (
         if(!acid_valid || !ecid_valid, {
           return(false);
         });
-        acid := match(acon, Rc(.SomeT(id : cid)) => cid, _ => ``);
-        ecid := match(econ, Rc(.SomeT(id : cid)) => cid, _ => ``);
+        acid := match(acon, Rc(.SomeT(id : cid)) => cid.clone(), _ => ``);
+        ecid := match(econ, Rc(.SomeT(id : cid)) => cid.clone(), _ => ``);
         if(acid != ecid, {
           return(false);
         });

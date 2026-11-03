@@ -99,7 +99,7 @@ resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
     (rsc_i : usize) = usize(0);
     while(rsc_i < rsc_seen.len(), {
       match(
-        rsc_seen.get(rsc_i),
+        rsc_seen.get_cloned(rsc_i),
         .Some(rsc_s) => if(rsc_s == sid, {
           rsc_revisit = true;
         }),
@@ -301,7 +301,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     data.push_str("){ ");
     (fi : usize) = usize(0);
     while(fi < field_labels.len(), {
-      label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+      label := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
       if(fi > usize(0), {
         data.push_str(", ");
       });
@@ -436,7 +436,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // unique name. Registered as declared either way, so a deferred drop
     // naming it is emitted.
     temp := match(
-      ei.variable_name,
+      &ei.variable_name,
       .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), &cvn, Option(Environment).Some(ei.env)),
       .None => {
         t := String.from("__capture_");
@@ -463,7 +463,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // (issues/fixed/a-closure-literal-argument-inside-an-io-async-body-never-releases-its-captures.md).
     if(context.in_async_state_machine.is_some(), {
       match(
-        ei.variable_name,
+        &ei.variable_name,
         .Some(cvn2) => match(
           context.state_machine_variables,
           .Some(smv) => match(
@@ -480,7 +480,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     if(is_rebuild, {
       return(temp);
     });
-    key := match(resolve_some_type_to_concrete(&capture_ty), Rc(.Struct({ id : kid })) => kid, _ => struct_id.clone());
+    key := match(resolve_some_type_to_concrete(&capture_ty), Rc(.Struct({ id : kid })) => kid.clone(), _ => struct_id.clone());
     cg_base := context.base;
     cg_base.impl_closure_call_map.insert(
       key,
@@ -536,7 +536,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
 /// scope.
 _enclosing_closure_capture_read :: (fn(key : ExprId, name : &String, env : &Environment, context : &FunctionGenerationContext) -> Option(String))({
   captured := match(
-    context.current_closure_captures,
+    &context.current_closure_captures,
     .Some(caps) => match(
       context.current_closure_capture_frame_level,
       .Some(level) => (caps.contains(name.clone()) && check_variable_is_closure_captured(key, name.clone(), env, level)),
@@ -550,7 +550,7 @@ _enclosing_closure_capture_read :: (fn(key : ExprId, name : &String, env : &Envi
   field := get_variable_name_for_codegen_at(key, name, Option(Environment).Some(env));
   Option(String).Some(
     match(
-      context.current_closure_capture_type_c_name,
+      &context.current_closure_capture_type_c_name,
       .Some(cap_ty) => `((${cap_ty}*)closure_context)->${field}`,
       .None => `closure_context->${field}`
     )
@@ -571,8 +571,8 @@ register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext)
         .Some(cci) => {
           key := match(
             resolve_some_type_to_concrete(&cci.capture_type),
-            Rc(.Struct({ id : sid })) => sid,
-            Rc(.SomeT({ id : sid })) => sid,
+            Rc(.Struct({ id : sid })) => sid.clone(),
+            Rc(.SomeT({ id : sid })) => sid.clone(),
             _ => String.from("")
           );
           if(key.len() > usize(0), {

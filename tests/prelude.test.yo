@@ -377,11 +377,11 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
   assert(some.is_some_and(v => (v > i32(5))), "is_some_and true");
   assert(!some.is_some_and(v => (v > i32(10))), "is_some_and false predicate");
   assert(!none.is_some_and(v => (v > i32(0))), "is_some_and on None");
-  // Closures capture locals BY VALUE, so observe the side effect through a
-  // reference-semantics container instead of a primitive local.
+  // Closures capture locals BY VALUE, so the closure borrows the list it
+  // writes (`{ &mut seen }`).
   { ArrayList } :: import("std/collections/array_list");
-  seen := ArrayList(i32).new();
-  echoed := some.inspect(v => {
+  mut(seen) := ArrayList(i32).new();
+  echoed := some.inspect({ &mut seen }(v) => {
     seen.push(v);
   });
   assert((seen.len() == usize(1)) && (seen.get(usize(0)).unwrap() == i32(7)), "inspect ran the callback");
@@ -419,14 +419,14 @@ test("Result completion: unwrap_or, unwrap_or_default, expect, inspect, flatten,
   assert(err.unwrap_or_default() == i32(0), "unwrap_or_default uses Default");
   assert(ok.expect("must be ok") == i32(4), "expect on Ok");
   assert(err.expect_err("must be err") == u8(1), "expect_err on Err");
-  // Closures capture locals BY VALUE — observe via reference-semantics lists.
+  // Closures capture locals BY VALUE — the closures borrow the lists they write.
   { ArrayList } :: import("std/collections/array_list");
-  seen_ok := ArrayList(i32).new();
-  seen_err := ArrayList(u8).new();
-  _ := ok.inspect(v => {
+  mut(seen_ok) := ArrayList(i32).new();
+  mut(seen_err) := ArrayList(u8).new();
+  _ := ok.inspect({ &mut seen_ok }(v) => {
     seen_ok.push(v);
   });
-  _ := err.inspect_err(e => {
+  _ := err.inspect_err({ &mut seen_err }(e) => {
     seen_err.push(e);
   });
   assert((seen_ok.len() == usize(1)) && (seen_ok.get(usize(0)).unwrap() == i32(4)), "inspect saw the Ok value");

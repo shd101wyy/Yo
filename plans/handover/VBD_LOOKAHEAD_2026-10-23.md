@@ -600,7 +600,7 @@ Before opening each flip, run its probe: a never-merged branch rebased on the ti
 - The census §5 expectation edits: `tests/cycle_collector.test.yo:751`ff, `tests/copy_trait.test.yo:296`, `tests/collections/array_list_convenience.test.yo:242`, `tests/index.test.yo:1065`.
 - About 54 `ref_count` asserts on lists or strings across about 30 files. Keep only the ones that are about an `Rc`.
 - The 24 `tests/` handle globals that B5 left.
-- `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` moves to `fixed/`.
+- `issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` moves to `fixed/` (done on `vbd/b8-arraylist-string-flip`).
 - **The replacement probe (D25),** in `tests/thread.test.yo`:
   - `String` and `ArrayList(String)` moved into `Thread(...).spawn` and back through `join()`;
   - the same through `Channel(String)`;

@@ -69,7 +69,7 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
       out := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < items.len(), {
-        match(items.get(i), .Some(it) => out.push(_lift_json(&it)), .None => ());
+        match(items.get_cloned(i), .Some(it) => out.push(_lift_json(&it)), .None => ());
         i = (i + usize(1));
       });
       _cv1(String.from("List"), EvalValue.ComptimeListVal(value_cell_new(out)))
@@ -79,8 +79,8 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
       vs := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < keys.len(), {
-        match(keys.get(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
-        match(values.get(i), .Some(val) => vs.push(_lift_json(&val)), .None => ());
+        match(keys.get_cloned(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
+        match(values.get_cloned(i), .Some(val) => vs.push(_lift_json(&val)), .None => ());
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
@@ -106,7 +106,7 @@ _lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
       out := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < items.len(), {
-        match(items.get(i), .Some(it) => out.push(_lift_toml(&it)), .None => ());
+        match(items.get_cloned(i), .Some(it) => out.push(_lift_toml(&it)), .None => ());
         i = (i + usize(1));
       });
       _cv1(String.from("List"), EvalValue.ComptimeListVal(value_cell_new(out)))
@@ -116,8 +116,8 @@ _lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
       vs := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < keys.len(), {
-        match(keys.get(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
-        match(values.get(i), .Some(val) => vs.push(_lift_toml(&val)), .None => ());
+        match(keys.get_cloned(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
+        match(values.get_cloned(i), .Some(val) => vs.push(_lift_toml(&val)), .None => ());
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
@@ -153,7 +153,7 @@ _comptime_value_type :: (fn(env : &Environment) -> Option(TypeValue))({
 _string_argument :: (
   fn(name : &String, expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(String)
 )({
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
     exn.throw(
       dyn(

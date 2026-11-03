@@ -30,7 +30,7 @@ impl(
   )
 );
 _rw_tracked_list :: (fn(n : i32) -> ArrayList(_RwTracked))({
-  xs := ArrayList(_RwTracked).new();
+  mut(xs) := ArrayList(_RwTracked).new();
   (mut(i) : i32) = i32(1);
   while(i <= n, {
     xs.push(_RwTracked(n : i));
@@ -39,7 +39,7 @@ _rw_tracked_list :: (fn(n : i32) -> ArrayList(_RwTracked))({
   xs
 });
 test("read walk over ArrayList: every element, in order, and the body may read the list", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   xs.push(i32(3));
@@ -58,7 +58,7 @@ test("read walk over ArrayList: every element, in order, and the body may read t
   assert(xs.len() == usize(4), "push after the walk");
 });
 test("read walk over struct elements reads the fields in place", {
-  enemies := ArrayList(Enemy).new();
+  mut(enemies) := ArrayList(Enemy).new();
   enemies.push(Enemy(hp : i32(3), name : String.from("a")));
   enemies.push(Enemy(hp : i32(5), name : String.from("bb")));
   (mut(hp) : i32) = i32(0);
@@ -71,10 +71,10 @@ test("read walk over struct elements reads the fields in place", {
   assert(chars == usize(3), "a String field read in place");
 });
 test("read walk over String elements: no per-element dup", {
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.from("x"));
   names.push(String.from("yz"));
-  first := names(usize(0));
+  first := (names(usize(0))).clone();
   before := ref_count(first);
   (mut(total) : usize) = usize(0);
   for(&names, s => {
@@ -125,11 +125,11 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
   m.insert(String.from("bb"), i32(2));
   (mut(vsum) : i32) = i32(0);
   (mut(klen) : usize) = usize(0);
-  keys := ArrayList(String).new();
+  mut(keys) := ArrayList(String).new();
   for(&m, (k, v) => {
     vsum = (vsum + v);
     klen = (klen + k.len());
-    keys.push(k);
+    keys.push(k.clone());
   });
   assert((vsum == i32(3)) && (klen == usize(3)), "every key and value read in place");
   assert(keys.len() == usize(2), "a key copied out of the walk");
@@ -160,7 +160,7 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
   assert(order == i32(12), "key order");
 });
 test("nested read walks: the same list twice, and a read walk inside a write walk", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   xs.push(i32(3));
@@ -171,7 +171,7 @@ test("nested read walks: the same list twice, and a read walk inside a write wal
     });
   });
   assert(pairs == i32(36), "two read borrows of one list: (1+2+3)^2");
-  ys := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
   ys.push(i32(10));
   ys.push(i32(20));
   for(&mut ys, y => {
@@ -194,7 +194,7 @@ _rw_find_first_over :: (fn(xs : &ArrayList(i32), limit : i32) -> i32)({
   i32(-1)
 });
 test("read walk: break, continue and return leave the list usable", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(6), {
     xs.push(i);
@@ -266,7 +266,7 @@ test("read walk leaks nothing: elements are not dup'd, and every exit drops each
 // The element is a `&` borrow: a write through it is E0908.
 comptime_expect_error(
   read_walk_element_write :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&xs, x => {
       x = i32(2);
@@ -276,7 +276,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   read_walk_field_write :: (fn() -> unit)({
-    enemies := ArrayList(Enemy).new();
+    mut(enemies) := ArrayList(Enemy).new();
     enemies.push(Enemy(hp : i32(3), name : String.from("a")));
     for(&enemies, e => {
       e.hp = i32(0);
@@ -298,7 +298,7 @@ comptime_expect_error(
 // live for the whole loop, and a `&` borrow freezes its place.
 comptime_expect_error(
   read_walk_push_on_the_collection :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&xs, x => {
       xs.push(x);
@@ -353,7 +353,7 @@ comptime_expect_error(
 // a read borrow `y := &xs(i)` points at the read walk, `&mut` at the in-place one.
 comptime_expect_error(
   read_borrow_of_an_element_names_the_read_walk :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     y := &xs(usize(0));
     _ := (y + i32(1));

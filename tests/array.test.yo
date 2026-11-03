@@ -535,16 +535,16 @@ test("A fixed-array literal of runtime Strings builds its elements at run time",
 // (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
 ArrayReturnStringHolder :: struct(a : Array(String, 2));
 _array_return_field :: (fn(w : &ArrayReturnStringHolder) -> Array(String, 2))({
-  return(w.a);
+  return(w.a.clone());
 });
 _array_return_field_early :: (fn(w : &ArrayReturnStringHolder, early : bool) -> Array(String, 2))({
   if(early, {
-    return(w.a);
+    return(w.a.clone());
   });
-  x := w.a;
+  x := w.a.clone();
   return(x);
 });
-_array_return_field_tail :: (fn(w : &ArrayReturnStringHolder) -> Array(String, 2))(w.a);
+_array_return_field_tail :: (fn(w : &ArrayReturnStringHolder) -> Array(String, 2))(w.a.clone());
 test("return of a field array of refcounted elements", {
   w := ArrayReturnStringHolder(a : [String.from("l"), String.from("r")]);
   g := _array_return_field(&w);

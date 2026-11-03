@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
@@ -313,7 +313,14 @@ _dyn_target_requires_send :: (fn(expected : &Option(ExpectedTypeCtx), value_type
   match(
     from_expected,
     .Some(b) => b,
-    .None => match(value_type, Rc(.SomeT({ required_trait_types : vrt })) => _traits_name_send(&vrt), _ => false)
+    .None => match(
+      value_type,
+      Rc(.SomeT({ bounds : vrt_bnd })) => {
+        vrt := vrt_bnd.required();
+        _traits_name_send(&vrt)
+      },
+      _ => false
+    )
   )
 });
 _traits_name_send :: (fn(tys : &ArrayList(TypeValue)) -> bool)(!_thread_marker_named_in(tys).is_empty());
@@ -419,7 +426,7 @@ _dyn_bound_check_type :: (fn(t : &TypeValue, env : &Environment) -> Option(TypeV
 _name_in :: (fn(names : &ArrayList(String), n : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < names.len(), {
-    if(match(names.get(i), .Some(x) => (x == n), .None => false), {
+    if(match(names.get_cloned(i), .Some(x) => (x == n), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -537,7 +544,7 @@ _require_dyn_traits_implemented :: (
             continue;
           }
         );
-        req_is_nominal := match(&req, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false);
+        req_is_nominal := match(&req, Rc(.TraitT(_, _, _, _, _, _)) => true, _ => false);
         req_judged := match(&req, Rc(.TraitT(name : rjn)) => _name_in(&fv_judged_names, &rjn), _ => false);
         if(req_is_nominal && !req_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
@@ -599,14 +606,16 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
       tys.get(ti),
       .Some(t) => match(
         t,
-        Rc(.TraitT({ name : tn, field_labels : fls, field_types : fts })) => {
+        Rc(.TraitT({ name : tn, body : fls_body })) => {
+          fls := fls_body.field_labels();
+          fts := fls_body.field_types();
           (j : usize) = usize(0);
           while(j < fts.len(), {
             ft := match(fts.get(j), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit));
             if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
               owned := match(&ft, Rc(.Func({ result : _ })) => match(fn_param_by_value_at(&ft, usize(0)), .Some(o) => o, .None => false), _ => false);
               if(owned, {
-                label := match(fls.get(j), .Some(l) => l, .None => String.from("?"));
+                label := match(fls.get_cloned(j), .Some(l) => l, .None => String.from("?"));
                 return(Option(String).Some(`${tn}.${label}`));
               });
             });
@@ -680,7 +689,7 @@ _require_send_dyn_methods_reach_no_global :: (
                     written := d1_note_thread_reach(fvd.*.func_id.clone());
                     if(reach.is_some(), reach, written)
                   }, .Some(reason) => {
-                    mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                    mname := match(fnames.get_cloned(fi), .Some(n) => n, .None => String.new());
                     msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is ${thread_marker}), but its method '${mname}' ${reason}.`;
                     raise_flow_violation(format_error_message(token, &msg), ctx, exn);
                   }, .None => ()),
@@ -747,9 +756,9 @@ _reject_dyn_borrowing_future_methods :: (
               collect_type_borrows(&body_ty, &mut bs);
             });
             match(
-              bs.get(usize(0)),
+              bs.get_cloned(usize(0)),
               .Some(b0) => {
-                mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                mname := match(fnames.get_cloned(fi), .Some(n) => n, .None => String.new());
                 raise_flow_violation(
                   with_code(
                     format_error_message_with_help(
@@ -809,7 +818,7 @@ _monomorphize_default_fv :: (
       ___mdf := caller_env.push_frame(false);
       (spi : usize) = usize(0);
       while(spi < param_labels.len(), {
-        sp_label := match(param_labels.get(spi), .Some(l) => l, .None => String.new());
+        sp_label := match(param_labels.get_cloned(spi), .Some(l) => l, .None => String.new());
         sp_ty := cond(
           (spi == usize(0)) => value_type.clone(),
           true => match(slot_pointee_at(&sub_pts, spi), .Some(t) => t, .None => value_type.clone())
@@ -878,7 +887,7 @@ _generic_impl_method_for_dyn :: (
   (ci : usize) = usize(0);
   while(ci < cands.len(), {
     match(
-      cands.get(ci),
+      cands.get_cloned(ci),
       .Some(c) => if(c.method_value.is_some() && (picked.is_none() || (c.source_trait_id == trait_id)), {
         picked = Option(MethodCandidate).Some(c);
       }),
@@ -996,7 +1005,13 @@ _dyn_clone_payload_identity :: (fn(payload_ty : &TypeValue, dyn_type : &TypeValu
     t_dyn_payload_wrapper(dyn_type, frame_level),
     .Some(w) => match(
       w,
-      Rc(.SomeT(w_id, _, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _)) => Rc.new(TypeValueNode.SomeT(w_id, String.from("Impl"), w_fl, Rc.clone(w_pt), w_rtt, w_rtl, w_ntt, w_ntl, w_kft.clone(), Option(TypeValue).Some(concrete))),
+      Rc(.SomeT(w_id, _, w_fl, w_pt, w_rtt_bnd, w_kft, _)) => {
+        w_rtt := w_rtt_bnd.required();
+        w_rtl := w_rtt_bnd.required_levels();
+        w_ntt := w_rtt_bnd.negative();
+        w_ntl := w_rtt_bnd.negative_levels();
+        Rc.new(TypeValueNode.SomeT(w_id.clone(), String.from("Impl"), w_fl, Rc.clone(w_pt), some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl), w_kft.clone(), Option(TypeValue).Some(concrete)))
+      },
       _ => payload_ty.clone()
     ),
     .None => payload_ty.clone()
@@ -1075,14 +1090,15 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
           rtt.get(i),
           .Some(tt) => match(
             &tt,
-            Rc(.TraitT(name : tname, field_labels : fl, id : trait_id)) => {
+            Rc(.TraitT(name : tname, body : fl_body, id : trait_id)) => {
+              fl := fl_body.field_labels();
               entries := get_type_trait_methods_for_type(type_id_or_empty(&method_lookup_type));
               n_fields := fl.len();
               field_names := ArrayList(String).new();
               field_vals := ArrayList(Option(EvalValue)).new();
               (j : usize) = usize(0);
               while(j < n_fields, {
-                fname := match(fl.get(j), .Some(s) => s, .None => String.from(""));
+                fname := match(fl.get_cloned(j), .Some(s) => s, .None => String.from(""));
                 field_names.push(fname.clone());
                 // Prefer an entry matching BOTH label and trait id; fall back to
                 // a label-only match (the Dyn(Trait) annotation's trait id can
@@ -1162,7 +1178,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                 );
                 j = (j + usize(1));
               });
-              trait_vals.push(EvalValue.TraitVal(tname, shared_list(field_names), shared_opt_values(field_vals)));
+              trait_vals.push(EvalValue.TraitVal(tname.clone(), shared_list(field_names), shared_opt_values(field_vals)));
               ()
             },
             // Fn trait (Dyn(Fn(...)) — e.g. a dyn'd CLOSURE stored in a struct
@@ -1217,12 +1233,15 @@ _dyn_type_from_payload_or_throw :: (
     payload_type,
     Rc(
       .SomeT(
-        required_trait_types : rtt,
-        required_trait_levels : rtl,
-        negative_trait_types : ntt,
-        negative_trait_levels : ntl
+        bounds : rtt_bnd
       )
-    ) => t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()),
+    ) => {
+      rtt := rtt_bnd.required();
+      rtl := rtt_bnd.required_levels();
+      ntt := rtt_bnd.negative();
+      ntl := rtt_bnd.negative_levels();
+      t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone())
+    },
     _ => {
       if(have_payload_ty, {
         exn.throw(
@@ -1291,7 +1310,7 @@ evaluate_dyn_value :: (
   // re-evaluation does not box it again.
   args := match(
     ast_rewritten_node(expr),
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     _ => {
       exn.throw(
         dyn(
@@ -1512,17 +1531,18 @@ evaluate_dyn_value :: (
               // global misses there (round-5 finding).
               .Some(iec) => match(
                 &iec.ty,
-                Rc(.SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _)) => {
+                Rc(.SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt_bnd, bx_kft, _)) => {
+                  bx_rtt := bx_rtt_bnd.required();
+                  bx_rtl := bx_rtt_bnd.required_levels();
+                  bx_ntt := bx_rtt_bnd.negative();
+                  bx_ntl := bx_rtt_bnd.negative_levels();
                   ne_box_inner_ty = Rc.new(
                     TypeValueNode.SomeT(
                       bx_id.clone(),
                       bx_nm.clone(),
                       bx_fl,
                       Rc.clone(bx_pt),
-                      bx_rtt.clone(),
-                      bx_rtl.clone(),
-                      bx_ntt.clone(),
-                      bx_ntl.clone(),
+                      some_t_bounds(bx_rtt.clone(), bx_rtl.clone(), bx_ntt.clone(), bx_ntl.clone()),
                       bx_kft.clone(),
                       Option(TypeValue).Some(Rc.clone(cci.capture_type))
                     )
@@ -1752,13 +1772,16 @@ evaluate_dyn_value :: (
         ),
       Rc(
         .SomeT(
-          required_trait_types : rtt,
-          required_trait_levels : rtl,
-          negative_trait_types : ntt,
-          negative_trait_levels : ntl
+          bounds : rtt_bounds
         )
       ) =>
-        t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()),
+        {
+          rtt := rtt_bounds.required();
+          rtl := rtt_bounds.required_levels();
+          ntt := rtt_bounds.negative();
+          ntl := rtt_bounds.negative_levels();
+          t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone())
+        },
       _ => {
         exn.throw(
           dyn(

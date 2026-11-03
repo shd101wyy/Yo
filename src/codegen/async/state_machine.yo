@@ -156,7 +156,7 @@ _lv_id :: (fn(v : &Variable, w : &_LiveWalk) -> String)({
 _lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64, w : &_LiveWalk) -> unit)({
   if(!w.vars.contains_key(id.clone()), {
     w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
-    ids := match(w.names.get(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
+    ids := match(w.names.get_cloned(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
     ids.push(id.clone());
     w.names.insert(name.clone(), ids);
   });
@@ -298,7 +298,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
 _lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
   runtime_args := match(
     context.base.get_expr_info(call),
-    .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(())),
+    .Some(ei) => match(&ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(())),
     .None => return(())
   );
   if(runtime_args.len() == usize(0), return(()));
@@ -361,7 +361,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
         // No environment to resolve it in: every local of this name is taken
         // as read here, which can only lengthen a range.
         .None => match(
-          w.names.get(tok.value.*.clone()),
+          w.names.get_cloned(tok.value.*.clone()),
           .Some(ids) => {
             (ni : usize) = usize(0);
             while(ni < ids.len(), ni = (ni + usize(1)), {
@@ -584,7 +584,7 @@ compute_cross_boundary_variables :: (
           match(
             context.base.get_expr_info(&fut),
             .Some(fi) => match(
-              fi.variable_name,
+              &fi.variable_name,
               .Some(vn) => {
                 note_await_consumed_temp(vn.clone());
                 consumed.insert(vn.clone());
@@ -604,7 +604,7 @@ compute_cross_boundary_variables :: (
     match(
       analysis.await_points.get(pi),
       .Some(ap) => match(
-        ap.base.cond_branch_suspension_exprs,
+        &ap.base.cond_branch_suspension_exprs,
         .Some(bes) => {
           (bj : usize) = usize(0);
           while(bj < bes.len(), bj = (bj + usize(1)), {
@@ -875,7 +875,7 @@ compute_overlapping_slots :: (
           if(!by_type.contains_key(ctype.clone()), {
             ordered_c_types.push(ctype.clone());
           });
-          group := match(by_type.get(ctype.clone()), .Some(grp) => grp, .None => ArrayList(String).new());
+          group := match(by_type.get_cloned(ctype.clone()), .Some(grp) => grp, .None => ArrayList(String).new());
           group.push(vid.clone());
           by_type.insert(ctype.clone(), group);
         });
@@ -889,8 +889,8 @@ compute_overlapping_slots :: (
   (next_slot_index : usize) = usize(0);
   (ot : usize) = usize(0);
   while(ot < ordered_c_types.len(), {
-    ctype := match(ordered_c_types.get(ot), .Some(c) => c, .None => String.new());
-    var_ids := match(by_type.get(ctype.clone()), .Some(g) => g, .None => ArrayList(String).new());
+    ctype := match(ordered_c_types.get_cloned(ot), .Some(c) => c, .None => String.new());
+    var_ids := match(by_type.get_cloned(ctype.clone()), .Some(g) => g, .None => ArrayList(String).new());
     if(var_ids.len() >= usize(2), {
       // Interference graph: two vars conflict if their ranges overlap.
       conflicts := HashMap(String, HashSet(String)).new();
@@ -921,21 +921,15 @@ compute_overlapping_slots :: (
         var_id := match(var_ids.get_cloned(ki), .Some(x) => x, .None => String.new());
         used_colors := HashSet(usize).new();
         cset := match(conflicts.get(var_id.clone()), .Some(s) => s, .None => HashSet(String).new());
-        c_it := cset.into_iter();
-        (cgo : bool) = true;
-        while(cgo, {
+        // A read walk: `cset` shares the conflict map's set, whose entries a
+        // consuming iterator cannot move out.
+        for(&cset, conflict_id => {
           match(
-            c_it.next(),
-            .Some(conflict_id) => match(
-              colors.get(&conflict_id),
-              .Some(col) => {
-                used_colors.insert(col);
-              },
-              .None => ()
-            ),
-            .None => {
-              cgo = false;
-            }
+            colors.get(conflict_id),
+            .Some(col) => {
+              used_colors.insert(col);
+            },
+            .None => ()
           );
         });
         (color : usize) = usize(0);
@@ -955,7 +949,7 @@ compute_overlapping_slots :: (
         if(!color_to_vars.contains_key(&col), {
           ordered_colors.push(col);
         });
-        cgroup := match(color_to_vars.get(&col), .Some(g) => g, .None => ArrayList(String).new());
+        cgroup := match(color_to_vars.get_cloned(&col), .Some(g) => g, .None => ArrayList(String).new());
         cgroup.push(var_id.clone());
         color_to_vars.insert(col, cgroup);
         cti = (cti + usize(1));
@@ -964,7 +958,7 @@ compute_overlapping_slots :: (
       (oci : usize) = usize(0);
       while(oci < ordered_colors.len(), {
         col := match(ordered_colors.get(oci), .Some(c) => c, .None => usize(0));
-        group_var_ids := match(color_to_vars.get(&col), .Some(g) => g, .None => ArrayList(String).new());
+        group_var_ids := match(color_to_vars.get_cloned(&col), .Some(g) => g, .None => ArrayList(String).new());
         if(group_var_ids.len() >= usize(2), {
           field_name := String.from("slot_");
           field_name.push_string(next_slot_index.to_string());
@@ -1009,20 +1003,20 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
     some_resolution(future_type),
     .Some(resolved) => {
       if(is_some_type(&resolved), {
-        rcid := match(&resolved, Rc(.SomeT({ id })) => id, _ => String.from(""));
+        rcid := match(&resolved, Rc(.SomeT({ id })) => id.clone(), _ => String.from(""));
         if(context.base.types.contains_key(&rcid), {
           return(false);
         });
       });
       if(is_struct_type(&resolved), {
-        capture_id := match(resolved, Rc(.Struct({ id })) => id, _ => String.from(""));
+        capture_id := match(resolved, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
         for(&context.base.types, (_tid, entry) => {
           ety := Rc.clone(entry.ty);
           if(is_some_type(&ety) && type_implements_future(&ety), {
             match(
               some_resolution(&ety),
               .Some(erc) => if(is_struct_type(&erc), {
-                ercid := match(erc, Rc(.Struct({ id })) => id, _ => String.from(""));
+                ercid := match(erc, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
                 if(ercid == capture_id, {
                   return(false);
                 });
@@ -1122,7 +1116,7 @@ _build_combined_sm_variables :: (
       ftypes := match(ct, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
-        lbl := match(flabels.get(j), .Some(l) => l, .None => String.from(""));
+        lbl := match(flabels.get_cloned(j), .Some(l) => l, .None => String.from(""));
         ty := match(ftypes.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         cv := CapturedVariable(
           base : SuspensionCapturedVariable(
@@ -1162,7 +1156,7 @@ find_bundle_field_name :: (
     match(
       eff_types.get(ei),
       .Some(et) => if(is_struct_type(&et), {
-        eff_id = Option(String).Some(match(et, Rc(.Struct({ id })) => id, _ => String.from("")));
+        eff_id = Option(String).Some(match(et, Rc(.Struct({ id })) => id.clone(), _ => String.from("")));
       }),
       .None => ()
     );
@@ -1216,7 +1210,7 @@ emit_effect_record_injection_for_sm :: (
   field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
   (fi : usize) = usize(0);
   while(fi < field_labels.len(), {
-    flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+    flabel := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
     ftype := match(field_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     if(is_function_type(&ftype), {
       (member_code : Option(String)) = Option(String).None;
@@ -1370,7 +1364,7 @@ emit_effect_injection_for_sm :: (
             eff_types := match(&ftrait, Rc(.FutureTraitT({ effect_types : et })) => Rc.clone(et), _ => no_types());
             (i : usize) = usize(0);
             while(i < eff_labels.len(), {
-              elabel := match(eff_labels.get(i), .Some(l) => l, .None => String.from(""));
+              elabel := match(eff_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
               etype := match(eff_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               if(is_function_type(&etype), {
                 has_forall := match(etype, Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
@@ -1594,7 +1588,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
     match(
       analysis.await_points.get(i),
       .Some(ap) => match(
-        ap.base.cond_branch_suspension_exprs,
+        &ap.base.cond_branch_suspension_exprs,
         .Some(branch_exprs) => {
           (j : usize) = usize(0);
           while(j < branch_exprs.len(), j = (j + usize(1)), {
@@ -1735,7 +1729,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   match(
     context.base.get_expr_info(&future_arg),
     .Some(fei) => match(
-      fei.variable_name,
+      &fei.variable_name,
       .Some(fvn) => {
         low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env)));
       },
@@ -1809,7 +1803,7 @@ _bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local
     return(out.clone());
   });
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(out.clone()));
-  vn := match(ei.variable_name, .Some(v) => v.clone(), .None => return(out.clone()));
+  vn := match(&ei.variable_name, .Some(v) => v.clone(), .None => return(out.clone()));
   em := context.base.emitter;
   (code : String) = out.clone();
   if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty), {
@@ -1892,7 +1886,7 @@ generate_async_block_resume_function_inline :: (
   context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
   pdd := ArrayList(AstExpr).new();
-  match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
+  match(context.base.get_expr_info(body_expr), .Some(ei) => match(&ei.deferred_drop_expressions, .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), emitted_block_statements(match(body_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new())), {
     single := ArrayList(AstExpr).new();
@@ -1982,7 +1976,7 @@ generate_async_block_resume_function_inline :: (
   em.emit_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_string_line(String.from(""));
   suspensions := replace(&mut low.suspensions, ArrayList(InlineSuspension).new());
-  g_inline_suspensions.with_mut(m => m.insert(async_block_id.clone(), suspensions));
+  g_inline_suspensions.with_mut({ k : async_block_id.clone(), suspensions }(m) => m.insert(k, suspensions));
   local_var_drop_codes
 });
 
@@ -2012,7 +2006,9 @@ generate_async_block_cancel_pending_function_inline :: (
   fn(async_block_id : &String, struct_name : &String, context : &FunctionGenerationContext) -> Option(String)
 )({
   em := context.base.emitter;
-  sps := match(g_inline_suspensions.with(m => m.get(async_block_id.clone())), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
+  // Taken out and stored back below: the recorded list is move-only and
+  // `InlineSuspension` has no `Clone`.
+  sps := match(g_inline_suspensions.with_mut({ k : async_block_id.clone() }(m) => m.remove(&k)), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
   fn_name := `${async_block_id.clone()}_cancel_pending`;
   em.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
   em.emit_declaration_line("");
@@ -2054,6 +2050,7 @@ generate_async_block_cancel_pending_function_inline :: (
   em.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
   em.emit_string_line(`}`);
   em.emit_string_line(String.from(""));
+  g_inline_suspensions.with_mut({ k : async_block_id.clone(), sps }(m) => m.insert(k, sps));
   Option(String).Some(fn_name)
 });
 

@@ -29,14 +29,14 @@ _is_ws_byte :: (fn(byte : u8) -> bool)(
 );
 /// Split a string on ASCII whitespace boundaries, filtering empty tokens.
 _split_whitespace :: (fn(s : &String) -> ArrayList(String))({
-  result := ArrayList(String).new();
+  mut(result) := ArrayList(String).new();
   bytes := s.clone();
   n := bytes.len();
-  k := usize(0);
-  start := usize(0);
-  in_token := false;
+  mut(k) := usize(0);
+  mut(start) := usize(0);
+  mut(in_token) := false;
   while(k < n, {
-    b := u8(0);
+    mut(b) := u8(0);
     match(
       bytes.get_byte(k),
       .None => (),
@@ -79,7 +79,7 @@ parse_cflags :: (fn(raw : &String) -> PkgConfigResult)({
   result := _empty_result();
   tokens := _split_whitespace(raw.trim());
   n := tokens.len();
-  k := usize(0);
+  mut(k) := usize(0);
   while(k < n, {
     flag_opt := tokens.get_cloned(k);
     flag := match(flag_opt, .None => String.new(), .Some(p) => p);
@@ -104,7 +104,7 @@ parse_cflags :: (fn(raw : &String) -> PkgConfigResult)({
 parse_ldflags_into :: (fn(raw : &String, result : &PkgConfigResult) -> PkgConfigResult)({
   tokens := _split_whitespace(raw.trim());
   n := tokens.len();
-  k := usize(0);
+  mut(k) := usize(0);
   while(k < n, {
     flag_opt := tokens.get_cloned(k);
     flag := match(flag_opt, .None => String.new(), .Some(p) => p);
@@ -137,7 +137,7 @@ build_fallback :: (fn(lib : &BuildSystemLibrary) -> PkgConfigResult)({
     // May contain multiple libs separated by spaces
     link_tokens := _split_whitespace(&lib.fallback_link);
     lt_n := link_tokens.len();
-    lt_k := usize(0);
+    mut(lt_k) := usize(0);
     while(lt_k < lt_n, {
       tok_opt := link_tokens.get_cloned(lt_k);
       tok := match(tok_opt, .None => String.new(), .Some(p) => p);
@@ -151,7 +151,7 @@ build_fallback :: (fn(lib : &BuildSystemLibrary) -> PkgConfigResult)({
 });
 /// Merge explicit defines from the library config into the result.
 apply_system_library_metadata :: (fn(lib : &BuildSystemLibrary, result : &PkgConfigResult) -> PkgConfigResult)({
-  k := usize(0);
+  mut(k) := usize(0);
   n := lib.defines.len();
   while(k < n, {
     def_opt := lib.defines.get_cloned(k);
@@ -165,7 +165,7 @@ apply_system_library_metadata :: (fn(lib : &BuildSystemLibrary, result : &PkgCon
 });
 /// Append all elements from `src` into `dst`.
 _append_all :: (fn(dst : &mut ArrayList(String), src : &ArrayList(String)) -> unit)({
-  k := usize(0);
+  mut(k) := usize(0);
   n := src.len();
   while(k < n, {
     elem_opt := src.get_cloned(k);
@@ -205,12 +205,15 @@ query_pkg_config :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Option(PkgConfigResult), IoExn))
-)(
-  io.async((e : IoExn) => {
+)({
+  // The async body owns its copy of the name (a borrowed parameter
+  // cannot be captured by a closure that outlives the call).
+  name_own := pkg_name.clone();
+  io.async({ name_own }(e : IoExn) => {
     // Run pkg-config --cflags
     cflags_cmd := Command.new(String.from("pkg-config"));
     cflags_cmd.arg(String.from("--cflags"));
-    cflags_cmd.arg(pkg_name);
+    cflags_cmd.arg(&name_own);
     cflags_out := e.io.await(cflags_cmd.output(e.io), e);
     if(!cflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
@@ -218,7 +221,7 @@ query_pkg_config :: (
     // Run pkg-config --libs
     ldflags_cmd := Command.new(String.from("pkg-config"));
     ldflags_cmd.arg(String.from("--libs"));
-    ldflags_cmd.arg(pkg_name);
+    ldflags_cmd.arg(&name_own);
     ldflags_out := e.io.await(ldflags_cmd.output(e.io), e);
     if(!ldflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
@@ -229,7 +232,7 @@ query_pkg_config :: (
     result_with_ld := parse_ldflags_into(&ldflags_raw, &result);
     Option(PkgConfigResult).Some(result_with_ld)
   })
-);
+});
 /// Resolve a single system library to its compiler/linker flags.
 /// Tries pkg-config first, then falls back to user-provided paths.
 resolve_system_library :: (
@@ -264,13 +267,20 @@ resolve_all_system_libraries :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
-)(
-  io.async((e : IoExn) => {
+)({
+  // The async body cannot capture a borrowed parameter (a closure that
+  // outlives the call), so it owns a list of the library handles: elements
+  // are ref-struct handles, so this copies handles, not the libraries.
+  mut(libs_own) := ArrayList(BuildSystemLibrary).new();
+  for(&libs, l => {
+    libs_own.push(l);
+  });
+  io.async({ libs_own, verbose }(e : IoExn) => {
     merged := _empty_result();
-    k := usize(0);
-    n := libs.len();
+    mut(k) := usize(0);
+    n := libs_own.len();
     while(k < n, {
-      lib_opt := libs.get(k);
+      lib_opt := libs_own.get(k);
       lib := match(
         lib_opt,
         .None => {
@@ -285,7 +295,7 @@ resolve_all_system_libraries :: (
     });
     merged
   })
-);
+});
 export(
   PkgConfigResult,
   BuildSystemLibrary,

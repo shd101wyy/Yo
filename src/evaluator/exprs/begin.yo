@@ -172,7 +172,7 @@ _ids_list_contains :: (fn(lst : &ArrayList(String), s : &String) -> bool)({
   (found : bool) = false;
   while((i < lst.len()) && !found, {
     match(
-      lst.get(i),
+      lst.get_cloned(i),
       .Some(x) => if(x == s, {
         found = true;
       }),
@@ -205,7 +205,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
               .None => return(Option(String).None)
             );
             if(ast_expr_is_atom(&a0) && ast_expr_is_atom(&a1) && ast_expr_is_atom_of(&a1, BF_DUP), {
-              return(Option(String).Some(ast_expr_text(&a0).*));
+              return(Option(String).Some(ast_expr_text(&a0).*.clone()));
             });
           },
           .Atom(_, _) => ()
@@ -215,7 +215,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
         match(
           eargs.get(usize(0)),
           .Some(arg0) => if(ast_expr_is_atom(&arg0), {
-            return(Option(String).Some(ast_expr_text(&arg0).*));
+            return(Option(String).Some(ast_expr_text(&arg0).*.clone()));
           }),
           .None => ()
         );
@@ -228,7 +228,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
 /// Record a dup call for `var_id`, deduplicating by expr id.
 _push_dup_call :: (fn(res : &DupCallsResult, var_id : &String, e : &AstExpr) -> unit)({
   match(
-    res.dup_calls.get(var_id.clone()),
+    res.dup_calls.get_cloned(var_id.clone()),
     .Some(found_lst) => {
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -383,7 +383,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
   if(is_cond || is_match, {
     cargs := match(
       expr,
-      .FnCall(_, _, Rc(xs), _, _) => xs,
+      .FnCall(_, _, Rc(xs), _, _) => xs.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // match: search the scrutinee first.
@@ -430,7 +430,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
           (ki : usize) = usize(0);
           while(ki < br.dup_call_var_ids.len(), {
             match(
-              br.dup_call_var_ids.get(ki),
+              br.dup_call_var_ids.get_cloned(ki),
               .Some(vid) => if(!_ids_list_contains(&all_vars, vid.clone()), {
                 all_vars.push(vid);
               }),
@@ -441,7 +441,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
           (pi : usize) = usize(0);
           while(pi < br.vars_with_partial_branch_dups.len(), {
             match(
-              br.vars_with_partial_branch_dups.get(pi),
+              br.vars_with_partial_branch_dups.get_cloned(pi),
               .Some(pv) => if(!_ids_list_contains(&res.vars_with_partial_branch_dups, pv.clone()), {
                 res.vars_with_partial_branch_dups.push(pv);
               }),
@@ -464,7 +464,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
     // `drop(x); return x;` — a use-after-free (compute_overlapping_slots).
     (avi : usize) = usize(0);
     while(avi < all_vars.len(), {
-      vid_opt := all_vars.get(avi);
+      vid_opt := all_vars.get_cloned(avi);
       match(
         vid_opt,
         .Some(vid) => {
@@ -476,7 +476,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
               branch_results.get(bci),
               .Some(br2) => {
                 match(
-                  br2.dup_calls.get(vid.clone()),
+                  br2.dup_calls.get_cloned(vid.clone()),
                   .Some(bdups) => if(bdups.len() > usize(0), {
                     branches_with_dup = (branches_with_dup + usize(1));
                     (bdi : usize) = usize(0);
@@ -877,7 +877,7 @@ _drop_unused_old_value_now :: (fn(stmt : &AstExpr, env : &Environment, ctx : &Ev
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(stmt)),
     .None => (),
     .Some(ai) => match(
-      ai.variable_name,
+      &ai.variable_name,
       .None => (),
       .Some(tname) => match(
         get_variables_from_env(env, tname.clone()).last(),
@@ -905,7 +905,10 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : &Variable) -> bool)({
   });
   some_undroppable := match(
     &v.ty,
-    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
+      s_rtt := s_rtt_bnd.required();
+      (s_rc.is_none() && (s_rtt.len() == usize(0)))
+    },
     _ => false
   );
   !some_undroppable
@@ -1421,7 +1424,7 @@ _optimize_dup_drop_pairs :: (
 )({
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
-    Option(String).Some(ast_expr_text(last_expr).*),
+    Option(String).Some(ast_expr_text(last_expr).*.clone()),
     Option(String).None
   );
   // 1. Collect dup calls per begin child; record each dup's child index and
@@ -1441,9 +1444,9 @@ _optimize_dup_drop_pairs :: (
         (ki : usize) = usize(0);
         while(ki < cres.dup_call_var_ids.len(), {
           match(
-            cres.dup_call_var_ids.get(ki),
+            cres.dup_call_var_ids.get_cloned(ki),
             .Some(vid) => match(
-              cres.dup_calls.get(vid.clone()),
+              cres.dup_calls.get_cloned(vid.clone()),
               .Some(dups) => {
                 (di : usize) = usize(0);
                 while(di < dups.len(), {
@@ -1469,7 +1472,7 @@ _optimize_dup_drop_pairs :: (
         (pi : usize) = usize(0);
         while(pi < cres.vars_with_partial_branch_dups.len(), {
           match(
-            cres.vars_with_partial_branch_dups.get(pi),
+            cres.vars_with_partial_branch_dups.get_cloned(pi),
             .Some(pv) => if(!_ids_list_contains(&merged.vars_with_partial_branch_dups, pv.clone()), {
               merged.vars_with_partial_branch_dups.push(pv);
             }),
@@ -1489,7 +1492,7 @@ _optimize_dup_drop_pairs :: (
   //    derived copy consumed by an `own` param means its dup was transferred
   //    to the callee and cannot pair with the base's scope-end drop.
   consumed_derived := HashMap(String, usize).new();
-  fvars := frame.variables;
+  fvars := frame.variables.clone();
   (cdi : usize) = usize(0);
   while(cdi < fvars.len(), {
     match(
@@ -1559,7 +1562,10 @@ _optimize_dup_drop_pairs :: (
         e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(&v));
         some_undroppable := match(
           &v.ty,
-          Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+          Rc(.SomeT({ bounds : s_rtt_bounds, resolution : s_rc })) => {
+            s_rtt := s_rtt_bounds.required();
+            (s_rc.is_none() && (s_rtt.len() == usize(0)))
+          },
           _ => false
         );
         e4 := (e3 && !some_undroppable);
@@ -1614,7 +1620,7 @@ _optimize_dup_drop_pairs :: (
           });
           base_is_protected := ((base.id == v.id) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(&v)));
           match(
-            merged.dup_calls.get(base_id.clone()),
+            merged.dup_calls.get_cloned(base_id.clone()),
             .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
               // Value types with RC fields: `y = temp` is a C memcpy; both
               // copies need their own drop — never cancel. A cell handle
@@ -2158,7 +2164,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
 /// declares them, which holds every later use: a copy whose variable is read
 /// again is printed; one with no later read was the last use, a move.
 _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)({
-  fvars := frame.variables;
+  fvars := frame.variables.clone();
   (i : usize) = usize(0);
   while(i < fvars.len(), {
     match(
@@ -2169,7 +2175,7 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
           (si : usize) = usize(0);
           while(si < sites.len(), {
             match(
-              sites.get(si),
+              sites.get_cloned(si),
               .Some(site) => {
                 acc := _ic_new_scan();
                 // `yo fix --migrate rc-clone` judges a copy as decision 17's
@@ -2209,7 +2215,7 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
 /// read is the last use, a move. An assignment to the variable after the copy
 /// ends the scan, since later reads see the new value.
 judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
-  fvars := frame.variables;
+  fvars := frame.variables.clone();
   (i : usize) = usize(0);
   while(i < fvars.len(), i = (i + usize(1)), {
     match(
@@ -2220,7 +2226,7 @@ judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &Ev
           (si : usize) = usize(0);
           while(si < sites.len(), si = (si + usize(1)), {
             match(
-              sites.get(si),
+              sites.get_cloned(si),
               .Some(p) => {
                 acc := _ic_new_scan();
                 acc.stop_at_write = true;
@@ -2246,7 +2252,7 @@ judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &Ev
 /// `match` guard makes is judged by no body (`judge_dyn_copies`), and the rule
 /// rejects only a copy it can see read again.
 discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
-  fvars := frame.variables;
+  fvars := frame.variables.clone();
   (i : usize) = usize(0);
   while(i < fvars.len(), i = (i + usize(1)), {
     match(
@@ -2263,7 +2269,7 @@ discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
 /// rule consumes (recorded by `_decide_match_mode`) whose variable the block
 /// reads after it (`_ic_scan`) borrows — `match(&x, …)` — instead of moving.
 _migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)({
-  fvars := frame.variables;
+  fvars := frame.variables.clone();
   (i : usize) = usize(0);
   while(i < fvars.len(), {
     match(
@@ -2314,7 +2320,7 @@ audit_judge_arm_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx
 /// failing guard passes the same payload on to the later arms
 /// (issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-lists-every-copy-of-a-reused-match-binding.md).
 audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
-  fvars := frame.variables;
+  fvars := frame.variables.clone();
   (i : usize) = usize(0);
   while(i < fvars.len(), i = (i + usize(1)), {
     match(
@@ -2324,7 +2330,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
         .Some(sites) => {
           (si : usize) = usize(0);
           while(si < sites.len(), si = (si + usize(1)), {
-            match(sites.get(si), .Some(site) => audit_report_implicit_copy(&site), .None => ());
+            match(sites.get_cloned(si), .Some(site) => audit_report_implicit_copy(&site), .None => ());
           });
         },
         .None => ()
@@ -2376,7 +2382,10 @@ _scope_end_drop_eligible :: (
   // the resolvedConcreteType/requiredTraits check.
   some_undroppable := match(
     &v.ty,
-    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    Rc(.SomeT({ bounds : s_rtt_bounds, resolution : s_rc })) => {
+      s_rtt := s_rtt_bounds.required();
+      (s_rc.is_none() && (s_rtt.len() == usize(0)))
+    },
     _ => false
   );
   e4 := (e3 && !some_undroppable);
@@ -2420,12 +2429,12 @@ _schedule_scope_end_drops :: (
   // A bare-atom block result is a named local moved out (returned) — never drop it.
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
-    Option(String).Some(ast_expr_text(last_expr).*),
+    Option(String).Some(ast_expr_text(last_expr).*.clone()),
     Option(String).None
   );
   // Collect drop-eligible owning named locals from the frame.
   to_drop := ArrayList(Variable).new();
-  fvars := frame.variables;
+  fvars := frame.variables.clone();
   nv := fvars.len();
   (vi : usize) = usize(0);
   while(vi < nv, {
@@ -2570,7 +2579,7 @@ _variant_local_hint :: (
   if(!ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))), {
     return(Option(ExpectedTypeCtx).None);
   });
-  sargs := match(stmt, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  sargs := match(stmt, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(sargs.get(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs := match(sargs.get(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs_is_async := is_io_async_call(&rhs);
@@ -2778,7 +2787,7 @@ _evaluate_begin_expression_impl :: (
   is_begin_call := ast_expr_is_fn_call_of(expr, BK_BEGIN, .None);
   begin_args := if(is_begin_call, match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   ), {
     single := ArrayList(AstExpr).new();
@@ -3090,7 +3099,7 @@ _evaluate_begin_expression_impl :: (
           );
           if(ir_declared_impl, {
             match(
-              ctx.function_return_impl_concrete_type,
+              &ctx.function_return_impl_concrete_type,
               .Some(ir_list) => {
                 if(ir_list.len() > usize(0), {
                   match(
@@ -3124,7 +3133,7 @@ _evaluate_begin_expression_impl :: (
                 }, {
                   // Stored back through the context: the binding is a copy
                   // once collections are values.
-                  grown := ir_list;
+                  grown := ir_list.clone();
                   grown.push(
                     ImplConcreteTypeInfo(
                       concrete_type : Rc.clone(ret_info.ty),
@@ -3141,7 +3150,7 @@ _evaluate_begin_expression_impl :: (
           out := new_expr_info(&env, &ret_info.ty);
           out.value = ret_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
-          out.path_collection = ret_info.path_collection;
+          out.path_collection = ret_info.path_collection.clone();
           out.variable_name = ret_info.variable_name.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
@@ -3306,7 +3315,7 @@ _evaluate_begin_expression_impl :: (
           out := new_expr_info(&env, &esc_info.ty);
           out.value = esc_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
-          out.path_collection = esc_info.path_collection;
+          out.path_collection = esc_info.path_collection.clone();
           out.variable_name = esc_info.variable_name.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
@@ -3740,7 +3749,7 @@ _evaluate_begin_expression_impl :: (
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();
                           while((own_i < n_own) && !own_found, {
-                            lbl_match := match(own_labels.get(own_i), .Some(lbl) => (lbl == rv_name), .None => false);
+                            lbl_match := match(own_labels.get_cloned(own_i), .Some(lbl) => (lbl == rv_name), .None => false);
                             flag_match := match(own_flags.get(own_i), .Some(fl) => fl, .None => false);
                             if(lbl_match && flag_match, {
                               own_found = true;
@@ -4088,14 +4097,14 @@ _evaluate_begin_expression_impl :: (
               );
               if(!skip, {
                 wspan := Span(
-                  path : wv.token.module_path.*,
+                  path : wv.token.module_path.*.clone(),
                   row : usize(wv.token.row),
                   col : usize(wv.token.column),
-                  len : wv.token.value.*.chars().count()
+                  len : wv.token.value.*.clone().chars().count()
                 );
                 wlines := wv.token.input.*.split(String.from("\n"));
                 wsource_line := match(
-                  wlines.get(usize(wv.token.row)),
+                  wlines.get_cloned(usize(wv.token.row)),
                   .Some(l) => l,
                   .None => String.new()
                 );
@@ -4181,7 +4190,7 @@ _evaluate_begin_expression_impl :: (
   out_info.deferred_drop_expressions = if(
     shared_with_tail,
     match(
-      last_info.deferred_drop_expressions,
+      &last_info.deferred_drop_expressions,
       .Some(tail_drops) => {
         (merged_drop_list : ArrayList(AstExpr)) = match(
           scope_end_drops,

@@ -447,6 +447,7 @@ impl(
     )
   )
 );
+derive(MrE, Clone);
 _mr_kids_eq :: (fn(a : &ArrayList(MrE), b : &ArrayList(MrE)) -> bool)({
   if(a.len() != b.len(), {
     return(false);
@@ -461,13 +462,13 @@ _mr_kids_eq :: (fn(a : &ArrayList(MrE), b : &ArrayList(MrE)) -> bool)({
 });
 
 test("a helper after the impl calls a later operator member of the same trait", {
-  a := ArrayList(MrE).new();
+  mut(a) := ArrayList(MrE).new();
   a.push(MrE.Leaf(i32(1)));
-  b := ArrayList(MrE).new();
+  mut(b) := ArrayList(MrE).new();
   b.push(MrE.Leaf(i32(1)));
-  c := ArrayList(MrE).new();
+  mut(c) := ArrayList(MrE).new();
   c.push(MrE.Leaf(i32(2)));
-  assert(MrE.Node(a) == MrE.Node(b), "equal children");
+  assert(MrE.Node(a.clone()) == MrE.Node(b), "equal children");
   assert(MrE.Node(a) != MrE.Node(c), "a child differs");
 });
 

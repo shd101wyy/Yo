@@ -27,7 +27,7 @@ _str_in :: (fn(names : &ArrayList(String), s : &String) -> bool)({
   n := names.len();
   while(i < n, {
     match(
-      names.get(i),
+      names.get_cloned(i),
       .Some(x) => if(x == s, {
         return(true);
       }),
@@ -108,7 +108,7 @@ _is_discard_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && (_atom_value(e) == String.from("_"))
 );
 _fn_call_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(args), _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(args), _, _) => args.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip the surrounding `"` delimiters that the StrLit convention
 /// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
@@ -279,7 +279,7 @@ _parse_operand :: (
     value_type_idx = (constraint_idx + usize(1));
   }, {
     match(
-      name,
+      &name,
       .Some(nm) => {
         constraint = Option(String).Some(nm.clone());
       },
@@ -537,7 +537,7 @@ _validate_template_placeholders :: (
       match(
         operands.get(i),
         .Some(op) => match(
-          op.name,
+          &op.name,
           .Some(nm) => {
             if(_str_in(&operand_names, nm.clone()), {
               exn.throw(
@@ -848,7 +848,7 @@ evaluate_asm :: (
       match(
         operands.get(oi),
         .Some(op) => match(
-          op.target_var_name,
+          &op.target_var_name,
           .Some(tvn) => if((op.kind == String.from("out")) || (op.kind == String.from("lateout")), {
             variables := get_variables_from_env(env, tvn.clone());
             if(variables.len() > usize(0), {
@@ -941,7 +941,7 @@ evaluate_asm :: (
         joined.push_str("\n");
       });
       match(
-        template_parts.get(tpi),
+        template_parts.get_cloned(tpi),
         .Some(tp) => {
           joined.push_string(&tp);
         },

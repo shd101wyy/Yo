@@ -77,7 +77,7 @@ test("An rc placed by its alloc argument comes from that allocator", {
     assert((p.x + p.y) == i32(7), "fields");
     assert(ref_count(p) == usize(1), "ref_count() never reports the allocator tag");
     // A second OWNER (a local alias of `p` is a borrow and adds no count).
-    holder := ArrayList(Rc(_Point)).new();
+    mut(holder) := ArrayList(Rc(_Point)).new();
     holder.push(Rc.clone(p));
     assert(ref_count(p) == usize(2), "the count still counts");
   };
@@ -151,7 +151,7 @@ test("An alloc argument takes any Allocator value", {
 });
 // ===== The containers' default constructors are global (ALLOCATOR_PLACEMENT.md B1) =====
 test("ArrayList.new, HashMap.new, Deque.new and Box.new(v) are on the global allocator", {
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   assert(list.allocator().is_none(), "ArrayList.new()");
   sized := ArrayList(i32).with_capacity(usize(8));
@@ -169,7 +169,7 @@ test("An ArrayList placed by its alloc argument keeps growing in its allocator",
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    list := ArrayList(i32).new(alloc : .Some(heap));
+    mut(list) := ArrayList(i32).new(alloc : .Some(heap));
     mut(i) := i32(0);
     while(i < i32(500), {
       list.push(i);
@@ -267,7 +267,7 @@ _shared_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> 
 _SHARED_VTABLE := AllocatorVTable(alloc : _shared_alloc, realloc : _shared_realloc, free : _shared_free);
 // Allocate and free 500 blocks through `a`.
 _churn :: (fn(a : Allocator) -> unit)({
-  blocks := ArrayList(*void).new();
+  mut(blocks) := ArrayList(*void).new();
   mut(k) := usize(0);
   while(k < usize(500), {
     blocks.push(a.alloc(usize(24), usize(8)).unwrap());
@@ -293,7 +293,7 @@ test("clone_in places a copy in the allocator it names, wherever the source live
   // A placed source copied to the global allocator: once the source is gone,
   // nothing is left in `heap`.
   copy := {
-    src := ArrayList(i32).new(alloc : .Some(heap));
+    mut(src) := ArrayList(i32).new(alloc : .Some(heap));
     src.push(i32(1));
     src.push(i32(2));
     assert(counts.live == usize(1), "the source's buffer is placed");
@@ -306,7 +306,7 @@ test("clone_in places a copy in the allocator it names, wherever the source live
   assert((copy(usize(0)) + copy(usize(1))) == i32(3), "the copy has the elements");
   // A global source copied into `heap`: every container kind with clone_in.
   {
-    xs := ArrayList(String).new();
+    mut(xs) := ArrayList(String).new();
     xs.push(String.from("one"));
     m := HashMap(i32, i32).new();
     m.insert(i32(1), i32(10));
@@ -445,7 +445,7 @@ test("Every release tells the allocator the size and alignment the block was all
     at := Arc.new(i64(5), alloc : placed);
     bx := Box.new(i32(2), alloc : placed);
     (d : Dyn(_Speak)) = dyn(Rc.new(_Dog(volume : i32(6)), alloc : placed));
-    list := ArrayList(i64).new(alloc : placed);
+    mut(list) := ArrayList(i64).new(alloc : placed);
     mut(i) := i64(0);
     while(i < i64(300), {
       list.push(i);
@@ -583,7 +583,7 @@ test("A header-free pool allocator frees by the size it is given", {
   mut(round) := usize(0);
   while(round < usize(3), {
     {
-      pts := ArrayList(Rc(_Point)).new();
+      mut(pts) := ArrayList(Rc(_Point)).new();
       mut(i) := i32(0);
       while(i < i32(20), {
         pts.push(Rc.new(_Point(x : i32(i), y : i32(1)), alloc : placed));
@@ -591,7 +591,7 @@ test("A header-free pool allocator frees by the size it is given", {
       });
       bx := Box.new(i64(3), alloc : placed);
       (d : Dyn(_Speak)) = dyn(Rc.new(_Dog(volume : i32(6)), alloc : placed));
-      list := ArrayList(i32).new(alloc : placed);
+      mut(list) := ArrayList(i32).new(alloc : placed);
       mut(j) := i32(0);
       while(j < i32(60), {
         list.push(j);

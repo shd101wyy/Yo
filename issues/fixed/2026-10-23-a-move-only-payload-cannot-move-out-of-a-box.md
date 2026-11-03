@@ -2,9 +2,8 @@
 
 **Severity:** S3 — a valid program is rejected inside std (E0901 with a note into `std/sync/refcell.yo`); the payload can still be taken out with `take()` or `replace(v)`, which move it bitwise.
 
-**Status:** OPEN — found 2026-10-23 while adding `RefCell.into_inner`
+**Status:** FIXED 2026-10-30 on `vbd/b8-arraylist-string-flip` (B8 makes `String` and `ArrayList` move-only, so `RefCell(String).into_inner()` hit this). Found 2026-10-23 while adding `RefCell.into_inner`
 (step 0 of `issues/questions/2026-10-23-should-yo-add-a-flagless-cell.md`).
-Not fixed there: the fix needs a compiler builtin, and that change is std-only.
 
 ## Reproducer
 
@@ -49,3 +48,15 @@ move or `Box::into_inner`:
 
 A fix adds a `RefCell(Tok).into_inner()` case with a counted `Drop` to
 `tests/sync/refcell.test.yo`.
+
+## Fix
+
+No builtin was needed: `Box` is a std newtype over its cell pointer, and its
+`Drop` already treats a zeroed box as owning nothing. `Box.into_inner(self)`
+(`std/prelude.yo`) reads the payload out with `__yo_ptr_read`, frees the cell
+through `_free_cell` (the cell-freeing half of the `Drop`, now shared), and
+overwrites the box with the zeroed one through `__yo_ptr_write`, which drops
+nothing, so the box's own drop is a no-op. `RefCell.into_inner` moves its slot
+out through it. Test: "into_inner moves a move-only payload out, dropped
+exactly once" in `tests/sync/refcell.test.yo` (a counted `Drop`; the repro
+prints `got 1` then `drop 1` once, clean under ASan).

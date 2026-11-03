@@ -271,16 +271,14 @@ _emit :: (fn(level : Level, target : &String, msg : &String) -> unit)({
   );
   // A sink takes the record whole and renders it itself; the lock stays held
   // across the call, which is what serialises concurrent records.
-  sunk := _global_sink.with_mut(
-    o => match(
-      o,
-      .Some(sink) => {
-        sink.write_line(level, target, msg);
-        true
-      },
-      .None => false
-    )
-  );
+  sunk := _global_sink.with_mut({ level, &target, &msg }(o) => match(
+    o,
+    .Some(sink) => {
+      sink.write_line(level, target, msg);
+      true
+    },
+    .None => false
+  ));
   if(sunk, {
     unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
     return(());

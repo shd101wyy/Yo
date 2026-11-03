@@ -124,7 +124,7 @@ test("C-interop integers, longdouble, and unit stringify (D3.8)", {
 });
 test("ArrayList and Array stringify as bracketed lists (D3.8)", {
   { ArrayList } :: import("std/collections/array_list");
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   assert(list.to_string() == `[]`, "empty list");
   list.push(i32(1));
   list.push(i32(2));
@@ -133,7 +133,7 @@ test("ArrayList and Array stringify as bracketed lists (D3.8)", {
   assert(`${list}` == `[1, 2, 3]`, "interpolates in templates");
   arr := Array(u8, usize(3)).fill(7);
   assert(arr.to_string() == `[7, 7, 7]`, "array fill");
-  nested := ArrayList(Option(i32)).new();
+  mut(nested) := ArrayList(Option(i32)).new();
   nested.push(Option(i32).Some(i32(4)));
   nested.push(Option(i32).None);
   assert(nested.to_string() == `[Some(4), None]`, "nests through Option's ToString");

@@ -59,7 +59,8 @@ Regex :: ref(
     _flags : RegexFlags,
     _pattern : String,
     _n_groups : usize,
-    _group_names : ArrayList(GroupNameEntry)
+    /// Shared with every `RegexMatch` this pattern builds.
+    _group_names : Rc(ArrayList(GroupNameEntry))
   )
 );
 // Block 1: Constructor and leaf methods
@@ -91,9 +92,8 @@ impl(
           .Err(e) => .Err(e),
           .Ok(ast) => {
             n_groups := parser.group_count();
-            gnames := parser.group_names();
             compiler := NfaCompiler.new();
-            program := compiler.compile(&ast, n_groups, &gnames);
+            program := compiler.compile(&ast, n_groups, parser.group_names());
             // Literal prefix scan is case-sensitive; disable when ignoreCase
             cond(
               flags.ignore_case => {
@@ -107,7 +107,7 @@ impl(
                 _flags : flags,
                 _pattern : pattern.clone(),
                 _n_groups : n_groups,
-                _group_names : gnames
+                _group_names : Rc.new(parser.group_names().clone())
               )
             )
           }
@@ -139,7 +139,7 @@ impl(
   /// untouched, so `Regex.new(Regex.escape(s)).unwrap().is_match(s)` and
   /// round-tripping a user string through a larger pattern are both safe.
   escape : (fn(s : &String) -> String)({
-    metas := ArrayList(u8).new();
+    mut(metas) := ArrayList(u8).new();
     metas.push(u8(92));
     metas.push(u8(94));
     metas.push(u8(36));
@@ -154,7 +154,7 @@ impl(
     metas.push(u8(93));
     metas.push(u8(123));
     metas.push(u8(125));
-    out := ArrayList(u8).new();
+    mut(out) := ArrayList(u8).new();
     b := &s;
     (mut(i) : usize) = usize(0);
     while(i < b.len(), {
@@ -168,7 +168,7 @@ impl(
     String.from_bytes(out)
   }),
   _extract_substring : (fn(self : &Self, bytes : &String, start : usize, end_pos : usize) -> String)({
-    result_bytes := ArrayList(u8).with_capacity(end_pos - start);
+    mut(result_bytes) := ArrayList(u8).with_capacity(end_pos - start);
     mut(i) := start;
     while(i < end_pos, i = (i + usize(1)), {
       result_bytes.push(bytes.byte_at(i));
@@ -227,14 +227,21 @@ impl(
 // Block 2: _build_match (depends on Block 1)
 impl(
   Regex,
-  _build_match : (fn(self : &Self, slots : &ArrayList(usize), input : &String) -> RegexMatch)({
+  /// `shared` is the search's one shared copy of `input`, made at its first
+  /// match: every match of one `find_all` / `find_iter` holds the same `Rc`
+  /// instead of a copy of the input each (B8).
+  _build_match : (fn(self : &Self, slots : &ArrayList(usize), input : &String, shared : &mut Option(Rc(String))) -> RegexMatch)({
+    if(shared.is_none(), {
+      shared = .Some(Rc.new(input.clone()));
+    });
+    shared_input := match(&shared, .Some(r) => Rc.clone(r), .None => Rc.new(input.clone()));
     bytes := &input;
     unset := usize.MAX;
     match_start_byte := slots(usize(0));
     match_end_byte := slots(usize(1));
     match_text := self._extract_substring(&bytes, match_start_byte, match_end_byte);
-    groups := ArrayList(Option(String)).new();
-    group_spans := ArrayList(Option(Range(usize))).new();
+    mut(groups) := ArrayList(Option(String)).new();
+    mut(group_spans) := ArrayList(Option(Range(usize))).new();
     mut(g) := usize(1);
     while(g <= self._n_groups, g = (g + usize(1)), {
       start_slot := (g * usize(2));
@@ -261,7 +268,7 @@ impl(
         }
       );
     });
-    RegexMatch.new(match_text, match_start_byte, match_end_byte, input, groups, group_spans, &self._group_names)
+    RegexMatch.new(match_text, match_start_byte, match_end_byte, shared_input, groups, group_spans, Rc.clone(&self._group_names))
   })
 );
 // Block 3: find, find_all (depend on Block 2)
@@ -272,6 +279,7 @@ impl(
   /// anchored attempt at `from_byte`. Otherwise every rune boundary from
   /// `from_byte` on, with the same literal-prefix jump `exec` uses.
   _find_from : (fn(self : &Self, input : &String, from_byte : usize) -> Option(RegexMatch))({
+    (mut(shared) : Option(Rc(String))) = .None;
     bytes := &input;
     input_len := bytes.len();
     vm := NfaVm.new(&self._program, self._flags, input);
@@ -279,7 +287,7 @@ impl(
       self._flags.sticky => {
         result := vm.exec_at(from_byte);
         cond(
-          result.matched => .Some(self._build_match(&result.slots, input)),
+          result.matched => .Some(self._build_match(&result.slots, input, &mut shared)),
           true => .None
         )
       },
@@ -293,7 +301,7 @@ impl(
           result := vm.exec_at(byte_pos);
           cond(
             result.matched => {
-              return(.Some(self._build_match(&result.slots, input)));
+              return(.Some(self._build_match(&result.slots, input, &mut shared)));
             },
             true => ()
           );
@@ -328,7 +336,8 @@ impl(
   /// Every non-overlapping match, collected — Rust's `find_iter().collect()`.
   /// `find_iter` is the lazy form and is what a `for` loop should use.
   find_all : (fn(self : &Self, input : &String) -> ArrayList(RegexMatch))({
-    matches := ArrayList(RegexMatch).new();
+    mut(matches) := ArrayList(RegexMatch).new();
+    (mut(shared) : Option(Rc(String))) = .None;
     bytes := &input;
     input_len := bytes.len();
     vm := NfaVm.new(&self._program, self._flags, input);
@@ -340,7 +349,7 @@ impl(
           result := vm.exec_at(byte_pos);
           cond(
             result.matched => {
-              m := self._build_match(&result.slots, input);
+              m := self._build_match(&result.slots, input, &mut shared);
               matches.push(m);
               match_start := result.slots(usize(0));
               match_end := result.slots(usize(1));
@@ -379,7 +388,7 @@ impl(
           result := vm.exec_at(byte_pos);
           cond(
             result.matched => {
-              m := self._build_match(&result.slots, input);
+              m := self._build_match(&result.slots, input, &mut shared);
               matches.push(m);
               match_start := result.slots(usize(0));
               match_end := result.slots(usize(1));
@@ -442,7 +451,8 @@ RegexMatchIter :: ref(
   struct(
     _regex : Regex,
     _vm : NfaVm,
-    _input : String,
+    /// The iterator's copy of the input, shared with every match it yields.
+    _input : Rc(String),
     _byte_pos : usize,
     _has_prefix : bool
   )
@@ -458,7 +468,8 @@ impl(
         result := self._vm.exec_at(self._byte_pos);
         cond(
           result.matched => {
-            m := re._build_match(&result.slots, &self._input);
+            mut(shared) := Option(Rc(String)).Some(Rc.clone(&self._input));
+            m := re._build_match(&result.slots, &self._input.*, &mut shared);
             match_start := result.slots(usize(0));
             match_end := result.slots(usize(1));
             cond(
@@ -473,7 +484,7 @@ impl(
                     char_len := utf8.step_len(b);
                     next_pos := (self._byte_pos + char_len);
                     self._byte_pos = cond(
-                      self._has_prefix => re._find_prefix_pos(&self._input, next_pos),
+                      self._has_prefix => re._find_prefix_pos(&self._input.*, next_pos),
                       true => next_pos
                     );
                   }
@@ -481,7 +492,7 @@ impl(
               },
               true => {
                 self._byte_pos = cond(
-                  self._has_prefix => re._find_prefix_pos(&self._input, match_end),
+                  self._has_prefix => re._find_prefix_pos(&self._input.*, match_end),
                   true => match_end
                 );
               }
@@ -504,7 +515,7 @@ impl(
                 char_len := utf8.step_len(b);
                 next_pos := (self._byte_pos + char_len);
                 self._byte_pos = cond(
-                  self._has_prefix => re._find_prefix_pos(&self._input, next_pos),
+                  self._has_prefix => re._find_prefix_pos(&self._input.*, next_pos),
                   true => next_pos
                 );
               }
@@ -536,7 +547,7 @@ impl(
     RegexMatchIter(
       _regex : self,
       _vm : vm,
-      _input : input.clone(),
+      _input : Rc.new(input.clone()),
       _byte_pos : byte_pos,
       _has_prefix : has_prefix
     )
@@ -564,7 +575,7 @@ impl(
   _apply_replacement : (fn(self : &Self, replacement : &String, m : &RegexMatch) -> String)({
     rep_bytes := &replacement;
     rep_len := rep_bytes.len();
-    result := ArrayList(u8).new();
+    mut(result) := ArrayList(u8).new();
     mut(i) := usize(0);
     while(i < rep_len, {
       b := rep_bytes.byte_at(i);
@@ -645,7 +656,7 @@ impl(
               });
               cond(
                 found_close => {
-                  name_bytes := ArrayList(u8).with_capacity(name_end - name_start);
+                  mut(name_bytes) := ArrayList(u8).with_capacity(name_end - name_start);
                   mut(ni) := name_start;
                   while(ni < name_end, ni = (ni + usize(1)), {
                     name_bytes.push(rep_bytes.byte_at(ni));
@@ -725,7 +736,7 @@ impl(
         match_start_byte := m.index();
         match_end_byte := (match_start_byte + m.value().len());
         // Build result: pre-match + replacement + post-match
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         mut(pi) := usize(0);
         while(pi < match_start_byte, pi = (pi + usize(1)), {
           out.push(input_bytes.byte_at(pi));
@@ -762,7 +773,7 @@ impl(
       (all_matches.len() == usize(0)) => input.clone(),
       true => {
         input_bytes := &input;
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
@@ -805,7 +816,7 @@ impl(
       .None => input.clone(),
       .Some(m) => {
         input_bytes := &input;
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         mut(pi) := usize(0);
         while(pi < m.index(), pi = (pi + usize(1)), {
           out.push(input_bytes.byte_at(pi));
@@ -833,7 +844,7 @@ impl(
       (all_matches.len() == usize(0)) => input.clone(),
       true => {
         input_bytes := &input;
-        out := ArrayList(u8).new();
+        mut(out) := ArrayList(u8).new();
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
@@ -884,7 +895,7 @@ impl(
   /// list. This is also the body behind `String.split(re)`, so the `Pattern`
   /// dispatch inherits both behaviours.
   split : (fn(self : &Self, input : &String) -> ArrayList(String))({
-    parts := ArrayList(String).new();
+    mut(parts) := ArrayList(String).new();
     all_matches := self.find_all(input);
     cond(
       (all_matches.len() == usize(0)) => {
@@ -900,7 +911,7 @@ impl(
           match_start_byte := m.index();
           match_end_byte := (match_start_byte + m.value().len());
           // Extract text from last_end_byte to match_start_byte
-          part_bytes := ArrayList(u8).new();
+          mut(part_bytes) := ArrayList(u8).new();
           mut(pi) := last_end_byte;
           while(pi < match_start_byte, pi = (pi + usize(1)), {
             part_bytes.push(input_bytes.byte_at(pi));
@@ -923,7 +934,7 @@ impl(
           last_end_byte = match_end_byte;
         });
         // Add remaining text after last match
-        remaining := ArrayList(u8).new();
+        mut(remaining) := ArrayList(u8).new();
         mut(pi) := last_end_byte;
         while(pi < input_bytes.len(), pi = (pi + usize(1)), {
           remaining.push(input_bytes.byte_at(pi));
