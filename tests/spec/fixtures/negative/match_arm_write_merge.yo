@@ -6,18 +6,18 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-grow1 :: (fn(xs : ArrayList(i32), ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
+grow1 :: (fn(xs : &mut ArrayList(i32), ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
   xs.push(i32(7));
 });
 
 Pick :: enum(A, B);
 
 match_grow :: (fn(p : Pick, ensures(r == usize(1))) -> (r : usize))({
-  ys := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
   match(
     p,
     .A => {
-      grow1(ys);
+      grow1(&mut ys);
     },
     .B => ()
   );

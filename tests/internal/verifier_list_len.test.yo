@@ -632,7 +632,7 @@ test("a lexicographic decreases(i, j) proves a recursion no single measure can; 
   );
 });
 
-test("a for over a list (value form and read walk) verifies with produced(xs); a double push, a skipped count and a growing list fail", {
+test("a for over a list (the read walk) verifies with produced(xs); a double push and a skipped count fail", {
   if(!_have_z3(), {
     return(());
   });
@@ -654,9 +654,12 @@ test("a for over a list (value form and read walk) verifies with produced(xs); a
     _count_outcome(&bad_reports, String.from("refuted")) == usize(2),
     `copy_twice and count_all must refute, got: [${_reports_dump(&bad_reports)}]`
   );
+  // A body that grows the list it walks (`grow`) no longer reaches the
+  // verifier: the walk borrows the list for the whole loop, so the push is
+  // E0911 at evaluation (VBD B8, ArrayList is a value).
   assert(
-    _count_outcome(&bad_reports, String.from("subset-error")) == usize(1),
-    `grow must be a subset error, got: [${_reports_dump(&bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("subset-error")) == usize(0),
+    `no subset error is left in the fixture, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
