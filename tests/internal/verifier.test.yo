@@ -28,7 +28,7 @@ _bv32_var :: (fn(name : &String) -> VcTerm)(
 );
 _bv32_lit :: (fn(v : u64) -> VcTerm)(Rc.new(VcTermNode.BvLit(value : v, width : usize(32))));
 _app2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> VcTerm)({
-  args := ArrayList(VcTerm).new();
+  mut(args) := ArrayList(VcTerm).new();
   args.push(Rc.clone(a));
   args.push(Rc.clone(b));
   Rc.new(VcTermNode.App(op, args))
@@ -82,7 +82,7 @@ test("encode_term: a zero-field constructor is the bare symbol, not (Name)", {
     encode_term(Rc.new(VcTermNode.Ctor(name : String.from("Opt_None"), args : ArrayList(VcTerm).new()))) == "Opt_None",
     "nullary constructor"
   );
-  one := ArrayList(VcTerm).new();
+  mut(one) := ArrayList(VcTerm).new();
   one.push(_bv32_var(String.from("x")));
   assert(
     encode_term(Rc.new(VcTermNode.Ctor(name : String.from("Opt_Some"), args : one))) == "(Opt_Some x)",
@@ -90,12 +90,12 @@ test("encode_term: a zero-field constructor is the bare symbol, not (Name)", {
   );
 });
 test("encode_term: quantifier shape", {
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.from("i"));
-  sorts := ArrayList(VcSort).new();
+  mut(sorts) := ArrayList(VcSort).new();
   sorts.push(VcSort.BvS(width : usize(64)));
   body := vc_eq(Rc.new(VcTermNode.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64)))), Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64))));
-  q := Rc.new(VcTermNode.Quant(VcQuantKind.Forall, names.clone(), sorts, Rc.clone(body), ArrayList(VcTerm).new()));
+  q := Rc.new(VcTermNode.Quant(VcQuantKind.Forall, names.clone(), sorts.clone(), Rc.clone(body), ArrayList(VcTerm).new()));
   assert(
     encode_term(&q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
     "forall with typed binder"
@@ -103,7 +103,7 @@ test("encode_term: quantifier shape", {
   // The triggered form: (forall (! body :pattern (t))) — the annotation
   // rides the BODY (z3 5.1.0 rejects :pattern on a !-wrapped quantifier);
   // one attribute per trigger (V5 task 6: the ms_of definition axioms).
-  trigs := ArrayList(VcTerm).new();
+  mut(trigs) := ArrayList(VcTerm).new();
   trigs.push(Rc.clone(body));
   qt := Rc.new(VcTermNode.Quant(VcQuantKind.Forall, names, sorts, body, trigs));
   assert(
@@ -118,7 +118,7 @@ test("encode_term: the ms_of function + its declare-fun (V5 task 6)", {
       sort : VcSort.ArrS(elem : VcSort.BvS(width : usize(64)), len : usize(8))
     )
   );
-  msf_args := ArrayList(VcTerm).new();
+  mut(msf_args) := ArrayList(VcTerm).new();
   msf_args.push(arr);
   msf := Rc.new(VcTermNode.Ctor(name : String.from("__yo_msof_bv64"), args : msf_args));
   assert(encode_term(&msf) == "(__yo_msof_bv64 a)", "ms_of application head (a Ctor-named uninterpreted application)");
@@ -174,7 +174,7 @@ test("parse_z3_sexprs: atoms, lists, nesting, comments", {
   assert(forms.len() == usize(3), "three top-level forms");
   assert(
     match(
-      forms.get(usize(0)),
+      forms.get_cloned(usize(0)),
       .Some(form) => match(
         form,
         .Atom(t) => (t == "unsat"),
@@ -188,7 +188,7 @@ test("parse_z3_sexprs: atoms, lists, nesting, comments", {
   assert(core.len() == usize(2), "core has two names");
   assert(
     match(
-      core.get(usize(1)),
+      core.get_cloned(usize(1)),
       .Some(n) => (n == "a2"),
       .None => false
     ),
@@ -197,7 +197,7 @@ test("parse_z3_sexprs: atoms, lists, nesting, comments", {
   vals := z3_value_pairs_of(&forms);
   assert(
     match(
-      vals.get(usize(0)),
+      vals.get_cloned(usize(0)),
       .Some(p) => (p == "x = #x00000002"),
       .None => false
     ),
@@ -209,7 +209,7 @@ test("parse_z3_sexprs: nested value sexprs render losslessly", {
   vals := z3_value_pairs_of(&forms);
   assert(
     match(
-      vals.get(usize(0)),
+      vals.get_cloned(usize(0)),
       .Some(p) => (p == "x = (concat #x00000001 #x02)"),
       .None => false
     ),
@@ -248,7 +248,7 @@ test("verdict_of_response: unsat ⇒ Proved with core", {
     .Proved(core) => {
       assert(
         match(
-          core.get(usize(0)),
+          core.get_cloned(usize(0)),
           .Some(n) => (n == "a1"),
           .None => false
         ),
@@ -268,7 +268,7 @@ test("verdict_of_response: sat ⇒ Refuted with counter-example", {
       assert(ce.len() == usize(1), "one counter-example entry");
       assert(
         match(
-          ce.get(usize(0)),
+          ce.get_cloned(usize(0)),
           .Some(p) => (p == "x = #x00000002"),
           .None => false
         ),
@@ -385,7 +385,7 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
       results.get(usize(0)),
       .Some(r1) => {
         match(
-          r1.verdict,
+          &r1.verdict,
           .Proved(_) => (),
           _ => {
             assert(false, "1+1==2 must prove");
@@ -400,10 +400,10 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
       results.get(usize(1)),
       .Some(r2) => {
         match(
-          r2.verdict,
+          &r2.verdict,
           .Refuted(ce) => {
             assert(ce.len() > usize(0), "refutation must carry a counter-example");
-            println(`  counter-example: ${ce.get(usize(0)).unwrap()}`);
+            println(`  counter-example: ${ce.get_cloned(usize(0)).unwrap()}`);
           },
           _ => {
             assert(false, "1+1==3 must refute");
@@ -450,7 +450,7 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
       .Some(r2) => {
         assert(r2.cached, "cached run must hit");
         match(
-          r2.verdict,
+          &r2.verdict,
           .Proved(_) => (),
           _ => {
             assert(false, "cached verdict must still be Proved");
@@ -502,7 +502,7 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
     subset_source : String.new()
   );
   assert(verify_report_is_vacuous(&vacuous), "ok + zero obligations is vacuous");
-  with_obl := ArrayList(VerifyFnObligation).new();
+  mut(with_obl) := ArrayList(VerifyFnObligation).new();
   with_obl.push(
     VerifyFnObligation(
       name : String.from("fn@src/x.yo:1/aorte#0"),
@@ -535,7 +535,7 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
 // B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): the honest gate
 // ---------------------------------------------------------------------------
 _rp :: (fn(outcome : &String, mode : &String, obligations : usize) -> VerifyFnReport)({
-  obls := ArrayList(VerifyFnObligation).new();
+  mut(obls) := ArrayList(VerifyFnObligation).new();
   (mut(i) : usize) = usize(0);
   while(i < obligations, {
     obls.push(
@@ -576,7 +576,7 @@ test("verify_report_is_failure: with no deny set this is the historical rule", {
   assert(verify_report_is_degraded(_rp(String.from("unproven"), String.from("verify+"), usize(1)), none.clone()), "...and that degradation is reported");
 });
 test("verify_report_is_failure: --strict turns the passing outcomes into failures", {
-  strict := ArrayList(String).new();
+  mut(strict) := ArrayList(String).new();
   strict.push(String.from("assumed"));
   strict.push(String.from("outside-subset"));
   strict.push(String.from("unproven"));
@@ -593,7 +593,7 @@ test("verify_report_is_failure: --strict turns the passing outcomes into failure
   );
 });
 test("summarize_verify_reports: counts, vacuous, queries and cache hits", {
-  reports := ArrayList(VerifyFnReport).new();
+  mut(reports) := ArrayList(VerifyFnReport).new();
   reports.push(_rp(String.from("ok"), String.from("verify"), usize(2)));
   reports.push(_rp(String.from("ok"), String.from("verify"), usize(0)));
   reports.push(_rp(String.from("assumed"), String.from("verify"), usize(0)));
@@ -655,7 +655,7 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
   q := _budget_query();
   r := run_vc_query(&q, &cfg, &binary);
   match(
-    r.verdict,
+    &r.verdict,
     .Proved(_) => (),
     _ => {
       assert(false, "5 + 5 == 10 proves");
