@@ -5201,6 +5201,10 @@ evaluate_module_value :: (
     while(fi2 < forall_args.len(), {
       fp_expr := match(forall_args.get(fi2), .Some(e) => e, .None => make_err_expr());
       fi2 = (fi2 + usize(1));
+      // An origin binder is bound abstractly below and gets no SomeT: the
+      // receiver pattern never binds a type variable for it, so a placeholder
+      // SomeT would stay unbound and fail every match (`all_bound`).
+      (fp_is_origin : bool) = false;
       // Extract name: `T : Type` colon pair or plain atom `T`.
       (param_name_opt : Option(String)) = if(ast_expr_is_fn_call(&fp_expr) && ast_expr_is_fn_call_of(&fp_expr, BK_COLON, .Some(usize(2))), {
         colon_args2 := match(
@@ -5223,9 +5227,9 @@ evaluate_module_value :: (
           // def-time env. The impl's receiver pattern names it
           // (`impl generic(p : Origin) T for _View(p)`); a method still
           // declares its own origins in its own signature's `generic(...)`.
-          // `.None` for the name: no `SomeT` follows — the binder is an
-          // origin, not a type parameter, so the loop's SomeT step (which
-          // would re-bind the name as a type variable) sees `_`.
+          // No `SomeT` follows (`fp_is_origin`): the binder is an origin,
+          // not a type parameter, and an unbound placeholder in the entry's
+          // forall list would fail every receiver match.
           if(rhs2_name == "Origin", {
             op_name := ast_expr_token(&lhs2).value.*.clone();
             op_names := ArrayList(String).new();
@@ -5242,6 +5246,7 @@ evaluate_module_value :: (
               ast_expr_token(&fp_expr)
             );
             binder_name = Option(String).None;
+            fp_is_origin = true;
           }, {
             if(rhs2_name != "Type", {
               register_some_binder_kind(ast_expr_token(&lhs2).value.*.clone(), frame_lvl, &rhs2_name);
@@ -5254,6 +5259,9 @@ evaluate_module_value :: (
         Option(String).Some(ast_expr_token(&fp_expr).value.*.clone()),
         Option(String).None
       ));
+      if(fp_is_origin, {
+        continue;
+      });
       (param_name_str : String) = match(param_name_opt, .Some(n) => n, .None => String.from("_"));
       // Create a SomeT for this parameter.
       some_ty := t_some_t(param_name_str.clone(), frame_lvl);
