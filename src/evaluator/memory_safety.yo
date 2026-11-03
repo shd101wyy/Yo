@@ -99,7 +99,11 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
     i = (i + usize(1));
   });
   g_privileged_files.with_mut(xs => xs.clear());
-  g_privileged_files.with_mut(xs => xs.append(&mut kept));
+  // The list moves in through the capture list: an implicit capture lent
+  // `&mut` inside the closure is a copy under the v0.2.73 seed, so the local
+  // would still own (and drop) the moved elements
+  // (issues/fixed/2026-11-03-an-implicit-capture-lent-mut-in-a-closure-is-a-copy-under-the-seed.md).
+  g_privileged_files.with_mut({ kept }(xs) => xs.extend(kept));
   ()
 });
 /// Is the module path implicitly unsafe-capable for pointer ops?
