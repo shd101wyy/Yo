@@ -326,7 +326,7 @@ type_implements_runtime_builtin :: (fn(ty : &TypeValue) -> Option(bool))({
   // registry cannot key pointers (type_id_or_empty has no Pointer case),
   // so a registry-only lookup would return false and
   // `validate_type_availability` would false-fire on every pointer-fielded
-  // struct (GcTracer :: newtype(_callback : *(u8))). Unwrap pointer chains
+  // struct (one with a `*(u8)` field). Unwrap pointer chains
   // and decide from the base type's tag.
   (rb_base : TypeValue) = Rc.clone(ty);
   (rb_hops : usize) = usize(0);
