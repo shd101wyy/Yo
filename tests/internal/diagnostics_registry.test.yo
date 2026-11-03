@@ -106,7 +106,7 @@ test("every code the classifier emits has a registry entry", {
   (mut(i) : usize) = usize(0);
   while(i < codes.len(), {
     c := match(
-      codes.get(i),
+      codes.get_cloned(i),
       .Some(x) => x,
       .None => String.new()
     );
@@ -127,7 +127,7 @@ test("registry entries are unique and code-shaped", {
   (mut(i) : usize) = usize(0);
   while(i < entries.len(), {
     e := match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(x) => x,
       .None => __yo_panic("missing registry entry")
     );
@@ -137,7 +137,7 @@ test("registry entries are unique and code-shaped", {
     (mut(j) : usize) = usize(0);
     while(j < seen.len(), {
       match(
-        seen.get(j),
+        seen.get_cloned(j),
         .Some(s) => {
           if(s == e.code, {
             dup = true;
@@ -246,7 +246,7 @@ test("the reserved E13xx and E15xx bands are allocated with full entries", {
   (mut(i) : usize) = usize(0);
   while(i < band.len(), {
     c := match(
-      band.get(i),
+      band.get_cloned(i),
       .Some(x) => x,
       .None => String.new()
     );
