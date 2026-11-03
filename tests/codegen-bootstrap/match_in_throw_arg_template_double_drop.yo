@@ -7,8 +7,10 @@
 // carrying a message (src/evaluator/builtins/panic.yo, evaluate_panic). A
 // plain arm (`m`, `m.clone()`) is not affected, and neither is the same code
 // after the template is desugared by hand, so `yo test` (whose batch reprints
-// the test file) cannot reproduce it.
-// See issues/2026-11-03-a-local-moved-by-a-match-inside-a-throw-argument-is-dropped-again-on-unwind.md.
+// the test file) cannot reproduce it. The template's lowered `.`/`to_string`
+// tokens sat at character 0 of the module's stream; positioning them at the
+// template fixed it.
+// See issues/fixed/2026-11-03-a-local-moved-by-a-match-inside-a-throw-argument-is-dropped-again-on-unwind.md.
 // Expected output: "-1".
 { String } :: import("std/string");
 { println } :: import("std/fmt");
