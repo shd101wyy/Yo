@@ -1087,7 +1087,7 @@ _reject_if_container_reachable :: (
     ref_arg_index : usize,
     kind : str,
     args : &ArrayList(AstExpr),
-    param_is_ref : &ArrayList(bool),
+    param_is_owning : &ArrayList(bool),
     n : usize,
     env : &Environment,
     ctx : &EvalContext,
@@ -1248,9 +1248,10 @@ _reject_if_container_reachable :: (
                 fn_may_reach := (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty));
                 fn_may_reach
               }, {
-                // A sibling lent to a `&`/`&mut` parameter starts behind a
-                // reference edge: it may point at the place's holder.
-                sibling_is_ref := match(param_is_ref.get(j), .Some(b) => b, .None => false);
+                // A sibling lent to a `&`/`&mut` parameter (not by value)
+                // starts behind a reference edge: it may point at the
+                // place's holder. An unknown mode counts as a borrow.
+                sibling_is_ref := match(param_is_owning.get(j), .Some(o) => !o, .None => true);
                 seen := HashSet(String).new();
                 _type_may_reach_any_of(&oi.ty, sibling_is_ref, &targets, &mut seen)
               })
@@ -1278,6 +1279,7 @@ _reject_if_container_reachable :: (
 require_valid_ref_argument_places :: (
   fn(
     param_is_ref : &ArrayList(bool),
+    param_is_owning : &ArrayList(bool),
     future_callee : bool,
     call_id : usize,
     param_labels : &ArrayList(String),
@@ -1323,7 +1325,7 @@ require_valid_ref_argument_places :: (
           );
           match(
             container_atom,
-            .Some(catom) => _reject_if_container_reachable(&catom, &arg, i, "index", args, param_is_ref, n, env, ctx, exn, &defer_id, &defer_label),
+            .Some(catom) => _reject_if_container_reachable(&catom, &arg, i, "index", args, param_is_owning, n, env, ctx, exn, &defer_id, &defer_label),
             .None => ()
           );
         }, {
@@ -1372,7 +1374,7 @@ require_valid_ref_argument_places :: (
                 h = (h + usize(1));
               });
               if(has_object_hop && ast_expr_is_atom(&cur), {
-                _reject_if_container_reachable(&cur, &arg, i, "object-hop", args, param_is_ref, n, env, ctx, exn, &defer_id, &defer_label);
+                _reject_if_container_reachable(&cur, &arg, i, "object-hop", args, param_is_owning, n, env, ctx, exn, &defer_id, &defer_label);
               });
               // A field of a MODULE-LEVEL root is unsafe when overwriting
               // it through the ref could free heap storage: OBJECT roots
