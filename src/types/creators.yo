@@ -410,6 +410,19 @@ t_future_trait :: (
 )(
   Rc.new(TypeValueNode.FutureTraitT(base_name.clone(), Rc.clone(output), shared_list(effect_labels), shared_list(effect_types), t_origin_elided()))
 );
+/// `Future(T, E, p)`: a future type with its origin (decision 43 step 4,
+/// N3-1).
+t_future_trait_with_origin :: (
+  fn(
+    base_name : &String,
+    output : &TypeValue,
+    sink(effect_labels) : ArrayList(String),
+    sink(effect_types) : ArrayList(TypeValue),
+    origin : &TypeValue
+  ) -> TypeValue
+)(
+  Rc.new(TypeValueNode.FutureTraitT(base_name.clone(), Rc.clone(output), shared_list(effect_labels), shared_list(effect_types), Rc.clone(origin)))
+);
 t_future_trait_simple :: (fn(base_name : &String, output : &TypeValue) -> TypeValue)(
   Rc.new(TypeValueNode.FutureTraitT(base_name.clone(), Rc.clone(output), no_labels(), no_types(), t_origin_elided()))
 );
@@ -1167,5 +1180,6 @@ export(
   t_fn_trait_simple,
   t_future_trait,
   t_future_trait_simple,
+  t_future_trait_with_origin,
   type_value_tag
 );
