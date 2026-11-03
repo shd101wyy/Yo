@@ -437,11 +437,12 @@ type_implements_send_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
   )
 );
 /// Returns Some(true) for the primitive leaves, which are `Acyclic` by
-/// construction (no declaration exists, decision 48 W6b): the Send set PLUS `comptime_int,
-/// comptime_float, comptime_str, Expr` (comptime data + Expr are acyclic but
-/// NOT Send). Every other leaf (the C scalar types, extern opaque types,
-/// functions) is answered by the reach walk, which finds no edge in it.
-/// Same rationale as the Send builtin.
+/// construction (no declaration exists, decision 48 W6b): the Send set PLUS
+/// the other C scalar types, `comptime_int, comptime_float, comptime_str,
+/// Expr` and a `ComptimeList(T)` (comptime data + Expr are acyclic but NOT
+/// Send). Extern opaque types are answered by their own arm in
+/// `type_implements_trait`, functions and every nominal or structural type
+/// by the reach walk. Same rationale as the Send builtin.
 type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
   match(
     ty,
@@ -454,6 +455,16 @@ type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     Rc(.Float(_)) => Option(bool).Some(true),
     Rc(.Str) => Option(bool).Some(true),
     Rc(.CChar) => Option(bool).Some(true),
+    Rc(.CShort) => Option(bool).Some(true),
+    Rc(.CUShort) => Option(bool).Some(true),
+    Rc(.CInt) => Option(bool).Some(true),
+    Rc(.CUInt) => Option(bool).Some(true),
+    Rc(.CLong) => Option(bool).Some(true),
+    Rc(.CULong) => Option(bool).Some(true),
+    Rc(.CLongLong) => Option(bool).Some(true),
+    Rc(.CULongLong) => Option(bool).Some(true),
+    Rc(.CLongDouble) => Option(bool).Some(true),
+    Rc(.ComptimeListT(_)) => Option(bool).Some(true),
     Rc(.ComptimeInt) => Option(bool).Some(true),
     Rc(.ComptimeFloat) => Option(bool).Some(true),
     Rc(.ComptimeString) => Option(bool).Some(true),

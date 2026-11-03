@@ -19,7 +19,7 @@ $ yo test ./tests --exclude tests/internal --exclude tests/cli-cases
 
 `tests/fs/` is NOT excluded from the suite, so both tests DO run there and pass.
 Only the standalone batch fails. That is the batch-composition hole tracked in
-`issues/where-bound-gc-trace-still-fails-when-run-standalone.md`; this is its
+`issues/retired/where-bound-gc-trace-still-fails-when-run-standalone.md`; this is its
 second known instance and the first outside the era-copy family.
 
 Whether the Dispose behaviour itself is wrong, or only its observability under a
