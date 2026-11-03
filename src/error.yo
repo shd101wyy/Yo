@@ -692,6 +692,38 @@ with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
 /// appended to the existing help, or the help itself when there was none):
 /// the decision-20 accessor guidance rides a re-anchored E0901/E0910 this
 /// way. Later diagnostics keep their place.
+/// `err` with `text` removed from its PRIMARY's help (a sentence another
+/// help appended later supersedes). Later diagnostics keep theirs.
+_without_primary_help_text :: (fn(err : &YoError, text : &String) -> YoError)({
+  entries := ArrayList(Diagnostic).new();
+  (hi : usize) = usize(0);
+  while(hi < err.diagnostics.len(), {
+    match(
+      err.diagnostics.get_cloned(hi),
+      .Some(hd) => {
+        if(hi == usize(0), {
+          entries.push(
+            Diagnostic(
+              code : hd.code.clone(),
+              severity : hd.severity,
+              message : hd.message.clone(),
+              span : hd.span.clone(),
+              source_line : hd.source_line.clone(),
+              help : match(&hd.help, .Some(h) => Option(String).Some(h.replace(text, &String.new())), .None => Option(String).None),
+              repair : hd.repair.clone(),
+              generic_independent : hd.generic_independent
+            )
+          );
+        }, {
+          entries.push(hd);
+        });
+      },
+      .None => ()
+    );
+    hi = (hi + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
 _with_primary_help :: (fn(err : &YoError, more : &String) -> YoError)({
   entries := ArrayList(Diagnostic).new();
   (hi : usize) = usize(0);
@@ -782,6 +814,59 @@ primary_diagnostic_path :: (fn(err : &AnyError) -> Option(String))(
     .None => Option(String).None
   )
 );
+/// `msg` with the quoted subject of its ``cannot copy `...` `` clause,
+/// backticks included, replaced by `subject` (which quotes its own code
+/// spans): the clause names a PLACE, and a place inside std spells std's
+/// own locals (`(_ptr.add)(index).*`), which says nothing to the user whose
+/// call made std copy. `msg` unchanged when it has no such clause.
+_replace_cannot_copy_subject :: (fn(msg : &String, subject : &String) -> String)({
+  tag := String.from("cannot copy `");
+  close_tag := String.from("`,");
+  start := match(msg.index_of(&tag), .Some(at) => (at + (tag.len() - usize(1))), .None => return(msg.clone()));
+  end := match(msg.index_of(&close_tag), .Some(close) => (close + usize(1)), .None => return(msg.clone()));
+  if(end < start, {
+    return(msg.clone());
+  });
+  out := String.new();
+  out.push_string(&msg.substring(usize(0), start));
+  out.push_string(subject);
+  out.push_string(&msg.substring(end, msg.len()));
+  out
+});
+/// `err` with the same replacement made in its PRIMARY's message
+/// (`_replace_cannot_copy_subject`): the re-anchored E0901 a std reader
+/// raised names the reader, not std's place inside it. Later diagnostics
+/// keep their message.
+_with_primary_subject :: (fn(err : &YoError, subject : &String) -> YoError)({
+  entries := ArrayList(Diagnostic).new();
+  (si : usize) = usize(0);
+  while(si < err.diagnostics.len(), {
+    match(
+      err.diagnostics.get_cloned(si),
+      .Some(d) => {
+        if(si == usize(0), {
+          entries.push(
+            Diagnostic(
+              code : d.code.clone(),
+              severity : d.severity,
+              message : _replace_cannot_copy_subject(&d.message, subject),
+              span : d.span.clone(),
+              source_line : d.source_line.clone(),
+              help : d.help.clone(),
+              repair : d.repair.clone(),
+              generic_independent : d.generic_independent
+            )
+          );
+        }, {
+          entries.push(d);
+        });
+      },
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
 /// `err` reported at `tok` instead: the primary diagnostic moves there,
 /// keeping its code, message and help, and its old location follows as a note
 /// reading `note`; later notes keep their place. The repair is dropped — it
@@ -902,7 +987,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError, ExitWith);
-export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, with_code_carried, _with_primary_help);
+export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, with_code_carried, _with_primary_help, _with_primary_subject, _without_primary_help_text);
 export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the
