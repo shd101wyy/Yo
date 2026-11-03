@@ -8559,7 +8559,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     p_in := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
     // A holder passed by value (an N2b composite carrying origins, N1e-2):
     // the result may point where its references do.
-    p_holder := p_own && !p_ref && match(
+    p_holder := (p_own && !p_ref) && match(
       args.get(i),
       .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty), .None => false),
       .None => false
