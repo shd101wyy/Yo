@@ -1,0 +1,9 @@
+# A reference cycle leaks (decision 48 W6b deleted the cycle collector,
+# plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §6), and the `--debug-heap`
+# oracle's live-at-exit count is its witness: the fixture's two cells are
+# never dropped. The last command pins that `--cycle-collector` is gone. The
+# test binary's output rides the runner's `-v` output with its build chatter,
+# so stdout keeps only the probe line, the report's live-at-exit count and
+# the error.
+stdout_keep_match=(cycle: disposed [0-9]+|live at exit: [0-9]+ blocks|cycle-collector.*)
+timeout=600
