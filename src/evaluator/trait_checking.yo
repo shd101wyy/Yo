@@ -73,7 +73,6 @@ pragma(Pragma.AllowUnsafe);
   bump_trait_impl_epoch,
   trait_impl_epoch,
   is_drop_trait_name,
-  value_type_owns_buffer,
   buffer_element_types,
   type_is_escapable
 } :: import("../types/utils.yo");
@@ -2332,7 +2331,7 @@ _is_prelude_trait_named :: (fn(trait_type : &TypeValue, name : str, env : &Envir
     .None => false
   )
 );
-/// The receiver-kind gate on `Drop` and `Trace`: `.Some(msg)`
+/// The receiver-kind gate on `Drop` (and `Copy`): `.Some(msg)`
 /// when `trait_type` is one of them and `target_type` may not implement it. A
 /// `SomeT` is resolved and an enum shell mapped to its final type first, as
 /// `type_implements_trait` does.
@@ -2346,14 +2345,9 @@ _is_prelude_trait_named :: (fn(trait_type : &TypeValue, name : str, env : &Envir
 ///   until the std migration makes them value structs over a move-only cell,
 ///   and the arm is deleted then. Any other receiver (a primitive, pointer,
 ///   tuple, function, `Dyn`, blanket `T`) can be neither, so it is rejected.
-/// - `Trace`: a reference type, whose header `traverse_fn` is its `trace`, or
-///   a value struct that owns a heap buffer (`value_type_owns_buffer`: a
-///   `?*E` field). The holder's inline walk calls that value's `trace`, since
-///   the field walk cannot see the buffer's elements (V2b's unique buffers,
-///   plans/VALUES_BY_DEFAULT.md §3.5). Any other value is traversed inline.
 ///
 /// It replaces the deleted `Rc` marker trait, which the prelude required
-/// through `where(Self <: Rc)` on `Dispose` and `Trace`. The generic impl
+/// through `where(Self <: Rc)` on `Dispose`. The generic impl
 /// path, which never ran the selfConstraint check, calls this too, on the
 /// receiver pattern at the impl
 /// (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
@@ -2366,7 +2360,6 @@ receiver_kind_trait_violation_msg :: (
 )({
   trait_name := cond(
     _is_prelude_trait_named(trait_type, "Drop", env) => String.from("Drop"),
-    _is_prelude_trait_named(trait_type, "Trace", env) => String.from("Trace"),
     is_copy_trait(trait_type, env) => String.from("Copy"),
     true => String.from("")
   );
@@ -2394,11 +2387,6 @@ receiver_kind_trait_violation_msg :: (
     );
   });
   cond(
-    (trait_name == "Trace") => if(
-      is_reference || value_type_owns_buffer(&target),
-      Option(String).None,
-      Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "Trace": only a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms), or a value struct that owns a heap buffer (a \`?*E\` field the inline walk cannot see into), may implement it. Any other value is traversed inline by whoever holds it.`)
-    ),
     (is_value_nominal || is_reference) => Option(String).None,
     true => Option(String).Some(
       `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a value type (struct, enum, newtype), which ${trait_name} makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
@@ -2406,7 +2394,7 @@ receiver_kind_trait_violation_msg :: (
   )
 });
 /// Message-returning core of the impl-site self check: `.Some(msg)` when the
-/// target may not implement the trait (the `Drop`/`Trace`
+/// target may not implement the trait (the `Drop`
 /// receiver gate, `receiver_kind_trait_violation_msg`) or violates a positive or negative
 /// selfConstraint on it, `.None` otherwise. Split out (throw-free) so
 /// `impl.yo`'s concrete-impl path can call it through the injected

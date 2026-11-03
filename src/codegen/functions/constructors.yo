@@ -5,21 +5,14 @@
 //! the dispose type-tag (via the dispose_type_ids side-table), and assign each
 //! runtime field. Generic objects (any runtime field containing a SomeType) are
 //! skipped — only concrete instantiations get constructors.
-//!
-//! The cyclic-GC sub-branches (gc_flags/gc_mark/gc_next/gc_prev header init, the
-//! dispose_fn function-pointer form, the `__yo_traverse_<cName>` pointer, and
-//! `__yo_gc_register(obj)`) are emitted only when needs_cycle_gc is true (i.e.
-//! some reference-semantics type can form an RC cycle). The traversal-function
-//! bodies they reference are emitted by `generate_ref_struct_traversal_functions`,
-//! called from `generate_ref_struct_constructor_functions` on the cyclic-GC path.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_cell_primitive_type, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic, type_reaches_non_atomic_cell, value_type_owns_buffer } :: import("../../types/utils.yo");
-{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
+{ is_reference_struct_type, is_reference_enum_type, is_unit_type, is_cell_primitive_type } :: import("../../types/guards.yo");
+{ type_contains_some_type } :: import("../../types/utils.yo");
+{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ get_dispose_function_for_type, dispose_function_takes_pointer, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
+{ get_dispose_function_for_type, dispose_function_takes_pointer } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
 _has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) -> bool)({
   n := fields.len();
@@ -37,113 +30,15 @@ _has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) -> bool)({
   });
   found
 });
-/// Does a traversal function exist for this registry type, and under what C
-/// name? ONE predicate for the prototype pass, both generators and every
-/// child reference a traversal emits, so a reference can never name a function
-/// that was not emitted: a concrete, non-atomic reference struct or enum.
-_traversal_fn_name :: (fn(ty : &TypeValue, c_name : &String) -> Option(String))(
-  cond(
-    (is_reference_struct_type(ty) && !is_atomic_reference_struct_type(ty)) => if(_has_generic_fields(get_runtime_struct_fields(ty)), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
-    (is_reference_enum_type(ty) && !is_atomic_reference_enum_type(ty)) => if(type_contains_some_type(ty), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
-    true => Option(String).None
-  )
-);
-/// The unique `Box` (V1 step 2) is not a managed handle: its payload is part
-/// of its owner's value and is traced inline. A `Box` whose payload holds a
-/// counted cell gets `__yo_traverse_box_<C>(cell, visit)`, which traces the
-/// payload at the cell pointer; a function (not an inline expansion) because
-/// a recursive payload (`Option(Box(Self))`) reaches the same `Box` again.
-_box_trace_fn_name :: (fn(ty : &TypeValue, c_name : &String) -> Option(String))(
-  match(
-    unique_box_payload_type(ty),
-    .Some(payload) => cond(
-      (type_contains_some_type(&payload) || !type_reaches_non_atomic_cell(&payload)) => Option(String).None,
-      true => Option(String).Some(`__yo_traverse_box_${c_name}`)
-    ),
-    .None => Option(String).None
-  )
-);
-/// The `__yo_traverse_box_<C>` of a `Box` type, `.None` when it has none.
-_box_trace_fn_of :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
-  match(
-    context.base.types.get(type_key(ty)),
-    .Some(entry) => _box_trace_fn_name(&entry.ty, entry.c_name.clone()),
-    .None => Option(String).None
-  )
-);
-/// Traversal functions are emitted when the cycle collector needs them.
-needs_traversal_functions :: (fn(context : &FunctionGenerationContext) -> bool)(
-  context.base.needs_cycle_gc
-);
-/// The C expression a traversal passes to its visitor as a managed child's own
-/// traverse function: `(void*)__yo_traverse_<C>` when one exists, the
-/// `__yo_traverse_atomic_stop` sentinel for an atomic handle (shared by
-/// design — a walker does not descend), NULL otherwise (unknown: a walker that
-/// must PROVE something about the child fails on it).
-_child_traverse_fn_expr :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> String)(
-  cond(
-    (is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty)) => String.from("(void*)__yo_traverse_atomic_stop"),
-    true => match(
-      context.base.types.get(type_key(ty)),
-      .Some(entry) => match(
-        _traversal_fn_name(&entry.ty, entry.c_name.clone()),
-        .Some(n) => `(void*)${n}`,
-        .None => String.from("NULL")
-      ),
-      .None => String.from("NULL")
-    )
-  )
-);
-/// The same for the handle payload of a nullable-pointer-optimized enum
-/// (`Option(handle)` lowered to a bare pointer).
-_nullable_payload_traverse_fn_expr :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> String)(
-  match(
-    can_optimize_as_nullable_pointer(ty),
-    .Some(payload) => _child_traverse_fn_expr(&payload, context),
-    .None => String.from("NULL")
-  )
-);
-/// Prototypes for every traversal function (struct AND enum), plus the
-/// atomic-stop sentinel, emitted before any traversal body: bodies now name
-/// their children's traverse functions (the visitor's second argument), so
-/// emission order between types must not matter. Called once per program,
-/// from the struct constructor pass, which always runs before the enum one
-/// (functions/generation.yo).
-_emit_traversal_prototypes :: (fn(context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  em.emit_string_line(`static void __yo_traverse_atomic_stop(void* ptr, void (*visit)(void*, void*)) { (void)ptr; (void)visit; }`);
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  mut(vals_cur) := context.base.types.walk_start();
-  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
-    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
-    match(
-      context.base.get_type_entry(&vals_key),
-      .Some(entry) => {
-        match(
-          _traversal_fn_name(&entry.ty, entry.c_name.clone()),
-          .Some(n) => em.emit_string_line(`static void ${n}(void* ptr, void (*visit)(void*, void*));`),
-          .None => ()
-        );
-        match(
-          _box_trace_fn_name(&entry.ty, entry.c_name.clone()),
-          .Some(n) => em.emit_string_line(`static void ${n}(void* ptr, void (*visit)(void*, void*));`),
-          .None => ()
-        );
-      },
-      .None => ()
-    );
-  });
-});
-/// The `dispose_fn` a cycle-GC constructor stores for `dispose_c_name`.
+/// The `void*` thunk the type-tag dispose dispatch calls for a `___dispose`
+/// that takes its receiver through a pointer.
 ///
-/// The RC header types that slot `void (*)(void*)` and the runtime calls it
-/// that way, but a `___dispose` method is defined with its typed `self`
-/// pointer. Calling a function through an incompatible pointer type is
+/// The dispatch calls every entry as `void (*)(void*)`, but a `___dispose`
+/// method is defined with its typed `self` pointer. Calling a function through an incompatible pointer type is
 /// undefined behavior (C11 6.5.2.2p9), and UBSan's `-fsanitize=function`
 /// aborted on the first release
 /// (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
-/// So the slot holds a `void*` thunk that forwards to the typed function.
+/// So the dispatch calls a `void*` thunk that forwards to the typed function.
 /// Each thunk is emitted once, before the first constructor that stores it.
 /// The constructor block is one contiguous region (copied verbatim into the
 /// shared header in chunk mode), so emission order is first-use order. Call it
@@ -206,7 +101,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
   (dispose_thunk : String) = match(
     &dispose_opt,
-    .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
+    .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
   // A cell primitive's constructor takes the allocator as its first
@@ -247,48 +142,18 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
     )
   );
   em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
-  is_atomic := is_atomic_reference_struct_type(type);
-  small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
-  if(context.base.needs_cycle_gc && !is_atomic, {
-    // gc_flags/gc_mark live in the shared packed word and MUST be
-    // initialized for every layout: GC visitors read a CHILD's gc_flags
-    // before deciding to skip it, and small-header objects are visited
-    // as children of tracked parents. The GC list pointers exist only in
-    // the big header.
-    em.emit_string_line(String.from("  obj->header.gc_flags = 0;"));
-    em.emit_string_line(String.from("  obj->header.gc_mark = __YO_GC_UNMARKED;"));
-    if(!small_header, {
-      em.emit_string_line(String.from("  obj->header.gc_next = NULL;"));
-      em.emit_string_line(String.from("  obj->header.gc_prev = NULL;"));
-    });
-  });
-  // Dispose function pointer / type-tag.
+  // Dispose type-tag.
   match(
     dispose_opt,
-    .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
-      em.emit_string_line(`  obj->header.dispose_fn = ${dispose_thunk};`);
-    }, {
+    .Some(dispose_c_name) => {
       dispose_id := context.base.dispose_type_id_for(if(dispose_ptr, dispose_thunk.clone(), dispose_c_name.clone()));
       line := String.from("  obj->header.type_id = ");
       line.push_string(dispose_id.to_string());
       line.push_str(";");
       em.emit_string_line(&line);
-    }),
-    .None => if(context.base.needs_cycle_gc, {
-      em.emit_string_line(String.from("  obj->header.dispose_fn = NULL;"));
-    }, {
-      em.emit_string_line(String.from("  obj->header.type_id = 0;"));
-    })
+    },
+    .None => em.emit_string_line(String.from("  obj->header.type_id = 0;"))
   );
-  // Traversal function pointer (cyclic GC only; atomic never participates;
-  // the small header has no traverse_fn — nothing ever reads it on
-  // untracked objects).
-  if(context.base.needs_cycle_gc && !is_atomic && !small_header, {
-    line := String.from("  obj->header.traverse_fn = __yo_traverse_");
-    line.push_string(c_name.clone());
-    line.push_str(";");
-    em.emit_string_line(&line);
-  });
   // Initialize fields (a `unit` field has no member to store into).
   (fi : usize) = usize(0);
   while(fi < nf, {
@@ -307,296 +172,12 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
     );
     fi = (fi + usize(1));
   });
-  // Register with GC if this type might participate in cycles.
-  if(context.base.needs_cycle_gc && !is_atomic && can_type_form_rc_cycle(type), {
-    em.emit_string_line(String.from("  __yo_gc_register(obj);"));
-  });
   em.emit_string_line(String.from("  return obj;"));
   em.emit_string_line(String.from("}"));
   em.emit_string_line(String.from(""));
 });
-/// Compositional cycle-GC traversal of a single value (Nim `=trace`-style; see
-/// plans/archive/CYCLE_GC_TRACE_HOOKS.md). Emit C that `visit()`s every DIRECT reference-
-/// counted child reachable at the C lvalue `access`, descending INLINE through
-/// value structs / value enums (incl. `Option`) / tuples / inline arrays, but
-/// STOPPING at managed handles (each is one graph edge; the collector calls the
-/// handle's own traverse_fn). Atomic handles never participate.
-// The visit-callback expression for the CURRENT traversal emission (`visit`
-// for auto-derived traverse fns; the GcTracer expr for explicit Trace). It is
-// held in a module GLOBAL rather than threaded as a `visit_expr : String`
-// parameter through `_traverse_value`'s recursion, and callers set it before
-// calling. WHY (task #54, issues/retired/yo-self-binary-codegen-state.md): threading a
-// `String` param through the nested `cond`/`while`/`match` recursion hit an
-// RC-lifetime bug — the param's heap buffer was freed at a scope
-// boundary before its last use, and the sibling `switch (${access}.tag){`
-// literal allocation reused the freed address, so `visit_expr` read back as
-// "  switch (" → malformed `((void(*)(void*))  switch ()(…)`. A global lives in
-// static storage (never scope-dropped), sidestepping the premature free.
-// Compilation is single-threaded and `_traverse_value` runs synchronously, so
-// the global is safe. Deterministic: each caller sets it immediately before.
-(mut(g_traverse_visit_expr) : String) = String.from("visit");
-/// Set the traversal visit-callback expression (see g_traverse_visit_expr).
-/// Callers set this immediately before `_traverse_value`.
-set_traverse_visit_expr :: (fn(expr : &String) -> unit)({
-  g_traverse_visit_expr = expr.clone();
-});
-_traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  visit := g_traverse_visit_expr.clone();
-  // Nothing reference-counted anywhere in this value → nothing to trace.
-  if(!type_contains_rc_cell_or_move_only(ty), {
-    return();
-  });
-  // The unique `Box`: its payload is traced in place, through its trace
-  // function (the C value is the cell pointer, never NULL).
-  if(is_unique_box_type(ty), {
-    match(
-      _box_trace_fn_of(ty, context),
-      .Some(bf) => em.emit_string_line(`  ${bf}((void*)${access}, (void(*)(void*, void*))${visit});`),
-      .None => ()
-    );
-    return();
-  });
-  // A value that owns a heap buffer (V2b's unique buffers) and implements
-  // `Trace`: its `trace` visits the buffer's slots, which the field walk
-  // below cannot see. It takes `self : &Self`, a value in the C ABI.
-  if(value_type_owns_buffer(ty), {
-    match(
-      get_trace_function_for_type(ty, context),
-      .Some(trace_c_name) => {
-        em.emit_string_line(`  ${trace_c_name}(${access}, (void*)${visit});`);
-        return();
-      },
-      .None => ()
-    );
-  });
-  // Managed handle (ref(struct)/ref(enum)) — one graph edge. Atomic RC types
-  // do not participate in cycle collection.
-  if(is_reference_struct_type(ty) || is_reference_enum_type(ty), {
-    if(is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty), {
-      return();
-    });
-    em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${visit})(${access}, ${_child_traverse_fn_expr(ty, context)}); }`);
-    return();
-  });
-  cond(
-    // Value enum (e.g. Option). A nullable-pointer optimization collapses
-    // Option(handle) to a bare pointer (type_contains_rc_cell_or_move_only was true → managed
-    // payload) → visit the pointer directly.
-    is_enum_type(ty) => {
-      is_nullable := match(can_optimize_as_nullable_pointer(ty), .Some(_) => true, .None => false);
-      nullable_box := match(can_optimize_as_nullable_pointer(ty), .Some(np) => if(is_unique_box_type(&np), Option(TypeValue).Some(np), Option(TypeValue).None), .None => Option(TypeValue).None);
-      if(is_nullable, {
-        match(
-          nullable_box,
-          // `Option(Box(T))`: a non-NULL cell's payload is traced in place.
-          .Some(nb) => match(
-            _box_trace_fn_of(&nb, context),
-            .Some(bf) => em.emit_string_line(`  if (${access}) { ${bf}((void*)${access}, (void(*)(void*, void*))${visit}); }`),
-            .None => ()
-          ),
-          .None => em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${visit})(${access}, ${_nullable_payload_traverse_fn_expr(ty, context)}); }`)
-        );
-      }, {
-        if(!can_optimize_as_simple_enum(ty), {
-          match(
-            ty,
-            Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
-              em.emit_string_line(`  switch (${access}.tag) {`);
-              nv := variant_names.len();
-              (vi : usize) = usize(0);
-              while(vi < nv, {
-                vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
-                vfields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
-                vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
-                nvf := vfields.len();
-                (has_rc : bool) = false;
-                (ci : usize) = usize(0);
-                while(ci < nvf, {
-                  match(
-                    vfields.get(ci),
-                    .Some(vt) => if(type_contains_rc_cell_or_move_only(&vt), {
-                      has_rc = true;
-                    }),
-                    .None => ()
-                  );
-                  ci = (ci + usize(1));
-                });
-                if(has_rc, {
-                  tag_c := get_enum_variant_c_name(ty, vname.clone(), &context.base);
-                  em.emit_string_line(`  case ${tag_c}:`);
-                  (vfi : usize) = usize(0);
-                  while(vfi < nvf, {
-                    match(
-                      vfields.get(vfi),
-                      .Some(vt) => if(type_contains_rc_cell_or_move_only(&vt), {
-                        vflabel := match(vlabels.get_cloned(vfi), .Some(l) => l, .None => String.from(""));
-                        vfname := sanitize_for_c_identifier(&vflabel, false);
-                        recur(`${access}.data.${c_variant_member_name(vname.clone())}.${vfname}`, &vt, context);
-                      }),
-                      .None => ()
-                    );
-                    vfi = (vfi + usize(1));
-                  });
-                  em.emit_string_line(`    break;`);
-                });
-                vi = (vi + usize(1));
-              });
-              em.emit_string_line(`  }`);
-            },
-            _ => ()
-          );
-        });
-      });
-    },
-    // Value struct / newtype: stored inline → recurse its fields.
-    is_struct_type(ty) => {
-      rf := get_runtime_struct_fields(ty);
-      if(is_newtype_type(ty), {
-        // A newtype is a C-transparent typedef alias for its single underlying
-        // type — the value IS the inner value, so recurse with the SAME access.
-        match(rf.get(usize(0)), .Some(sfield) => recur(access, &sfield.ty, context), .None => ());
-      }, {
-        nrf := rf.len();
-        (si : usize) = usize(0);
-        while(si < nrf, {
-          match(
-            rf.get(si),
-            .Some(sfield) => {
-              sfname := sanitize_for_c_identifier(sfield.label.clone(), false);
-              recur(`${access}.${sfname}`, &sfield.ty, context);
-            },
-            .None => ()
-          );
-          si = (si + usize(1));
-        });
-      });
-    },
-    // Tuple: fields are emitted as `._0`, `._1`, …
-    is_tuple_type(ty) => match(
-      ty,
-      Rc(.Tuple({ field_types })) => {
-        ntf := field_types.len();
-        (ti : usize) = usize(0);
-        while(ti < ntf, {
-          match(
-            field_types.get(ti),
-            .Some(tt) => recur(`${access}._${ti.to_string()}`, &tt, context),
-            .None => ()
-          );
-          ti = (ti + usize(1));
-        });
-      },
-      _ => ()
-    ),
-    // Fixed inline array Array(T, N) — emitted NOT as a bare C array but as a
-    // STRUCT WRAPPER (`Array_..._N { T data[N]; }`), so both the element count
-    // and the element access must go through `.data`. Subscripting the wrapper
-    // directly produced "subscripted value is not an array, pointer, or
-    // vector" for any ref struct with an `Array(Rc(T), N)` field — the first
-    // shape that ever needed a generated tracer.
-    is_array_type(ty) => match(
-      ty,
-      Rc(.Array({ element })) => {
-        em.emit_string_line(`  for (size_t __yo_ti = 0; __yo_ti < (sizeof(${access}.data) / sizeof(${access}.data[0])); __yo_ti++) {`);
-        recur(`${access}.data[__yo_ti]`, &element, context);
-        em.emit_string_line(`  }`);
-      },
-      _ => ()
-    ),
-    true => ()
-  );
-});
-/// Emit the cycle-GC traversal function for ONE reference-semantics struct
-/// (`object`/`ref(struct(…))`). Per-field traversal is delegated to the
-/// compositional `_traverse_value` (so `Option(Self)`, nested value-enums, tuples,
-/// and inline arrays are traced, not just direct handle fields).
-_generate_one_ref_struct_traversal :: (fn(type : &TypeValue, c_name : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  runtime_fields := get_runtime_struct_fields(type);
-  // Generic structs (any runtime field carrying a SomeType) get no traversal —
-  // only concrete instantiations, matching the constructor path.
-  if(_has_generic_fields(&runtime_fields), {
-    return();
-  });
-  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*, void*)) {`);
-  em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
-  // A type with an explicit Trace impl (a container whose elements live in a
-  // malloc'd buffer a field walk can't reach): delegate to its monomorphized
-  // `trace`. `(void*)visit` becomes the GcTracer newtype (uint8_t*) implicitly;
-  // the impl iterates its buffer and re-enters tracing per element slot via
-  // `tracer.visit` (__yo_gc_trace_child).
-  match(
-    get_trace_function_for_type(type, context),
-    .Some(trace_c_name) => {
-      em.emit_string_line(`  ${trace_c_name}(obj, (void*)visit);`);
-    },
-    .None => {
-      nf := runtime_fields.len();
-      (fi : usize) = usize(0);
-      while(fi < nf, {
-        match(
-          runtime_fields.get(fi),
-          .Some(field) => {
-            fname := sanitize_for_c_identifier(field.label.clone(), false);
-            g_traverse_visit_expr = String.from("visit");
-            _traverse_value(`obj->${fname}`, &field.ty, context);
-          },
-          .None => ()
-        );
-        fi = (fi + usize(1));
-      });
-    }
-  );
-  em.emit_string_line(`}`);
-  em.emit_string_line(``);
-});
-/// Emit `__yo_traverse_box_<C>` for ONE `Box` type: trace the payload at the
-/// cell pointer, inline (`_traverse_value`).
-_generate_one_box_traversal :: (fn(type : &TypeValue, fn_name : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  payload := match(unique_box_payload_type(type), .Some(p) => p, .None => return());
-  em.emit_string_line(`static void ${fn_name}(void* ptr, void (*visit)(void*, void*)) {`);
-  em.emit_string_line(`  ${get_type_string(&payload, &context.base)}* cell = (${get_type_string(&payload, &context.base)}*)ptr;`);
-  g_traverse_visit_expr = String.from("visit");
-  _traverse_value(String.from("(*cell)"), &payload, context);
-  em.emit_string_line(`}`);
-  em.emit_string_line(``);
-});
-/// Generate cycle-GC traversal functions for every concrete, non-atomic
-/// reference-semantics struct, and the trace functions of the `Box` types.
-generate_ref_struct_traversal_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  vals_cur := context.base.types.walk_start();
-  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
-    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
-    match(
-      context.base.get_type_entry(&vals_key),
-      .Some(entry) => {
-        ty := Rc.clone(entry.ty);
-        // Atomic objects don't participate in cycle GC — no traversal needed.
-        if(is_reference_struct_type(&ty) && _traversal_fn_name(&ty, entry.c_name.clone()).is_some(), {
-          _generate_one_ref_struct_traversal(&ty, entry.c_name.clone(), context);
-        });
-        match(
-          _box_trace_fn_name(&ty, entry.c_name.clone()),
-          .Some(bn) => _generate_one_box_traversal(&ty, &bn, context),
-          .None => ()
-        );
-      },
-      .None => ()
-    );
-  });
-});
-/// Generate constructor implementations for every concrete object type: emits
-/// the cycle-GC traversal functions first (when needed), then the constructors.
+/// Generate constructor implementations for every concrete object type.
 generate_ref_struct_constructor_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  // Traversal functions: for the cycle collector.
-  if(needs_traversal_functions(context), {
-    _emit_traversal_prototypes(context);
-    generate_ref_struct_traversal_functions(context);
-  });
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
   vals_cur := context.base.types.walk_start();
@@ -611,104 +192,10 @@ generate_ref_struct_constructor_functions :: (fn(context : &FunctionGenerationCo
     );
   });
 });
-/// Emit the cycle-GC traversal function for ONE reference-semantics enum.
-/// `__yo_traverse_<cName>` switches on the active variant's tag and `visit()`s
-/// each reference-semantics field of that variant (accessed through the handle
-/// pointer).
-_generate_one_ref_enum_traversal :: (fn(type : &TypeValue, c_name : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*, void*)) {`);
-  // `${c_name}` is the struct-VALUE typedef (get_type_string adds the `*`), so
-  // the handle is `${c_name}*` — cast accordingly (matches the ref-struct path).
-  em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
-  // A ref-enum with an explicit Trace impl — delegate to it (same as structs).
-  match(
-    get_trace_function_for_type(type, context),
-    .Some(trace_c_name) => {
-      em.emit_string_line(`  ${trace_c_name}(obj, (void*)visit);`);
-      em.emit_string_line(`}`);
-      em.emit_string_line(``);
-      return(());
-    },
-    .None => ()
-  );
-  em.emit_string_line(`  switch (obj->tag) {`);
-  match(
-    type,
-    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
-      nv := variant_names.len();
-      (vi : usize) = usize(0);
-      while(vi < nv, {
-        vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
-        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
-        // Does this variant carry any reference-counted field (directly or nested)?
-        nf := fields.len();
-        (has_rc : bool) = false;
-        (ci : usize) = usize(0);
-        while(ci < nf, {
-          match(
-            fields.get(ci),
-            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-              has_rc = true;
-            }),
-            .None => ()
-          );
-          ci = (ci + usize(1));
-        });
-        if(has_rc, {
-          tag_c := get_enum_variant_c_name(type, vname.clone(), &context.base);
-          em.emit_string_line(`  case ${tag_c}:`);
-          (fi : usize) = usize(0);
-          while(fi < nf, {
-            match(
-              fields.get(fi),
-              .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-                flabel := match(labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
-                fname := sanitize_for_c_identifier(&flabel, false);
-                g_traverse_visit_expr = String.from("visit");
-                _traverse_value(`obj->data.${c_variant_member_name(vname.clone())}.${fname}`, &ft, context);
-              }),
-              .None => ()
-            );
-            fi = (fi + usize(1));
-          });
-          em.emit_string_line(`    break;`);
-        });
-        vi = (vi + usize(1));
-      });
-    },
-    _ => ()
-  );
-  em.emit_string_line(`  }`);
-  em.emit_string_line(`}`);
-  em.emit_string_line(``);
-});
-/// Generate cycle-GC traversal functions for every concrete, non-atomic
-/// reference-semantics enum.
-generate_ref_enum_traversal_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  vals_cur := context.base.types.walk_start();
-  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
-    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
-    match(
-      context.base.get_type_entry(&vals_key),
-      .Some(entry) => {
-        ty := Rc.clone(entry.ty);
-        // Atomic ref-enums never participate in cycle GC; generic enums skip.
-        if(is_reference_enum_type(&ty) && _traversal_fn_name(&ty, entry.c_name.clone()).is_some(), {
-          _generate_one_ref_enum_traversal(&ty, entry.c_name.clone(), context);
-        });
-      },
-      .None => ()
-    );
-  });
-});
 /// Emit the per-variant constructor functions for ONE reference-semantics enum.
 /// Each `__yo_new_<cName>_<variant>(fields…)` heap-allocates the RC handle,
-/// initializes the reference-count header (and GC fields / dispose dispatch,
-/// mirroring the object path), sets the tag and the active variant's data, and
+/// initializes the reference-count header (and the dispose type-tag, mirroring
+/// the object path), sets the tag and the active variant's data, and
 /// returns the pointer.
 _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
@@ -724,15 +211,12 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
   dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
   (dispose_thunk : String) = match(
     &dispose_opt,
-    .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
+    .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
-  is_atomic := is_atomic_reference_enum_type(type);
-  registers_with_gc := (context.base.needs_cycle_gc && !is_atomic && can_type_form_rc_cycle(type));
-  enum_small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
   match(
     type,
-    Rc(.EnumT({ id : enum_id, variant_names, variant_fields, variant_field_labels })) => {
+    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
@@ -740,26 +224,6 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
         fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
         nf := fields.len();
-        // Per-VARIANT registration gate: even in a cycle-capable ref-enum, a
-        // variant whose fields cannot reach back to the enum has no outgoing
-        // RC edge that could close a cycle — instances of it can be pointed
-        // AT but can never be cycle MEMBERS, so they skip GC tracking. Keeps
-        // hot leaf variants (EvalValue.IntLit/BoolVal, TypeValue primitive
-        // leaves, …) out of the tracked list.
-        (variant_registers_with_gc : bool) = false;
-        if(registers_with_gc, {
-          (ci : usize) = usize(0);
-          while((ci < nf) && !variant_registers_with_gc, {
-            match(
-              fields.get(ci),
-              .Some(ft) => if(_type_refs_back_to_cyclic(&ft, enum_id.clone(), ArrayList(String).new()), {
-                variant_registers_with_gc = true;
-              }),
-              .None => ()
-            );
-            ci = (ci + usize(1));
-          });
-        });
         // Parameter list from the variant's non-unit fields.
         params := String.from("");
         (emitted : usize) = usize(0);
@@ -786,36 +250,15 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
         em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
         em.emit_string_line(`  obj->header.ref_count = 1u;  // One reference`);
         em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
-        if(context.base.needs_cycle_gc && !is_atomic, {
-          // Shared packed word always initialized; GC list pointers exist
-          // only in the big header (see the struct ctor's comment).
-          em.emit_string_line(`  obj->header.gc_flags = 0;`);
-          em.emit_string_line(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
-          if(!enum_small_header, {
-            em.emit_string_line(`  obj->header.gc_next = NULL;`);
-            em.emit_string_line(`  obj->header.gc_prev = NULL;`);
-          });
-        });
-        // Dispose function pointer (cyclic GC) / type-tag (lightweight path).
+        // Dispose type-tag.
         match(
           dispose_opt.clone(),
-          .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
-            em.emit_string_line(`  obj->header.dispose_fn = ${dispose_thunk};`);
-          }, {
+          .Some(dispose_c_name) => {
             dispose_id := context.base.dispose_type_id_for(if(dispose_ptr, dispose_thunk.clone(), dispose_c_name.clone()));
             em.emit_string_line(`  obj->header.type_id = ${dispose_id.to_string()};`);
-          }),
-          .None => if(context.base.needs_cycle_gc, {
-            em.emit_string_line(`  obj->header.dispose_fn = NULL;`);
-          }, {
-            em.emit_string_line(`  obj->header.type_id = 0;`);
-          })
+          },
+          .None => em.emit_string_line(`  obj->header.type_id = 0;`)
         );
-        // Traversal function pointer (cyclic GC only; atomic never
-        // participates; small header has no traverse_fn).
-        if(context.base.needs_cycle_gc && !is_atomic && !enum_small_header, {
-          em.emit_string_line(`  obj->header.traverse_fn = __yo_traverse_${c_name};`);
-        });
         // Tag + active variant's non-unit field assignments.
         tag_c := get_enum_variant_c_name(type, vname.clone(), &context.base);
         em.emit_string_line(`  obj->tag = ${tag_c};`);
@@ -832,9 +275,6 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
           );
           fi = (fi + usize(1));
         });
-        if(variant_registers_with_gc, {
-          em.emit_string_line(`  __yo_gc_register(obj);`);
-        });
         em.emit_string_line(`  return obj;`);
         em.emit_string_line(`}`);
         em.emit_string_line(``);
@@ -845,12 +285,8 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
   )
 });
 /// Generate per-variant constructor implementations for every concrete
-/// reference-semantics enum (`ref(enum(…))`): emits the cycle-GC traversal
-/// functions first (when needed), then the constructors.
+/// reference-semantics enum (`ref(enum(…))`).
 generate_ref_enum_constructor_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  if(needs_traversal_functions(context), {
-    generate_ref_enum_traversal_functions(context);
-  });
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
   vals_cur := context.base.types.walk_start();
@@ -871,4 +307,4 @@ generate_ref_enum_constructor_functions :: (fn(context : &FunctionGenerationCont
 generate_closure_constructor_functions :: (fn(context : &FunctionGenerationContext) -> unit)(
   ()
 );
-export(dispose_fn_thunk, generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, needs_traversal_functions, generate_closure_constructor_functions, _traverse_value, set_traverse_visit_expr);
+export(dispose_fn_thunk, generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions);

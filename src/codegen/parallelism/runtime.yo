@@ -143,7 +143,7 @@ static void __yo_worker_init_mutex(void) {
 // - spawn: create new OS thread with closure (returns by value)
 // - join: wait for thread to complete
 //
-// Note: __yo_thread_t and __yo_thread_fn are defined in the GC runtime types section
+// Note: __yo_thread_t and __yo_thread_fn are defined in the runtime types section
 // to ensure they're available before user struct types that depend on them.
 
 // Thread entry point wrapper
@@ -158,10 +158,7 @@ typedef struct __yo_thread_entry_args_t {
   emitter.emit_string_line(
     `  __yo_thread_entry_args_t* args = (__yo_thread_entry_args_t*)arg;
 
-  PARALLELISM_DEBUG("[THREAD] Thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());
-
-  // Initialize thread-local GC for this thread
-  __yo_gc_init_thread();`
+  PARALLELISM_DEBUG("[THREAD] Thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());`
   );
   emitter.emit_string_line(&async_init_thread);
   emitter.emit_string_line(
@@ -174,20 +171,13 @@ typedef struct __yo_thread_entry_args_t {
     `
   PARALLELISM_DEBUG("[THREAD] Thread completed (tid=%zu)\\n", (size_t)__yo_get_thread_id());
 
-  // Cleanup thread-local GC
-  __yo_gc_collect();
-
   // Note: closure data is freed by the spawn wrapper (which handles RC cleanup)
 
   // Free args
   __yo_free(args);
 
-  // Release this thread's GC state and its tracked-object list. POSIX also
-  // runs this from the cleanup key's destructor, but Windows' TlsAlloc key has
-  // no destructor, so every exiting thread leaked it there
-  // (issues/fixed/windows-thread-gc-state-is-never-released-at-thread-exit.md).
-  // Idempotent: the key destructor then finds nothing to do.
-  __yo_cleanup_thread_gc();
+  // Release this thread's async runtime pools.
+  __yo_cleanup_thread();
 `
   );
   emitter.emit_string_line(&thread_entry_return);
@@ -265,7 +255,6 @@ static void __yo_thread_detach(__yo_thread_t thread) {
 //
 // Thread-per-core: By default, one worker thread per CPU core.
 // Thread affinity: Each task runs on a specific worker thread.
-// Thread-local GC: Each worker thread has its own GC heap.
 
 // Task node for per-thread task queue
 typedef struct __yo_worker_task_t {
@@ -299,17 +288,14 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
   emitter.emit_string_line(
     `  __yo_worker_thread_t* worker = (__yo_worker_thread_t*)arg;
 
-  PARALLELISM_DEBUG("[WORKER] Worker thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());
-
-  // Initialize thread-local GC for this worker thread
-  __yo_gc_init_thread();`
+  PARALLELISM_DEBUG("[WORKER] Worker thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());`
   );
   emitter.emit_string_line(&async_init_thread);
   emitter.emit_string_line(
     `
   // Signal that this thread has started. Release so the main thread's
   // acquire-load in __yo_worker_pool_init sees this thread's prior
-  // writes (GC/scheduler init) happen-before it proceeds.
+  // writes (scheduler init) happen-before it proceeds.
   atomic_store_explicit(&worker->started, 1, memory_order_release);
 
   while (1) {
@@ -347,16 +333,10 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
     `
       // Note: closure data is freed by the spawn wrapper (which handles RC cleanup)
       __yo_free(task);
-
-      // Run GC after task completion to clean up any cycles
-      __yo_gc_collect();
     }
   }
 
   PARALLELISM_DEBUG("[WORKER] Worker thread exiting (tid=%zu)\\n", (size_t)__yo_get_thread_id());
-
-  // Final GC cleanup
-  __yo_gc_collect();
 `
   );
   // Release this worker's event loop. Deliberately at THREAD exit and not
@@ -364,8 +344,8 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
   // tasks, and tearing the ring down after each one would rebuild it for the
   // next. The leak is per-THREAD, so the release belongs at thread teardown.
   emitter.emit_string_line(&async_cleanup_worker);
-  // Release this worker's GC state last (see the Thread entry point).
-  emitter.emit_string_line(`  __yo_cleanup_thread_gc();`);
+  // Release this worker's async runtime pools last (see the Thread entry point).
+  emitter.emit_string_line(`  __yo_cleanup_thread();`);
   emitter.emit_string_line(&worker_entry_return);
   emitter.emit_string_line(
     `}

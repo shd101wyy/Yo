@@ -48,8 +48,6 @@
   BF_YO_DECR_RC_ATOMIC,
   BF_YO_SOMETYPE_DROP,
   BF_YO_SOMETYPE_DUP,
-  BF_YO_GC_COLLECT,
-  BF_YO_GC_TRACE_CHILD,
   BF_REF_COUNT,
   BF_PANIC,
   BF_ASM,
@@ -105,7 +103,6 @@
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { generate_atom } :: import("./atom.yo");
 { generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call } :: import("./rc_fns.yo");
-{ generate_yo_gc_collect, generate_yo_gc_trace_child } :: import("./gc.yo");
 { generate_panic } :: import("./panic.yo");
 { generate_asm, generate_global_asm } :: import("./asm.yo");
 { generate_dyn_call } :: import("./dyn.yo");
@@ -805,8 +802,6 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC_ATOMIC, Option(usize).None), return(generate_yo_decr_rc_atomic(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP, Option(usize).None), return(generate_yo_sometype_drop(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, Option(usize).None), return(generate_yo_sometype_dup(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_GC_COLLECT, Option(usize).None), return(generate_yo_gc_collect(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_GC_TRACE_CHILD, Option(usize).None), return(generate_yo_gc_trace_child(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_REF_COUNT, Option(usize).None), return(generate_ref_count_call(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_PANIC, Option(usize).None), return(generate_panic(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_ASM, Option(usize).None), return(generate_asm(expr, indent.clone(), context)));

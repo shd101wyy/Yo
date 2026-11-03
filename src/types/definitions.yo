@@ -268,12 +268,7 @@ impl(
 // the prelude's `Rc(T)` clone, plans/VALUES_BY_DEFAULT.md decision 17). Each
 // list is built once and never written (no mutator reaches `items` through the
 // read-only `Rc`, decision 46), so a cell points only at older values and
-// none reaches itself: `Acyclic` keeps the cells out of the cycle collector.
-impl(SharedList(String), Acyclic());
-impl(SharedList(bool), Acyclic());
-impl(SharedList(usize), Acyclic());
-impl(SharedList(i64), Acyclic());
-impl(SharedList(SharedList(String)), Acyclic());
+// none reaches itself.
 /// Non-recursive ("meta") fields of a function type, factored out of the
 /// `TypeValue.Func` variant and stored behind an `Rc` (P2 memory: the inline
 /// Func variant set `sizeof(TypeValue)` to ~150 B — wasted in every small-type
@@ -689,18 +684,12 @@ t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
 // write to a node's fields; the `ArrayList` lists named under `SharedList`
 // are pushed to in place, and that write is meant to reach every holder), so
 // sharing is sound (plans/backlog/TYPEVALUE_HASH_CONSING.md §5).
-// SAFETY: a TypeValue is rebuilt, never mutated (the audit above): its
+// A TypeValue is rebuilt, never mutated (the audit above): its
 // children are filled when it is built and never written afterwards, so a
 // node only points at nodes older than itself and none reaches itself;
 // recursive types recur through ids and the self shell, not through pointers
-// (plans/VALUES_BY_DEFAULT.md decision 21). Declaring `Acyclic` keeps every
-// TypeValue node, and every `ArrayList(TypeValue)`, out of the cycle
-// collector (§3.12, V4).
-impl(TypeValue, Acyclic());
-// The type lists inside a node: a copy is one count bump, and they are
-// acyclic for the reason `TypeValue` is (see `SharedList`).
-impl(SharedList(TypeValue), Acyclic());
-impl(SharedList(SharedList(TypeValue)), Acyclic());
+// (plans/VALUES_BY_DEFAULT.md decision 21). The type lists inside a node
+// are acyclic for the same reason (see `SharedList`).
 // The empty lists, one shared cell each (`shared_list` of an empty list
 // returns these through `SharedListElem`).
 (g_no_types : SharedList(TypeValue)) = Rc.new(SharedListCell(TypeValue)(items : ArrayList(TypeValue).new()));

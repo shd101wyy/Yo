@@ -7806,11 +7806,6 @@ run_compile :: (
   (heap_size_raw : String) = String.new();
   (heap_size : usize) = usize(16777216);
   (debug_heap : bool) = false;
-  // `--cycle-collector auto|off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1):
-  // `off` forces the lightweight RC runtime, so a reference cycle leaks. `off`
-  // is the default for one release before the collector is deleted (W6a, §6
-  // precondition 3); `auto` keeps the collector.
-  (cycle_collector : String) = String.from("off");
   (emit_chunks : usize) = usize(0);
   // `--emit-chunks auto` (Phase 1, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
   // §4): N is resolved AFTER emission, from the actual emitted bytes —
@@ -7883,7 +7878,6 @@ run_compile :: (
   // reuses this round's universe), and the caller reads the flag.
   (watch_mode : bool) = false;
   (skip_codegen : bool) = false;
-  (debug_gc : bool) = false;
   (debug_parallelism : bool) = false;
   (debug_async_await : bool) = false;
   (debug_symbols : bool) = false; // -g
@@ -7977,10 +7971,6 @@ run_compile :: (
       (a_name == "--debug-heap") => {
         debug_heap = true;
         ai = (ai + usize(1));
-      },
-      (a_name == "--cycle-collector") => {
-        cycle_collector = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--optimize") => {
         optimize = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -8123,10 +8113,6 @@ run_compile :: (
         // failing as an unknown flag.
         exn.throw(dyn(String.from("compile: --release was removed; use --optimize 2 (it was exactly that)")));
       },
-      (a == "--debug-gc") => {
-        debug_gc = true;
-        ai = (ai + usize(1));
-      },
       (a == "--line-directives") => {
         line_directives = true;
         ai = (ai + usize(1));
@@ -8239,9 +8225,6 @@ run_compile :: (
   });
   if(debug_heap && (allocator != "fixed"), {
     exn.throw(dyn(String.from("compile: --debug-heap requires --allocator fixed")));
-  });
-  if((cycle_collector != "auto") && (cycle_collector != "off"), {
-    exn.throw(dyn(`compile: invalid --cycle-collector "${cycle_collector}". Choices: auto, off`));
   });
   // "s" is -Os (optimize for size): clang, gcc, zig cc and emcc all accept
   // it, so unlike a "z" level it needs no per-compiler gate (gcc has no -Oz).
@@ -8679,7 +8662,7 @@ run_compile :: (
     // decision 28's value-root rule rejects once it lands with V2b.
     info_table := ctx.expr_info_table.clone();
     (c_spilled_bytes : usize) = usize(0);
-    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, cycle_collector == "off", &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
+    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
     ctx.expr_info_table = info_table;
     // Whether the code spilled is the emitter's own count, never the state of
     // the path: a file that is missing or holds other bytes is a lost part of
@@ -10072,8 +10055,6 @@ run_test :: (
   (test_allocator : String) = String.from("");
   (test_heap_size_raw : String) = String.new();
   (test_debug_heap : bool) = false;
-  // `--cycle-collector auto|off`, forwarded to every batch compile.
-  (test_cycle_collector : String) = String.new();
   (json_summary : bool) = false;
   // `--json`: one JSON object per line — a `test` event per test (file,
   // name, status, duration, and the captured output on failure) and a
@@ -10157,10 +10138,6 @@ run_test :: (
       (a == "--debug-heap") => {
         test_debug_heap = true;
         ai = (ai + usize(1));
-      },
-      (a == "--cycle-collector") => {
-        test_cycle_collector = _arg_val_req(argv, ai, a.clone(), exn);
-        ai = (ai + usize(2));
       },
       (a == "--test-batch-size") => {
         bs_raw := _arg_val_req(argv, ai, a.clone(), exn);
@@ -10313,9 +10290,6 @@ run_test :: (
   });
   if(test_debug_heap && (test_allocator != "fixed"), {
     exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
-  });
-  if((test_cycle_collector.len() > usize(0)) && (test_cycle_collector != "auto") && (test_cycle_collector != "off"), {
-    exn.throw(dyn(`test: invalid --cycle-collector "${test_cycle_collector}". Choices: auto, off`));
   });
   // YO_TEST_FORK=N: up to N files at a time in forked workers (see
   // `_TestForkPool`). A worker compiles in process, so the knob turns the
@@ -10912,10 +10886,6 @@ run_test :: (
           if(test_debug_heap, {
             cargv.push(String.from("--debug-heap"));
           });
-        });
-        if(test_cycle_collector != "", {
-          cargv.push(String.from("--cycle-collector"));
-          cargv.push(test_cycle_collector.clone());
         });
         // Forward the error format so a batch-compile failure renders per
         // --error-format (P3 threading). Color travels too when it is ON:
@@ -13271,8 +13241,6 @@ Options:
                             a run that ends with live blocks
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed; 64K..4G)
   --debug-heap              Print heap stats + live-at-exit leak oracle at exit (fixed only)
-  --cycle-collector <mode>  Cycle collector (off|auto, default off); off leaks
-                            reference cycles a Weak does not break
   --emit-c                  Print the generated C to stdout and stop
   --emit-c-to <path>        Write the generated C to <path> instead of <output>.c
   --emit-deps <path>        Write the files this compile read, one per line
@@ -13295,7 +13263,7 @@ Options:
                             as it is about to run — the line a sanitizer flag
                             must appear in for the run to prove it was instrumented
   --emcc-environment <env>  Emscripten environment (node|web)
-  --debug-gc / --debug-async-await / --debug-parallelism
+  --debug-async-await / --debug-parallelism
                             Runtime debug logging in the emitted binary
   --std-path <dir>          Override the std library directory
 
@@ -13331,8 +13299,6 @@ Examples:
                             退出仍有存活块的运行失败
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed；64K..4G）
   --debug-heap              退出时打印堆统计与存活块泄漏检查（仅 fixed）
-  --cycle-collector <mode>  循环回收器（off|auto，默认 off）；off 时未被 Weak
-                            打断的引用环会泄漏
   --emit-c                  把生成的 C 打印到 stdout 然后停止
   --emit-c-to <path>        把生成的 C 写到 <path>，代替 <output>.c
   --emit-deps <path>        把本次编译读取的文件逐行写入该文件
@@ -13353,7 +13319,7 @@ Examples:
   -v, --verbose             运行前打印每次 C 编译器调用（"Compiling with: …"），
                             清理器标志必须出现在该行，运行才算证明已被插桩
   --emcc-environment <env>  Emscripten 环境（node|web）
-  --debug-gc / --debug-async-await / --debug-parallelism
+  --debug-async-await / --debug-parallelism
                             产出二进制内的运行时调试日志
   --std-path <dir>          覆盖标准库目录
 
@@ -13458,7 +13424,6 @@ Options:
                             debug fails a test that ends with live blocks
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed)
   --debug-heap              Heap stats + live-at-exit oracle per test (fixed only)
-  --cycle-collector <mode>  Cycle collector for test binaries (off|auto, default off)
   --disable-sanitize        Skip AddressSanitizer linkage
   -k, --keep-generated-files  Keep generated batch files
   --profile                 Print per-phase timing
@@ -13506,7 +13471,6 @@ Examples:
                             debug 时结束仍有存活块的测试失败
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed）
   --debug-heap              每个测试退出时打印堆统计与存活块检查（仅 fixed）
-  --cycle-collector <mode>  测试二进制的循环回收器（off|auto，默认 off）
   --disable-sanitize        跳过 AddressSanitizer 链接
   -k, --keep-generated-files  保留生成的批次文件
   --profile                 打印分阶段耗时

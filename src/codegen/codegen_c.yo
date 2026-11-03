@@ -15,14 +15,13 @@
 { HashSet } :: import("std/collections/hash_set");
 { read_file_sync } :: import("../manifest.yo");
 { Emitter } :: import("../emitter.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type } :: import("../types/guards.yo");
-{ type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
+{ is_newtype_type } :: import("../types/guards.yo");
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
 { EvalContext, force_pending_count } :: import("../evaluator/context.yo");
 { CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, std_allocator_abi_is_v2 } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
-{ collect_required_functions, collect_module_level_init_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
+{ collect_required_functions, collect_module_level_init_functions, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
 { collect_type, collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
 { generate_type_declarations, generate_dyn_box_types, generate_struct_declaration, generate_enum_declaration, generate_tuple_declaration, generate_union_declaration, generate_future_trait_declaration } :: import("./types/generation.yo");
@@ -144,77 +143,10 @@ _on_demand_collect_and_declare :: (fn(t : &TypeValue, context : &CodeGenContext)
 register_on_demand_declare :: (fn() -> unit)({
   set_on_demand_declare_fn(_on_demand_collect_and_declare);
 });
-_struct_has_generic_field :: (fn(ty : &TypeValue) -> bool)(
-  match(
-    ty,
-    Rc(.Struct({ field_types })) => {
-      n := field_types.len();
-      (i : usize) = usize(0);
-      (found : bool) = false;
-      while((i < n) && !found, {
-        match(
-          field_types.get(i),
-          // RECURSIVE (a deep walk, not a top-level SomeType test): a generic
-          // `ArrayList(E)` has field `?(*(E))` — a SomeT nested under
-          // Option/Ptr — which a top-level test misses, so the generic
-          // instantiation is accepted as a concrete CYCLE ROOT and forces the
-          // heavy GC runtime for the entire program. See
-          // issues/repros/toplevel-some-type-check-forces-cycle-gc.yo.
-          .Some(ft) => if(type_contains_some_type_deep(&ft), {
-            found = true;
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      found
-    },
-    _ => false
-  )
-);
-/// Pre-scan to determine whether any object type can form an RC cycle. Must run
-/// before generate_type_declarations because it selects the __yo_ref_header_t
-/// layout (with or without GC fields).
-///
-/// Sets needs_cycle_gc when any reference-struct type can form an RC cycle
-/// (`can_type_form_rc_cycle`), which selects the FULL cyclic-GC runtime
-/// (`generate_full_gc_runtime_functions`) over the lightweight RC path.
-///
-/// Under `--cycle-collector off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1)
-/// it stays false whatever the types: the lightweight runtime is selected, no
-/// constructor registers, no `traverse_fn` or `trace` is emitted, `Gc.collect()`
-/// is the runtime's no-op and `Gc.tracked_count()` is 0. A cycle then leaks.
-compute_needs_cycle_gc :: (fn(context : &CodeGenContext) -> unit)({
-  context.needs_cycle_gc = false;
-  if(context.cycle_collector_off, {
-    return(());
-  });
-  // The walk borrows `context.types`, so the flag is set after it.
-  (needs_gc : bool) = false;
-  for(&context.types, (_tid, entry) => {
-    ty := Rc.clone(entry.ty);
-    is_struct_root := (is_reference_struct_type(&ty) && !is_atomic_reference_struct_type(&ty) && !_struct_has_generic_field(&ty));
-    // A reference-semantics enum can also form an RC cycle (recursive Self
-    // variant field), so it is a cycle root too.
-    is_enum_root := (is_reference_enum_type(&ty) && !is_atomic_reference_enum_type(&ty) && !type_contains_some_type_deep(&ty));
-    if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(&ty), {
-      needs_gc = true;
-      break;
-    });
-  });
-  context.needs_cycle_gc = needs_gc;
-});
-/// Emit the type-tag dispose dispatch function (lightweight RC only). Reads the
-/// dispose_type_ids side-table the object constructors populate and emits a
-/// switch; when empty, emits the no-op stub the RC runtime forward-declares.
-///
-/// The needs_cycle_gc branch dispatches through the per-object dispose_fn
-/// pointer instead, so nothing is emitted there; under lightweight RC this
-/// switch is the dispatch path.
+/// Emit the type-tag dispose dispatch function. Reads the dispose_type_ids
+/// side-table the object constructors populate and emits a switch; when
+/// empty, emits the no-op stub the RC runtime forward-declares.
 emit_dispose_dispatch :: (fn(context : &CodeGenContext) -> unit)({
-  if(context.needs_cycle_gc, {
-    return();
-  });
   em := context.emitter;
   // Collect the dispose-fn C names (keys) so we can emit one case per id.
   names := ArrayList(String).new();
@@ -272,8 +204,7 @@ static int __yo_dispose_dispatch(void* ptr) {
 /// The per-type state-machine pools the async runtime declares
 /// (`__yo_sm_take`, `__yo_sm_give`, `__yo_sm_pools_drain`, runtime_core.yo),
 /// defined once every pooled type has its index. Pooled types are the ones
-/// whose constructor asked for an index: under lightweight RC only, since the
-/// cycle collector frees through its own path.
+/// whose constructor asked for an index.
 emit_sm_pools :: (fn(context : &CodeGenContext, uses_async : bool) -> unit)({
   em := context.emitter;
   n := context.sm_pool_ids.len();
@@ -341,7 +272,7 @@ static inline void __yo_sm_pools_drain(void) {
 ///
 /// Pipeline: register the collection/dispatch indirections → build the context →
 /// collect required functions + types → emit C includes → the Future-state enum →
-/// the needs_cycle_gc pre-scan → type declarations → the argv shim → function
+/// type declarations → the argv shim → function
 /// declarations → (register the expr dispatcher) function bodies → the main
 /// wrapper (executable mode) → the dispose-dispatch switch.
 ///
@@ -354,7 +285,7 @@ static inline void __yo_sm_pools_drain(void) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, target : &TargetInfo, allocator : &String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, cycle_collector_off : bool, eval_ctx : &EvalContext, module_env : &Environment, exn : Exception, chunk_parts_out : &mut ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : &String, line_directives : bool, line_c_name : &String, chunk_name_base : &String, code_spilled_out : &mut usize) -> ArrayList(String))({
+compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, target : &TargetInfo, allocator : &String, heap_size : usize, debug_heap : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : &EvalContext, module_env : &Environment, exn : Exception, chunk_parts_out : &mut ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : &String, line_directives : bool, line_c_name : &String, chunk_name_base : &String, code_spilled_out : &mut usize) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -375,10 +306,7 @@ compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, targ
   register_inline_await_emitter(emit_inline_await);
   register_fused_await_emitter(emit_fused_await);
   emitter := Emitter.new();
-  base := CodeGenContext.new(&emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
-  // `--cycle-collector off`: read by compute_needs_cycle_gc and by the
-  // `__yo_cycle_collector_off` hook in the runtime declarations.
-  base.cycle_collector_off = cycle_collector_off;
+  base := CodeGenContext.new(&emitter, info, target, allocator, heap_size, debug_heap, debug_parallelism, debug_async_await, is_library);
   // The allocator interface the runtime speaks, read off the shape of std's
   // `AllocatorVTable` (D30): version 1 until std moves (Generation B).
   base.alloc_abi_v2 = std_allocator_abi_is_v2(module_env, &eval_ctx.std_path);
@@ -494,17 +422,6 @@ typedef enum {
 } __yo_future_state_t;
 `
   );
-  // Pre-scan: select the __yo_ref_header_t layout (must precede type decls).
-  compute_needs_cycle_gc(&base);
-  // Cycle-GC: when any type can form an RC cycle, monomorphize each cyclable
-  // container's generic `trace` method (the Trace trait) and register it under the
-  // concrete container id, so the traversal generators delegate to it. Must run
-  // before function declarations so the specialized `trace` gets a prototype+body.
-  // (there is no codegen-time monomorphizer; the collector drives the
-  // evaluator's create_specialized_function_inline with the threaded ctx/exn/env.)
-  if(base.needs_cycle_gc, {
-    collect_trace_methods_from_generic_impls(&base, eval_ctx, module_env, info, exn);
-  });
   // Auto-derive the ___dispose (recursive RC-field drop) for RC struct types lacking
   // one, so freeing them drops their RC fields (runtime calls header.dispose_fn). The
   // RC-function synthesis is deferred until here; it runs with the threaded ctx/exn. Must precede
@@ -717,4 +634,4 @@ static Slice_uint8_t_u42_ __yo_args;
   code_spilled_out = base.emitter.code_spilled_bytes;
   base.emitter.sections()
 });
-export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);
+export(emit_dispose_dispatch, compile_module);

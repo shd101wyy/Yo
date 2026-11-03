@@ -146,22 +146,9 @@ generate_dyn_box_functions :: (fn(context : &FunctionGenerationContext) -> unit)
           em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_rc_alloc(sizeof(${box_name}));`);
           em.emit_line("  box->header.ref_count = 1u;");
           em.emit_line("  box->header.borrow_count = 0;");
-          if(context.base.needs_cycle_gc, {
-            em.emit_line("  box->header.gc_flags = 0;");
-            em.emit_line("  box->header.gc_mark = __YO_GC_UNMARKED;");
-            em.emit_line("  box->header.gc_next = NULL;");
-            em.emit_line("  box->header.gc_prev = NULL;");
-          });
           dispose_name := `__yo_dispose_${box_name}`;
-          if(context.base.needs_cycle_gc, {
-            em.emit_string_line(`  box->header.dispose_fn = ${dispose_name};`);
-          }, {
-            tid := context.base.dispose_type_id_for(dispose_name.clone());
-            em.emit_string_line(`  box->header.type_id = ${tid.to_string()};`);
-          });
-          if(context.base.needs_cycle_gc, {
-            em.emit_line("  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types");
-          });
+          tid := context.base.dispose_type_id_for(dispose_name.clone());
+          em.emit_string_line(`  box->header.type_id = ${tid.to_string()};`);
           em.emit_line("  box->value = value;");
           em.emit_line("  return box;");
           em.emit_line("}");
@@ -499,13 +486,12 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                       // list already took its captures (its body moved or
                       // dropped them), so the box must free its memory
                       // without disposing the payload again: clear the
-                      // header's dispose (`dispose_fn` with the cycle GC,
-                      // the `type_id` dispatch tag without it). An `Fn`
+                      // header's dispose (the `type_id` dispatch tag). An `Fn`
                       // payload's body only borrowed its captures, so the
                       // box's ordinary dispose drops them.
                       payload_owns := match(cc_info, .Some(mp) => is_fnonce_closure_fn(mp.closure_fid.clone()), .None => false);
                       if(payload_owns, {
-                        em.emit_declaration_string_line(if(context.base.needs_cycle_gc, String.from("  box->header.dispose_fn = NULL;"), String.from("  box->header.type_id = 0;")));
+                        em.emit_declaration_line("  box->header.type_id = 0;");
                       });
                       em.emit_declaration_string_line(if(_dyn_data_is_atomic(data_type.clone()), String.from("  __yo_decr_rc_atomic((void*)box);"), String.from("  __yo_decr_rc((void*)box);")));
                       if(!is_void, {
