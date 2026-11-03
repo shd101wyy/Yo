@@ -4,6 +4,9 @@
 //! Supports:
 //!   Future(T)        — basic future
 //!   Future(T, E)     — future with a single effect bundle struct E
+//!   Future(T, p)     — a future borrowing the places of origin `p`
+//!   Future(T, E, p)  — both (decision 43 step 4, N3-1; the origin is
+//!                      recognized by kind: a place or an origin, not a type)
 //!
 //! Multiple effects must be packed into a single struct (e.g.
 //!   Ctx :: struct(io : Io, raise : Raise); Future(T, Ctx)).
@@ -18,15 +21,19 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_FUTURE
+  BK_FUTURE,
+  BK_TUPLE
 }
 :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ t_future_trait } :: import("../../types/creators.yo");
+{ t_future_trait_with_origin } :: import("../../types/creators.yo");
+{ is_type_hierarchy_type } :: import("../../types/guards.yo");
+{ t_origin_elided } :: import("../../types/definitions.yo");
+{ evaluate_origin_argument } :: import("./function.yo");
 { note_move_only_possible } :: import("../../types/utils.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -133,6 +140,22 @@ _resolve_effect_arg :: (
 });
 // ---------------------------------------------------------------------------
 // evaluate_future_type
+/// An argument after `T` names an origin, not an effect, when it is not a
+/// type (decision 43 step 4, N3-1): `origin(...)`, a tuple of places
+/// `(x, y)`, or a name bound to a value or an origin parameter. An effect is
+/// a type (a bundle struct, `Io`, a `generic(E : Type.Struct)` variable).
+_is_origin_operand :: (fn(e : &AstExpr, env : &Environment) -> bool)(
+  cond(
+    ast_expr_is_fn_call_of(e, "origin", .None) => true,
+    ast_expr_is_fn_call_of(e, BK_TUPLE, .None) => true,
+    ast_expr_is_atom(e) => match(
+      get_variables_from_env(env, &ast_expr_token(e).value.*).last(),
+      .Some(v) => !is_type_hierarchy_type(&v.ty),
+      .None => false
+    ),
+    true => false
+  )
+);
 // ---------------------------------------------------------------------------
 /// Evaluates the `Future(T, ...)` syntax.
 /// Creates a FutureTraitT type with the output type and at most one effect.
@@ -145,13 +168,25 @@ evaluate_future_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  expr_args := _future_args(expr);
+  mut(expr_args) := _future_args(expr);
+  // A trailing origin (`Future(T, p)`, `Future(T, E, p)`) is split off first.
+  (origin_type : TypeValue) = t_origin_elided();
+  last_arg := match(expr_args.last(), .Some(a) => a, .None => make_err_expr());
+  if((expr_args.len() >= usize(2)) && (expr_args.len() <= usize(3)) && _is_origin_operand(&last_arg, env), {
+    o_ev := evaluate_origin_argument(&last_arg, env, ctx, exn);
+    origin_type = match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&o_ev)),
+      .Some(oi) => match(oi.value, .Some(.TypeVal(ot)) => Rc.clone(ot), _ => t_origin_elided()),
+      .None => t_origin_elided()
+    );
+    _dropped := expr_args.pop();
+  });
   if((expr_args.len() < usize(1)) || (expr_args.len() > usize(2)), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Future type constructor expects 1 or 2 arguments (output type, optional effect bundle struct).\nUsage: Future(T) or Future(T, E).\nTo combine multiple effects, declare a struct that bundles them and pass that struct as E.")
+          String.from("Future type constructor expects 1 to 3 arguments (output type, optional effect bundle struct, optional origin).\nUsage: Future(T), Future(T, E), Future(T, p) or Future(T, E, p).\nTo combine multiple effects, declare a struct that bundles them and pass that struct as E.")
         )
       )
     );
@@ -208,7 +243,7 @@ evaluate_future_type :: (
     ei = (ei + usize(1));
   });
   // Build the FutureTraitT
-  future_type := t_future_trait(String.from(BK_FUTURE), &output_type, effect_labels, effect_types);
+  future_type := t_future_trait_with_origin(String.from(BK_FUTURE), &output_type, effect_labels, effect_types, &origin_type);
   // A future is move-only (decision 13): arm the move-only checks.
   note_move_only_possible();
   // Set expr info
