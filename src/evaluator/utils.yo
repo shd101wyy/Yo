@@ -130,7 +130,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_fnmut_closure } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -2015,7 +2015,7 @@ require_capture_borrow_exclusivity :: (
       all_args.push(callee);
       // A called `FnMut(...)` closure is borrowed exclusively by its call
       // (decision 37), whatever it captures.
-      excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => (type_first_mut_borrow(&inf.ty).is_some() || type_is_fnmut_closure(&inf.ty)), .None => false));
+      excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => (type_first_mut_borrow(&inf.ty).is_some() || type_is_typed_fnmut_closure(&inf.ty)), .None => false));
       named.push(true);
     },
     .None => ()
@@ -2490,18 +2490,30 @@ mut_binding_audit_enabled :: (fn() -> bool)(g_audit_mut_bindings);
 /// (E0913), a write of a by-value entry under an `Fn(...)` slot (E0917), or
 /// a `Sync` slot (rejected naming `FnMut`, `utils/closure.yo`).
 fn_slot_admits_capture_fnmut :: (fn() -> bool)(true);
-/// A closure literal typed against the `Fn(...)` slot `slot` holds the
-/// `&mut` capture-list entries `mut_names`, so it is `FnMut` by its captures.
-/// `fn_slot_admits_capture_fnmut` admits it (the census line is printed);
-/// past the exemption it is E0913.
-judge_capture_fnmut_at_fn_slot :: (fn(tok : &Token, slot : &TypeValue, mut_names : &ArrayList(String), ctx : &EvalContext, exn : Exception) -> unit)({
+/// The closure `closure_ty` reaches the `Fn(...)` slot `slot` (a parameter,
+/// an annotation, a `Dyn(Fn(...))`) and is `FnMut` by its captures alone
+/// (`capture_struct_is_fnmut`, VERDICTS-15 Q4′). `fn_slot_admits_capture_fnmut`
+/// admits it (the census line is printed); past the exemption it is E0913.
+/// Nothing happens for any other closure.
+judge_capture_fnmut_at_fn_slot :: (fn(tok : &Token, slot : &TypeValue, closure_ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!capture_struct_is_fnmut(closure_ty), {
+    return(());
+  });
+  bs := ArrayList(CaptureBorrow).new();
+  collect_type_borrows(closure_ty, &mut bs);
   names := String.new();
   (ni : usize) = usize(0);
-  while(ni < mut_names.len(), ni = (ni + usize(1)), {
-    if(ni > usize(0), {
-      names.push_str(",");
-    });
-    match(mut_names.get(ni), .Some(nm) => names.push_string(&nm), .None => ());
+  while(ni < bs.len(), ni = (ni + usize(1)), {
+    match(
+      bs.get(ni),
+      .Some(b) => if(b.is_mut, {
+        if(!names.is_empty(), {
+          names.push_str(",");
+        });
+        names.push_string(&`\`${b.label}\``);
+      }),
+      .None => ()
+    );
   });
   if(g_audit_fnmut, {
     global_lend_audit_print(&`${global_lend_location(tok)} [fnmut] slot=${type_to_string(slot)} captures=${names}`);

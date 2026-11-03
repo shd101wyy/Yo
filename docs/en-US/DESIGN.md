@@ -3316,9 +3316,9 @@ run_once(add); // an `Fn` serves for one call
   E0901 pointing at the first call. The body drops the captures it did not
   move when the call ends. A closure that is never called drops its captures
   with its owner.
-- **`Fn` implies `FnOnce`.** An `Fn(...)` closure is accepted wherever
-  `FnOnce(...)` is required. An `FnOnce` closure passed where `Fn(...)` is
-  required is E0913.
+- **`Fn` implies `FnMut`, which implies `FnOnce`.** An `Fn(...)` or
+  `FnMut(...)` closure is accepted wherever `FnOnce(...)` is required. An
+  `FnOnce` closure passed where `Fn(...)` or `FnMut(...)` is required is E0913.
 - **Only an API the closure escapes into can call it once.** Take it by value,
   `sink(f) : Impl(FnOnce(...))`; calling an `FnOnce` closure through a
   borrowed parameter is E0901. A non-escaping callback keeps
@@ -3329,9 +3329,56 @@ run_once(add); // an `Fn` serves for one call
   move out is E0913 at the moving line. In this release an implicit capture
   cannot be moved out either (E0913 names the capture-list spelling).
 - `Dyn(FnOnce(...) -> R)` holds any call-once closure; its call consumes it too.
-- There is no `FnMut`. State that changes across calls lives where a `&mut`
-  capture points, in an `Rc` cell the closure holds, or in a named struct with
-  a `&mut self` method.
+
+### Call-repeatedly closures: `FnMut`
+
+`FnMut(...) -> R` is the closure trait whose call borrows the closure
+exclusively, `self : &mut Self` (`plans/VALUES_BY_DEFAULT.md` decision 37).
+Its body may write its own state — the by-value entries of its capture list —
+and its `&mut` captures, and the write persists from one call to the next:
+
+```yo
+(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+  n = (n + i32(1)); // the closure's own state
+  n
+});
+tick(); // 1
+tick(); // 2
+
+twice :: (fn(f : &mut Impl(FnMut() -> i32)) -> i32)(f() + f());
+twice(&mut tick); // 3 + 4: the callee writes the caller's closure
+twice({ n : i32(10) }() => {
+  n = (n + i32(1));
+  n
+}); // a literal is a temporary, lent exclusively
+```
+
+- **The call borrows the closure exclusively**, like `xs.push(v)`. So the
+  closure is called through a `mut(f)` binding, a `f : &mut Impl(FnMut(...))`
+  parameter, a `(mut(d) : Dyn(FnMut(...)))` or a temporary. Calling it
+  through an unmarked binding or a by-value parameter is E0917 (rebind a
+  parameter: `mut(g) := f;`), through `f : &Impl(FnMut(...))` or a
+  `&Dyn(FnMut(...))` E0908, and while a borrow of it is live E0911.
+- **`Fn` implies `FnMut`.** An `Fn(...)` closure is accepted wherever
+  `FnMut(...)` is required. A closure typed `FnMut(...)` passed where
+  `Fn(...)` is required, or boxed as a `Dyn(Fn(...))`, is E0913: that slot may
+  call it again through a shared borrow. An `FnOnce` closure is not an
+  `FnMut` (E0913).
+- **A by-value entry is writable only under `FnMut`.** The same body typed
+  `Fn(...)` or `FnOnce(...)` writing an entry is E0917: there the write would
+  reach a per-call copy. Under `FnOnce`, rebind the entry (`mut(m) := n;`).
+- **An `FnMut` closure is move-only.** It derives neither `Copy` nor `Clone`,
+  whatever its captures are: a copy would fork its state. `Dyn(FnMut(...))` is
+  move-only too.
+- **A `Sync` slot rejects it.** `Impl(Fn(...), Sync)` may call the closure
+  from several threads at once, so a closure that writes a `&mut` capture or
+  its own state is rejected there, naming `FnMut`.
+- **This release still admits a `&mut`-capturing literal at an `Fn(...)`
+  slot.** std's call-repeatedly callbacks (`for_each`, `retain`, `sort_by`,
+  the `with_lock` bodies) take `f : &Impl(Fn(...))` until the next release
+  switches them to `FnMut(...)`; until then a literal holding a `&mut`
+  capture passed to an `Fn(...)` slot keeps working, the write going through
+  the capture's pointer. `YO_AUDIT_FNMUT=1` lists every such site.
 
 ### Closure Type Restrictions
 

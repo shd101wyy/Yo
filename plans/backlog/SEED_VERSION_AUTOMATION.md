@@ -382,6 +382,31 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-11-03): std's call-repeatedly slots take `FnMut` (decision 43 N3)
+
+Decision 43's N1f (v0.2.75) adds the closure trait `FnMut(...)`
+(`plans/VALUES_BY_DEFAULT.md` decision 37, its 2026-11-03 as-built note;
+VERDICTS-15). std cannot name `FnMut` while the seed that compiles it does not
+parse it, so its call-repeatedly callbacks (`for_each`, the Iterator and
+stream adapters, `sort_by`/`sort_by_key`/`binary_search_by`, `retain`,
+`HashMap.retain`/`update_with`/`and_modify`, the `with_lock` bodies, regex
+`replace_with`, bench; about 35 slots) keep `f : &Impl(Fn(...))`. Until they
+switch, a closure holding a `&mut` capture whose trait came from an `Fn(...)`
+slot is still admitted, as before `FnMut` existed (VERDICTS-1 Q10): the one
+predicate `fn_slot_admits_capture_fnmut` (`src/evaluator/utils.yo`), with the
+rejection it suppresses written beside it in
+`judge_capture_fnmut_at_fn_slot`. `YO_AUDIT_FNMUT=1` lists the sites it
+admits.
+
+**Generation B (N3, once `SEED_VERSION` carries N1f, v0.2.75), as ONE PR:**
+switch std's slots to `f : &mut Impl(FnMut(...))` (or by value), delete
+`fn_slot_admits_capture_fnmut`, and pin the rejection (E0913) with tests. The
+same PR rewrites the three corpus rows that pass a `&mut`-capturing closure to
+an `Impl(Fn(...))` slot — `closure-push-capture`,
+`closure-push-capture-then-write` and `closure-param-into-capture`
+(`tests/origins/corpus/`) — to `Impl(FnMut(...))`: their `_each` would
+otherwise fail with E0913 before the rule under test.
+
 ## Seed-gated follow-up (2026-11-02): std spells `where(V <: Escapable)` on `Rc` and `Arc` (decision 43 N3)
 
 Decision 43 step 2's N1d (v0.2.74) adds the prelude marker `Escapable`

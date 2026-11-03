@@ -1676,25 +1676,6 @@ evaluate_anonymous_function_implementation :: (
       cfe_i = (cfe_i + usize(1));
     });
   });
-  // Decision 43 N1f: a closure holding a `&mut` capture is `FnMut` by its
-  // captures; typed against an `Fn(...)` slot it is admitted for one more
-  // release (`fn_slot_admits_capture_fnmut`, VERDICTS-15 Q4).
-  if(is_creating_closure && (expected_fn_base == "Fn"), {
-    fnmut_names := ArrayList(String).new();
-    (fmi : usize) = usize(0);
-    while(fmi < cap_entries.len(), fmi = (fmi + usize(1)), {
-      match(
-        cap_entries.get(fmi),
-        .Some(fme) => if(fme.is_borrow && fme.is_mut, {
-          fnmut_names.push(`\`${fme.label}\``);
-        }),
-        .None => ()
-      );
-    });
-    if(fnmut_names.len() > usize(0), {
-      judge_capture_fnmut_at_fn_slot(&tok, &expected_ty, &fnmut_names, ctx, exn);
-    });
-  });
   // -------------------------------------------------------------------------
   // Snapshot outer env for closure/function capture.
   // Same walk as eval.yo lines 1696-1730: iterate all outer frames and collect
@@ -3139,6 +3120,16 @@ Result type: ${type_to_string(&decl_result_ty)}`
       ),
       .None => ()
     );
+    // Decision 43 N1f: a closure holding a `&mut` capture is `FnMut`; typed
+    // against an `Fn(...)` slot it is admitted for one more release
+    // (`fn_slot_admits_capture_fnmut`, VERDICTS-15 Q4/Q4′).
+    if(expected_fn_base == "Fn", {
+      match(
+        &closure_capture_type,
+        .Some(fm_ct) => judge_capture_fnmut_at_fn_slot(&tok, &expected_ty, &fm_ct, ctx, exn),
+        .None => ()
+      );
+    });
     // Rules D4 + D9: the captured state's marker verdicts, per captured
     // variable with its value as the witness, for a later judgement of this
     // closure's TYPE (`Arc.new(k)`, `where(T <: Send)`).

@@ -1546,10 +1546,21 @@ the `&mut` audit note.
 
 - An `FnOnce` call consumes the closure: a second call (or any later use) is E0901 pointing at the first call. A closure literal takes the trait of its slot, so `(f : Impl(FnOnce() -> R)) = ({ t }() => take(t))` is call-once.
 - Only a capture list's by-value entries are owned by an `FnOnce` body: it may move one out (`sink` argument, binding, tail), and the body drops the rest when the call ends. A move out of an implicit capture is E0913 ("captured implicitly"); a move out of a capture in an `Fn` closure is E0913 too.
-- `Fn` implies `FnOnce`: an `Fn` closure fills an `FnOnce` slot; an `FnOnce` value passed to an `Fn(...)` parameter is E0913.
+- `Fn` implies `FnMut`, which implies `FnOnce`: an `Fn` or `FnMut` closure fills an `FnOnce` slot; an `FnOnce` value passed to an `Fn(...)` or `FnMut(...)` parameter is E0913.
 - Call it once from an API it ESCAPES into: `sink(f) : Impl(FnOnce(...))`. Calling through a borrowed parameter (`f : Impl(FnOnce(...))`) is E0901. A `sink` closure called on one `cond`/`match` arm is dropped, uncalled, at the end of the other arms (as any value moved in some arms is); only the ways out of a loop must still agree (E0907).
 - In Generation A every `match` binding borrows, so a bare `match` on a capture cannot move out yet (decision 37's N5 `match` shapes land with V3b).
 - A GENERIC callee (free fn or impl method) may call its own `sink(f) : Impl(FnOnce(...))` / `f : Impl(FnOnce(...))` parameter once, and an `FnOnce` closure LITERAL passed to it — at a free-fn or a method call — moves in and releases its captures exactly once (fixed 2026-10-27: `issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md`, `issues/fixed/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md`). A SEED older than that fix (before v0.2.72) still rejects the callee's call (false E0901 "it is a borrowed parameter"), which is why std's run-once with-shapes took `sink(body) : Impl(FnOnce(...))` only on the v0.2.72 seed: `RefCell.with_mut`, `HashMap.entry`, `ArrayList.with` and `Deque.with` (2026-10-28). Their body may move its captures (`cell.with_mut({ t }(xs) => xs.push(t))`); `RefCell.with` and `Mutex.with_lock` stay `&Impl(Fn(...))`.
+
+## Call-repeatedly closures: `FnMut(...) -> R`
+
+`plans/VALUES_BY_DEFAULT.md` decision 37, decision 43 N1f, Generation A (this compiler; std's call-repeatedly slots switch to `FnMut` in N3, once the seed parses it — VERDICTS-15):
+
+- An `FnMut` call borrows the closure exclusively (`self : &mut Self`). Its body may write its capture-list BY-VALUE entries (own state, kept across calls) and its `&mut` captures: `(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => { n = (n + i32(1)); n });`. Under `Fn`/`FnOnce` an entry write stays E0917.
+- Call it through `mut(f)`, `f : &mut Impl(FnMut(...))`, `(mut(d) : Dyn(FnMut(...)))` or a temporary; an unmarked binding or a by-value parameter is E0917 (rebind: `mut(g) := f;`), `f : &Impl(FnMut(...))` / `&Dyn(FnMut(...))` is E0908, a call while a borrow of it lives is E0911. A literal passed to `f : &mut Impl(FnMut(...))` needs no marker.
+- `Fn` fills an `FnMut` slot; a value TYPED `FnMut` at an `Fn(...)` slot or boxed as `Dyn(Fn(...))` is E0913; `FnOnce` at an `FnMut` slot is E0913.
+- An `FnMut` closure (and `Dyn(FnMut(...))`) is move-only: no `Copy`/`Clone` even over `Copy` captures.
+- A `Sync` slot (`Impl(Fn(...), Sync)`) rejects a closure that writes a `&mut` capture or its state, naming `FnMut`.
+- One-release exemption (`fn_slot_admits_capture_fnmut`, deleted at N3): a literal HOLDING a `&mut` capture at an `Fn(...)` slot (every std callback today) is still accepted. `YO_AUDIT_FNMUT=1` prints each such site (`[fnmut]`).
 
 ## A `=>` closure never fills a bare `fn(...)` slot (E0605)
 

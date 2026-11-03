@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { E_TYPE_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_DYN_UNCALLABLE, E_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape, judge_capture_fnmut_at_fn_slot } :: import("../utils.yo");
 { closure_identity_of } :: import("../utils/closure.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { find_methods_from_generic_impls, MethodCandidate, _substitute_self_in_method_ty } :: import("./impl.yo");
@@ -1280,6 +1280,12 @@ _reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), value_
       ctx,
       exn
     );
+    return(());
+  });
+  // A closure that is `FnMut` by its `&mut` captures alone, boxed as a
+  // `Dyn(Fn(...))`: the `Fn`-slot exemption decides it (VERDICTS-15 Q4′).
+  if((target_base == "Fn") && (value_base != "FnMut"), {
+    match(target, .Some(dt) => judge_capture_fnmut_at_fn_slot(tok, &dt.ty, value_ty, ctx, exn), .None => ());
   });
 });
 evaluate_dyn_value :: (

@@ -1034,12 +1034,23 @@ mark_fnmut_capture_struct :: (fn(struct_id : &String) -> unit)({
   g_fnmut_capture_struct_ids.with_mut(m => m.insert(struct_id.clone(), true));
 });
 /// `ty`, resolved through its type variables, is the capture record of a
-/// closure typed `FnMut(...)` (`mark_fnmut_capture_struct`).
-capture_struct_is_fnmut :: (fn(ty : &TypeValue) -> bool)(
+/// closure TYPED `FnMut(...)` (`mark_fnmut_capture_struct`): a literal its
+/// slot typed `FnMut`.
+capture_struct_typed_fnmut :: (fn(ty : &TypeValue) -> bool)(
   cond(
     (g_fnmut_capture_struct_ids.with(m => m.len()) == usize(0)) => false,
     true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with(m => m.get(&cf_sid)).is_some(), _ => false)
   )
+);
+/// `ty` is an `FnMut` closure (decision 37, decision 43 N1f): its capture
+/// record holds a `&mut` capture-list borrow, written or not — decision 37's
+/// "writes a `&mut` capture" read structurally as "holds one" (VERDICTS-15
+/// Q4′; decision 38's "a `FnMut` closure (one holding a `&mut` capture)") —
+/// or the closure is typed `FnMut(...)`. The one predicate behind the
+/// `Fn`-slot exemption, `YO_AUDIT_FNMUT`, the `Sync`-slot rejection, `Dyn`
+/// boxing and the closure's `Copy`/`Clone`.
+capture_struct_is_fnmut :: (fn(ty : &TypeValue) -> bool)(
+  type_first_mut_borrow(ty).is_some() || capture_struct_typed_fnmut(ty)
 );
 /// True once a value type may be move-only (`note_move_only_possible`).
 move_only_declarations_exist :: (fn() -> bool)(g_move_only_possible);
@@ -1313,7 +1324,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : 
     // A closure with a `mut` capture (decision 35): two copies of one
     // exclusive borrow would alias. A closure typed `FnMut(...)` (decision
     // 37): two copies would fork its state.
-    (_capture_struct_declares_mut(&ty) || capture_struct_is_fnmut(&ty)) => true,
+    (_capture_struct_declares_mut(&ty) || capture_struct_typed_fnmut(&ty)) => true,
     true => match(
       &ty,
       Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
@@ -1621,7 +1632,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   if(_capture_struct_declares_mut(&ty), {
     return(Option(String).Some(String.from("the closure has a `&mut` capture, and two copies of one exclusive borrow would alias")));
   });
-  if(capture_struct_is_fnmut(&ty), {
+  if(capture_struct_typed_fnmut(&ty), {
     return(Option(String).Some(String.from("the closure is typed `FnMut(...)`: its call writes its state, so two copies would fork it")));
   });
   // A `&mut` reference held in value structure (decision 43 step 3, §5
@@ -1727,7 +1738,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u
     _nominal_declares_move_only(&ty) => true,
     // A closure with a `mut` capture is move-only too (decision 35), and so
     // is a closure typed `FnMut(...)` (decision 37).
-    (_capture_struct_declares_mut(&ty) || capture_struct_is_fnmut(&ty)) => true,
+    (_capture_struct_declares_mut(&ty) || capture_struct_typed_fnmut(&ty)) => true,
     // Decision 36's flip: a plain-data value type that is not `Copy` is
     // copied only explicitly, so, like a move-only value, its owner is
     // tracked (a call or constructor result transfers, a named local is
@@ -4243,7 +4254,7 @@ export(fields_have_incompatible_contexts);
 export(type_somes_all_resolve_concrete);
 export(type_has_no_open_some);
 export(is_bound_closure_identity);
-export(is_closure_capture_struct, mark_fnmut_capture_struct, capture_struct_is_fnmut);
+export(is_closure_capture_struct, mark_fnmut_capture_struct, capture_struct_typed_fnmut, capture_struct_is_fnmut);
 export(resolve_cell_chain, resolution_chain_end);
 export(type_contains_some_type_deep);
 export(type_mentions_impl_fn_or_future, is_future_value_type);
@@ -4806,14 +4817,18 @@ fn_trait_call_func_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
-/// `ty` is a closure typed `FnMut(...)` (decision 37, N1f): its trait says
+/// `ty` is a closure TYPED `FnMut(...)` (decision 37, N1f): its trait says
 /// so (an `Impl(FnMut(...))` value, a `Dyn(FnMut(...))`, a type variable
-/// bounded by `FnMut`), or its capture record is an `FnMut` closure's.
-type_is_fnmut_closure :: (fn(ty : &TypeValue) -> bool)(
-  capture_struct_is_fnmut(ty) || match(
+/// bounded by `FnMut`), or its capture record is a typed `FnMut` closure's.
+/// Its call is a `&mut self` receiver call. A closure that is `FnMut` only by
+/// its `&mut` captures (`capture_struct_is_fnmut`) and was typed against an
+/// `Fn(...)` slot is still called through that slot's shared borrow until N3
+/// (`fn_slot_admits_capture_fnmut`).
+type_is_typed_fnmut_closure :: (fn(ty : &TypeValue) -> bool)(
+  capture_struct_typed_fnmut(ty) || match(
     closure_fn_trait_of(ty),
     .Some(Rc(.FnTraitT(base_name : tb))) => (tb == "FnMut"),
     _ => false
   )
 );
-export(closure_fn_trait_of, fn_trait_call_func_type, type_is_fnmut_closure);
+export(closure_fn_trait_of, fn_trait_call_func_type, type_is_typed_fnmut_closure);
