@@ -1,0 +1,14 @@
+// issues/2026-11-03-an-impl-over-an-origin-parameterized-composite-finds-no-method-on-its-instances.md
+// `yo check` this file: E0610 on both calls (expected: rc 0).
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), lo : usize));
+impl(generic(p : Origin), V(p), lo_plus : (fn(self : &Self, k : usize) -> usize)(self.lo + k));
+G :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(at : &(T, p), lo : usize));
+impl(generic(T : Type, p : Origin), G(T, p), lo2 : (fn(self : &Self) -> usize)(self.lo));
+main :: (fn() -> unit)({
+  x := i32(1);
+  v := V(x)(at : &x, lo : usize(2));
+  n := v.lo_plus(usize(1));
+  g := G(i32, x)(at : &x, lo : usize(3));
+  m := g.lo2();
+});
+export(main);
