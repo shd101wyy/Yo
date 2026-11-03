@@ -229,7 +229,7 @@ test("a pointer-receiver dispose_fn thunk passes the address of the handle", {
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_9(void* ptr) { struct yo_id_10* __yo_self = (struct yo_id_10*)ptr; yo_id_9(&__yo_self); }"), "the thunk passes the handle's address");
 });
 /// The type runtime preamble (the RC header, the allocator prefix and the
-/// allocation scope) as the allocator interface `alloc_abi_v2` selects it.
+/// placed-cell allocation) as the allocator interface `alloc_abi_v2` selects it.
 emit_type_preamble :: (fn(alloc_abi_v2 : bool) -> String)({
   ctx := mk_context(false);
   ctx.base.alloc_abi_v2 = alloc_abi_v2;
@@ -335,7 +335,7 @@ test("allocator interface version 2 aligns, records the extent and frees by size
   assert(c.contains("->alloc(s.ctx, span + size, __yo_rc_cell_block_align(align));"), "v2: alloc is told the block's alignment");
   assert(c.contains("->free(pre->ctx, (char*)ptr - span, block_size, block_align);"), "v2: free is told the block's size and alignment");
   assert(c.contains("static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size, size_t align) {"), "v2: the placed allocation takes the alignment");
-  assert(!c.contains("__yo_scope_set") && !c.contains("__yo_scopes_ever_entered"), "no scope setter, no scope flag (B2b)");
+  assert(!c.contains("__yo_scope_current") && !c.contains("__yo_scopes_ever_entered"), "no scope read, no scope flag (B2b)");
   // The owner stays where version 1 keeps it, so the owner lookup is shared.
   assert(c.contains("return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);"), "v2: the owner is the 16 bytes before the object");
   ctx := mk_context(false);

@@ -609,16 +609,17 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
   AHEAD of the RC header: free through `__yo_rc_free` (which reads the
   prefix and routes the release back to the owning allocator), never a
   bare `__yo_free` — a bare free silently breaks every placed block.
-- User-visible constructors allocate via `__yo_rc_alloc_scoped`, reading
-  the thread-local `__yo_current_allocator`. Since `with_allocator` was deleted
-  (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1) and `Rc.new`/`Arc.new` build through
-  `__yo_cell`/`__yo_atomic_cell` (V5 cells Generation B), its ONLY setter is the
-  clone wrapper of a `Dyn` over a placed cell (`_emit_dyn_clone_function`); a
-  container's `alloc : .Some(a)` hands the `Allocator` value straight to its own
-  buffer allocation, and a `__yo_cell`'s `alloc` passes it as a parameter. The
-  runtime's OWN blocks keep `__yo_rc_alloc` and are never placed. B2b deletes
-  the thread-local, the scoped constructor reads and the state machine's
-  scope restore, and converts the clone wrapper to an explicit allocator.
+- There is no allocation scope (`plans/backlog/ALLOCATOR_PLACEMENT.md` B2b
+  deleted the thread-local `__yo_current_allocator`). Only a cell primitive's
+  constructor (`__yo_cell`/`__yo_atomic_cell`, the box of V5's `Rc`/`Arc`) is
+  placed: it takes `__yo_alloc_scope_t __yo_sc` first and allocates with
+  `__yo_rc_alloc_in(__yo_sc, …)` (a NULL vtable is the global allocator); the
+  call site passes `alloc`'s `{ctx, vtable}` or `{0, 0}`, and a `Dyn` clone
+  passes the source's `__yo_scope_of_object(self_ptr)`. Every other RC block
+  (a `ref` constructor, `dyn`'s box, an `io.async` state machine, the
+  runtime's own blocks) is global: `__yo_rc_alloc` or the SM pool. A
+  container's `alloc : .Some(a)` hands the `Allocator` value straight to its
+  own buffer allocation.
 - **Two allocator interface versions, one switch.** `CodeGenContext.alloc_abi_v2`
   is read off the shape of std's `AllocatorVTable` (`std_allocator_abi_is_v2`,
   never a flag). std's struct is the one whose id was minted by a module under
@@ -630,8 +631,8 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
   `realloc(ctx, p, old, new, align)`, `free(ctx, p, size, align)`, and a placed
   RC block's prefix is `max(32, align)` bytes, the owner in the last 16 (where
   version 1 keeps it) and the extent `{size, align}` in the 16 before. Spell a
-  placed allocation through `CodeGenContext.rc_alloc_scoped_call`, never a
-  literal `__yo_rc_alloc_scoped(...)`: it adds `_Alignof(T)` under version 2.
+  placed allocation through `CodeGenContext.rc_alloc_in_call`, never a
+  literal `__yo_rc_alloc_in(...)`: it adds `_Alignof(T)` under version 2.
   std speaks version 2 since Generation B (v0.2.73); version 1 stays in the
   emitter until no supported seed's std is version 1.
 - **`align_of(T)` of a layout only C knows** (an `extern` type, or a struct
