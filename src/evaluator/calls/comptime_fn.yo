@@ -1191,6 +1191,16 @@ evaluate_comptime_fn_call :: (
         eprintln(`[ctfe-hit] fid=${func_id_str} result=${value_to_string(&cached_val)}`);
       });
       hit_val := _restamp_instance_origins(cached_val, &all_arg_vals);
+      if(debug_knob(`YO_DEBUG_ORIGIN_STAMP`).is_some(), {
+        (dbg_args : String) = String.new();
+        (dbg_i : usize) = usize(0);
+        while(dbg_i < all_arg_vals.len(), {
+          match(all_arg_vals.get(dbg_i), .Some(dbg_v) => dbg_args.push_string(value_to_string(&dbg_v)), .None => ());
+          dbg_args.push_str(", ");
+          dbg_i = (dbg_i + usize(1));
+        });
+        eprintln(`[origin-stamp] fid=${func_id_str} args=${dbg_args} cached=${value_to_string(&cached_val)} hit=${value_to_string(&hit_val)}`);
+      });
       _check_counted_cell_payload(&hit_val, function_callee_expr, exn);
       return(
         ComptimeFnCallResult(
