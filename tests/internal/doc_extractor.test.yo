@@ -25,10 +25,7 @@ inline_docs_from_source_ :: (fn(source : &String, exn : Exception) -> HashMap(St
   match(
     find_matching_parens(&tokens, usize(0)),
     .None => HashMap(String, String).new(),
-    .Some(p) => {
-      { docs } := extract_inline_docs(&tokens, p.open + usize(1), p.close);
-      docs
-    }
+    .Some(p) => extract_inline_docs(&tokens, p.open + usize(1), p.close).docs.clone()
   )
 });
 // ─── strip_doc_line_comment ───────────────────────────────────────────────────
