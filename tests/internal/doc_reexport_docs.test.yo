@@ -76,7 +76,7 @@ _point :: (fn(documented : bool, signature : &String) -> DocType)({
 });
 _module_with :: (fn(name : &String, t : &DocType) -> DocModule)({
   mut(types) := ArrayList(DocType).new();
-  types.push(t);
+  types.push(t.clone());
   DocModule(
     name : name.clone(),
     path : name.clone(),
@@ -97,21 +97,21 @@ test("a re-exported type takes the declaring module's documentation", {
   modules.push(_module_with(`index`, _point(false, sig.clone())));
   modules.push(_module_with(`point`, _point(true, sig.clone())));
   build_cross_references(&modules);
-  idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
-  t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
+  idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
+  t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(t.doc, .Some(d) => (d == `A point in the plane.`), .None => false),
+    match(&t.doc, .Some(d) => (d == `A point in the plane.`), .None => false),
     "the re-exported type carries the declaration's own doc"
   );
-  m0 := match(t.methods.get(usize(0)), .Some(x) => x, .None => return(()));
+  m0 := match(t.methods.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
+    match(&m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
     "and so does its method"
   );
-  fs := match(t.fields, .Some(x) => x, .None => return(()));
-  f0 := match(fs.get(usize(0)), .Some(x) => x, .None => return(()));
+  fs := match(&t.fields, .Some(x) => x.clone(), .None => return(()));
+  f0 := match(fs.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(f0.doc, .Some(d) => (d == `The x coordinate.`), .None => false),
+    match(&f0.doc, .Some(d) => (d == `The x coordinate.`), .None => false),
     "and its field"
   );
 });
@@ -122,10 +122,10 @@ test("a DIFFERENT type of the same name is not a donor", {
   modules.push(_module_with(`index`, _point(false, `Point :: struct(x : i32, y : i32)`)));
   modules.push(_module_with(`other`, _point(true, `Point :: struct(lat : f64, lon : f64)`)));
   build_cross_references(&modules);
-  idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
-  t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
+  idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
+  t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(t.doc.is_none(), "no doc is taken from a type that merely shares the name");
-  m0 := match(t.methods.get(usize(0)), .Some(x) => x, .None => return(()));
+  m0 := match(t.methods.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(m0.doc.is_none(), "and none on its methods");
 });
 test("a module that documents its own re-export keeps what it wrote", {
@@ -136,16 +136,16 @@ test("a module that documents its own re-export keeps what it wrote", {
   modules.push(_module_with(`index`, &own));
   modules.push(_module_with(`point`, _point(true, sig.clone())));
   build_cross_references(&modules);
-  idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
-  t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
+  idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
+  t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(t.doc, .Some(d) => (d == `Re-exported here with a note of its own.`), .None => false),
+    match(&t.doc, .Some(d) => (d == `Re-exported here with a note of its own.`), .None => false),
     "an existing doc is never overwritten"
   );
   // The bare method still fills in — only `.None` is touched.
-  m0 := match(t.methods.get(usize(0)), .Some(x) => x, .None => return(()));
+  m0 := match(t.methods.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
+    match(&m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
     "while its undocumented method still fills in"
   );
 });
