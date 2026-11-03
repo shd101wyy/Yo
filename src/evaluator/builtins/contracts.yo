@@ -418,11 +418,11 @@ GhostFnDef :: ref(
 );
 (g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
-  func_id_owned_ := func_id.clone();
+  func_id_owned := func_id.clone();
   params_owned := params.clone();
   // Owned capture (`with_mut`'s callback is a sink parameter).
   gfd_body := body.clone();
-  g_ghost_fn_defs.with_mut({ func_id_owned_, params_owned, gfd_body }(m) => m.insert(func_id_owned_.clone(), GhostFnDef(params : params_owned, body : gfd_body)));
+  g_ghost_fn_defs.with_mut({ func_id_owned, params_owned, gfd_body }(m) => m.insert(func_id_owned.clone(), GhostFnDef(params : params_owned, body : gfd_body)));
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(

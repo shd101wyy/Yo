@@ -571,9 +571,15 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
 // ---------------------------------------------------------------------------
 // Decision 38 D: what a borrow capture may name
 // ---------------------------------------------------------------------------
-test("borrow places: no borrow across an `Rc`/`Arc` deref", {
+test("borrow places: a `&` borrow through an `Rc`/`Arc` deref, never a `&mut` one", {
+  // O9 (decision 43 step 2, N1d): the payload is read-only through the
+  // handle, so a shared capture of a place in it needs no run-time mark;
+  // its origin is the handle, which stays frozen while the closure lives.
   r := Rc.new(_ClAcc(total : i32(4), other : i32(0)));
-  comptime_expect_error(_cl_call0({ t : &r.*.total }() => t), "cannot reach through an `Rc`");
+  assert(_cl_call0({ t : &r.*.total }() => t) == i32(4), "a shared capture through an Rc deref");
+  a := Arc.new(_ClAcc(total : i32(6), other : i32(0)));
+  assert(_cl_call0({ t : &a.*.total }() => t) == i32(6), "a shared capture through an Arc deref");
+  comptime_expect_error(_cl_call0({ t : &mut r.*.total }() => t), "cannot reach through an `Rc`");
   assert(_cl_call0({ &r }() => r.*.total) == i32(4), "capture the handle and re-derive the place");
 });
 test("borrow places: no module-level place", {
@@ -671,4 +677,23 @@ test("an FnOnce body moves a capture-list entry named `_x` or `var_x`", {
   assert(cell.with(xs => xs.len()) == usize(2), "both entries moved in");
   assert(cell.with(xs => (xs(usize(0)) == String.from("a"))), "the `_` entry");
   assert(cell.with(xs => (xs(usize(1)) == String.from("b"))), "the `var_` entry");
+});
+// issues/fixed/2026-11-03-an-implicit-capture-lent-mut-in-a-closure-is-a-copy-under-the-seed.md:
+// an implicit capture moves the list into the closure, and `&mut lines` inside
+// it must write the closure's own capture. The v0.2.73 seed wrote a copy of the
+// environment, so the elements `append` moved out were freed again with the
+// environment and the global held dangling strings (every `yo build` of a
+// seed-built B8 compiler wrote a corrupt `.imports` file).
+(g_cl_moved_lines : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+_cl_fill_moved_lines :: (fn() -> unit)({
+  mut(lines) := ArrayList(String).new();
+  lines.push(String.from("mylib=mylib/src/lib.yo"));
+  lines.push(String.from("other=other/src/lib.yo"));
+  g_cl_moved_lines.with_mut(xs => xs.append(&mut lines));
+});
+test("an implicit capture lent &mut inside a closure moves its elements out exactly once", {
+  _cl_fill_moved_lines();
+  assert(g_cl_moved_lines.with(xs => xs.len()) == usize(2), "both lines moved into the global");
+  assert(g_cl_moved_lines.with(xs => (xs(usize(0)) == "mylib=mylib/src/lib.yo")), "the first line is intact");
+  assert(g_cl_moved_lines.with(xs => (xs(usize(1)) == "other=other/src/lib.yo")), "the second line is intact");
 });

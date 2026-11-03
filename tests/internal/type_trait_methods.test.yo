@@ -227,9 +227,9 @@ test("get_receiver_methods_by_name_from_env: comptime receiver does not crash", 
 test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   clear_type_trait_methods();
   // Build a trait with one method: `greet : (fn(x : i32) -> i32)`.
-  param_labels := ArrayList(String).new();
+  mut(param_labels) := ArrayList(String).new();
   param_labels.push(String.from("x"));
-  param_types := ArrayList(TypeValue).new();
+  mut(param_types) := ArrayList(TypeValue).new();
   param_types.push(t_i32());
   fn_ty := Rc.new(
     TypeValueNode.Func(
@@ -255,9 +255,9 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
       no_types()
     )
   );
-  trait_field_labels := ArrayList(String).new();
+  mut(trait_field_labels) := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
-  trait_field_types := ArrayList(TypeValue).new();
+  mut(trait_field_types) := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
   greeter_trait := Rc.new(
     TypeValueNode.TraitT(
@@ -270,9 +270,9 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
     )
   );
   // SomeT requiring the Greeter trait.
-  required_traits := ArrayList(TypeValue).new();
+  mut(required_traits) := ArrayList(TypeValue).new();
   required_traits.push(greeter_trait);
-  required_levels := ArrayList(usize).new();
+  mut(required_levels) := ArrayList(usize).new();
   required_levels.push(usize(0));
   some_t := Rc.new(
     TypeValueNode.SomeT(
@@ -306,9 +306,9 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
 test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   clear_type_trait_methods();
   // Reuse the `fn(x : i32) -> i32` shape from the previous test.
-  param_labels := ArrayList(String).new();
+  mut(param_labels) := ArrayList(String).new();
   param_labels.push(String.from("x"));
-  param_types := ArrayList(TypeValue).new();
+  mut(param_types) := ArrayList(TypeValue).new();
   param_types.push(t_i32());
   fn_ty := Rc.new(
     TypeValueNode.Func(
@@ -334,9 +334,9 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
       no_types()
     )
   );
-  trait_field_labels := ArrayList(String).new();
+  mut(trait_field_labels) := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
-  trait_field_types := ArrayList(TypeValue).new();
+  mut(trait_field_types) := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
   greeter_trait := Rc.new(
     TypeValueNode.TraitT(
@@ -348,9 +348,9 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
       assoc_constraint_types : no_types()
     )
   );
-  required_traits := ArrayList(TypeValue).new();
+  mut(required_traits) := ArrayList(TypeValue).new();
   required_traits.push(greeter_trait);
-  required_levels := ArrayList(usize).new();
+  mut(required_levels) := ArrayList(usize).new();
   required_levels.push(usize(0));
   dyn_ty := Rc.new(
     TypeValueNode.DynT(
@@ -380,9 +380,9 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
 test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   clear_type_trait_methods();
   // Synthetic `fn(x : i32) -> i32` for the trait method.
-  param_labels := ArrayList(String).new();
+  mut(param_labels) := ArrayList(String).new();
   param_labels.push(String.from("x"));
-  param_types := ArrayList(TypeValue).new();
+  mut(param_types) := ArrayList(TypeValue).new();
   param_types.push(t_i32());
   fn_ty := Rc.new(
     TypeValueNode.Func(
@@ -409,9 +409,9 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     )
   );
   // Trait `Functor` with `fmap` method.
-  trait_field_labels := ArrayList(String).new();
+  mut(trait_field_labels) := ArrayList(String).new();
   trait_field_labels.push(String.from("fmap"));
-  trait_field_types := ArrayList(TypeValue).new();
+  mut(trait_field_types) := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
   functor_trait := Rc.new(
     TypeValueNode.TraitT(
@@ -446,7 +446,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
       resolution : Option(TypeValue).None
     )
   );
-  args_list := ArrayList(TypeValue).new();
+  mut(args_list) := ArrayList(TypeValue).new();
   args_list.push(arg_some_t);
   type_app := Rc.new(
     TypeValueNode.TypeAppT(
@@ -487,10 +487,10 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
   // first-param shape. Mirrors TS env.ts:1278: infix calls suppress
   // the auto-pointer-conversion MARKING but never drop the method —
   // pointer-receiver operators (`zp &+ zi`) match `*(T)` directly.
-  param_labels := ArrayList(String).new();
+  mut(param_labels) := ArrayList(String).new();
   param_labels.push(String.from("self"));
   param_labels.push(String.from("other"));
-  param_types := ArrayList(TypeValue).new();
+  mut(param_types) := ArrayList(TypeValue).new();
   param_types.push(Rc.new(TypeValueNode.Pointer(Rc.clone(s))));
   param_types.push(Rc.clone(s));
   fn_ty := Rc.new(
@@ -558,9 +558,9 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
 test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_conversion", {
   clear_type_trait_methods();
   s := _synth_struct(String.from("ty_ptrconv"), String.from("P"));
-  param_labels := ArrayList(String).new();
+  mut(param_labels) := ArrayList(String).new();
   param_labels.push(String.from("self"));
-  param_types := ArrayList(TypeValue).new();
+  mut(param_types) := ArrayList(TypeValue).new();
   param_types.push(Rc.new(TypeValueNode.Pointer(Rc.clone(s))));
   fn_ty := Rc.new(
     TypeValueNode.Func(
@@ -616,9 +616,9 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
 test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan", {
   clear_type_trait_methods();
   // Build `Greeter` trait with `greet : (fn(x : i32) -> i32)`.
-  param_labels := ArrayList(String).new();
+  mut(param_labels) := ArrayList(String).new();
   param_labels.push(String.from("x"));
-  param_types := ArrayList(TypeValue).new();
+  mut(param_types) := ArrayList(TypeValue).new();
   param_types.push(t_i32());
   fn_ty := Rc.new(
     TypeValueNode.Func(
@@ -644,9 +644,9 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
       no_types()
     )
   );
-  trait_field_labels := ArrayList(String).new();
+  mut(trait_field_labels) := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
-  trait_field_types := ArrayList(TypeValue).new();
+  mut(trait_field_types) := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
   greeter_trait := Rc.new(
     TypeValueNode.TraitT(
@@ -739,7 +739,7 @@ test("a where-bound restated on each method of a generic impl is recorded once",
   io.await(write_string(Path.new(doc_path.clone()), String.from(_WHERE_DOC), io), ioexn);
   std_path := resolve_std_path();
   mm_set_open_document(doc_path.clone(), String.from(_WHERE_DOC));
-  out := ArrayList(AnalyzeOutcome).new();
+  mut(out) := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(doc_path.clone(), String.from(_WHERE_DOC), std_path.clone(), io, &mut out);
   assert(match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false), "the fixture analyzes clean");
   counts := generic_impl_binder_bound_counts(&String.from("Kw"));

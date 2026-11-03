@@ -184,9 +184,31 @@ Progress:
   - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
     --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
     with it (V2c's "As built").
+  - V2b B8, the flip of `ArrayList` and `String`: both are values that own
+    their buffer (`Drop`, `Trace`, `Clone` through the owner; `Send` and
+    `Sync` exactly when the element is), an implicit copy of a live one is
+    E0901, and std, src and tests read elements through `get_cloned`,
+    `clone()` or a borrow. `TypeValue`'s two late-written parts keep their
+    pre-flip sharing through one cell each: `SomeTBounds` for a `SomeT`'s
+    where-clause bounds, and `TraitTBody` for a trait's members and
+    `where(Self <: X)` constraints (consultation #13 §10 and §13; whether
+    to delete them is
+    `issues/questions/2026-11-02-should-a-somet-carry-its-bounds-immutably-from-construction.md`).
+  - decision 43 step 2, Generation A: N1a (#1698), N1b (#1705), N1c-1
+    (#1711), N1c-3 (#1712), and N1d — the `Escapable` marker derived from
+    a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
+    payload carrying an origin as E0909, `&h.*.x` and `{ x : &h.*.x }`
+    through a read-only handle with the handle frozen (O9, O10);
+    `RefCell.get()`/`get_mut()` split out to N3. Step 3's N2a (#1713) and
+    N2b (#1720).
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
+  - V5 Generation A, in three parts (§V5, "Split of 2026-11-02"). The
+    `atomic(...)` std types are on `__yo_atomic_cell` and the `ref`/`atomic`
+    spellings warn (#1707). Cells Generation A, the compiler half of
+    `Rc`/`Arc` over `__yo_cell`, is in v0.2.74. Cells Generation B (the std
+    retype) and the declaration migration are v0.2.75.
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
@@ -785,9 +807,9 @@ cannot be copied.
       covers the predicates on hand-built types. A test file cannot declare
       its own `Rc` (a prelude name cannot be shadowed), which is why the
       recognition is by shape. A safe file spells a local borrow of the
-      payload through auto-dereference (`&h.x`): a written `*` hop there is
-      rejected for every handle
-      (`issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
+      payload through auto-dereference (`&h.x`): a written `*` hop there was
+      rejected for every handle until decision 43's N1d (O9, 2026-11-02)
+      (`issues/fixed/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
     - **The private `_cell` shadows a payload field of the same name:**
       `w._cell` names the wrapper's field before auto-dereference runs. This
       is already true for `Box`, and E0405 rejects the access outside the
@@ -1036,6 +1058,14 @@ Each kind of root gets its own check:
   a plain value, not only behind `Rc`/`Arc`:
   `issues/questions/refcell-inside-a-plain-value.md` (recommendation: yes,
   anywhere, verifier-excluded).
+  **Projection form under review at N3 (2026-11-02, Fable consultation,
+  VERDICTS-13 §8):** `get()`/`get_mut()` were split out of decision 43
+  step 2's N1d — they have no v0.2.74 consumer (B5 put std and src on
+  `with`/`with_mut`) and no seed relevance. Their shape is decided at N3
+  (v0.2.75); the recommendation is Rust-style guard values (an
+  origin-carrying struct whose `Drop` releases the mark, so the release
+  rides the deferred drops and runs on unwind) instead of the
+  expression-scoped projection and binding ban above.
 - **Why a type and not a per-site marker.** A marker leaves every `Rc`
   cell carrying marks because some site elsewhere might write; the type
   makes the fact modular: it works across static libraries, and a struct
@@ -9732,6 +9762,23 @@ once `SEED_VERSION` parses it.
   - the tests migrate (~150 declarations in 68 files):
     `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo` and
     `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files.
+- **Split of 2026-11-02** (maintainer-approved; Fable consultation #13 Task 6/d):
+  - **v0.2.74.** #1707 moved every `atomic(...)` std type onto
+    `__yo_atomic_cell` and made the `ref`/`atomic` spellings warn.
+    **Cells Generation A** closes the four view gaps that kept the
+    v0.2.73 seed from lowering a prelude whose `Rc`/`Arc` are
+    `newtype(_cell : __yo_cell(V))`: the `dyn` auto-box, the `dyn`
+    clone, borrow marks on the weak count, and a struct ordered before
+    the typedef its `*Option(Rc(T))` field names
+    (`issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
+  - **v0.2.75.** **Cells Generation B** retypes `Rc`/`Arc` in std. The
+    four constructors pass the allocator to the cell, and the scope swap
+    and its three externs go
+    (`plans/backlog/SEED_VERSION_AUTOMATION.md`, "V5 cells"). B2b follows
+    it, then the declaration migration after W6b: src's 203 `ref(struct)`
+    and 3 `ref(enum)` declarations, std's non-collection `ref` types, and
+    tests' 267 core declarations plus 151 cli-case fixtures.
+  - **v0.2.76.** Generation B below.
 - **Generation B** (once `SEED_VERSION` carries a std without `ref`).
   - The parser drops the constructors.
   - `is_reference_semantics`/`is_atomic_rc` become "is a cell payload"

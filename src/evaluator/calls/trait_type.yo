@@ -230,7 +230,14 @@ try_to_specialize_trait_type :: (
   specialized_trait_type := match(
     trait_type,
     Rc(.TraitT(n, atns_body, tid, ic, _, _)) =>
-      { atns := atns_body.assoc_type_names(); fls := atns_body.field_labels(); fts := atns_body.field_types(); sc := atns_body.self_constraints(); nsc := atns_body.neg_self_constraints(); Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), fts.clone(), sc.clone(), nsc.clone()), tid.clone(), ic.clone(), shared_list(atc_labels), shared_list(atc_types))) },
+      {
+        atns := atns_body.assoc_type_names();
+        fls := atns_body.field_labels();
+        fts := atns_body.field_types();
+        sc := atns_body.self_constraints();
+        nsc := atns_body.neg_self_constraints();
+        Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), fts.clone(), sc.clone(), nsc.clone()), tid.clone(), ic.clone(), shared_list(atc_labels), shared_list(atc_types)))
+      },
     _ => Rc.clone(trait_type)
   );
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
@@ -253,7 +260,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Extract field labels and types from TraitT.
   field_labels := match(
     trait_type,
-    Rc(.TraitT(_, labels_body2, _, _, _, _)) => labels_body2.field_labels(),
+    Rc(.TraitT(_, labels_body, _, _, _, _)) => labels_body.field_labels(),
     _ => ArrayList(String).new()
   );
   field_types := match(

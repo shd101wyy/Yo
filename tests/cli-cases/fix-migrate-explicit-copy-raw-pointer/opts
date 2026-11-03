@@ -1,10 +1,14 @@
 # `yo fix <path> --migrate explicit-copy` lists, and does not clone, a copy
 # whose source has a raw pointer derived from it
 # (issues/fixed/2026-10-21-the-explicit-copy-migration-clones-a-buffer-whose-pointer-is-taken-afterwards.md).
-# `make` stores `marks` into a field and caches `marks.ptr()` beside it; the
-# run used to spell `marks : marks.clone()`, which leaves `_m` pointing into
-# the local buffer freed when `make` returns (an ASan heap-use-after-free).
-# `make_addr` takes the pointer with `addr_of(marks(usize(0)))` and
+# `marks` is a `BTreeMap` (still a `ref`; decision Option 1 of
+# issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+# `make` stores `marks` into a field and caches `marks.iter()` (a cursor
+# holding a raw pointer into the entries) beside it; the run used to spell
+# `marks : marks.clone()`, which leaves `_m` pointing into the local buffer
+# freed when `make` returns (an ASan heap-use-after-free). `make_addr` takes
+# the pointer with `addr_of(marks.walk_elem(&first).value)` (`addr_of(marks(k))`
+# goes through `index_mut`, a write, and would be listed as one) and
 # `make_lent` through a helper given `&marks`; both were still cloned after
 # the first fix. All three are listed. The expected_tree pins main.yo
 # unchanged, and the trailing `check` proves it still evaluates.

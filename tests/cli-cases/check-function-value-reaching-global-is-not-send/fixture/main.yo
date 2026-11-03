@@ -1,12 +1,16 @@
 { Thread } :: import("std/thread");
 { ArrayList } :: import("std/collections/array_list");
-g := ArrayList(i32).new();
+mut(g) := ArrayList(i32).new();
 _worker :: (fn(io : Io) -> unit)({
-  g.push(i32(1));
+  mut(g2) := g.clone();
+  g2.push(i32(1));
+  g = g2;
 });
 main :: (fn() -> unit)({
   t := Thread(unit).spawn(_worker);
-  g.push(i32(2));
+  mut(g2) := g.clone();
+  g2.push(i32(2));
+  g = g2;
   t.join();
 });
 export(main);

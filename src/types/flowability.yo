@@ -1001,18 +1001,20 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
     xi = (xi + usize(1));
   });
   wb := remaining;
-  g_deferred_sibling_rules.with_mut(({ wb }(xs) => {
-    xs.clear();
-    (ri : usize) = usize(0);
-    while(ri < wb.len(), {
-      match(
-        wb.get_cloned(ri),
-        .Some(e) => xs.push(e),
-        .None => ()
-      );
-      ri = (ri + usize(1));
-    });
-  }));
+  g_deferred_sibling_rules.with_mut(
+    ({ wb }(xs) => {
+      xs.clear();
+      (ri : usize) = usize(0);
+      while(ri < wb.len(), {
+        match(
+          wb.get_cloned(ri),
+          .Some(e) => xs.push(e),
+          .None => ()
+        );
+        ri = (ri + usize(1));
+      });
+    })
+  );
   match(
     first_unowned,
     .Some(m) => exn.throw(dyn(m)),

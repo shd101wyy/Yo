@@ -56,11 +56,11 @@ _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
 // The write count is asserted so a short `send` shows up as a failure here
 // rather than as the server waiting forever for the rest of the body.
 _raw_exchange :: (fn(port : u16, request : &String, io : Io) -> Impl(Future(String, IoExn)))({
-  __probe_request := request.clone();
+  owned_request := request.clone();
   io.async(e => {
     s := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
-    w := e.io.await(s.write_string(&__probe_request, e.io), e);
-    assert(w == __probe_request.len(), `short write: ${w} of ${__probe_request.len()} bytes`);
+    w := e.io.await(s.write_string(&owned_request, e.io), e);
+    assert(w == owned_request.len(), `short write: ${w} of ${owned_request.len()} bytes`);
     raw := e.io.await(_read_all(&s, e.io), e);
     e.io.await(s.close(e.io), e);
     raw

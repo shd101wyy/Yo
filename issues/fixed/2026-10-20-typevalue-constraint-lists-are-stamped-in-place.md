@@ -2,8 +2,11 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** OPEN — found 2026-10-20 while making TypeValue's label/type lists
-shared (`perf/share-typevalue-lists`, VALUES_BY_DEFAULT V2b B1 prerequisite).
+**Status:** DECIDED and built — option 3 (consultation #13 §10 for the `SomeT`
+lists, §13 for the `TraitT` lists), implemented by V2b B8
+(`vbd/b8-arraylist-string-flip-r4`). See "Resolution" below. Found 2026-10-20
+while making TypeValue's label/type lists shared (`perf/share-typevalue-lists`,
+VALUES_BY_DEFAULT V2b B1 prerequisite).
 
 ## What the code does
 
@@ -56,3 +59,34 @@ incremental build, option 3 (or the same id-keyed table for the trait's
 member list) until the trait evaluator can build members before minting the
 node. Decide before the B1 re-sweep, which otherwise inserts copies that drop
 every stamp.
+
+## Resolution
+
+Option 3, one cell per node rather than one per list, because each write
+pushes several lists in lock step (a bound and its level; a member's label,
+type and associated-type name):
+
+- `SomeTBounds :: Rc(RefCell(SomeTBoundsCell(TypeValue)))` holds a `SomeT`'s
+  four bound lists. Its two writers are `_add_where_clause_constraint`
+  (`src/evaluator/types/function.yo`) and `_stamp_impl_where_bound`
+  (`src/evaluator/values/impl.yo`).
+- `TraitTBody :: Rc(RefCell(TraitTBodyCell(TypeValue)))` holds a `TraitT`'s
+  five lists. Its three writers are `evaluate_trait_type`'s member push and the
+  two `where(Self <: X)` parsers (`src/evaluator/types/trait.yo`).
+- A new identity builds a fresh cell (`some_t_bounds`, `trait_t_body`); only a
+  handle copy of the same node shares one. Readers take snapshots
+  (`required()`, `field_labels()`, ...).
+
+Option 1 (an id-keyed side table) was rejected for B8 because it changes every
+reader and adds a merge step. Option 2 (rebuild-and-re-register) is unsound for
+traits: a `Dyn` vtable or an impl check built from an embedded copy made before
+the last member would be narrower, with no error. Whether the cells should
+eventually go (bounds fixed at construction; traits resolved by id through a
+shell) is the follow-up question
+`issues/questions/2026-11-02-should-a-somet-carry-its-bounds-immutably-from-construction.md`.
+The tests are `tests/internal/types_utils.test.yo` (a later stamp reaches a
+type built over the `SomeT`, never a copy built before it),
+`tests/error_source_chain.test.yo` (a trait member typed over `Dyn(SelfTrait)`
+declared before the last member, and a `where(Self <: X)`), and the `Arc(T)`
+prelude head's `where(T <: (Send, Sync))`, which the `tests/send_sync.test.yo`
+rows read.

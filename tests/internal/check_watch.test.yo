@@ -16,7 +16,7 @@
 { force_pending_count, PendingDef, set_retain_walk_contexts, finished_walk_for } :: import("../../src/evaluator/context.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { RevalPlan, RebindEntry } :: import("../../src/module_manager.yo");
-{ type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
+{ type_trait_methods_entry_count, inherent_method_site_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 
 _LIB_OK :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
@@ -38,7 +38,7 @@ p0 :: (fn() -> RevalPlan)(
 _round :: (
   fn(lib_path : &String, files : &ArrayList(String), std_path : &String, io : Io, exn : Exception) -> usize
 )({
-  changed := ArrayList(String).new();
+  mut(changed) := ArrayList(String).new();
   changed.push(lib_path.clone());
   watch_round(&changed, files, std_path, io, exn)
 });
@@ -66,7 +66,7 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   // Drop any earlier state for these paths (suite processes are reused).
   _pre1 := mm_invalidate_document(lib_path.clone());
   _pre2 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   files.push(lib_path.clone());
   // Initial pass: both clean, both cached (mm_load_file registers entries).
@@ -206,10 +206,10 @@ test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, 
     ),
     ioexn
   );
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   files.push(lib_path.clone());
-  changed := ArrayList(String).new();
+  mut(changed) := ArrayList(String).new();
   changed.push(lib_path.clone());
   failed := watch_round(&changed, &files, std_path.clone(), io, exn);
   assert(failed == usize(0), "comment-only round must not fail anything");
@@ -253,7 +253,7 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
   std_path := resolve_std_path();
   _p1 := mm_invalidate_document(lib_path.clone());
   _p2 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
   // Body edit: answer's constant moves. Per-def must re-evaluate exactly
@@ -314,7 +314,7 @@ test("Phase 3b: a signature edit takes the per-def path and the re-forced depend
   std_path := resolve_std_path();
   _pre1 := mm_invalidate_document(lib_path.clone());
   _pre2 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
   // Signature edit: answer takes a parameter now. The round re-forces exactly
@@ -436,7 +436,7 @@ test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
   std_path := resolve_std_path();
   _p1 := mm_invalidate_document(lib_path.clone());
   _p2 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
   // `P`'s field type moves: P is a type producer, so the round must take the
@@ -535,7 +535,7 @@ test("Phase 3 re-bind: a destructured importer is re-bound, not dropped, and its
   _r1 := mm_invalidate_document(lib_path.clone());
   _r2 := mm_invalidate_document(reader_path.clone());
   _r3 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
   reader_key := `file://${reader_path}`;
@@ -585,7 +585,7 @@ test("Phase 3 re-bind: an import RENAME falls back instead of re-binding", {
   _n1 := mm_invalidate_document(lib_path.clone());
   _n2 := mm_invalidate_document(reader_path.clone());
   _n3 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial renamed-import app check should pass");
   io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
@@ -615,7 +615,7 @@ test("Phase 3 re-bind: an ordered statement that computed with the old value fal
   _o1 := mm_invalidate_document(lib_path.clone());
   _o2 := mm_invalidate_document(reader_path.clone());
   _o3 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial ordered-reader app check should pass");
   io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
@@ -651,7 +651,7 @@ test("Phase 3b: rule D1 re-judges a re-forced body — the reach memo answers on
   std_path := resolve_std_path();
   _p1 := mm_invalidate_document(lib_path.clone());
   _p2 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   // `work` lives in lib.yo, whose table is gone once it loads: the spawned
   // closure in app.yo is judged from lib's end-of-load summary
@@ -705,7 +705,7 @@ test("Phase 3b: an edit re-judges the edited definition's same-module callers, t
   io.await(write_string(Path.new(app_path.clone()), String.from(_SMC_APP), io), ioexn);
   _p1 := mm_invalidate_document(lib_path.clone());
   _p2 := mm_invalidate_document(app_path.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial same-module app check should pass");
   io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_SIG), io), ioexn);
@@ -724,7 +724,7 @@ test("Phase 3b: an edit re-judges the edited definition's same-module callers, t
   io.await(write_string(Path.new(app_d1.clone()), String.from(_SMC_D1_APP), io), ioexn);
   _p3 := mm_invalidate_document(lib_d1.clone());
   _p4 := mm_invalidate_document(app_d1.clone());
-  files_d1 := ArrayList(String).new();
+  mut(files_d1) := ArrayList(String).new();
   files_d1.push(app_d1.clone());
   assert(mm_load_file(app_d1.clone(), std_path.clone(), true, io, exn).ok, "initial same-module D1 app check should pass");
   io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_REACH), io), ioexn);
@@ -765,11 +765,47 @@ test("build --watch: invalidate_changed_files makes an edited import re-read on 
   // edited import unchanged until something invalidates it.
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "a warm reload should pass");
   assert(_def_int_value(reader_key.clone(), String.from("doubled")) == "2", "without invalidation the cache still serves the old import");
-  changed := ArrayList(String).new();
+  mut(changed) := ArrayList(String).new();
   changed.push(lib_path.clone());
   dropped := invalidate_changed_files(&changed, std_path.clone());
   assert(dropped >= usize(2), `the edited import and its importer must leave the cache, dropped ${dropped.to_string()}`);
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "the reload after invalidation should pass");
   after := _def_int_value(reader_key.clone(), String.from("doubled"));
   assert(after == "4", `the reloaded importer must see helper() == 2, so doubled == 4, got ${after}`);
+});
+/// An inherent impl whose members a body edit moves down one line
+/// (issues/fixed/2026-11-02-a-watch-round-that-moves-an-impl-member-reports-it-as-a-duplicate-method.md).
+_IMS_APP :: "P :: struct(_d : i32);\nimpl(\n  P,\n  a : (fn(x : i32) -> i32)({\n    y := (x + i32(1));\n    y\n  }),\n  b : (fn(x : i32) -> i32)({\n    z := P.a(x);\n    z\n  })\n);\nmain :: (fn() -> unit)({\n  _x := P.b(i32(1));\n});\nexport(main);\n";
+_IMS_APP_SHIFTED :: "P :: struct(_d : i32);\nimpl(\n  P,\n  a : (fn(x : i32) -> i32)({\n    w := i32(0);\n    y := ((x + i32(1)) + w);\n    y\n  }),\n  b : (fn(x : i32) -> i32)({\n    z := P.a(x);\n    z\n  })\n);\nmain :: (fn() -> unit)({\n  _x := P.b(i32(1));\n});\nexport(main);\n";
+test("watch: an edit that moves an inherent impl member to another line is not a duplicate method (E0612)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  std_path := resolve_std_path();
+  dir := `/tmp/yo_check_watch_fixture_impl_sites`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(app_path.clone()), String.from(_IMS_APP), io), ioexn);
+  _p1 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial impl app check should pass");
+  sites_before := inherent_method_site_count();
+  // `b` now starts one line lower: its previous site must not answer as a
+  // first definition.
+  io.await(write_string(Path.new(app_path.clone()), String.from(_IMS_APP_SHIFTED), io), ioexn);
+  failed := _round(app_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `a line-shifting body edit must not fail the round, failed=${failed.to_string()}`);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_IMS_APP), io), ioexn);
+  failed2 := _round(app_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `reverting the edit must not fail the round, failed=${failed2.to_string()}`);
+  // The invalidated module's sites are purged, not accumulated.
+  sites_after := inherent_method_site_count();
+  assert(sites_after == sites_before, `inherent method sites grew across rounds: ${sites_before.to_string()} -> ${sites_after.to_string()}`);
 });

@@ -411,7 +411,12 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      Rc(.TraitT(tnm, tatn_body, tid, tisc, tatcl, tatct)) => { tatn := tatn_body.assoc_type_names(); tfl := tatn_body.field_labels(); tft := tatn_body.field_types(); tsc := tatn_body.self_constraints(); tnsc := tatn_body.neg_self_constraints(); 
+      Rc(.TraitT(tnm, tatn_body, tid, tisc, tatcl, tatct)) => {
+        tatn := tatn_body.assoc_type_names();
+        tfl := tatn_body.field_labels();
+        tft := tatn_body.field_types();
+        tsc := tatn_body.self_constraints();
+        tnsc := tatn_body.neg_self_constraints();
         tok := String.from("Tr:");
         tok.push_string(&tid);
         if((tid.len() > usize(0)) && visited.contains(&tok), {
@@ -478,7 +483,11 @@ _intern_key_into :: (
       // FIRST interned variant — the stage-2 statx cluster (single-effect
       // closure param typed IoExn). Render the full distinguishing content,
       // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
-      Rc(.SomeT(smid, smnm, smfl, smpt, smrtt_bnd, smkft, smrcp)) => { smrtt := smrtt_bnd.required(); smrtl := smrtt_bnd.required_levels(); smntt := smrtt_bnd.negative(); smntl := smrtt_bnd.negative_levels(); 
+      Rc(.SomeT(smid, smnm, smfl, smpt, smrtt_bnd, smkft, smrcp)) => {
+        smrtt := smrtt_bnd.required();
+        smrtl := smrtt_bnd.required_levels();
+        smntt := smrtt_bnd.negative();
+        smntl := smrtt_bnd.negative_levels();
         tok := String.from("So:");
         tok.push_string(&smid);
         if((smid.len() > usize(0)) && visited.contains(&tok), {
@@ -765,7 +774,8 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
         i_vf = (i_vf + usize(1));
       });
     },
-    Rc(.SomeT({ bounds : rtt_bnd })) => { rtt := rtt_bnd.required(); 
+    Rc(.SomeT({ bounds : rtt_bnd })) => {
+      rtt := rtt_bnd.required();
       g_ti_some = (g_ti_some + usize(1));
       _ti_list(rtt.len());
     },

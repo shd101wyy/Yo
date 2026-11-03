@@ -486,7 +486,7 @@ _scan_line :: (
 /// Recursively collect .yo files under `p`, skipping node_modules/.git/dist/
 /// yo-out/build and every dot-directory (but not a `.`/`..` root argument).
 _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))({
-  __probe_root := root.clone();
+  owned_root := root.clone();
   io.async((e : IoExn) => {
     // Built on std/fs/walker (its stack loop is the proven async-while
     // shape) with post-filtering: an entry is dropped when ANY path segment
@@ -498,8 +498,8 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     // (every fs call on it fails), and entries must be labeled bare (no
     // `./` prefix) — so walk the CWD by absolute path but label entries
     // with their path-join shape.
-    is_dot := (__probe_root == ".");
-    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), __probe_root.clone());
+    is_dot := (owned_root == ".");
+    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), owned_root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
       // Unreadable/missing root → skip.
@@ -507,9 +507,9 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
     if(!md.is_dir(), {
-      if(__probe_root.ends_with(`.yo`), {
+      if(owned_root.ends_with(`.yo`), {
         single := ArrayList(String).new();
-        single.push(__probe_root.clone());
+        single.push(owned_root.clone());
         return(single);
       });
       return(ArrayList(String).new());
@@ -555,9 +555,9 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
 });
 /// Generate the report for every .yo file under `root_path`.
 generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))({
-  __probe_root_path := root_path.clone();
+  owned_root_path := root_path.clone();
   io.async((e : IoExn) => {
-    yo_files := e.io.await(_walk_yo_files(__probe_root_path.clone(), e.io, e.exn), e);
+    yo_files := e.io.await(_walk_yo_files(owned_root_path.clone(), e.io, e.exn), e);
     privileged_files := ArrayList(String).new();
     findings := ArrayList(UnsafeFinding).new();
     // First pass: read every file once; harvest extern "c" names.
