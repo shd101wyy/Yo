@@ -110,6 +110,25 @@ test("box, arc and a dyn over a placed rc are placed by their alloc argument", {
   };
   assert(counts.live == usize(0), "every kind routed its release back");
 });
+// `Rc` is a view over `__yo_cell` (V5 cells Generation B), and a cell handle
+// is a box already (`src/evaluator/values/dyn.yo`): `dyn(...)` of a placed
+// `Rc` takes the handle's own cell as its data object. Boxing the handle
+// again would make a second cell, on the global allocator, whose payload is
+// the `Rc(_Dog)`: the downcasts below would both see it.
+test("A dyn over a placed Rc reuses the Rc's cell: no second cell", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    r := Rc.new(_Dog(volume : i32(6)), alloc : .Some(heap));
+    (d : Dyn(_Speak)) = dyn(Rc.clone(r));
+    assert(ref_count(r) == usize(2), `the dyn holds a count on the Rc's cell: ${ref_count(r)}`);
+    assert(counts.live == usize(1), `one placed cell: ${counts.live}`);
+    assert(d.speak() == i32(6), "dispatched to the Rc's payload");
+    assert(downcast(d, _Dog).is_some(), "the data object's payload is the _Dog");
+    assert(downcast(d, Rc(_Dog)).is_none(), "not an Rc(_Dog) boxed again");
+  };
+  assert(counts.live == usize(0), `the one cell went back: ${counts.live}`);
+});
 // `Box`'s layout (plans/backlog/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
 // layout"): an 8-byte flags word in front of the payload, its placed bit set
 // only by an `alloc` argument, and the owner prefix only on a placed cell.
