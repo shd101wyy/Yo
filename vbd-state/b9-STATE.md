@@ -1,22 +1,23 @@
-# B9 STATE — CURRENT (2026-11-03; read this section first)
+# B9 STATE — CURRENT (2026-11-03 evening; read this section first)
 
 Pushed copy: branch `probe/b9-census`, file `vbd-state/b9-STATE.md` (updated at milestones).
 
-- B9 branch `vbd/b9-hashmap-flip` @ 0b1e4b0a3 (pushed). Worktree ~/Workspace/Yo-wt/b9-flip.
-  Latest B9 tree binary: vbd-logs/b9-flip/yo-tree-r30-9c8535312 (symlink yo-tree).
-  Tier 1 r30 (all stages) running (task bjbzd3rz8) -> tier1-r30/summary.txt.
-  B8 tip now 3752a8a2b: merge with `-X theirs` and re-verify the B9 delta (B8 renamed `__probe_` to `owned_`).
-- Helps for b8, all pushed:
-  - vbd/b9-helps-b8-int: batch 3 (10 tests/internal files; e2845ed8d..b907cc6c4), picked by B8.
-  - vbd/b9-helps-b8-tplfix (worktree ~/Workspace/Yo-wt/b9-tplfix) on 3752a8a2b:
-    - 6a64bf04a: parser fix (template `.`/`to_string`/`format` tokens positioned at the template).
-    - d8d0fd260: the throw-match double drop is fixed too; codegen-bootstrap test + golden; doc moved to fixed/.
-    - 26ce4adf9: seed caveat.
-    - The evaluate_panic workaround STAYS until SEED_VERSION carries the fix. A seed-built binary with it reverted hangs on cli comptime-panic (rc 124).
-    - Fixed binary: vbd-logs/b9-flip/yo-tree-tplfix-97eaae7e9. parser 93/93, verifier_loops 14/14.
-- Next:
-  - b8's language-test `check ./tests --test-bodies` gate will hand me a share of the failing files.
-  - On "B8 MERGED": restack, migrate, re-gate, finalize ~/Workspace/Yo-wt/v0273/pr/b9-hashmap-flip.{title,md}, report to main.
+- B9 branch `vbd/b9-hashmap-flip` @ 83b259061 (merge of B8 150fdaff0, `-X theirs`).
+  - The B9 delta survived; only verifier_loops left it (B8 carries it now). Patches: b9-delta-{pre,post}-merge-r31.patch.
+  - r31 tree build running (treebuild.sh r31). Next: tier1.sh r31 all.
+  - r30 Tier 1 (bin r30 9c8535312): check src 276/276, std 171/171, all 13 language tests green, fmt and refs green, cli 427 PASS / 37 GOLDEN-DIFF / 3 NO-GOLDEN.
+  - r30's internal leaks (module_invalidation, type_trait_methods, verifier_loops) are fixed by tplfix (now in B8). check_watch, context and initialization_assignment are fixed by int batch 3 (in B8).
+- Helps for b8:
+  - tplfix: picked by B8 (6a64bf04a..602936aa1).
+  - int batch 3: picked.
+  - vbd/b9-helps-b8-tests (worktree ~/Workspace/Yo-wt/b9-tests):
+    - 30937bf1d cell_handles: picked as 150fdaff0.
+    - 023b9d0d8 N2b wall fix (an origin behind a pointer is beyond N2b; S1 doc in issues/fixed): not picked yet.
+    - Binary: yo-tree-tests-023b9d0d8. borrow_spelling 27/27, ref_return_ban 4/4, model_corpus 76/76, array_list 136/136.
+    - check std+src with it is running (/tmp/b9tests/v-{std,src}.out).
+- Pre-existing (develop fails too): async/combinators, async_await (comptime_expect_error io text), dyn:703, circular_error_a/b. Sweep-only: derive, global_lend, loop_body_return_drops.
+- module_invalidation still has 1 of 12 failing on tplfix: a 144-byte leak in "B2: memo and trait-default registries flat". Reported to b8; not chased.
+- On "B8 MERGED": restack, migrate, re-gate, finalize ~/Workspace/Yo-wt/v0273/pr/b9-hashmap-flip.{title,md}, report to main.
 - All work stops once v0.2.74 publishes.
 
 ---
