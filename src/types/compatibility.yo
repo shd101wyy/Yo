@@ -11,7 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, fn_trait_base_serves } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
@@ -1579,13 +1579,14 @@ _compat_impl :: (
         _ => false
       ),
     // FnTraitT: structural — compatible base_name, pairwise params, compatible
-    // result. `Fn` implies `FnOnce` (plans/VALUES_BY_DEFAULT.md decision 37):
-    // a borrowing call also serves for one call, so an `Fn` is accepted where
-    // an `FnOnce` is expected; never the other way round.
+    // result. `Fn` implies `FnMut`, which implies `FnOnce`
+    // (plans/VALUES_BY_DEFAULT.md decision 37, `fn_trait_base_serves`): a
+    // borrowing call also serves an exclusive one, and either serves for one
+    // call; never the other way round.
     Rc(.FnTraitT(base_name : abn, call_param_types : apts, call_result : aret)) => match(
       expected,
       Rc(.FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret)) => {
-        if((abn != ebn) && !((abn == "Fn") && (ebn == "FnOnce")), {
+        if(!fn_trait_base_serves(&abn, &ebn), {
           return(false);
         });
         if(apts.len() != epts.len(), {

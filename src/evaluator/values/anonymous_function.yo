@@ -88,6 +88,7 @@ pragma(Pragma.AllowUnsafe);
   mark_closure_param_frame,
   mark_fn_capture_value_binding,
   mark_capture_list_value_binding,
+  mark_fnmut_capture_value_binding,
   synthetic_token,
   snapshot_env,
   get_variables_from_env,
@@ -145,8 +146,8 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression, audit_judge_arm_copies } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
-{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, audit_pending_copies_enabled, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
+{ attach_temp_variable_to_expr, judge_capture_fnmut_at_fn_slot, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, audit_pending_copies_enabled, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1292,6 +1293,11 @@ evaluate_anonymous_function_implementation :: (
     _ => String.from("")
   );
   closure_owns_captures := (is_creating_closure && cap_list_raw.is_some() && (expected_fn_base == "FnOnce"));
+  // Decision 37 (N1f): a closure typed against `FnMut(...)` is called through
+  // an exclusive borrow (`self : &mut Self`), so its body may write the
+  // record its call borrows: a capture list's by-value entries are writable
+  // (VERDICTS-15 Q1), and the closure is move-only.
+  closure_is_fnmut := (is_creating_closure && (expected_fn_base == "FnMut"));
   (function_type : TypeValue) = match(
     function_type_opt,
     .Some(ft) => Rc.clone(ft),
@@ -1634,8 +1640,11 @@ evaluate_anonymous_function_implementation :: (
           // "read-only borrow". An `FnOnce` body OWNS its by-value captures
           // (decision 37): they bind as owning, so a move consumes one and
           // the body drops the rest when the call ends.
+          // An `FnMut` body's by-value entries are writable: its call borrows
+          // the record exclusively, so a write persists (VERDICTS-15 Q1).
           ce_owned := (closure_owns_captures && !ce.is_borrow);
-          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, ce.is_borrow && ce.is_mut, ce_owned, false, ce.label_tok.clone());
+          ce_fnmut_state := (closure_is_fnmut && !ce.is_borrow);
+          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, (ce.is_borrow && ce.is_mut) || ce_fnmut_state, ce_owned, false, ce.label_tok.clone());
           match(
             ce_v,
             .Some(cv) => {
@@ -1655,6 +1664,9 @@ evaluate_anonymous_function_implementation :: (
               if(!ce.is_borrow, {
                 mark_capture_list_value_binding(cv.id);
               });
+              if(ce_fnmut_state, {
+                mark_fnmut_capture_value_binding(cv.id);
+              });
             },
             .None => ()
           );
@@ -1662,6 +1674,25 @@ evaluate_anonymous_function_implementation :: (
         .None => ()
       );
       cfe_i = (cfe_i + usize(1));
+    });
+  });
+  // Decision 43 N1f: a closure holding a `&mut` capture is `FnMut` by its
+  // captures; typed against an `Fn(...)` slot it is admitted for one more
+  // release (`fn_slot_admits_capture_fnmut`, VERDICTS-15 Q4).
+  if(is_creating_closure && (expected_fn_base == "Fn"), {
+    fnmut_names := ArrayList(String).new();
+    (fmi : usize) = usize(0);
+    while(fmi < cap_entries.len(), fmi = (fmi + usize(1)), {
+      match(
+        cap_entries.get(fmi),
+        .Some(fme) => if(fme.is_borrow && fme.is_mut, {
+          fnmut_names.push(`\`${fme.label}\``);
+        }),
+        .None => ()
+      );
+    });
+    if(fnmut_names.len() > usize(0), {
+      judge_capture_fnmut_at_fn_slot(&tok, &expected_ty, &fnmut_names, ctx, exn);
     });
   });
   // -------------------------------------------------------------------------
@@ -3067,6 +3098,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     cap_res := create_capture_type_and_value(Option(TypeValue).None, &cvwv, env, &tok, closure_signature_key(&function_type));
     closure_capture_type = cap_res.capture_type.clone();
     _mark_fnonce_capture_struct_of(closure_owns_captures, &closure_capture_type);
+    _mark_fnmut_capture_struct_of(closure_is_fnmut, &closure_capture_type);
     // An `io.async` body may capture a second-class value: its future is then
     // a borrowing future, second-class too (§3.13 A2; the io.async call
     // registers the capture struct's borrows on the future).
@@ -3141,6 +3173,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         if(prev_nf2 > cur_nf2, {
           closure_capture_type = Option(TypeValue).Some(Rc.clone(prev_cci2.capture_type));
           _mark_fnonce_capture_struct_of(closure_owns_captures, &closure_capture_type);
+          _mark_fnmut_capture_struct_of(closure_is_fnmut, &closure_capture_type);
         });
       },
       .None => ()
@@ -3344,6 +3377,14 @@ Result type: ${type_to_string(&decl_result_ty)}`
 _mark_fnonce_capture_struct_of :: (fn(owns : bool, cap_ty : &Option(TypeValue)) -> unit)({
   if(owns, {
     match(cap_ty, .Some(Rc(.Struct({ id : cs_id }))) => mark_fnonce_capture_struct(&cs_id), _ => ());
+  });
+});
+/// Register a closure's capture struct as a `FnMut(...)` closure's (decision
+/// 37, N1f): its call borrows the closure exclusively, so it derives neither
+/// `Copy` nor `Clone` and is lent exclusively (`capture_struct_is_fnmut`).
+_mark_fnmut_capture_struct_of :: (fn(is_fnmut : bool, cap_ty : &Option(TypeValue)) -> unit)({
+  if(is_fnmut, {
+    match(cap_ty, .Some(Rc(.Struct({ id : cs_id }))) => mark_fnmut_capture_struct(&cs_id), _ => ());
   });
 });
 export(evaluate_anonymous_function_implementation);

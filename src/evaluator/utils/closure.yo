@@ -90,7 +90,7 @@
   register_capture_field_decl_site
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, type_requires_explicit_copy, type_holds_counted_handle_ignoring_migration, counted_handle_std_generic_on, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow } :: import("../../types/utils.yo");
+{ type_contains_rc_type, type_requires_explicit_copy, type_holds_counted_handle_ignoring_migration, counted_handle_std_generic_on, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow, capture_struct_is_fnmut } :: import("../../types/utils.yo");
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -454,6 +454,20 @@ _function_value_offense :: (
   fn(fid : &String, body : &Option(AstExpr), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(String)
 )({
   mname := type_to_string(marker);
+  // A `Sync` slot (`Impl(Fn(...), Sync)`) may call the closure from several
+  // threads at once, and an `FnMut(...)` closure's call is exclusive
+  // (decision 37): one holding a `&mut` capture, or typed `FnMut(...)`, is
+  // rejected naming `FnMut` before its captures are judged (decision 43 N1f;
+  // not covered by `fn_slot_admits_capture_fnmut`, VERDICTS-15 Q4).
+  if(mname == "Sync", {
+    match(
+      get_closure_capture_info(fid.clone()),
+      .Some(sci) => if(type_first_mut_borrow(&sci.capture_type).is_some() || capture_struct_is_fnmut(&sci.capture_type), {
+        return(Option(String).Some(String.from("it is an `FnMut(...)` closure (it writes through a `&mut` capture or its own state), whose call borrows it exclusively, and a `Sync` slot may call it from several threads at once — pass a closure that only reads its captures, or keep the state in an atomic or a `Mutex`")));
+      }),
+      .None => ()
+    );
+  });
   // The captures: the verdict taken at the closure's creation, per captured
   // variable; without one, the capture struct as a type.
   cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
@@ -507,6 +521,9 @@ _function_value_offense :: (
 _closure_copy_offense :: (fn(ty : &TypeValue, trait_name : &String, env : &Environment) -> String)({
   if(type_first_mut_borrow(ty).is_some(), {
     return(String.from("the closure has a `&mut` capture, and two copies of one exclusive borrow would alias (plans/VALUES_BY_DEFAULT.md decision 38 A)"));
+  });
+  if(capture_struct_is_fnmut(ty), {
+    return(String.from("the closure is typed `FnMut(...)`: its call writes its state, so a copy would fork it (plans/VALUES_BY_DEFAULT.md decision 37)"));
   });
   trait_tt := get_trait_type_from_env(env, trait_name.clone());
   match(

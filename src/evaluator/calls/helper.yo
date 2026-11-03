@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -231,7 +231,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
+{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -1580,19 +1580,30 @@ check_argument_for_parameter :: (
     .Some(fv_note) => _arg_rule_throw_types(arg_tok, `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(&lowered)}${fv_note}`, resolved_pt, &lowered, ctx, exn),
     .None => ()
   );
-  // Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
-  // `FnOnce(...)` may be called once, and an `Fn(...)` parameter's callee may
-  // call it again. A closure literal adopts the parameter's trait, so this
-  // fires for a named closure (or a forwarded parameter) only.
-  if((_fn_trait_base_of(resolved_pt) == "Fn") && (_fn_trait_base_of(&lowered) == "FnOnce"), {
+  // Decision 37: `Fn` implies `FnMut`, which implies `FnOnce`, never the
+  // reverse (`fn_trait_base_serves`). A closure typed `FnOnce(...)` may be
+  // called once, and an `Fn(...)`/`FnMut(...)` parameter's callee may call it
+  // again; one typed `FnMut(...)` needs an exclusive call, and an `Fn(...)`
+  // parameter's callee may call it through a shared borrow. A closure literal
+  // adopts the parameter's trait, and an unannotated closure value has none,
+  // so this fires for a closure TYPED with its trait (an annotation, a
+  // forwarded parameter, a `Dyn`) only.
+  pt_base := _fn_trait_base_of(resolved_pt);
+  arg_base := _fn_trait_base_of(&lowered);
+  if(!pt_base.is_empty() && (!arg_base.is_empty() && !fn_trait_base_serves(&arg_base, &pt_base)), {
     raise_flow_violation(
       with_code(
         format_error_message_with_help(
           arg_tok,
-          `Argument for parameter "${param_label}" is an \`FnOnce(...)\` closure, which is called at most once (its call consumes it), and the parameter is \`Fn(...)\`: its callee may call the closure again.`,
-          Option(String).Some(String.from("pass an `Fn(...)` closure (one whose body moves no capture out), or declare the parameter `sink(f) : Impl(FnOnce(...))` if the callee calls it once"))
+          `Argument for parameter "${param_label}" is an \`${arg_base}(...)\` closure, ${fn_trait_call_contract(&arg_base)}, and the parameter is \`${pt_base}(...)\`: ${fn_trait_slot_contract(&pt_base)}.`,
+          Option(String).Some(
+            cond(
+              (arg_base == "FnOnce") => `pass an \`${pt_base}(...)\` closure (one whose body moves no capture out), or declare the parameter \`sink(f) : Impl(FnOnce(...))\` if the callee calls it once`,
+              true => String.from("pass an `Fn(...)` closure (one whose body writes no capture), or declare the parameter `f : &mut Impl(FnMut(...))` if the callee calls it one call at a time")
+            )
+          )
         ),
-        E_CLOSURE_MOVES_CAPTURE
+        E_CLOSURE_TRAIT_TOO_WEAK
       ),
       ctx,
       exn

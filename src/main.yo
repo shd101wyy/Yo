@@ -2006,11 +2006,11 @@ _bsm_walk :: (
         cond(
           // Declaration heads.
           (!is_infix && ((word == "fn") || (word == "ctl"))) => _bsm_param_list(&args, usize(0), lines, out, claimed, counts),
-          (!is_infix && ((word == "Fn") || (word == "FnOnce"))) => _bsm_param_list(&args, usize(1), lines, out, claimed, counts),
+          (!is_infix && ((word == "Fn") || ((word == "FnMut") || (word == "FnOnce")))) => _bsm_param_list(&args, usize(1), lines, out, claimed, counts),
           // The result slot.
           _bsm_is_infix_of(e, "->") => {
             lhs_w := match(_bsm_callee(_bsm_arg(e, usize(0))), .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
-            if((lhs_w == "fn") || (lhs_w == "ctl") || (lhs_w == "Fn") || (lhs_w == "FnOnce"), {
+            if((lhs_w == "fn") || (lhs_w == "ctl") || (lhs_w == "Fn") || (lhs_w == "FnMut") || (lhs_w == "FnOnce"), {
               rt := _bsm_arg(e, usize(1));
               match(
                 _bsm_mode_sig(&rt),

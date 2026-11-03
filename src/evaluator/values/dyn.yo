@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_DYN_UNCALLABLE, E_BORROW_ESCAPES } :: import("../../diagnostics.yo");
+{ E_TYPE_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_DYN_UNCALLABLE, E_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
@@ -1252,10 +1252,12 @@ _dyn_type_from_payload_or_throw :: (
     }
   )
 );
-/// Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
-/// `FnOnce(...)` boxed as a `Dyn(Fn(...))` could be called again through the
-/// `Fn` slot, re-running a body that already gave its captures away (E0913).
-_reject_fnonce_into_dyn_fn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+/// Decision 37: `Fn` implies `FnMut`, which implies `FnOnce`, never the
+/// reverse (`fn_trait_base_serves`). A closure typed `FnOnce(...)` boxed as a
+/// `Dyn(Fn(...))` or `Dyn(FnMut(...))` could be called again, re-running a
+/// body that already gave its captures away; one typed `FnMut(...)` boxed as
+/// a `Dyn(Fn(...))` could be called through a shared borrow (E0913).
+_reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   target_base := match(
     target,
     .Some(t) => match(
@@ -1266,11 +1268,14 @@ _reject_fnonce_into_dyn_fn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : 
     .None => String.from("")
   );
   value_base := match(extract_fn_trait_from_type(value_ty), .Some(vf) => match(vf, Rc(.FnTraitT(base_name : vb)) => vb.clone(), _ => String.from("")), .None => String.from(""));
-  if((target_base == "Fn") && (value_base == "FnOnce"), {
+  if(!target_base.is_empty() && (!value_base.is_empty() && !fn_trait_base_serves(&value_base, &target_base)), {
     raise_flow_violation(
       with_code(
-        format_error_message(tok, String.from("Cannot box an `FnOnce(...)` closure as a `Dyn(Fn(...))`: an `FnOnce` closure is called at most once (its call consumes it), and a `Dyn(Fn(...))` may be called again. Box it as `Dyn(FnOnce(...))`.")),
-        E_CLOSURE_MOVES_CAPTURE
+        format_error_message(
+          tok,
+          `Cannot box an \`${value_base}(...)\` closure as a \`Dyn(${target_base}(...))\`: the closure is an \`${value_base}(...)\` closure, ${fn_trait_call_contract(&value_base)}, and through a \`Dyn(${target_base}(...))\` ${fn_trait_slot_contract(&target_base)}. Box it as \`Dyn(${value_base}(...))\`.`
+        ),
+        E_CLOSURE_TRAIT_TOO_WEAK
       ),
       ctx,
       exn
@@ -1437,7 +1442,7 @@ evaluate_dyn_value :: (
     // are evaluated in validating mode) has the vtable FuncVals. The
     // resolution is structural (registry lookup), not execution-dependent.
     ne_value_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(ii) => Rc.clone(ii.ty), .None => t_unit());
-    _reject_fnonce_into_dyn_fn(&ctx.expected_type, &ne_value_type, &expr_tok, ctx, exn);
+    _reject_weaker_closure_into_dyn(&ctx.expected_type, &ne_value_type, &expr_tok, ctx, exn);
     // Whether the inner expression actually produced an ExprInfo. With none, the
     // `t_unit()` fallback above is a STAND-IN, not the payload's type — checking
     // the trait bound against it would report "unit does not implement …" on top
@@ -1624,7 +1629,7 @@ evaluate_dyn_value :: (
   );
   (value_type : TypeValue) = Rc.clone(inner_info.ty);
   _reject_dyn_of_dyn(value_type.clone(), &expr_tok, exn);
-  _reject_fnonce_into_dyn_fn(&ctx.expected_type, &value_type, &expr_tok, ctx, exn);
+  _reject_weaker_closure_into_dyn(&ctx.expected_type, &value_type, &expr_tok, ctx, exn);
   (cur_env : Environment) = expr_info_adopt_env(&inner_info);
   (final_value_type : TypeValue) = Rc.clone(value_type);
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType

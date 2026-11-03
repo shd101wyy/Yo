@@ -39,6 +39,7 @@ pragma(Pragma.AllowUnsafe);
   BK_UNSAFE_FN,
   BK_FN_TRAIT,
   BK_FN_ONCE_TRAIT,
+  BK_FN_MUT_TRAIT,
   ast_expr_is_fn_call,
   BK_BORROW_MUT,
   BK_ANON_STRUCT
@@ -938,7 +939,7 @@ _is_function_boundary_for_early_drop :: (fn(expr : &AstExpr, _ctx : &EvalContext
   match(
     expr,
     .FnCall(_, func, _, _, _) => if(
-      ast_expr_is_fn_call_of(&func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_ONCE_TRAIT, Option(usize).None),
+      ast_expr_is_fn_call_of(&func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_ONCE_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_MUT_TRAIT, Option(usize).None),
       return(true),
       ()
     ),

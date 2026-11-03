@@ -29,6 +29,7 @@ pragma(Pragma.AllowUnsafe);
   BK_CTL,
   BK_FN_TRAIT,
   BK_FN_ONCE_TRAIT,
+  BK_FN_MUT_TRAIT,
   make_err_expr,
   ast_expr_to_string,
   ast_expr_is_atom,
@@ -113,7 +114,7 @@ _e0003_tier :: (fn(v : &String) -> u8)(
     true => u8(4)
   )
 );
-/// The head of a fn type (`fn`, `unsafe_fn`, `ctl`, `Fn`, `FnOnce`) when
+/// The head of a fn type (`fn`, `unsafe_fn`, `ctl`, `Fn`, `FnMut`, `FnOnce`) when
 /// `e` is that head's parameter list (`fn(x : i32)`), "" otherwise: E0003's
 /// hint reads `->` as the fn-type arrow only after such a head, and as a
 /// lambda arrow (`err -> {...}`) after anything else.
@@ -125,7 +126,7 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
       true => match(
         hf,
         .Atom(_, ht) => cond(
-          ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT)) => ht.value.*,
+          ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT) || (ht.value.* == BK_FN_MUT_TRAIT)) => ht.value.*,
           true => String.new()
         ),
         .FnCall(_, _, _, _, _) => String.new()
@@ -1936,7 +1937,7 @@ impl(
   /// grouping is not a Yo form, or not the only reading, left hint-free — the
   /// full table is in the issue doc `_e0003_tier` names. `->` is two arrows:
   /// a fn type when its left operand is a `fn(`/`unsafe_fn(`/`ctl(`/`Fn(`/
-  /// `FnOnce(` head, a lambda arrow otherwise (`err -> {...}`).
+  /// `FnMut(`/`FnOnce(` head, a lambda arrow otherwise (`err -> {...}`).
   ///
   /// - a binding then `=>`/`->`/computational, `:` then computational
   ///   (`x := a + b`, a named argument `P(x : a + b)`), `:` then a fn type,
