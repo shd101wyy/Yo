@@ -48,7 +48,7 @@ make_ident :: (fn(v : str) -> AstExpr)(
 );
 // Creates a call `io.await(arg, io)` with `io.await` as infix dot access
 make_io_method_call :: (fn(method : str, arg : &AstExpr, call_char : usize) -> AstExpr)({
-  dot_args := ArrayList(AstExpr).new();
+  mut(dot_args) := ArrayList(AstExpr).new();
   dot_args.push(make_ident("io"));
   dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, method)));
   dot_fncall := AstExpr.FnCall(
@@ -58,7 +58,7 @@ make_io_method_call :: (fn(method : str, arg : &AstExpr, call_char : usize) -> A
     true,
     make_token(TokenKind.Dot, ".")
   );
-  outer_args := ArrayList(AstExpr).new();
+  mut(outer_args) := ArrayList(AstExpr).new();
   outer_args.push(arg);
   AstExpr.FnCall(
     usize(0),
@@ -70,7 +70,7 @@ make_io_method_call :: (fn(method : str, arg : &AstExpr, call_char : usize) -> A
 });
 // Creates a call `handle.await(using_arg, handle)` for JoinHandle await detection
 make_handle_await_call :: (fn(handle_name : str, arg : &AstExpr) -> AstExpr)({
-  dot_args := ArrayList(AstExpr).new();
+  mut(dot_args) := ArrayList(AstExpr).new();
   dot_args.push(make_ident(handle_name));
   dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, "await")));
   dot_fncall := AstExpr.FnCall(
@@ -80,7 +80,7 @@ make_handle_await_call :: (fn(handle_name : str, arg : &AstExpr) -> AstExpr)({
     true,
     make_token(TokenKind.Dot, ".")
   );
-  outer_args := ArrayList(AstExpr).new();
+  mut(outer_args) := ArrayList(AstExpr).new();
   outer_args.push(arg);
   AstExpr.FnCall(
     usize(0),
@@ -93,9 +93,9 @@ make_handle_await_call :: (fn(handle_name : str, arg : &AstExpr) -> AstExpr)({
 // A simple future type: SomeT with one required trait = FutureTraitT(output: unit)
 make_future_some_type :: (fn() -> TypeValue)({
   future_trait := t_future_trait_simple(String.from("Future"), t_unit());
-  required_trait_types := ArrayList(TypeValue).new();
+  mut(required_trait_types) := ArrayList(TypeValue).new();
   required_trait_types.push(future_trait);
-  required_trait_levels := ArrayList(usize).new();
+  mut(required_trait_levels) := ArrayList(usize).new();
   required_trait_levels.push(usize(0));
   Rc.new(
     TypeValueNode.SomeT(
@@ -112,7 +112,7 @@ make_future_some_type :: (fn() -> TypeValue)({
 // A DynT with FutureTraitT(output: bool)
 make_future_dyn_type :: (fn() -> TypeValue)({
   future_trait := t_future_trait_simple(String.from("Future"), t_bool());
-  required_trait_types := ArrayList(TypeValue).new();
+  mut(required_trait_types) := ArrayList(TypeValue).new();
   required_trait_types.push(future_trait);
   Rc.new(
     TypeValueNode.DynT(
@@ -272,7 +272,7 @@ test("analyze_await_points: empty atom body => no await points", {
 });
 test("analyze_await_points: non-await fncall body => no await points", {
   // foo(x) — not an io.await call, get_info returns None
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(make_ident("x"));
   body := AstExpr.FnCall(
     usize(0),
