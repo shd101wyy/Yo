@@ -185,10 +185,10 @@ impl(
   /// becomes) closed, or its `Receiver` has been dropped — the failed value
   /// is handed back.
   send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
-    io.async((io : Io) => {
+    io.async({ ch : self.clone(), value }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
-        if(self._st.with(s => (s._closed || (s._recv_dropped || (s._buf.len() < s._capacity)))), {
+        if(ch._st.with(s => (s._closed || (s._recv_dropped || (s._buf.len() < s._capacity)))), {
           waiting = false;
         });
         if(waiting, {
@@ -196,17 +196,17 @@ impl(
           // wake. Re-check after waking rather than trusting it: the waker
           // says "space may have appeared", and a `try_send` from a third
           // task can have taken that slot in between.
-          p := self._st.with_mut(s => s._park_sender());
+          p := ch._st.with_mut(s => s._park_sender());
           io.await(p.wait(io), io);
         });
       });
       cond(
-        self._st.with(s => (s._closed || s._recv_dropped)) => return(Result(unit, T).Err(value)),
+        ch._st.with(s => (s._closed || s._recv_dropped)) => return(Result(unit, T).Err(value)),
         true => {
           // No suspension between the capacity check and this push, so no
           // other task can interleave (single-threaded cooperative loop).
-          self._push(value);
-          self._wake_one_receiver();
+          ch._push(value);
+          ch._wake_one_receiver();
           return(Result(unit, T).Ok(()));
         }
       );
@@ -215,21 +215,21 @@ impl(
   /// Receive the oldest value, suspending while the channel is empty.
   /// Resolves to `.None` once the channel is closed AND drained.
   recv : (fn(self : &Self, io : Io) -> Impl(Future(Option(T))))(
-    io.async((io : Io) => {
+    io.async({ ch : self.clone() }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
-        if(self._st.with(s => ((s._buf.len() > usize(0)) || s._closed)), {
+        if(ch._st.with(s => ((s._buf.len() > usize(0)) || s._closed)), {
           waiting = false;
         });
         if(waiting, {
-          p := self._st.with_mut(s => s._park_receiver());
+          p := ch._st.with_mut(s => s._park_receiver());
           io.await(p.wait(io), io);
         });
       });
       cond(
-        (self.len() > usize(0)) => {
-          v := self._st.with_mut(s => s._buf.remove(usize(0)));
-          self._wake_one_sender();
+        (ch.len() > usize(0)) => {
+          v := ch._st.with_mut(s => s._buf.remove(usize(0)));
+          ch._wake_one_sender();
           return(Option(T).Some(v));
         },
         true => return(Option(T).None)
