@@ -204,7 +204,9 @@ Progress:
   - V2's B10: `Deque`, `BTreeMap`, `OrderedMap` and `PriorityQueue` are
     values (`Clone` derived, or for `Deque` placed in the source's
     allocator; `BTreeMap.range` consumes, as `keys`/`values` do; §6 V2,
-    item 3's B10).
+    item 3's B10). The flip-bound modes `--migrate explicit-copy` and
+    `--migrate cloned-accessors` retired with it (§6, "After V5",
+    "Flip-bound modes").
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
@@ -8259,6 +8261,15 @@ heavy run, the command is given in item 2.
        the bound result is written afterwards (`match(m.get(k), .Some(l) =>
        l.push(x))` writes the shared list today). Run it over std, src and
        tests in the same PR.
+     - As retired (2026-11-03, consultation #17, `VERDICTS-17.md`):
+       `--migrate cloned-accessors`, N7 (`YO_AUDIT_COPYING_ACCESSOR`) and
+       `--hot-path` were deleted with the `BTreeMap` flip (B10, v0.2.74),
+       together with `--migrate explicit-copy` and the written-after, flow,
+       loop and raw-pointer tables both read. After the flip the copy inside
+       the specialized accessor is E0901, re-anchored at the caller with the
+       same `_copying_accessor_info` help, so the recorder has nothing left
+       to see. They last shipped in v0.2.73; the caller re-anchoring and
+       `check-accessor-copy-names-get-cloned` stay.
      - E0901 surface: roughly 2,100 accessor unwraps in `src/` of all
        element kinds (§6: 3,314 owned-temporary bindings, 7 of 11 from an
        accessor); the buffer-owning share is N7's number.
@@ -9858,6 +9869,21 @@ that later phases add.
     the next release.
   - GRAMMAR and DESIGN (en-US and zh-CN) stop naming `--migrate` modes, and
     §7's "Found by" column keeps them only as history.
+- **Flip-bound modes** (2026-11-03, consultation #17, `VERDICTS-17.md`). A
+  mode whose subject a flip turns into E0901 retires with that flip, not
+  with this step: once the copy it rewrites is an error, evaluation stops
+  there and the recorder sees nothing, while the error's help names the same
+  rewrite. `--migrate explicit-copy` and `--migrate cloned-accessors`, with
+  the `YO_AUDIT_IMPLICIT_COPY` and `YO_AUDIT_COPYING_ACCESSOR` listings,
+  retired with the `BTreeMap` flip (B10, v0.2.74); their last working
+  release is v0.2.73, and they open the retired-migrations table in
+  `docs/*/ERROR_DIAGNOSTICS.md`. The README gate for them is stage 0: on
+  v0.2.73, before pinning v0.2.74 or later, each of the six projects runs
+  `--migrate explicit-copy`, `--migrate cloned-accessors`, `--migrate
+  rc-clone` in that order, then every other mode v0.2.73 ships, and commits
+  the reviewed result. Stage 1, on v0.2.75, is the gate above for the
+  remaining modes. A copy stage 0 misses is fixed by hand under E0901's help
+  between the stages; it is a bug only if the help is wrong.
 - **Exception.** If `yo fix --migrate` becomes how users outside this
   repository upgrade their packages after a breaking change, keep the newest
   one or two (Rust keeps edition migrations for that reason). Under the
@@ -9876,7 +9902,7 @@ that later phases add.
 | `T :: atomic(ref(struct(...)))` shared across threads | `Arc(T)` over a value `T` (requires `T <: (Send, Sync)`) | E0602 at the `Arc` |
 | `T :: ref(enum(... Self ...))` | `enum(... Box(Self) ...)`, or `Rc(Self)` children for the large compiler trees; `TypeValue` is `Rc(TypeValueNode)` (decision 21, as built 2026-10-13) | V4 list |
 | `Box(T)` whose copies must alias | `Rc(T)` | V1 step 1 renames all; step 2 moves recursion back |
-| an implicit copy of a `String`, collection, `Box` or `Dyn` whose source lives on | `x.clone()`, a move, or `y := &x` | E0901 + note (V2b) |
+| an implicit copy of a `String`, collection, `Box` or `Dyn` whose source lives on | `x.clone()`, a move, or `y := &x` | E0901 + note (V2b); `--migrate explicit-copy`/`cloned-accessors`: retired with the `BTreeMap` flip, v0.2.74; last shipped v0.2.73 |
 | an implicit `Rc`/`Arc` copy | `r.clone()` | E0901 (V2c) |
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value | V3 impl check |
 | a resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `&mut` | E0901 + note |

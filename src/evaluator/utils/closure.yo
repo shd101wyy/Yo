@@ -94,7 +94,7 @@
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, migrate_rc_clone_on, ICMigrateCtx, _ic_decl_key, _ic_in_generic, _rc_clone_spelling } :: import("../utils.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, migrate_rc_clone_on, ICMigrateCtx, _ic_in_generic, _rc_clone_spelling } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1417,7 +1417,7 @@ generate_captured_variable_dup_expressions :: (
     ctx : &EvalContext,
     exn : Exception,
     /// The closure's token: where a capture that is not implicitly copyable
-    /// is moved, and the copy site YO_AUDIT_IMPLICIT_COPY reports for each
+    /// is moved, and the copy site the implicit-copy recorder keeps for each
     /// dupped capture.
     closure_tok : &Token,
     /// The closure literal is the direct argument of a borrowing parameter,
@@ -1487,11 +1487,7 @@ generate_captured_variable_dup_expressions :: (
                       Option(ICMigrateCtx).Some(
                         ICMigrateCtx(
                           leftmost : closure_tok.clone(),
-                          src_decl : match(get_variables_from_env(env, var_name.clone()).last(), .Some(cv) => _ic_decl_key(&cv.token), .None => String.new()),
-                          dst_decl : String.new(),
-                          src_borrow : String.new(),
                           in_generic : _ic_in_generic(ctx, &ci.ty),
-                          src_dying : String.new(),
                           capture_label : String.new(),
                           capture_names : rc_capture_names.clone()
                         )

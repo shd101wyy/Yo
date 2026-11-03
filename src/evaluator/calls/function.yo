@@ -70,10 +70,10 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid, shared_values, value_cell_new } :: import("../../value.yo");
-{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name, canonical_module_path, display_module_path } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer, audit_copying_accessor_enabled, audit_print_copying_accessor, migrate_cloned_accessors_on, record_copying_accessor_site, CopyingAccessorSite, implicit_copy_category, _ic_category_is_unique_buffer, _ic_place_root_decl, _ic_place_root_var, _ic_decl_key } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -7134,10 +7134,6 @@ _evaluate_funcval_runtime_call :: (
     ),
     .None => ()
   );
-  // `yo fix --migrate explicit-copy`: a raw pointer this call hands back
-  // (`first_ptr(&marks)`) ties the variables its arguments are rooted in to
-  // that pointer (`record_copy_pointer`).
-  if(migrate_explicit_copy_on(), match(expr, .FnCall(_, _, Rc(rcp_args), _, _) => record_copy_pointer(&resolved_ret, &rcp_args, env, &ast_expr_token(expr)), .Atom(_, _) => ()));
   out_rt := new_expr_info(env, &resolved_ret);
   out_rt.value = Option(EvalValue).Some(_call_result_unknown(&resolved_ret, env));
   // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
@@ -8237,7 +8233,6 @@ evaluate_function_call :: (
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });
-      _audit_copying_accessor_call(expr, &r, env, ctx);
       _record_handle_ctor_call(expr, &r, env, ctx);
       r
     }
@@ -8339,96 +8334,6 @@ _record_handle_ctor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Envir
     )
   );
 });
-/// N7 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.2 B6-b): one copying
-/// accessor called in user code — a method call `r.m(args)` whose receiver
-/// type has an `m_cloned` sibling (`_copying_accessor_info`) whose RESULT
-/// carries a unique buffer (`_ic_category_is_unique_buffer`: `String`, a
-/// std collection, a value aggregate holding one). Prints one
-/// `[copying-accessor]` line per call site for `YO_AUDIT_COPYING_ACCESSOR`
-/// and records the site for `yo fix --migrate cloned-accessors`. Inert
-/// unless one of them is on.
-_audit_copying_accessor_call :: (fn(call : &AstExpr, result : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
-  if(!audit_copying_accessor_enabled(), {
-    return(());
-  });
-  ai := match(_copying_accessor_info(call, env, ctx), .Some(x) => x, .None => return(()));
-  res_ty0 := match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
-    .Some(ri) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => Rc.clone(ci.ty), .None => Rc.clone(ri.ty)),
-    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(ci) => Rc.clone(ci.ty), .None => return(()))
-  );
-  // A specialized generic accessor's recorded result still mentions its
-  // open parameter (`Option(T)` with T resolved to the element): resolve the
-  // SomeTs so the printed type, the recorded `ty` and the in-generic verdict
-  // see the instantiated type. An UNRESOLVED T (a definition-time trial of a
-  // generic body) stays — that is exactly the in-generic case.
-  res_ty := _resolve_some_types_deep(&res_ty0, env);
-  category := implicit_copy_category(&res_ty);
-  if(!_ic_category_is_unique_buffer(&category), {
-    return(());
-  });
-  // The method NAME's token is the rewrite point: `_cloned` inserts right
-  // after it. Compiler-synthesized code (derives, generated helpers) is not
-  // a site a user migrates.
-  name_tok := match(
-    call,
-    .FnCall(_, aa_callee, _, _, _) => match(
-      aa_callee,
-      .FnCall(_, _, Rc(aa_pa), _, _) => match(aa_pa.get(usize(1)), .Some(.Atom(_, nt)) => nt, _ => ast_expr_token(call)),
-      .Atom(_, _) => ast_expr_token(call)
-    ),
-    .Atom(_, _) => ast_expr_token(call)
-  );
-  if(name_tok.module_path.*.starts_with("auto-generated://"), {
-    return(());
-  });
-  recv_text := if(ai.recv_text.len() > usize(40), `${ai.recv_text.substring(usize(0), usize(37))}...`, ai.recv_text.clone());
-  line := `${display_module_path(&name_tok.module_path.*)}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()} [copying-accessor] ${category} ${type_to_string(&res_ty).replace(" ", String.from(""))} \`${recv_text}.${ai.method}(...)\``;
-  audit_print_copying_accessor(&line);
-  if(migrate_cloned_accessors_on(), {
-    recv_expr := _accessor_recv_of(call);
-    record_copying_accessor_site(
-      CopyingAccessorSite(
-        path : name_tok.module_path.*.clone(),
-        row : usize(name_tok.row),
-        col : usize(name_tok.column),
-        method : ai.method.clone(),
-        cloned : ai.cloned.clone(),
-        recv_text : recv_text.clone(),
-        // `type_key`, not the printed type: an instantiated
-        // `Option(String)` can carry the display name of its declaration
-        // (`Option(T)`), which would collapse two instantiations of a
-        // generic body into one site.
-        ty : type_key(&res_ty),
-        ty_value : res_ty.clone(),
-        // The stop-at-owning-temp walk: a receiver that is a call's own
-        // result (`mk().get(0)`) roots in no variable, so no written-after
-        // guard applies and the site is listed instead.
-        src_decl : match(
-          _ic_place_root_var(&recv_expr, env, stop_ctx : Option(EvalContext).Some(ctx)),
-          .Some(rv) => _ic_decl_key(&rv.token),
-          .None => String.new()
-        ),
-        at_module : canonical_module_path(&name_tok.module_path.*),
-        at_offset : name_tok.byte_offset,
-        in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&res_ty))
-      )
-    );
-  });
-});
-/// The receiver expression of a method call `r.m(...)`, or the call itself
-/// when the shape is not one.
-_accessor_recv_of :: (fn(call : &AstExpr) -> AstExpr)(
-  match(
-    call,
-    .FnCall(_, ar_callee, _, false, _) => match(
-      ar_callee,
-      .FnCall(_, _, Rc(ar_pa), _, _) => match(ar_pa.get(usize(0)), .Some(ar_base) => ar_base, .None => call.clone()),
-      .Atom(_, _) => call.clone()
-    ),
-    _ => call.clone()
-  )
-);
 /// Decision 24: `call` is a direct call of a projection
 /// (`projection_call_mode_of`). Its result is a place of type `T` inside the
 /// borrowed arguments, never an owned temporary: its temp is re-attached as

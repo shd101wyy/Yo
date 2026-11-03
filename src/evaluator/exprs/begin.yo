@@ -1817,7 +1817,7 @@ _optimize_dup_drop_pairs :: (
   });
 });
 // ---------------------------------------------------------------------------
-// YO_AUDIT_IMPLICIT_COPY: is the copied variable used again?
+// The implicit-copy recorder: is the copied variable used again?
 // ---------------------------------------------------------------------------
 /// What `_ic_scan` found for one pending copy site.
 _ICScan :: ref(
@@ -2310,7 +2310,7 @@ _migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(
 /// Judge, at the end of a `match` arm, the pending copies of the arm's
 /// pattern bindings (`frame`) against the arm's body (`scanned`): a binding
 /// of an owned temporary holds its copies pending for `yo fix --migrate
-/// explicit-copy` (`audit_record_implicit_copy`), and an arm whose body is
+/// rc-clone` (`audit_record_implicit_copy`), and an arm whose body is
 /// one expression has no block epilogue of its own to judge them.
 audit_judge_arm_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)(
   _audit_judge_implicit_copies(frame, scanned, ctx)
@@ -3785,7 +3785,7 @@ _evaluate_begin_expression_impl :: (
       });
     }
   );
-  // YO_AUDIT_IMPLICIT_COPY: judge the pending copies of this block's locals
+  // The implicit-copy recorder: judge the pending copies of this block's locals
   // and, for a function body, of its parameters (plans/VALUES_BY_DEFAULT.md
   // §6, item 1). Read-only.
   if(audit_pending_copies_enabled(), {
