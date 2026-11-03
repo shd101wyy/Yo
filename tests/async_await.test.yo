@@ -7613,6 +7613,20 @@ _a2_items_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, I
 );
 _A2Node :: ref(struct(n : i32));
 _A2WithNode :: struct(node : _A2Node);
+// `Future(T, E, p)` spells the places a future borrows (decision 43 step 4,
+// N3-1): the trailing origin is recognized by kind, here the `&mut`
+// parameter's place, and the spelled result is accepted where the elided one
+// is.
+_n3_bump_spelled :: (fn(c : &mut _A2Counter, io : Io) -> Impl(Future(unit, Io, c)))(
+  io.async({ c : &mut c.* }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+test("a future's result type spells its origin: Future(T, E, p) (decision 43 N3-1)", {
+  mut(c) := _A2Counter(n : i32(0));
+  io.await(_n3_bump_spelled(&mut c, io), io);
+  assert(c.n == i32(1), "the spelled-origin future writes through the lent &mut");
+});
 test("a borrowing future: a function returns a future over its & or &mut parameter (§3.13 A2)", {
   mut(c) := _A2Counter(n : i32(0));
   io.await(_a2_bump(&mut c, io), io);
