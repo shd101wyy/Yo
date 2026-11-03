@@ -806,9 +806,9 @@ fn_result_pointee :: (fn(ft : &TypeValue) -> TypeValue)(t_slot_pointee(&fn_resul
 /// that is none of the three.
 fn_trait_rank :: (fn(base_name : &String) -> Option(u8))(
   cond(
-    (base_name.* == "Fn") => Option(u8).Some(u8(0)),
-    (base_name.* == "FnMut") => Option(u8).Some(u8(1)),
-    (base_name.* == "FnOnce") => Option(u8).Some(u8(2)),
+    (base_name == "Fn") => Option(u8).Some(u8(0)),
+    (base_name == "FnMut") => Option(u8).Some(u8(1)),
+    (base_name == "FnOnce") => Option(u8).Some(u8(2)),
     true => Option(u8).None
   )
 );
@@ -819,14 +819,14 @@ fn_trait_base_serves :: (fn(actual : &String, expected : &String) -> bool)(
   match(
     fn_trait_rank(actual),
     .Some(ar) => match(fn_trait_rank(expected), .Some(er) => (ar <= er), .None => false),
-    .None => (actual.* == expected.*)
+    .None => (actual == expected)
   )
 );
 /// What a call of a closure typed `base_name` does to it, for E0913's text.
 fn_trait_call_contract :: (fn(base_name : &String) -> String)(
   cond(
-    (base_name.* == "FnOnce") => String.from("which is called at most once (its call consumes it)"),
-    (base_name.* == "FnMut") => String.from("whose call borrows it exclusively (its body writes its state or a `&mut` capture)"),
+    (base_name == "FnOnce") => String.from("which is called at most once (its call consumes it)"),
+    (base_name == "FnMut") => String.from("whose call borrows it exclusively (its body writes its state or a `&mut` capture)"),
     true => String.from("whose call borrows it")
   )
 );
@@ -834,7 +834,7 @@ fn_trait_call_contract :: (fn(base_name : &String) -> String)(
 /// E0913's text.
 fn_trait_slot_contract :: (fn(base_name : &String) -> String)(
   cond(
-    (base_name.* == "Fn") => String.from("the closure may be called again, through a shared borrow"),
+    (base_name == "Fn") => String.from("the closure may be called again, through a shared borrow"),
     true => String.from("the closure may be called again")
   )
 );
