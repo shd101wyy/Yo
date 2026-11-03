@@ -37,7 +37,7 @@
   is_array_type,
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_carries_origin, origin_beyond_n2b } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_carries_origin, origin_beyond_n2b, type_is_comptime_only } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { stable_type_identity } :: import("../../types/type_key.yo");
 {
@@ -195,6 +195,45 @@ _enum_some_type_is_only_in_function_fields :: (
 // across two C types (passing/initializing mismatches). The stable render
 // never changes, so a second arrival is detected and ALIASED instead.
 (g_stable_to_key : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+/// Whether a nominal value type has a runtime field (a struct's non-`comptime`
+/// field, an enum variant's payload) whose type is comptime-only (`Type`,
+/// `ComptimeList(…)`, `comptime_int`, `Expr`, …). Such a type has no C
+/// representation: every such field would lower to the `// Unknown type:`
+/// comment. The reflection records `Type.get_info` returns (`TypeInfo`,
+/// `FunctionInfo`, `TraitKind`, all `impl(_, Comptime())`) are the case that
+/// reaches collection: as the type of a compile-time-folded
+/// `Type.get_info(C)` in a runtime generic body, which emits no code
+/// (issues/fixed/2026-11-03-a-runtime-position-type-get-info-emits-the-comptime-typeinfo-struct.md).
+_has_comptime_only_runtime_field :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    Rc(.Struct({ is_source_namespace })) => if(is_source_namespace, false, {
+      fs := get_runtime_struct_fields(ty);
+      (mut(found) : bool) = false;
+      (mut(i) : usize) = usize(0);
+      while((i < fs.len()) && !found, {
+        found = type_is_comptime_only(&fs(i).ty);
+        i = (i + usize(1));
+      });
+      found
+    }),
+    Rc(.EnumT({ variant_fields })) => {
+      (mut(found) : bool) = false;
+      (mut(vi) : usize) = usize(0);
+      while((vi < variant_fields.len()) && !found, {
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+        (mut(fi) : usize) = usize(0);
+        while((fi < fields.len()) && !found, {
+          found = match(fields.get(fi), .Some(ft) => type_is_comptime_only(&ft), .None => false);
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
 collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
   // recursion descends into the FINAL's variant fields (the shell has none) and
@@ -229,6 +268,10 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   );
   if(context.get_type_entry(type_key(&type)).is_some(), {
     return(()); // Already collected this type
+  });
+  // A comptime-only record (the reflection `TypeInfo` family) has no C form.
+  if(_has_comptime_only_runtime_field(&type), {
+    return(());
   });
   // SomeTypes (generic) — conservatively skip (monomorphized before
   // codegen in the supported corpus). Fn/Future/resolved-concrete branches
