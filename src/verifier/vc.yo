@@ -367,13 +367,13 @@ _lex_components :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 // ---------------------------------------------------------------------------
 (g_list_datatypes : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (g_list_elem_sorts : RefCell(ArrayList(VcSort))) = RefCell(ArrayList(VcSort)).new(ArrayList(VcSort).new());
-/// The element type of an `ArrayList(T)` (the prelude's ref struct named
+/// The element type of an `ArrayList(T)` (the prelude's struct named
 /// `ArrayList` with one type argument), or `.None`.
 _list_elem_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t_refine_inner(t),
-    Rc(.Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, is_reference_semantics : ls_ref, type_arguments : ls_targs })) => cond(
-      (ls_ref && (ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls.items)) => ls_targs.get(usize(0)),
+    Rc(.Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, type_arguments : ls_targs })) => cond(
+      ((ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls.items)) => ls_targs.get(usize(0)),
       true => Option(TypeValue).None
     ),
     _ => Option(TypeValue).None

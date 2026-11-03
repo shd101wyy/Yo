@@ -10760,24 +10760,10 @@ _exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
   exec_buf := (*?*u8)(argv_raw);
   (xj : usize) = usize(0);
   while(xj < argc, {
-    match(
-      // The leaked C-string storage must outlive execve: read the argument
-      // in place (a get_cloned clone is a temporary whose buffer the argv
-      // pointers would dangle into — `issues/2026-10-27-cloned-accessors-migration-clones-a-list-whose-pointer-must-outlive-the-call.md`).
-      exec_cstrs.get_cloned(xj),
-      .Some(cs) => match(
-        cs.ptr(),
-        .Some(p) => {
-          (exec_buf.add(xj)).* = .Some(p);
-        },
-        .None => {
-          (exec_buf.add(xj)).* = .None;
-        }
-      ),
-      .None => {
-        (exec_buf.add(xj)).* = .None;
-      }
-    );
+    // The leaked C-string storage must outlive execve: read the argument
+    // in place (a get_cloned clone is a temporary whose buffer the argv
+    // pointers would dangle into — `issues/2026-10-27-cloned-accessors-migration-clones-a-list-whose-pointer-must-outlive-the-call.md`).
+    (exec_buf.add(xj)).* = exec_cstrs(xj).ptr();
     xj = (xj + usize(1));
   });
   (exec_buf.add(argc)).* = .None;

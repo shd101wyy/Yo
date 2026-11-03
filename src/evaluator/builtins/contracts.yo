@@ -730,8 +730,8 @@ _evaluate_spec_collection :: (
     // A list-backed Seq's element is the list's (R2 task 2); a str's is u8.
     (head == "seq_nth") => match(
       t_refine_inner(&arg1_ty),
-      Rc(.Struct({ type_arguments : sn_targs, is_reference_semantics : sn_ref })) => cond(
-        (sn_ref && (sn_targs.len() == usize(1))) => Rc.clone(sn_targs(usize(0))),
+      Rc(.Struct({ type_arguments : sn_targs })) => cond(
+        (sn_targs.len() == usize(1)) => Rc.clone(sn_targs(usize(0))),
         true => t_u8()
       ),
       _ => t_u8()
