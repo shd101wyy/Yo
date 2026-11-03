@@ -174,6 +174,9 @@ pragma(Pragma.AllowUnsafe);
 /// (N1e-1, `property_access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
 (g_reference_deref_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// Field reads of a reference field (N1e-2), with whether the field is
+/// `&mut` (`note_reference_field_read`).
+(g_reference_field_reads : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
 /// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
@@ -6863,7 +6866,6 @@ deref_exempt_mark :: (fn(e : &AstExpr) -> unit)({
 /// type `T`, as a reference binding does, so `v.at.*` is that place and a
 /// bare `v.at` in a by-value position is E0926. The value is whether the
 /// field is a `&mut` reference, which a write through it needs.
-(g_reference_field_reads : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
 note_reference_field_read :: (fn(id : usize, is_mut : bool) -> unit)({
   _old := g_reference_field_reads.with_mut(m => m.insert(id, is_mut));
   ()
