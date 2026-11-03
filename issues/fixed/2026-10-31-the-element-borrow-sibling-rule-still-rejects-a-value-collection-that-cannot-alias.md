@@ -96,7 +96,8 @@ Tests: `tests/ref_field_borrow.test.yo`:
 - "an element borrow beside a recursive value that owns lists of the container's type": the
   json `insert` shape over a user enum;
 - "an element borrow beside a value that can reach the container": `&_ListBox`, the
-  `_StrLists` owner by `&` and by value, and a `_MixedBox` (`copy : ArrayList(String)`,
+  `_StrLists` owner by `&`, another `_StrLists` by value (the same owner by value is the
+  call-site exclusivity rule's "borrows from it"), and a `_MixedBox` (`copy : ArrayList(String)`,
   `shared : Rc(ArrayList(String))`) stay rejected. The `_MixedBox` sibling beside an element of
   another `_MixedBox` pins that the walk continues into a hit that does not count. The closure and `&Dyn` pins are
   unchanged.

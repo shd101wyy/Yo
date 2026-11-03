@@ -443,7 +443,12 @@ test("an element borrow beside a value that can reach the container", {
   h.lists.push(String.from("x"));
   h2 := h;
   comptime_expect_error(owner_beside(&mut h.lists(usize(0)), &h2), "could hold a handle");
-  comptime_expect_error(owner_value_beside(&mut h.lists(usize(0)), h2), "could hold a handle");
+  // By value, the second handle to the same owner is the call-site
+  // exclusivity rule's (a sink of what argument 1 borrows from); any other
+  // value of the `ref` type may be a handle to it too.
+  comptime_expect_error(owner_value_beside(&mut h.lists(usize(0)), h2), "borrows from it");
+  h3 := _StrLists(lists : ArrayList(String).new(), tag : String.from("u"));
+  comptime_expect_error(owner_value_beside(&mut h.lists(usize(0)), h3), "could hold a handle");
   mixed_beside :: (fn(dst : &mut String, other : _MixedBox) -> unit)(());
   shared := Rc.new(ArrayList(String).new());
   m := _MixedBox(copy : ArrayList(String).new(), shared : Rc.clone(shared));
@@ -479,7 +484,7 @@ test("an element borrow beside a value that owns a list of the container's type"
 // replacement node carries lists of its own. The new node is owned by the
 // call, so it is not the list the element lives in (std/encoding/json.yo's
 // `insert` shape).
-_VNode :: enum(Leaf(n : i32), Branch(kids : ArrayList(_VNode)));
+_VNode :: enum(Leaf(n : i32), Branch(kids : ArrayList(Self)));
 test("an element borrow beside a recursive value that owns lists of the container's type", {
   put_node :: (fn(dst : &mut _VNode, v : _VNode) -> i32)({
     old := match(dst, .Leaf(n) => n, .Branch(_) => i32(-1));
