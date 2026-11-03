@@ -23,9 +23,17 @@ _entry :: (fn(name : str, version : str, source : &String, commit : str, integri
     dependencies : ArrayList(String).new()
   )
 );
-_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)(
-  LockFile(packages : entries)
-);
+// `LockEntry` is a `ref` type with no `Clone`, so the list is copied one
+// handle at a time.
+_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)({
+  mut(packages) := ArrayList(LockEntry).new();
+  (mut(i) : usize) = usize(0);
+  while(i < entries.len(), {
+    packages.push(entries(i));
+    i = (i + usize(1));
+  });
+  LockFile(packages : packages)
+});
 _parsed :: (fn(content : &String) -> LockFile)(
   match(
     parse_lock_file(content),
