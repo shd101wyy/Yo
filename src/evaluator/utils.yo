@@ -2631,6 +2631,11 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
   // reference binding is the name `r`, decision 43 step 2 N1e-1).
   (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
   while(!ast_expr_is_atom(&cur), {
+    // A reference field's read (N1e-2) is the place it refers to, which the
+    // binding only points to.
+    if(is_reference_field_read(ast_expr_id(&cur)), {
+      return(Option(Variable).None);
+    });
     (next : AstExpr) = match(
       cur,
       .FnCall(_, pr_callee, Rc(pr_args), pr_infix, _) => cond(
@@ -2657,6 +2662,44 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
     cur = ast_rewritten_node(&next);
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last()
+});
+/// E0908: a write of `place` that goes through a `&` reference field
+/// (`v.at.* = x`, `v.at.f = x` or `&mut v.at` with `at : &(T, p)`, decision
+/// 43 step 2 N1e-2). The field lends the place it refers to read-only, as a
+/// `&T` parameter does; a `&mut` field lends it writable.
+reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(g_reference_field_reads.with(m => m.len()) == usize(0), {
+    return(());
+  });
+  (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
+  while(!ast_expr_is_atom(&cur), {
+    if(match(reference_field_read_mode(ast_expr_id(&cur)), .Some(rw_mut) => !rw_mut, .None => false), {
+      rw_text := _place_text(&cur);
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `Cannot write through \`${rw_text}\`: it is a \`&\` reference field, a read-only borrow of the place it refers to.`,
+            Option(String).Some(`declare the field \`&mut\` to write through it, or copy the value into a local first (\`q := ${rw_text}.*;\`) and write the copy`)
+          ),
+          E_WRITE_THROUGH_BORROW
+        ),
+        ctx,
+        exn
+      );
+      return(());
+    });
+    (rw_next : AstExpr) = match(
+      cur,
+      .FnCall(_, rw_callee, Rc(rw_args), rw_infix, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(rw_args.get(usize(0)), .Some(a) => a, .None => return(())),
+        rw_infix => return(()),
+        true => rw_callee
+      ),
+      .Atom(_, _) => cur
+    );
+    cur = ast_rewritten_node(&rw_next);
+  });
 });
 /// `yo fix --migrate mut-bindings`: whether the binding at the root of
 /// `place` has a type variable's type. A store through it is judged "not its
@@ -2687,6 +2730,7 @@ _place_root_is_type_variable :: (fn(place : &AstExpr, env : &Environment) -> boo
 /// binding). A module-level root is judged by the globals step at its own
 /// sites, and a compile-time root holds no runtime storage to lend.
 place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  reject_write_through_shared_reference_field(place, tok, ctx, exn);
   if(!g_audit_mut_bindings && !migrate_mut_bindings_on() && !global_mut_rule_applies(tok, ctx), {
     return(());
   });
@@ -6817,15 +6861,18 @@ deref_exempt_mark :: (fn(e : &AstExpr) -> unit)({
 /// The ids of field reads whose field is a reference (decision 43 step 2,
 /// N1e-2): `v.at` with `at : &(T, p)` reads as the place it refers to, of
 /// type `T`, as a reference binding does, so `v.at.*` is that place and a
-/// bare `v.at` in a by-value position is E0926.
-(g_reference_field_reads : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
-note_reference_field_read :: (fn(id : usize) -> unit)({
-  _new := g_reference_field_reads.with_mut(s => s.insert(id));
+/// bare `v.at` in a by-value position is E0926. The value is whether the
+/// field is a `&mut` reference, which a write through it needs.
+(g_reference_field_reads : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+note_reference_field_read :: (fn(id : usize, is_mut : bool) -> unit)({
+  _old := g_reference_field_reads.with_mut(m => m.insert(id, is_mut));
   ()
 });
-is_reference_field_read :: (fn(id : usize) -> bool)(
-  (g_reference_field_reads.with(s => s.len()) > usize(0)) && g_reference_field_reads.with(s => s.contains(&id))
+/// `.Some(is_mut)` when the node `id` reads a reference field.
+reference_field_read_mode :: (fn(id : usize) -> Option(bool))(
+  if(g_reference_field_reads.with(m => m.len()) == usize(0), Option(bool).None, g_reference_field_reads.with(m => m.get(&id)))
 );
+is_reference_field_read :: (fn(id : usize) -> bool)(reference_field_read_mode(id).is_some());
 /// E0926 at a field read `text` whose field is the reference `ref_ty`, used
 /// as a whole value without `.*` (N1e-2; the binding form is
 /// `reject_reference_without_deref`). `tok` is the field label's token.
@@ -8775,7 +8822,9 @@ export(
   deref_exempt_take,
   note_reference_field_read,
   is_reference_field_read,
+  reference_field_read_mode,
   reject_reference_field_without_deref,
+  reject_write_through_shared_reference_field,
   note_reference_deref_site,
   is_reference_deref_site,
   note_synthesized_deref_star,
