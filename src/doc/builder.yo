@@ -2276,7 +2276,7 @@ build_doc_module_from_tokens :: (
 });
 /// Fill in `trait.implementors` across all modules from `type.trait_impls`.
 /// — mutates in place.
-build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
+build_cross_references :: (fn(modules : &mut ArrayList(DocModule)) -> unit)({
   // Collect all trait → implementor relationships (insertion-ordered,
   // deduplicated).
   trait_names := ArrayList(String).new();
@@ -2309,9 +2309,10 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
           match(
             idx,
             .Some(existing_idx) => {
-              lst := match(trait_implementors.get_cloned(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
+              mut(lst) := match(trait_implementors.get_cloned(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
               if(!lst.contains(&t.name), {
                 lst.push(t.name.clone());
+                trait_implementors(existing_idx) = lst;
               });
             },
             .None => {
@@ -2331,9 +2332,9 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   // Fill in implementors on traits (sorted).
   (mj : usize) = usize(0);
   while(mj < modules.len(), {
-    // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
-    // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
-    m := match(
+    // A copy: the model's lists are values, so the entry is written back by
+    // index once its writes are done.
+    mut(m) := match(
       modules.get_cloned(mj),
       .Some(x) => x,
       .None => {
@@ -2385,6 +2386,7 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
       );
       tj = (tj + usize(1));
     });
+    modules(mj) = m;
     mj = (mj + usize(1));
   });
   _inherit_trait_method_docs(modules);
@@ -2416,11 +2418,11 @@ build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
 /// from a trait passes those on too, attribution included — the re-export then
 /// reads exactly as the declaring module does.
 ///
-/// Writes back by INDEX (`types(ti) = DocType(…)`, `methods(mi) = DocFunction(…)`)
-/// because `DocType` and `DocFunction` are value structs: mutating a `.get()`
-/// result changes a copy and is silently lost. Same reason the trait-inheritance
-/// pass above rebuilds each entry.
-_fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
+/// Writes back by INDEX (`m2.types(tj) = t2`, `modules(mj) = m2`) because the
+/// model is all values (`DocModule`, `DocType` and, since B8, their
+/// `ArrayList`s): a write to a `get_cloned` copy is silently lost. The
+/// implementor and trait-inheritance passes above write back the same way.
+_fill_re_exported_docs :: (fn(modules : &mut ArrayList(DocModule)) -> unit)({
   // Donors: every type that HAS documentation to give, keyed by name+signature.
   d_keys := ArrayList(String).new();
   d_types := ArrayList(DocType).new();
@@ -2469,9 +2471,9 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   // Recipients: every type missing documentation a donor can supply.
   (mj : usize) = usize(0);
   while(mj < modules.len(), {
-    // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
-    // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
-    m2 := match(
+    // A copy: the model's lists are values, so the entry is written back by
+    // index once its writes are done.
+    mut(m2) := match(
       modules.get_cloned(mj),
       .Some(x) => x,
       .None => {
@@ -2481,7 +2483,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     );
     (tj : usize) = usize(0);
     while(tj < m2.types.len(), {
-      t2 := match(
+      mut(t2) := match(
         m2.types.get_cloned(tj),
         .Some(x) => x,
         .None => {
@@ -2494,15 +2496,11 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
         .Some(di) => match(
           d_types.get_cloned(di),
           .Some(donor) => {
-            // Methods, fields and variants live in ArrayLists, which are shared
-            // handles even through a struct copy — indexed assignment on them
-            // reaches the model.
             _fill_doc_methods_from(&mut t2, &donor);
-            _fill_doc_fields_from(&t2, &donor);
-            _fill_doc_variants_from(&t2, &donor);
-            // The type's OWN doc is a value field, so it needs a rebuilt entry.
+            _fill_doc_fields_from(&mut t2, &donor);
+            _fill_doc_variants_from(&mut t2, &donor);
             if(t2.doc.is_none() && donor.doc.is_some(), {
-              m2.types(tj) = DocType(
+              t2 = DocType(
                 name : t2.name.clone(),
                 doc : donor.doc.clone(),
                 kind : t2.kind,
@@ -2517,6 +2515,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
                 examples : match(&t2.examples, .Some(e) => .Some(e.clone()), .None => donor.examples.clone())
               );
             });
+            m2.types(tj) = t2;
           },
           .None => ()
         ),
@@ -2524,6 +2523,7 @@ _fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
       );
       tj = (tj + usize(1));
     });
+    modules(mj) = m2;
     mj = (mj + usize(1));
   });
 });
@@ -2629,8 +2629,8 @@ _fill_doc_methods_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
   });
 });
 /// Per-name field doc fill-in (structs).
-_fill_doc_fields_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
-  dfs := match(&dst.fields, .Some(x) => x.clone(), .None => return(()));
+_fill_doc_fields_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
+  mut(dfs) := match(&dst.fields, .Some(x) => x.clone(), .None => return(()));
   sfs := match(&src.fields, .Some(x) => x.clone(), .None => return(()));
   (i : usize) = usize(0);
   while(i < dfs.len(), {
@@ -2654,10 +2654,11 @@ _fill_doc_fields_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
     );
     i = (i + usize(1));
   });
+  dst.fields = Option(ArrayList(DocField)).Some(dfs);
 });
 /// Per-name variant doc fill-in (enums).
-_fill_doc_variants_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
-  dvs := match(&dst.variants, .Some(x) => x.clone(), .None => return(()));
+_fill_doc_variants_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
+  mut(dvs) := match(&dst.variants, .Some(x) => x.clone(), .None => return(()));
   svs := match(&src.variants, .Some(x) => x.clone(), .None => return(()));
   (i : usize) = usize(0);
   while(i < dvs.len(), {
@@ -2681,6 +2682,7 @@ _fill_doc_variants_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
     );
     i = (i + usize(1));
   });
+  dst.variants = Option(ArrayList(DocVariant)).Some(dvs);
 });
 /// Give every undocumented trait-impl method the TRAIT's documentation.
 ///
@@ -2708,7 +2710,7 @@ _fill_doc_variants_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
 /// Runs after implementors are filled in, over ALL modules, because a trait and
 /// its implementors are almost never in the same file: `ToString` lives in
 /// `std/fmt/to_string` and is implemented across the whole library.
-_inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
+_inherit_trait_method_docs :: (fn(modules : &mut ArrayList(DocModule)) -> unit)({
   // trait name -> (method name -> doc). Parallel arrays rather than a map of
   // maps: the trait count is small and this keeps the lookup allocation-free.
   t_names := ArrayList(String).new();
@@ -2766,9 +2768,9 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   });
   (mj : usize) = usize(0);
   while(mj < modules.len(), {
-    // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
-    // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
-    m2 := match(
+    // A copy: the model's lists are values, so the entry is written back by
+    // index once its writes are done.
+    mut(m2) := match(
       modules.get_cloned(mj),
       .Some(x) => x,
       .None => {
@@ -2778,9 +2780,7 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
     );
     (tj : usize) = usize(0);
     while(tj < m2.types.len(), {
-      // `.get`, not `.get_cloned`: the writes below reach the model through this copy's shared
-      // `ArrayList` handles; a deep clone would drop them (#1651 regression, until B8).
-      ty := match(
+      mut(ty) := match(
         m2.types.get_cloned(tj),
         .Some(x) => x,
         .None => {
@@ -2850,8 +2850,10 @@ _inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
         });
         fj = (fj + usize(1));
       });
+      m2.types(tj) = ty;
       tj = (tj + usize(1));
     });
+    modules(mj) = m2;
     mj = (mj + usize(1));
   });
 });

@@ -424,18 +424,26 @@ impl(
     })
   )
 );
-test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
+// Since B8 the list is a value the enum owns: `k.clone()` copies it, so the
+// shape that closed `e -> k -> e` through a shared list handle no longer
+// closes a cycle, and a ref enum's payload cannot be written in place to
+// close one (E0908). The node is freed by reference counting in both modes;
+// the walk still answers conservatively that the enum can reach itself
+// through its list's slots, so it stays a cycle candidate. A cycle through a
+// value `ArrayList(Self)` field of a ref(struct) is the `LNode` test above.
+test("A ref-enum holding a copy of its ArrayList(Self) is freed by reference counting", {
   base := Gc.tracked_count();
+  before := g_knode_disposed;
   do_test :: (fn() -> unit)({
     mut(k) := ArrayList(KNode).new();
     e := KNode.Kids(k.clone());
-    k.push(e); // e -> k -> e : the only edge back to the enum is the list's slot
+    k.push(e); // e -> its own copy of the list; k -> e: no cycle
   });
   do_test();
+  assert(g_knode_disposed == (before + i32(1)), "the node is disposed when its list goes, collector or not");
   Gc.collect();
-  assert(g_knode_disposed == collected(i32(1)), "the node of the list-closed cycle was disposed (auto) or leaked (off)");
   assert(Gc.tracked_count() == base, "and neither it nor its list stays tracked");
-  assert(Type.can_form_rc_cycle(KNode), "the walk finds the cycle back through the list");
+  assert(Type.can_form_rc_cycle(KNode), "the walk still finds a way back through the list's slots");
   assert(!Type.impls(KNode, Acyclic), "so the node is not Acyclic");
 });
 // The common cons-list shape had the same defect: `Rc` is itself a
@@ -476,10 +484,12 @@ test("A cons-list cycle closed through its Rc(Self) tail is collected", {
   assert(!Type.impls(RCons, Acyclic), "so the cons cell is not Acyclic");
 });
 // The comptime query must answer for a spelled instantiation what codegen
-// does: `ArrayList(QNode)` holds `QNode`s, each of which holds such a list, and
-// the emitted constructor registers the list with the collector. The query read
-// `false` unless a query of the field's own type (`type_of(q.k)`) ran first
+// does. The query read `false` for the node unless a query of the field's own
+// type (`type_of(q.k)`) ran first
 // (issues/fixed/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md).
+// Since B8 `ArrayList(QNode)` is a value with no count of its own: codegen
+// never registers it with the collector, so it is no cycle member, while the
+// `QNode` that holds one still is.
 QNode :: ref(
   struct(
     value : i32,
@@ -487,7 +497,7 @@ QNode :: ref(
   )
 );
 test("Type.can_form_rc_cycle reads a spelled ArrayList(Self) instantiation as codegen does", {
-  assert(Type.can_form_rc_cycle(ArrayList(QNode)), "a list of nodes that hold such lists can form a cycle");
+  assert(!Type.can_form_rc_cycle(ArrayList(QNode)), "a value list of such nodes is no cycle member of its own");
   assert(Type.can_form_rc_cycle(QNode), "and so can the node");
 });
 // --- dispose resurrection (PEP 442): a dispose that stores a cycle member into
