@@ -407,9 +407,11 @@ O9/O10 (the collector's removal) is not pre-empted by either half.
 last commit of V5 cells Generation B, whose edit owns the same four prelude
 lines: `Rc` and `__yo_rc_cell` carry `where(V <: Escapable)`, `Arc` and
 `__yo_arc_cell` carry it after their `where(V <: (Send, Sync))`, and the
-compiler's check is deleted. W6b amends O9/O10 for `Rc`/`Arc` payloads to
-Rust's rule later in the same release, so the bound may be rewritten again
-there.
+compiler's check is deleted. The bound stays after W6b, which amends O9/O10
+for `Rc`/`Arc` payloads and rewrites only the prose (Fable consultation #16
+Q2): whichever of the two merges second writes the bound's comment, "kept
+until origin propagation through counted cells; its collector reason went
+with W6b (O9)".
 
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
