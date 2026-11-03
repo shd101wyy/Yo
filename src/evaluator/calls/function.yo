@@ -102,7 +102,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ trait_impl_epoch, type_is_typed_fnmut_closure, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
+{ trait_impl_epoch, type_is_typed_fnmut_closure, closure_fn_trait_of, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -8610,6 +8610,30 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
   });
   consume_called_fnonce_closure(callee, &v, env, ctx, exn);
 });
+/// The callee is called as an `FnMut(...)`: the closure trait its type
+/// carries says so, or — when the callee's type is the bare capture record a
+/// specialized body binds a closure parameter to — the trait of the binding's
+/// declared type (an `FnMut` closure moved into a `sink(f) :
+/// Impl(FnOnce(...))` parameter is called there as an `FnOnce`). Only a
+/// callee with no closure trait anywhere is judged by how its literal was
+/// typed (`type_is_typed_fnmut_closure`).
+_callee_slot_is_fnmut :: (fn(callee_info : &ExprInfo, env : &Environment) -> bool)({
+  if(closure_fn_trait_of(&callee_info.ty).is_some(), {
+    return(type_is_typed_fnmut_closure(&callee_info.ty));
+  });
+  match(
+    callee_info.variable_name,
+    .Some(sn) => match(
+      get_variables_from_env(env, sn.clone()).last(),
+      .Some(sv) => if(closure_fn_trait_of(&sv.ty).is_some(), {
+        return(type_is_typed_fnmut_closure(&sv.ty));
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  type_is_typed_fnmut_closure(&callee_info.ty)
+});
 /// Decision 37 (plans/VALUES_BY_DEFAULT.md, decision 43 N1f): an `FnMut(...)`
 /// call takes its closure as `self : &mut Self`, so the callee is a `&mut self`
 /// receiver and decision 47 and the E0908 rule decide it (VERDICTS-15 Q2):
@@ -8619,7 +8643,7 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
 /// `&mut` parameter, a `mut(f)` local, a `&mut` local borrow and a temporary
 /// callee are exclusive already.
 _require_exclusive_fnmut_callee :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(!type_is_typed_fnmut_closure(&callee_info.ty), {
+  if(!_callee_slot_is_fnmut(callee_info, env), {
     return(());
   });
   tok := ast_expr_token(callee);
