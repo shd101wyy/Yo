@@ -1,11 +1,13 @@
 { Thread } :: import("std/thread");
 { ArrayList } :: import("std/collections/array_list");
-g := ArrayList(i32).new();
+mut(g) := ArrayList(i32).new();
 f :: (fn(n : i32) -> unit)({
   if(n > i32(0), {
     h(n - i32(1));
   });
-  g.push(n);
+  mut(g2) := g.clone();
+  g2.push(n);
+  g = g2;
 });
 h :: (fn(n : i32) -> unit)({
   f(n);
