@@ -850,7 +850,12 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
     // reference value is N1e's, reported at its own read wall).
     Rc(.Reference(_, _, _)) => false,
     Rc(.OriginSet(_, _)) => false,
-    Rc(.Pointer(inner)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
+    // A pointee is storage OUTSIDE the composite: a container's element
+    // buffer (`ArrayList`'s `_ptr : ?*T` once collections are value
+    // structs) or a cell. An origin behind a pointer is N2c's or N2d's, not
+    // an inline position
+    // (issues/fixed/2026-11-03-a-value-container-over-references-passes-the-n2b-wall.md).
+    Rc(.Pointer(inner)) => type_carries_origin(&inner),
     Rc(.Array(element : elem)) => _origin_beyond_n2b_inner(&elem, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_beyond_n2b(&fields, seen, depth),
