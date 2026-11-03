@@ -8611,7 +8611,7 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
   // carries them (`self : &mut Cursor(p)`, O3 step 2) contributes the
   // places its holder froze, not its own place.
   oc_ft := projection_call_callee_type(&stripped, ctx);
-  oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(oc_t), .None => Option(SharedList(String)).None);
+  oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(&oc_t), .None => Option(SharedList(String)).None);
   match(
     stripped,
     .FnCall(_, _, fc_args, _, _) => {
@@ -8623,8 +8623,8 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
           .Some(oc_t) => match(
             &oc_names,
             .Some(oc_n) => cond(
-              fn_param_in_result_origin(oc_t, i, oc_n) => u8(0),
-              fn_param_pointee_in_result_origin(oc_t, i, oc_n) => u8(2),
+              fn_param_in_result_origin(&oc_t, i, &oc_n) => u8(0),
+              fn_param_pointee_in_result_origin(&oc_t, i, &oc_n) => u8(2),
               true => u8(1)
             ),
             .None => u8(0)
