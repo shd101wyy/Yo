@@ -1201,7 +1201,7 @@ evaluate_comptime_fn_call :: (
         });
         dbg_carry := match(all_arg_vals.get(usize(0)), .Some(.TypeVal(dbg_t)) => type_carries_origin(&dbg_t).to_string(), .Some(_) => String.from("not-typeval"), .None => String.from("none"));
         dbg_kind := match(all_arg_vals.get(usize(0)), .Some(.TypeVal(Rc(.OriginSet(_, _)))) => String.from("originset"), .Some(.TypeVal(_)) => String.from("other-type"), _ => String.from("-"));
-        dbg_stas := match(&cached_val, .TypeVal(Rc(.Struct({ type_arguments : dbg_tas })))) => dbg_tas.len().to_string(), .TypeVal(_) => String.from("not-struct"), _ => String.from("not-typeval"));
+        dbg_stas := match(&cached_val, .TypeVal(Rc(.Struct({ type_arguments : dbg_tas }))) => dbg_tas.len().to_string(), .TypeVal(_) => String.from("not-struct"), _ => String.from("not-typeval"));
         eprintln(`[origin-stamp] fid=${func_id_str} args=${dbg_args} n_args=${all_arg_vals.len().to_string()} carry0=${dbg_carry} kind0=${dbg_kind} stas=${dbg_stas} cached=${value_to_string(&cached_val)} hit=${value_to_string(&hit_val)}`);
       });
       _check_counted_cell_payload(&hit_val, function_callee_expr, exn);
