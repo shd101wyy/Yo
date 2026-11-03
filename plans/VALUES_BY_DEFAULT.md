@@ -9802,7 +9802,7 @@ once `SEED_VERSION` parses it.
     `newtype(_cell : __yo_cell(V))`: the `dyn` auto-box, the `dyn`
     clone, borrow marks on the weak count, and a struct ordered before
     the typedef its `*Option(Rc(T))` field names
-    (`issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
+    (`issues/fixed/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
   - **v0.2.75.** **Cells Generation B** retypes `Rc`/`Arc` in std. The
     four constructors pass the allocator to the cell, and the scope swap
     and its three externs go

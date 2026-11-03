@@ -456,7 +456,7 @@ cell := Rc(T)(__yo_cell(T)(value, alloc));
 ```
 
 The v0.2.73 seed lowers almost everything about the view; the exceptions are four gaps
-(`issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`):
+(`issues/fixed/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`):
 
 - `dyn(...)`'s auto-box keeps only a `ref` object as the box type, so every value `dyn(...)` in src and std
   fails in the C compiler.
