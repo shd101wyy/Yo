@@ -7799,9 +7799,6 @@ impl(
   contains_rc_type : (fn(comptime(self) : Type) -> comptime(bool))({
     return(__yo_type_contains_rc_type(self));
   }),
-  can_form_rc_cycle : (fn(comptime(self) : Type) -> comptime(bool))({
-    return(__yo_type_can_form_rc_cycle(self));
-  }),
   impls : (fn(comptime(self) : Type, comptime(marker) : Trait) -> comptime(bool))({
     return(__yo_type_impls(self, marker));
   }),
@@ -9929,8 +9926,7 @@ extern(
 ///
 /// A `Weak` is not an edge of the ownership graph, so a cycle closed through
 /// one is not a cycle: a parent pointer is `Weak(RefCell(Node))`, and the
-/// tree frees itself without the cycle collector (and under
-/// `--cycle-collector off`). It has no `Deref`: the payload may be gone, so
+/// tree frees itself. It has no `Deref`: the payload may be gone, so
 /// every read goes through `upgrade`. It is explicit-copy (`Weak.clone(w)`
 /// makes a second handle) and never `Send` or `Sync`; `ArcWeak` is the
 /// thread-safe form.
@@ -9946,9 +9942,8 @@ Weak :: (fn(comptime(V) : Type) -> comptime(Type))(
   // The cell's address, `.None` for `Weak.new()`. It points at the cell's
   // header, not at a `V`, and is never dereferenced here; it is typed by the
   // payload so that a `Weak(RefCell(Self))` field's `Self` is fixed up with
-  // its declaration. A weak edge is not an edge: the cycle walk does not
-  // follow it (`is_weak_handle_type`, §3.4), and neither does the
-  // collector's.
+  // its declaration. A weak edge is not an edge: the `Acyclic` reach walk
+  // does not follow it (`is_weak_handle_type`, §3.4).
   newtype(_cell : ?*V)
 );
 impl(

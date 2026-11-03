@@ -195,16 +195,8 @@ CodeGenContext :: ref(
     /// The current function being generated (for `recur`).
     current_function_name : String,
     /// Debug logging flags.
-    debug_gc : bool,
     debug_parallelism : bool,
     debug_async_await : bool,
-    /// True when at least one object type can form RC cycles (GC tracking on).
-    needs_cycle_gc : bool,
-    /// `--cycle-collector off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1):
-    /// `compute_needs_cycle_gc` leaves `needs_cycle_gc` false whatever the
-    /// types, so the lightweight RC runtime is emitted and a cycle leaks.
-    /// Set by `compile_module` after construction (default false = `auto`).
-    cycle_collector_off : bool,
     /// The allocator interface the runtime speaks: version 2 (aligned
     /// `alloc`/`realloc`, a sized `free`, the 32-byte cell prefix) when
     /// std's `AllocatorVTable` has version 2's shape, else version 1.
@@ -376,7 +368,6 @@ impl(
       allocator : &String,
       heap_size : usize,
       debug_heap : bool,
-      debug_gc : bool,
       debug_parallelism : bool,
       debug_async_await : bool,
       is_library : bool
@@ -397,11 +388,8 @@ impl(
       heap_size : heap_size,
       debug_heap : debug_heap,
       current_function_name : String.from(""),
-      debug_gc : debug_gc,
       debug_parallelism : debug_parallelism,
       debug_async_await : debug_async_await,
-      needs_cycle_gc : false,
-      cycle_collector_off : false,
       alloc_abi_v2 : false,
       is_library : is_library,
       needs_intel_asm_syntax : false,

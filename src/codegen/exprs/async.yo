@@ -1404,18 +1404,15 @@ generate_async_block_state_dispose_function :: (
 /// The allocation of a future of type `struct_name` in the allocation scope
 /// held by the C variable `scope`: an explicit allocator's block when one is
 /// current (plans/archive/EXPLICIT_ALLOCATORS.md §3.5), else one from its type's pool
-/// under lightweight RC (phase 7; the dispose dispatch gives released ones
-/// back), else a fresh RC block. A pooled block never carries an owner
-/// prefix, so the pool is consulted only for the global allocator. The
-/// caller zeroes it either way.
-_sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, scope : &String, context : &FunctionGenerationContext) -> String)(
-  if(context.base.needs_cycle_gc, context.base.rc_alloc_scoped_call(scope, struct_name), {
-    pid := context.base.sm_pool_id_for(dispose_function_name);
-    `(${scope.clone()}.vtable ? ${context.base.rc_alloc_scoped_call(scope, struct_name)} : __yo_sm_take(${pid.to_string()}, sizeof(${struct_name})))`
-  })
-);
+/// (phase 7; the dispose dispatch gives released ones back). A pooled block
+/// never carries an owner prefix, so the pool is consulted only for the
+/// global allocator. The caller zeroes it either way.
+_sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, scope : &String, context : &FunctionGenerationContext) -> String)({
+  pid := context.base.sm_pool_id_for(dispose_function_name);
+  `(${scope.clone()}.vtable ? ${context.base.rc_alloc_scoped_call(scope, struct_name)} : __yo_sm_take(${pid.to_string()}, sizeof(${struct_name})))`
+});
 /// Generate the constructor for an async block: heap-allocates + zero-inits the
-/// state machine, sets up the RC header (cycle-GC fields or type-id dispatch),
+/// state machine, sets up the RC header (the type-id dispose dispatch),
 /// installs the capture struct, zeroes the result, and stores the resume +
 /// set_effect fn pointers. Returns a cold (unstarted, RC=1) future.
 /// `async_block_id` and `future_type` are retained for signature fidelity (unused).
@@ -1445,22 +1442,8 @@ generate_async_block_constructor :: (
   // Reference-counting header.
   em.emit_line("  // Initialize reference counting header");
   em.emit_line("  sm->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // Caller owns initial reference; the tag marks an explicit allocator's block");
-  em.emit_string_line(`  GC_DEBUG("AsyncBlock ${struct_name.clone()}: Created ptr=%p RC=1\\n", (void*)sm);`);
-  if(context.base.needs_cycle_gc, {
-    em.emit_line("  sm->header.gc_flags = 0;");
-    em.emit_line("  sm->header.gc_mark = __YO_GC_UNMARKED;");
-    em.emit_line("  sm->header.gc_next = NULL;");
-    em.emit_line("  sm->header.gc_prev = NULL;");
-  });
-  if(context.base.needs_cycle_gc, {
-    em.emit_string_line(`  sm->header.dispose_fn = ${dispose_function_name.clone()};`);
-  }, {
-    tid := context.base.dispose_type_id_for(dispose_function_name.clone());
-    em.emit_string_line(`  sm->header.type_id = ${tid.to_string()};`);
-  });
-  if(context.base.needs_cycle_gc, {
-    em.emit_line("  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed");
-  });
+  tid := context.base.dispose_type_id_for(dispose_function_name.clone());
+  em.emit_string_line(`  sm->header.type_id = ${tid.to_string()};`);
   em.emit_line("");
   em.emit_line("  sm->state = 0;");
   em.emit_string_line(`  sm->vt = &${struct_name.clone()}_vt;  // resume, set_effect, abort hook (per type)`);
@@ -4076,21 +4059,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);
   em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u | __yo_rc_tag_of(${result_var.clone()}__sc);`);
-  if(context.base.needs_cycle_gc, {
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_flags = 0;`);
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_mark = __YO_GC_UNMARKED;`);
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_next = NULL;`);
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_prev = NULL;`);
-  });
-  if(context.base.needs_cycle_gc, {
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.dispose_fn = ${dispose_function_name.clone()};`);
-  }, {
-    tid := context.base.dispose_type_id_for(dispose_function_name.clone());
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
-  });
-  if(context.base.needs_cycle_gc, {
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.traverse_fn = NULL;`);
-  });
+  tid := context.base.dispose_type_id_for(dispose_function_name.clone());
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
   // Copy capture data from the stack struct into the heap future, then dup it.
   // For a no-capture closure the capture struct is empty, so the closure value
   // (an anon-fn function reference) is NOT a capture struct — initialize the empty

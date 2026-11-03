@@ -28,7 +28,6 @@
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
-{ should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { Emitter } :: import("../../emitter.yo");
 { declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at, scope_stack_contains, element_wise_dup_target } :: import("../utils/index.yo");
@@ -61,7 +60,7 @@ get_dup_function_for_type :: (fn(type : &TypeValue, context : &FunctionGeneratio
 /// for EVERY instantiation — e.g. HashMap(usize, bool) resolving the
 /// HashMap(usize, EvalValue) dispose and dropping its `bool` slot as a reference-
 /// counted value (`__yo_decr_rc(0x1)` crash). `_synthesize_and_register_dispose`
-/// registers under type_key to match (same keying as `get_trace_function_for_type`).
+/// registers under type_key to match.
 get_dispose_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))({
   if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type)), {
     return(Option(String).None);
@@ -108,51 +107,6 @@ dispose_call_on_value :: (fn(dispose_c_name : &String, value_code : &String, typ
     true => `${dispose_c_name}(${value_code});`
   )
 );
-/// The C name of `type`'s monomorphized `trace` method (the Trace trait), if any.
-/// Used by the cycle-GC traversal generators: a container whose elements live in a
-/// malloc'd buffer (which the auto-derived field walk can't reach) carries an
-/// explicit Trace impl, and its `traverse_fn` delegates to this `trace`. Returns
-/// None for types that use the auto-derived field-walk traversal. The
-/// specialized `trace` is registered under the concrete type key by
-/// collection.yo's `_specialize_and_register_trace`.
-get_trace_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))({
-  // trace is registered under type_key(type) (instantiation-precise), not the
-  // raw shared struct id — see collection.yo _specialize_and_register_trace.
-  if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type)), {
-    return(Option(String).None);
-  });
-  methods := get_type_trait_methods_by_name(type_key(type), String.from("trace"));
-  match(
-    methods.get(usize(0)),
-    .Some(entry) => match(
-      entry.value,
-      .Some(v) => match(
-        v,
-        .FuncVal(__fvd2, _) => match(
-          context.base.get_function_entry(&__fvd2.*.func_id),
-          // A registry hit whose spec the function emitter SKIPS (hard-generic
-          // — its signature still carries unresolvable SomeTs) must not be
-          // delegated to: the traverse would call a never-emitted C name
-          // ("call to undeclared function ...", raw SomeT ids in the mangled
-          // name). This state is reached by ERA-COPY type identities minted
-          // during failed where-bound generic-impl trials (never constructed
-          // at runtime — the field-walk fallback is inert for them); the
-          // trials themselves are the open under-resolution family,
-          // issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md.
-          .Some(e) => cond(
-            should_skip_function_codegen(&__fvd2.*.func_id, e.c_name.clone(), &v, &context.base) =>
-              Option(String).None,
-            true => Option(String).Some(e.c_name.clone())
-          ),
-          .None => Option(String).None
-        ),
-        _ => Option(String).None
-      ),
-      .None => Option(String).None
-    ),
-    .None => Option(String).None
-  )
-});
 /// If `value_arg` is a generic-typed (SomeType) parameter atom, recover its
 /// concrete parameter type from the enclosing function signature (the
 /// SomeType.resolvedConcreteType branches are
@@ -1582,7 +1536,6 @@ export(
   get_dispose_function_for_type,
   dispose_function_takes_pointer,
   dispose_call_on_value,
-  get_trace_function_for_type,
   resolve_some_type_param_type,
   generate_drop_code_for_value,
   generate_dup_code_for_value,
