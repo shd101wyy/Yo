@@ -3445,8 +3445,20 @@ _evaluate_begin_expression_impl :: (
         });
         // An assignment statement's value (the old value) is unused: drop
         // an explicit-copy old value right after the store, as Rust does.
+        // A written `r.* = v` (decision 43 step 2 N1e-1) is lowered to its
+        // `r = v` expansion, the assignment codegen emits, so the drop is
+        // recorded on that.
         if(!is_last_in_loop && ast_expr_is_fn_call_of(&evaluated, BK_ASSIGN, .None), {
-          _drop_unused_old_value_now(&evaluated, &env, ctx, exn);
+          old_assign := match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+            .Some(oa_info) => match(
+              expr_info_macro_expansion(&oa_info),
+              .Some(oa_mx) => if(ast_expr_is_fn_call_of(&oa_mx, BK_ASSIGN, .None), oa_mx, evaluated.clone()),
+              .None => evaluated.clone()
+            ),
+            .None => evaluated.clone()
+          );
+          _drop_unused_old_value_now(&old_assign, &env, ctx, exn);
         });
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be
