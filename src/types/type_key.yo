@@ -204,22 +204,13 @@ _tk_somes_have_id :: (fn(somes : &ArrayList(TypeValue), id : &String) -> bool)({
   });
   found
 });
-_tk_seen :: (fn(id : &String) -> bool)({
-  n := g_tk_visited.with(xs => xs.len());
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < n) && !found, {
-    // Compare in place — the old `e.clone()` deep-copied the byte buffer of
-    // every visited entry per probe (342 M ArrayList(u8) allocations per
-    // self-emit, the #2 string-churn site) just to == it and drop it.
-    // Compact bool-valued arm form (an r3-era self-hosted miscompile of
-    // this shape was fixed by later work — restored 2026-08-07 with the
-    // fixpoint as judge; issues/retired/yo-self-bool-match-arm-miscompile.md).
-    found = match(g_tk_visited.with(xs => xs.get_cloned(i)), .Some(e) => (e == id), .None => false);
-    i = (i + usize(1));
-  });
-  found
-});
+_tk_seen :: (fn(id : &String) -> bool)(
+  // Compare in place: a copy of each visited entry per probe (`e.clone()`,
+  // and `get_cloned` once `String` is a value) deep-copies its byte buffer
+  // just to == it and drop it (342 M ArrayList(u8) allocations per
+  // self-emit, the #2 string-churn site).
+  g_tk_visited.with(xs => xs.contains(id))
+);
 /// Whether a generic instance's argument list holds a `Type` or `unit` slot:
 /// a comptime VALUE argument erased from its key's argument part (see the
 /// Struct arm of `_type_key_at`).
@@ -899,22 +890,7 @@ type_key_memo_check_enabled :: (fn() -> bool)({
 // render distinctly here (by their own sid), which only means a missed
 // alias — never a wrong merge, since equal renders imply equal structure.
 (g_sti_visited : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-_sti_seen :: (fn(id : &String) -> bool)({
-  n := g_sti_visited.with(xs => xs.len());
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < n) && !found, {
-    match(
-      g_sti_visited.with(xs => xs.get_cloned(i)),
-      .Some(v) => if(v == id, {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
+_sti_seen :: (fn(id : &String) -> bool)(g_sti_visited.with(xs => xs.contains(id)));
 _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
   // DEPTH CAP: the id-based cycle guard below cuts CYCLES, but a memoized
   // instantiation CHAIN (Option(RBNode(Option(RBNode(…)))) where every level

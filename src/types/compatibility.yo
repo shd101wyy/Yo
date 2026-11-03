@@ -29,18 +29,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-_visited_contains :: (fn(visited : &ArrayList(String), key : &String) -> bool)({
-  i := usize(0);
-  n := visited.len();
-  while(i < n, {
-    s := match(visited.get_cloned(i), .Some(v) => v, .None => ``);
-    if(s == key, {
-      return(true);
-    });
-    i = (i + usize(1));
-  });
-  false
-});
+_visited_contains :: (fn(visited : &ArrayList(String), key : &String) -> bool)(visited.contains(key));
 _is_in_used :: (fn(used : &ArrayList(usize), idx : usize) -> bool)({
   i := usize(0);
   n := used.len();
@@ -191,18 +180,16 @@ AlphaPair :: struct(a_name : String, a_level : usize, e_name : String, e_level :
 derive(AlphaPair, Clone);
 (g_alpha_pairs : RefCell(ArrayList(AlphaPair))) = RefCell(ArrayList(AlphaPair)).new(ArrayList(AlphaPair).new());
 _alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e_level : usize) -> bool)({
-  (i : usize) = g_alpha_pairs.with(xs => xs.len());
-  while(i > usize(0), {
-    i = (i - usize(1));
-    match(
-      g_alpha_pairs.with(xs => xs.get_cloned(i)),
-      .Some(p) => if((p.a_name == a_name) && (p.a_level == a_level) && (p.e_name == e_name) && (p.e_level == e_level), {
-        return(true);
-      }),
-      .None => ()
-    );
-  });
-  false
+  // Read in place, newest first: a `get_cloned` per probe copies both names.
+  g_alpha_pairs.with(xs => {
+    (mut(i) : usize) = xs.len();
+    (mut(found) : bool) = false;
+    while((i > usize(0)) && !found, {
+      i = (i - usize(1));
+      found = ((xs(i).a_name == a_name) && (xs(i).a_level == a_level) && (xs(i).e_name == e_name) && (xs(i).e_level == e_level));
+    });
+    found
+  })
 });
 /// The frame level of the first SomeT named `label` among `types`.
 _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(usize))({
