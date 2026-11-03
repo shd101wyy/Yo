@@ -248,7 +248,7 @@ _push_variant :: (
     (sparts : String) = String.new();
     (i : usize) = usize(0);
     while(i < fields.len(), {
-      ft := match(fields.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      ft := match(fields.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       flabel := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
       ph := cond(
         (flabel.len() > usize(0)) => flabel.clone(),
@@ -325,7 +325,7 @@ _type_member_items :: (
       (i : usize) = usize(0);
       while(i < t_labels.len(), {
         label := match(t_labels.get_cloned(i), .Some(l) => l, .None => String.new());
-        fty := match(t_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        fty := match(t_types.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         keep := ((label.len() > usize(0)) && _is_ident_name(label.clone()));
         if(keep && !_hidden_name(label.clone()) && !seen.contains(label.clone()), {
           seen.insert(label.clone());
@@ -401,7 +401,7 @@ _add_methods :: (
         (mi : usize) = usize(0);
         while(mi < ge.method_names.len(), {
           mname := match(ge.method_names.get_cloned(mi), .Some(n) => n, .None => String.new());
-          mty := match(ge.method_types.get(mi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+          mty := match(ge.method_types.get_cloned(mi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(mname.len() > usize(0), {
             _push_method(&mname, &mty, out, seen);
           });

@@ -315,7 +315,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
             body = `${body}, `;
           });
           fl := match(fls.get_cloned(i), .Some(s) => s, .None => `""`);
-          ft := match(fts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
+          ft := match(fts.get_cloned(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${fl} : ${ft}`;
           i = (i + usize(1));
         });
@@ -341,7 +341,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           if(i > usize(0), {
             body = `${body} + `;
           });
-          rt := match(rts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
+          rt := match(rts.get_cloned(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${rt}`;
           i = (i + usize(1));
         });
@@ -350,7 +350,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           if((body.len() > usize(0)) || (ii > usize(0)), {
             body = `${body} + `;
           });
-          nt := match(nts.get(ii), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
+          nt := match(nts.get_cloned(ii), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}!(${nt})`;
           ii = (ii + usize(1));
         });
