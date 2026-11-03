@@ -248,7 +248,7 @@ The guarantee is data-race freedom for every program that compiles without `prag
   and `clone_in(a)` on `ArrayList`/`HashMap`/`String`/`StringBuilder` places a
   copy. There is no user-visible allocation scope:
   `with_allocator`/`current_allocator` were deleted (B1). The thread-local
-  `__yo_current_allocator` survives only for `Rc.new`/`Arc.new`'s one-construction swap;
+  `__yo_current_allocator` survives only for the clone of a `Dyn` over a placed cell;
   the RC constructor sites still read it (`__yo_rc_alloc_scoped`), the runtime's
   own blocks never do (`__yo_rc_alloc`), and B2b deletes it.
 - The mutable containers' DEFAULT constructors are global
