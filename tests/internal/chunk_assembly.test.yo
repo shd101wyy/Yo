@@ -60,7 +60,7 @@ _count_chunks_with :: (fn(chunks : &ArrayList(String), needle : &String) -> usiz
   (mut(i) : usize) = usize(0);
   while(i < chunks.len(), {
     match(
-      chunks.get(i),
+      chunks.get_cloned(i),
       .Some(c) => if(c.contains(needle.clone()), {
         hits = (hits + usize(1));
       }),
@@ -106,7 +106,7 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   hdr := asm4.header_text.clone();
   chunks := asm4.chunks.clone();
   assert(chunks.len() == usize(4), `expected 4 chunks, got ${chunks.len().to_string()}`);
-  chunk0 := match(chunks.get(usize(0)), .Some(c) => c, .None => String.new());
+  chunk0 := match(chunks.get_cloned(usize(0)), .Some(c) => c, .None => String.new());
   // 1. The declarations buffer must not be LOST (the value-type out-param bug).
   assert(hdr.contains(String.from("// decls-marker")), "header lost the declarations buffer");
   assert(hdr.contains(String.from("typedef struct { int x; } T1;")), "header lost a typedef");
@@ -161,7 +161,7 @@ test("chunked emission: N=1 is degenerate — one unit holding everything", {
     usize(1)
   );
   assert(asm1.chunks.len() == usize(1), "N=1 must produce exactly one chunk");
-  only := match(asm1.chunks.get(usize(0)), .Some(c) => c, .None => String.new());
+  only := match(asm1.chunks.get_cloned(usize(0)), .Some(c) => c, .None => String.new());
   assert(only.contains(String.from("runtime_marker")), "N=1 chunk should hold the residue");
   assert(only.contains(String.from("fn_alpha(void)")), "N=1 chunk should hold the function bodies");
   assert(only.contains(String.from("int g_shared;")), "N=1 chunk should hold the split globals");
@@ -226,7 +226,7 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
   (mut(units_with_both) : usize) = usize(0);
   (mut(ci) : usize) = usize(0);
   while(ci < chunks.len(), {
-    c := match(chunks.get(ci), .Some(x) => x, .None => String.new());
+    c := match(chunks.get_cloned(ci), .Some(x) => x, .None => String.new());
     has_alpha := c.contains(String.from("fn_alpha"));
     has_beta := c.contains(String.from("fn_beta"));
     if(has_alpha, {
@@ -276,7 +276,7 @@ test("a code spill spliced before the code tail is the unspilled C", {
     if(pi == usize(4), {
       joined.push_string(_spill_read(path.clone()));
     });
-    match(parts.get(pi), .Some(p) => joined.push_string(&p), .None => ());
+    match(parts.get_cloned(pi), .Some(p) => joined.push_string(&p), .None => ());
     pi = (pi + usize(1));
   });
   assert(joined == plain.print(), "spill + sections == print()");

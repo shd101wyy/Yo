@@ -54,7 +54,7 @@ _find_entry :: (
 )({
   (mut(i) : usize) = usize(0);
   while(i < entries.len(), {
-    e := entries(i);
+    e := entries(i).clone();
     if((e.module == module) && (e.name == name), {
       return(Option(ContextIndexEntry).Some(e));
     });
@@ -129,7 +129,7 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   (mut(saw_alpha) : bool) = false;
   (mut(i) : usize) = usize(0);
   while(i < mods.len(), {
-    m := mods(i);
+    m := mods(i).clone();
     if(m.module == "t/alpha_api", {
       saw_alpha = true;
       assert(m.doc.contains(String.from("Alpha")), "alpha's module doc first line survived");
@@ -195,7 +195,7 @@ test("a module the evaluator cannot load is marked degraded", {
   (mut(i) : usize) = usize(0);
   (mut(saw) : usize) = usize(0);
   while(i < mods.len(), {
-    m := mods(i);
+    m := mods(i).clone();
     if(m.module == "d/broken", {
       saw = (saw + usize(1));
       assert(m.degraded, "the unloadable module is degraded");
@@ -309,7 +309,7 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
   (mut(saw_bool) : bool) = false;
   (mut(i) : usize) = usize(0);
   while(i < hits.len(), {
-    h := hits(i);
+    h := hits(i).clone();
     i = (i + usize(1));
     if(h.entry.name == String.from("close"), {
       closes = (closes + usize(1));

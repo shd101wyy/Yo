@@ -26,8 +26,8 @@ import("std/fmt");
 _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> BuildArtifact)(
   BuildArtifact(
     kind : kind,
-    name : name,
-    root : root,
+    name : name.clone(),
+    root : root.clone(),
     target : String.from(""),
     optimize : String.from(""),
     allocator : String.from(""),
@@ -72,11 +72,11 @@ _deps_contain :: (fn(node : &DAGNode, dep : &String) -> bool)({
   false
 });
 _mk_node :: (fn(name : &String, deps : &ArrayList(String)) -> DAGNode)(
-  DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps)
+  DAGNode(name : name.clone(), kind : DAGNodeKind.Artifact, depends_on : deps.clone())
 );
 _deps1 :: (fn(a : &String) -> ArrayList(String))({
   mut(l) := ArrayList(String).new();
-  l.push(a);
+  l.push(a.clone());
   l
 });
 /// Drive `_resolve_c_compiler`'s default (no explicit `--cc`) expecting the
