@@ -517,7 +517,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
               // The memo's instance records the FIRST call's origins
               // (`_arg_vals_equal` erases them): restamp this type's own.
               .Some(rt) => if(is_struct_type(&rt), {
-                return(match(_restamp_instance_origins(EvalValue.TypeVal(Rc.clone(rt)), &want_args), .TypeVal(rt2) => rt2, _ => rt));
+                return(match(_restamp_instance_origins(EvalValue.TypeVal(Rc.clone(rt)), &want_args), .TypeVal(rt2) => Rc.clone(rt2), _ => rt));
               }),
               .None => ()
             );

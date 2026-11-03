@@ -31,4 +31,4 @@ The same happens with a type parameter beside the origin, as in `impl(generic(T 
 
 ## Fix
 
-Owned by decision 43 step 4's branch (`vbd/d43-step4-n3`). The fix lands with a `tests/borrow_spelling.test.yo` case that calls a method of each repro shape.
+**v0.2.75, hard gate** (VERDICTS-14 Q1). Owned by decision 43 step 4's branch (`vbd/d43-step4-n3`). The fix lands with a `tests/borrow_spelling.test.yo` case that calls a method of each repro shape.
