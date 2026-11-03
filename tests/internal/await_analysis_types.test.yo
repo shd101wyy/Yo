@@ -74,7 +74,7 @@ test("AwaitPoint future_type can be set", {
   );
   has_ftype := match(&ap.future_type, .Some(_) => true, .None => false);
   assert(has_ftype, "has future_type");
-  fvar := match(ap.future_variable_id, .Some(id) => id, .None => String.from(""));
+  fvar := match(&ap.future_variable_id, .Some(id) => id.clone(), .None => String.from(""));
   assert(fvar == "fv0", "future_variable_id");
 });
 test("AwaitPoint target_variable_id from parent assign", {
@@ -99,7 +99,7 @@ test("AwaitPoint target_variable_id from parent assign", {
     future_variable_id : Option(String).None,
     target_is_reassign : false
   );
-  target := match(ap.base.target_variable_id, .Some(id) => id, .None => String.from(""));
+  target := match(&ap.base.target_variable_id, .Some(id) => id.clone(), .None => String.from(""));
   assert(target == "var_0", "target_variable_id");
 });
 test("CapturedVariableKind Local and Outer variants", {
@@ -186,7 +186,7 @@ test("AwaitAnalysisResult can hold await points", {
 test("AwaitAnalysisResult variable_id_remapping", {
   r := await_analysis_result_empty();
   r.variable_id_remapping.insert(String.from("ssa_v1"), String.from("orig_v0"));
-  got := r.variable_id_remapping.get(String.from("ssa_v1"));
+  got := r.variable_id_remapping.get_cloned(&String.from("ssa_v1"));
   result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "orig_v0", "remapping lookup");
 });
