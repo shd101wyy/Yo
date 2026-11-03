@@ -266,8 +266,9 @@ register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
           match(
             nodes.get_cloned(mj),
             .Some(b) => if(!(a == b), {
-              a_reaches_b := match(reach.get(a.clone()), .Some(r) => r.contains_key(b.clone()), .None => false);
-              b_reaches_a := match(reach.get(b.clone()), .Some(r) => r.contains_key(a.clone()), .None => false);
+              // The reach sets are values (B9): read in place through the index projection.
+              a_reaches_b := (reach.contains_key(&a) && reach(a.clone()).contains_key(b.clone()));
+              b_reaches_a := (reach.contains_key(&b) && reach(b.clone()).contains_key(a.clone()));
               if(a_reaches_b && b_reaches_a, {
                 claimed.insert(b.clone(), true);
                 clique.push(b.clone());
@@ -1292,7 +1293,7 @@ _emit :: (
   });
   keys := ArrayList(String).new();
   {
-    it := declared.keys();
+    it := declared.keys_cloned().into_iter();
     (go : bool) = true;
     while(go, {
       match(
@@ -1664,7 +1665,7 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
         );
         qi = (qi + usize(1));
       });
-      kit := inner.keys();
+      kit := inner.keys_cloned().into_iter();
       (kgo : bool) = true;
       while(kgo, {
         match(
@@ -1736,7 +1737,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
     // coinciding outer name stays outer everywhere else).
     Rc(.Quant(kind, names, sorts, body, triggers)) => {
       inner_map := HashMap(String, String).new();
-      mit := map.clone().keys();
+      mit := map.keys_cloned().into_iter();
       (mgo : bool) = true;
       while(mgo, {
         match(
@@ -3244,7 +3245,7 @@ _scan_assigned_in :: (fn(ctx : &mut VcCtx, e : &AstExpr, out : &mut ArrayList(St
       });
       oi = (oi + usize(1));
     });
-    ki := ctx.vars.keys();
+    ki := ctx.vars.keys_cloned().into_iter();
     (go : bool) = true;
     while(go, {
       match(
@@ -3345,7 +3346,7 @@ _is_continue_stmt :: (fn(e : &AstExpr) -> bool)(
 /// Snapshot the current state as one break site.
 _record_break_site :: (fn(ctx : &mut VcCtx) -> unit)({
   vals := HashMap(String, VcTerm).new();
-  it := ctx.vars.keys();
+  it := ctx.vars.keys_cloned().into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -4035,7 +4036,7 @@ _loop_core :: (
     (ci2 : usize) = sites.len();
     while(ci2 > usize(0), {
       ci2 = (ci2 - usize(1));
-      site := sites.get(ci2).unwrap();
+      site := sites.get_cloned(ci2).unwrap();
       site_v := match(
         site.vals.get(name.clone()),
         .Some(sv) => sv,
@@ -4064,7 +4065,7 @@ _loop_core :: (
   while(di3 < sites.len(), {
     d_args := ArrayList(VcTerm).new();
     d_args.push(bs.get(di3).unwrap());
-    d_args.push(Rc.clone(sites.get(di3).unwrap().path));
+    d_args.push(Rc.clone(sites.get_cloned(di3).unwrap().path));
     disj.push(_and_terms(&d_args));
     di3 = (di3 + usize(1));
   });
@@ -4648,10 +4649,10 @@ _call_term :: (
     // afterwards, `_frame_havoc_lists`), so its current binding IS its pre
     // state.
     oa_pre := args.get(usize(0)).unwrap();
-    pre_map := ctx.call_pre.unwrap();
-    saved_pre_vars := ctx.vars;
+    pre_map := ctx.call_pre.clone().unwrap();
+    saved_pre_vars := ctx.vars.clone();
     overlay := HashMap(String, VcTerm).new();
-    ovi := ctx.vars.keys();
+    ovi := ctx.vars.keys_cloned().into_iter();
     (ovgo : bool) = true;
     while(ovgo, {
       match(
@@ -4670,7 +4671,7 @@ _call_term :: (
         }
       );
     });
-    pmi := pre_map.keys();
+    pmi := pre_map.keys_cloned().into_iter();
     (pmgo : bool) = true;
     while(pmgo, {
       match(
@@ -4707,9 +4708,9 @@ _call_term :: (
       );
       return(Option(VcTerm).None);
     });
-    saved_vars := ctx.vars;
+    saved_vars := ctx.vars.clone();
     entry_copy := HashMap(String, VcTerm).new();
-    eit := ctx.entry_vars.keys();
+    eit := ctx.entry_vars.keys_cloned().into_iter();
     (ego : bool) = true;
     while(ego, {
       match(
@@ -5595,7 +5596,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
     fname := phi_names.get_cloned(fi).unwrap();
     pre_opt := pre_vals.get(fi);
     base := match(
-      arm_states.get(last_live),
+      arm_states.get_cloned(last_live),
       .Some(last_state) => match(
         last_state.get(fname.clone()),
         .Some(v) => v.clone(),
@@ -5625,7 +5626,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
         continue;
       });
       arm_v := match(
-        arm_states.get(fj),
+        arm_states.get_cloned(fj),
         .Some(st) => match(
           st.get(fname.clone()),
           .Some(v) => v,
@@ -7409,7 +7410,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
   ctx.decreases = input.decreases_expr;
   // V5 two-state: snapshot the ENTRY state (params; module constants fold
   // into literals) — `old(e)` walks against this, never the live bindings.
-  eit0 := ctx.vars.keys();
+  eit0 := ctx.vars.keys_cloned().into_iter();
   (ego0 : bool) = true;
   while(ego0, {
     match(
@@ -7856,7 +7857,7 @@ _sort_holds_list :: (fn(ctx : &VcCtx, s : &VcSort) -> bool)(
 /// entry snapshot `old(...)` reads are left alone.
 _frame_havoc_lists :: (fn(ctx : &mut VcCtx, keep : &ArrayList(String)) -> unit)({
   names := ArrayList(String).new();
-  ki := ctx.vars.keys();
+  ki := ctx.vars.keys_cloned().into_iter();
   (go : bool) = true;
   while(go, {
     match(

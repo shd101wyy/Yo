@@ -243,7 +243,7 @@ test("`for(&xs, x => …)` reads and `for(&mut xs, x => …)` writes in place", 
   assert(ps(usize(0)).x == i32(5), "a struct element was written in place");
 });
 test("the map form `for(&mut m, (k, v) => …)` borrows the value only", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   for(&mut m, (k, v) => {
@@ -280,6 +280,15 @@ test("a reference type names an alias, a type argument and a field", {
 comptime_expect_error(
   bs_type_argument :: (fn() -> unit)({
     _xs := ArrayList(&i32).new();
+  }),
+  "carries an origin inside a container or a cell"
+);
+// A value `HashMap` holds its entries behind `data : ?*MapEntry(K, V)`, so
+// the wall reaches it through the pointer, as for `ArrayList`
+// (issues/fixed/2026-11-03-a-value-container-over-references-passes-the-n2b-wall.md).
+comptime_expect_error(
+  bs_map_value_argument :: (fn() -> unit)({
+    _m := HashMap(i32, &i32).new();
   }),
   "carries an origin inside a container or a cell"
 );

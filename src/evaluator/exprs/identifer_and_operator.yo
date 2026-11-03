@@ -512,7 +512,7 @@ evaluate_identifier_and_operator :: (
         sub_ctx.kind,
         .FunctionBody => {
           match(
-            ctx.captured_variables,
+            &ctx.captured_variables,
             .Some(_) => {
               closure_frame_level := sub_ctx.eval_env.frame_count();
               // Generation-safe INNER test: `variable.frame_level` is stamped
@@ -582,7 +582,7 @@ evaluate_identifier_and_operator :: (
         },
         .AsyncBlock => {
           match(
-            ctx.captured_variables,
+            &ctx.captured_variables,
             .Some(_) => {
               async_frame_level := sub_ctx.eval_env.frame_count();
               // Generation-safe INNER test — the SAME repair the FunctionBody

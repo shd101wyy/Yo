@@ -161,7 +161,8 @@ pragma(Pragma.AllowUnsafe);
   note_borrowing_argument,
   type_head_name_for_impl_forcing,
   call_function_value_marker,
-  sync_counted_handle_std_generic
+  sync_counted_handle_std_generic,
+  _clone_captured_variables
 } :: import("../context.yo");
 {
   PathCollection,
@@ -4752,7 +4753,7 @@ create_specialized_function_inline :: (
             .None => ()
           );
           // Snapshot the closure-spec capture recording BEFORE restoring.
-          spec_recorded_caps := if(spec_is_closure, ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
+          spec_recorded_caps := if(spec_is_closure, _clone_captured_variables(&ctx.captured_variables), Option(HashMap(String, CapturedVarInfo)).None);
           // Restore context
           ctx.self_type = prev_self_type_spec;
           swap(&mut ctx.function_return_impl_concrete_type, &mut prev_fri);

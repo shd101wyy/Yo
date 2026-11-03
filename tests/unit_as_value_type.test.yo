@@ -225,7 +225,7 @@ test("HashMap(K, unit) does not overflow its bucket array", {
   // then indexed as `MapEntry*`. With V = unit that entry carries a `unit`
   // field, so a zero-counted `unit` made an EMPTY 16-bucket map already 64
   // bytes short.
-  m := HashMap(i32, unit).new();
+  mut(m) := HashMap(i32, unit).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(64), {
     m.insert(i, ());
@@ -320,7 +320,7 @@ test("an ArrayList of unit swaps, reverses and removes; a HashMap(K, unit) overw
   assert(xs.len() == usize(3), "swap and reverse keep every element");
   _r := xs.remove(usize(1));
   assert(xs.len() == usize(2), "remove takes one out");
-  m := HashMap(i32, unit).new();
+  mut(m) := HashMap(i32, unit).new();
   m.insert(i32(1), ());
   assert(m.insert(i32(1), ()).is_some(), "the overwrite moves the old unit out");
   assert(m.remove(&i32(1)).is_some(), "remove moves the unit out");
@@ -342,7 +342,7 @@ test("a unit field is erased from the C layout but still reads, writes and compa
   (t : _UnitTuple) = (i32(3), ());
   k3 := t.1;
   assert(t.0 == i32(3), "tuple: the element before an erased unit is intact");
-  m := HashMap(String, unit).new();
+  mut(m) := HashMap(String, unit).new();
   m.insert(String.from("a"), ());
   m.insert(String.from("b"), ());
   assert(m.len() == usize(2), "HashMap(K, unit) as a set");

@@ -1446,7 +1446,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // hold copies — file-level for them. And each closure module's own ordered
   // statements reading its revalidated names likewise.
   if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
-    kit_dbg := names_by_module.keys();
+    kit_dbg := names_by_module.keys_cloned().into_iter();
     kopt_dbg := kit_dbg.next();
     while(kopt_dbg.is_some(), {
       match(
@@ -1464,7 +1464,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
       kopt_dbg = kit_dbg.next();
     });
   });
-  mit := names_by_module.keys();
+  mit := names_by_module.keys_cloned().into_iter();
   mopt := mit.next();
   while(mopt.is_some(), {
     match(
@@ -1563,7 +1563,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // readers get the file-level path rather than a second re-bind round: one
   // pass terminates, a fixpoint would not obviously, and over-invalidating a
   // reader is the safe direction.
-  m2it := names2_by_module.keys();
+  m2it := names2_by_module.keys_cloned().into_iter();
   m2opt := m2it.next();
   while(m2opt.is_some(), {
     match(

@@ -1661,7 +1661,7 @@ test("an own parameter read by a bare-expression body is released after the read
 test("a HashMap that rehashes releases every value once when it dies", {
   before := g_at_disposed;
   {
-    m := HashMap(i32, ArgTemp).new();
+    mut(m) := HashMap(i32, ArgTemp).new();
     (mut(i) : i32) = i32(0);
     while(i < i32(100), i = (i + i32(1)), {
       node := ArgTemp(n : i);
@@ -2319,7 +2319,7 @@ test("unique Box: Eq, Hash and Default by payload; no count", {
   assert(hash_one(&h1) == hash_one(&p), "a box hashes as its payload");
   // A box is a map key: the map moves it in and compares it in place
   // (issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md).
-  m := HashMap(Box(UBoxPoint), Box(i32)).new();
+  mut(m) := HashMap(Box(UBoxPoint), Box(i32)).new();
   m.insert(h1, Box.new(i32(78)));
   m.insert(Box.new(UBoxPoint(x : i32(1), y : i32(2))), Box.new(i32(12)));
   assert(m(h2).* == i32(78), "found by an equal payload");

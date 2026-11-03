@@ -1001,6 +1001,9 @@ derive(ExprInfoTable, Clone);
 // Only while `compile`'s shared table is live (`scope_release_set_table`).
 // ---------------------------------------------------------------------------
 ScopeNameRecord :: struct(name : String, vars : ArrayList(Variable));
+/// B9: read out of `g_scope_names` through `get_cloned` (the map no longer
+/// shares its value lists; `Variable`'s clone is its handle copy).
+derive(ScopeNameRecord, Clone);
 /// A binding the evaluator made at an atom: the name, and the binding
 /// node's env (its frames shared, so a release-time lookup sees the scope as
 /// codegen will).
@@ -1339,7 +1342,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       // record only the latter (and the shared length when it falls short).
       inner := ArrayList(Variable).new();
       match(
-        bound,
+        &bound,
         .Some(br) => {
           shared := if(capture_shaped, get_variables_from_env(&husk, &br.name), get_variables_from_env_before(&husk, k, &br.name));
           bvars := get_variables_from_env(&br.env, &br.name);
@@ -1454,7 +1457,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
   g_scope_path = usize(4);
   base := match(g_scope_klen.with(m => m.get(&key)), .Some(k) => get_variables_from_env_before(husk, k, name), .None => get_variables_from_env(husk, name));
   match(
-    g_scope_one.with(m => m.get(&key)),
+    g_scope_one.with(m => m.get_cloned(&key)),
     .Some(v) => if((v.name == name) && !_scope_has_id(&base, v.id), {
       g_scope_path = usize(3);
       base.push(v);
@@ -1546,8 +1549,10 @@ scope_release_report :: (fn() -> unit)(
     (n_logged_unreleased : usize) = g_scope_logged_unreleased;
     eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.with(m => m.len()).to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.with(m => m.len()).to_string()} inner=${g_scope_inner.with(m => m.len()).to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.with(m => m.len()).to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
     // The key iterator CLONES (B8); `into_iter` would copy each move-only
-    // entry out of the map's storage.
-    kit := g_scope_mm_kinds.with(m => m.keys());
+    // entry out of the map's storage. B9: `keys()` consumes the map, so the
+    // walk reads a snapshot of the keys; the per-key reads below re-borrow
+    // the live cell.
+    kit := g_scope_mm_kinds.with(m => m.keys_cloned()).into_iter();
     while(true, {
       match(
         kit.next(),
@@ -1662,7 +1667,10 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
 codegen_read_log_set :: (fn(on : bool) -> unit)({
   g_codegen_read_log_on = on;
 });
-codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.with(s => s));
+/// B9: `take()` moves the logged keys out of the cell (D11's whole-set copy
+/// per call is gone); the read log is drained once, after `codegen_c.yo`
+/// switches it off, and nothing reads the cell afterwards.
+codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.take());
 _logged_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
   _i := g_codegen_read_keys.with_mut(s => s.insert(id));
   table.data.with(m => m.get(&id))
@@ -1678,13 +1686,14 @@ expr_info_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprIn
 );
 /// Drop every entry whose key `keep` does not hold; returns how many went.
 /// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
-expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize)) -> usize)(
-  table.data.with_mut(m => {
+expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize)) -> usize)({
+  keep_own := keep.clone();
+  table.data.with_mut({ keep_own }(m) => {
     before := m.len();
-    m.retain((k, _v) => keep.contains(k));
+    m.retain((k, _v) => keep_own.contains(k));
     before - m.len()
   })
-);
+});
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
 //
@@ -2019,7 +2028,7 @@ register_module_level_global :: (fn(module_path : &String, name : &String) -> un
 /// True if module `module_path` declared the module-level runtime global
 /// `name`.
 is_module_level_global :: (fn(module_path : &String, name : &String) -> bool)(
-  g_module_level_globals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
+  g_module_level_globals.with(m => m.contains_key(`${_mg_canon(module_path)}|#|${name}`))
 );
 /// The C-name suffix for a module-level global declared in `module_path`
 /// (`_m<hash_one-of-canonical-path>`). Hashes the CANONICAL path so the
@@ -2043,7 +2052,7 @@ register_mut_global :: (fn(module_path : &String, name : &String) -> unit)({
 });
 /// True if module `module_path` declared `name` with `mut(name)`.
 is_mut_global :: (fn(module_path : &String, name : &String) -> bool)(
-  g_mut_globals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
+  g_mut_globals.with(m => m.contains_key(`${_mg_canon(module_path)}|#|${name}`))
 );
 /// True if module `module_path` declared `name` as a thread-local.
 is_thread_local :: (fn(module_path : &String, name : &String) -> bool)(
@@ -2668,6 +2677,7 @@ lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_
 /// instantiation it asked for (`twice` with T = bool). Keyed by the
 /// specialization's func id; written once, by the first call that minted it.
 SpecInstantiation :: struct(call_token : Token, description : String);
+derive(SpecInstantiation, Clone);
 (g_spec_instantiations : RefCell(HashMap(String, SpecInstantiation))) = RefCell(HashMap(String, SpecInstantiation)).new(HashMap(String, SpecInstantiation).new());
 record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, description : &String) -> unit)({
   if(g_spec_instantiations.with(m => m.get_cloned(spec_fid.clone())).is_none(), {
@@ -2974,7 +2984,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
   (total_calls : usize) = usize(0);
   rows := ArrayList(String).new();
   counts := ArrayList(usize).new();
-  ks := g_fid_specs.with(m => m.clone().keys());
+  ks := g_fid_specs.with(m => m.keys_cloned()).into_iter();
   (going : bool) = true;
   while(going, {
     match(
@@ -2990,18 +3000,13 @@ print_spec_report_if_requested :: (fn() -> unit)({
       }
     );
   });
-  cs := g_fid_rtcalls.with(m => m.clone().values());
-  (going2 : bool) = true;
-  while(going2, {
-    match(
-      cs.next(),
-      .Some(c) => {
-        total_calls = (total_calls + c);
-      },
-      .None => {
-        going2 = false;
-      }
-    );
+  // Read-only: the counts are summed in place through the borrowed `for`.
+  total_calls = g_fid_rtcalls.with(m => {
+    (mut(acc) : usize) = usize(0);
+    for(&m, (_k, c) => {
+      acc = (acc + c);
+    });
+    acc
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
   (adopt_calls : usize) = g_adopt_env_calls;
@@ -3034,7 +3039,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
   (total_evals : usize) = usize(0);
   ids := ArrayList(usize).new();
   ecounts := ArrayList(usize).new();
-  eks := g_node_eval_counts.with(m => m.clone().keys());
+  eks := g_node_eval_counts.with(m => m.keys_cloned()).into_iter();
   (going3 : bool) = true;
   while(going3, {
     match(

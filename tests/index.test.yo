@@ -152,7 +152,7 @@ test("Test range slicing preserves data (owned copy)", {
 });
 // === HashMap Index tests ===
 test("Test Index trait on HashMap", {
-  (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
+  (mut(map) : HashMap(i32, i32)) = HashMap(i32, i32).new();
   map.insert(i32(1), i32(100));
   map.insert(i32(2), i32(200));
   map.insert(i32(3), i32(300));
@@ -162,7 +162,7 @@ test("Test Index trait on HashMap", {
   assert(map(i32(3)) == i32(300), "map(3) should be 300");
 });
 test("Test Index trait mutation on HashMap", {
-  (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
+  (mut(map) : HashMap(i32, i32)) = HashMap(i32, i32).new();
   map.insert(i32(10), i32(42));
   // Mutate through pointer
   addr_of(map(i32(10))).* = i32(999);
@@ -730,7 +730,7 @@ test("Index with an owning-temp String key moves it", {
   assert(got == String.from("gamma"), "temp-key dispatch");
 });
 test("HashMap Index with a by-value String key", {
-  m := HashMap(String, String).new();
+  mut(m) := HashMap(String, String).new();
   m.insert(String.from("one"), String.from("1"));
   key := String.from("one");
   assert(m(key.clone()) == String.from("1"), "map index by String key");
@@ -1373,7 +1373,7 @@ test("Index: a generic impl takes a move-only named local by value", {
   k := _IxKey(n : i32(1));
   assert(b(k) == i32(78), "the projection reads through the specialized impl");
   comptime_expect_error(k.n, "moved");
-  m := HashMap(Box(i32), i32).new();
+  mut(m) := HashMap(Box(i32), i32).new();
   m.insert(Box.new(i32(5)), i32(50));
   key := Box.new(i32(5));
   assert(m(key) == i32(50), "a HashMap(Box(K), V) looked up by a named box");
@@ -1415,7 +1415,7 @@ _IxHk :: struct(n : i32);
 derive(_IxHk, Eq(_IxHk), Hash);
 test("IndexMut: a write through a generic impl with a move-only named key", {
   comptime_assert(!Type.impls(_IxHk, Copy) && !Type.impls(_IxHk, Clone), "the key is move-only");
-  m := HashMap(_IxHk, i32).new();
+  mut(m) := HashMap(_IxHk, i32).new();
   m.insert(_IxHk(n : i32(5)), i32(50));
   wk := _IxHk(n : i32(5));
   m(wk) = i32(60);
@@ -1431,7 +1431,7 @@ test("IndexMut: a write through a generic impl with a move-only named key", {
 _IxPt :: struct(x : i32, y : i32);
 derive(_IxPt, Copy, Clone);
 test("IndexMut: a write through an index call drops its key exactly once", {
-  m := HashMap(_IxDk, i32).new();
+  mut(m) := HashMap(_IxDk, i32).new();
   m.insert(_IxDk(n : i32(5)), i32(50));
   mid := g_ix_dropped;
   key := _IxDk(n : i32(5));
@@ -1443,7 +1443,7 @@ test("IndexMut: a write through an index call drops its key exactly once", {
   assert(x == i32(60), "the write landed");
 });
 test("IndexMut: a field write through an index call drops its key exactly once", {
-  p := HashMap(_IxDk, _IxPt).new();
+  mut(p) := HashMap(_IxDk, _IxPt).new();
   p.insert(_IxDk(n : i32(9)), _IxPt(x : i32(1), y : i32(2)));
   mid := g_ix_dropped;
   kf := _IxDk(n : i32(9));
@@ -1453,7 +1453,7 @@ test("IndexMut: a field write through an index call drops its key exactly once",
   assert(p(kfr).x == i32(42), "the field write landed");
 });
 test("IndexMut: an array write through an index call drops its key exactly once", {
-  a := HashMap(_IxDk, Array(i32, 2)).new();
+  mut(a) := HashMap(_IxDk, Array(i32, 2)).new();
   a.insert(_IxDk(n : i32(3)), Array(i32, 2)(1, 2));
   mid := g_ix_dropped;
   ka := _IxDk(n : i32(3));
@@ -1465,7 +1465,7 @@ test("IndexMut: an array write through an index call drops its key exactly once"
 // The issue's shape, without ASan: the write must land and the key string
 // must still be alive after it (the double call freed it before).
 test("IndexMut: a String key survives the write it indexes", {
-  ms := HashMap(String, i32).new();
+  mut(ms) := HashMap(String, i32).new();
   ms.insert(String.from("key-long-enough-to-heap"), i32(1));
   s := String.from("key-long-enough-to-heap");
   ms(s.clone()) = i32(5);
@@ -1480,9 +1480,9 @@ test("IndexMut: a String key survives the write it indexes", {
 // unspecialized generic method, and codegen called a C function it never
 // declared (issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md).
 test("IndexMut: a nested write through a generic impl with a move-only key", {
-  inner := HashMap(_IxDk, i32).new();
+  mut(inner) := HashMap(_IxDk, i32).new();
   inner.insert(_IxDk(n : i32(5)), i32(50));
-  mm := HashMap(i32, HashMap(_IxDk, i32)).new();
+  mut(mm) := HashMap(i32, HashMap(_IxDk, i32)).new();
   mm.insert(i32(1), inner);
   mid := g_ix_dropped;
   mm(i32(1))(_IxDk(n : i32(5))) = i32(60);

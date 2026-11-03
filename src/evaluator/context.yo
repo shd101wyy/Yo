@@ -879,7 +879,7 @@ track_variable_usage_resolved :: (
           });
           // Ensure the capturedVariables map exists.
           match(
-            context.captured_variables,
+            &context.captured_variables,
             .None => {
               context.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(
                 HashMap(String, CapturedVarInfo).new()
@@ -889,7 +889,7 @@ track_variable_usage_resolved :: (
           );
           // Compute the promoted usage type.
           effective_usage := match(
-            context.captured_variables,
+            &context.captured_variables,
             .None => usage,
             .Some(map) => match(
               map.get(variable_name),
@@ -1360,7 +1360,7 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
     _removed := g_retained_walk_paths.with_mut(({ canon_rm }(s) => s.remove(&canon_rm)));
     // `ModuleWalk` is a ref struct: releasing through the value handle
     // releases the table's walk.
-    walk_values := g_finished_walks.with(m => m.values());
+    walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
     wopt := walk_values.next();
     // The loop body closure captures its OWN clone once; reading `canon`
     // itself per iteration is a move (the capture) reused per iteration.
@@ -1418,7 +1418,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
 /// holds its evaluation context; `.None` when that module has no finished walk.
 finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.with(m => m.values());
+  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1437,7 +1437,7 @@ finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
 /// context. The CTFE-clone purge test's probe.
 finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.with(m => m.values());
+  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1531,13 +1531,15 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
         .None => return(())
       );
       dk := def_key(&ast_expr_token(&top.expr).module_path.*, top.index, &top.name);
+      rk := dk.clone();
       deps := match(
-        g_def_deps.with(m => m.get(&dk)),
+        g_def_deps.with_mut({ rk }(m) => m.remove(&rk)),
         .Some(existing) => existing,
         .None => HashSet(String).new()
       );
       deps.insert(dependee.clone());
-      _ := g_def_deps.with_mut(m => m.insert(dk.clone(), deps));
+      own_k := dk.clone();
+      _ := g_def_deps.with_mut({ own_k, deps }(m) => m.insert(own_k, deps));
       if(debug_knob(`YO_DEBUG_P3DIFF`).is_some(), {
         eprintln(`[p3edge] ${top.name} -> ${dependee}`);
       });
@@ -1773,14 +1775,14 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
       .Some(s) => s.clone(),
       .None => String.new()
     );
-    kit := g_def_deps.with(m => m.keys());
+    kit := g_def_deps.with(m => m.keys_cloned()).into_iter();
     kopt := kit.next();
     while(kopt.is_some(), {
       match(
         kopt,
         .Some(dep) => if(!reached.contains(dep.clone()), {
           match(
-            g_def_deps.with(m => m.get(dep.clone())),
+            g_def_deps.with(m => m.get_cloned(dep.clone())),
             .Some(deps) => if(deps.contains(seed.clone()), {
               _ := reached.insert(dep.clone());
               work.push(dep.clone());
@@ -1802,15 +1804,15 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
 /// the invalidator drops each returned importer at file granularity.
 ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iit := g_module_ordered_reads.with(m => m.keys());
+  iit := g_module_ordered_reads.with(m => m.keys_cloned()).into_iter();
   iopt := iit.next();
   while(iopt.is_some(), {
     match(
       iopt,
       .Some(importer) => match(
-        g_module_ordered_reads.with(m => m.get(importer.clone())),
+        g_module_ordered_reads.with(m => m.get_cloned(importer.clone())),
         .Some(by_target) => match(
-          by_target.get(target_module.clone()),
+          by_target.get_cloned(target_module.clone()),
           .Some(fields) => {
             (hit : bool) = false;
             (ni : usize) = usize(0);
@@ -1841,7 +1843,7 @@ ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -
 /// The dependees recorded for one def key (the forward edges of
 /// `g_def_deps`), for the invalidator's cross-module ordering.
 def_key_dependees :: (fn(key : &String) -> Option(HashSet(String)))(
-  g_def_deps.with(m => m.get(key))
+  g_def_deps.with(m => m.get_cloned(key))
 );
 /// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
 ForcePendingDefFn :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String));
@@ -1923,6 +1925,28 @@ fn_ctx_returns_comptime :: (fn(ctx : &EvalContext) -> bool)(
     .None => false
   )
 );
+/// B9: `CapturedVarInfo` is a ref struct with no Clone (B8-Q1: none before
+/// V5), so the copy's captured-variable map re-inserts the same handles.
+_clone_captured_variables :: (
+  fn(src : &Option(HashMap(String, CapturedVarInfo))) -> Option(HashMap(String, CapturedVarInfo))
+)({
+  mut(dst) := HashMap(String, CapturedVarInfo).new();
+  (any : bool) = false;
+  match(
+    src,
+    .Some(m) => {
+      for(&m, (k, v) => {
+        dst.insert(k.clone(), v);
+      });
+      any = true;
+    },
+    .None => ()
+  );
+  cond(
+    any => Option(HashMap(String, CapturedVarInfo)).Some(dst),
+    true => Option(HashMap(String, CapturedVarInfo)).None
+  )
+});
 /// Shallow copy of an EvalContext — every field, the shared tables
 /// (`expr_info_table`, `comptime_fn_caches`, `load_module`) by reference.
 copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
@@ -1934,8 +1958,8 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     expected_type : ctx.expected_type,
     is_evaluating_function_body_or_async_block : ctx.is_evaluating_function_body_or_async_block,
     is_inside_impl_block : ctx.is_inside_impl_block,
-    captured_variables : ctx.captured_variables,
-    own_consumed_captures : ctx.own_consumed_captures,
+    captured_variables : _clone_captured_variables(&ctx.captured_variables),
+    own_consumed_captures : ctx.own_consumed_captures.clone(),
     captures_owned_by_body : ctx.captures_owned_by_body,
     is_evaluating_loop_body : ctx.is_evaluating_loop_body,
     self_type : ctx.self_type.clone(),
@@ -1964,7 +1988,7 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
     currently_specializing_function_stack : ctx.currently_specializing_function_stack.clone(),
-    doc_comment_lookup : ctx.doc_comment_lookup,
+    doc_comment_lookup : ctx.doc_comment_lookup.clone(),
     expr_info_table : ctx.expr_info_table.clone(),
     comptime_fn_caches : ctx.comptime_fn_caches.clone(),
     current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
@@ -3613,7 +3637,7 @@ create_function_body_evaluation_context :: (
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
     currently_specializing_function_stack : ctx.currently_specializing_function_stack.clone(),
-    doc_comment_lookup : ctx.doc_comment_lookup,
+    doc_comment_lookup : ctx.doc_comment_lookup.clone(),
     // Shared mutable tables — same instance as parent so results are visible
     expr_info_table : ctx.expr_info_table.clone(),
     comptime_fn_caches : ctx.comptime_fn_caches.clone(),
@@ -3639,6 +3663,7 @@ track_variable_usage :: (
 );
 
 export(
+  _clone_captured_variables,
   is_module_ghost_fn_def,
   record_module_member_read,
   record_module_ordered_read,

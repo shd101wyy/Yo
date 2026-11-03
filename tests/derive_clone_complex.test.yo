@@ -70,7 +70,7 @@ test("derive Clone for struct with Rc field", {
 WithMap :: struct(data : HashMap(String, i32));
 derive(WithMap, Clone);
 test("derive Clone for struct with HashMap field", {
-  m := HashMap(String, i32).new();
+  mut(m) := HashMap(String, i32).new();
   m.insert(`key`, i32(100));
   orig := WithMap(data : m);
   c := orig.clone();
@@ -269,7 +269,7 @@ test("Option of a nullable-pointer recursive enum, read out of its ArrayList", {
 FoldObj :: enum(Null, Obj(m : HashMap(String, Self)));
 derive(FoldObj, Clone);
 test("derive Clone for a nullable-pointer recursive enum over HashMap(String, Self)", {
-  m := HashMap(String, FoldObj).new();
+  mut(m) := HashMap(String, FoldObj).new();
   m.insert(`a`, FoldObj.Null);
   orig := FoldObj.Obj(m);
   c := orig.clone();

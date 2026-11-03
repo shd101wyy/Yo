@@ -593,7 +593,7 @@ _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(St
 _namespaced_defines :: (fn(dep_name : &String, defines : &HashMap(String, String)) -> HashMap(String, String))({
   out := HashMap(String, String).new();
   prefix := dep_name.concat(String.from("."));
-  iter := defines.clone().keys();
+  iter := defines.keys_cloned().into_iter();
   more := true;
   while(more, {
     match(
@@ -634,9 +634,10 @@ _evaluate_dependency_build_file :: (
   owned_dep_dir := dep_dir.clone();
   owned_build_file := build_file.clone();
   owned_dep_name := dep_name.clone();
+  owned_defines := defines.clone();
   io.async((e : IoExn) => {
     scratch := BuildRegistry.new();
-    scratch.cli_options = _namespaced_defines(owned_dep_name.clone(), defines);
+    scratch.cli_options = _namespaced_defines(owned_dep_name.clone(), &owned_defines);
     dep_manifest_opt := project_manifest(owned_dep_dir.clone(), e.exn);
     scratch.manifest_fields = _manifest_fields(&dep_manifest_opt);
     prev := swap_build_registry(Option(BuildRegistry).Some(scratch));
@@ -670,7 +671,8 @@ _evaluate_dependency_builds :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  owned_defines := defines.clone();
   io.async((e : IoExn) => {
     if(registry.dependency_artifacts.len() == usize(0), {
       return(());
@@ -712,7 +714,7 @@ _evaluate_dependency_builds :: (
       );
       if(!merged, {
         dep_reg := e.io.await(
-          _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), defines, e.io, e.exn),
+          _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), &owned_defines, e.io, e.exn),
           e
         );
         art := match(
@@ -781,7 +783,7 @@ _evaluate_dependency_builds :: (
     });
     ()
   })
-);
+});
 /// A dependency package's own import closure, as `name=<root file>` lines. Its
 /// manifest names its modules and its dependencies; the LOCK is the root
 /// project's — dependencies' git dependencies are recorded there.
@@ -2748,9 +2750,9 @@ _execute_node_unless_blocked :: (
 /// overlap. A task that unwinds is recorded as a failure rather than losing
 /// the node.
 ///
-/// The batch's results come back in batch order for the caller to record:
-/// the async body reads `results` but does not write it, since a collection
-/// it captured is its own copy once collections are values
+/// The batch's results come back in batch order for the caller to record.
+/// `results` is read before the task starts (which nodes a failed dependency
+/// blocks), so the async body never captures the borrowed map
 /// (plans/VALUES_BY_DEFAULT.md §3.13).
 _execute_batch :: (
   fn(
@@ -2762,12 +2764,18 @@ _execute_batch :: (
   ) -> Impl(Future(ArrayList(StepResult), IoExn))
 )({
   owned_batch := batch.clone();
+  // Which nodes a failed dependency blocks is decided here, before the task
+  // starts: the async body would otherwise capture the borrowed `results` map.
+  mut(owned_blocked) := ArrayList(bool).new();
+  for(&owned_batch, node => {
+    owned_blocked.push(_dependency_failed(&node, results));
+  });
   io.async((e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
     (i : usize) = usize(0);
     while(i < owned_batch.len(), {
       node := owned_batch(i);
-      blocked := _dependency_failed(&node, results);
+      blocked := owned_blocked(i);
       handles.push(e.io.spawn(_execute_node_unless_blocked(&node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
     });
@@ -3150,7 +3158,7 @@ execute_step :: (
 /// declared, with its default and description, plus the value in force.
 print_options :: (fn(registry : &BuildRegistry) -> unit)({
   names := ArrayList(String).new();
-  iter := registry.declared_options.keys();
+  iter := registry.declared_options.keys_cloned().into_iter();
   more := true;
   while(more, {
     match(
@@ -3188,7 +3196,7 @@ print_options :: (fn(registry : &BuildRegistry) -> unit)({
 /// in `-Dstrip=true` look like a build that ignored you (the plan's B4).
 undeclared_options :: (fn(registry : &BuildRegistry) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iter := registry.cli_options.clone().keys();
+  iter := registry.cli_options.keys_cloned().into_iter();
   more := true;
   while(more, {
     match(
@@ -3267,6 +3275,7 @@ evaluate_build_file :: (
   ) -> Impl(Future(BuildRegistry, IoExn))
 )({
   owned_build_file := build_file.clone();
+  owned_defines := defines.clone();
   io.async((e : IoExn) => {
     clear_build_registry();
     // Seed `-Dname=value` overrides BEFORE evaluating: `build.option(...)`
@@ -3274,7 +3283,7 @@ evaluate_build_file :: (
     // of its declared default. The manifest's `[package]` table goes in the
     // same way — `build.manifest.name` reads it during evaluation.
     reg := get_build_registry();
-    reg.cli_options = defines.clone();
+    reg.cli_options = owned_defines.clone();
     reg.manifest_fields = _manifest_fields(manifest_opt);
     outcome := mm_load_yo_file(&owned_build_file, e.io, e.exn);
     load_error := _take_load_error();

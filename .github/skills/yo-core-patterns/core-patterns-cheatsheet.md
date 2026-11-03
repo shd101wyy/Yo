@@ -144,7 +144,7 @@ match(
 // ✓ numbers(usize(0)) = i32(99);
 // ✓ v := numbers(usize(0));
 
-counts := HashMap(String, i32).new();
+mut(counts) := HashMap(String, i32).new();
 counts.insert(`yo`, i32(1));
 
 // From a fixed-size array (Rust's `Vec::from([..])`): the array is consumed and

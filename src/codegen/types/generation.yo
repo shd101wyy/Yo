@@ -2151,12 +2151,12 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   while(di < ne, {
     match(
       entries.get(di),
-      .Some(e) => match(
-        deps.get(e.type_id.clone()),
-        .Some(s) => {
-          in_degree.insert(e.type_id.clone(), s.len());
+      // The dependency set is read in place (a value since B9).
+      .Some(e) => cond(
+        deps.contains_key(&e.type_id) => {
+          in_degree.insert(e.type_id.clone(), deps(e.type_id.clone()).len());
         },
-        .None => {
+        true => {
           in_degree.insert(e.type_id.clone(), usize(0));
         }
       ),
@@ -2191,9 +2191,9 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
     while(oi < ne, {
       match(
         entries.get(oi),
-        .Some(other) => match(
-          deps.get(other.type_id.clone()),
-          .Some(odeps) => if(odeps.contains(tid.clone()), {
+        // The dependency set is read in place (a value since B9).
+        .Some(other) => cond(
+          deps.contains_key(&other.type_id) => if(deps(other.type_id.clone()).contains(tid.clone()), {
             cur := match(in_degree.get(other.type_id.clone()), .Some(d) => d, .None => usize(1));
             nd := if(cur > usize(0), cur - usize(1), usize(0));
             in_degree.insert(other.type_id.clone(), nd);
@@ -2201,7 +2201,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
               queue.push(other.type_id.clone());
             });
           }),
-          .None => ()
+          true => ()
         ),
         .None => ()
       );
@@ -2352,7 +2352,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   });
   // Bodies of on-demand Future interfaces the hook deferred that pass 5's key
   // walk did not reach (the hook met them DURING pass 5).
-  fwd_keys := context.on_demand_fwd_only.keys();
+  fwd_keys := context.on_demand_fwd_only.keys_cloned().into_iter();
   (g_fwd : bool) = true;
   while(g_fwd, {
     match(

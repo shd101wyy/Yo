@@ -50,11 +50,12 @@ only for `Send`: `Mutex(T)` and `Channel(T)` need `T <: Send`. So a type that is
 but opts out of `Sync` with `impl(T, !(Sync()))` can go in a `Mutex` or through a `Channel`, but
 not in an `Arc`.
 
-`String` and `ArrayList(T)` own their buffers uniquely: they are values, so moving one hands over
-its only owner. `String` is `Send` and `Sync`, and `ArrayList(T)` is `Send` (`Sync`) when `T` is.
+`String`, `ArrayList(T)`, `HashMap(K, V)` and `HashSet(T)` own their buffers uniquely: they are
+values, so moving one hands over its only owner. `String` is `Send` and `Sync`; `ArrayList(T)` and
+`HashSet(T)` are `Send` (`Sync`) when `T` is, and `HashMap(K, V)` when `K` and `V` are.
 A `String` or an `ArrayList(String)` moves into a `Thread(...).spawn` body, comes back through
 `join()`, and travels through a `Channel(String)`; using it on the sending side after the move is
-E0901. The other collections (`HashMap`, `HashSet`, `Deque`, ...) are still shared, non-atomically
+E0901. The other collections (`Deque`, `BTreeMap`, ...) are still shared, non-atomically
 counted cells until their own flips, so they do not cross a thread yet: share data that is `Send`
 and `Sync` through an `Arc`, rebuild the value on the receiving thread from `Send` parts, or
 serialize it. An `Rc` graph stays on its thread (Rust's
@@ -76,7 +77,7 @@ every such claim auditable.
 | **Reference counting**   | Non-atomic RC (thread-local) | Atomic RC (thread-safe)                 |
 | **Cross-thread sharing** | Not allowed (not Send)       | Allowed (Send and Sync when all fields are Sync) |
 | **Cycle collection**     | Yes (stop-the-world GC)      | No (purely atomic RC)                   |
-| **Example**              | `ArrayList`, `HashMap`       | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
+| **Example**              | `Rc(T)`, a user `ref(struct)` | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
 
 ```yo
 // Regular object — thread-local only
@@ -248,7 +249,7 @@ local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In sa
   `spawn_blocking` callback — anything bound to `Impl(FnOnce(...), Send)`, `Impl(Fn(...), Send)` or `Impl(Fn(...), Sync)`)
   may not reach a global whose type is not `Sync`, directly or through any function it calls. A
   global is shared by every thread, so sharing is the question. A non-atomic
-  reference-counted global (`HashMap`, any `ref(struct)`) stays legal for the main
+  reference-counted global (an `Rc`, any `ref(struct)`) stays legal for the main
   thread, but reading a field through such a handle updates a reference count, so no other
   thread may touch it;
 - a `Sync` value global (a scalar or a struct with no reference inside) that is WRITTEN

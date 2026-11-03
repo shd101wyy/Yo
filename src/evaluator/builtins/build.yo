@@ -1169,7 +1169,7 @@ evaluate_yo_build_functions :: (
     looked_up := proc_env.get(env_name.clone());
     record_env_read(env_name.clone(), match(&looked_up, .Some(v) => v.clone(), .None => String.from("<unset>")));
     return(
-      _build_string_result(expr, env, ctx, match(looked_up, .Some(v) => v, .None => env_default))
+      _build_string_result(expr, env, ctx, match(&looked_up, .Some(v) => v.clone(), .None => env_default.clone()))
     );
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV_IS_SET, Option(usize).None), {

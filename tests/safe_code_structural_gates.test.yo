@@ -154,12 +154,15 @@ comptime_expect_error({
   c := m.ctrl;
   c
 });
-{
+// A test body, not a module-level block: a value map written through
+// `&mut self` is a local (a mutable module-level binding cannot be lent,
+// decision 47).
+test("a HashMap is safe to hold and use", {
   { HashMap } :: import("std/collections/hash_map");
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(2));
   assert(m.len() == usize(1), "a HashMap is safe to hold and use");
-};
+});
 // `IndexUnchecked.index_unchecked` skips the bounds check; codegen calls it
 // only at a subscript the verifier proved in bounds. Its result is a raw
 // pointer, so safe code cannot call it directly, not even to dereference at

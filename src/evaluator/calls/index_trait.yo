@@ -44,7 +44,8 @@ pragma(Pragma.AllowUnsafe);
   set_promote_index_places_fn,
   set_is_index_place_fn,
   sync_counted_handle_std_generic,
-  SpecializingFunctionInfo
+  SpecializingFunctionInfo,
+  _clone_captured_variables
 } :: import("../context.yo");
 {
   ExprInfo,
@@ -1113,7 +1114,12 @@ _specialize_index_method :: (
   // `return(...)` in the CALLER's body was then checked against the index
   // method's result type (issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md).
   saved_fb := ctx.is_evaluating_function_body_or_async_block;
-  saved_caps := ctx.captured_variables;
+  // B9: the capture map is a value now, so the save is a snapshot (the same
+  // `CapturedVarInfo` handles; the type has no `Clone`): what the trial
+  // records is dropped with it. The trial re-evaluates the receiver
+  // and index the dispatch already evaluated, so its caller-side capture
+  // records repeat ones the dispatch made.
+  saved_caps := _clone_captured_variables(&ctx.captured_variables);
   saved_loop := ctx.is_evaluating_loop_body;
   saved_fri := ctx.function_return_impl_concrete_type.clone();
   saved_self := ctx.self_type.clone();

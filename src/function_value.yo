@@ -203,7 +203,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
 /// callable Func signature. Linear scan — only reached on the non-Func callee
 /// miss path.
 find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(String))({
-  it := g_closure_capture_info.with(m => m.keys());
+  it := g_closure_capture_info.with(m => m.keys_cloned()).into_iter();
   (out : Option(String)) = Option(String).None;
   (go : bool) = true;
   while(go, {

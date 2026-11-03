@@ -325,13 +325,13 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
 "The Send and Sync Traits" in `THREAD_SAFETY.md`:
 
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs/enums/tuples composed of Send
-  fields, `String`, `ArrayList(T)` when `T` is Send (both own their buffers uniquely), atomic objects whose fields are all Sync (`Arc`, `Mutex`, `Channel`, the `Atomic*`
+  fields, `String`, `ArrayList(T)` and `HashSet(T)` when `T` is Send, `HashMap(K, V)` when `K` and `V` are (each owns its buffers uniquely), atomic objects whose fields are all Sync (`Arc`, `Mutex`, `Channel`, the `Atomic*`
   wrappers), `Dyn(Trait, Send)` (the concrete type is checked at `dyn(...)`, and its payload is
   atomically counted: `dyn(v)` boxes a value type with `Arc.new`), and function values (a named function or a closure) whose captures are
   all Send and whose code reaches no non-Send module global — judged from the value where the
   compiler can see it: a spawn body, an `Impl(Fn(...), Send)` or `Impl(FnOnce(...), Send)` argument, a generic
   `where(T <: Send)` argument, a captured variable
-- **Not Sendable**: `ref(struct(...))` / `ref(enum(...))` (non-atomic RC: `HashMap`,
+- **Not Sendable**: `ref(struct(...))` / `ref(enum(...))` (non-atomic RC:
   `Rc`, ..., and values holding one), raw pointers and types holding one
   unless they opt in, `Dyn(Trait)` without `Send` in its bound, `Io`, `JoinHandle`, closures
   that borrow their captures,

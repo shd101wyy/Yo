@@ -23,7 +23,7 @@
 { Token } :: import("../../token.yo");
 { ArrayList } :: import("std/collections/array_list");
 { Environment, Frame, frame_truncate_variables, env_frames_for_write } :: import("../../env.yo");
-{ EvalContext, forcing_depths, truncate_forcing_depths, sync_counted_handle_std_generic } :: import("../context.yo");
+{ EvalContext, forcing_depths, truncate_forcing_depths, sync_counted_handle_std_generic, _clone_captured_variables } :: import("../context.yo");
 { format_error_message, error_message_text } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 {
@@ -215,8 +215,8 @@ evaluate_comptime_expect_error :: (
   saved_expected := ctx.expected_type;
   saved_fb_ctx := ctx.is_evaluating_function_body_or_async_block;
   saved_impl_block := ctx.is_inside_impl_block;
-  saved_caps := ctx.captured_variables;
-  saved_own_caps := ctx.own_consumed_captures;
+  saved_caps := _clone_captured_variables(&ctx.captured_variables);
+  saved_own_caps := ctx.own_consumed_captures.clone();
   saved_loop_ctx := ctx.is_evaluating_loop_body;
   saved_self_type := ctx.self_type.clone();
   saved_self_trait := ctx.self_trait_type.clone();

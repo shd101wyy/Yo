@@ -53,7 +53,7 @@ test("move-only collections: the element types are move-only", {
 test("HashMap(i32, V) of a Drop value inserts", {
   before := g_mc_dropped;
   {
-    m := HashMap(i32, _McFd).new();
+    mut(m) := HashMap(i32, _McFd).new();
     m.insert(i32(1), _McFd(n : i32(2)));
     assert(m.len() == usize(1), "one entry");
   };
@@ -63,7 +63,7 @@ test("HashMap of a move-only value: insert, overwrite, read in place, remove, re
   before := g_mc_dropped;
   sum_before := g_mc_sum;
   {
-    m := HashMap(i32, _McFd).new();
+    mut(m) := HashMap(i32, _McFd).new();
     // 40 entries cross the 16-bucket table's load factor twice: each rehash
     // moves every entry bitwise and drops none.
     mut(i) := i32(0);
@@ -96,7 +96,7 @@ test("HashMap of a move-only value: insert, overwrite, read in place, remove, re
 test("HashMap of a move-only key and value: remove_entry, retain, clear", {
   before := g_mc_dropped;
   {
-    m := HashMap(_McTok, _McFd).new();
+    mut(m) := HashMap(_McTok, _McFd).new();
     mut(i) := i32(0);
     while(i < i32(40), i = (i + i32(1)), {
       m.insert(_McTok(id : i), _McFd(n : i));
@@ -120,7 +120,7 @@ test("HashMap of a move-only key and value: remove_entry, retain, clear", {
   assert(g_mc_dropped == (before + i32(41)), "every value dropped exactly once");
 });
 test("HashMap of a move-only key with a copyable value: get copies the value only", {
-  m := HashMap(_McTok, i32).new();
+  mut(m) := HashMap(_McTok, i32).new();
   m.insert(_McTok(id : i32(1)), i32(10));
   m.insert(_McTok(id : i32(2)), i32(20));
   assert(m.get(&_McTok(id : i32(2))).unwrap_or(i32(0)) == i32(20), "get reads the value without copying the key");
@@ -131,7 +131,7 @@ test("HashMap of a move-only key with a copyable value: get copies the value onl
 test("HashMap entry: and_modify replaces a move-only value without copying it", {
   before := g_mc_dropped;
   {
-    m := HashMap(i32, _McFd).new();
+    mut(m) := HashMap(i32, _McFd).new();
     m.insert(i32(4), _McFd(n : i32(40)));
     m.entry(&i32(4), e => e.and_modify(&((v : &_McFd) => _McFd(n : (v.n + i32(1))))));
     assert(m(i32(4)).n == i32(41), "the value was replaced in place");
@@ -140,7 +140,7 @@ test("HashMap entry: and_modify replaces a move-only value without copying it", 
   assert(g_mc_dropped == (before + i32(2)), "and the new one when the map dies");
 });
 test("HashSet of a move-only element", {
-  s := HashSet(_McTok).new();
+  mut(s) := HashSet(_McTok).new();
   mut(i) := i32(0);
   while(i < i32(40), i = (i + i32(1)), {
     assert(s.insert(_McTok(id : i)), "a new element");
@@ -272,7 +272,7 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
   {
     p5 := _McKd(id : i32(5));
     p6 := _McKd(id : i32(6));
-    m := HashMap(_McKd, i32).new();
+    mut(m) := HashMap(_McKd, i32).new();
     mut(i) := i32(0);
     while(i < i32(40), i = (i + i32(1)), {
       m.insert(_McKd(id : i), i);
@@ -301,7 +301,7 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
 test("HashMap of a Drop key: a write through `m(k) = v` drops the key once", {
   before := g_mc_kdropped;
   {
-    m := HashMap(_McKd, i32).new();
+    mut(m) := HashMap(_McKd, i32).new();
     m.insert(_McKd(id : i32(5)), i32(50));
     assert(g_mc_kdropped == before, "the insert moves its key in");
     key := _McKd(id : i32(5));
@@ -317,7 +317,7 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
   before := g_mc_kdropped;
   {
     p3 := _McKd(id : i32(3));
-    s := HashSet(_McKd).new();
+    mut(s) := HashSet(_McKd).new();
     mut(i) := i32(0);
     while(i < i32(10), i = (i + i32(1)), {
       s.insert(_McKd(id : i));

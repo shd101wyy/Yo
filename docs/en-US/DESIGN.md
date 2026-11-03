@@ -3026,7 +3026,7 @@ Hash map with key-value pairs.
 { HashMap } :: import("std/collections/hash_map");
 
 // Create a new HashMap
-map := HashMap(i32, i32).new();
+mut(map) := HashMap(i32, i32).new();
 
 // Insert key-value pairs
 result := map.insert(i32(1), i32(100));
@@ -3081,7 +3081,7 @@ Hash set for unique values.
 { HashSet } :: import("std/collections/hash_set");
 
 // Create a new HashSet
-set := HashSet(i32).new();
+mut(set) := HashSet(i32).new();
 
 // Insert elements
 result := set.insert(i32(42));

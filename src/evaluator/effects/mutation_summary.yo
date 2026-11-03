@@ -4121,17 +4121,22 @@ _GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(Typ
 (g_gr_reads_by_fid : RefCell(HashMap(String, HashMap(String, String)))) = RefCell(HashMap(String, HashMap(String, String))).new(HashMap(String, HashMap(String, String)).new());
 (g_gr_callees_by_fid : RefCell(HashMap(String, HashSet(String)))) = RefCell(HashMap(String, HashSet(String))).new(HashMap(String, HashSet(String)).new());
 _gr_note_read :: (fn(fid : &String, key : &String, loc : &String) -> unit)({
-  reads := match(g_gr_reads_by_fid.with(m => m.get(fid.clone())), .Some(m) => m, .None => HashMap(String, String).new());
+  // Taken out and stored back: the per-fid map is a value (B9), so a read
+  // copy would clone it on every note.
+  fid_own := fid.clone();
+  fid_rm := fid.clone();
+  reads := match(g_gr_reads_by_fid.with_mut({ fid_rm }(m) => m.remove(&fid_rm)), .Some(m) => m, .None => HashMap(String, String).new());
   if(!reads.contains_key(key.clone()), {
     reads.insert(key.clone(), loc.clone());
   });
-  fid_own := fid.clone();
   g_gr_reads_by_fid.with_mut({ fid_own, reads }(m) => m.insert(fid_own, reads));
 });
 _gr_note_callee :: (fn(ctx : &_GrCtx, callee : &String) -> unit)({
-  set := match(g_gr_callees_by_fid.with(m => m.get(ctx.fid.clone())), .Some(c) => c, .None => HashSet(String).new());
-  set.insert(callee.clone());
+  // Taken out and stored back (see `_gr_note_read`).
   fid_own := ctx.fid.clone();
+  fid_rm := ctx.fid.clone();
+  set := match(g_gr_callees_by_fid.with_mut({ fid_rm }(m) => m.remove(&fid_rm)), .Some(c) => c, .None => HashSet(String).new());
+  set.insert(callee.clone());
   g_gr_callees_by_fid.with_mut({ fid_own, set }(m) => m.insert(fid_own, set));
 });
 /// Function `fid` runs on another thread (it is a `Send` closure, or code a
@@ -4158,9 +4163,9 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
     if(!seen.contains(f.clone()), {
       seen.insert(f.clone());
       match(
-        g_gr_reads_by_fid.with(m => m.get(f.clone())),
+        g_gr_reads_by_fid.with(m => m.get_cloned(&f)),
         .Some(reads) => {
-          it := reads.keys();
+          it := reads.keys_cloned().into_iter();
           (go : bool) = true;
           while(go, {
             match(
@@ -4196,7 +4201,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
         .None => ()
       );
       match(
-        g_gr_callees_by_fid.with(m => m.get(f.clone())),
+        g_gr_callees_by_fid.with(m => m.get_cloned(&f)),
         .Some(cs) => {
           // A read walk: `cs` shares the registry's set, whose entries a
           // consuming iterator cannot move out.

@@ -101,43 +101,48 @@ HashMap :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  ref(
-    struct(
-      /// Control bytes, one per bucket: `CTRL_EMPTY`, `CTRL_DELETED`, or the
-      /// key's 7-bit `h2`. `.None` only before the first allocation.
-      ///
-      /// An implementation detail that is public by accident — see the
-      /// module's `## Stability` note.
-      ctrl : ?*u8,
-      /// The bucket array itself, parallel to `ctrl`. An implementation
-      /// detail that is public by accident.
-      data : ?*MapEntry(K, V),
-      /// Number of buckets — always a power of two, because bucket selection
-      /// masks the hash. An implementation detail that is public by accident.
-      capacity : usize,
-      /// Live entries. `len()` reads this. An implementation detail that is
-      /// public by accident.
-      size : usize,
-      /// Slots holding `CTRL_DELETED`. A tombstone keeps probe chains intact
-      /// but is never `EMPTY`, so it costs exactly what a live entry costs on
-      /// every miss; `_needs_resize` therefore counts `size + tombstones`, and
-      /// a table that is mostly tombstones is rehashed IN PLACE instead of
-      /// doubled (hashbrown's rule). Before this, insert/remove churn drove
-      /// every probe to O(capacity) — issues/fixed/hash-tombstones-are-never-reclaimed.md.
-      ///
-      /// The top bit is not a count: set, both buffers came from an explicit
-      /// `Allocator` and carry its owner prefix (`std/allocator.yo`), so they
-      /// are resized and released through it. Keeping the bit in an existing
-      /// word keeps the map object's size (plans/archive/EXPLICIT_ALLOCATORS.md §3.3).
-      /// Read the count with `tombstones()`.
-      _tombstones : usize,
-      /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
-      /// iteration order is reproducible; `with_keys` keys this map alone.
-      k0 : u64,
-      k1 : u64
-    )
+  struct(
+    /// Control bytes, one per bucket: `CTRL_EMPTY`, `CTRL_DELETED`, or the
+    /// key's 7-bit `h2`. `.None` only before the first allocation.
+    ///
+    /// An implementation detail that is public by accident — see the
+    /// module's `## Stability` note.
+    ctrl : ?*u8,
+    /// The bucket array itself, parallel to `ctrl`. An implementation
+    /// detail that is public by accident.
+    data : ?*MapEntry(K, V),
+    /// Number of buckets — always a power of two, because bucket selection
+    /// masks the hash. An implementation detail that is public by accident.
+    capacity : usize,
+    /// Live entries. `len()` reads this. An implementation detail that is
+    /// public by accident.
+    size : usize,
+    /// Slots holding `CTRL_DELETED`. A tombstone keeps probe chains intact
+    /// but is never `EMPTY`, so it costs exactly what a live entry costs on
+    /// every miss; `_needs_resize` therefore counts `size + tombstones`, and
+    /// a table that is mostly tombstones is rehashed IN PLACE instead of
+    /// doubled (hashbrown's rule). Before this, insert/remove churn drove
+    /// every probe to O(capacity) — issues/fixed/hash-tombstones-are-never-reclaimed.md.
+    ///
+    /// The top bit is not a count: set, both buffers came from an explicit
+    /// `Allocator` and carry its owner prefix (`std/allocator.yo`), so they
+    /// are resized and released through it. Keeping the bit in an existing
+    /// word keeps the map object's size (plans/archive/EXPLICIT_ALLOCATORS.md §3.3).
+    /// Read the count with `tombstones()`.
+    _tombstones : usize,
+    /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
+    /// iteration order is reproducible; `with_keys` keys this map alone.
+    k0 : u64,
+    k1 : u64
   )
 );
+// SAFETY: a value `HashMap(K, V)` is the only owner of its ctrl and bucket
+// buffers (B9, plans/VALUES_BY_DEFAULT.md): moving the map moves every entry
+// with it, and no other handle reaches the buffers, so it is `Send`/`Sync`
+// exactly when `K` and `V` are. The raw pointer fields derive neither
+// (decision 38 E), as `ArrayList`'s do not (std/collections/array_list.yo).
+impl(generic(K : Type, V : Type), where(K <: Send, V <: Send), HashMap(K, V), Send());
+impl(generic(K : Type, V : Type), where(K <: Sync, V <: Sync), HashMap(K, V), Sync());
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
@@ -275,7 +280,7 @@ impl(
   /// (`std/crypto/random`) to defeat collision flooding. `new()` uses fixed
   /// keys so iteration order is reproducible.
   with_keys : (fn(k0 : u64, k1 : u64) -> Self)({
-    map := Self.new();
+    mut(map) := Self.new();
     map.k0 = k0;
     map.k1 = k1;
     map
@@ -330,7 +335,7 @@ impl(
   /// and every pair moves into the map: nothing is copied. A repeated key
   /// keeps the LAST pair's value, as a run of `insert`s does.
   from : (fn(generic(N : usize), sink(pairs) : Array(Tuple(K, V), N)) -> Self)({
-    out := Self.with_capacity(N);
+    mut(out) := Self.with_capacity(N);
     // `ArrayList.from` moves the pairs into a buffer and `pop` moves each one
     // out of its slot; reversing first inserts them in array order.
     mut(rest) := ArrayList(Tuple(K, V)).from(pairs);
@@ -497,7 +502,7 @@ impl(
   _resize : (fn(self : &mut Self, new_capacity : usize) -> Result(unit, HashMapError))({
     // The new table lives where the old one does. Bound to a local, not a
     // `match` binding: its fields are written below.
-    new_map := match(
+    mut(new_map) := match(
       Self._alloc_with_capacity(new_capacity, self._alloc_of()),
       .Ok(m) => m,
       .Err(err) => return(.Err(err))
@@ -1221,20 +1226,15 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                cond(
-                  (ref_count(self._map) == usize(1)) => {
-                    // SAFETY: the iterator holds the map's only handle, so
-                    // no one else can read this bucket. The entry moves out
-                    // bitwise and the bucket is vacated: the map no longer
-                    // owns it, and its `Drop` skips it. Vacating never
-                    // rehashes, so the walk's order is unchanged.
-                    result = .Some(__yo_ptr_read(data_ptr.add(self._index)));
-                    self._map._vacate(self._index);
-                  },
-                  true => {
-                    result = .Some((data_ptr.add(self._index)).*);
-                  }
-                );
+                // SAFETY: the iterator owns the map (`into_iter` consumes
+                // it, and a map is a uniquely owned value), so no one else
+                // can read this bucket. The entry moves out bitwise and the
+                // bucket is vacated: the map no longer owns it, and its
+                // `Drop` skips it. Vacating never rehashes, so the walk's
+                // order is unchanged. (The handle era's shared-map branch,
+                // which copied the entry out, is gone with the handle.)
+                result = .Some(__yo_ptr_read(data_ptr.add(self._index)));
+                self._map._vacate(self._index);
               },
               true => ()
             );
@@ -1380,9 +1380,10 @@ impl(
 // advances a COPY of the field, so `_index` never moved and manual
 // `it.next()` loops yielded the first key forever (`for(...)` masked it).
 // Scan directly instead, mirroring `HashMapIterPtr`.
-/// Iterator over a map's keys, in bucket order — what `keys()` returns. Each
-/// key is yielded as a clone (`K <: Clone`): a `String` key owns its bytes
-/// since B8, so the map keeps its own.
+/// Iterator over a map's keys, in bucket order — what `keys()` returns. The
+/// iterator owns the map (`keys()` consumes it), so each key moves out of its
+/// bucket and the bucket's value is dropped: nothing is cloned, and a
+/// move-only key works.
 HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1391,7 +1392,7 @@ HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Clone)),
+  where(K <: (Eq(K), Hash)),
   HashMapKeys(K, V),
   Iterator(
     Item : K,
@@ -1406,7 +1407,11 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.key.clone());
+                // SAFETY: as in `HashMapIter.next` — the iterator owns the
+                // map, so the entry moves out and the bucket is vacated.
+                e := __yo_ptr_read(data_ptr.add(self._index));
+                self._map._vacate(self._index);
+                result = match(e, { key : key, value : _ } => .Some(key));
               },
               true => ()
             );
@@ -1421,11 +1426,12 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Walk the keys, in bucket order — Rust's `keys`. Yields them by value;
-  /// `iter()` is the way to see keys without dup'ing them.
+  /// Walk the keys, in bucket order — Rust's `into_keys`. Each key moves out
+  /// of the map and each value is dropped.
   ///
   /// Consumes the map (lookahead D20): `m.clone().keys()` walks a map that is
-  /// read again later.
+  /// read again later. `keys_cloned()` lists the keys of a borrowed map,
+  /// cloning only the keys.
   keys : (fn(self : Self) -> HashMapKeys(K, V))(
     HashMapKeys(K, V)(_map : self, _index : usize(0))
   )
@@ -1433,7 +1439,7 @@ impl(
 // NOTE: Same direct-scan structure as `HashMapKeys` — see the note there for
 // why the wrapped-`_inner` delegation form was replaced.
 /// Iterator over a map's values, in bucket order — what `values()` returns.
-/// Each value is yielded as a clone (`V <: Clone`), as `HashMapKeys` does.
+/// Each value moves out of its bucket, as `HashMapKeys` moves its keys.
 HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1442,7 +1448,7 @@ HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash), V <: Clone),
+  where(K <: (Eq(K), Hash)),
   HashMapValues(K, V),
   Iterator(
     Item : V,
@@ -1457,7 +1463,10 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.value.clone());
+                // SAFETY: as in `HashMapKeys.next`.
+                e := __yo_ptr_read(data_ptr.add(self._index));
+                self._map._vacate(self._index);
+                result = match(e, { key : _, value : value } => .Some(value));
               },
               true => ()
             );
@@ -1472,14 +1481,72 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Walk the values, in bucket order — Rust's `values`. Yields them by
-  /// value; `iter()` hands out entry pointers instead, which is the cheaper
-  /// way to read a refcounted `V`.
+  /// Walk the values, in bucket order — Rust's `into_values`. Each value
+  /// moves out of the map and each key is dropped.
   ///
-  /// Consumes the map (lookahead D20).
+  /// Consumes the map (lookahead D20). `values_cloned()` lists the values of
+  /// a borrowed map.
   values : (fn(self : Self) -> HashMapValues(K, V))(
     HashMapValues(K, V)(_map : self, _index : usize(0))
   )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash, Clone)),
+  HashMap(K, V),
+  /// A clone of every key, in bucket order (the order `keys()` yields) —
+  /// the `get_cloned` family's walk of a borrowed map. Only the keys are
+  /// cloned, so a loop can walk them while it reads and writes the map.
+  ///
+  /// ```yo
+  /// { HashMap } :: import("std/collections/hash_map");
+  /// (mut(m) : HashMap(i32, i32)) = HashMap(i32, i32).new();
+  /// m.insert(i32(1), i32(10));
+  /// ks := m.keys_cloned();
+  /// m.insert(i32(2), i32(20));
+  /// assert((ks.len() == usize(1)) && (m.len() == usize(2)), "a snapshot");
+  /// ```
+  keys_cloned : (fn(self : &Self) -> ArrayList(K))({
+    mut(out) := ArrayList(K).with_capacity(self.size);
+    mut(it) := self.iter();
+    while(true, {
+      match(
+        it.next(),
+        // SAFETY: `iter()` yields only pointers at occupied buckets of
+        // `self`'s live bucket array; nothing writes the map during the walk.
+        .Some(p) => out.push(unsafe(p.*.key.clone())),
+        .None => break
+      );
+    });
+    out
+  })
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash), V <: Clone),
+  HashMap(K, V),
+  /// A clone of every value, in bucket order (the order `values()` yields)
+  /// — the `get_cloned` family's walk of a borrowed map.
+  ///
+  /// ```yo
+  /// { HashMap } :: import("std/collections/hash_map");
+  /// (mut(m) : HashMap(i32, i32)) = HashMap(i32, i32).new();
+  /// m.insert(i32(1), i32(10));
+  /// assert(m.values_cloned().len() == usize(1), "one value");
+  /// ```
+  values_cloned : (fn(self : &Self) -> ArrayList(V))({
+    mut(out) := ArrayList(V).with_capacity(self.size);
+    mut(it) := self.iter();
+    while(true, {
+      match(
+        it.next(),
+        // SAFETY: as in `keys_cloned`.
+        .Some(p) => out.push(unsafe(p.*.value.clone())),
+        .None => break
+      );
+    });
+    out
+  })
 );
 impl(
   generic(K : Type, V : Type),
@@ -1531,7 +1598,7 @@ impl(
   clone_in : (fn(self : &Self, a : Allocator) -> Self)(self._clone_placed(.Some(a))),
   // A deep copy whose buffers live in `alloc` (`.None`: the global allocator).
   _clone_placed : (fn(self : &Self, alloc : Option(Allocator)) -> Self)({
-    result := Self.new(alloc : alloc);
+    mut(result) := Self.new(alloc : alloc);
     result.k0 = self.k0;
     result.k1 = self.k1;
     mut(it) := self.iter();
@@ -1620,8 +1687,9 @@ impl(
       HashMap(K, V).new()
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &MapEntry(K, V)) -> Self)({
-      acc.insert(item.key, item.value);
-      acc
+      mut(out) := acc;
+      out.insert(item.key, item.value);
+      out
     })
   )
 );

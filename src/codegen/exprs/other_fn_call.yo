@@ -313,7 +313,7 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : &String, indent : &
   // (never derive emitted names from map keys — the PR #92 capture lesson).
   (mut(found) : Option(CapturedVariable)) = Option(CapturedVariable).None;
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(smv) => {
       found = smv.get(temp_var);
       if(found.is_none(), {
@@ -353,7 +353,7 @@ _sm_lent_temp_slot :: (fn(code : &String, context : &FunctionGenerationContext) 
     return(Option(String).None);
   });
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(smv) => {
       for(&smv, (_k, cv) => {
         if((cv.base.name == code) && match(cv.kind, .Local => true, .Outer => false), {
@@ -2942,7 +2942,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           match(
             &ei.variable_name,
             .Some(tv) => if(type_contains_rc_cell_or_move_only(&r), {
-              already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
+              already := match(&context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
               if(!already, {
                 record_declared_temp_var(context, tv.clone());
                 declare_c_var_name(&context.base, tv.clone());
@@ -3113,7 +3113,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                   .None => ()
                 )
               );
-              already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
+              already := match(&context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
               if(!already, {
                 record_declared_temp_var(context, tv.clone());
                 // Clear __yo_effect_escaped before the call so a stale flag from
@@ -3475,7 +3475,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // Only a may-unwind call clears and checks `__yo_effect_escaped`.
   if(ou_may_unwind || ei.variable_name.is_some(), {
     fp_tv := match(&ei.variable_name, .Some(tv) => tv.clone(), .None => `_eu_${ast_expr_id(expr).to_string()}`);
-    already := match(context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
+    already := match(&context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
     if(!already, {
       record_declared_temp_var(context, fp_tv.clone());
       fpc := get_type_string(&result_type, &context.base);

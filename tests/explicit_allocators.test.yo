@@ -156,7 +156,7 @@ test("ArrayList.new, HashMap.new, Deque.new and Box.new(v) are on the global all
   assert(list.allocator().is_none(), "ArrayList.new()");
   sized := ArrayList(i32).with_capacity(usize(8));
   assert(sized.allocator().is_none(), "ArrayList.with_capacity()");
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   assert(m.allocator().is_none(), "HashMap.new()");
   q := Deque(i32).new();
@@ -183,7 +183,7 @@ test("A HashMap and a StringBuilder placed by their alloc argument live there; a
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
-    m := HashMap(i32, i32).new(alloc : .Some(heap));
+    mut(m) := HashMap(i32, i32).new(alloc : .Some(heap));
     m.insert(i32(1), i32(10));
     assert(m.allocator().is_some(), "the map's tables");
     sb := StringBuilder.new(alloc : .Some(heap));
@@ -308,7 +308,7 @@ test("clone_in places a copy in the allocator it names, wherever the source live
   {
     mut(xs) := ArrayList(String).new();
     xs.push(String.from("one"));
-    m := HashMap(i32, i32).new();
+    mut(m) := HashMap(i32, i32).new();
     m.insert(i32(1), i32(10));
     s := String.from("placed text");
     sb := StringBuilder.new();
@@ -451,7 +451,7 @@ test("Every release tells the allocator the size and alignment the block was all
       list.push(i);
       i = (i + i64(1));
     });
-    map := HashMap(i32, i32).new(alloc : placed);
+    mut(map) := HashMap(i32, i32).new(alloc : placed);
     mut(k) := i32(0);
     while(k < i32(100), {
       map.insert(k, k * i32(2));

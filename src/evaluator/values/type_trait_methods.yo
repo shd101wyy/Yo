@@ -255,32 +255,22 @@ record_owned_expr_id :: (fn(id : usize) -> unit)({
 });
 /// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
 owned_id_log_entry_count :: (fn() -> usize)({
-  (n : usize) = usize(0);
-  eit := g_owned_expr_ids.with(m => m.values());
-  enx := eit.next();
-  while(enx.is_some(), {
-    match(
-      enx,
-      .Some(ids) => {
-        n = (n + ids.len());
-      },
-      .None => ()
-    );
-    enx = eit.next();
+  // Read-only walks: each log is read in place through the borrowed `for`.
+  en := g_owned_expr_ids.with(m => {
+    (mut(acc) : usize) = usize(0);
+    for(&m, (_k, ids) => {
+      acc = (acc + ids.len());
+    });
+    acc
   });
-  fit := g_owned_func_ids.with(m => m.values());
-  fnx := fit.next();
-  while(fnx.is_some(), {
-    match(
-      fnx,
-      .Some(ids) => {
-        n = (n + ids.len());
-      },
-      .None => ()
-    );
-    fnx = fit.next();
+  fnn := g_owned_func_ids.with(m => {
+    (mut(acc) : usize) = usize(0);
+    for(&m, (_k, ids) => {
+      acc = (acc + ids.len());
+    });
+    acc
   });
-  n
+  en + fnn
 });
 /// Remove and return the expression ids `owner`'s evaluation recorded.
 take_owned_expr_ids :: (fn(owner : &String) -> ArrayList(usize))({
@@ -430,7 +420,7 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   upd_keys := ArrayList(String).new();
   upd_lists := ArrayList(ArrayList(MethodEntry)).new();
   upd_owners := ArrayList(ArrayList(String)).new();
-  it := _type_trait_methods.with(m => m.keys());
+  it := _type_trait_methods.with(m => m.keys_cloned()).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -488,7 +478,7 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
 /// one caller that collects them.
 type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
-  it := _type_trait_methods.with(m => m.keys());
+  it := _type_trait_methods.with(m => m.keys_cloned()).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -520,7 +510,7 @@ type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue
 /// Total registered method entries across all type ids (LSP leak gate).
 type_trait_methods_entry_count :: (fn() -> usize)({
   (total : usize) = usize(0);
-  it := _type_trait_methods.with(m => m.keys());
+  it := _type_trait_methods.with(m => m.keys_cloned()).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -806,7 +796,7 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
     return(());
   });
   stale := ArrayList(String).new();
-  it := _trait_impl_site_owners.with(m => m.keys());
+  it := _trait_impl_site_owners.with(m => m.keys_cloned()).into_iter();
   (go : bool) = true;
   while(go, {
     match(
