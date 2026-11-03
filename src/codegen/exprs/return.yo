@@ -623,7 +623,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
                           _resolve_drop_target_in_scope(&de, &variables, ast_expr_token(expr), context),
                           .Some(lv) => match(
                             lv.initialized_at_token,
-                            .Some(_) => {
+                            .Some(lv_init) => {
                               // C-emission-order guard, the same contract as
                               // `_keep_pending_drop` above: the recorded env is
                               // the END-of-scope env, so a binding whose C
@@ -654,6 +654,16 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
                               cond(
                                 _variable_moved_before_cleanup_point(&lv, expr) => false,
                                 !_consumption_is_ordered_against_cleanup_point(&lv, expr) => false,
+                                // Positional guard, as in `_keep_pending_drop`:
+                                // the block-scope stack below holds C NAMES, so
+                                // a target declared AFTER this escape point
+                                // passes it whenever a same-named local of an
+                                // inner, still-open block is in scope (an inner
+                                // `(k : usize)` loop counter before a later
+                                // `k := <String>`), and the drop of the later
+                                // binding landed on the inner one
+                                // (issues/fixed/2026-11-03-an-unwind-drop-names-a-shadowing-local-of-another-type.md).
+                                _variable_initialized_after_cleanup_point(&lv_init, expr) => false,
                                 // An `FnOnce` closure's owned capture lives in
                                 // the closure context, never a C local.
                                 true => (is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &lv_c_name)))
