@@ -63,7 +63,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named, fn_result_slot } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -4333,7 +4333,8 @@ _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
 /// One place a call lends for its whole duration (decision 28): the receiver
 /// of a method whose `self` is a borrow (`self : &Self`, `self : &mut Self`),
 /// an `&x`/`&mut x` argument (`marked`), an operand its operator's method
-/// borrows (`a == b` with Eq's `lhs : &Self`), or the closure- or fn-valued
+/// borrows (`a == b` with Eq's `lhs : &Self`), a borrow binding passed bare
+/// to a reference parameter (`f(xs)` of `xs : &mut T`), or the closure- or fn-valued
 /// field a call calls (`h.cb(x)` lends `h.cb` to its own arguments, `from`
 /// 0, tag `callee`). `lent_arg` is the argument as
 /// written, `from` the index of the first argument evaluated after it,
@@ -4386,6 +4387,19 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
     });
   });
   operand_is_lent := _operator_operand_is_lent(call, ctx);
+  // The parameter slots the written arguments bind: a method call's
+  // receiver is its first parameter, so its first written argument binds
+  // slot 1.
+  is_method_call := (ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))) && lookup_method_callee_value(ast_expr_id(call)).is_some());
+  (slot_offset : usize) = if(is_method_call, usize(1), usize(0));
+  (arg_slots : SharedList(TypeValue)) = cond(
+    is_method_call => match(
+      lookup_method_callee_value(ast_expr_id(call)),
+      .Some(.FuncVal(sfv, _)) => fn_param_slots(&get_func_type(&sfv.*.func_id)),
+      _ => match(lookup_method_callee_type(ast_expr_id(call)), .Some(smt) => fn_param_slots(&smt), .None => no_types())
+    ),
+    true => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)), .Some(sci) => _callee_param_slots(&sci.ty), .None => no_types())
+  );
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
@@ -4395,12 +4409,58 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
         is_mut := ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)));
         out.push(_CallLend(place : place, lent_arg : lent, from : (ai + usize(1)), marked : true, exclusive : is_mut, form : if(is_mut, String.from("a `&mut` argument"), String.from("a `&` argument")), tag : if(is_mut, String.from("arg-mut"), String.from("arg-imm"))));
       },
-      .None => if(match(operand_is_lent.get(ai), .Some(r) => r, .None => false), {
-        out.push(_CallLend(place : lent.clone(), lent_arg : lent, from : (ai + usize(1)), marked : false, exclusive : false, form : String.from("an operand its operator borrows"), tag : String.from("operand")));
-      })
+      .None => cond(
+        match(operand_is_lent.get(ai), .Some(r) => r, .None => false) => {
+          out.push(_CallLend(place : lent.clone(), lent_arg : lent, from : (ai + usize(1)), marked : false, exclusive : false, form : String.from("an operand its operator borrows"), tag : String.from("operand")));
+        },
+        true => match(
+          _bare_borrow_argument_lend(&lent, &arg_slots, ai + slot_offset, ctx),
+          .Some(is_mut) => {
+            out.push(
+              _CallLend(
+                place : lent.clone(),
+                lent_arg : lent,
+                from : (ai + usize(1)),
+                marked : false,
+                exclusive : is_mut,
+                form : if(is_mut, String.from("a borrow passed bare to a `&mut` parameter"), String.from("a borrow passed bare to a `&` parameter")),
+                tag : if(is_mut, String.from("bare-mut"), String.from("bare-imm"))
+              )
+            );
+          },
+          .None => ()
+        )
+      )
     );
   });
   out
+});
+/// The parameter slots of a callee of type `t`: a `Func`'s, a `Fn` trait's,
+/// or those of the `Fn` trait a `some` type is bounded by; empty otherwise.
+_callee_param_slots :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
+  match(t, Rc(.Func({ result : _ })) => fn_param_slots(t), _ => match(extract_fn_trait_from_type(t), .Some(cft) => fn_param_slots(&cft), .None => no_types()))
+);
+/// What the argument `arg`, written without a `&`/`&mut` marker, lends to
+/// the parameter slot `slots(i)`: a borrow binding (`xs` of an `xs : &mut T`
+/// or `xs : &T` parameter, a `&`/`&mut` local) passes bare (decision 33), and
+/// lends on the place it borrows as the written `&ys` / `&mut ys` of a value
+/// local does, so `f(xs, xs)` into `(&T, &mut T)` is E0910 as
+/// `f(&ys, &mut ys)` is. `.Some(mutable)` when `arg` is a place rooted at a
+/// borrow binding and the slot borrows (`&T`: `false`, `&mut T`: `true`);
+/// `.None` for a by-value slot, a slot past the callee's parameters, or any
+/// other argument
+/// (issues/fixed/2026-11-04-a-mut-reference-parameter-lent-as-both-arguments-of-one-call-is-accepted.md).
+_bare_borrow_argument_lend :: (fn(arg : &AstExpr, slots : &SharedList(TypeValue), i : usize, ctx : &EvalContext) -> Option(bool))({
+  slot := match(slots.get(i), .Some(s) => s, .None => return(Option(bool).None));
+  if(!t_slot_is_borrow(&slot) || !_is_unmarked_lent_place(arg, ctx), {
+    return(Option(bool).None);
+  });
+  lp := match(_lent_place_of(arg), .Some(p) => p, .None => return(Option(bool).None));
+  match(
+    _lent_root_variable(&lp.root, ctx),
+    .Some(rv) => if(rv.is_ref || rv.is_imm_borrow, Option(bool).Some(t_slot_is_mut_ref(&slot)), Option(bool).None),
+    .None => Option(bool).None
+  )
 });
 // ---------------------------------------------------------------------------
 // Decision 18 rule 3 at a call's own argument borrows
