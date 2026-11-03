@@ -644,6 +644,17 @@ _trp_looped_struct :: (fn(name : &String, sink(labels) : ArrayList(String), sink
   items.*.insert(at, looped.clone());
   looped
 });
+// Breaks the cycle `_trp_looped_struct` built, so the test frees it.
+_trp_unloop :: (fn(looped : &TypeValue, at : usize) -> unit)(
+  match(
+    looped,
+    Rc(.Struct(_, _, _, fields, _, _, _, _, _, _)) => {
+      items := addr_of(fields.*.items);
+      _self_ref := items.*.remove(at);
+    },
+    _ => ()
+  )
+);
 test("raw-ptr predicate: a type object that contains itself terminates", {
   mut(labels) := ArrayList(String).new();
   labels.push(String.from("a"));
@@ -659,6 +670,8 @@ test("raw-ptr predicate: a type object that contains itself terminates", {
   ptr_fields.push(t_ptr(t_u8()));
   looped_ptr := _trp_looped_struct(String.from("LoopPtr"), ptr_labels, ptr_fields, usize(0));
   assert(type_representation_contains_raw_ptr(&looped_ptr), "struct(a : <itself>, b : *(u8))");
+  _trp_unloop(&looped, usize(1));
+  _trp_unloop(&looped_ptr, usize(0));
 });
 // Distinct types that share an id (here all empty) are not a cycle.
 test("raw-ptr predicate: nested structs with the same id are walked, not taken for a cycle", {
