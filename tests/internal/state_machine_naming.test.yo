@@ -34,7 +34,7 @@ mk_entry :: (fn(v : &Variable, kind : CapturedVariableKind) -> CapturedVariable)
   )
 );
 slot_of :: (fn(v : &Variable, kind : CapturedVariableKind, aliases : &Option(HashMap(String, String)), capture_slot : str) -> String)({
-  smv := HashMap(String, CapturedVariable).new();
+  mut(smv) := HashMap(String, CapturedVariable).new();
   smv.insert(v.id.to_string(), mk_entry(v, kind));
   match(
     sm_slot_of_variable(v, &smv, Option(HashMap(String, String)).None, aliases, String.from(capture_slot)),

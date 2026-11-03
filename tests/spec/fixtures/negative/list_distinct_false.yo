@@ -18,7 +18,9 @@ append_all :: (
   });
 });
 
-// REFUTED at the call: one list passed as both.
+// REFUTED at the call: one list passed as both. The evaluator should reject
+// this call itself (E0910) and does not yet:
+// issues/2026-11-04-a-mut-reference-parameter-lent-as-both-arguments-of-one-call-is-accepted.md.
 onto_itself :: (fn(xs : &mut ArrayList(i32), requires((xs.len() + xs.len()) >= xs.len()), ensures(xs.len() >= old(xs.len()))) -> unit)({
   append_all(xs, xs);
 });
