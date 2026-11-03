@@ -184,6 +184,16 @@ Progress:
   - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
     --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
     with it (V2c's "As built").
+  - V2b B8, the flip of `ArrayList` and `String`: both are values that own
+    their buffer (`Drop`, `Trace`, `Clone` through the owner; `Send` and
+    `Sync` exactly when the element is), an implicit copy of a live one is
+    E0901, and std, src and tests read elements through `get_cloned`,
+    `clone()` or a borrow. `TypeValue`'s two late-written parts keep their
+    pre-flip sharing through one cell each: `SomeTBounds` for a `SomeT`'s
+    where-clause bounds, and `TraitTBody` for a trait's members and
+    `where(Self <: X)` constraints (consultation #13 §10 and §13; whether
+    to delete them is
+    `issues/questions/2026-11-02-should-a-somet-carry-its-bounds-immutably-from-construction.md`).
   - decision 43 step 2, Generation A: N1a (#1698), N1b (#1705), N1c-1
     (#1711), N1c-3 (#1712), and N1d — the `Escapable` marker derived from
     a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
