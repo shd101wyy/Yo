@@ -74,7 +74,8 @@ pragma(Pragma.AllowUnsafe);
   make_err_variable,
   bind_parameter,
   variable_bound_some_id,
-  variable_set_bound_some_id
+  variable_set_bound_some_id,
+  mark_closure_param_slot_trait
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
@@ -4526,6 +4527,22 @@ create_specialized_function_inline :: (
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                 false,
                 synthetic_token(&p_label, &callee_env.module_path.*)
+              );
+              // The binding takes the call's resolved type, whose closure
+              // trait is the ARGUMENT's; the slot's own trait decides how the
+              // body calls it (decision 37, `closure_param_slot_trait`).
+              match(
+                _rbc,
+                .Some(rbc_v) => match(
+                  slot_pointee_at(&decl_param_types, rbp_i),
+                  .Some(rbc_dt) => match(
+                    extract_fn_trait_from_type(&rbc_dt),
+                    .Some(Rc(.FnTraitT(base_name : rbc_b))) => mark_closure_param_slot_trait(rbc_v.id, rbc_b.clone()),
+                    _ => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
               );
             }, if(cur_is_folded_const, {
               match(

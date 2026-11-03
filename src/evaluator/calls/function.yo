@@ -61,7 +61,8 @@ pragma(Pragma.AllowUnsafe);
   fv_source_count,
   fv_source_val,
   bind_parameter,
-  generate_variable_id
+  generate_variable_id,
+  closure_param_slot_trait
 } :: import("../../env.yo");
 { TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
@@ -8610,28 +8611,27 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
   });
   consume_called_fnonce_closure(callee, &v, env, ctx, exn);
 });
-/// The binding a variable callee names: the one its `ExprInfo` records, else
-/// the atom's own name (a specialized body's parameter callee carries none).
-_callee_binding_of :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment) -> Option(Variable))({
-  if(callee_info.variable_name.is_none() && !ast_expr_is_atom(callee), {
-    return(Option(Variable).None);
-  });
-  name := match(callee_info.variable_name, .Some(sn) => sn.clone(), .None => ast_expr_token(callee).value.*.clone());
-  get_variables_from_env(env, &name).last()
-});
-/// The callee is called as an `FnMut(...)`. The binding's declared closure
-/// trait decides first: inside a specialized body a closure parameter binds
-/// to its slot's type, while the callee's own type is the argument's (an
-/// `FnMut` closure moved into a `sink(f) : Impl(FnOnce(...))` parameter is
-/// called there as an `FnOnce`). Then the trait the callee's type carries;
-/// only a callee with no closure trait anywhere is judged by how its literal
-/// was typed (`type_is_typed_fnmut_closure`).
-_callee_slot_is_fnmut :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment) -> bool)({
+/// The callee is called as an `FnMut(...)`. A closure parameter of a
+/// specialized body decides by its declared slot's trait
+/// (`closure_param_slot_trait`): the binding carries the argument's type, and
+/// an `FnMut` closure moved into a `sink(f) : Impl(FnOnce(...))` parameter is
+/// called there as an `FnOnce`. Otherwise the binding's own closure trait,
+/// then the trait the callee's type carries; only a callee with no closure
+/// trait anywhere is judged by how its literal was typed
+/// (`type_is_typed_fnmut_closure`).
+_callee_slot_is_fnmut :: (fn(callee_info : &ExprInfo, env : &Environment) -> bool)({
   match(
-    _callee_binding_of(callee, callee_info, env),
-    .Some(sv) => if(closure_fn_trait_of(&sv.ty).is_some(), {
-      return(type_is_typed_fnmut_closure(&sv.ty));
-    }),
+    callee_info.variable_name,
+    .Some(sn) => match(
+      get_variables_from_env(env, sn.clone()).last(),
+      .Some(sv) => {
+        match(closure_param_slot_trait(sv.id), .Some(sb) => return(sb == "FnMut"), .None => ());
+        if(closure_fn_trait_of(&sv.ty).is_some(), {
+          return(type_is_typed_fnmut_closure(&sv.ty));
+        });
+      },
+      .None => ()
+    ),
     .None => ()
   );
   type_is_typed_fnmut_closure(&callee_info.ty)
@@ -8645,16 +8645,7 @@ _callee_slot_is_fnmut :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &
 /// `&mut` parameter, a `mut(f)` local, a `&mut` local borrow and a temporary
 /// callee are exclusive already.
 _require_exclusive_fnmut_callee :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(debug_knob(`YO_DEBUG_FNMUT_CALLEE`).is_some(), {
-    dn := match(callee_info.variable_name, .Some(x) => x.clone(), .None => String.from("<none>"));
-    db := match(
-      _callee_binding_of(callee, callee_info, env),
-      .Some(dv) => `id=${dv.id.to_string()} ty=${type_to_string(&dv.ty)} param=${dv.is_parameter.to_string()} imm=${dv.is_imm_borrow.to_string()} own=${dv.is_owning_the_rc_value.to_string()}`,
-      .None => String.from("<no binding>")
-    );
-    eprintln(`[fnmut-callee] ${ast_expr_to_string(callee)} vn=${dn} ty=${type_to_string(&callee_info.ty)} binding: ${db} -> ${_callee_slot_is_fnmut(callee, callee_info, env).to_string()}`);
-  });
-  if(!_callee_slot_is_fnmut(callee, callee_info, env), {
+  if(!_callee_slot_is_fnmut(callee_info, env), {
     return(());
   });
   tok := ast_expr_token(callee);
