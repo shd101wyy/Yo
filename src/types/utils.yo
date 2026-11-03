@@ -4824,11 +4824,16 @@ fn_trait_call_func_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
 /// its `&mut` captures (`capture_struct_is_fnmut`) and was typed against an
 /// `Fn(...)` slot is still called through that slot's shared borrow until N3
 /// (`fn_slot_admits_capture_fnmut`).
+///
+/// The trait a slot gives the value decides first: an `FnMut` closure moved
+/// into an `Impl(FnOnce(...))` parameter is called there as an `FnOnce`,
+/// consuming it. Only a value with no closure trait of its own (a bare capture
+/// record) is judged by how its literal was typed.
 type_is_typed_fnmut_closure :: (fn(ty : &TypeValue) -> bool)(
-  capture_struct_typed_fnmut(ty) || match(
+  match(
     closure_fn_trait_of(ty),
     .Some(Rc(.FnTraitT(base_name : tb))) => (tb == "FnMut"),
-    _ => false
+    _ => capture_struct_typed_fnmut(ty)
   )
 );
 export(closure_fn_trait_of, fn_trait_call_func_type, type_is_typed_fnmut_closure);
