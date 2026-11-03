@@ -561,6 +561,22 @@ the two bodies above, `Rc.make_mut`'s move, the `extern` block, the stress
 row, a no-clone move row per handle kind, and the issue moved to
 `issues/fixed/`.
 
+## Seed-gated follow-up (2026-11-03): no consuming match in a wrapper the compiler awaits twice
+
+**Generation A (#1695, on the B8 value flip):** a general-lowered `match`
+fused at two awaits of one task gets fresh C labels per emission
+(`issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md`).
+The v0.2.73 seed lacks the fix. Once `ArrayList`/`String` are values, a
+consuming match over them lowers with labels, and the seed redefines those
+labels wherever a wrapper holding one is awaited twice in the compiler's own
+task bodies. The tree build hit two such wrappers, `remove_dir`
+(`std/fs/dir.yo`, awaited twice by `remove_dir_all`) and `_read_depfile`
+(`src/build_runner.yo`, awaited twice by `artifact_input_stamp`). Both now avoid
+the match: `is_err()` + `unwrap_or(...)`, and `unwrap_or(...)` + `for(&lines, ...)`.
+
+**Generation B (once `SEED_VERSION` carries #1695, v0.2.74 or later):**
+restore the two `match` forms and delete their seed comments.
+
 ## Seed-gated follow-up (2026-10-28): `box` asks for its payload's alignment
 
 **Generation A (allocator v2 Generation B, `vbd/alloc-v2-gen-b-r2`):**
