@@ -6868,8 +6868,7 @@ deref_exempt_mark :: (fn(e : &AstExpr) -> unit)({
 /// reference type: its mutability decides a write through it, its origin
 /// where the place it refers to lives.
 note_reference_field_read :: (fn(id : usize, ref_ty : &TypeValue) -> unit)({
-  nr_ty := Rc.clone(ref_ty);
-  _old := g_reference_field_reads.with_mut(m => m.insert(id, nr_ty));
+  _old := g_reference_field_reads.with_mut({ id, ty : Rc.clone(ref_ty) }(m) => m.insert(id, Rc.clone(ty)));
   ()
 });
 /// The field's reference type when the node `id` reads a reference field.
