@@ -8613,17 +8613,11 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
 /// The binding a variable callee names: the one its `ExprInfo` records, else
 /// the atom's own name (a specialized body's parameter callee carries none).
 _callee_binding_of :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment) -> Option(Variable))({
-  name := match(
-    callee_info.variable_name,
-    .Some(sn) => sn.clone(),
-    .None => {
-      if(!ast_expr_is_atom(callee), {
-        return(Option(Variable).None);
-      });
-      ast_expr_token(callee).value.*.clone()
-    }
-  );
-  get_variables_from_env(env, name).last()
+  if(callee_info.variable_name.is_none() && !ast_expr_is_atom(callee), {
+    return(Option(Variable).None);
+  });
+  name := match(callee_info.variable_name, .Some(sn) => sn.clone(), .None => ast_expr_token(callee).value.*.clone());
+  get_variables_from_env(env, &name).last()
 });
 /// The callee is called as an `FnMut(...)`. The binding's declared closure
 /// trait decides first: inside a specialized body a closure parameter binds
