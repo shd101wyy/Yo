@@ -11142,10 +11142,12 @@ impl(
 __borrow_guard :: (fn(generic(C : Type), c : &C) -> __BorrowGuard(C))({
   __yo_borrow_acquire(c);
   // The handle of a reference-counted object, which carries the flag;
-  // nothing for a value, which neither has one nor can be copied.
+  // nothing for a value, which neither has one nor can be copied. The guard
+  // owns a second handle, retained explicitly (decision 17 judges this body
+  // at each instantiation: a bare `c` would copy the handle implicitly).
   __BorrowGuard(C)(
     _c : cond(
-      match(Type.get_info(C), .Struct(_, k) => match(k, .Object => true, .AtomicObject => true, _ => false), _ => false) => Option(C).Some(c),
+      match(Type.get_info(C), .Struct(_, k) => match(k, .Object => true, .AtomicObject => true, _ => false), _ => false) => Option(C).Some(___dup(c)),
       true => Option(C).None
     )
   )
