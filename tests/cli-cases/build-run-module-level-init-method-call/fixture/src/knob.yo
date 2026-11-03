@@ -4,18 +4,23 @@
 // A cache-backed lookup: a runtime call whose result is a user-defined
 // Option — the receiver shape whose `.is_some()` specialization exists
 // nowhere but in the module-level initializer below.
-(g_knobs : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+// The map is a value (B9): a mutable global lends nothing, so a lookup copies
+// it out and writes it back (E0916's own recipe).
+(mut(g_knobs) : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
 
-knob :: (fn(name : &String) -> Option(String))(
-  match(
-    g_knobs.get_cloned(name),
+knob :: (fn(name : &String) -> Option(String))({
+  mut(cache) := g_knobs.clone();
+  found := match(
+    cache.get_cloned(name),
     .Some(c) => c,
     .None => {
       fresh := if(name == "ON", Option(String).Some(String.from("1")), Option(String).None);
-      _p := g_knobs.insert(name.clone(), fresh.clone());
+      _p := cache.insert(name.clone(), fresh.clone());
       fresh
     }
-  )
-);
+  );
+  g_knobs = cache;
+  found
+});
 
 export(knob);
