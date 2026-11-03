@@ -22,7 +22,7 @@
   DocConstant,
   DocModule
 } :: import("../../src/doc/model.yo");
-{ DocItemKind } :: import("../../src/doc/model.yo");
+{ DocItemKind, DocTraitKind, DocAssociatedType } :: import("../../src/doc/model.yo");
 { build_cross_references } :: import("../../src/doc/builder.yo");
 /// A method entry, documented or bare.
 _method :: (fn(name : &String, doc : &Option(String)) -> DocFunction)(
@@ -96,7 +96,7 @@ test("a re-exported type takes the declaring module's documentation", {
   // walk order, and must not let the bare entry claim the donor slot.
   modules.push(_module_with(`index`, _point(false, sig.clone())));
   modules.push(_module_with(`point`, _point(true, sig.clone())));
-  build_cross_references(&modules);
+  build_cross_references(&mut modules);
   idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
@@ -121,7 +121,7 @@ test("a DIFFERENT type of the same name is not a donor", {
   mut(modules) := ArrayList(DocModule).new();
   modules.push(_module_with(`index`, _point(false, `Point :: struct(x : i32, y : i32)`)));
   modules.push(_module_with(`other`, _point(true, `Point :: struct(lat : f64, lon : f64)`)));
-  build_cross_references(&modules);
+  build_cross_references(&mut modules);
   idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(t.doc.is_none(), "no doc is taken from a type that merely shares the name");
@@ -135,7 +135,7 @@ test("a module that documents its own re-export keeps what it wrote", {
   mut(modules) := ArrayList(DocModule).new();
   modules.push(_module_with(`index`, &own));
   modules.push(_module_with(`point`, _point(true, sig.clone())));
-  build_cross_references(&modules);
+  build_cross_references(&mut modules);
   idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
@@ -148,4 +148,53 @@ test("a module that documents its own re-export keeps what it wrote", {
     match(&m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
     "while its undocumented method still fills in"
   );
+});
+test("the cross-reference passes write back: a trait lists its implementors and a bare impl method takes the trait's doc", {
+  // Every pass reads a COPY of each module (the model is values since B8) and
+  // must store it back by index; a write to the copy alone is lost.
+  mut(trait_methods) := ArrayList(DocFunction).new();
+  trait_methods.push(_method(`show`, Option(String).Some(`Render it.`)));
+  mut(traits) := ArrayList(DocTrait).new();
+  traits.push(
+    DocTrait(
+      name : `Show`,
+      doc : Option(String).Some(`Something that renders.`),
+      kind : DocTraitKind.Trait,
+      signature : `Show :: trait(show : (fn(self : &Self) -> i32))`,
+      type_params : Option(ArrayList(DocParam)).None,
+      associated_types : Option(ArrayList(DocAssociatedType)).None,
+      methods : trait_methods,
+      implementors : ArrayList(String).new(),
+      deprecated : Option(String).None,
+      examples : Option(String).None
+    )
+  );
+  mut(point) := _point(false, `Point :: struct(x : i32, y : i32)`);
+  point.trait_impls.push(`Show`);
+  point.methods.push(_method(`show`, Option(String).None));
+  mut(modules) := ArrayList(DocModule).new();
+  modules.push(
+    DocModule(
+      name : `show`,
+      path : `show`,
+      doc : Option(String).None,
+      stability : Option(String).None,
+      functions : ArrayList(DocFunction).new(),
+      types : ArrayList(DocType).new(),
+      traits : traits,
+      constants : ArrayList(DocConstant).new(),
+      submodules : ArrayList(Rc(DocModule)).new()
+    )
+  );
+  modules.push(_module_with(`point`, &point));
+  build_cross_references(&mut modules);
+  shown := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
+  tr := match(shown.traits.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
+  assert(tr.implementors.len() == usize(1), "the trait lists its one implementor");
+  assert(match(tr.implementors.get_cloned(usize(0)), .Some(n) => (n == `Point`), .None => false), "and it is Point");
+  pm := match(modules.get_cloned(usize(1)), .Some(m) => m, .None => return(()));
+  t := match(pm.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
+  m1 := match(t.methods.get_cloned(usize(1)), .Some(x) => x, .None => return(()));
+  assert(match(&m1.doc, .Some(d) => (d == `Render it.`), .None => false), "the bare impl method takes the trait's doc");
+  assert(match(&m1.inherited_from, .Some(n) => (n == `Show`), .None => false), "attributed to the trait");
 });
