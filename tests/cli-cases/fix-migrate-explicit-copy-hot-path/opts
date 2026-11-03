@@ -5,7 +5,9 @@
 # sweep's ~3,100 src/ clones, 1,268 of them in src/evaluator/, measured
 # ~80-100x slower). The same copy shape outside the hot path (`b := a` in
 # main.yo) is still rewritten, so the guard is scoped to the path,
-# segment-wise. The expected_tree pins main.yo rewritten and hot/engine.yo
-# unchanged; the trailing `check` proves the result still evaluates.
+# segment-wise. The copies are of a `BTreeMap` (still a `ref`; decision
+# Option 1 of issues/questions/2026-10-27-what-the-implicit-copy-audit-...-after-b8.md).
+# The expected_tree pins main.yo rewritten and hot/engine.yo unchanged; the
+# trailing `check` proves the result still evaluates.
 stdout_keep=^fix:
 timeout=240
