@@ -141,7 +141,10 @@ _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &Eva
   v := match(vars.last(), .Some(v) => v, .None => return(false));
   some_undroppable := match(
     &v.ty,
-    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => { s_rtt := s_rtt_bnd.required(); (s_rc.is_none() && (s_rtt.len() == usize(0))) },
+    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
+      s_rtt := s_rtt_bnd.required();
+      (s_rc.is_none() && (s_rtt.len() == usize(0)))
+    },
     _ => false
   );
   captured := (match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false) && !is_own_fnonce_capture(&v, env, ctx));
