@@ -114,7 +114,7 @@ _count_contract_asserts_in_ast :: (fn(func_val : &EvalValue, label : &String) ->
 _count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String, emitted_only : bool) -> usize)(
   match(
     body,
-    .FnCall(_, _, Rc(args), _, _) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args), label.clone()), _count_labeled_asserts(&args, label.clone())),
+    .FnCall(_, _, Rc(args), _, _) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args.clone()), label.clone()), _count_labeled_asserts(&args, label.clone())),
     .Atom(_, _) => usize(0)
   )
 );
