@@ -1207,7 +1207,7 @@ test("every token of a parse shares the module's source and path cells", {
   );
   source := String.from("f(`a${b + c}d`, x - y, { p; q });");
   prog := parse(&source, `cells.yo`, exn);
-  toks := ArrayList(Token).new();
+  mut(toks) := ArrayList(Token).new();
   (mut(i) : usize) = usize(0);
   while(i < prog.len(), i = (i + usize(1)), {
     _tokens_of(&prog(i), &mut toks);
@@ -1242,7 +1242,7 @@ test("every token of a parse shares the module's source and path cells", {
 // that silently stops interning (a copy of the text per token) fails here
 // instead of only moving the memory ratchet.
 _value_cells_of :: (fn(toks : &ArrayList(Token), text : str) -> ArrayList(Rc(String)))({
-  out := ArrayList(Rc(String)).new();
+  mut(out) := ArrayList(Rc(String)).new();
   (mut(i) : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     t := toks(i);

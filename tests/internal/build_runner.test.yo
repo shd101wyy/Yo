@@ -75,7 +75,7 @@ _mk_node :: (fn(name : &String, deps : &ArrayList(String)) -> DAGNode)(
   DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps)
 );
 _deps1 :: (fn(a : &String) -> ArrayList(String))({
-  l := ArrayList(String).new();
+  mut(l) := ArrayList(String).new();
   l.push(a);
   l
 });
@@ -127,7 +127,7 @@ test("register_executable carries the fixed-allocator heap size", {
     )
   );
   reg := BuildRegistry.new();
-  a := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
+  mut(a) := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
   a.allocator = String.from("fixed");
   a.heap_size = usize(65536);
   reg.register_executable(&a, exn);
@@ -149,7 +149,7 @@ test("register_executable carries the cycle-collector mode", {
     )
   );
   reg := BuildRegistry.new();
-  a := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
+  mut(a) := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
   a.cycle_collector = String.from("off");
   reg.register_executable(&a, exn);
   got := reg.artifacts(usize(0));
@@ -368,20 +368,20 @@ test("build_dag: deduplicates shared dependencies", {
   assert(common_count == usize(1), "common appears exactly once");
 });
 test("detect_cycle: no cycle returns None", {
-  dag := ArrayList(DAGNode).new();
+  mut(dag) := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), ArrayList(String).new()));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
   dag.push(_mk_node(String.from("c"), _deps1(String.from("b"))));
   assert(detect_cycle(&dag).is_none(), "acyclic DAG");
 });
 test("detect_cycle: direct cycle is detected", {
-  dag := ArrayList(DAGNode).new();
+  mut(dag) := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), _deps1(String.from("b"))));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
   assert(detect_cycle(&dag).is_some(), "a <-> b cycle");
 });
 test("detect_cycle: indirect cycle is detected", {
-  dag := ArrayList(DAGNode).new();
+  mut(dag) := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), _deps1(String.from("b"))));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("c"))));
   dag.push(_mk_node(String.from("c"), _deps1(String.from("a"))));
@@ -392,16 +392,16 @@ test("detect_cycle: a dangling dependency does not hide the cycle after it", {
   // bumping the loop counter and FALLING THROUGH, which bumped it a second
   // time — so the dependency AFTER the dangling one was never examined. Here
   // that is the cycle partner, so the cycle went undetected.
-  deps := ArrayList(String).new();
+  mut(deps) := ArrayList(String).new();
   deps.push(String.from("ghost"));
   deps.push(String.from("b"));
-  dag := ArrayList(DAGNode).new();
+  mut(dag) := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), &deps));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
   assert(detect_cycle(&dag).is_some(), "a -> b -> a, behind a dangling name");
 });
 test("detect_cycle: self-loop is detected", {
-  dag := ArrayList(DAGNode).new();
+  mut(dag) := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), _deps1(String.from("a"))));
   assert(detect_cycle(&dag).is_some(), "a -> a self-loop");
 });
@@ -424,7 +424,7 @@ test("artifact stamp: a different compiler binary is a different stamp", {
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   depfile := `${dir}/app.deps`;
   io.await(write_string(Path.new(depfile.clone()), String.from("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ./src/main.yo\n"), io), ioexn);
-  argv := ArrayList(String).new();
+  mut(argv) := ArrayList(String).new();
   argv.push(String.from("compile"));
   argv.push(String.from("./src/main.yo"));
   set_compiler_identity(String.from("compiler-A"));

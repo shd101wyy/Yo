@@ -128,7 +128,7 @@ test("format_error_messages: entry 0 is the error, later entries are notes (D6)"
   tok2 := make_token(`b.yo`, `x y`, usize(0), usize(2), `y`);
   e1 := TokenAndError(token : tok1, error_message : `first error`);
   e2 := TokenAndError(token : tok2, error_message : `second error`);
-  list := ArrayList(TokenAndError).new();
+  mut(list) := ArrayList(TokenAndError).new();
   list.push(e1);
   list.push(e2);
   err := format_error_messages(&list);
@@ -223,7 +223,7 @@ test("codegen_fatal records an E1301-coded diagnostic", {
 });
 // ─── the code field renders as [EXXXX] (filled by P2) ────────────────────────
 test("a coded diagnostic renders error[E0308] in both renderers", {
-  diags := ArrayList(Diagnostic).new();
+  mut(diags) := ArrayList(Diagnostic).new();
   diags.push(
     Diagnostic(
       code : Option(String).Some(String.from("E0308")),
@@ -283,7 +283,7 @@ test("get_line_at_position basic", {
 test("format_warning_messages no prefix", {
   tok := make_token(`w.yo`, `foo`, usize(0), usize(0), `foo`);
   entry := TokenAndWarning(token : tok, warning_message : `unused variable`);
-  warnset := ArrayList(TokenAndWarning).new();
+  mut(warnset) := ArrayList(TokenAndWarning).new();
   warnset.push(entry);
   result := format_warning_messages(.None, &warnset);
   assert(result.contains(`Warning: unused variable`), "warning message present");
@@ -292,7 +292,7 @@ test("format_warning_messages no prefix", {
 test("format_warning_messages with prefix", {
   tok := make_token(`w.yo`, `foo`, usize(0), usize(0), `foo`);
   entry := TokenAndWarning(token : tok, warning_message : `deprecated usage`);
-  warnset := ArrayList(TokenAndWarning).new();
+  mut(warnset) := ArrayList(TokenAndWarning).new();
   warnset.push(entry);
   result := format_warning_messages(.Some(String.from("module warning")), &warnset);
   assert(result.contains(`Warning: module warning`), "prefix warning present");
@@ -381,7 +381,7 @@ test("coded diagnostics render the explain tail (P2)", {
 });
 // ─── P3: the help channel + did-you-mean ─────────────────────────────────────
 test("suggest_name finds near identifiers and rejects far ones", {
-  cands := ArrayList(String).new();
+  mut(cands) := ArrayList(String).new();
   cands.push(String.from("compute"));
   cands.push(String.from("count"));
   cands.push(String.from("total"));
@@ -429,7 +429,7 @@ test("color: human render carries SGR when on and is byte-identical when off", {
   assert(colored.contains(`\u{1b}[1;35mhelp:\u{1b}[0m run \`yo explain E0401\``), `magenta help label, got:\n${colored}`);
 });
 test("color: a warning renders with the warning color", {
-  warns := ArrayList(Diagnostic).new();
+  mut(warns) := ArrayList(Diagnostic).new();
   warns.push(
     Diagnostic(
       code : Option(String).None,
@@ -488,7 +488,7 @@ ${s}`
   );
 });
 test("sarif: an ownership group is ONE log with two results sharing one rule", {
-  toks := ArrayList(TokenAndError).new();
+  mut(toks) := ArrayList(TokenAndError).new();
   toks.push(
     TokenAndError(
       token : make_token(`t.yo`, `consume(z);`, usize(3), usize(0), `consume`),

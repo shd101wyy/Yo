@@ -88,9 +88,9 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   code.push_str(_RC_DROP);
   rc_end := code.len();
   code.push_str(_TAIL);
-  header_ranges := ArrayList(ChunkRange).new();
+  mut(header_ranges) := ArrayList(ChunkRange).new();
   header_ranges.push(ChunkRange(c_name : String.from("__borrow_primitives"), start_b : borrow_start, end_b : borrow_end, module : String.new()));
-  fn_ranges := ArrayList(ChunkRange).new();
+  mut(fn_ranges) := ArrayList(ChunkRange).new();
   fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end, module : String.new()));
   fn_ranges.push(ChunkRange(c_name : String.from("fn_beta"), start_b : beta_start, end_b : beta_end, module : String.new()));
   fn_ranges.push(ChunkRange(c_name : String.from("T1___drop"), start_b : rc_start, end_b : rc_end, module : String.new()));
@@ -149,7 +149,7 @@ test("chunked emission: N=1 is degenerate — one unit holding everything", {
   alpha_start := code.len();
   code.push_str(_FN_ALPHA);
   alpha_end := code.len();
-  fn_ranges := ArrayList(ChunkRange).new();
+  mut(fn_ranges) := ArrayList(ChunkRange).new();
   fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end, module : String.new()));
   asm1 := assemble_chunks(
     String.from(_HEADERS),
@@ -172,7 +172,7 @@ test("chunked emission: more chunks than functions leaves the extra units empty 
   alpha_start := code.len();
   code.push_str(_FN_ALPHA);
   alpha_end := code.len();
-  fn_ranges := ArrayList(ChunkRange).new();
+  mut(fn_ranges) := ArrayList(ChunkRange).new();
   fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end, module : String.new()));
   asm8 := assemble_chunks(
     String.from(_HEADERS),
@@ -205,9 +205,9 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
   code.push_str(_FN_BETA);
   beta_end := code.len();
   code.push_str(_TAIL);
-  header_ranges := ArrayList(ChunkRange).new();
+  mut(header_ranges) := ArrayList(ChunkRange).new();
   header_ranges.push(ChunkRange(c_name : String.from("__borrow_primitives"), start_b : borrow_start, end_b : borrow_end, module : String.new()));
-  fn_ranges := ArrayList(ChunkRange).new();
+  mut(fn_ranges) := ArrayList(ChunkRange).new();
   fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end, module : String.from("file:///proj/src/leaf.yo")));
   fn_ranges.push(ChunkRange(c_name : String.from("fn_beta"), start_b : beta_start, end_b : beta_end, module : String.from("file:///proj/src/leaf.yo")));
   by_module := assemble_chunks(
@@ -251,7 +251,7 @@ _spill_emit_function :: (fn(em : &Emitter, i : usize) -> unit)({
 });
 test("a code spill spliced before the code tail is the unspilled C", {
   plain := Emitter.new();
-  spilled := Emitter.new();
+  mut(spilled) := Emitter.new();
   path := String.from(".yo_emitter_spill_test.c.spill");
   spilled.start_code_spill(path.clone());
   spilled.code_spill_threshold = usize(1);
@@ -282,7 +282,7 @@ test("a code spill spliced before the code tail is the unspilled C", {
   assert(joined == plain.print(), "spill + sections == print()");
 });
 test("rewrite_code_spill replaces the spilled code and its length", {
-  em := Emitter.new();
+  mut(em) := Emitter.new();
   path := String.from(".yo_emitter_spill_rewrite_test.c.spill");
   em.start_code_spill(path.clone());
   em.code_spill_threshold = usize(1);

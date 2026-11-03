@@ -563,7 +563,7 @@ test("collect_yo_files skips dot-prefixed files in a directory walk", {
       }
     )
   );
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   collect_yo_files(Path.new(String.from("tests/internal/formatter_fixtures")), &mut files, io, exn);
   (mut(saw_dot_file) : bool) = false;
   (mut(i) : usize) = usize(0);
@@ -575,7 +575,7 @@ test("collect_yo_files skips dot-prefixed files in a directory walk", {
   });
   assert(!saw_dot_file, "the dot-prefixed probe must be skipped by the walk");
   // Explicit intent still formats a dot file handed to the walker directly.
-  direct := ArrayList(String).new();
+  mut(direct) := ArrayList(String).new();
   collect_yo_files(
     Path.new(String.from("tests/internal/formatter_fixtures/.fmt_walk_ignored.yo")),
     &mut direct,

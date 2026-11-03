@@ -36,7 +36,7 @@ mk_token :: (fn(value : str) -> Token)(
 mk_typeof_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
   arg_atom := AstExpr.Atom(arg_id, mk_token(arg_value));
   callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_TYPE_OF));
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(arg_atom);
   AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_TYPE_OF))
 });

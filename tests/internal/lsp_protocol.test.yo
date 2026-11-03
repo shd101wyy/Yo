@@ -105,7 +105,7 @@ _PARSE_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> 
 
 /// Analyze `text` as `doc_path`; the outcome the server would retain.
 _analyze :: (fn(doc_path : &String, text : &String, std_path : &String, io : Io) -> Option(AnalyzeOutcome))({
-  out := ArrayList(AnalyzeOutcome).new();
+  mut(out) := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(doc_path.clone(), text, std_path, io, &mut out);
   out.get(usize(0))
 });
@@ -632,7 +632,7 @@ test("workspace/symbol lists the open documents' matching top-level symbols", {
     _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
-      ws := ArrayList(WorkspaceDoc).new();
+      mut(ws) := ArrayList(WorkspaceDoc).new();
       ws.push(WorkspaceDoc(uri : String.from("file:///virtual/ws-a.yo"), exprs : oc.exprs.clone(), lines : lines));
       all := json.stringify(handle_workspace_symbols(String.new(), &ws));
       assert(all.contains("\"Point\"") && all.contains("\"answer\"") && all.contains("\"p\""), "an empty query lists every symbol");
@@ -664,7 +664,7 @@ test("an error's std-anchored note becomes relatedInformation, not a 0:0 entry",
   std_path := resolve_std_path();
   mm_forget_open_document(doc_path.clone());
   _pre := mm_invalidate_document(doc_path.clone());
-  out_state := ArrayList(AnalyzeOutcome).new();
+  mut(out_state) := ArrayList(AnalyzeOutcome).new();
   diags := analyze_document(doc_path.clone(), text.clone(), std_path.clone(), io, &mut out_state);
   assert_eq(diags.len(), usize(1), "only the primary surfaces; its note is attached, not standalone");
   match(

@@ -19,7 +19,7 @@ import("std/fmt");
 /// Split `text` into physical lines (a text ending in "\n" yields exactly its
 /// lines, no trailing-empty artifact).
 _lines_of :: (fn(text : &String) -> ArrayList(String))({
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   (mut(start) : usize) = usize(0);
   n := text.len();
   while(start < n, {
@@ -143,7 +143,7 @@ test("chunk assembly rewrites markers to the chunk's own file and line", {
   code.push_str("out.c\"\n");
   code.push_str("  return 1;\n");
   code.push_str("}\n");
-  ranges := ArrayList(ChunkRange).new();
+  mut(ranges) := ArrayList(ChunkRange).new();
   ranges.push(ChunkRange(c_name : String.from("f1"), start_b : usize(0), end_b : code.len(), module : String.new()));
   assembly := assemble_chunks(
     String.from("h\n"),

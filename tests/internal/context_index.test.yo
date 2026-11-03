@@ -142,12 +142,12 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   // Snapshot the built index: the refresh below must reproduce it byte for
   // byte (D3 determinism), with no absolute path recorded.
   idx_dir := context_index_dir(cache.clone(), key.clone());
-  files := ArrayList(String).new();
+  mut(files) := ArrayList(String).new();
   files.push(String.from("index.txt"));
   files.push(String.from("modules.txt"));
   files.push(String.from("manifest.txt"));
   files.push(String.from("modules/t/alpha_api.md"));
-  snapshot := ArrayList(String).new();
+  mut(snapshot) := ArrayList(String).new();
   (mut(fi) : usize) = usize(0);
   while(fi < files.len(), {
     text := _read_text(Path.new(idx_dir.clone()).join(Path.new(&files(fi))).to_string(), io, exn);
@@ -293,7 +293,7 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
       origin : String.new()
     )
   );
-  entries := ArrayList(ContextIndexEntry).new();
+  mut(entries) := ArrayList(ContextIndexEntry).new();
   entries.push(row(`close`, `(fn(self : Self) -> unit)`));
   entries.push(row(`is_closed`, `(fn(self : Self) -> bool)`));
   entries.push(row(`close`, `(fn(self : Self) -> unit)`));

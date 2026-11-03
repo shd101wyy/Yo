@@ -118,7 +118,7 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
   sep := if(platform == Platform.Windows, String.from(";"), String.from(":"));
   cur_path := match(env.get(`PATH`), .Some(pv) => pv, .None => String.new());
   _sp := env.set(String.from("PATH"), `${scratch}${sep}${cur_path}`);
-  compile_argv := ArrayList(String).new();
+  mut(compile_argv) := ArrayList(String).new();
   compile_argv.push(String.from("yo"));
   compile_argv.push(String.from("compile"));
   compile_argv.push(`${scratch}/fx.yo`);
@@ -187,7 +187,7 @@ test("a value enum's drop and dup are one function each, not a switch per site",
     "{ ArrayList } :: import(\"std/collections/array_list\");\n{ println } :: import(\"std/fmt\");\nVe :: enum(VeNone, VeHold(p : Rc(i32)), VePair(a : Rc(i32), b : ArrayList(Self)));\nve_make :: (fn(n : i32) -> Ve)({\n  a := Ve.VeHold(p : Rc.new(n));\n  b := Ve.VeHold(p : Rc.new(n));\n  if(n > i32(3), { return(Ve.VeNone); });\n  Ve.VePair(a : Rc.new(n), b : ArrayList(Ve).new())\n});\nve_count :: (fn(xs : &ArrayList(Ve)) -> usize)({\n  (mut(k) : usize) = usize(0);\n  (mut(i) : usize) = usize(0);\n  while(i < xs.len(), i = (i + usize(1)), {\n    e := xs.get(i);\n    k = (k + usize(1));\n  });\n  k\n});\nmain :: (fn() -> unit)({\n  xs := ArrayList(Ve).new();\n  xs.push(ve_make(i32(1)));\n  xs.push(ve_make(i32(5)));\n  y := ve_make(i32(2));\n  println(ve_count(&xs));\n});\nexport(main);\n"
   );
   io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
-  compile_argv := ArrayList(String).new();
+  mut(compile_argv) := ArrayList(String).new();
   compile_argv.push(String.from("yo"));
   compile_argv.push(String.from("compile"));
   compile_argv.push(`${scratch}/fx.yo`);
@@ -245,7 +245,7 @@ test("a specialization reached through a call gets the hashed C name, not its ra
     "{ ArrayList } :: import(\"std/collections/array_list\");\n{ println } :: import(\"std/fmt\");\n{ String } :: import(\"std/string\");\nBig :: enum(\n  Alpha(first_field : i32, second_field : i64),\n  Beta(third_field : u8, fourth_field : String),\n  Gamma(fifth_field : bool, sixth_field : f64),\n  Delta(seventh_field : ArrayList(i32))\n);\nbig_tag :: (fn(b : &Big) -> i32)(match(b, .Alpha(_, _) => i32(1), .Beta(_, _) => i32(2), .Gamma(_, _) => i32(3), .Delta(_) => i32(4)));\nmain :: (fn() -> unit)({\n  h := Rc.new(Big.Alpha(first_field : i32(1), second_field : i64(2)));\n  println(big_tag(&h.*));\n});\nexport(main);\n"
   );
   io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
-  compile_argv := ArrayList(String).new();
+  mut(compile_argv) := ArrayList(String).new();
   compile_argv.push(String.from("yo"));
   compile_argv.push(String.from("compile"));
   compile_argv.push(`${scratch}/fx.yo`);
@@ -357,7 +357,7 @@ test("a compile splices only its own spill, by its byte count, and removes dead 
   io.await(write_string(Path.new(own.clone()), &planted, io), IoExn(io : io, exn : exn));
   io.await(write_string(Path.new(shared.clone()), &planted, io), IoExn(io : io, exn : exn));
   io.await(write_string(Path.new(dead.clone()), &planted, io), IoExn(io : io, exn : exn));
-  compile_argv := ArrayList(String).new();
+  mut(compile_argv) := ArrayList(String).new();
   compile_argv.push(String.from("yo"));
   compile_argv.push(String.from("compile"));
   compile_argv.push(`${scratch}/fx.yo`);

@@ -40,7 +40,7 @@ make_param_ :: (fn(name : &String, type_ : &String) -> DocParam)(
   )
 );
 make_function_ :: (fn() -> DocFunction)({
-  params := ArrayList(DocParam).new();
+  mut(params) := ArrayList(DocParam).new();
   params.push(make_param_(`a`, `i32`));
   params.push(make_param_(`b`, `i32`));
   DocFunction(
@@ -61,7 +61,7 @@ make_function_ :: (fn() -> DocFunction)({
   )
 });
 make_type_ :: (fn() -> DocType)({
-  fields := ArrayList(DocField).new();
+  mut(fields) := ArrayList(DocField).new();
   fields.push(DocField(name : `x`, type_ : `i32`, doc : Option(String).None, default_value : Option(String).None));
   fields.push(DocField(name : `y`, type_ : `i32`, doc : Option(String).None, default_value : Option(String).None));
   DocType(
@@ -80,7 +80,7 @@ make_type_ :: (fn() -> DocType)({
   )
 });
 make_display_method_ :: (fn() -> DocFunction)({
-  params := ArrayList(DocParam).new();
+  mut(params) := ArrayList(DocParam).new();
   params.push(make_param_(`self`, `Self`));
   DocFunction(
     name : `display`,
@@ -100,9 +100,9 @@ make_display_method_ :: (fn() -> DocFunction)({
   )
 });
 make_trait_ :: (fn() -> DocTrait)({
-  methods := ArrayList(DocFunction).new();
+  mut(methods) := ArrayList(DocFunction).new();
   methods.push(make_display_method_());
-  implementors := ArrayList(String).new();
+  mut(implementors) := ArrayList(String).new();
   implementors.push(`Point`);
   implementors.push(`Color`);
   DocTrait(
@@ -129,13 +129,13 @@ make_constant_ :: (fn() -> DocConstant)(
   )
 );
 make_module_ :: (fn() -> DocModule)({
-  fns := ArrayList(DocFunction).new();
+  mut(fns) := ArrayList(DocFunction).new();
   fns.push(make_function_());
-  types := ArrayList(DocType).new();
+  mut(types) := ArrayList(DocType).new();
   types.push(make_type_());
-  traits := ArrayList(DocTrait).new();
+  mut(traits) := ArrayList(DocTrait).new();
   traits.push(make_trait_());
-  consts := ArrayList(DocConstant).new();
+  mut(consts) := ArrayList(DocConstant).new();
   consts.push(make_constant_());
   DocModule(
     name : `math`,
@@ -150,7 +150,7 @@ make_module_ :: (fn() -> DocModule)({
   )
 });
 make_model_ :: (fn() -> DocModel)({
-  modules := ArrayList(DocModule).new();
+  mut(modules) := ArrayList(DocModule).new();
   modules.push(make_module_());
   DocModel(
     name : `my-project`,
@@ -170,7 +170,7 @@ test("renderFunctionMd: renders a basic function", {
   assert(md.contains(`**Returns:** \`i32\``), "return(type)");
 });
 test("renderFunctionMd: renders comptime and implicit parameters", {
-  params := ArrayList(DocParam).new();
+  mut(params) := ArrayList(DocParam).new();
   params.push(DocParam(name : `T`, type_ : `Type`, is_comptime : true, is_implicit : false, default_value : Option(String).None, doc : Option(String).None));
   params.push(DocParam(name : `io`, type_ : `Io`, is_comptime : false, is_implicit : true, default_value : Option(String).None, doc : Option(String).None));
   fn_ := make_function_();
@@ -304,7 +304,7 @@ test("renderFunctionMd: renders Examples section", {
   assert(md.contains(`result :: add(i32(1), i32(2));`), "examples content");
 });
 test("renderFunctionMd: renders param with doc and default", {
-  params := ArrayList(DocParam).new();
+  mut(params) := ArrayList(DocParam).new();
   params.push(DocParam(name : `a`, type_ : `i32`, is_comptime : false, is_implicit : false, default_value : Option(String).Some(`0`), doc : Option(String).Some(`First operand.`)));
   fn_ := make_function_();
   fn2 := DocFunction(
@@ -337,7 +337,7 @@ test("renderTypeMd: renders a struct type", {
   assert(md.contains(`\`x\` : \`i32\``), "field x");
 });
 test("renderTypeMd: renders atomic object type kind", {
-  fields := ArrayList(DocField).new();
+  mut(fields) := ArrayList(DocField).new();
   fields.push(DocField(name : `_raw`, type_ : `usize`, doc : Option(String).None, default_value : Option(String).None));
   t := make_type_();
   t2 := DocType(
@@ -359,7 +359,7 @@ test("renderTypeMd: renders atomic object type kind", {
   assert(md.contains(`Cond :: atomic object(_raw : usize)`), "signature");
 });
 test("renderTypeMd: renders an enum with variants", {
-  variants := ArrayList(DocVariant).new();
+  mut(variants) := ArrayList(DocVariant).new();
   variants.push(DocVariant(name : `Red`, fields : Option(ArrayList(DocField)).None, doc : Option(String).None, discriminant : Option(String).None));
   variants.push(DocVariant(name : `Green`, fields : Option(ArrayList(DocField)).None, doc : Option(String).None, discriminant : Option(String).None));
   variants.push(DocVariant(name : `Blue`, fields : Option(ArrayList(DocField)).None, doc : Option(String).Some(`The color blue`), discriminant : Option(String).None));
@@ -385,14 +385,14 @@ test("renderTypeMd: renders an enum with variants", {
   assert(md.contains(`\`Blue\` — The color blue`), "Blue variant with doc");
 });
 test("renderTypeMd: renders trait impls", {
-  t := make_type_();
+  mut(t) := make_type_();
   t.trait_impls.push(`Display`);
   t.trait_impls.push(`Clone`);
   md := render_type_md(&t);
   assert(md.contains(`**Implements:** \`Display\`, \`Clone\``), "implements list");
 });
 test("renderTypeMd: renders impl blocks with methods", {
-  method_names := ArrayList(String).new();
+  mut(method_names) := ArrayList(String).new();
   method_names.push(`size`);
   method_names.push(`is_empty`);
   impl_ := DocImpl(
@@ -401,7 +401,7 @@ test("renderTypeMd: renders impl blocks with methods", {
     method_names : method_names,
     associated_types : Option(ArrayList(DocImplAssocType)).None
   );
-  impls := ArrayList(DocImpl).new();
+  mut(impls) := ArrayList(DocImpl).new();
   impls.push(impl_);
   size_params := ArrayList(DocParam).new();
   size_fn := DocFunction(
@@ -437,7 +437,7 @@ test("renderTypeMd: renders impl blocks with methods", {
     examples : Option(String).None,
     inherited_from : Option(String).None
   );
-  methods := ArrayList(DocFunction).new();
+  mut(methods) := ArrayList(DocFunction).new();
   methods.push(size_fn);
   methods.push(empty_fn);
   t := make_type_();
@@ -461,7 +461,7 @@ test("renderTypeMd: renders impl blocks with methods", {
   assert(md.contains(`List.is_empty`), "method List.is_empty");
 });
 test("renderTypeMd: renders type parameters", {
-  type_params := ArrayList(DocParam).new();
+  mut(type_params) := ArrayList(DocParam).new();
   type_params.push(DocParam(name : `T`, type_ : `Type`, is_comptime : true, is_implicit : false, default_value : Option(String).None, doc : Option(String).None));
   t := make_type_();
   t2 := DocType(
@@ -603,7 +603,7 @@ test("renderIndexMd: renders an index page", {
   assert(md.contains(`(4 items)`), "item count");
 });
 test("renderIndexMd: uses first line of module doc as summary", {
-  modules := ArrayList(DocModule).new();
+  mut(modules) := ArrayList(DocModule).new();
   m := make_module_();
   m2 := DocModule(
     name : m.name.clone(),
@@ -639,7 +639,7 @@ test("renderModuleMd: renders the stability note and the index badge", {
   assert(md.contains(`**Stability: unstable**`), "module page carries the stability note");
   stable_md := render_module_md(&m);
   assert(!stable_md.contains(`Stability:`), "a stable module has no note");
-  modules := ArrayList(DocModule).new();
+  mut(modules) := ArrayList(DocModule).new();
   modules.push(um);
   idx := render_index_md(DocModel(name : `proj`, modules : modules, version : Option(String).None));
   assert(idx.contains(`(module/math.md) _(unstable)_`), "index badge");

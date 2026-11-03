@@ -66,7 +66,7 @@ _check_entry :: (fn(e : &Explain, label : &String) -> unit)({
   assert(e.why_zh.len() > usize(0), `${label}: Chinese why empty`);
 });
 test("every code the classifier emits has a registry entry", {
-  codes := ArrayList(String).new();
+  mut(codes) := ArrayList(String).new();
   codes.push(String.from(E_UNEXPECTED_TOKEN));
   codes.push(String.from(E_EXPECTED_TOKEN));
   codes.push(String.from(E_ADJACENT_OPERATORS));
@@ -123,7 +123,7 @@ test("every code the classifier emits has a registry entry", {
 test("registry entries are unique and code-shaped", {
   entries := registry_entries();
   assert(entries.len() >= usize(25), `at least 25 entries, got ${entries.len()}`);
-  seen := ArrayList(String).new();
+  mut(seen) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < entries.len(), {
     e := match(
@@ -235,7 +235,7 @@ test("the reserved E13xx and E15xx bands are allocated with full entries", {
   // issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md asked for the
   // allocation: the ICE wrapper and the install/fetch family's raises are
   // coded, so `yo explain` has an entry behind every code the CLI can print.
-  band := ArrayList(String).new();
+  mut(band) := ArrayList(String).new();
   band.push(String.from(E_INTERNAL_COMPILER_ERROR));
   band.push(String.from(E_DEP_FETCH_FAILED));
   band.push(String.from(E_MANIFEST_NOT_FOUND));
