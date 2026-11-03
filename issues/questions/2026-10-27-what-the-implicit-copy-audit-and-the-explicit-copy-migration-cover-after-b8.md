@@ -2,7 +2,7 @@
 
 **Kind:** design question: an open decision, not a defect. Filed 2026-10-27 while preparing B8's goldens (`plans/handover/VBD_LOOKAHEAD_2026-10-23.md` §4.5, "Goldens").
 
-**Status:** DECIDED 2026-11-01 (consultation #12, re-ratified by #13 at 0.85): Option 1, then Option 3 after B11. B8 and each later flip move the fixtures to a type that is still `ref`. B11 deletes both tools and their cli-cases. The V5 split does not move the retirement point: part B's `src/` migration is scripted, never a user-facing `--migrate explicit-copy` run. B8 moved the 23 fixtures to `BTreeMap` (still a `ref` until B10, and given a deep `Clone` for the purpose so the migration can spell each copy); B10, which flips `BTreeMap`, moves them again.
+**Status:** DECIDED 2026-11-01 (consultation #12, re-ratified by #13 at 0.85): Option 1, then Option 3 after B11. B8 and each later flip move the fixtures to a type that is still `ref`. B11 deletes both tools and their cli-cases. The V5 split does not move the retirement point: part B's `src/` migration is scripted, never a user-facing `--migrate explicit-copy` run. B8 moved the 23 fixtures to `BTreeMap` (still a `ref` until B10, and given a deep `Clone` for the purpose so the migration can spell each copy); B10, which flips `BTreeMap`, moves them again. The `--migrate cloned-accessors` case follows the same rule: its fixture's elements are `BTreeMap`s too (`tests/cli-cases/fix-migrate-cloned-accessors`).
 
 ## The question
 
