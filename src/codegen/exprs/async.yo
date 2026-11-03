@@ -3318,38 +3318,28 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), &cancel_pending_function_name, &vt_bundle, &block.future_type, &block.result_type, block.result_type_c_name.clone(), &block.capture_type, context);
   em.emit_string_line(String.from(""));
 });
-/// The number of deferred async blocks registered so far.
-_deferred_async_block_count :: (fn(context : &FunctionGenerationContext) -> usize)(
-  match(&context.deferred_async_blocks, .Some(b) => b.len(), .None => usize(0))
-);
-/// The deferred async block at `i` (a handle copy: `DeferredAsyncBlock` is a
-/// `ref`), read from the context's list itself.
-_deferred_async_block_at :: (fn(context : &FunctionGenerationContext, i : usize) -> Option(DeferredAsyncBlock))(
-  match(&context.deferred_async_blocks, .Some(b) => b.get_cloned(i), .None => .None)
-);
 /// Generate all deferred async-block implementations (resume / set_effect / dispose
 /// / constructor), after all regular functions. Index-based loop because emitting a
 /// block's resume may discover nested async blocks (pushed during iteration); their
-/// struct definitions are emitted before they are processed. The loop reads the
-/// context's list on every step: a snapshot copy of it (the list is a value since
-/// B8) never sees the nested blocks, whose structs were then never defined.
+/// struct definitions are emitted before they are processed.
 generate_deferred_async_blocks :: (fn(context : &FunctionGenerationContext) -> unit)({
-  if(_deferred_async_block_count(context) == usize(0), return());
+  blocks := match(&context.deferred_async_blocks, .Some(b) => b.clone(), .None => return());
+  if(blocks.len() == usize(0), return());
   em := context.base.emitter;
   // Struct definitions first (dependency-safe order).
   emit_deferred_async_block_struct_definitions(context);
   em.emit_string_line(String.from("// Deferred async block implementations"));
   (i : usize) = usize(0);
-  while(i < _deferred_async_block_count(context), {
-    prev_length := _deferred_async_block_count(context);
-    match(_deferred_async_block_at(context, i), .Some(block) => _emit_one_deferred_async_block(&block, context), .None => ());
+  while(i < blocks.len(), {
+    prev_length := blocks.len();
+    match(blocks.get(i), .Some(block) => _emit_one_deferred_async_block(&block, context), .None => ());
     // Emit struct definitions for any nested async blocks discovered during resume.
-    new_length := _deferred_async_block_count(context);
+    new_length := blocks.len();
     if(new_length > prev_length, {
       (ni : usize) = prev_length;
       while(ni < new_length, {
         match(
-          _deferred_async_block_at(context, ni),
+          blocks.get(ni),
           .Some(nb) => {
             ncbr := _block_cross_boundary(&nb, context);
             nosr := compute_overlapping_slots(&ncbr.cross_boundary_ids, &ncbr.variable_segments, &nb.analysis.captured_variables, &ncbr.await_future_temp_var_aliases, &ncbr.pattern_binding_ids, context);
