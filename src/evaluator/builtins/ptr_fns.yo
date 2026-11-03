@@ -236,13 +236,20 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
           // `v : _View(p)`, `r : &(T, p)`) is a place OUTSIDE the holder,
           // in the places its origins name: the result's origin must list
           // them (`fn_param_in_result_origin`'s holder rule).
-          if(is_reference_field_read(ast_expr_id(place)) && match(ast_rewritten_node(&base), .Atom(_, rb_tok) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last(), .Some(rb_v) => (rb_v.is_parameter && !rb_v.is_compile_time_only), .None => false), _ => false), {
-            match(
-              ast_rewritten_node(&base),
-              .Atom(_, rb_tok2) => _spelled_origin_error(&rb_tok2.value.*, ctx),
-              _ => Option(_ProjRootError).None
-            )
-          }, _projection_root_error(&base, is_mut, env, ctx))
+          rb_param := match(
+            ast_rewritten_node(&base),
+            .Atom(_, rb_tok) => match(
+              get_variables_from_env(env, rb_tok.value.*.clone()).last(),
+              .Some(rb_v) => if(rb_v.is_parameter && !rb_v.is_compile_time_only, Option(String).Some(rb_tok.value.*.clone()), Option(String).None),
+              .None => Option(String).None
+            ),
+            _ => Option(String).None
+          );
+          match(
+            rb_param,
+            .Some(rb_name) => if(is_reference_field_read(ast_expr_id(place)), _spelled_origin_error(&rb_name, ctx), _projection_root_error(&base, is_mut, env, ctx)),
+            .None => _projection_root_error(&base, is_mut, env, ctx)
+          )
         }),
         .None => Option(_ProjRootError).None
       ),
