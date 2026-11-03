@@ -23,6 +23,7 @@
 { generate_atom } :: import("./atom.yo");
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_early_return_only_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
+{ is_any_temp_variable_name } :: import("../../utils.yo");
 { declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, type_key, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
@@ -623,7 +624,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
                           _resolve_drop_target_in_scope(&de, &variables, ast_expr_token(expr), context),
                           .Some(lv) => match(
                             lv.initialized_at_token,
-                            .Some(lv_init) => {
+                            .Some(_) => {
                               // C-emission-order guard, the same contract as
                               // `_keep_pending_drop` above: the recorded env is
                               // the END-of-scope env, so a binding whose C
@@ -654,16 +655,32 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
                               cond(
                                 _variable_moved_before_cleanup_point(&lv, expr) => false,
                                 !_consumption_is_ordered_against_cleanup_point(&lv, expr) => false,
-                                // Positional guard, as in `_keep_pending_drop`:
-                                // the block-scope stack below holds C NAMES, so
-                                // a target declared AFTER this escape point
-                                // passes it whenever a same-named local of an
-                                // inner, still-open block is in scope (an inner
-                                // `(k : usize)` loop counter before a later
-                                // `k := <String>`), and the drop of the later
-                                // binding landed on the inner one
+                                // Positional guard for a NAMED C local, as in
+                                // `_keep_pending_drop`, on the drop's own target
+                                // (its atom's record). The stack below holds C
+                                // names, and `lv` is a by-name lookup that falls
+                                // back to the last same-named variable, so a
+                                // local declared AFTER this escape point passed
+                                // both whenever a same-named local of an inner,
+                                // still-open block was in scope (an inner
+                                // `(k : usize)` before a later `k := <String>`):
+                                // its drop landed on the inner local, and two
+                                // same-named locals' drops both landed on one
                                 // (issues/fixed/2026-11-03-an-unwind-drop-names-a-shadowing-local-of-another-type.md).
-                                _variable_initialized_after_cleanup_point(&lv_init, expr) => false,
+                                // A minted temp and a state-machine field have
+                                // unique C names, so no other variable can stand
+                                // in for them; and a temp's recorded
+                                // initialization token can lie after its C
+                                // declaration (a `cond` result a later
+                                // constructor argument consumes), so the test
+                                // would skip a live temp's release.
+                                (
+                                  !is_any_temp_variable_name(&var_name) && !_drop_target_is_state_machine_field(&lv, var_name.clone(), context) && match(
+                                    _get_deferred_drop_target_variable(&de, context),
+                                    .Some(tv) => match(tv.initialized_at_token, .Some(tv_init) => _variable_initialized_after_cleanup_point(&tv_init, expr), .None => false),
+                                    .None => false
+                                  )
+                                ) => false,
                                 // An `FnOnce` closure's owned capture lives in
                                 // the closure context, never a C local.
                                 true => (is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &lv_c_name)))
