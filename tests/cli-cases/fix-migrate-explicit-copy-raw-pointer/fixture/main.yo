@@ -1,35 +1,42 @@
 //! `yo fix --migrate explicit-copy` lists, and does not clone, a copy whose
 //! source has a raw pointer derived from it: `_m` caches a pointer into the
-//! buffer the field store shares with `marks`. A `.clone()` would give the
-//! field a fresh buffer and leave `_m` pointing into the local one, freed
-//! when the function returns. The pointer is taken three ways: a method
-//! (`marks.ptr()`), the address-of builtin (`addr_of(marks(i))`), and a
-//! helper deriving it from its borrow parameter (`first_ptr(&marks)`). The
-//! hand edit is a move with the pointer taken first.
+//! map the field store shares with `marks`. A `.clone()` would give the
+//! field a fresh map and leave `_m` pointing into the local one, freed when
+//! the function returns. `marks` is a `BTreeMap` (still a `ref`, so a copy
+//! dups the handle; decision Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+//! The pointer is taken three ways: a method (`marks.iter()`, a cursor
+//! holding a raw pointer into the entries), the address-of builtin
+//! (`addr_of(marks.walk_elem(&first).value)`; `addr_of(marks(k))` would go
+//! through `index_mut`, a write), and a helper deriving it from its borrow
+//! parameter (`first_ptr(&marks)`). The hand edit is a move with the pointer
+//! taken first.
 pragma(Pragma.AllowUnsafe);
-{ ArrayList } :: import("std/collections/array_list");
+{ BTreeMap, BTreeMapIterPtr } :: import("std/collections/btree_map");
 { println } :: import("std/fmt");
-Marks :: struct(marks : ArrayList(i32), _m : *i32);
-first_ptr :: (fn(xs : &ArrayList(i32)) -> *i32)(xs.ptr().unwrap());
-make :: (fn() -> Marks)({
-  marks := ArrayList(i32).new();
-  marks.push(i32(7));
-  Marks(marks : marks, _m : marks.ptr().unwrap())
+Marks :: struct(marks : BTreeMap(i32, i32), _m : *i32);
+Cursor :: struct(marks : BTreeMap(i32, i32), _m : BTreeMapIterPtr(i32, i32));
+first_ptr :: (fn(xs : &BTreeMap(i32, i32)) -> *i32)(addr_of(xs.iter().next().unwrap().*.value));
+make :: (fn() -> Cursor)({
+  marks := BTreeMap(i32, i32).new();
+  marks.insert(i32(0), i32(7));
+  Cursor(marks : marks, _m : marks.iter())
 });
 make_addr :: (fn() -> Marks)({
-  marks := ArrayList(i32).new();
-  marks.push(i32(8));
-  Marks(marks : marks, _m : addr_of(marks(usize(0))))
+  marks := BTreeMap(i32, i32).new();
+  marks.insert(i32(0), i32(8));
+  first := usize(0);
+  Marks(marks : marks, _m : addr_of(marks.walk_elem(&first).value))
 });
 make_lent :: (fn() -> Marks)({
-  marks := ArrayList(i32).new();
-  marks.push(i32(9));
+  marks := BTreeMap(i32, i32).new();
+  marks.insert(i32(0), i32(9));
   Marks(marks : marks, _m : first_ptr(&marks))
 });
 main :: (fn() -> unit)({
-  m := make();
+  mut(m) := make();
   a := make_addr();
   l := make_lent();
-  println(`${m.marks(usize(0))} ${m._m.*} ${a.marks(usize(0))} ${a._m.*} ${l.marks(usize(0))} ${l._m.*}`);
+  println(`${m.marks(i32(0))} ${m._m.next().unwrap().*.value} ${a.marks(i32(0))} ${a._m.*} ${l.marks(i32(0))} ${l._m.*}`);
 });
 export(main);

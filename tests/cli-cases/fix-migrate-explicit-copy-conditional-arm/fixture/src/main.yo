@@ -1,28 +1,31 @@
 //! `yo fix --migrate explicit-copy` judges a copy made at a result position
 //! of an `if`, `cond` or `match` (an arm's tail, a block's tail, nested)
 //! against the variable the result is bound to, as it judges `t := s`.
-//! `target` aliases one of the entry's lists on purpose, so the push lands in
-//! the entry: those arm copies are listed, not cloned, and the run prints
-//! `2 2 2`. `seen` is never written, so its arm copies are still cloned.
+//! `target` aliases one of the entry's maps on purpose, so the insert lands
+//! in the entry: those arm copies are listed, not cloned, and the run prints
+//! `2 2 2`. `seen` is never written, so its arm copies are still cloned. The
+//! entry's maps are `BTreeMap`s (still a `ref`; decision Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
 { ArrayList } :: import("std/collections/array_list");
+{ BTreeMap } :: import("std/collections/btree_map");
 { println } :: import("std/fmt");
 Entry :: ref(
   struct(
-    yes : ArrayList(i32),
-    no : ArrayList(i32)
+    yes : BTreeMap(i32, i32),
+    no : BTreeMap(i32, i32)
   )
 );
 first :: (fn(entries : &ArrayList(Entry)) -> Entry)(
   match(
     entries.get(usize(0)),
     .Some(existing) => existing,
-    .None => Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new())
+    .None => Entry(yes : BTreeMap(i32, i32).new(), no : BTreeMap(i32, i32).new())
   )
 );
 add :: (fn(entries : &ArrayList(Entry), negated : bool, v : i32) -> unit)({
   entry := first(entries);
   mut(target) := if(negated, entry.no, entry.yes);
-  target.push(v);
+  target.insert(v, v);
 });
 add_nested :: (fn(entries : &ArrayList(Entry), negated : bool, v : i32) -> unit)({
   entry := first(entries);
@@ -34,7 +37,7 @@ add_nested :: (fn(entries : &ArrayList(Entry), negated : bool, v : i32) -> unit)
       if(positive, entry.yes, entry.no)
     }
   );
-  target.push(v);
+  target.insert(v, v);
 });
 count :: (fn(entries : &ArrayList(Entry), negated : bool) -> usize)({
   entry := first(entries);
@@ -43,7 +46,7 @@ count :: (fn(entries : &ArrayList(Entry), negated : bool) -> usize)({
 });
 main :: (fn() -> unit)({
   mut(entries) := ArrayList(Entry).new();
-  entries.push(Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new()));
+  entries.push(Entry(yes : BTreeMap(i32, i32).new(), no : BTreeMap(i32, i32).new()));
   add(&entries, false, i32(1));
   add(&entries, true, i32(2));
   add_nested(&entries, false, i32(3));

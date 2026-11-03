@@ -1,21 +1,24 @@
-//! A copy's source can share its buffer with variables it flowed from (or
-//! into) before the copy: a write through any of them after the copy
-//! reaches the copy too. `alias_before` copies `t` while `t` and `x` share a
-//! buffer, then pushes through `x`, so the copy is listed. `fresh_before`'s
-//! `t` holds its own buffer (`x.clone()`), and its copy is cloned.
-{ ArrayList } :: import("std/collections/array_list");
+//! A copy's source can share its map with variables it flowed from (or into)
+//! before the copy: a write through any of them after the copy reaches the
+//! copy too. The maps are `BTreeMap`s (still a `ref`, so a copy dups the
+//! handle; decision Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+//! `alias_before` copies `t` while `t` and `x` share a map, then inserts
+//! through `x`, so the copy is listed. `fresh_before`'s `t` holds its own map
+//! (`x.clone()`), and its copy is cloned.
+{ BTreeMap } :: import("std/collections/btree_map");
 alias_before :: (fn() -> usize)({
-  x := ArrayList(i32).new();
+  x := BTreeMap(i32, i32).new();
   t := x;
   y := t;
-  x.push(i32(1));
+  x.insert(i32(1), i32(1));
   y.len() + t.len()
 });
 fresh_before :: (fn() -> usize)({
-  x := ArrayList(i32).new();
+  x := BTreeMap(i32, i32).new();
   t := x.clone();
   y := t;
-  x.push(i32(1));
+  x.insert(i32(1), i32(1));
   y.len() + t.len()
 });
 main :: (fn() -> unit)(());

@@ -5,15 +5,17 @@
 //! is a concrete `Impl(FnOnce() -> usize)` helper, the shape every
 //! `sink(f) : Impl(FnOnce(...))` callee shares; `_peek`'s plain by-value
 //! parameter makes the copy a `RefCell.with_mut` body makes at
-//! `m.insert(k, v)`.
-{ String } :: import("std/string");
+//! `m.insert(k, v)`. The captures are `BTreeMap`s (still a `ref`; decision
+//! Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+{ BTreeMap } :: import("std/collections/btree_map");
 { println } :: import("std/fmt");
-_peek :: (fn(s : String) -> usize)(s.len());
+_peek :: (fn(s : BTreeMap(i32, i32)) -> usize)(s.len());
 _run_once :: (fn(sink(f) : Impl(FnOnce() -> usize)) -> usize)(f());
 main :: (fn() -> unit)({
-  k := String.from("k");
-  v := String.from("v");
-  again := String.from("again");
+  k := BTreeMap(i32, i32).new();
+  v := BTreeMap(i32, i32).new();
+  again := BTreeMap(i32, i32).new();
   // `k` and `v` move: each has exactly one use in the body, a by-value
   // parameter of `_peek` — the copy `RefCell.with_mut` bodies make at
   // `m.insert(k, v)`.
@@ -22,7 +24,7 @@ main :: (fn() -> unit)({
   // `again` is read again after its first use, so the first use is a copy.
   c := _run_once({ again }() => {
     r := _peek(again);
-    println(&again);
+    println(`${again.len().to_string()}`);
     r
   });
   println(`${a.to_string()} ${b.to_string()} ${c.to_string()}`);

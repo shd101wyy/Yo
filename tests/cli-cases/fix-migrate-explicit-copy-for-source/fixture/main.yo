@@ -1,33 +1,64 @@
-{ String } :: import("std/string");
+{ BTreeMap } :: import("std/collections/btree_map");
 { assert } :: import("std/assert");
-{ ArrayList } :: import("std/collections/array_list");
-// A list read again after its first loop: the first `for` becomes the read
-// walk; the second is the list's last use, a move.
+// The sources are `BTreeMap`s (still a `ref`; decision Option 1 of
+// issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+// A map read again after its first loop: the first `for` becomes the read
+// walk; the second is the map's last use, a move.
 sum_twice :: (fn() -> i32)({
-  xs := ArrayList(i32).new();
-  xs.push(i32(1));
-  xs.push(i32(2));
+  xs := BTreeMap(i32, i32).new();
+  xs.insert(i32(1), i32(1));
+  xs.insert(i32(2), i32(2));
   mut(total) := i32(0);
   for(xs, x => {
-    total = (total + x);
+    total = (total + x.value);
   });
   total = (total + i32(xs.len()));
   for(xs, x => {
-    total = (total + x);
+    total = (total + x.value);
   });
   total
 });
-// A `String` source read again: iterated as a copy.
+// A value struct holding a map, iterable by value (it yields 1, 2, … up to
+// the map's length) but with no read walk.
+Word :: struct(m : BTreeMap(i32, i32));
+derive(Word, Clone);
+WordIter :: struct(w : Word, i : usize);
+impl(
+  WordIter,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))(
+      cond(
+        (self.i >= self.w.m.len()) => .None,
+        true => {
+          self.i = (self.i + usize(1));
+          .Some(self.i)
+        }
+      )
+    )
+  )
+);
+impl(
+  Word,
+  IntoIterator(
+    Item : usize,
+    IntoIter : WordIter,
+    into_iter : (fn(self : Self) -> WordIter)(WordIter(w : self, i : usize(0)))
+  )
+);
+// A `Word` source read again: iterated as a copy.
 count_twice :: (fn() -> usize)({
-  s := String.from("ab");
+  s := Word(m : BTreeMap(i32, i32).new());
+  s.m.insert(i32(1), i32(1));
+  s.m.insert(i32(2), i32(2));
   mut(n) := usize(0);
   for(s, c => {
     n = (n + usize(1));
   });
-  n + s.len()
+  n + s.m.len()
 });
 main :: (fn() -> unit)({
   assert(sum_twice() == i32(8), "1 + 2, the length, then 1 + 2 again");
-  assert(count_twice() == usize(4), "two runes and two bytes");
+  assert(count_twice() == usize(4), "two entries, then the length");
 });
 export(main);

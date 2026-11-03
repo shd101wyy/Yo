@@ -2,14 +2,17 @@
 //! a write above a copy again after it. Each copy below outlives one run of
 //! its region and shares its buffer with such a write, so all four are
 //! listed. `fresh_each_iteration`'s copy dies with its iteration, so the
-//! write above it never reaches it, and it is cloned.
+//! write above it never reaches it, and it is cloned. The entry's maps are
+//! `BTreeMap`s (still a `ref`; decision Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
 { ArrayList } :: import("std/collections/array_list");
-VEntry :: struct(yes : ArrayList(i32), no : ArrayList(i32));
+{ BTreeMap } :: import("std/collections/btree_map");
+VEntry :: struct(yes : BTreeMap(i32, i32), no : BTreeMap(i32, i32));
 param_while :: (fn(entry : &mut VEntry) -> usize)({
-  mut(saved) := ArrayList(i32).new();
+  mut(saved) := BTreeMap(i32, i32).new();
   mut(i) := usize(0);
   while(i < usize(2), i = (i + usize(1)), {
-    entry.yes.push(i32(1));
+    entry.yes.insert(i32(i), i32(1));
     if(i == usize(0), {
       saved = entry.yes;
     });
@@ -17,11 +20,11 @@ param_while :: (fn(entry : &mut VEntry) -> usize)({
   saved.len()
 });
 local_while :: (fn() -> usize)({
-  mut(entry) := VEntry(yes : ArrayList(i32).new(), no : ArrayList(i32).new());
-  mut(saved) := ArrayList(i32).new();
+  mut(entry) := VEntry(yes : BTreeMap(i32, i32).new(), no : BTreeMap(i32, i32).new());
+  mut(saved) := BTreeMap(i32, i32).new();
   mut(i) := usize(0);
   while(i < usize(2), i = (i + usize(1)), {
-    entry.yes.push(i32(1));
+    entry.yes.insert(i32(i), i32(1));
     if(i == usize(0), {
       saved = entry.yes;
     });
@@ -29,9 +32,9 @@ local_while :: (fn() -> usize)({
   saved.len()
 });
 param_for :: (fn(entry : &mut VEntry, steps : ArrayList(i32)) -> usize)({
-  mut(saved) := ArrayList(i32).new();
+  mut(saved) := BTreeMap(i32, i32).new();
   for(steps, s => {
-    entry.yes.push(s);
+    entry.yes.insert(s, s);
     if(s == i32(0), {
       saved = entry.yes;
     });
@@ -39,11 +42,11 @@ param_for :: (fn(entry : &mut VEntry, steps : ArrayList(i32)) -> usize)({
   saved.len()
 });
 closure_twice :: (fn(entry : &mut VEntry) -> usize)({
-  mut(saved) := ArrayList(i32).new();
+  mut(saved) := BTreeMap(i32, i32).new();
   mut(i) := usize(0);
   {
     (step : Impl(Fn() -> unit)) = ({ &mut saved, &mut i, e : &mut entry }() => {
-      e.yes.push(i32(1));
+      e.yes.insert(i32(i), i32(1));
       if(i == usize(0), {
         saved = e.yes;
       });
@@ -58,7 +61,7 @@ fresh_each_iteration :: (fn(entry : &mut VEntry) -> usize)({
   mut(total) := usize(0);
   mut(i) := usize(0);
   while(i < usize(2), i = (i + usize(1)), {
-    entry.yes.push(i32(1));
+    entry.yes.insert(i32(i), i32(1));
     seen := entry.yes;
     total = (total + seen.len());
   });

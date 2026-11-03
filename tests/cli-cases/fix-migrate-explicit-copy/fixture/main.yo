@@ -1,39 +1,40 @@
-//! `yo fix --migrate explicit-copy`: a copy of a `String`, a collection or a
-//! value holding one, whose source stays alive, is spelled `.clone()`. A copy
-//! whose source or destination is written afterwards may share its buffer on
-//! purpose, so it is listed instead, and so is a `return` of a place rooted in
-//! a borrowed parameter (an accessor, whose hand edit is a projection).
-{ String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+//! `yo fix --migrate explicit-copy`: a copy of a `BTreeMap` (a collection that
+//! is still a `ref`, so a copy dups the handle) or of a value holding one, whose
+//! source stays alive, is spelled `.clone()`. A copy whose source or destination
+//! is written afterwards may share its map on purpose, so it is listed instead,
+//! and so is a `return` of a place rooted in a borrowed parameter (an accessor,
+//! whose hand edit is a projection). BTreeMap per decision Option 1 of
+//! issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md.
+{ BTreeMap } :: import("std/collections/btree_map");
 { println } :: import("std/fmt");
-Person :: struct(name : String, tags : ArrayList(String), age : i32);
+Person :: struct(name : BTreeMap(i32, i32), tags : BTreeMap(i32, BTreeMap(i32, i32)), age : i32);
 derive(Person, Clone);
-first_name :: (fn(p : &Person) -> String)(p.name);
-keep :: (fn(s : &String) -> String)(s);
-all_tags :: (fn(p : &mut Person) -> ArrayList(String))(p.tags);
+first_name :: (fn(p : &Person) -> BTreeMap(i32, i32))(p.name);
+keep :: (fn(s : &BTreeMap(i32, i32)) -> BTreeMap(i32, i32))(s);
+all_tags :: (fn(p : &mut Person) -> BTreeMap(i32, BTreeMap(i32, i32)))(p.tags);
 main :: (fn() -> unit)({
-  a := String.from("ada");
+  a := BTreeMap(i32, i32).new();
   b := a;
-  tags := ArrayList(String).new();
-  tags.push(b);
+  tags := BTreeMap(i32, BTreeMap(i32, i32)).new();
+  tags.insert(i32(0), b);
   p := Person(name : a, tags : tags, age : i32(36));
   mut(q) := p;
   n := first_name(&q);
   k := keep(&n);
   ts := all_tags(&mut q);
-  maybe := Option(String).Some(k);
+  maybe := Option(BTreeMap(i32, i32)).Some(k);
   m2 := maybe;
   age := p.age;
-  println(`${p.name} ${q.name} ${n} ${age.to_string()} ${m2.is_some().to_string()} ${maybe.is_some().to_string()} ${ts.len().to_string()}`);
+  println(`${p.name.len().to_string()} ${q.name.len().to_string()} ${n.len().to_string()} ${age.to_string()} ${m2.is_some().to_string()} ${maybe.is_some().to_string()} ${ts.len().to_string()}`);
   // The copy is written afterwards: listed, left as written.
-  r := String.from("r");
+  r := BTreeMap(i32, i32).new();
   mut(r2) := r;
-  r2.push_str("!");
-  println(`${r} ${r2}`);
+  r2.insert(i32(1), i32(1));
+  println(`${r.len().to_string()} ${r2.len().to_string()}`);
   // The source is written afterwards: listed, left as written.
-  mut(s1) := String.from("s");
+  mut(s1) := BTreeMap(i32, i32).new();
   s2 := s1;
-  s1.push_str("?");
-  println(`${s1} ${s2}`);
+  s1.insert(i32(2), i32(2));
+  println(`${s1.len().to_string()} ${s2.len().to_string()}`);
 });
 export(main);
