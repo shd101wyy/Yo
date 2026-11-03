@@ -1,5 +1,14 @@
 # Two http tests exit 256 on the B8 branch tip (not on develop)
 
+**Status (2026-11-03, retired): SEED ARTIFACT, CONFIRMED.** The first tree binary of the flip
+(`yo-tree-c2c31dca8`, built from `vbd/b8-arraylist-string-flip-r4` c2c31dca8 by the v0.2.73 seed) runs
+`tests/http/http.test.yo` 52/52 and `tests/http/server.test.yo` 13/13, both under the runner's
+ASan build, with the cc re-exec as shipped (no `YO_CC_IN_PROCESS`). Both named cases pass:
+`a malformed chunk size is a typed HttpError, not a garbage body` and `an unreadable
+Content-Length is a typed HttpError, not a silent absence`. The double free below was the
+seed's pre-flip codegen lowering the flipped std (a frankenbuild), not a defect of the
+branch. (Logs: `~/Workspace/Yo-wt/vbd-logs/b8/tier1/summary-b9-c2c.txt`.)
+
 **Status (B8 owner, 2026-11-01, updated):** SUSPECTED SEED ARTIFACT, triage stood down per the
 coordinator: the trace was taken with the installed SEED binary (v0.2.73 codegen, pre-flip)
 against the flipped std — a frankenbuild whose ref-counted handling of now-value types is
