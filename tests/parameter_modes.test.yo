@@ -525,11 +525,11 @@ test("the scrutinee is reached only through a live mut place", {
   );
   (h : Option(i32)) = .Some(i32(1));
   comptime_expect_error(
-    (fn(x : &Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
+    (fn(x : &Option(i32)) -> i32)(match(&mut x.*, .Some(n) => n.*, .None => i32(0))),
     "is a `&` borrow"
   );
   comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
-  assert(match(&h, .Some(n) => n, .None => i32(0)) == i32(1), "h untouched");
+  assert(match(&h, .Some(n) => n.*, .None => i32(0)) == i32(1), "h untouched");
 });
 // A field or a dereference scrutinee is a place too: the arm writes it, not a
 // copy (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
