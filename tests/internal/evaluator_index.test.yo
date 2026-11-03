@@ -132,13 +132,7 @@ test("Evaluator.new: empty source with skip_prelude", {
     exn
   );
   // Should parse and evaluate without error.
-  match(
-    eval.get_module_error(),
-    .Some(_err) => {
-      assert(false, "unexpected module_error");
-    },
-    .None => ()
-  );
+  assert(eval.get_module_error().is_none(), "unexpected module_error");
 });
 test("Evaluator.new: simple binding with skip_prelude", {
   exn := Exception(
@@ -160,13 +154,7 @@ test("Evaluator.new: simple binding with skip_prelude", {
     &src,
     exn
   );
-  match(
-    eval.get_module_error(),
-    .Some(_err) => {
-      assert(false, "unexpected module_error");
-    },
-    .None => ()
-  );
+  assert(eval.get_module_error().is_none(), "unexpected module_error");
   // Should have produced a module value.
   match(
     eval.get_module_value(),
@@ -270,7 +258,7 @@ test("Evaluator.new: module_value contains exported name", {
           n := names.len();
           while(i < n, {
             match(
-              names.get(i),
+              names.get_cloned(i),
               .Some(nm) => {
                 if(nm == String.from("msg"), {
                   found = true;
