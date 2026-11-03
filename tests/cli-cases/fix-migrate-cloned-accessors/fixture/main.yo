@@ -2,21 +2,24 @@
 // accessor call `r.m(...)` whose result holds a unique buffer becomes
 // `r.m_cloned(...)` — the copy the accessor makes today is spelled as the
 // clone, so the unique-buffer flip lands on a tree that already says where
-// it copies. The sibling name comes from the impl registry.
+// it copies. The sibling name comes from the impl registry. The elements are
+// `HashMap`s, still handles after B8 (a `String` copy is E0901 since B8, so it
+// no longer evaluates; issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md
+// Option 1: each flip moves the fixture to a type that still copies).
 { ArrayList } :: import("std/collections/array_list");
-{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
-  mut(names) := ArrayList(String).new();
-  names.push(`ada`);
-  names.push(`grace`);
-  first := names.get(usize(0));
-  second := names.first();
+  mut(maps) := ArrayList(HashMap(i32, i32)).new();
+  maps.push(HashMap(i32, i32).new());
+  maps.push(HashMap(i32, i32).new());
+  first := maps.get(usize(0));
+  second := maps.first();
   match(
     (first, second),
     (.Some(a), .Some(b)) => {
-      println(&a);
-      println(&b);
+      println(a.len());
+      println(b.len());
     },
     _ => println(`none`)
   );
