@@ -3135,19 +3135,20 @@ _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
 /// `body : &Impl(Fn(...))`): the caller lent that parameter's argument, and
 /// the argument's own borrows outlive the call, so the borrow is re-rooted at
 /// the parameter.
-_register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext) -> unit)({
+_register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext) -> ArrayList(String))({
+  origin_names := ArrayList(String).new();
   if(!capture_borrows_exist(), {
-    return(());
+    return(origin_names);
   });
-  fut_id := match(fut_ty, Rc(.SomeT({ id : fid })) => fid.clone(), _ => return(()));
-  body := match(args.get(usize(0)), .Some(b) => b, .None => return(()));
-  body_info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&body)), .Some(bi) => bi, .None => return(()));
+  fut_id := match(fut_ty, Rc(.SomeT({ id : fid })) => fid.clone(), _ => return(origin_names));
+  body := match(args.get(usize(0)), .Some(b) => b, .None => return(origin_names));
+  body_info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&body)), .Some(bi) => bi, .None => return(origin_names));
   // The body argument is typed as the slot (`Impl(FnOnce(e : E) -> T)`); its
   // borrows are on the closure's capture struct.
   cap_ty := match(
     body_info.value,
-    .Some(.FuncVal(body_fv, _)) => match(get_closure_capture_info(&body_fv.*.func_id), .Some(cci) => Rc.clone(cci.capture_type), .None => return(())),
-    _ => return(())
+    .Some(.FuncVal(body_fv, _)) => match(get_closure_capture_info(&body_fv.*.func_id), .Some(cci) => Rc.clone(cci.capture_type), .None => return(origin_names)),
+    _ => return(origin_names)
   );
   bs := ArrayList(CaptureBorrow).new();
   match(
@@ -3181,10 +3182,13 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
           );
           (bi : usize) = usize(0);
           while(bi < f_bs.len(), bi = (bi + usize(1)), {
-            b := match(f_bs.get(bi), .Some(x) => x, .None => return(()));
+            b := match(f_bs.get(bi), .Some(x) => x, .None => return(origin_names));
             match(
               f_param,
               .Some(pv) => if(!variable_id_in_scope(env, b.root_id), {
+                if(!_names_list_contains(&origin_names, &pv.name), {
+                  origin_names.push(pv.name.clone());
+                });
                 bs.push(
                   CaptureBorrow(
                     label : f_label.clone(),
@@ -3213,24 +3217,112 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
     },
     _ => collect_type_borrows(&cap_ty, &mut bs)
   );
+  // The body's own capture-list borrows of the enclosing function's `&`/
+  // `&mut` parameters are what the future carries out (O8): its origin.
+  (ob : usize) = usize(0);
+  while(ob < bs.len(), ob = (ob + usize(1)), {
+    match(
+      bs.get(ob),
+      .Some(obb) => if(!obb.through_value, {
+        match(
+          _find_var_by_id_of(env, obb.root_id),
+          .Some(orv) => if(variable_is_borrow_parameter(&orv) && !_names_list_contains(&origin_names, &orv.name), {
+            origin_names.push(orv.name.clone());
+          }),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
   register_capture_borrows(&fut_id, &bs);
+  origin_names
 });
+/// `names` lists `n`.
+_names_list_contains :: (fn(names : &ArrayList(String), n : &String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < names.len(), i = (i + usize(1)), {
+    if(match(names.get(i), .Some(x) => (x == n.*), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The binding of `env` with id `id`.
+_find_var_by_id_of :: (fn(env : &Environment, id : usize) -> Option(Variable))({
+  (fi : usize) = env.frames.len();
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    match(
+      env.frames.get(fi),
+      .Some(frame) => {
+        (vi : usize) = usize(0);
+        while(vi < frame.variables.len(), vi = (vi + usize(1)), {
+          match(
+            frame.variables.get(vi),
+            .Some(v) => if(v.id == id, {
+              return(Option(Variable).Some(v));
+            }),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(Variable).None
+});
+/// `Future(T, E, p)` (decision 43 step 4, N3-1): the io.async result `t`
+/// (its per-call wrapper SomeT) with its `FutureTraitT`'s origin set to the
+/// places `names`; the wrapper keeps its id, so the registry still finds it.
+_stamp_future_origin :: (fn(t : &TypeValue, names : &ArrayList(String)) -> TypeValue)(
+  if(
+    names.len() == usize(0),
+    Rc.clone(t),
+    match(
+      t,
+      Rc(.SomeT({ id : st_id, name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft, resolution : sres })) => {
+        origin := t_origin_named(&shared_list(names.clone()));
+        new_rtt := ArrayList(TypeValue).new();
+        (ri : usize) = usize(0);
+        while(ri < srtt.len(), ri = (ri + usize(1)), {
+          match(
+            srtt.get(ri),
+            .Some(rt) => new_rtt.push(
+              match(
+                &rt,
+                Rc(.FutureTraitT(base_name : fb, output : fo, effect_labels : fel, effect_types : fet)) => Rc.new(TypeValueNode.FutureTraitT(base_name : fb.clone(), output : Rc.clone(fo), effect_labels : Rc.clone(fel), effect_types : Rc.clone(fet), origin : Rc.clone(origin))),
+                _ => Rc.clone(rt)
+              )
+            ),
+            .None => ()
+          );
+        });
+        Rc.new(TypeValueNode.SomeT(st_id.clone(), sn.clone(), sfl, spt.clone(), new_rtt, srtl.clone(), sntt.clone(), sntl.clone(), skft.clone(), sres.clone()))
+      },
+      _ => Rc.clone(t)
+    )
+  )
+);
 /// §3.13 at an io builtin call: `io.async` registers its body's borrows on
 /// the future it returns (A2, `_register_borrowing_future`), `io.await`
 /// checks that the future it is given was checked where it was made and that
 /// its bundle cannot touch what that future borrows (A2,
 /// `_check_awaited_future`), and `io.await`/`io.spawn` check the bundle they
 /// copy into the future (A6, `_check_bundle_fields_copy`).
-_note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> ArrayList(String))({
   _check_bundle_fields_copy(expr, args, ctx, exn);
   if(!capture_borrows_exist(), {
-    return(());
+    return(ArrayList(String).new());
   });
   cond(
     is_io_async_call(expr) => _register_borrowing_future(ret_ty, args, env, ctx),
-    is_io_await_call(expr) => _check_awaited_future(args, env, ctx, exn),
-    true => ()
-  );
+    is_io_await_call(expr) => {
+      _check_awaited_future(args, env, ctx, exn);
+      ArrayList(String).new()
+    },
+    true => ArrayList(String).new()
+  )
 });
 /// §3.13 A6: `io.spawn` and a cold `io.await` copy the effect bundle into the
 /// future bitwise, since one bundle starts many futures. A field that is not
@@ -12585,7 +12677,8 @@ Fix: wrap the call:
         if(_adopt_deep_resolution(&ret_type_rt, &rt_rt_resolved), {
           ret_type_rt = rt_rt_resolved;
         });
-        _note_io_builtin_call(expr, &ret_type_rt, &args, &call_result_rt.caller_env, ctx, exn);
+        rt_origin_names := _note_io_builtin_call(expr, &ret_type_rt, &args, &call_result_rt.caller_env, ctx, exn);
+        ret_type_rt = _stamp_future_origin(&ret_type_rt, &rt_origin_names);
         out_rt := new_expr_info(&call_result_rt.caller_env, &ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order.clone());
@@ -13332,7 +13425,8 @@ Fix: wrap the call:
           if(_adopt_deep_resolution(&ret_type_none, &rt_none_resolved), {
             ret_type_none = rt_none_resolved;
           });
-          _note_io_builtin_call(expr, &ret_type_none, &args, &call_result_none.caller_env, ctx, exn);
+          none_origin_names := _note_io_builtin_call(expr, &ret_type_none, &args, &call_result_none.caller_env, ctx, exn);
+          ret_type_none = _stamp_future_origin(&ret_type_none, &none_origin_names);
           out_none := new_expr_info(&call_result_none.caller_env, &ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_none, &callee_env));
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order.clone());
