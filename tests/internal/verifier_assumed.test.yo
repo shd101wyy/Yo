@@ -128,7 +128,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     if(j > usize(0), {
       sb.write_string(String.from(", "));
     });
-    sb.write_string(ids.get(j).unwrap().clone());
+    sb.write_string(ids(j).clone());
     j = (j + usize(1));
   });
   sb.to_string()
@@ -168,13 +168,13 @@ _first_refuted_with :: (
               rp.obligations.get(j),
               .Some(obl) => {
                 match(
-                  obl.verdict,
+                  &obl.verdict,
                   .Refuted(ce) => {
                     if(obl.name.contains(name_needle.clone()), {
                       (mut(k) : usize) = usize(0);
                       while(k < ce.len(), {
                         match(
-                          ce.get(k),
+                          ce.get_cloned(k),
                           .Some(pair) => {
                             if(pair.contains(ce_needle.clone()), {
                               found = Option(VerifyFnReport).Some(rp);
