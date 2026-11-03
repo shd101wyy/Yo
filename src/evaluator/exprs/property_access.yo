@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, deref_reads_through_pointee, deref_exempt_take, note_reference_field_read, reference_field_read_mode, reject_reference_field_without_deref, local_borrow_place_text } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, deref_reads_through_pointee, deref_exempt_take, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -95,10 +95,10 @@ _reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, c
 _reference_field_read_type :: (fn(ft : &TypeValue, expr : &AstExpr, property_expr : &AstExpr, exempt : bool, ctx : &EvalContext, exn : Exception) -> TypeValue)(
   match(
     ft,
-    Rc(.Reference(rf_pointee, rf_mut, _)) => {
+    Rc(.Reference(rf_pointee, _, _)) => {
       rf_tok := ast_expr_token(property_expr);
       if(!is_reference_deref_site(&rf_tok), {
-        note_reference_field_read(ast_expr_id(expr), rf_mut);
+        note_reference_field_read(ast_expr_id(expr), ft);
         if(!exempt && deref_rule_applies(&rf_tok, ctx), {
           reject_reference_field_without_deref(&local_borrow_place_text(expr), &rf_tok.value.*, ft, &rf_tok, ctx, exn);
         });
@@ -858,8 +858,8 @@ _evaluate_property_access_node :: (
     // referent itself, and its `.*` is the referent's own.
     rf_mode := match(
       &object_expr,
-      .FnCall(_, _, Rc(rfm_args), _, _) => match(rfm_args.get(usize(1)), .Some(rfm_l) => if(is_reference_deref_site(&ast_expr_token(&rfm_l)), Option(bool).None, reference_field_read_mode(ast_expr_id(&object_expr))), .None => Option(bool).None),
-      .Atom(_, _) => Option(bool).None
+      .FnCall(_, _, Rc(rfm_args), _, _) => match(rfm_args.get(usize(1)), .Some(rfm_l) => if(is_reference_deref_site(&ast_expr_token(&rfm_l)), Option(TypeValue).None, reference_field_read_type(ast_expr_id(&object_expr))), .None => Option(TypeValue).None),
+      .Atom(_, _) => Option(TypeValue).None
     );
     if(rf_mode.is_some() && deref_rule_applies(ast_expr_token(&property_expr), ctx) && _is_written_star(&property_expr), {
       match(
@@ -885,7 +885,7 @@ _evaluate_property_access_node :: (
           rf_new_args.push(AstExpr.Atom(ast_expr_id(&rf_label), rf_new_tok));
           rf_node := AstExpr.FnCall(ast_expr_id(expr), rf_f.clone(), Rc.new(rf_new_args), rf_infix, rf_tok.clone());
           note_rewritten_node(&rf_node);
-          note_reference_field_read(ast_expr_id(expr), match(rf_mode, .Some(m) => m, .None => false));
+          match(&rf_mode, .Some(rf_rt) => note_reference_field_read(ast_expr_id(expr), rf_rt), .None => ());
           match(
             obj_info_opt,
             .Some(rf_oi) => {
