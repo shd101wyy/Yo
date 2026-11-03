@@ -221,8 +221,11 @@ Progress:
   - V5 Generation A, in three parts (§V5, "Split of 2026-11-02"). The
     `atomic(...)` std types are on `__yo_atomic_cell` and the `ref`/`atomic`
     spellings warn (#1707). Cells Generation A, the compiler half of
-    `Rc`/`Arc` over `__yo_cell`, is in v0.2.74. Cells Generation B (the std
-    retype) and the declaration migration are v0.2.75.
+    `Rc`/`Arc` over `__yo_cell`, is in v0.2.74 (#1725). Cells Generation B
+    (the std retype: `Rc`/`Arc` are `newtype(_cell : __yo_cell(V))` views,
+    the constructors pass the allocator to the cell, direct `Rc(T)(v)`
+    constructions are E0405) is v0.2.75's first merge; the declaration
+    migration follows W6b in v0.2.75.
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
