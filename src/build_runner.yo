@@ -669,116 +669,116 @@ _evaluate_dependency_builds :: (
   ) -> Impl(Future(unit, IoExn))
 )({
   __probe_defines := defines.clone();
-    io.async((e : IoExn) => {
-      if(registry.dependency_artifacts.len() == usize(0), {
-        return(());
+  io.async((e : IoExn) => {
+    if(registry.dependency_artifacts.len() == usize(0), {
+      return(());
+    });
+    lock_text := read_lock_text(manifest, e.exn);
+    (i : usize) = usize(0);
+    while(i < registry.dependency_artifacts.len(), {
+      r := registry.dependency_artifacts(i);
+      i = (i + usize(1));
+      dep := match(
+        manifest.find_dependency(r.dependency_name.clone()),
+        .Some(d) => d,
+        .None => {
+          e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
+          return(());
+        }
+      );
+      dir := match(
+        dependency_dir(&dep, manifest.dir.clone(), lock_text.clone()),
+        .Ok(d) => d,
+        .Err(u) => {
+          e.exn.throw(dyn(`Error: dependency "${r.dependency_name}": ${u.reason}`));
+          String.new()
+        }
+      );
+      build_file := `${dir}/build.yo`;
+      if(!file_exists_sync(build_file.clone()), {
+        e.exn.throw(
+          dyn(
+            `Error: dependency "${r.dependency_name}" has no build.yo, so .artifact("${r.artifact_name}") has nothing to build (looked for ${build_file}).`
+          )
+        );
       });
-      lock_text := read_lock_text(manifest, e.exn);
-      (i : usize) = usize(0);
-      while(i < registry.dependency_artifacts.len(), {
-        r := registry.dependency_artifacts(i);
-        i = (i + usize(1));
-        dep := match(
-          manifest.find_dependency(r.dependency_name.clone()),
-          .Some(d) => d,
+      // Already merged by an earlier reference to the same artifact.
+      merged := match(
+        registry.find_artifact(r.artifact_name.clone()),
+        .Some(existing) => (existing.package_dir == dir),
+        .None => false
+      );
+      if(!merged, {
+        dep_reg := e.io.await(
+          _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), &__probe_defines, e.io, e.exn),
+          e
+        );
+        art := match(
+          dep_reg.find_artifact(r.artifact_name.clone()),
+          .Some(a) => a,
           .None => {
-            e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
+            e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
             return(());
           }
         );
-        dir := match(
-          dependency_dir(&dep, manifest.dir.clone(), lock_text.clone()),
-          .Ok(d) => d,
-          .Err(u) => {
-            e.exn.throw(dyn(`Error: dependency "${r.dependency_name}": ${u.reason}`));
-            String.new()
-          }
-        );
-        build_file := `${dir}/build.yo`;
-        if(!file_exists_sync(build_file.clone()), {
+        is_lib := match(art.kind, .StaticLibrary => true, _ => false);
+        if(!is_lib, {
           e.exn.throw(
             dyn(
-              `Error: dependency "${r.dependency_name}" has no build.yo, so .artifact("${r.artifact_name}") has nothing to build (looked for ${build_file}).`
+              `Error: dependency "${r.dependency_name}": "${r.artifact_name}" is not a static library, and only a static library can be linked into this project.`
             )
           );
         });
-        // Already merged by an earlier reference to the same artifact.
-        merged := match(
-          registry.find_artifact(r.artifact_name.clone()),
-          .Some(existing) => (existing.package_dir == dir),
-          .None => false
+        _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
+        registry.register_static_library(
+          BuildArtifact(
+            kind : ArtifactKind.StaticLibrary,
+            name : art.name.clone(),
+            root : art.root.clone(),
+            target : art.target.clone(),
+            optimize : art.optimize.clone(),
+            allocator : art.allocator.clone(),
+            heap_size : art.heap_size,
+            cycle_collector : art.cycle_collector.clone(),
+            sanitize : art.sanitize.clone(),
+            emit_c_to : art.emit_c_to.clone(),
+            emit_chunks : art.emit_chunks,
+            link_libraries : art.link_libraries.clone(),
+            include_paths : art.include_paths.clone(),
+            library_paths : art.library_paths.clone(),
+            c_sources : art.c_sources.clone(),
+            c_flags : art.c_flags.clone(),
+            defines : art.defines.clone(),
+            strip : art.strip,
+            static_link : art.static_link,
+            linked_artifacts : ArrayList(String).new(),
+            linked_system_libs : art.linked_system_libs.clone(),
+            package_dir : dir.clone(),
+            package_name : r.dependency_name.clone()
+          ),
+          e.exn
         );
-        if(!merged, {
-          dep_reg := e.io.await(
-            _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), &__probe_defines, e.io, e.exn),
-            e
+        // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
+        dep_unknown := undeclared_options(&dep_reg);
+        if(dep_unknown.len() > usize(0), {
+          dep_joined := `", "`.join(&dep_unknown);
+          e.exn.throw(
+            dyn(
+              `Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`
+            )
           );
-          art := match(
-            dep_reg.find_artifact(r.artifact_name.clone()),
-            .Some(a) => a,
-            .None => {
-              e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
-              return(());
-            }
-          );
-          is_lib := match(art.kind, .StaticLibrary => true, _ => false);
-          if(!is_lib, {
-            e.exn.throw(
-              dyn(
-                `Error: dependency "${r.dependency_name}": "${r.artifact_name}" is not a static library, and only a static library can be linked into this project.`
-              )
-            );
-          });
-          _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
-          registry.register_static_library(
-            BuildArtifact(
-              kind : ArtifactKind.StaticLibrary,
-              name : art.name.clone(),
-              root : art.root.clone(),
-              target : art.target.clone(),
-              optimize : art.optimize.clone(),
-              allocator : art.allocator.clone(),
-              heap_size : art.heap_size,
-              cycle_collector : art.cycle_collector.clone(),
-              sanitize : art.sanitize.clone(),
-              emit_c_to : art.emit_c_to.clone(),
-              emit_chunks : art.emit_chunks,
-              link_libraries : art.link_libraries.clone(),
-              include_paths : art.include_paths.clone(),
-              library_paths : art.library_paths.clone(),
-              c_sources : art.c_sources.clone(),
-              c_flags : art.c_flags.clone(),
-              defines : art.defines.clone(),
-              strip : art.strip,
-              static_link : art.static_link,
-              linked_artifacts : ArrayList(String).new(),
-              linked_system_libs : art.linked_system_libs.clone(),
-              package_dir : dir.clone(),
-              package_name : r.dependency_name.clone()
-            ),
-            e.exn
-          );
-          // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
-          dep_unknown := undeclared_options(&dep_reg);
-          if(dep_unknown.len() > usize(0), {
-            dep_joined := `", "`.join(&dep_unknown);
-            e.exn.throw(
-              dyn(
-                `Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`
-              )
-            );
-          });
-          // The system libraries the dependency's build file declared, so the
-          // consumer's link line can resolve what its archive needs.
-          (si : usize) = usize(0);
-          while(si < dep_reg.system_libraries.len(), {
-            registry.system_libraries.push(dep_reg.system_libraries(si));
-            si = (si + usize(1));
-          });
+        });
+        // The system libraries the dependency's build file declared, so the
+        // consumer's link line can resolve what its archive needs.
+        (si : usize) = usize(0);
+        while(si < dep_reg.system_libraries.len(), {
+          registry.system_libraries.push(dep_reg.system_libraries(si));
+          si = (si + usize(1));
         });
       });
-      ()
-    })
+    });
+    ()
+  })
 });
 /// A dependency package's own import closure, as `name=<root file>` lines. Its
 /// manifest names its modules and its dependencies; the LOCK is the root
