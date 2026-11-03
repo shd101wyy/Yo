@@ -3,9 +3,12 @@
 # The shorthand entry `{ s }` names the capture and its source together, so
 # its copy is spelled `{ s : s.clone() }`; the run used to append to the name,
 # `{ s.clone() }`, which does not parse (E0007). The entry `{ seen }` is
-# written in the closure body (`seen.push`) and the caller reads that write
+# written in the closure body (`seen.insert`) and the caller reads that write
 # (`seen.len()` is 1): the copy is written afterwards, so the site is listed,
-# not cloned (a clone would print `4 4 0`). The expected_tree pins the
-# rewritten main.yo, and the trailing `check` proves it still evaluates.
+# not cloned (a clone would print `1 1 0`). Both captures are `BTreeMap`s
+# (still a `ref`; decision Option 1 of
+# issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+# The expected_tree pins the rewritten main.yo, and the trailing `check`
+# proves it still evaluates.
 stdout_keep=^fix:
 timeout=240

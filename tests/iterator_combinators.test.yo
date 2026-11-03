@@ -28,7 +28,7 @@ my_range :: (fn(start : i32, end_ : i32) -> MyRange)(MyRange(start, end_));
 // --- map -------------------------------------------------------------------
 test("iter.map doubles every element", {
   mut(it) := my_range(i32(1), i32(4)).map(x => (x * i32(2)));
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   while(true, {
     match(
       it.next(),
@@ -48,7 +48,7 @@ test("iter.map doubles every element", {
 // --- filter ----------------------------------------------------------------
 test("iter.filter keeps only even values", {
   mut(it) := my_range(i32(0), i32(6)).filter(x => ((x % i32(2)) == i32(0)));
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   while(true, {
     match(
       it.next(),
@@ -68,7 +68,7 @@ test("iter.filter keeps only even values", {
 // --- take / skip -----------------------------------------------------------
 test("iter.take limits the iterator", {
   mut(it) := my_range(i32(0), i32(100)).take(usize(3));
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   while(true, {
     match(
       it.next(),
@@ -85,7 +85,7 @@ test("iter.take limits the iterator", {
 });
 test("iter.skip drops leading elements", {
   mut(it) := my_range(i32(0), i32(5)).skip(usize(3));
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   while(true, {
     match(
       it.next(),
@@ -180,9 +180,9 @@ test("iter.fold over ArrayList iter with multi-arg => lambda", {
 });
 // --- for_each --------------------------------------------------------------
 test("iter.for_each with closure that captures ArrayList", {
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   src := ArrayList(i32).from([i32(1), i32(2), i32(3), i32(4)]);
-  src.into_iter().for_each(x => {
+  src.into_iter().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(4), "out has 4 elements");
@@ -190,7 +190,7 @@ test("iter.for_each with closure that captures ArrayList", {
   assert(out(usize(3)) == i32(4), "last element is 4");
 });
 test("iter.for_each accumulates side effects", {
-  total := ArrayList(i32).new();
+  mut(total) := ArrayList(i32).new();
   total.push(i32(0));
   my_range(i32(1), i32(5)).for_each(x => {
     cur := total(usize(0));
@@ -230,7 +230,7 @@ test("iter.filter then map then count", {
 // --- combinators on ArrayList iter ----------------------------------------
 test("ArrayList.into_iter combinators", {
   make_list :: (fn() -> ArrayList(i32))({
-    list := ArrayList(i32).new();
+    mut(list) := ArrayList(i32).new();
     list.push(i32(1));
     list.push(i32(2));
     list.push(i32(3));
@@ -271,8 +271,8 @@ test("iter.sum, iter.min, iter.max", {
 // --- chunk 3: new combinators ------------------------------------------------
 test("iter.chain yields first then second", {
   it := my_range(i32(1), i32(3)).chain(my_range(i32(10), i32(12)));
-  out := ArrayList(i32).new();
-  it.for_each(x => {
+  mut(out) := ArrayList(i32).new();
+  it.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(4), "4 chained");
@@ -296,8 +296,8 @@ test("iter.filter_map maps and filters in one pass", {
       true => Option(i32).None
     )
   );
-  out := ArrayList(i32).new();
-  halved.for_each(x => {
+  mut(out) := ArrayList(i32).new();
+  halved.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(4), "0,2,4,6 kept");
@@ -368,7 +368,7 @@ test("iter.peekable clones a Copy element and inner iterator", {
 });
 test("iter.peekable clones a Clone-but-not-Copy element (Option(A) field)", {
   mut(p) := ElemIter(i32(1), i32(3)).peekable();
-  first := p.peek().unwrap();
+  first := p.peek_cloned().unwrap();
   assert(first.v == i32(1), "peeked the first element");
   mut(q) := p.clone();
   a := q.next().unwrap();
@@ -411,8 +411,8 @@ test("map then for_each — self-marker must not clobber the concrete F binding"
   // inside for_each's where-check wrote the impl's F self-marker over
   // for_each's already-resolved concrete closure binding
   // (issues/fixed/varbound-combinator-receiver-impl-match.md).
-  out := ArrayList(i32).new();
-  my_range(i32(1), i32(4)).map(x => (x * i32(2))).for_each(x => {
+  mut(out) := ArrayList(i32).new();
+  my_range(i32(1), i32(4)).map(x => (x * i32(2))).for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(3), "3 mapped elements");
@@ -420,7 +420,7 @@ test("map then for_each — self-marker must not clobber the concrete F binding"
 });
 // --- chunk 4: Range iteration (plans/archive/STD_API_AUDIT.md D3.5) -----------------
 test("for over an integer range literal", {
-  total := ArrayList(i32).new();
+  mut(total) := ArrayList(i32).new();
   total.push(i32(0));
   for(i32(0) .. i32(5), i => {
     cur := total(usize(0));
@@ -468,13 +468,13 @@ test("every integer type forms and iterates a range", {
 // the minimal trigger):
 // issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md.
 __ii_sum :: (
-  fn(generic(C : Type), c : &C, where(C <: IntoIterator(Item := i32))) -> i32
+  fn(generic(C : Type), c : C, where(C <: IntoIterator(Item := i32))) -> i32
 )(
   c.into_iter().fold(i32(0), (acc, x) => (acc + x))
 );
 test("IntoIterator bound accepts ArrayList and Array", {
   xs := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
-  assert(__ii_sum(&xs) == i32(6), "ArrayList through the Item-bound generic");
+  assert(__ii_sum(xs) == i32(6), "ArrayList through the Item-bound generic");
   assert(__ii_sum([i32(4), i32(5)]) == i32(9), "Array through the Item-bound generic");
 });
 // --- B7b: consuming iteration (plans/VALUES_BY_DEFAULT.md decision 39) -------
@@ -545,13 +545,13 @@ test("B7b: a combinator chain owns its move-only source", {
 });
 // --- D3.4: rev / DoubleEndedIterator (plans/archive/STD_API_AUDIT.md) ---------------
 test("rev on integer ranges", {
-  out := ArrayList(i32).from([i32(0),]);
-  (i32(0) .. i32(5)).rev().for_each(x => {
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(5)).rev().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 4, 3, 2, 1, 0]`, "half-open range backwards");
-  inc := ArrayList(i32).from([i32(0),]);
-  (i32(1) ..= i32(4)).rev().for_each(x => {
+  mut(inc) := ArrayList(i32).from([i32(0),]);
+  (i32(1) ..= i32(4)).rev().for_each({ &mut inc }(x) => {
     inc.push(x);
   });
   assert(inc.to_string() == `[0, 4, 3, 2, 1]`, "inclusive range backwards");
@@ -564,13 +564,13 @@ test("rev on a range terminates at the type's MIN", {
 });
 test("rev on an ArrayList and on an Array", {
   xs := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
-  got := ArrayList(i32).from([i32(0),]);
-  xs.into_iter().rev().for_each(x => {
+  mut(got) := ArrayList(i32).from([i32(0),]);
+  xs.into_iter().rev().for_each({ &mut got }(x) => {
     got.push(x);
   });
   assert(got.to_string() == `[0, 3, 2, 1]`, "ArrayList backwards");
-  arr_out := ArrayList(i32).from([i32(0),]);
-  [i32(7), i32(8)].into_iter().rev().for_each(x => {
+  mut(arr_out) := ArrayList(i32).from([i32(0),]);
+  [i32(7), i32(8)].into_iter().rev().for_each({ &mut arr_out }(x) => {
     arr_out.push(x);
   });
   assert(arr_out.to_string() == `[0, 8, 7]`, "Array backwards");
@@ -579,15 +579,15 @@ test("rev on an ArrayList and on an Array", {
 // to mint two C type identities for one logical type and fail at the C compiler;
 // issues/fixed/nested-same-adaptor-instantiation-identity-split.md.
 test("rev of rev is the identity", {
-  out := ArrayList(i32).from([i32(0),]);
-  (i32(0) .. i32(4)).rev().rev().for_each(x => {
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(4)).rev().rev().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 0, 1, 2, 3]`, "double rev restores source order");
 });
 test("three levels of rev", {
-  out := ArrayList(i32).from([i32(0),]);
-  (i32(0) .. i32(4)).rev().rev().rev().for_each(x => {
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(4)).rev().rev().rev().for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 3, 2, 1, 0]`, "triple rev reverses again");
@@ -596,8 +596,8 @@ test("self-nesting through a VARIABLE-BOUND receiver", {
   // The chained form re-specializes on demand; the variable-bound form keeps
   // the stamp, and only the stamp was repaired — so both are covered.
   it := (i32(0) .. i32(4)).rev().rev();
-  out := ArrayList(i32).from([i32(0),]);
-  it.for_each(x => {
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  it.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 0, 1, 2, 3]`, "variable-bound double rev");
@@ -728,9 +728,9 @@ impl(
   )(_UserFlatMap(Self, J, F)(_outer : self, _f : f, _cur : .None))
 );
 test("a variable-bound doubly-derived combinator (user flat_map) is still an Iterator", {
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   it := my_range(i32(1), i32(4))._user_flat_map(x => my_range(i32(0), x));
-  it.for_each(x => {
+  it.for_each({ &mut out }(x) => {
     out.push(x);
   });
   assert(out.len() == usize(6), "0 | 0 1 | 0 1 2");

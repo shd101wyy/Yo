@@ -186,7 +186,7 @@ impl(
     block_size : (fn() -> usize)(usize(64)),
     finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
       d := self.finish();
-      out := ArrayList(u8).with_capacity(usize(20));
+      mut(out) := ArrayList(u8).with_capacity(usize(20));
       (mut(fbi) : usize) = usize(0);
       while(fbi < usize(20), fbi = (fbi + usize(1)), {
         out.push(d(fbi));
@@ -213,7 +213,7 @@ sha1 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(20)))(
 /// spelling. Same collision caveat as `sha1`.
 sha1_hex :: (fn(data : &ArrayList(u8)) -> String)({
   digest := sha1(data);
-  bytes := ArrayList(u8).with_capacity(usize(20));
+  mut(bytes) := ArrayList(u8).with_capacity(usize(20));
   mut(i) := usize(0);
   while(i < usize(20), i = (i + usize(1)), {
     bytes.push(digest(i));

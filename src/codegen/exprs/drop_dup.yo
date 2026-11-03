@@ -171,7 +171,7 @@ resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValu
     Rc(.Func({ param_types : pts, meta : __fm1 })) => {
       pls := Rc.clone(__fm1.*.param_labels);
       n := pls.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           pls.get(i),
@@ -234,7 +234,7 @@ _closure_value_type :: (fn(t : &TypeValue) -> TypeValue)({
 /// nested field walks (array loops, tuple temps) land in the function.
 _value_enum_rc_fn :: (fn(concrete_type : &TypeValue, is_drop : bool, context : &FunctionGenerationContext) -> String)({
   c_type := get_type_string(concrete_type, &context.base);
-  fn_name := String.from(if(is_drop, "__yo_venum_drop_", "__yo_venum_dup_"));
+  mut(fn_name) := String.from(if(is_drop, "__yo_venum_drop_", "__yo_venum_dup_"));
   fn_name.push_string(sanitize_for_c_identifier(&c_type, false));
   cg := context.base;
   if(cg.value_enum_rc_fns.contains(fn_name.clone()), {
@@ -252,14 +252,14 @@ _value_enum_rc_fn :: (fn(concrete_type : &TypeValue, is_drop : bool, context : &
     Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       scratch.emit_string_line(`switch (${value_code.clone()}.tag) {`);
       nv := variant_names.len();
-      (vi : usize) = usize(0);
+      (mut(vi) : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+        vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
         fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
         nf := fields.len();
-        (has_rc : bool) = false;
-        (ci : usize) = usize(0);
+        (mut(has_rc) : bool) = false;
+        (mut(ci) : usize) = usize(0);
         while(ci < nf, {
           match(
             fields.get(ci),
@@ -273,12 +273,12 @@ _value_enum_rc_fn :: (fn(concrete_type : &TypeValue, is_drop : bool, context : &
         if(has_rc, {
           tag_c := get_enum_variant_c_name(concrete_type, vname.clone(), &context.base);
           scratch.emit_string_line(`  case ${tag_c}: {`);
-          (fi : usize) = usize(0);
+          (mut(fi) : usize) = usize(0);
           while(fi < nf, {
             match(
               fields.get(fi),
               .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-                flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+                flabel := match(labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
                 fname := sanitize_for_c_identifier(&flabel, false);
                 access := `${value_code.clone()}.data.${c_variant_member_name(vname.clone())}.${fname}`;
                 if(is_drop, {
@@ -317,11 +317,11 @@ _value_enum_rc_fn :: (fn(concrete_type : &TypeValue, is_drop : bool, context : &
     saved.emit_declaration_string(&scratch.declarations);
   });
   cg.value_enum_rc_protos.push_string(`static inline void ${fn_name.clone()}(void* __yo_p);\n`);
-  def := `static inline void ${fn_name.clone()}(void* __yo_p) {\n  ${c_type}* __yo_v = (${c_type}*)__yo_p;\n`;
+  mut(def) := `static inline void ${fn_name.clone()}(void* __yo_p) {\n  ${c_type}* __yo_v = (${c_type}*)__yo_p;\n`;
   // Indent the body one level: emitted C closes a file-scope body with `}`
   // at column 0 and indents everything inside it (chunk assembly relies on it).
   body_lines := scratch.code.split("\n");
-  (bi : usize) = usize(0);
+  (mut(bi) : usize) = usize(0);
   while(bi < body_lines.len(), {
     match(
       body_lines.get_cloned(bi),
@@ -373,7 +373,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     // `true => ""` no-op and its deferred drop was silently skipped everywhere
     // (the 96-byte sync_fut_t leak per io.await outside a state machine).
     (is_some_type(&concrete_type) && type_implements_future(&concrete_type)) => {
-      out := String.from("if (");
+      mut(out) := String.from("if (");
       out.push_string(value_code.clone());
       out.push_str(" != NULL) { __yo_decr_rc((void*)");
       out.push_string(value_code.clone());
@@ -386,16 +386,16 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
         if(length_var.len() > usize(0), {
           return(String.from("/* Error: array has non-constant length */"));
         });
-        hdr := String.from("for (size_t i = 0; i < ");
+        mut(hdr) := String.from("for (size_t i = 0; i < ");
         hdr.push_string(length.to_string());
         hdr.push_str("; i++) {");
         em.emit_string_line(&hdr);
-        ec := String.from("(");
+        mut(ec) := String.from("(");
         ec.push_string(value_code.clone());
         ec.push_str(").data[i]");
         elem_drop := recur(&ec, &element, context);
         if(elem_drop.len() > usize(0), {
-          line := String.from("  ");
+          mut(line) := String.from("  ");
           line.push_string(&elem_drop);
           line.push_str(";");
           em.emit_string_line(&line);
@@ -409,18 +409,18 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
       concrete_type,
       Rc(.Tuple({ field_types : fts })) => {
         n := fts.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, {
           match(
             fts.get(i),
             .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-              fc := String.from("(");
+              mut(fc) := String.from("(");
               fc.push_string(value_code.clone());
               fc.push_str(")._");
               fc.push_string(i.to_string());
               fd := recur(&fc, &ft, context);
               if(fd.len() > usize(0), {
-                line := fd;
+                mut(line) := fd;
                 line.push_str(";");
                 em.emit_string_line(&line);
               });
@@ -436,7 +436,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     // Through the vtable: the payload's own RC functions
     // (`__yo_dyn_release`, functions/gc_runtime.yo).
     is_dyn_type(&concrete_type) => {
-      out := String.from("__yo_dyn_release((void*)(");
+      mut(out) := String.from("__yo_dyn_release((void*)(");
       out.push_string(value_code.clone());
       out.push_str(").data, (const void*)(");
       out.push_string(value_code.clone());
@@ -444,13 +444,13 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
       out
     },
     is_atomic_reference_struct_type(&concrete_type) => {
-      out := String.from("__yo_decr_rc_atomic((void*)(");
+      mut(out) := String.from("__yo_decr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
       out
     },
     is_reference_struct_type(&concrete_type) => {
-      out := String.from("__yo_decr_rc((void*)(");
+      mut(out) := String.from("__yo_decr_rc((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
       out
@@ -460,13 +460,13 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     // methods live in a side-registry, not on the type, so RC lowers the
     // same direct way it already does for ref-structs — identical effect.)
     is_atomic_reference_enum_type(&concrete_type) => {
-      out := String.from("__yo_decr_rc_atomic((void*)(");
+      mut(out) := String.from("__yo_decr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
       out
     },
     is_reference_enum_type(&concrete_type) => {
-      out := String.from("__yo_decr_rc((void*)(");
+      mut(out) := String.from("__yo_decr_rc((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
       out
@@ -494,7 +494,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
       }, {
         inner_drop := recur(value_code.clone(), &inner, context);
         if(inner_drop.len() > usize(0), {
-          line := String.from("if ((");
+          mut(line) := String.from("if ((");
           line.push_string(value_code.clone());
           line.push_str(") != NULL) { ");
           line.push_string(&inner_drop);
@@ -536,7 +536,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     is_struct_type(&concrete_type) => match(
       get_drop_function_for_type(&concrete_type, context),
       .Some(fn) => {
-        out := fn;
+        mut(out) := fn;
         out.push_str("(");
         out.push_string(value_code.clone());
         out.push_str(")");
@@ -544,18 +544,18 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
       },
       .None => {
         vs_rfs := get_runtime_struct_fields(&concrete_type);
-        (vs_fi : usize) = usize(0);
+        (mut(vs_fi) : usize) = usize(0);
         while(vs_fi < vs_rfs.len(), {
           match(
             vs_rfs.get(vs_fi),
             .Some(vs_f) => if(type_contains_rc_cell_or_move_only(&vs_f.ty), {
-              fref := String.from("(");
+              mut(fref) := String.from("(");
               fref.push_string(value_code.clone());
               fref.push_str(").");
               fref.push_string(sanitize_for_c_identifier(vs_f.label.clone(), false));
               fd := recur(&fref, &vs_f.ty, context);
               if(fd.len() > usize(0), {
-                line := fd;
+                mut(line) := fd;
                 line.push_str(";");
                 em.emit_string_line(&line);
               });
@@ -582,7 +582,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     // balance now that the drop arm fires — a future copied into a second
     // owner gets TWO scope-end drops, so the copy must carry its +1.
     (is_some_type(&concrete_type) && type_implements_future(&concrete_type)) => {
-      out := String.from("__yo_incr_rc((void*)");
+      mut(out) := String.from("__yo_incr_rc((void*)");
       out.push_string(value_code.clone());
       out.push_str(")");
       out
@@ -596,14 +596,14 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
         temp_var := fresh_local_name(String.from("temp_dup_"), &context.base.current_function_name);
         loop_var := fresh_local_name(String.from("i_"), &context.base.current_function_name);
         array_c_name := get_type_string(&concrete_type, &context.base);
-        decl := array_c_name;
+        mut(decl) := array_c_name;
         decl.push_str(" ");
         decl.push_string(temp_var.clone());
         decl.push_str(" = ");
         decl.push_string(value_code.clone());
         decl.push_str(";");
         em.emit_string_line(&decl);
-        hdr := String.from("for (size_t ");
+        mut(hdr) := String.from("for (size_t ");
         hdr.push_string(loop_var.clone());
         hdr.push_str(" = 0; ");
         hdr.push_string(loop_var.clone());
@@ -613,12 +613,12 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
         hdr.push_string(loop_var.clone());
         hdr.push_str("++) {");
         em.emit_string_line(&hdr);
-        elem_ref := temp_var.clone();
+        mut(elem_ref) := temp_var.clone();
         elem_ref.push_str(".data[");
         elem_ref.push_string(loop_var.clone());
         elem_ref.push_str("]");
         elem_dup := recur(elem_ref.clone(), &element, context);
-        asn := String.from("  ");
+        mut(asn) := String.from("  ");
         asn.push_string(&elem_ref);
         asn.push_str(" = ");
         asn.push_string(&elem_dup);
@@ -634,7 +634,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
       Rc(.Tuple({ field_types : fts })) => {
         temp_var := fresh_local_name(String.from("temp_dup_tuple_"), &context.base.current_function_name);
         tuple_c_name := get_type_string(&concrete_type, &context.base);
-        decl := tuple_c_name;
+        mut(decl) := tuple_c_name;
         decl.push_str(" ");
         decl.push_string(temp_var.clone());
         decl.push_str(" = ");
@@ -642,16 +642,16 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
         decl.push_str(";");
         em.emit_string_line(&decl);
         n := fts.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, {
           match(
             fts.get(i),
             .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-              fref := temp_var.clone();
+              mut(fref) := temp_var.clone();
               fref.push_str("._");
               fref.push_string(i.to_string());
               fdup := recur(fref.clone(), &ft, context);
-              asn := fref;
+              mut(asn) := fref;
               asn.push_str(" = ");
               asn.push_string(&fdup);
               asn.push_str(";");
@@ -667,7 +667,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     ),
     is_dyn_type(&concrete_type) => {
       dyn_c_name := get_type_string(&concrete_type, &context.base);
-      out := String.from("((");
+      mut(out) := String.from("((");
       out.push_string(&dyn_c_name);
       out.push_str("){ .data = __yo_dyn_retain((void*)(");
       out.push_string(value_code.clone());
@@ -680,7 +680,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     },
     is_atomic_reference_struct_type(&concrete_type) => {
       obj_c_name := get_type_string(&concrete_type, &context.base);
-      out := String.from("((");
+      mut(out) := String.from("((");
       out.push_string(&obj_c_name);
       out.push_str(")__yo_incr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
@@ -689,7 +689,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     },
     is_reference_struct_type(&concrete_type) => {
       obj_c_name := get_type_string(&concrete_type, &context.base);
-      out := String.from("((");
+      mut(out) := String.from("((");
       out.push_string(&obj_c_name);
       out.push_str(")__yo_incr_rc((void*)(");
       out.push_string(value_code.clone());
@@ -700,7 +700,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     // return the same handle pointer, exactly like reference-semantics structs.
     is_atomic_reference_enum_type(&concrete_type) => {
       en_c_name := get_type_string(&concrete_type, &context.base);
-      out := String.from("((");
+      mut(out) := String.from("((");
       out.push_string(&en_c_name);
       out.push_str(")__yo_incr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
@@ -709,7 +709,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     },
     is_reference_enum_type(&concrete_type) => {
       en_c_name := get_type_string(&concrete_type, &context.base);
-      out := String.from("((");
+      mut(out) := String.from("((");
       out.push_string(&en_c_name);
       out.push_str(")__yo_incr_rc((void*)(");
       out.push_string(value_code.clone());
@@ -744,8 +744,8 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     // value struct with no RC field falls through to a bare value copy.
     is_struct_type(&concrete_type) => {
       rfs := get_runtime_struct_fields(&concrete_type);
-      (has_rc : bool) = false;
-      (ci : usize) = usize(0);
+      (mut(has_rc) : bool) = false;
+      (mut(ci) : usize) = usize(0);
       while(ci < rfs.len(), {
         match(
           rfs.get(ci),
@@ -761,23 +761,23 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
         true => {
           temp_var := fresh_local_name(String.from("temp_dup_struct_"), &context.base.current_function_name);
           struct_c_name := get_type_string(&concrete_type, &context.base);
-          decl := struct_c_name;
+          mut(decl) := struct_c_name;
           decl.push_str(" ");
           decl.push_string(temp_var.clone());
           decl.push_str(" = ");
           decl.push_string(value_code.clone());
           decl.push_str(";");
           em.emit_string_line(&decl);
-          (fi : usize) = usize(0);
+          (mut(fi) : usize) = usize(0);
           while(fi < rfs.len(), {
             match(
               rfs.get(fi),
               .Some(f) => if(type_contains_rc_cell_or_move_only(&f.ty), {
-                fref := temp_var.clone();
+                mut(fref) := temp_var.clone();
                 fref.push_str(".");
                 fref.push_string(sanitize_for_c_identifier(f.label.clone(), false));
                 fdup := recur(fref.clone(), &f.ty, context);
-                asn := fref;
+                mut(asn) := fref;
                 asn.push_str(" = ");
                 asn.push_string(&fdup);
                 asn.push_str(";");
@@ -794,7 +794,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     is_enum_type(&concrete_type) => match(
       get_dup_function_for_type(&concrete_type, context),
       .Some(fn) => {
-        out := fn;
+        mut(out) := fn;
         out.push_str("(");
         out.push_string(value_code.clone());
         out.push_str(")");
@@ -815,7 +815,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
         // A `Box` is move-only, so the evaluator never asks to copy an
         // `Option(Box(T))`; an incr on its cell would write its owner prefix.
         .Some(_np_inner) => if(is_unique_box_type(&_np_inner), String.from("/* ERROR: an Option(Box(T)) is never duplicated */"), {
-          np_line := String.from("if ((");
+          mut(np_line) := String.from("if ((");
           np_line.push_string(value_code.clone());
           np_line.push_str(") != NULL) { __yo_incr_rc((void*)(");
           np_line.push_string(value_code.clone());
@@ -828,7 +828,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
         // the temp (the enum mirror of the value-struct dup temp pattern below).
         .None => {
           ed_temp := fresh_local_name(String.from("temp_dup_enum_"), &context.base.current_function_name);
-          ed_decl := get_type_string(&concrete_type, &context.base);
+          mut(ed_decl) := get_type_string(&concrete_type, &context.base);
           ed_decl.push_str(" ");
           ed_decl.push_string(ed_temp.clone());
           ed_decl.push_str(" = ");
@@ -921,8 +921,8 @@ _looks_like_minted_temp :: (fn(cn : &String) -> bool)({
       if(start >= n, {
         return(false);
       });
-      (i : usize) = start;
-      (ok : bool) = true;
+      (mut(i) : usize) = start;
+      (mut(ok) : bool) = true;
       while(i < n, {
         b := cn.byte_at(i);
         if(!((b >= u8(48)) && (b <= u8(57))), {
@@ -947,7 +947,7 @@ has_pending_emittable_drop :: (fn(expr : &AstExpr, context : &FunctionGeneration
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.deferred_drop_expressions,
+      &ei.deferred_drop_expressions,
       .Some(drops) => {
         (found : bool) = false;
         (i : usize) = usize(0);
@@ -999,7 +999,7 @@ generate_deferred_drop_expressions :: (
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.deferred_drop_expressions,
+      &ei.deferred_drop_expressions,
       .Some(drops) => {
         em := context.base.emitter;
         n := drops.len();
@@ -1153,7 +1153,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                   dup_result_decl := match(
                     context.base.get_expr_info(&dup_expr),
                     .Some(ddei) => match(
-                      ddei.variable_name,
+                      &ddei.variable_name,
                       .Some(ddvn) => {
                         ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env));
                         if(!(ddtn == code) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty, &ddvn, &context.base)), Option(String).None)
@@ -1164,7 +1164,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                   );
                   line := indent.clone();
                   match(
-                    dup_result_decl,
+                    &dup_result_decl,
                     .Some(dr_decl) => {
                       line.push_string(&dr_decl);
                       line.push_str(" = ");
@@ -1181,9 +1181,9 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                     match(
                       context.base.get_expr_info(&dup_expr),
                       .Some(sei) => match(
-                        sei.variable_name,
+                        &sei.variable_name,
                         .Some(svn) => match(
-                          context.state_machine_variables,
+                          &context.state_machine_variables,
                           .Some(smv) => match(
                             sm_slot_of(ast_expr_id(&dup_expr), &sei.env, svn.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
                             .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &svn, Option(Environment).Some(sei.env))};`),
@@ -1234,7 +1234,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         (fallback_code_2 : String) = fallback_code.clone();
         if(!src_is_closure_ctor, {
           match(
-            ei.variable_name,
+            &ei.variable_name,
             .Some(src_vn) => {
               // A self-named atom (its `variable_name` is the variable itself)
               // is no temp: its value is its own rendering, which can be a
@@ -1294,7 +1294,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
             match(
               context.base.get_expr_info(&dup_expr),
               .Some(dei) => match(
-                dei.variable_name,
+                &dei.variable_name,
                 .Some(dvn) => if(
                   type_key(&dei.ty) == type_key(&ei.ty),
                   Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env))),
@@ -1316,14 +1316,14 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         // (materialize-then-dup), so the dup references a real local and the temp is
         // the dup'd value the caller uses. Safe: the field access is evaluated once.
         dup_target := match(dups.get(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(&de), .None => Option(String).None);
-        t_name := sanitize_for_c_identifier(match(dup_target, .Some(s) => s.clone(), .None => String.from("")), false);
+        t_name := sanitize_for_c_identifier(match(&dup_target, .Some(s) => s.clone(), .None => String.from("")), false);
         // Only materialize when the source is NOT already materialized into the dup
         // target temp: if the caller's fallback code already IS that temp (some paths
         // declare it before this call — e.g. `set`'s old-value extraction), declaring it
         // again would redefine it. When the fallback is the raw field access (`get`'s
         // `Some(bucket.value)`), the temp is a never-declared phantom → materialize.
         needs_materialize := match(
-          dup_result_name,
+          &dup_result_name,
           .None => (ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some() && (fallback_code_2 != t_name)),
           .Some(_) => false
         );
@@ -1392,7 +1392,7 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &Fu
   bei.variable_name = saved_arm_vn;
   (final_code : String) = raw_code.clone();
   match(
-    bei.variable_name,
+    &bei.variable_name,
     .Some(bvn) => {
       btv := get_variable_name_for_codegen_at(ast_expr_id(body_expr), bvn.clone(), Option(Environment).Some(bei.env));
       // Self-named atom: its value is its own rendering (see
@@ -1422,7 +1422,7 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &Fu
     .Some(bdup0) => match(
       context.base.get_expr_info(&bdup0),
       .Some(bdup_info) => match(
-        bdup_info.variable_name,
+        &bdup_info.variable_name,
         .Some(dvn) => {
           dtv := get_variable_name_for_codegen_at(ast_expr_id(&bdup0), dvn.clone(), Option(Environment).Some(bdup_info.env));
           dem := context.base.emitter;
@@ -1446,7 +1446,7 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &Fu
   );
   if(!dup_named, {
     match(
-      bei.variable_name,
+      &bei.variable_name,
       .Some(_) => {
         fdem := context.base.emitter;
         fdline := indent.clone();
@@ -1490,7 +1490,7 @@ generate_arg_code_with_deferred_dups :: (
             match(
               context.base.get_expr_info(&ix_dup),
               .Some(ix_dei) => match(
-                ix_dei.variable_name,
+                &ix_dei.variable_name,
                 .Some(ix_dvn) => get_variable_name_for_codegen_at(ast_expr_id(&ix_dup), &ix_dvn, Option(Environment).Some(ix_dei.env)),
                 .None => base_code
               ),
@@ -1545,7 +1545,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, ind
                 .Some(vn) => {
                   cn := sanitize_for_c_identifier(vn.clone(), false);
                   in_slot := match(
-                    context.state_machine_variables,
+                    &context.state_machine_variables,
                     .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => ast_expr_id(&ta), .None => ast_expr_id(expr)), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some()),
                     .None => false
                   );

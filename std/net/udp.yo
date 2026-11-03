@@ -217,7 +217,7 @@ impl(
   recv_bytes : (fn(self : &Self, max : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     io.async({ &self, max }(e : IoExn) => {
       fd := self._cell._fd;
-      out := ArrayList(u8).with_capacity(max);
+      mut(out) := ArrayList(u8).with_capacity(max);
       (mut(i) : usize) = usize(0);
       while(i < max, i = (i + usize(1)), {
         out.push(u8(0));
@@ -235,7 +235,7 @@ impl(
   recv_from_bytes : (fn(self : &Self, max : usize, io : Io) -> Impl(Future(Tuple(ArrayList(u8), SocketAddr), IoExn)))(
     io.async({ &self, max, io }(e : IoExn) => {
       fd := self._cell._fd;
-      out := ArrayList(u8).with_capacity(max);
+      mut(out) := ArrayList(u8).with_capacity(max);
       (mut(i) : usize) = usize(0);
       while(i < max, i = (i + usize(1)), {
         out.push(u8(0));

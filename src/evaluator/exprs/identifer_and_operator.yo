@@ -228,12 +228,12 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // Variable lookup
   // ------------------------------------------------------------------
-  identifier_string := token.value.*;
+  identifier_string := token.value.*.clone();
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
     eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
   });
-  found_frame_idx_out := ArrayList(usize).new();
+  mut(found_frame_idx_out) := ArrayList(usize).new();
   variable := match(
     find_variable_in_env_at(env, &identifier_string, &mut found_frame_idx_out),
     .Some(v) => {
@@ -306,8 +306,8 @@ evaluate_identifier_and_operator :: (
         // piece of advice means the rename is no longer the unique fix, and
         // that branch clears the repair for exactly that reason.
         not_found_suggestion := suggest_name(&identifier_string, env_candidate_names(env));
-        (not_found_repair : Option(String)) = not_found_suggestion.clone();
-        not_found_help := match(
+        (mut(not_found_repair) : Option(String)) = not_found_suggestion.clone();
+        mut(not_found_help) := match(
           not_found_suggestion,
           .Some(h) => Option(String).Some(`did you mean "${h}"?`),
           .None => Option(String).None
@@ -319,15 +319,15 @@ evaluate_identifier_and_operator :: (
         // rename candidate AND an import candidate, or two exporting modules,
         // are two fixes: help only, `yo fix` never picks.
         std_exporters := lookup_std_exporters(&identifier_string);
-        (import_repair : Option(String)) = Option(String).None;
+        (mut(import_repair) : Option(String)) = Option(String).None;
         if(std_exporters.len() > usize(0), {
-          first_spec := match(std_exporters.get(usize(0)), .Some(s0) => s0, .None => String.new());
+          first_spec := match(std_exporters.get_cloned(usize(0)), .Some(s0) => s0, .None => String.new());
           import_line := `{ ${identifier_string} } :: import("${first_spec}");`;
-          (spec_list : String) = String.new();
-          (sxi : usize) = usize(0);
+          (mut(spec_list) : String) = String.new();
+          (mut(sxi) : usize) = usize(0);
           while(sxi < std_exporters.len(), {
             match(
-              std_exporters.get(sxi),
+              std_exporters.get_cloned(sxi),
               .Some(sx) => {
                 if(sxi > usize(0), {
                   spec_list.push_str(", ");
@@ -363,7 +363,7 @@ evaluate_identifier_and_operator :: (
         // repair cannot print a type argument, so a closure or `.None`
         // argument then meets E0613's written-arguments help; v0.2.73's
         // `--migrate handle-ctors` writes it.
-        (not_found_repair_label : Option(String)) = Option(String).None;
+        (mut(not_found_repair_label) : Option(String)) = Option(String).None;
         match(
           _deleted_handle_ctor(&identifier_string),
           .Some(ctor) => {
@@ -411,7 +411,7 @@ evaluate_identifier_and_operator :: (
                     &token,
                     `Variable "${identifier_string}" not found.`,
                     &not_found_help,
-                    Span(path : token.module_path.*, row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
+                    Span(path : token.module_path.*.clone(), row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
                     `${line}\n`,
                     `add ${line}`
                   ),
@@ -512,7 +512,7 @@ evaluate_identifier_and_operator :: (
         sub_ctx.kind,
         .FunctionBody => {
           match(
-            ctx.captured_variables,
+            &ctx.captured_variables,
             .Some(_) => {
               closure_frame_level := sub_ctx.eval_env.frame_count();
               // Generation-safe INNER test: `variable.frame_level` is stamped
@@ -534,7 +534,7 @@ evaluate_identifier_and_operator :: (
               // per-identifier frames x vars name RESCAN here was a top
               // self-time entry of the stage2-emit `sample` (with its
               // String == calls the #2 entry).
-              (cap_is_inner : bool) = false;
+              (mut(cap_is_inner) : bool) = false;
               match(
                 found_frame_idx_out.get(usize(0)),
                 .Some(cap_found_fi) => if(cap_found_fi >= closure_frame_level, {
@@ -563,7 +563,7 @@ evaluate_identifier_and_operator :: (
                 // eval's frames): record it with a level INSIDE the current
                 // generation so the enrichment/access-rewriting math stays
                 // in range.
-                (cap_rec_level : usize) = usize(0);
+                (mut(cap_rec_level) : usize) = usize(0);
                 if(closure_frame_level > usize(0), {
                   cap_rec_level = (closure_frame_level - usize(1));
                 });
@@ -582,7 +582,7 @@ evaluate_identifier_and_operator :: (
         },
         .AsyncBlock => {
           match(
-            ctx.captured_variables,
+            &ctx.captured_variables,
             .Some(_) => {
               async_frame_level := sub_ctx.eval_env.frame_count();
               // Generation-safe INNER test — the SAME repair the FunctionBody
@@ -598,7 +598,7 @@ evaluate_identifier_and_operator :: (
               // A variable is inner iff the frame the lookup FOUND it at is
               // >= async_frame_level in the CURRENT env (same generation by
               // construction).
-              (ab_is_inner : bool) = false;
+              (mut(ab_is_inner) : bool) = false;
               match(
                 found_frame_idx_out.get(usize(0)),
                 .Some(ab_found_fi) => if(ab_found_fi >= async_frame_level, {
@@ -621,7 +621,7 @@ evaluate_identifier_and_operator :: (
                 // inside the current generation so the enrichment /
                 // access-rewriting math stays in range (as in the
                 // FunctionBody arm).
-                (ab_rec_level : usize) = usize(0);
+                (mut(ab_rec_level) : usize) = usize(0);
                 if(async_frame_level > usize(0), {
                   ab_rec_level = (async_frame_level - usize(1));
                 });
@@ -670,9 +670,9 @@ _read_after_move_is_checked :: (fn(variable : &Variable, token : &Token, env : &
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.
 _first_code_row :: (fn(source : &String) -> usize)({
   lines := source.split(String.from("\n"));
-  (r : usize) = usize(0);
+  (mut(r) : usize) = usize(0);
   while(r < lines.len(), {
-    t := match(lines.get(r), .Some(l) => l.trim(), .None => String.new());
+    t := match(lines.get_cloned(r), .Some(l) => l.trim(), .None => String.new());
     if((t.len() > usize(0)) && !t.starts_with(String.from("//")), {
       return(r);
     });

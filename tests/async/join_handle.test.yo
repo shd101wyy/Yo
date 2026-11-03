@@ -325,7 +325,7 @@ test("a dropped handle detaches its task, which runs to the end", {
 // a method call on an element of a handle list borrowed it through a copy
 // whose drop released the task a second time.
 test("a handle list: borrow elements in place, pop to own one", {
-  hs := ArrayList(JoinHandle(i32)).new();
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
   hs.push(io.spawn(io.async((io : Io) => i32(1)), io));
   hs.push(
     io.spawn(

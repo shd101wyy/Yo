@@ -144,7 +144,7 @@ _variant_to_json :: (fn(v : &DocVariant) -> JsonValue)({
   vals := ArrayList(JsonValue).new();
   _obj_add_str(&mut keys, &mut vals, String.from("name"), v.name.clone());
   match(
-    v.fields,
+    &v.fields,
     .Some(fields) => {
       _obj_add(&mut keys, &mut vals, String.from("fields"), _fields_to_json(&fields));
     },
@@ -180,7 +180,7 @@ _impl_to_json :: (fn(im : &DocImpl) -> JsonValue)({
   _obj_add_opt_str(&mut keys, &mut vals, String.from("traitName"), &im.trait_name);
   _obj_add(&mut keys, &mut vals, String.from("methodNames"), _str_array(&im.method_names));
   match(
-    im.associated_types,
+    &im.associated_types,
     .Some(assocs) => {
       a_vals := ArrayList(JsonValue).new();
       (i : usize) = usize(0);
@@ -212,7 +212,7 @@ _function_to_json :: (fn(f : &DocFunction) -> JsonValue)({
   _obj_add(&mut keys, &mut vals, String.from("parameters"), _params_to_json(&f.parameters));
   _obj_add_str(&mut keys, &mut vals, String.from("returnType"), f.return_type.clone());
   match(
-    f.type_params,
+    &f.type_params,
     .Some(tp) => {
       _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp));
     },
@@ -256,21 +256,21 @@ _type_to_json :: (fn(t : &DocType) -> JsonValue)({
   _obj_add_str(&mut keys, &mut vals, String.from("kind"), doc_item_kind_to_string(t.kind));
   _obj_add_str(&mut keys, &mut vals, String.from("signature"), t.signature.clone());
   match(
-    t.type_params,
+    &t.type_params,
     .Some(tp) => {
       _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp));
     },
     .None => ()
   );
   match(
-    t.fields,
+    &t.fields,
     .Some(fields) => {
       _obj_add(&mut keys, &mut vals, String.from("fields"), _fields_to_json(&fields));
     },
     .None => ()
   );
   match(
-    t.variants,
+    &t.variants,
     .Some(variants) => {
       v_vals := ArrayList(JsonValue).new();
       (i : usize) = usize(0);
@@ -291,7 +291,7 @@ _type_to_json :: (fn(t : &DocType) -> JsonValue)({
   _obj_add(&mut keys, &mut vals, String.from("methods"), _functions_to_json(&t.methods));
   _obj_add(&mut keys, &mut vals, String.from("traitImpls"), _str_array(&t.trait_impls));
   match(
-    t.impls,
+    &t.impls,
     .Some(impls) => {
       i_vals := ArrayList(JsonValue).new();
       (i : usize) = usize(0);
@@ -323,14 +323,14 @@ _trait_to_json :: (fn(t : &DocTrait) -> JsonValue)({
   _obj_add_str(&mut keys, &mut vals, String.from("kind"), doc_trait_kind_to_string(t.kind));
   _obj_add_str(&mut keys, &mut vals, String.from("signature"), t.signature.clone());
   match(
-    t.type_params,
+    &t.type_params,
     .Some(tp) => {
       _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp));
     },
     .None => ()
   );
   match(
-    t.associated_types,
+    &t.associated_types,
     .Some(assocs) => {
       a_vals := ArrayList(JsonValue).new();
       (i : usize) = usize(0);

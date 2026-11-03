@@ -19,7 +19,7 @@ import("std/fmt");
 /// Split `text` into physical lines (a text ending in "\n" yields exactly its
 /// lines, no trailing-empty artifact).
 _lines_of :: (fn(text : &String) -> ArrayList(String))({
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   (mut(start) : usize) = usize(0);
   n := text.len();
   while(start < n, {
@@ -72,7 +72,7 @@ test("emitter emits a #line per position change and none for a repeat", {
   (mut(i) : usize) = usize(0);
   while(i < lines.len(), {
     match(
-      lines.get(i),
+      lines.get_cloned(i),
       .Some(l) => if(l.starts_with("#line "), {
         directives = (directives + usize(1));
         assert(l == `#line 5 "app.yo"`, "user directive text");
@@ -113,11 +113,11 @@ test("restore directive numbers the NEXT physical line honestly", {
   (mut(i) : usize) = usize(0);
   while(i < lines.len(), {
     match(
-      lines.get(i),
+      lines.get_cloned(i),
       .Some(l) => if(l.starts_with("#line ") && l.contains(String.from("\"out.c\"")), {
         // The restore names the line AFTER itself: its number must equal that
         // line's 1-based physical index in the whole stream.
-        nxt := match(lines.get(i + usize(1)), .Some(x) => x, .None => String.new());
+        nxt := match(lines.get_cloned(i + usize(1)), .Some(x) => x, .None => String.new());
         assert(_line_directive_number(&l) == (i + usize(2)), "restore number is the next line's physical index");
         assert(nxt == String.from("c4"), "the restore precedes c4");
         checked = (checked + usize(1));
@@ -143,7 +143,7 @@ test("chunk assembly rewrites markers to the chunk's own file and line", {
   code.push_str("out.c\"\n");
   code.push_str("  return 1;\n");
   code.push_str("}\n");
-  ranges := ArrayList(ChunkRange).new();
+  mut(ranges) := ArrayList(ChunkRange).new();
   ranges.push(ChunkRange(c_name : String.from("f1"), start_b : usize(0), end_b : code.len(), module : String.new()));
   assembly := assemble_chunks(
     String.from("h\n"),
@@ -161,13 +161,13 @@ test("chunk assembly rewrites markers to the chunk's own file and line", {
   (mut(saw_marker) : bool) = false;
   while(ci < assembly.chunks.len(), {
     match(
-      assembly.chunks.get(ci),
+      assembly.chunks.get_cloned(ci),
       .Some(body) => {
         lines := _lines_of(&body);
         (mut(li) : usize) = usize(0);
         while(li < lines.len(), {
           match(
-            lines.get(li),
+            lines.get_cloned(li),
             .Some(l) => if(l.starts_with("#line ") && l.contains(String.from("_chunk00")), {
               saw_marker = true;
               mut(want_name) := String.from("out_chunk00");

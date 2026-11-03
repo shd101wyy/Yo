@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 /// A fresh single-element PtrVal cell.
 _cell1 :: (fn(v : &EvalValue) -> ValueCell)({
-  c := ArrayList(EvalValue).new();
+  mut(c) := ArrayList(EvalValue).new();
   c.push(v);
   value_cell_new(c)
 });
@@ -56,13 +56,13 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
   match(
     place,
     .FnCall(_, callee, Rc(args), _, _) => {
-      candidates := ArrayList(AstExpr).new();
+      mut(candidates) := ArrayList(AstExpr).new();
       if(!ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).None), {
         candidates.push(callee);
       });
       match(args.get(usize(0)), .Some(a0) => candidates.push(a0), .None => ());
-      (found : Option(TypeValue)) = .None;
-      (k : usize) = usize(0);
+      (mut(found) : Option(TypeValue)) = .None;
+      (mut(k) : usize) = usize(0);
       while((k < candidates.len()) && found.is_none(), k = (k + usize(1)), {
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&candidates(k))),
@@ -101,9 +101,9 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
   ft := match(_enclosing_fn_type(ctx), .Some(t) => t, .None => return(Option(_ProjRootError).None));
   names := match(fn_result_origin_names(&ft), .Some(n) => n, .None => return(Option(_ProjRootError).None));
   labels := match(&ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.*.param_labels), _ => return(Option(_ProjRootError).None));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < labels.len(), {
-    if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+    if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
       if(fn_param_in_result_origin(&ft, i, &names), {
         return(Option(_ProjRootError).None);
       });
@@ -150,10 +150,10 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
   !v.is_module_level && match(
     _enclosing_param_names(ctx),
     .Some(labels) => {
-      (own : bool) = false;
-      (i : usize) = usize(0);
+      (mut(own) : bool) = false;
+      (mut(i) : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
           own = true;
         });
         i = (i + usize(1));
@@ -162,10 +162,10 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
         own => false,
         v.is_parameter => true,
         true => match(
-          labels.get(usize(0)),
+          labels.get_cloned(usize(0)),
           .Some(first) => {
-            p_idx := ArrayList(usize).new();
-            n_idx := ArrayList(usize).new();
+            mut(p_idx) := ArrayList(usize).new();
+            mut(n_idx) := ArrayList(usize).new();
             match(
               find_variable_in_env_at(env, &first, &mut p_idx),
               .Some(_) => match(
@@ -184,8 +184,8 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
   )
 );
 _join_names :: (fn(names : &SharedList(String)) -> String)({
-  out := String.new();
-  (i : usize) = usize(0);
+  mut(out) := String.new();
+  (mut(i) : usize) = usize(0);
   while(i < names.len(), {
     if(i > usize(0), {
       out.push_str(", ");
@@ -255,12 +255,11 @@ _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Enviro
     return(_proj_err(`A \`&mut\` projection yields a place it may write, and \`${ast_expr_to_string(call)}\` is the result of a read projection (\`-> &T\`).`, Option(str).None));
   });
   roots := projection_call_root_args(call, ctx);
-  (checked : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(checked) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < roots.len(), {
-    r := roots(i);
-    if(!inner_mut || r.is_mut, {
-      match(_projection_root_error(&r.arg, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+    if(!inner_mut || roots(i).is_mut, {
+      match(_projection_root_error(&roots(i).arg, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
       checked = (checked + usize(1));
     });
     i = (i + usize(1));
@@ -290,10 +289,10 @@ _is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
         .Some(ft) => match(
           ft,
           Rc(.Func({ meta : bp_m })) => {
-            (i : usize) = usize(0);
+            (mut(i) : usize) = usize(0);
             n := bp_m.*.param_labels.len();
             while(i < n, {
-              if(match(bp_m.*.param_labels.get(i), .Some(l) => (l == v.name), .None => false), {
+              if(match(bp_m.*.param_labels.get_cloned(i), .Some(l) => (l == v.name), .None => false), {
                 return(
                   !fn_param_is_mut_ref(&ft, i) && !fn_param_is_by_value(&ft, i) && !fn_param_is_ptr_borrow(&ft, i)
                 );
@@ -412,7 +411,7 @@ evaluate_address_call :: (
     },
     .None => ()
   );
-  eval_arg_gout := ArrayList(AstExpr).new();
+  mut(eval_arg_gout) := ArrayList(AstExpr).new();
   eval_arg_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut eval_arg_gout);
   ctx.expected_type = old_expected;
   match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(eval_arg_ge), .None => ());

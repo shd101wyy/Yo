@@ -1,11 +1,11 @@
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
 main :: (fn() -> unit)({
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3)); // capacity has room: no realloc will happen below
-  other := list; // a second handle: the loop's static borrow cannot see it
+  mut(other) := list; // since B8 a MOVE: the list is a value, so no second handle exists
   for(&mut list, x => {
     other.pop(); // panics: a length decrease while `x` borrows an element
     x = i32(9);

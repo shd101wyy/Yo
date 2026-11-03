@@ -39,7 +39,7 @@ test("String len counts bytes, not runes", {
   s := _subject();
   // pre-D4: 4
   assert(s.len() == usize(10), "10 bytes");
-  assert(s.chars().count() == usize(4), "4 runes");
+  assert(s.clone().chars().count() == usize(4), "4 runes");
   assert(s.len() == s.len(), "len IS the buffer length");
   // pre-D4: 2 / 2 / 3
   assert(`你好`.len() == usize(6), "two 3-byte runes");
@@ -70,7 +70,7 @@ test("String at takes a byte offset and refuses continuation bytes", {
 });
 test("String at agrees with char_indices at every rune start", {
   s := _subject();
-  mut(it) := s.char_indices();
+  mut(it) := s.clone().char_indices();
   (mut(n) : usize) = usize(0);
   while(true, {
     match(
@@ -112,9 +112,9 @@ test("String substring round-trips through char_indices", {
   // §6.1 item 2: for every pair of boundaries produced by char_indices, the
   // slice between them must be exactly the runes in that span.
   s := _subject();
-  offsets := ArrayList(usize).new();
+  mut(offsets) := ArrayList(usize).new();
   {
-    mut(it) := s.char_indices();
+    mut(it) := s.clone().char_indices();
     while(true, {
       match(
         it.next(),
@@ -133,7 +133,7 @@ test("String substring round-trips through char_indices", {
       a := offsets(i);
       b := offsets(j);
       piece := s.substring(a, b);
-      assert(piece.chars().count() == (j - i), "rune count of the span");
+      assert(piece.clone().chars().count() == (j - i), "rune count of the span");
       assert(piece.len() == (b - a), "byte count of the span");
       j = (j + usize(1));
     });
@@ -144,14 +144,14 @@ test("String is_char_boundary agrees with char_indices, byte for byte", {
   // §6.1 item 2: `is_char_boundary(i)` must be true exactly at the offsets
   // char_indices yields, plus len().
   s := _subject();
-  starts := ArrayList(bool).new();
+  mut(starts) := ArrayList(bool).new();
   (mut(k) : usize) = usize(0);
   while(k <= s.len(), {
     starts.push(false);
     k = (k + usize(1));
   });
   {
-    mut(it) := s.char_indices();
+    mut(it) := s.clone().char_indices();
     while(true, {
       match(
         it.next(),

@@ -28,12 +28,12 @@
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
-  out := ArrayList(AstExpr).new();
+  mut(out) := ArrayList(AstExpr).new();
   match(
     current,
     .Some(cd) => {
       n := cd.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           cd.get(i),
@@ -51,7 +51,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
     prev,
     .Some(pp) => {
       n := pp.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           pp.get(i),
@@ -71,7 +71,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
 /// and drops already emitted inside a short-circuit conditional branch.
 _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &FunctionGenerationContext) -> unit)(
   match(
-    ei.deferred_drop_expressions,
+    &ei.deferred_drop_expressions,
     .Some(drops) => {
       em := context.base.emitter;
       nd := drops.len();
@@ -161,7 +161,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   indent2.push_str("  ");
   args := emitted_block_statements(match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new()));
   match(
-    ei.variable_name,
+    &ei.variable_name,
     .Some(temp_var) => {
       // Expression form: begin block that returns a value.
       is_unit := is_unit_type(&value_type);

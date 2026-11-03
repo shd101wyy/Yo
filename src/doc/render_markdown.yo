@@ -143,8 +143,8 @@ render_fields_ :: (fn(fields : &ArrayList(DocField)) -> String)({
         break;
       }
     );
-    dflt := match(f.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
-    doc := match(f.doc, .None => ``, .Some(d) => ` — ${d}`);
+    dflt := match(&f.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
+    doc := match(&f.doc, .None => ``, .Some(d) => ` — ${d}`);
     lines.push(`- \`${f.name}\` : \`${f.type_}\`${dflt}${doc}`);
     i = (i + usize(1));
   });
@@ -166,12 +166,12 @@ render_variants_ :: (fn(variants : &ArrayList(DocVariant)) -> String)({
         break;
       }
     );
-    disc := match(v.discriminant, .None => ``, .Some(d) => ` = ${d}`);
-    doc := match(v.doc, .None => ``, .Some(d) => ` — ${d}`);
-    has_fields := match(v.fields, .None => false, .Some(fs) => (fs.len() > usize(0)));
+    disc := match(&v.discriminant, .None => ``, .Some(d) => ` = ${d}`);
+    doc := match(&v.doc, .None => ``, .Some(d) => ` — ${d}`);
+    has_fields := match(&v.fields, .None => false, .Some(fs) => (fs.len() > usize(0)));
     if(has_fields, {
       field_parts := match(
-        v.fields,
+        &v.fields,
         .None => ``,
         .Some(fs) => {
           parts := ArrayList(String).new();
@@ -215,8 +215,8 @@ render_associated_types_ :: (fn(types : &ArrayList(DocAssociatedType)) -> String
         break;
       }
     );
-    constraint := match(t.constraint, .None => ``, .Some(c) => ` : ${c}`);
-    doc := match(t.doc, .None => ``, .Some(d) => ` — ${d}`);
+    constraint := match(&t.constraint, .None => ``, .Some(c) => ` : ${c}`);
+    doc := match(&t.doc, .None => ``, .Some(d) => ` — ${d}`);
     lines.push(`- \`${t.name}\`${constraint}${doc}`);
     i = (i + usize(1));
   });
@@ -227,12 +227,12 @@ render_associated_types_ :: (fn(types : &ArrayList(DocAssociatedType)) -> String
 /// Render a single DocFunction as Markdown (### heading + signature + docs).
 render_function_md :: (fn(fn_ : &DocFunction) -> String)({
   lines := ArrayList(String).new();
-  self_type_str := match(fn_.self_type, .Some(s) => s.clone(), .None => ``);
+  self_type_str := match(&fn_.self_type, .Some(s) => s.clone(), .None => ``);
   anchor := cond(fn_.is_method => `${self_type_str}.${fn_.name}`, true => fn_.name.clone());
   lines.push(`### \`${anchor}\``);
   lines.push(``);
   match(
-    fn_.deprecated,
+    &fn_.deprecated,
     .None => (),
     .Some(d) => {
       lines.push(`> ⚠️ **Deprecated**: ${d}`);
@@ -244,7 +244,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
   lines.push(`\`\`\``);
   lines.push(``);
   match(
-    fn_.inherited_from,
+    &fn_.inherited_from,
     .Some(tn) => {
       lines.push(`*Documentation inherited from \`${tn}\`.*`);
       lines.push(``);
@@ -252,7 +252,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     .None => ()
   );
   match(
-    fn_.doc,
+    &fn_.doc,
     .None => (),
     .Some(d) => {
       lines.push(_md_doc(&d));
@@ -274,8 +274,8 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
       );
       comptime := cond(p.is_comptime => ` *(comptime)*`, true => ``);
       implicit := cond(p.is_implicit => ` *(implicit)*`, true => ``);
-      dflt := match(p.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
-      doc := match(p.doc, .None => ``, .Some(d) => ` — ${d}`);
+      dflt := match(&p.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
+      doc := match(&p.doc, .None => ``, .Some(d) => ` — ${d}`);
       lines.push(`- \`${p.name}\` : \`${p.type_}\`${comptime}${implicit}${dflt}${doc}`);
       i = (i + usize(1));
     });
@@ -284,7 +284,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
   lines.push(`**Returns:** \`${fn_.return_type}\``);
   lines.push(``);
   match(
-    fn_.returns,
+    &fn_.returns,
     .None => (),
     .Some(r) => {
       lines.push(r.clone());
@@ -292,7 +292,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     }
   );
   match(
-    fn_.errors,
+    &fn_.errors,
     .None => (),
     .Some(e) => {
       lines.push(`**Errors:**`);
@@ -302,7 +302,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     }
   );
   match(
-    fn_.examples,
+    &fn_.examples,
     .None => (),
     .Some(ex) => {
       lines.push(`**Examples:**`);
@@ -320,7 +320,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
   lines.push(`### \`${t.name}${tp}\``);
   lines.push(``);
   match(
-    t.deprecated,
+    &t.deprecated,
     .None => (),
     .Some(d) => {
       lines.push(`> ⚠️ **Deprecated**: ${d}`);
@@ -334,7 +334,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
   lines.push(`\`\`\``);
   lines.push(``);
   match(
-    t.doc,
+    &t.doc,
     .None => (),
     .Some(d) => {
       lines.push(_md_doc(&d));
@@ -342,7 +342,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     }
   );
   match(
-    t.fields,
+    &t.fields,
     .None => (),
     .Some(fields) => {
       if(fields.len() > usize(0), {
@@ -351,7 +351,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     }
   );
   match(
-    t.variants,
+    &t.variants,
     .None => (),
     .Some(variants) => {
       if(variants.len() > usize(0), {
@@ -378,12 +378,12 @@ render_type_md :: (fn(t : &DocType) -> String)({
     lines.push(`**Implements:** ${sep.join(&impl_names)}`);
     lines.push(``);
   });
-  has_impls := match(t.impls, .None => false, .Some(impls) => (impls.len() > usize(0)));
+  has_impls := match(&t.impls, .None => false, .Some(impls) => (impls.len() > usize(0)));
   has_methods := (t.methods.len() > usize(0));
   if(has_impls || has_methods, {
     claimed := ArrayList(String).new();
     match(
-      t.impls,
+      &t.impls,
       .None => (),
       .Some(impls) => {
         ii := usize(0);
@@ -399,7 +399,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
           lines.push(`#### \`${impl.signature}\``);
           lines.push(``);
           match(
-            impl.associated_types,
+            &impl.associated_types,
             .None => (),
             .Some(assoc_types) => {
               if(assoc_types.len() > usize(0), {
@@ -461,7 +461,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
             nu := unresolved.len();
             while(ui < nu, {
               uname := match(
-                unresolved.get(ui),
+                unresolved.get_cloned(ui),
                 .Some(x) => x,
                 .None => {
                   break;
@@ -501,7 +501,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
       mun := unclaimed_methods.len();
       while(mui < mun, {
         m := match(
-          unclaimed_methods.get(mui),
+          unclaimed_methods.get_cloned(mui),
           .Some(x) => x,
           .None => {
             break;
@@ -513,7 +513,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     });
   });
   match(
-    t.examples,
+    &t.examples,
     .None => (),
     .Some(ex) => {
       lines.push(`**Examples:**`);
@@ -531,7 +531,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
   lines.push(`### \`${t.name}${tp}\``);
   lines.push(``);
   match(
-    t.deprecated,
+    &t.deprecated,
     .None => (),
     .Some(d) => {
       lines.push(`> ⚠️ **Deprecated**: ${d}`);
@@ -545,7 +545,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
   lines.push(`\`\`\``);
   lines.push(``);
   match(
-    t.doc,
+    &t.doc,
     .None => (),
     .Some(d) => {
       lines.push(_md_doc(&d));
@@ -553,7 +553,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     }
   );
   match(
-    t.associated_types,
+    &t.associated_types,
     .None => (),
     .Some(assoc_types) => {
       if(assoc_types.len() > usize(0), {
@@ -598,7 +598,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     lines.push(``);
   });
   match(
-    t.examples,
+    &t.examples,
     .None => (),
     .Some(ex) => {
       lines.push(`**Examples:**`);
@@ -612,11 +612,11 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
 /// Render a single DocConstant as Markdown.
 render_constant_md :: (fn(c : &DocConstant) -> String)({
   lines := ArrayList(String).new();
-  val := match(c.value, .None => ``, .Some(v) => ` = ${v}`);
+  val := match(&c.value, .None => ``, .Some(v) => ` = ${v}`);
   lines.push(`### \`${c.name}\``);
   lines.push(``);
   match(
-    c.deprecated,
+    &c.deprecated,
     .None => (),
     .Some(d) => {
       lines.push(`> ⚠️ **Deprecated**: ${d}`);
@@ -626,7 +626,7 @@ render_constant_md :: (fn(c : &DocConstant) -> String)({
   lines.push(`\`${c.type_}${val}\``);
   lines.push(``);
   match(
-    c.doc,
+    &c.doc,
     .None => (),
     .Some(d) => {
       lines.push(_md_doc(&d));
@@ -643,7 +643,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
   lines.push(`> Module path: \`${mod.path}\``);
   lines.push(``);
   match(
-    mod.stability,
+    &mod.stability,
     .None => (),
     .Some(st) => {
       // LEVEL only — the full `## Stability` section is still in `mod.doc`
@@ -661,7 +661,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
     }
   );
   match(
-    mod.doc,
+    &mod.doc,
     .None => (),
     .Some(d) => {
       lines.push(_md_doc(&d));
@@ -838,15 +838,15 @@ render_index_md :: (fn(model : &DocModel) -> String)({
     );
     item_count := (mod.functions.len() + mod.types.len() + mod.traits.len() + mod.constants.len());
     summary := match(
-      mod.doc,
+      &mod.doc,
       .None => ``,
       .Some(d) => {
-        first_line := match(d.split(`\n`).get(usize(0)), .Some(l) => l.clone(), .None => d.clone());
+        first_line := match(d.split(`\n`).get_cloned(usize(0)), .Some(l) => l.clone(), .None => d.clone());
         ` — ${first_line}`
       }
     );
     badge_word := match(
-      mod.stability,
+      &mod.stability,
       .None => ``,
       .Some(st) => stability_level(&st)
     );

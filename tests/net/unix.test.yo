@@ -51,7 +51,7 @@ test("bind, connect, accept, echo round-trip", {
   assert(server.fd() >= i32(0), "accepted fd valid");
   n := io.await(client.write_str("héllo unix", io), e);
   assert(n == usize(11), "wrote 11 UTF-8 bytes");
-  buf := ArrayList(u8).new();
+  mut(buf) := ArrayList(u8).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(32), i = (i + usize(1)), {
     buf.push(u8(0));
@@ -60,14 +60,14 @@ test("bind, connect, accept, echo round-trip", {
   assert(got == usize(11), "read the 11 bytes");
   assert(buf(usize(0)) == u8(104), "h");
   // Echo back through write_bytes.
-  reply := ArrayList(u8).new();
+  mut(reply) := ArrayList(u8).new();
   (mut(j) : usize) = usize(0);
   while(j < got, j = (j + usize(1)), {
     reply.push(buf(j));
   });
   wn := io.await(server.write_bytes(&reply, io), e);
   assert(wn == usize(11), "echoed 11");
-  buf2 := ArrayList(u8).new();
+  mut(buf2) := ArrayList(u8).new();
   (mut(k) : usize) = usize(0);
   while(k < usize(32), k = (k + usize(1)), {
     buf2.push(u8(0));
@@ -216,8 +216,8 @@ test("a connected UnixStream write to an accepted peer that has closed throws in
 // event-loop thread itself: the client's connect, on the same loop, never ran.
 _reads_exactly :: (fn(s : &UnixStream, want : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   io.async({ &s, want }(e : IoExn) => {
-    got := ArrayList(u8).new();
-    buf := ArrayList(u8).new();
+    mut(got) := ArrayList(u8).new();
+    mut(buf) := ArrayList(u8).new();
     mut(i) := usize(0);
     while(i < want, {
       buf.push(u8(0));

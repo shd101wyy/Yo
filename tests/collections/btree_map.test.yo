@@ -277,7 +277,7 @@ test("range yields the half-open key window in order", {
   while(i < i32(10), i = (i + i32(1)), {
     m.insert(i, i * i32(10));
   });
-  seen := ArrayList(i32).new();
+  mut(seen) := ArrayList(i32).new();
   mut(it) := m.range(i32(3) .. i32(6));
   while(true, {
     match(
@@ -332,7 +332,7 @@ test("adjacent ranges partition without overlap", {
     m.insert(i, i);
   });
   drain := (fn(mm : &BTreeMap(i32, i32), lo : i32, hi : i32) -> ArrayList(i32))({
-    out := ArrayList(i32).new();
+    mut(out) := ArrayList(i32).new();
     mut(it) := mm.range(lo .. hi);
     while(true, {
       match(
@@ -374,7 +374,7 @@ test("BTreeMap Default is the empty map", {
 test("get_cloned, first_entry_cloned and last_entry_cloned clone in place", {
   m := BTreeMap(i32, ArrayList(i32)).new();
   assert(m.first_entry_cloned().is_none() && m.last_entry_cloned().is_none(), "empty: none");
-  one := ArrayList(i32).new();
+  mut(one) := ArrayList(i32).new();
   one.push(i32(1));
   m.insert(i32(2), one);
   m.insert(i32(1), ArrayList(i32).new());
@@ -385,4 +385,18 @@ test("get_cloned, first_entry_cloned and last_entry_cloned clone in place", {
   assert(m.first_entry_cloned().unwrap().key == i32(1), "the smallest key");
   last := m.last_entry_cloned().unwrap();
   assert((last.key == i32(2)) && (last.value.len() == usize(1)), "the largest key");
+});
+test("BTreeMap clone is a deep copy: the handle is still shared, the clone is not", {
+  m := BTreeMap(i32, ArrayList(i32)).new();
+  mut(one) := ArrayList(i32).new();
+  one.push(i32(1));
+  m.insert(i32(1), one);
+  alias := m;
+  c := m.clone();
+  c.insert(i32(2), ArrayList(i32).new());
+  alias.insert(i32(3), ArrayList(i32).new());
+  assert(m.len() == usize(2), "the alias writes the same map; the clone does not");
+  assert(c.len() == usize(2), "the clone holds its own entries");
+  assert(c.contains_key(&i32(2)) && !m.contains_key(&i32(2)), "keys inserted into the clone stay there");
+  assert(c(i32(1)).len() == usize(1), "values are cloned in");
 });

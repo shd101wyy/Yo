@@ -108,7 +108,7 @@ test("returning an inout param from inside a nested block", {
 own_len :: (fn(sink(v) : String) -> usize)(v.len());
 test("inout parameter passed to an own parameter copies, the referenced slot survives", {
   via_param :: (fn(p : &mut String) -> usize)({
-    n := own_len(p);
+    n := own_len(p.clone());
     p.push_str("!");
     n
   });
@@ -129,20 +129,23 @@ impl(
   InoutBag,
   touched : (fn(self : &mut Self, x : i32) -> Self)({
     self.n = x;
-    self
+    self.clone()
   })
 );
+derive(InoutBag, Clone);
 touch_bag :: (fn(x : &mut InoutBag, k : i32) -> InoutBag)({
   x.n = k;
-  x
+  x.clone()
 });
 InoutEntry :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_items : ArrayList(V), n : i32));
+derive(generic(V : Type), where(V <: Clone), InoutEntry(V), Clone);
 impl(
   generic(V : Type),
+  where(V <: Clone),
   InoutEntry(V),
   bumped : (fn(self : &mut Self, k : i32) -> Self)({
     self.n = (self.n + k);
-    self
+    self.clone()
   })
 );
 test("returning an inout self of an RC-holding value struct as the body tail", {
@@ -151,8 +154,8 @@ test("returning an inout self of an RC-holding value struct as the body tail", {
   c := b.touched(i32(5));
   assert(b.n == i32(5), "the write landed in the caller's place");
   assert(c.n == i32(5), "the returned copy carries the written value");
-  assert(c.items.len() == usize(1), "the copy shares the list");
-  assert(ref_count(b.items) == 2, "the returned copy owns its own reference to the list");
+  assert(c.items.len() == usize(1), "the copy carries the list's element");
+  assert(ref_count(b.items) == 1, "a list is a value: the returned copy owns a list of its own");
 });
 test("returning a plain inout parameter of an RC-holding value struct as the body tail", {
   mut(b) := InoutBag(items : ArrayList(i32).new(), n : i32(1));
@@ -161,12 +164,12 @@ test("returning a plain inout parameter of an RC-holding value struct as the bod
   assert(c.n == i32(9), "the returned copy carries the written value");
   b.n = i32(3);
   assert(c.n == i32(9), "the returned copy is independent of the caller's place");
-  assert(ref_count(b.items) == 2, "the returned copy owns its own reference to the list");
+  assert(ref_count(b.items) == 1, "a list is a value: the returned copy owns a list of its own");
 });
 test("returning an inout self of a generic RC-holding value struct as the body tail", {
   mut(e) := InoutEntry(i32)(_items : ArrayList(i32).new(), n : i32(1));
   f := e.bumped(i32(2));
   assert(e.n == i32(3), "the write landed in the caller's place");
   assert(f.n == i32(3), "the returned copy carries the written value");
-  assert(ref_count(e._items) == 2, "the returned copy owns its own reference to the list");
+  assert(ref_count(e._items) == 1, "a list is a value: the returned copy owns a list of its own");
 });

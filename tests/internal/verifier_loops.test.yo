@@ -53,7 +53,7 @@ _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))(
     )
   );
   std_path := resolve_std_path();
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   take_verify_tasks();
@@ -81,7 +81,7 @@ _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))(
 });
 /// The reports' ids/outcomes rendered for assert messages.
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
-  ids := ArrayList(String).new();
+  mut(ids) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
@@ -99,7 +99,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     if(j > usize(0), {
       sb.write_string(String.from(", "));
     });
-    sb.write_string(ids.get(j).unwrap().clone());
+    sb.write_string(ids(j).clone());
     j = (j + usize(1));
   });
   sb.to_string()
@@ -223,7 +223,7 @@ _refutes_at :: (fn(rp : &VerifyFnReport, suffix : &String) -> bool)({
     ob := rp.obligations(i);
     if(ob.name.ends_with(suffix.clone()), {
       match(
-        ob.verdict,
+        &ob.verdict,
         .Refuted(_) => {
           return(true);
         },
@@ -272,7 +272,7 @@ test("the SMT encoding of a loop query havocs the assigned names (solver-free)",
   );
   std_path := resolve_std_path();
   rel := String.from("./tests/spec/fixtures/valid/loop_invariant.yo");
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel.clone());
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
   take_verify_tasks();
@@ -310,7 +310,7 @@ test("the SMT encoding of a loop query havocs the assigned names (solver-free)",
   );
   assert(res.error.is_none(), `no subset error expected for the loop fixture`);
   assert(res.obligations.len() > usize(2), `entry + iterate + ensures obligations exist, got ${res.obligations.len().to_string()}`);
-  scripts := StringBuilder.new();
+  mut(scripts) := StringBuilder.new();
   (mut(oi) : usize) = usize(0);
   while(oi < res.obligations.len(), {
     match(
@@ -390,7 +390,7 @@ test("the exit encoding re-havocs and selects break states (solver-free)", {
   );
   std_path := resolve_std_path();
   rel := String.from("./tests/spec/fixtures/valid/loop_break.yo");
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel.clone());
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
   take_verify_tasks();
@@ -427,7 +427,7 @@ test("the exit encoding re-havocs and selects break states (solver-free)", {
     )
   );
   assert(res.error.is_none(), `no subset error expected for the break fixture`);
-  scripts := StringBuilder.new();
+  mut(scripts) := StringBuilder.new();
   (mut(oi) : usize) = usize(0);
   while(oi < res.obligations.len(), {
     match(

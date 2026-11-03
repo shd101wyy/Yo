@@ -265,7 +265,7 @@ _capture_env_variable :: (
       name_frame_key := `${variable.name}:${variable.frame_level}:${variable.token.module_path.*}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`;
       // Check if there is a different existing original ID for this name:frame key
       has_different_orig := match(
-        name_frame_to_original_id.get(name_frame_key.clone()),
+        name_frame_to_original_id.get_cloned(name_frame_key.clone()),
         .None => false,
         .Some(eid) => (eid != variable.id.to_string())
       );
@@ -273,7 +273,7 @@ _capture_env_variable :: (
         // Case 1: SSA renaming — remap this ID to the original
         has_different_orig => {
           orig_id := match(
-            name_frame_to_original_id.get(name_frame_key.clone()),
+            name_frame_to_original_id.get_cloned(name_frame_key.clone()),
             .None => String.from(""),
             .Some(id) => id
           );
@@ -391,7 +391,7 @@ _capture_pattern_bindings :: (
     }),
     .FnCall(_, func_box, Rc(args), _, _) => {
       recur(&func_box, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
@@ -435,10 +435,11 @@ _capture_argument_temp :: (
   match(
     get_info(&value),
     .Some(vinfo) => match(
-      vinfo.variable_name,
+      &vinfo.variable_name,
       .Some(tn) => {
         // The temp is bound in the env the call was evaluated in.
-        g_arg_temps_across_suspension.with_mut(s => s.insert(tn.clone()));
+        tn_owned := tn.clone();
+        g_arg_temps_across_suspension.with_mut({ tn_owned }(s) => s.insert(tn_owned.clone()));
         tenv := match(get_info(call), .Some(cinfo) => cinfo.env, .None => vinfo.env);
         _capture_env_variable(ast_expr_id(&value), tn.clone(), &tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
         _capture_env_variable(ast_expr_id(&value), &tn, &vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
@@ -618,7 +619,7 @@ walk_expr_ :: (
         is_while => {
           initial_count := points.len();
           recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
-          (ai : usize) = usize(0);
+          (mut(ai) : usize) = usize(0);
           n_args := args.len();
           while(ai < n_args, {
             arg := match(
@@ -634,7 +635,7 @@ walk_expr_ :: (
           });
           new_count := points.len();
           if(new_count > initial_count, {
-            (wi : usize) = initial_count;
+            (mut(wi) : usize) = initial_count;
             while(wi < new_count, {
               sp := match(
                 points.get(wi),
@@ -664,15 +665,15 @@ walk_expr_ :: (
           recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           // Save nameFrameToOriginalId snapshot before walking branches so that
           // variables declared inside one branch don't leak into subsequent branches.
-          saved_keys := ArrayList(String).new();
-          saved_vals := ArrayList(String).new();
+          mut(saved_keys) := ArrayList(String).new();
+          mut(saved_vals) := ArrayList(String).new();
           for(&name_frame_to_original_id, (k, v) => {
             saved_keys.push(k.clone());
             saved_vals.push(v.clone());
           });
           // Walk each branch separately, recording per-branch suspension points
-          per_branch_points := ArrayList(ArrayList(SuspensionPoint)).new();
-          (ai2 : usize) = usize(0);
+          mut(per_branch_points) := ArrayList(ArrayList(SuspensionPoint)).new();
+          (mut(ai2) : usize) = usize(0);
           n_args2 := args.len();
           while(ai2 < n_args2, {
             branch_start := points.len();
@@ -697,8 +698,8 @@ walk_expr_ :: (
             });
             recur(&arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             // Copy per-branch SuspensionPoint handles (same RC objects as in points)
-            branch_pts := ArrayList(SuspensionPoint).new();
-            (bi : usize) = branch_start;
+            mut(branch_pts) := ArrayList(SuspensionPoint).new();
+            (mut(bi) : usize) = branch_start;
             cur_len := points.len();
             while(bi < cur_len, {
               sp2 := match(
@@ -717,11 +718,11 @@ walk_expr_ :: (
           });
           // Restore snapshot — branch-local declarations must not persist
           name_frame_to_original_id.clear();
-          (si : usize) = usize(0);
+          (mut(si) : usize) = usize(0);
           n_saved := saved_keys.len();
           while(si < n_saved, {
             k2 := match(
-              saved_keys.get(si),
+              saved_keys.get_cloned(si),
               .None => {
                 si = n_saved;
                 return(());
@@ -729,7 +730,7 @@ walk_expr_ :: (
               .Some(k) => k
             );
             v2 := match(
-              saved_vals.get(si),
+              saved_vals.get_cloned(si),
               .None => {
                 si = n_saved;
                 return(());
@@ -740,20 +741,13 @@ walk_expr_ :: (
             si = (si + usize(1));
           });
           // Compute max depth across all branches
-          (max_depth : usize) = usize(0);
+          (mut(max_depth) : usize) = usize(0);
           n_branches := per_branch_points.len();
-          (bpi : usize) = usize(0);
+          (mut(bpi) : usize) = usize(0);
           while(bpi < n_branches, {
-            branch := match(
-              per_branch_points.get(bpi),
-              .None => {
-                bpi = n_branches;
-                return(());
-              },
-              .Some(b) => b
-            );
-            if(branch.len() > max_depth, {
-              max_depth = branch.len();
+            branch_len := per_branch_points(bpi).len();
+            if(branch_len > max_depth, {
+              max_depth = branch_len;
             });
             bpi = (bpi + usize(1));
           });
@@ -764,25 +758,17 @@ walk_expr_ :: (
             });
             // Re-add merged suspension points: one representative per depth position
             first_index_b := initial_count_b;
-            (pos : usize) = usize(0);
+            (mut(pos) : usize) = usize(0);
             while(pos < max_depth, {
               // Find the first branch that has a point at this depth position.
               // Use a bool sentinel to avoid consuming rep_opt in the loop condition.
-              (rep_opt : Option(SuspensionPoint)) = Option(SuspensionPoint).None;
-              (found_rep : bool) = false;
-              (bpi2 : usize) = usize(0);
+              (mut(rep_opt) : Option(SuspensionPoint)) = Option(SuspensionPoint).None;
+              (mut(found_rep) : bool) = false;
+              (mut(bpi2) : usize) = usize(0);
               while((bpi2 < n_branches) && !found_rep, {
-                branch2 := match(
-                  per_branch_points.get(bpi2),
-                  .None => {
-                    bpi2 = n_branches;
-                    return(());
-                  },
-                  .Some(b) => b
-                );
-                if(pos < branch2.len(), {
+                if(pos < per_branch_points(bpi2).len(), {
                   sp3 := match(
-                    branch2.get(pos),
+                    per_branch_points(bpi2).get(pos),
                     .None => {
                       bpi2 = n_branches;
                       return(());
@@ -812,21 +798,13 @@ walk_expr_ :: (
                   // drive per-branch registration/extraction when branches
                   // suspend on differently-shaped futures. See
                   // issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
-                  branch_exprs := ArrayList(AstExpr).new();
-                  branch_in_while := ArrayList(bool).new();
-                  (bpi3 : usize) = usize(0);
+                  mut(branch_exprs) := ArrayList(AstExpr).new();
+                  mut(branch_in_while) := ArrayList(bool).new();
+                  (mut(bpi3) : usize) = usize(0);
                   while(bpi3 < n_branches, {
-                    branch3 := match(
-                      per_branch_points.get(bpi3),
-                      .None => {
-                        bpi3 = n_branches;
-                        return(());
-                      },
-                      .Some(b) => b
-                    );
-                    if(pos < branch3.len(), {
+                    if(pos < per_branch_points(bpi3).len(), {
                       match(
-                        branch3.get(pos),
+                        per_branch_points(bpi3).get(pos),
                         .Some(p3) => {
                           // A branch whose point at this position is ITSELF a
                           // merged representative (a nested cond/match with
@@ -841,10 +819,10 @@ walk_expr_ :: (
                           // inner exprs are walked first) is a looping branch.
                           p3_in_while := match(p3.is_inside_while, .Some(b) => b, .None => false);
                           match(
-                            p3.cond_branch_suspension_exprs,
+                            &p3.cond_branch_suspension_exprs,
                             .Some(nested) => {
-                              nested_in_while := match(p3.cond_branch_suspension_in_while, .Some(l) => l.clone(), .None => ArrayList(bool).new());
-                              (ni : usize) = usize(0);
+                              nested_in_while := match(&p3.cond_branch_suspension_in_while, .Some(l) => l.clone(), .None => ArrayList(bool).new());
+                              (mut(ni) : usize) = usize(0);
                               while(ni < nested.len(), {
                                 match(
                                   nested.get(ni),
@@ -893,7 +871,7 @@ walk_expr_ :: (
                   expr_info_deferred_dup_expressions(&info2),
                   .None => (),
                   .Some(dup_exprs) => {
-                    (di : usize) = usize(0);
+                    (mut(di) : usize) = usize(0);
                     n_dup := dup_exprs.len();
                     while(di < n_dup, {
                       dup_e := match(
@@ -915,13 +893,13 @@ walk_expr_ :: (
           });
           // Recurse into function and arguments
           recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
-          (ai3 : usize) = usize(0);
+          (mut(ai3) : usize) = usize(0);
           n_args3 := args.len();
           // The suspension count after each argument: an earlier argument's
           // value waits in its temp until the call runs, so a later argument
           // that suspends puts a suspension between the temp's store and its
           // read (`S(n : xs.len(), extra : e.await(f, e))`).
-          arg_marks := ArrayList(usize).new();
+          mut(arg_marks) := ArrayList(usize).new();
           while(ai3 < n_args3, {
             arg3 := match(
               args.get(ai3),
@@ -936,7 +914,7 @@ walk_expr_ :: (
             ai3 = (ai3 + usize(1));
           });
           last_mark := match(arg_marks.last(), .Some(m) => m, .None => usize(0));
-          (ti : usize) = usize(0);
+          (mut(ti) : usize) = usize(0);
           while((ti + usize(1)) < arg_marks.len(), ti = (ti + usize(1)), {
             if(match(arg_marks.get(ti), .Some(m) => (m < last_mark), .None => false), {
               match(
@@ -952,10 +930,10 @@ walk_expr_ :: (
             .None => (),
             .Some(info3) => {
               match(
-                info3.deferred_drop_expressions,
+                &info3.deferred_drop_expressions,
                 .None => (),
                 .Some(drop_exprs) => {
-                  (di2 : usize) = usize(0);
+                  (mut(di2) : usize) = usize(0);
                   n_drop := drop_exprs.len();
                   while(di2 < n_drop, {
                     drop_e := match(
@@ -991,9 +969,9 @@ analyze_suspension_points :: (
     detector : &SuspensionPointDetector
   ) -> SuspensionAnalysisResult
 )({
-  suspension_points := ArrayList(SuspensionPoint).new();
+  mut(suspension_points) := ArrayList(SuspensionPoint).new();
   captured_variables := HashMap(String, SuspensionCapturedVariable).new();
-  captured_variable_ids_in_order := ArrayList(String).new();
+  mut(captured_variable_ids_in_order) := ArrayList(String).new();
   name_frame_to_orig_id := HashMap(String, String).new();
   variable_id_remapping := HashMap(String, String).new();
   walk_expr_(
@@ -1013,11 +991,11 @@ analyze_suspension_points :: (
     .None => (),
     .Some(body_info) => {
       match(
-        body_info.deferred_drop_expressions,
+        &body_info.deferred_drop_expressions,
         .None => (),
         .Some(drop_exprs) => {
           n_drops := drop_exprs.len();
-          (di : usize) = usize(0);
+          (mut(di) : usize) = usize(0);
           while(di < n_drops, {
             drop_e := match(
               drop_exprs.get(di),
@@ -1049,12 +1027,12 @@ analyze_suspension_points :: (
     captured_variable_ids_in_order.clear();
   });
   // Build captured variable list in first-seen insertion order
-  captured_list := ArrayList(SuspensionCapturedVariable).new();
+  mut(captured_list) := ArrayList(SuspensionCapturedVariable).new();
   n_ids := captured_variable_ids_in_order.len();
-  (ci : usize) = usize(0);
+  (mut(ci) : usize) = usize(0);
   while(ci < n_ids, {
     id := match(
-      captured_variable_ids_in_order.get(ci),
+      captured_variable_ids_in_order.get_cloned(ci),
       .None => {
         break;
       },
@@ -1070,10 +1048,11 @@ analyze_suspension_points :: (
     captured_list.push(cv);
     ci = (ci + usize(1));
   });
+  has_points := (suspension_points.len() > usize(0));
   SuspensionAnalysisResult(
     suspension_points : suspension_points,
     captured_variables : captured_list,
-    has_suspensions : (suspension_points.len() > usize(0)),
+    has_suspensions : has_points,
     variable_id_remapping : variable_id_remapping
   )
 });

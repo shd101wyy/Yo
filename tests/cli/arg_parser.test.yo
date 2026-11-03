@@ -5,7 +5,7 @@
 test("ArgParser parse flags", {
   parser := ArgParser.new(`test-app`, `Test application`);
   parser.add_flag(`--verbose`, `-v`, `Verbose output`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--verbose`);
   result := parser.parse(&args);
@@ -16,7 +16,7 @@ test("ArgParser parse flags", {
 test("ArgParser parse options", {
   parser := ArgParser.new(`test-app`, `Test application`);
   parser.add_option(`--output`, `-o`, `Output file`, `default.txt`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--output`);
   args.push(`result.txt`);
@@ -30,7 +30,7 @@ test("ArgParser parse options", {
 test("ArgParser parse short flags", {
   parser := ArgParser.new(`test-app`, `Test`);
   parser.add_flag(`--verbose`, `-v`, `Verbose`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`-v`);
   result := parser.parse(&args);
@@ -40,7 +40,7 @@ test("ArgParser parse short flags", {
 test("ArgParser parse positionals", {
   parser := ArgParser.new(`test-app`, `Test`);
   parser.add_positional(`input`, `Input file`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`hello.txt`);
   result := parser.parse(&args);
@@ -53,7 +53,7 @@ test("ArgParser parse positionals", {
 test("ArgParser default option value", {
   parser := ArgParser.new(`test-app`, `Test`);
   parser.add_option(`--output`, `-o`, `Output`, `default.txt`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`test-app`);
   result := parser.parse(&args);
   assert(result.is_ok(), "should parse with defaults");
@@ -64,7 +64,7 @@ test("ArgParser default option value", {
 });
 test("ArgParser unknown flag error", {
   parser := ArgParser.new(`test-app`, `Test`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--unknown`);
   result := parser.parse(&args);
@@ -84,7 +84,7 @@ test("ArgParser simple subcommand", {
   parser := ArgParser.new(`git`, `Distributed VCS`);
   sub_commit := parser.add_subcommand(`commit`, `Record changes`);
   sub_commit.add_flag(`--amend`, `-a`, `Amend previous commit`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`git`);
   args.push(`commit`);
   args.push(`--amend`);
@@ -93,7 +93,7 @@ test("ArgParser simple subcommand", {
   parsed := result.unwrap();
   sub := parsed.get_subcommand();
   assert(sub.is_some(), "subcommand should be set");
-  assert(sub.unwrap() == `commit`, "subcommand should be commit");
+  assert(sub.clone().unwrap() == `commit`, "subcommand should be commit");
   sub_args_opt := parsed.get_subcommand_args();
   assert(sub_args_opt.is_some(), "should have subcommand args");
   sub_args := sub_args_opt.unwrap();
@@ -103,7 +103,7 @@ test("ArgParser subcommand with option", {
   parser := ArgParser.new(`tool`, `Tool`);
   sub_build := parser.add_subcommand(`build`, `Build the project`);
   sub_build.add_option(`--target`, `-t`, `Build target`, `debug`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`tool`);
   args.push(`build`);
   args.push(`--target`);
@@ -113,7 +113,7 @@ test("ArgParser subcommand with option", {
   parsed := result.unwrap();
   sub := parsed.get_subcommand();
   assert(sub.is_some(), "should have subcommand");
-  assert(sub.unwrap() == `build`, "subcommand should be build");
+  assert(sub.clone().unwrap() == `build`, "subcommand should be build");
   sub_args := parsed.get_subcommand_args().unwrap();
   target := sub_args.get_option(`--target`);
   assert(target.is_some(), "target should be set");
@@ -123,7 +123,7 @@ test("ArgParser subcommand default option", {
   parser := ArgParser.new(`tool`, `Tool`);
   sub_build := parser.add_subcommand(`build`, `Build`);
   sub_build.add_option(`--target`, `-t`, `Target`, `debug`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`tool`);
   args.push(`build`);
   result := parser.parse(&args);
@@ -138,7 +138,7 @@ test("ArgParser nested subcommand", {
   container := parser.add_subcommand(`container`, `Container commands`);
   ls := container.add_subcommand(`ls`, `List containers`);
   ls.add_flag(`--all`, `-a`, `Show all containers`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`docker`);
   args.push(`container`);
   args.push(`ls`);
@@ -146,10 +146,10 @@ test("ArgParser nested subcommand", {
   result := parser.parse(&args);
   assert(result.is_ok(), "should parse nested");
   parsed := result.unwrap();
-  sub1 := parsed.get_subcommand().unwrap();
+  sub1 := parsed.get_subcommand().clone().unwrap();
   assert(sub1 == `container`, "first level should be container");
   inner := parsed.get_subcommand_args().unwrap();
-  sub2 := inner.get_subcommand().unwrap();
+  sub2 := inner.get_subcommand().clone().unwrap();
   assert(sub2 == `ls`, "second level should be ls");
   inner2 := inner.get_subcommand_args().unwrap();
   assert(inner2.get_flag(`--all`), "all flag should be set");
@@ -158,7 +158,7 @@ test("ArgParser no subcommand chosen", {
   parser := ArgParser.new(`tool`, `Tool`);
   parser.add_subcommand(`build`, `Build`);
   parser.add_subcommand(`test`, `Test`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`tool`);
   result := parser.parse(&args);
   assert(result.is_ok(), "should parse with no subcommand");
@@ -170,7 +170,7 @@ test("ArgParser unknown subcommand falls through to positional", {
   parser := ArgParser.new(`tool`, `Tool`);
   parser.add_subcommand(`build`, `Build`);
   parser.add_positional(`name`, `Name`);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`tool`);
   args.push(`unknown-command`);
   result := parser.parse(&args);
@@ -185,7 +185,7 @@ test("ArgParser subcommand error propagates", {
   parser := ArgParser.new(`tool`, `Tool`);
   sub_build := parser.add_subcommand(`build`, `Build`);
   sub_build.add_option(`--target`, `-t`, `Target`, ``);
-  args := ArrayList(String).new();
+  mut(args) := ArrayList(String).new();
   args.push(`tool`);
   args.push(`build`);
   args.push(`--target`);

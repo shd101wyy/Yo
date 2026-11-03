@@ -262,7 +262,7 @@ enforce_atomic_object_send :: (
     n := field_labels.len();
     (i : usize) = usize(0);
     while(i < n, {
-      fl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+      fl := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
       ft := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       // Only a fully CONCRETE (SomeT-free) field counts as a violation. A
       // generic type-constructor body (`Atomic(T)`'s `_v : T` with

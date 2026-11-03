@@ -1,9 +1,11 @@
 # `yo fix <path> --migrate explicit-copy` judges a copy's source together
 # with the variables it already shared a buffer with when the copy was made
 # (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-buffer-its-source-already-shared.md).
-# `alias_before`'s `y := t` was cloned although `t` shares `x`'s buffer and
-# `x` is pushed afterwards; it is listed with `t := x`. `fresh_before`'s `t`
-# owns its buffer, and its copy is cloned. The trailing check proves main.yo
+# The maps are `BTreeMap`s (still a `ref`; decision Option 1 of
+# issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+# `alias_before`'s `y := t` was cloned although `t` shares `x`'s map and `x`
+# is inserted into afterwards; it is listed with `t := x`. `fresh_before`'s
+# `t` owns its map, and its copy is cloned. The trailing check proves main.yo
 # still evaluates.
 stdout_keep=^fix:
 timeout=240

@@ -67,7 +67,7 @@ import("std/fmt");
 // ---------------------------------------------------------------------------
 /// Get the args of a FnCall expression (empty for non-FnCall).
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Get the func expression of a FnCall (or the expr itself for Atom).
 _fn_call_func :: (fn(e : &AstExpr) -> AstExpr)(
@@ -79,7 +79,7 @@ _has_variant :: (fn(variant_names : &ArrayList(String), name : &String) -> bool)
   (found : bool) = false;
   while((i < variant_names.len()) && !found, {
     match(
-      variant_names.get(i),
+      variant_names.get_cloned(i),
       .Some(vn) => if(vn == name, {
         found = true;
       }),
@@ -95,7 +95,7 @@ _visited_has :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
   (found : bool) = false;
   while((i < xs.len()) && !found, {
     match(
-      xs.get(i),
+      xs.get_cloned(i),
       .Some(x) => if(x == s, {
         found = true;
       }),
@@ -453,7 +453,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_name := ast_expr_text(&variant_name_expr).*;
+        variant_name := ast_expr_text(&variant_name_expr).*.clone();
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
@@ -494,7 +494,7 @@ evaluate_enum_type :: (
       // Plain atom variant (auto-assigned discriminant).
       // ---------------------------------------------------------------
       ast_expr_is_atom(&enum_arg) => {
-        variant_name := ast_expr_text(&enum_arg).*;
+        variant_name := ast_expr_text(&enum_arg).*.clone();
         if(!is_valid_variable_name(&enum_arg), {
           exn.throw(
             dyn(
@@ -555,7 +555,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_name := ast_expr_text(_fn_call_func(&variant_expr)).*;
+        variant_name := ast_expr_text(_fn_call_func(&variant_expr)).*.clone();
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
@@ -578,7 +578,7 @@ evaluate_enum_type :: (
           (dup_idx : usize) = usize(0);
           (has_dup : bool) = false;
           while((dup_idx < v_field_labels.len()) && !has_dup, {
-            existing := match(v_field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+            existing := match(v_field_labels.get_cloned(dup_idx), .Some(l) => l, .None => String.from(""));
             if(existing == field.label, {
               has_dup = true;
             });
@@ -704,7 +704,7 @@ evaluate_enum_type :: (
               (tci : usize) = usize(0);
               n_tcp := fc_plabels.len();
               while(tci < n_tcp, {
-                p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
+                p_lbl := match(fc_plabels.get_cloned(tci), .Some(l) => l, .None => String.from(""));
                 p_ty := match(slot_pointee_at(&fc_ptypes, tci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
                 if(is_type_0(&p_ty), {
@@ -763,7 +763,7 @@ evaluate_enum_type :: (
   if(!force_reference_semantics, {
     (vi2 : usize) = usize(0);
     while(vi2 < variant_fields.len(), {
-      vname := match(variant_names.get(vi2), .Some(n) => n, .None => String.new());
+      vname := match(variant_names.get_cloned(vi2), .Some(n) => n, .None => String.new());
       vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => no_types());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {

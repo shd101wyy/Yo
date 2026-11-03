@@ -589,7 +589,7 @@ _typed_to_lsp :: (
                 code : d.code.clone(),
                 message : d.message.clone(),
                 repair : match(
-                  d.repair,
+                  &d.repair,
                   // A repair in ANOTHER file is not this document's quickfix.
                   .Some(r) => if(r.span.path == d.span.path, Option(Repair).Some(r.clone()), Option(Repair).None),
                   .None => Option(Repair).None
@@ -669,7 +669,7 @@ analyze_document :: (
       (ti : usize) = usize(0);
       while(ti < mapped.len(), {
         match(
-          mapped.get(ti),
+          mapped.get_cloned(ti),
           .Some(d) => {
             diags.push(d);
           },
@@ -688,7 +688,7 @@ analyze_document :: (
         (pi : usize) = usize(0);
         while(pi < pds.len(), {
           match(
-            pds.get(pi),
+            pds.get_cloned(pi),
             .Some(d) => {
               diags.push(d);
             },
@@ -706,7 +706,7 @@ analyze_document :: (
         (ei : usize) = usize(0);
         while(ei < lds.len(), {
           match(
-            lds.get(ei),
+            lds.get_cloned(ei),
             .Some(d2) => {
               diags.push(d2);
             },

@@ -60,8 +60,9 @@ test("FnOnce: a closure that is never called drops its captures with its owner",
 test("FnOnce: a captured String moves out without a clone", {
   s := String.from("four");
   (f : Impl(FnOnce() -> usize)) = ({ s }() => _once_take_string(s));
+  // The capture moved `s` in (a `String` is a value since B8), and the call
+  // moves it on into the sink parameter.
   assert(f() == usize(4), "the String moved into the sink parameter");
-  assert(s.len() == usize(4), "the source binding was copied into the capture, not moved");
 });
 test("FnOnce: tail-returning a capture moves it out", {
   before := g_once_disposed;
@@ -198,7 +199,7 @@ _OnceHolder :: (fn(comptime(F) : Type) -> comptime(Type))(struct(f : F));
 test("FnOnce: a one-expression body reads its RC capture before dropping it", {
   before := g_once_disposed;
   {
-    a := ArrayList(i64).new();
+    mut(a) := ArrayList(i64).new();
     a.push(i64(42));
     r := _OnceRes(a : a);
     (f : Impl(FnOnce() -> i64)) = ({ r }() => r.a.get(usize(0)).unwrap_or(i64(-1)));
@@ -207,15 +208,15 @@ test("FnOnce: a one-expression body reads its RC capture before dropping it", {
   assert(g_once_disposed == (before + i32(1)), "disposed once");
 });
 test("FnOnce: an RC capture of a binding that stays live is a counted copy", {
-  a := ArrayList(i64).new();
+  mut(a) := ArrayList(i64).new();
   a.push(i64(11));
   a.push(i64(22));
-  (f : Impl(FnOnce() -> usize)) = ({ a }() => {
+  (f : Impl(FnOnce() -> usize)) = ({ a : a.clone() }() => {
     n := a.len();
     n
   });
   assert(f() == usize(2), "the body reads its copy and releases it");
-  b := ArrayList(i64).new();
+  mut(b) := ArrayList(i64).new();
   b.push(i64(99));
   assert(a.len() == usize(2), "the source list is intact after the call released the capture");
   assert(a.get(usize(0)).unwrap_or(i64(-1)) == i64(11), "its buffer was not reused");
@@ -433,7 +434,7 @@ test("FnOnce: a closure call's result as a borrowed receiver lends nothing of th
 });
 test("FnOnce: an element read as an operand still lends its container", {
   comptime_expect_error({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     xs(usize(0)) == _once_first(xs)
   }, "an earlier argument of the same call lends to it");
@@ -633,8 +634,8 @@ test("FnOnce: a closure literal at an impl-method call releases its captures onc
   before := g_once_disposed;
   r := _OnceRunner(tag : String.from("r"));
   s2 := String.from("xy");
-  assert(r.run_once(() => s2.len()) == usize(2), "an implicit RC capture, by-value parameter");
-  assert(r.run_sink(() => s2.len()) == usize(2), "an implicit RC capture, sink parameter");
+  assert(r.run_once({ s : s2.clone() }() => s.len()) == usize(2), "a String capture, by-value parameter");
+  assert(r.run_sink({ s : s2.clone() }() => s.len()) == usize(2), "a String capture, sink parameter");
   assert(s2 == String.from("xy"), "the caller's String is intact");
   t := _OnceTok(n : i32(3));
   assert(r.run_once({ t }() => _once_take(t)) == i32(3), "a capture-list move, by-value parameter");
@@ -659,10 +660,10 @@ test("FnOnce: a generic container's FnOnce sink method takes a capture-list move
   s := String.from("k");
   c.with_mut({ s }(xs) => xs.push(s));
   t := String.from("t");
-  c.with_mut(xs => xs.push(t.clone()));
+  c.with_mut({ u : t.clone() }(xs) => xs.push(u));
   assert(c.v.len() == usize(2), "both bodies ran");
   assert(c.v(usize(0)) == String.from("k"), "the moved capture landed in the list");
-  assert(t == String.from("t"), "the implicit capture is intact");
+  assert(t == String.from("t"), "the caller's String is intact");
 });
 
 // --- a generic free function's FnOnce parameter, sink or plain by-value -----

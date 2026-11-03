@@ -36,6 +36,8 @@ The program is accepted. Expected: either a compile-time rejection (an `Fn`
 closure writing its capture, which Rust makes `FnMut` and borrows the
 variable for) or a well-defined program; never a double release.
 
+**B8 widens it (2026-10-31).** Any write through a by-value capture is lost the same way, not only a reassignment: `mut(c) := Counter(n : 0); call_it(() => { c.bump(); })` leaves `c.n` at 0 on develop `9c78fdaf0`, and once B8 makes `ArrayList` a value, `xs.into_iter().for_each(x => { out.push(x); })` pushes onto the closure's copy of `out` and leaves `out` empty (`tests/closure_capture_rc_leak.test.yo` on `vbd/b8-arraylist-string-flip`, where the tests now borrow with `{ &mut out }(x) => …`). Fix direction 1 below, generalized to every write (an assignment or a `&mut` lend of a by-value capture), turns all of these into a compile error.
+
 ## Cause
 
 The emitted C (abridged):

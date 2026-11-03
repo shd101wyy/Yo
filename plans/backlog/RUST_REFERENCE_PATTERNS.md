@@ -621,7 +621,7 @@ spelled, exactly the one it borrows (O3's return rule). So:
 | the chaining builder `fn name(&mut self, ..) -> &mut Self` | `name(self : &mut Self, s : str) -> &mut Self` compiles under the return rule; the consuming builder (§3.7) stays the idiom when the value is being assembled |
 | `fn parts(&mut self) -> (&mut A, &mut B)` from one container (`split_at_mut`) | two `&mut(View(T), xs)` out of one lend — loans are compared to accesses, never to each other (O3 step 2); the callee owns the disjointness |
 | a reference into a **local** or a temporary | a compile error at the `return` naming the place — the one thing Rust also refuses (`let r = &make();` extension to the block is an open position, design note §7) |
-| a value out instead | `get(i)` for `Copy` payloads, `get_cloned(i)` otherwise; `take(i)`, `pop`, `remove` for ownership |
+| a value out instead | `get(i)` for `Copy` payloads, `get_cloned(i)` otherwise; `take(i)`, `pop`, `remove` for ownership. Walking a borrowed map or set that the loop also reads or writes: `m.keys_cloned()`, `m.values_cloned()`, `s.items_cloned()` (an `ArrayList` snapshot; `keys()`/`values()`/`into_iter()` consume it); a read-only walk is `for(&m, (k, v) => ...)` |
 | a reference to hold beside others, long-lived | `Rc(V)` values and `Rc.clone(v)`; or the key/index (shape 3) |
 
 `Rc::get_mut`/`try_unwrap`/`make_mut` out of a handle are Rust's, with

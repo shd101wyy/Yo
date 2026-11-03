@@ -335,7 +335,7 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
   dir := `yo_cwd_probe_dir`;
   io.await(create_dir_all_str("yo_cwd_probe_dir", io), e);
   // The child creates `marker.txt` in ITS cwd; the assertion is path-free.
-  storage := ArrayList(ArrayList(u8)).new();
+  mut(storage) := ArrayList(ArrayList(u8)).new();
   cond(
     (platform == Platform.Windows) => {
       storage.push(`cmd.exe`.to_cstr());
@@ -719,7 +719,7 @@ test("a child-stdin write larger than the pipe buffer does not park the event lo
   total := usize(262144);
   (mut(sent) : usize) = usize(0);
   while(sent < total, {
-    rest := ArrayList(u8).new();
+    mut(rest) := ArrayList(u8).new();
     (mut(k) : usize) = sent;
     while(k < total, {
       rest.push(u8(121));

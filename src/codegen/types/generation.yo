@@ -78,14 +78,14 @@ _array_wrapper_names_sorted :: (fn(context : &CodeGenContext) -> ArrayList(Strin
     (min_i : usize) = usize(0);
     (ci : usize) = usize(1);
     while(ci < keys.len(), {
-      cand := match(keys.get(ci), .Some(s) => s, .None => String.new());
-      cur_min := match(keys.get(min_i), .Some(s) => s, .None => String.new());
+      cand := match(keys.get_cloned(ci), .Some(s) => s, .None => String.new());
+      cur_min := match(keys.get_cloned(min_i), .Some(s) => s, .None => String.new());
       if(_array_wrapper_name_lt(&cand, &cur_min), {
         min_i = ci;
       });
       ci = (ci + usize(1));
     });
-    picked := match(keys.get(min_i), .Some(s) => s, .None => String.new());
+    picked := match(keys.get_cloned(min_i), .Some(s) => s, .None => String.new());
     sorted_keys.push(picked);
     keys.drain(min_i .. (min_i + usize(1)));
   });
@@ -136,7 +136,7 @@ _drain_ready_array_wrappers :: (
     progress = false;
     (i : usize) = usize(0);
     while(i < pending.len(), {
-      name := match(pending.get(i), .Some(k) => k, .None => String.from(""));
+      name := match(pending.get_cloned(i), .Some(k) => k, .None => String.from(""));
       child := match(
         context.array_struct_types.get(name.clone()),
         .Some(info) => info.child_type.clone(),
@@ -344,7 +344,7 @@ generate_union_declaration :: (fn(union_type : &TypeValue, c_name : &String, con
       n := field_types.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
         match(
           field_types.get(i),
           .Some(ft) => {
@@ -475,14 +475,14 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
           cfi = (cfi + usize(1));
         });
         if(non_unit > usize(0), {
-          vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+          vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
           context.emitter.emit_declaration_line("  struct {");
           (fi : usize) = usize(0);
           while(fi < nf, {
             match(
               fields.get(fi),
               .Some(ft) => if(!is_unit_type(&ft), {
-                label := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+                label := match(labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
                 fts := get_type_string(&ft, context);
                 fname := sanitize_for_c_identifier(&label, false);
                 context.emitter.emit_declaration_string_line(`    ${fts} ${fname};`);
@@ -1608,7 +1608,7 @@ generate_dyn_forward_declarations :: (fn(context : &CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
       context.types.get(key.clone()),
       .Some(entry) => if(is_dyn_type(&entry.ty), {
@@ -1740,7 +1740,9 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
           ),
           true => match(
             &tt,
-            Rc(.TraitT({ field_labels, field_types })) => {
+            Rc(.TraitT({ body : field_labels_body })) => {
+              field_labels := field_labels_body.field_labels();
+              field_types := field_labels_body.field_types();
               nf := field_labels.len();
               (fi : usize) = usize(0);
               while(fi < nf, {
@@ -1791,7 +1793,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   em.emit_declaration_line("  void* (*__yo_clone)(void*); // independent payload copy for a Dyn with Clone; NULL otherwise");
   (mi : usize) = usize(0);
   while(mi < members.len(), {
-    match(members.get(mi), .Some(line) => em.emit_declaration_string_line(&line), .None => ());
+    match(members.get_cloned(mi), .Some(line) => em.emit_declaration_string_line(&line), .None => ());
     mi = (mi + usize(1));
   });
   em.emit_declaration_string_line(`} ${vtable_name};`);
@@ -1816,7 +1818,7 @@ generate_dyn_box_types :: (fn(context : &CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
       context.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
@@ -2149,12 +2151,12 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   while(di < ne, {
     match(
       entries.get(di),
-      .Some(e) => match(
-        deps.get(e.type_id.clone()),
-        .Some(s) => {
-          in_degree.insert(e.type_id.clone(), s.len());
+      // The dependency set is read in place (a value since B9).
+      .Some(e) => cond(
+        deps.contains_key(&e.type_id) => {
+          in_degree.insert(e.type_id.clone(), deps(e.type_id.clone()).len());
         },
-        .None => {
+        true => {
           in_degree.insert(e.type_id.clone(), usize(0));
         }
       ),
@@ -2181,7 +2183,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   sorted_ids := ArrayList(String).new();
   (head : usize) = usize(0);
   while(head < queue.len(), {
-    tid := match(queue.get(head), .Some(t) => t, .None => String.from(""));
+    tid := match(queue.get_cloned(head), .Some(t) => t, .None => String.from(""));
     head = (head + usize(1));
     sorted_ids.push(tid.clone());
     // Decrement in-degree of every node that depends on tid.
@@ -2189,9 +2191,9 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
     while(oi < ne, {
       match(
         entries.get(oi),
-        .Some(other) => match(
-          deps.get(other.type_id.clone()),
-          .Some(odeps) => if(odeps.contains(tid.clone()), {
+        // The dependency set is read in place (a value since B9).
+        .Some(other) => cond(
+          deps.contains_key(&other.type_id) => if(deps(other.type_id.clone()).contains(tid.clone()), {
             cur := match(in_degree.get(other.type_id.clone()), .Some(d) => d, .None => usize(1));
             nd := if(cur > usize(0), cur - usize(1), usize(0));
             in_degree.insert(other.type_id.clone(), nd);
@@ -2199,7 +2201,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
               queue.push(other.type_id.clone());
             });
           }),
-          .None => ()
+          true => ()
         ),
         .None => ()
       );
@@ -2218,7 +2220,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
           ns := sorted_ids.len();
           while((si < ns) && !seen, {
             match(
-              sorted_ids.get(si),
+              sorted_ids.get_cloned(si),
               .Some(s) => if(s == e.type_id, {
                 seen = true;
               }),
@@ -2350,7 +2352,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
   });
   // Bodies of on-demand Future interfaces the hook deferred that pass 5's key
   // walk did not reach (the hook met them DURING pass 5).
-  fwd_keys := context.on_demand_fwd_only.keys();
+  fwd_keys := context.on_demand_fwd_only.keys_cloned().into_iter();
   (g_fwd : bool) = true;
   while(g_fwd, {
     match(

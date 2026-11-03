@@ -1,110 +1,114 @@
 // YO_AUDIT_IMPLICIT_COPY fixture (plans/VALUES_BY_DEFAULT.md §6, item 1). Each
-// function names what the audit should say about its dups.
+// function names what the audit should say about its dups. The copied values
+// are `BTreeMap`s, a collection that is still a `ref` (decision Option 1 of
+// issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md):
+// `String` and `ArrayList` are values since B8, so copying one no longer dups.
 { ArrayList } :: import("std/collections/array_list");
+{ BTreeMap } :: import("std/collections/btree_map");
 { String } :: import("std/string");
-Holder :: struct(name : String, items : ArrayList(i32));
+Holder :: struct(name : BTreeMap(i32, i32), items : BTreeMap(i32, i32));
 Node :: ref(struct(label : String));
 Counter :: ref(struct(n : i32));
 // A local stored and then read again: a copy. Stored at its last use: a move.
 store_then_read :: (fn() -> usize)({
-  s := String.from("a");
-  h := Holder(name : s, items : ArrayList(i32).new());
-  t := String.from("b");
-  h2 := Holder(name : t, items : ArrayList(i32).new());
+  s := BTreeMap(i32, i32).new();
+  h := Holder(name : s, items : BTreeMap(i32, i32).new());
+  t := BTreeMap(i32, i32).new();
+  h2 := Holder(name : t, items : BTreeMap(i32, i32).new());
   s.len() + h.name.len() + h2.name.len()
 });
 // `y := x` then `x` again: a copy. `z := w` with `w` dead: a move.
 bind_then_read :: (fn() -> usize)({
-  x := ArrayList(i32).new();
+  x := BTreeMap(i32, i32).new();
   y := x;
-  w := ArrayList(i32).new();
+  w := BTreeMap(i32, i32).new();
   z := w;
   x.len() + y.len() + z.len()
 });
 // A by-value parameter is borrowed: storing it always copies.
-store_param :: (fn(s : &String) -> Holder)(
-  Holder(name : s, items : ArrayList(i32).new())
+store_param :: (fn(s : &BTreeMap(i32, i32)) -> Holder)(
+  Holder(name : s, items : BTreeMap(i32, i32).new())
 );
 // Returning a borrowed parameter copies it.
-return_param :: (fn(xs : &ArrayList(i32)) -> ArrayList(i32))(xs);
+return_param :: (fn(xs : &BTreeMap(i32, i32)) -> BTreeMap(i32, i32))(xs);
 // A field read stored elsewhere: a projection, always a copy (no partial moves).
 store_field :: (fn(h : &Holder) -> Holder)(
-  Holder(name : h.name, items : ArrayList(i32).new())
+  Holder(name : h.name, items : BTreeMap(i32, i32).new())
 );
 // An owning argument from a borrowed binding copies.
-take :: (fn(sink(s) : String) -> usize)(s.len());
-pass_borrowed :: (fn(s : &String) -> usize)(take(s));
+take :: (fn(sink(s) : BTreeMap(i32, i32)) -> usize)(s.len());
+pass_borrowed :: (fn(s : &BTreeMap(i32, i32)) -> usize)(take(s));
 // Inside a loop the site runs again: a copy, unless the loop reassigns.
 loop_store :: (fn() -> usize)({
-  s := String.from("x");
-  out := ArrayList(Holder).new();
+  s := BTreeMap(i32, i32).new();
+  mut(out) := ArrayList(Holder).new();
   (mut(i) : i32) = 0;
   while(i < 3, {
-    out.push(Holder(name : s, items : ArrayList(i32).new()));
+    out.push(Holder(name : s, items : BTreeMap(i32, i32).new()));
     i = (i + 1);
   });
   out.len()
 });
 loop_reassign :: (fn() -> usize)({
-  mut(s) := String.from("x");
-  out := ArrayList(Holder).new();
+  mut(s) := BTreeMap(i32, i32).new();
+  mut(out) := ArrayList(Holder).new();
   (mut(i) : i32) = 0;
   while(i < 3, {
-    out.push(Holder(name : s, items : ArrayList(i32).new()));
-    s = String.from("y");
+    out.push(Holder(name : s, items : BTreeMap(i32, i32).new()));
+    s = BTreeMap(i32, i32).new();
     i = (i + 1);
   });
   out.len()
 });
 // A closure that captures a local used afterwards copies it in.
 capture_then_read :: (fn() -> usize)({
-  s := String.from("c");
+  s := BTreeMap(i32, i32).new();
   (f : Impl(Fn() -> usize)) = (() => s.len());
   f() + s.len()
 });
 // A copy on a path that leaves the function is a move there.
 early_return :: (fn(flag : bool) -> usize)({
-  s := String.from("r");
-  out := ArrayList(Holder).new();
+  s := BTreeMap(i32, i32).new();
+  mut(out) := ArrayList(Holder).new();
   if(flag, {
-    out.push(Holder(name : s, items : ArrayList(i32).new()));
+    out.push(Holder(name : s, items : BTreeMap(i32, i32).new()));
     return(out.len());
   });
   s.len()
 });
 // A read in another arm of the same branch is not a later use.
 either_arm :: (fn(flag : bool) -> usize)({
-  s := String.from("e");
+  s := BTreeMap(i32, i32).new();
   cond(
-    flag => Holder(name : s, items : ArrayList(i32).new()).name.len(),
+    flag => Holder(name : s, items : BTreeMap(i32, i32).new()).name.len(),
     true => s.len()
   )
 });
 // Two captures used afterwards: two copies.
 capture_two :: (fn() -> usize)({
-  a := String.from("a");
-  b := String.from("b");
+  a := BTreeMap(i32, i32).new();
+  b := BTreeMap(i32, i32).new();
   (f : Impl(Fn() -> usize)) = (() => (a.len() + b.len()));
   f() + a.len() + b.len()
 });
 // A `match` binding is a part of its scrutinee: passing it to an owning
 // parameter copies when the scrutinee lives on (a local read again, or a
 // parameter), and moves out of a call's temporary.
-hold :: (fn(sink(s) : String) -> Holder)(
-  Holder(name : s, items : ArrayList(i32).new())
+hold :: (fn(sink(s) : BTreeMap(i32, i32)) -> Holder)(
+  Holder(name : s, items : BTreeMap(i32, i32).new())
 );
-make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
-match_parts :: (fn(p : &Option(String)) -> usize)({
-  o := Option(String).Some(String.from("o"));
-  h1 := match(o, .Some(x) => hold(x), .None => hold(String.from("")));
+make_opt :: (fn() -> Option(BTreeMap(i32, i32)))(.Some(BTreeMap(i32, i32).new()));
+match_parts :: (fn(p : &Option(BTreeMap(i32, i32))) -> usize)({
+  o := Option(BTreeMap(i32, i32)).Some(BTreeMap(i32, i32).new());
+  h1 := match(o, .Some(x) => hold(x), .None => hold(BTreeMap(i32, i32).new()));
   n := match(o, .Some(y) => y.len(), .None => usize(0));
-  h2 := match(make_opt(), .Some(z) => hold(z), .None => hold(String.from("")));
-  h3 := match(p, .Some(w) => hold(w), .None => hold(String.from("")));
+  h2 := match(make_opt(), .Some(z) => hold(z), .None => hold(BTreeMap(i32, i32).new()));
+  h3 := match(p, .Some(w) => hold(w), .None => hold(BTreeMap(i32, i32).new()));
   h1.name.len() + n + h2.name.len() + h3.name.len()
 });
 // A read walk's element is an inout-borrow: passing it on copies.
-for_store :: (fn(xs : &ArrayList(String)) -> usize)({
-  out := ArrayList(Holder).new();
+for_store :: (fn(xs : &ArrayList(BTreeMap(i32, i32))) -> usize)({
+  mut(out) := ArrayList(Holder).new();
   for(&xs, s => {
     out.push(hold(s));
   });
@@ -128,10 +132,10 @@ plain :: (fn() -> i32)({
 main :: (fn() -> unit)({
   _a := store_then_read();
   _b := bind_then_read();
-  _c := store_param(String.from("p"));
-  _d := return_param(ArrayList(i32).new());
-  _e := store_field(Holder(name : String.from("f"), items : ArrayList(i32).new()));
-  _f := pass_borrowed(String.from("g"));
+  _c := store_param(BTreeMap(i32, i32).new());
+  _d := return_param(BTreeMap(i32, i32).new());
+  _e := store_field(Holder(name : BTreeMap(i32, i32).new(), items : BTreeMap(i32, i32).new()));
+  _f := pass_borrowed(BTreeMap(i32, i32).new());
   _g := loop_store();
   _h := loop_reassign();
   _i := capture_then_read();
@@ -140,7 +144,7 @@ main :: (fn() -> unit)({
   _l := early_return(true);
   _m := either_arm(true);
   _n := capture_two();
-  _o := match_parts(.Some(String.from("q")));
-  _p := for_store(ArrayList(String).new());
+  _o := match_parts(.Some(BTreeMap(i32, i32).new()));
+  _p := for_store(ArrayList(BTreeMap(i32, i32)).new());
 });
 export(main);

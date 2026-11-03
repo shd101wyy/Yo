@@ -376,7 +376,7 @@ test("a container of a closure type compiles and calls the closure", {
       ();
     }
   );
-  ks := ArrayList(type_of(k)).new();
+  mut(ks) := ArrayList(type_of(k)).new();
   ks.push(k);
   // Called in place: `ks.get` copies the element, and a closure that owns an
   // `AtomicI32` is not `Copy` (plans/VALUES_BY_DEFAULT.md decision 36).
@@ -409,8 +409,8 @@ test("two closures' lists are two types, one per closure", {
       ();
     }
   );
-  l1 := ArrayList(type_of(k1)).new();
-  l2 := ArrayList(type_of(k2)).new();
+  mut(l1) := ArrayList(type_of(k1)).new();
+  mut(l2) := ArrayList(type_of(k2)).new();
   l1.push(k1);
   l2.push(k2);
   l1(usize(0))();
@@ -429,7 +429,7 @@ test("a second closure's list after the first list's push", {
       ();
     }
   );
-  l1 := ArrayList(type_of(k1)).new();
+  mut(l1) := ArrayList(type_of(k1)).new();
   l1.push(k1);
   (k2 : Impl(Fn() -> unit)) = (
     () => {
@@ -437,7 +437,7 @@ test("a second closure's list after the first list's push", {
       ();
     }
   );
-  l2 := ArrayList(type_of(k2)).new();
+  mut(l2) := ArrayList(type_of(k2)).new();
   l2.push(k2);
   l1(usize(0))();
   l2(usize(0))();

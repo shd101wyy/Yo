@@ -1,8 +1,10 @@
 # `yo fix <path> --migrate explicit-copy` lists, and does not clone, a copy out
 # of a temporary that dies right after it: a field read whose receiver is an
-# owning temporary (`make().name`, bound and returned). Before the guard the
-# run inserted four `.clone()` calls there and at the `match` bindings, and
-# named `first_name`'s dying `make()` "a borrowed binding"
+# owning temporary (`make().name`, bound and returned). The copied values are
+# `BTreeMap`s (still a `ref`; decision Option 1 of
+# issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md).
+# Before the guard the run inserted four `.clone()` calls there and at the
+# `match` bindings, and named `first_name`'s dying `make()` "a borrowed binding"
 # (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1";
 # issues/fixed/2026-10-20-explicit-copy-migration-clones-a-copy-out-of-a-dying-temporary.md).
 # A `match` binding of a call's result (`make_opt()`, `m.get(k)`; the

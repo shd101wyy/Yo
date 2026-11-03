@@ -76,6 +76,10 @@
 //! `new`, `send`, `try_send`, `try_recv`, `close`, `is_closed` and `len` are
 //! intended to keep their names and meanings, as are `receiver`, `pair`,
 //! `Receiver.sender` and `Sender.clone`.
+// `_ChannelState(T)` holds its parked tasks' `Waker`s by value since B8 (an
+// `ArrayList(Waker)` is a value, no longer an opaque handle), and a `Waker`
+// carries a raw pointer to its task, so the state's methods are raw-view code.
+pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 // The SAME `TryRecvError` the blocking channel reports, so a caller that
 // polls both does not need two vocabularies for one distinction.

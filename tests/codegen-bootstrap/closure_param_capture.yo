@@ -15,15 +15,16 @@ run_detector :: (fn(d : &Detector, x : i32) -> unit)({
 analyze :: (
   fn(get_info : &Impl(Fn(e : i32) -> i32)) -> unit
 )({
-  extras := HashMap(String, i32).new();
+  // The map is a value (B9): the closure owns its captured copy, so it reads
+  // the entry back itself.
+  mut(extras) := HashMap(String, i32).new();
   d := Detector(
     detect : dyn(x => {
       extras.insert(`k${x}`, get_info(x));
-      ()
+      match(extras.get(String.from("k7")), .Some(v) => println(`${v}`), .None => println(`missing`));
     })
   );
   run_detector(&d, i32(7));
-  match(extras.get(String.from("k7")), .Some(v) => println(`${v}`), .None => println(`missing`));
 });
 
 main :: (fn() -> unit)({

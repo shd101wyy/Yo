@@ -47,8 +47,8 @@ _find_enclosing_call :: (
       // `add_one(i32(41))`).
       if(!is_infix && (tok.kind == TokenKind.Identifier), {
         if(_at_or_after(&tok, row, col), {
-          (active : usize) = usize(0);
-          (ai : usize) = usize(0);
+          (mut(active) : usize) = usize(0);
+          (mut(ai) : usize) = usize(0);
           while(ai < args.len(), {
             match(
               args.get(ai),
@@ -69,7 +69,7 @@ _find_enclosing_call :: (
         });
       });
       recur(&func_box, row, col, best_callee, best_active, best_row, best_col);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
@@ -91,11 +91,11 @@ handle_signature_help :: (
     character : usize
   ) -> Option(JsonValue)
 )({
-  best_callee := ArrayList(AstExpr).new();
-  best_active := ArrayList(usize).new();
-  best_row := ArrayList(usize).new();
-  best_col := ArrayList(usize).new();
-  (ei : usize) = usize(0);
+  mut(best_callee) := ArrayList(AstExpr).new();
+  mut(best_active) := ArrayList(usize).new();
+  mut(best_row) := ArrayList(usize).new();
+  mut(best_col) := ArrayList(usize).new();
+  (mut(ei) : usize) = usize(0);
   while(ei < exprs.len(), {
     match(
       exprs.get(ei),
@@ -106,10 +106,10 @@ handle_signature_help :: (
   });
   // Innermost candidate whose callee is Func-typed: scan for the max
   // (row, col) among candidates whose ExprInfo carries a Func.
-  (chosen : Option(usize)) = Option(usize).None;
-  (ch_row : usize) = usize(0);
-  (ch_col : usize) = usize(0);
-  (ci : usize) = usize(0);
+  (mut(chosen) : Option(usize)) = Option(usize).None;
+  (mut(ch_row) : usize) = usize(0);
+  (mut(ch_col) : usize) = usize(0);
+  (mut(ci) : usize) = usize(0);
   while(ci < best_callee.len(), {
     cand := match(
       best_callee.get(ci),
@@ -160,7 +160,7 @@ handle_signature_help :: (
       return(Option(JsonValue).None);
     }
   );
-  callee_name := ast_expr_text(&callee).*;
+  callee_name := ast_expr_text(&callee).*.clone();
   match(
     &info.ty,
     Rc(.Func(_, param_types, _, _, _, meta, _)) => {

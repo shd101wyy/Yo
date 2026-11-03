@@ -52,7 +52,7 @@ _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))(
     )
   );
   std_path := resolve_std_path();
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   take_verify_tasks();
@@ -80,7 +80,7 @@ _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))(
 });
 /// The reports' ids/outcomes rendered for assert messages.
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
-  ids := ArrayList(String).new();
+  mut(ids) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
@@ -98,7 +98,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     if(j > usize(0), {
       sb.write_string(String.from(", "));
     });
-    sb.write_string(ids.get(j).unwrap().clone());
+    sb.write_string(ids(j).clone());
     j = (j + usize(1));
   });
   sb.to_string()
@@ -135,7 +135,7 @@ test("the SMT encoding of a match query declares the datatype (solver-free)", {
   );
   std_path := resolve_std_path();
   rel := String.from("./tests/spec/fixtures/valid/match_enum.yo");
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel.clone());
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
   take_verify_tasks();
@@ -210,7 +210,7 @@ test("the match walk has its arms under check's settings (codegen-only tables of
   );
   std_path := resolve_std_path();
   rel := String.from("./tests/spec/fixtures/valid/match_enum.yo");
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel.clone());
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
   take_verify_tasks();

@@ -83,6 +83,38 @@ _pad_runes :: (fn(sb : &mut StringBuilder, r : rune, count : usize) -> unit)({
     sb.write_rune(r);
   });
 });
+/// The byte offset rune `p` of `s` starts at, or `.None` when `s` has at most
+/// `p` runes. Read in place: `char_indices()` takes the string by value
+/// (lookahead D20), and a copy per measurement would land on every spec'd
+/// interpolation. A rune starts at every byte that is not a UTF-8
+/// continuation byte (`10xxxxxx`).
+_rune_start :: (fn(s : &String, p : usize) -> Option(usize))({
+  n := s.len();
+  (mut(i) : usize) = usize(0);
+  (mut(seen) : usize) = usize(0);
+  (mut(found) : Option(usize)) = .None;
+  while((i < n) && found.is_none(), i = (i + usize(1)), {
+    if((s.byte_at(i) & u8(0xC0)) != u8(0x80), {
+      if(seen == p, {
+        found = .Some(i);
+      });
+      seen = (seen + usize(1));
+    });
+  });
+  found
+});
+/// The number of runes in `s`, counted in place (see `_rune_start`).
+_rune_count :: (fn(s : &String) -> usize)({
+  n := s.len();
+  (mut(i) : usize) = usize(0);
+  (mut(count) : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    if((s.byte_at(i) & u8(0xC0)) != u8(0x80), {
+      count = (count + usize(1));
+    });
+  });
+  count
+});
 /// Apply width/fill/alignment to an already-final body. Deliberately does NOT
 /// truncate: `precision` means decimal places for numbers and a truncation
 /// length for text, so only the text path may apply it.
@@ -92,7 +124,7 @@ _apply_width :: (
   // `width` is a CHARACTER count (the field doc says so, and Rust counts
   // chars here too), so the measurement is a rune count — otherwise
   // D4's byte flip would silently start padding `é` to two columns.
-  len := text.chars().count();
+  len := _rune_count(&text);
   cond(
     (len >= width) => text,
     true => {
@@ -140,7 +172,7 @@ impl(
   /// instead of failing at runtime.
   parse : (fn(s : str) -> Self)({
     (mut(out) : Self) = Self.empty();
-    chars := ArrayList(rune).new();
+    mut(chars) := ArrayList(rune).new();
     {
       text := String.from(s);
       mut(it) := text.chars();
@@ -229,15 +261,15 @@ impl(
     // prefix or one copy of `body`.
     text := match(
       self.precision,
-      // `.N` on text is a truncation length in CHARACTERS. `nth(p)` hands
+      // `.N` on text is a truncation length in CHARACTERS. `_rune_start(&body, p)` hands
       // back the byte offset rune `p` starts at — a rune boundary by
       // construction, so the cut can never split a rune and emit invalid
       // UTF-8; `.None` means the text has at most `p` runes and stays
       // whole (STD_API_AUDIT_D4_PLAN §5.2 S2).
       .Some(p) =>
         match(
-          body.char_indices().nth(p),
-          .Some(pair) => body.substring(usize(0), pair._0),
+          _rune_start(&body, p),
+          .Some(cut) => body.substring(usize(0), cut),
           .None => body.clone()
         ),
       .None => body.clone()
@@ -251,8 +283,8 @@ impl(
   pad_numeric : (fn(self : Self, sign : &String, prefix : &String, digits : &String) -> String)({
     // Same CHARACTER basis as `_apply_width` — the two are compared against
     // the same `self.width`, so they must measure the same thing.
-    head_len := (sign.chars().count() + prefix.chars().count());
-    total_len := (head_len + digits.chars().count());
+    head_len := (_rune_count(sign) + _rune_count(prefix));
+    total_len := (head_len + _rune_count(digits));
     use_zero := (self.zero && self.align.is_none());
     cond(
       (use_zero && (self.width > total_len)) => {
