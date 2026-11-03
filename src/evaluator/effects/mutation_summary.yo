@@ -278,8 +278,8 @@ impl(
     g_ms_in_progress.with_mut({ fid_owned }(m) => m.insert(fid_owned.clone(), true));
     local_touched := ArrayList(String).new();
     mutates := _MsW.walk(body, table, &mut local_touched);
-    fid_owned_ := fid.clone();
-    g_ms_in_progress.with_mut({ fid_owned_ }(m) => m.remove(fid_owned_.clone()));
+    fid_owned2 := fid.clone();
+    g_ms_in_progress.with_mut({ fid_owned2 }(m) => m.remove(fid_owned2.clone()));
     // Remove the self edge (pure self-recursion does not poison memoization).
     (li : usize) = usize(0);
     filtered_touched := ArrayList(String).new();
@@ -294,8 +294,8 @@ impl(
       li = (li + usize(1));
     });
     if(mutates || (filtered_touched.len() == usize(0)), {
-      fid_owned__ := fid.clone();
-      g_ms_summary_by_fid.with_mut({ fid_owned__, mutates : mutates.clone(), body : body.clone() }(m) => m.insert(fid_owned__.clone(), _MsMemo(body_id : ast_expr_id(&body), mutates : mutates)));
+      fid_owned3 := fid.clone();
+      g_ms_summary_by_fid.with_mut({ fid_owned3, mutates : mutates.clone(), body : body.clone() }(m) => m.insert(fid_owned3.clone(), _MsMemo(body_id : ast_expr_id(&body), mutates : mutates)));
     });
     (ti : usize) = usize(0);
     while(ti < filtered_touched.len(), {
@@ -1587,8 +1587,8 @@ impl(
       all0.all = true;
       return(_MspAnalysis(mask : all0, ret : _msp_root(MSP_ROOTED)));
     });
-    fid_owned___ := fid.clone();
-    g_msp_in_progress.with_mut({ fid_owned___ }(m) => m.insert(fid_owned___.clone(), true));
+    fid_owned := fid.clone();
+    g_msp_in_progress.with_mut({ fid_owned }(m) => m.insert(fid_owned.clone(), true));
     local_touched := ArrayList(String).new();
     ctx := _MspCtx(
       fid : fid.clone(),
@@ -1673,8 +1673,8 @@ impl(
       );
       ri = (ri + usize(1));
     });
-    fid_owned____ := fid.clone();
-    g_msp_in_progress.with_mut({ fid_owned____ }(m) => m.remove(fid_owned____.clone()));
+    fid_owned2 := fid.clone();
+    g_msp_in_progress.with_mut({ fid_owned2 }(m) => m.remove(fid_owned2.clone()));
     filtered := ArrayList(String).new();
     (li : usize) = usize(0);
     while(li < local_touched.len(), {
@@ -1691,9 +1691,9 @@ impl(
     if(mask.all || (filtered.len() == usize(0)), {
       // Owned captures (`with_mut`'s callback is a sink parameter); the
       // memo copies `result` (a handle and a Copy root), which is returned below.
-      fid_owned_____ := fid.clone();
+      fid_owned3 := fid.clone();
       memo := _MspMemo(body_id : ast_expr_id(body), analysis : result);
-      g_msp_by_fid.with_mut({ fid_owned_____, memo }(m) => m.insert(fid_owned_____, memo));
+      g_msp_by_fid.with_mut({ fid_owned3, memo }(m) => m.insert(fid_owned3, memo));
     });
     (ti : usize) = usize(0);
     while(ti < filtered.len(), {
@@ -4499,8 +4499,8 @@ function_reaches_non_send_global :: (
   );
   // A body defined in a pragma'd file is the audited base.
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.*.clone())), {
-    fid_owned______ := fid.clone();
-    g_gr_by_fid.with_mut({ fid_owned______, body_id : body_id.clone() }(m) => m.insert(fid_owned______.clone(), _GrMemo(body_id : body_id, reach : Option(String).None)));
+    fid_owned := fid.clone();
+    g_gr_by_fid.with_mut({ fid_owned, body_id : body_id.clone() }(m) => m.insert(fid_owned.clone(), _GrMemo(body_id : body_id, reach : Option(String).None)));
     return(Option(String).None);
   });
   if(expr_info_table_get(table, body_id).is_none(), {
@@ -4511,20 +4511,20 @@ function_reaches_non_send_global :: (
   saved_low := g_gr_low;
   g_gr_low = Option(usize).None;
   pending_start := g_gr_pending_order.with(xs => xs.len());
-  fid_owned_______ := fid.clone();
-  g_gr_in_progress.with_mut({ fid_owned_______, my_depth : my_depth.clone() }(m) => m.insert(fid_owned_______.clone(), my_depth));
+  fid_owned2 := fid.clone();
+  g_gr_in_progress.with_mut({ fid_owned2, my_depth : my_depth.clone() }(m) => m.insert(fid_owned2.clone(), my_depth));
   // This walk records the function's reads and callees afresh.
-  fid_owned________ := fid.clone();
-  _r0 := g_gr_reads_by_fid.with_mut({ fid_owned________ }(m) => m.remove(fid_owned________.clone()));
-  fid_owned_________ := fid.clone();
-  _r1 := g_gr_callees_by_fid.with_mut({ fid_owned_________ }(m) => m.remove(fid_owned_________.clone()));
+  fid_owned3 := fid.clone();
+  _r0 := g_gr_reads_by_fid.with_mut({ fid_owned3 }(m) => m.remove(fid_owned3.clone()));
+  fid_owned4 := fid.clone();
+  _r1 := g_gr_callees_by_fid.with_mut({ fid_owned4 }(m) => m.remove(fid_owned4.clone()));
   // A module-level binding is one static every thread shares: the question is
   // sharing, so the global must be `Sync` (Rust's `static: Sync`;
   // plans/VALUES_BY_DEFAULT.md §3.8).
   ctx := _GrCtx(table : table.clone(), env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
   r := _gr_walk(body, &ctx);
-  fid_owned__________ := fid.clone();
-  g_gr_in_progress.with_mut({ fid_owned__________ }(m) => m.remove(fid_owned__________.clone()));
+  fid_owned5 := fid.clone();
+  g_gr_in_progress.with_mut({ fid_owned5 }(m) => m.remove(fid_owned5.clone()));
   g_gr_depth = my_depth;
   // The lowest in-progress ANCESTOR this walk's subtree depended on.
   (ancestor_low : Option(usize)) = match(
@@ -4541,14 +4541,14 @@ function_reaches_non_send_global :: (
   cond(
     r.is_some() => {
       _gr_settle_pending(pending_start, false);
-      fid_owned___________ := fid.clone();
+      fid_owned6 := fid.clone();
       r_owned := r.clone();
-      g_gr_by_fid.with_mut({ fid_owned___________, r_owned, body_id : body_id.clone() }(m) => m.insert(fid_owned___________.clone(), _GrMemo(body_id : body_id, reach : r_owned)));
+      g_gr_by_fid.with_mut({ fid_owned6, r_owned, body_id : body_id.clone() }(m) => m.insert(fid_owned6.clone(), _GrMemo(body_id : body_id, reach : r_owned)));
     },
     ancestor_low.is_none() => {
       _gr_settle_pending(pending_start, true);
-      fid_owned____________ := fid.clone();
-      g_gr_by_fid.with_mut({ fid_owned____________, body_id : body_id.clone() }(m) => m.insert(fid_owned____________.clone(), _GrMemo(body_id : body_id, reach : Option(String).None)));
+      fid_owned7 := fid.clone();
+      g_gr_by_fid.with_mut({ fid_owned7, body_id : body_id.clone() }(m) => m.insert(fid_owned7.clone(), _GrMemo(body_id : body_id, reach : Option(String).None)));
     },
     true => {
       al := match(ancestor_low, .Some(x) => x, .None => usize(0));
@@ -4569,10 +4569,10 @@ function_reaches_non_send_global :: (
         );
         pi = (pi + usize(1));
       });
-      fid_owned_____________ := fid.clone();
-      g_gr_pending.with_mut({ fid_owned_____________, body_id : body_id.clone(), al : al.clone() }(m) => m.insert(fid_owned_____________.clone(), _GrPend(body_id : body_id, low : al)));
-      fid_owned______________ := fid.clone();
-      g_gr_pending_order.with_mut({ fid_owned______________ }(xs) => xs.push(fid_owned______________.clone()));
+      fid_owned8 := fid.clone();
+      g_gr_pending.with_mut({ fid_owned8, body_id : body_id.clone(), al : al.clone() }(m) => m.insert(fid_owned8.clone(), _GrPend(body_id : body_id, low : al)));
+      fid_owned9 := fid.clone();
+      g_gr_pending_order.with_mut({ fid_owned9 }(xs) => xs.push(fid_owned9.clone()));
     }
   );
   r

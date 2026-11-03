@@ -629,27 +629,33 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             assoc_constraint_types : atct
           )
         ) =>
-          { atns := atns_body.assoc_type_names(); fls := atns_body.field_labels(); fts := atns_body.field_types(); scons := atns_body.self_constraints(); ncons := atns_body.neg_self_constraints(); // Cycle guard: self-referential traits (e.g. a method returning
-          // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
-          // recursing into this trait id, return it unchanged to break the cycle.
-          cond(
-            ((tid.len() > usize(0)) && _subst_trait_visited(s, &tid)) => Rc.clone(ty),
-            true => {
-              if(tid.len() > usize(0), {
-                s.visited_trait_ids.push(tid.clone());
-              });
-              // Nominal boundary — see _without_len_vars.
-              s_nom_t := _without_len_vars(s);
-              new_fts := ArrayList(TypeValue).new();
-              i := usize(0);
-              while(i < fts.len(), {
-                elem := match(fts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-                new_fts.push(_substitute_at(&s_nom_t, &elem, false));
-                i = (i + usize(1));
-              });
-              Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), new_fts, scons.clone(), ncons.clone()), tid.clone(), ic.clone(), Rc.clone(atcl), Rc.clone(atct)))
-            }
-          ) },
+          {
+            atns := atns_body.assoc_type_names();
+            fls := atns_body.field_labels();
+            fts := atns_body.field_types();
+            scons := atns_body.self_constraints();
+            ncons := atns_body.neg_self_constraints(); // Cycle guard: self-referential traits (e.g. a method returning
+            // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
+            // recursing into this trait id, return it unchanged to break the cycle.
+            cond(
+              ((tid.len() > usize(0)) && _subst_trait_visited(s, &tid)) => Rc.clone(ty),
+              true => {
+                if(tid.len() > usize(0), {
+                  s.visited_trait_ids.push(tid.clone());
+                });
+                // Nominal boundary — see _without_len_vars.
+                s_nom_t := _without_len_vars(s);
+                new_fts := ArrayList(TypeValue).new();
+                i := usize(0);
+                while(i < fts.len(), {
+                  elem := match(fts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                  new_fts.push(_substitute_at(&s_nom_t, &elem, false));
+                  i = (i + usize(1));
+                });
+                Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), new_fts, scons.clone(), ncons.clone()), tid.clone(), ic.clone(), Rc.clone(atcl), Rc.clone(atct)))
+              }
+            )
+          },
         // SomeT — check substitution first; if not found, recurse into constraints.
         Rc(
           .SomeT(
@@ -660,7 +666,11 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             bounds : rts_bnd,
             resolution : rcp
           )
-        ) => { rts := rts_bnd.required(); rlvls := rts_bnd.required_levels(); nts := rts_bnd.negative(); nlvls := rts_bnd.negative_levels(); 
+        ) => {
+          rts := rts_bnd.required();
+          rlvls := rts_bnd.required_levels();
+          nts := rts_bnd.negative();
+          nlvls := rts_bnd.negative_levels();
           // A SomeT that carries its own resolution is already bound: a
           // (name, level) entry names ANOTHER binder that shares its spelling
           // (`filter`'s `F` vs the `map` `F` nested in its `Self`), so only

@@ -627,16 +627,16 @@ _evaluate_dependency_build_file :: (
     exn : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )({
-  __probe_dep_dir := dep_dir.clone();
-  __probe_build_file := build_file.clone();
-  __probe_dep_name := dep_name.clone();
+  owned_dep_dir := dep_dir.clone();
+  owned_build_file := build_file.clone();
+  owned_dep_name := dep_name.clone();
   io.async((e : IoExn) => {
     scratch := BuildRegistry.new();
-    scratch.cli_options = _namespaced_defines(__probe_dep_name.clone(), defines);
-    dep_manifest_opt := project_manifest(__probe_dep_dir.clone(), e.exn);
+    scratch.cli_options = _namespaced_defines(owned_dep_name.clone(), defines);
+    dep_manifest_opt := project_manifest(owned_dep_dir.clone(), e.exn);
     scratch.manifest_fields = _manifest_fields(&dep_manifest_opt);
     prev := swap_build_registry(Option(BuildRegistry).Some(scratch));
-    outcome := mm_load_yo_file(__probe_build_file.clone(), e.io, e.exn);
+    outcome := mm_load_yo_file(owned_build_file.clone(), e.io, e.exn);
     load_error := _take_load_error();
     evaluated := get_build_registry();
     swap_build_registry(&prev);
@@ -644,9 +644,9 @@ _evaluate_dependency_build_file :: (
       match(
         load_error,
         .Some(rendered) => emit_rendered_text(&rendered),
-        .None => eprintln(`build: error in: ${__probe_build_file} (no diagnostic recorded)`)
+        .None => eprintln(`build: error in: ${owned_build_file} (no diagnostic recorded)`)
       );
-      e.exn.throw(dyn(`Error: dependency "${__probe_dep_name}": failed to evaluate ${__probe_build_file}`));
+      e.exn.throw(dyn(`Error: dependency "${owned_dep_name}": failed to evaluate ${owned_build_file}`));
     });
     evaluated
   })
@@ -1146,16 +1146,16 @@ detect_cycle :: (fn(dag : &ArrayList(DAGNode)) -> Option(String))({
 // YO_BUILD_NO_CACHE=1 to bypass.
 // ---------------------------------------------------------------------------
 _read_dir_task :: (fn(dir : &String, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))({
-  __probe_dir := dir.clone();
+  owned_dir := dir.clone();
   io.async((e : IoExn) => {
-    // Local swallow handler: read_dir on a FILE (or a vanished __probe_dir) unwinds
+    // Local swallow handler: read_dir on a FILE (or a vanished dir) unwinds
     // THIS task, read as `.None` at the JoinHandle below — that failure IS
-    // the __probe_dir-vs-file test, so no stat is needed (the readdir-order lesson
+    // the dir-vs-file test, so no stat is needed (the readdir-order lesson
     // still applies: names are sorted by the consumer). The unwind payload
     // must match the future's payload type or def-eval fails and silently
     // hollows this SM; the value is discarded, the task aborts either way.
     swallow := Exception(throw : (_e -> unwind(ArrayList(DirEntry).new())));
-    e.io.await(read_dir(Path.new(__probe_dir.clone()), e.io), IoExn(io : e.io, exn : swallow))
+    e.io.await(read_dir(Path.new(owned_dir.clone()), e.io), IoExn(io : e.io, exn : swallow))
   })
 });
 /// Collect `*.yo` files under `dir`, skipping build outputs and VCS/tooling
@@ -1277,9 +1277,9 @@ expand_workspace_members :: (
 _resolve_workspace_member :: (
   fn(package : &Option(String), io : Io, exn : Exception) -> Impl(Future(Option(String), IoExn))
 )({
-  __probe_package := package.clone();
+  owned_package := package.clone();
   io.async((e : IoExn) => {
-    name := match(&__probe_package, .Some(n) => n.clone(), .None => return(Option(String).None));
+    name := match(&owned_package, .Some(n) => n.clone(), .None => return(Option(String).None));
     cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
     root_manifest_path := match(
       find_manifest(cwd_str.clone()),
@@ -1354,11 +1354,11 @@ _push_unique_string :: (fn(out : &mut ArrayList(String), v : &String) -> unit)({
 _cache_collect_yo_files :: (
   fn(dir : &String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )({
-  __probe_dir := dir.clone();
+  owned_dir := dir.clone();
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
     work := ArrayList(String).new();
-    work.push(__probe_dir.clone());
+    work.push(owned_dir.clone());
     (wi : usize) = usize(0);
     while(wi < work.len(), {
       d := work(wi).clone();
@@ -1410,14 +1410,14 @@ _cache_collect_yo_files :: (
   })
 });
 _read_bytes_task :: (fn(path : &String, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
-  __probe_path := path.clone();
+  owned_path := path.clone();
   io.async((e : IoExn) => {
     // Local swallow handler: an unreadable file unwinds THIS task, read as
     // `.None` at the JoinHandle below. The unwind payload must match the
     // future's payload type or def-eval fails and silently hollows this SM;
     // the value is discarded, the task aborts either way.
     swallow := Exception(throw : (_e -> unwind(ArrayList(u8).new())));
-    e.io.await(read(Path.new(__probe_path.clone()), e.io), IoExn(io : e.io, exn : swallow))
+    e.io.await(read(Path.new(owned_path.clone()), e.io), IoExn(io : e.io, exn : swallow))
   })
 });
 /// Read a file into the stamp accumulator; `.None` (file vanished mid-walk)
@@ -1425,9 +1425,9 @@ _read_bytes_task :: (fn(path : &String, io : Io) -> Impl(Future(ArrayList(u8), I
 _cache_read_file :: (
   fn(path : &String, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn))
 )({
-  __probe_path := path.clone();
+  owned_path := path.clone();
   io.async((e : IoExn) => {
-    t := e.io.spawn(_read_bytes_task(__probe_path.clone(), e.io), e);
+    t := e.io.spawn(_read_bytes_task(owned_path.clone(), e.io), e);
     match(
       e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(ArrayList(u8)).Some(bytes),
@@ -1515,7 +1515,7 @@ _split_dep_entry :: (fn(line : &String) -> _DepEntry)({
 _manifest_stamp_entries :: (
   fn(project_dir : &String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )({
-  __probe_project_dir := project_dir.clone();
+  owned_project_dir := project_dir.clone();
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
     names := ArrayList(String).new();
@@ -1523,7 +1523,7 @@ _manifest_stamp_entries :: (
     names.push(String.from("yo.lock"));
     (i : usize) = usize(0);
     while(i < names.len(), {
-      p := Path.new(__probe_project_dir.clone()).join(Path.new(&names(i))).to_string();
+      p := Path.new(owned_project_dir.clone()).join(Path.new(&names(i))).to_string();
       // Bind the awaited value FIRST. An `io.await` inline in a match
       // SCRUTINEE inside an `io.async` body emits `switch (.tag)` with no
       // scrutinee — invalid C, caught only by the C compiler
@@ -1574,10 +1574,10 @@ artifact_input_stamp :: (
     io : Io
   ) -> Impl(Future(String, IoExn))
 )({
-  __probe_depfile_path := depfile_path.clone();
-  __probe_project_dir := project_dir.clone();
-  __probe_argv := argv.clone();
-  __probe_manifest_entries := manifest_entries.clone();
+  owned_depfile_path := depfile_path.clone();
+  owned_project_dir := project_dir.clone();
+  owned_argv := argv.clone();
+  owned_manifest_entries := manifest_entries.clone();
   io.async((e : IoExn) => {
     if(!cache_enabled, {
       return(String.new());
@@ -1587,7 +1587,7 @@ artifact_input_stamp :: (
     compiler_id := e.io.await(_compiler_identity(e.io), e);
     _stamp_push_str(&mut acc, `yo-binary ${compiler_id}`);
     sep := String.from(" ");
-    _stamp_push_str(&mut acc, `argv ${sep.join(&__probe_argv)}`);
+    _stamp_push_str(&mut acc, `argv ${sep.join(&owned_argv)}`);
     // §5.4: every `build.env` read the build file made. The invoking shell is
     // an INPUT once a build file branches on it, so a changed variable must
     // rebuild rather than serve a stale artifact. Recorded as `name=value`
@@ -1602,7 +1602,7 @@ artifact_input_stamp :: (
     // bytes it read. Consume them verbatim — no disk reads at all, which is
     // also strictly cheaper than the re-hash this replaces.
     if(use_recorded_hashes, {
-      recorded := e.io.await(_read_depfile(__probe_depfile_path.clone(), e.io), e);
+      recorded := e.io.await(_read_depfile(owned_depfile_path.clone(), e.io), e);
       if(recorded.len() == usize(0), {
         // The child wrote no depfile (it died early, or --emit-deps was not
         // passed). Nothing sound to record; leave the cache off for this
@@ -1624,8 +1624,8 @@ artifact_input_stamp :: (
         ri = (ri + usize(1));
       });
       (mi : usize) = usize(0);
-      while(mi < __probe_manifest_entries.len(), {
-        _stamp_push_str(&mut acc, &__probe_manifest_entries(mi));
+      while(mi < owned_manifest_entries.len(), {
+        _stamp_push_str(&mut acc, &owned_manifest_entries(mi));
         mi = (mi + usize(1));
       });
       return(sha256_hex(&acc));
@@ -1639,7 +1639,7 @@ artifact_input_stamp :: (
     // without an OLD input changing: something has to import it, and that
     // importer is on the list. Conversely a file that left the closure only
     // over-invalidates once, and the next build's depfile no longer names it.
-    listed_raw := e.io.await(_read_depfile(__probe_depfile_path.clone(), e.io), e);
+    listed_raw := e.io.await(_read_depfile(owned_depfile_path.clone(), e.io), e);
     have_depfile := (listed_raw.len() > usize(0));
     // Lines are `<sha256> <path>`; the DECISION pass wants the paths only — it
     // re-hashes them from disk, which is exactly the question it is asking.
@@ -1651,7 +1651,7 @@ artifact_input_stamp :: (
     // No depfile yet — hash every `.yo` under the project and the whole std
     // tree, which is what every build used to do, per artifact (audit B10).
     if(!have_depfile, {
-      project_files := e.io.await(_cache_collect_yo_files(__probe_project_dir.clone(), e.io), e);
+      project_files := e.io.await(_cache_collect_yo_files(owned_project_dir.clone(), e.io), e);
       files.extend(project_files);
     });
     std_root := resolve_std_path();
@@ -1663,9 +1663,9 @@ artifact_input_stamp :: (
     // no depfile names them — but changing either changes what `import("dep")`
     // means. They arrive PRE-HASHED from the caller (shared with the record
     // pass); an empty list means this call is responsible for them itself.
-    (shared_manifest : ArrayList(String)) = __probe_manifest_entries.clone();
+    (shared_manifest : ArrayList(String)) = owned_manifest_entries.clone();
     if(shared_manifest.len() == usize(0), {
-      shared_manifest = e.io.await(_manifest_stamp_entries(__probe_project_dir.clone(), e.io), e);
+      shared_manifest = e.io.await(_manifest_stamp_entries(owned_project_dir.clone(), e.io), e);
     });
     (fi : usize) = usize(0);
     while(fi < files.len(), {
@@ -1701,10 +1701,10 @@ artifact_input_stamp :: (
 /// to fall back to the whole-tree walk
 /// (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9).
 _read_depfile :: (fn(path : &String, io : Io) -> Impl(Future(ArrayList(String), IoExn)))({
-  __probe_path := path.clone();
+  owned_path := path.clone();
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
-    bytes_opt := e.io.await(_cache_read_file(__probe_path.clone(), e.io), e);
+    bytes_opt := e.io.await(_cache_read_file(owned_path.clone(), e.io), e);
     // No consuming `match` here while `SEED_VERSION` is v0.2.73:
     // `artifact_input_stamp` awaits this wrapper twice, and that seed's fused
     // lowering emits such a match's C labels twice in one function
@@ -1722,9 +1722,9 @@ _read_depfile :: (fn(path : &String, io : Io) -> Impl(Future(ArrayList(String), 
 });
 /// Read the recorded stamp next to an output, `.None` when absent.
 _read_stamp :: (fn(path : &String, io : Io) -> Impl(Future(Option(String), IoExn)))({
-  __probe_path := path.clone();
+  owned_path := path.clone();
   io.async((e : IoExn) => {
-    t := e.io.spawn(_read_bytes_task(__probe_path.clone(), e.io), e);
+    t := e.io.spawn(_read_bytes_task(owned_path.clone(), e.io), e);
     match(
       e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
@@ -1733,15 +1733,15 @@ _read_stamp :: (fn(path : &String, io : Io) -> Impl(Future(Option(String), IoExn
   })
 });
 _write_string_task :: (fn(path : &String, data : &String, io : Io) -> Impl(Future(unit, IoExn)))({
-  __probe_path := path.clone();
-  __probe_data := data.clone();
+  owned_path := path.clone();
+  owned_data := data.clone();
   io.async((e : IoExn) => {
     // Local swallow handler: stamp write failures unwind THIS task, read as
     // `.None` at the JoinHandle below (the cache is an optimization). The
     // unwind payload matches the future's payload — write_string's own
     // unit — or def-eval fails and silently hollows this SM.
     swallow := Exception(throw : (_e -> unwind(())));
-    e.io.await(write_string(Path.new(__probe_path.clone()), __probe_data.clone(), e.io), IoExn(io : e.io, exn : swallow))
+    e.io.await(write_string(Path.new(owned_path.clone()), owned_data.clone(), e.io), IoExn(io : e.io, exn : swallow))
   })
 });
 /// Record the stamp; failures are silent (the cache is an optimization).
@@ -1749,10 +1749,10 @@ _write_string_task :: (fn(path : &String, data : &String, io : Io) -> Impl(Futur
 /// truncates the previous stamp, making the next build a guaranteed cache
 /// miss — which is the correct outcome in both of those cases anyway.
 _write_stamp :: (fn(path : &String, stamp : &String, io : Io) -> Impl(Future(unit, IoExn)))({
-  __probe_path := path.clone();
-  __probe_stamp := stamp.clone();
+  owned_path := path.clone();
+  owned_stamp := stamp.clone();
   io.async((e : IoExn) => {
-    t := e.io.spawn(_write_string_task(__probe_path.clone(), __probe_stamp.clone(), e.io), e);
+    t := e.io.spawn(_write_string_task(owned_path.clone(), owned_stamp.clone(), e.io), e);
     match(
       e.io.await(t.join(e.io), e.io),
       .Some(_u) => (),
@@ -2322,7 +2322,7 @@ run_executable :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )({
-  __probe_args := args.clone();
+  owned_args := args.clone();
   io.async((e : IoExn) => {
     effective_target := match(
       &ctx.target_triple,
@@ -2368,9 +2368,9 @@ run_executable :: (
       wcmd
     }, Command.new(abs_exe.clone()));
     i := usize(0);
-    n := __probe_args.len();
+    n := owned_args.len();
     while(i < n, {
-      cmd.arg(&__probe_args(i));
+      cmd.arg(&owned_args(i));
       i = (i + usize(1));
     });
     // Streamed, not captured: the program the user asked to run must write
@@ -2757,12 +2757,12 @@ _execute_batch :: (
     exn : Exception
   ) -> Impl(Future(ArrayList(StepResult), IoExn))
 )({
-  __probe_batch := batch.clone();
+  owned_batch := batch.clone();
   io.async((e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
     (i : usize) = usize(0);
-    while(i < __probe_batch.len(), {
-      node := __probe_batch(i);
+    while(i < owned_batch.len(), {
+      node := owned_batch(i);
       blocked := _dependency_failed(&node, results);
       handles.push(e.io.spawn(_execute_node_unless_blocked(&node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
@@ -2774,8 +2774,8 @@ _execute_batch :: (
     outs := e.io.await(join_all(handles, e.io), e.io);
     batch_results := ArrayList(StepResult).new();
     i = usize(0);
-    while(i < __probe_batch.len(), {
-      node := __probe_batch(i);
+    while(i < owned_batch.len(), {
+      node := owned_batch(i);
       result := match(
         outs.get(i),
         .Some(.Some(r)) => r,
@@ -2808,17 +2808,17 @@ execute_dag :: (
     exn : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )({
-  __probe_dag := dag.clone();
+  owned_dag := dag.clone();
   io.async((e : IoExn) => {
     results := HashMap(String, StepResult).new();
-    n := __probe_dag.len();
+    n := owned_dag.len();
     if(n == usize(0), return(results));
     in_degree := HashMap(String, i32).new();
     completed := HashMap(String, bool).new();
     // Compute initial in-degrees
     i := usize(0);
     while(i < n, {
-      node := __probe_dag(i);
+      node := owned_dag(i);
       if(!in_degree.contains_key(&node.name), {
         in_degree.insert(node.name.clone(), i32(0));
       });
@@ -2826,11 +2826,11 @@ execute_dag :: (
       nd := node.depends_on.len();
       while(j < nd, {
         dep := node.depends_on(j).clone();
-        // Only count if dep is in the __probe_dag
+        // Only count if dep is in the dag
         k := usize(0);
         dep_in_dag := false;
         while(k < n, {
-          if(__probe_dag(k).name == dep, {
+          if(owned_dag(k).name == dep, {
             dep_in_dag = true;
           });
           k = (k + usize(1));
@@ -2848,7 +2848,7 @@ execute_dag :: (
       ready := ArrayList(DAGNode).new();
       i = usize(0);
       while(i < n, {
-        node := __probe_dag(i);
+        node := owned_dag(i);
         if(!completed.contains_key(&node.name) && (in_degree.get(&node.name).unwrap_or(i32(0)) == i32(0)), {
           ready.push(node);
         });
@@ -2889,7 +2889,7 @@ execute_dag :: (
         // Decrement in-degree of all not-yet-completed nodes that depend on this
         m := usize(0);
         while(m < n, {
-          other := __probe_dag(m);
+          other := owned_dag(m);
           if(!completed.contains_key(&other.name), {
             j := usize(0);
             nd := other.depends_on.len();
@@ -3091,7 +3091,7 @@ execute_step :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )({
-  __probe_step_name := step_name.clone();
+  owned_step_name := step_name.clone();
   io.async((e : IoExn) => {
     // Planning is the same work either way — the step must exist, every
     // dependency name must resolve and the graph must be acyclic — so
@@ -3099,13 +3099,13 @@ execute_step :: (
     // The early return keeps the await below a top-level statement: an await
     // nested in an if-branch loses its continuation
     // (issues/retired/async-await-nested-if-lost-continuation.md).
-    dag := _plan_step(__probe_step_name.clone(), ctx, e.exn);
+    dag := _plan_step(owned_step_name.clone(), ctx, e.exn);
     if(dry_run, {
-      _print_plan(__probe_step_name.clone(), &dag);
+      _print_plan(owned_step_name.clone(), &dag);
       return(());
     });
     results := e.io.await(execute_dag(&dag, ctx, e.io, e.exn), e);
-    if(ctx.summary, print_build_summary(&results, &dag, &__probe_step_name));
+    if(ctx.summary, print_build_summary(&results, &dag, &owned_step_name));
     // A failed step must fail the build. execute_node folds per-step errors
     // into StepResult.success so the DAG finishes and the summary can show
     // WHICH step broke — but exiting 0 after a failed compile would let CI
@@ -3262,7 +3262,7 @@ evaluate_build_file :: (
     exn : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )({
-  __probe_build_file := build_file.clone();
+  owned_build_file := build_file.clone();
   io.async((e : IoExn) => {
     clear_build_registry();
     // Seed `-Dname=value` overrides BEFORE evaluating: `build.option(...)`
@@ -3272,7 +3272,7 @@ evaluate_build_file :: (
     reg := get_build_registry();
     reg.cli_options = defines.clone();
     reg.manifest_fields = _manifest_fields(manifest_opt);
-    outcome := mm_load_yo_file(&__probe_build_file, e.io, e.exn);
+    outcome := mm_load_yo_file(&owned_build_file, e.io, e.exn);
     load_error := _take_load_error();
     // No `mm_reset()` here: the caller resets once, after the manifest's
     // import roots are resolved. Re-loading the prelude after a reset
@@ -3283,9 +3283,9 @@ evaluate_build_file :: (
       match(
         load_error,
         .Some(rendered) => emit_rendered_text(&rendered),
-        .None => eprintln(`build: error in: ${__probe_build_file} (no diagnostic recorded)`)
+        .None => eprintln(`build: error in: ${owned_build_file} (no diagnostic recorded)`)
       );
-      e.exn.throw(dyn(`Error: Failed to evaluate build file ${__probe_build_file}`));
+      e.exn.throw(dyn(`Error: Failed to evaluate build file ${owned_build_file}`));
     });
     get_build_registry()
   })

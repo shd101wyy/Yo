@@ -6169,8 +6169,8 @@ _transparent_call_term :: (
   saved_keys := ctx.gfn_keys.len();
   saved_decls := ctx.fun_decls.len();
   g_transparent_reason = String.new();
-  fid_owned_ := fid.clone();
-  g_transparent_defining.with_mut({ fid_owned_ }(xs) => xs.push(fid_owned_.clone()));
+  fid_owned := fid.clone();
+  g_transparent_defining.with_mut({ fid_owned }(xs) => xs.push(fid_owned.clone()));
   t := _ghost_fn_app_term(ctx, e, args, fid);
   _ := g_transparent_defining.with_mut(xs => xs.pop());
   failed := (t.is_none() || (ctx.subset_error.is_some() && saved_err.is_none()) || (ctx.mutated_names.len() > saved_mut) || (ctx.frame_effects > saved_effects));

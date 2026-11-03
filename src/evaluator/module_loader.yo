@@ -74,8 +74,8 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
   });
   path_owned := path.clone();
   g_loading_key_by_canonical.with_mut({ path_owned }(m) => m.insert(_canonical(&path_owned).*.clone(), path_owned.clone()));
-  path_owned_ := path.clone();
-  g_loading_keys.with_mut({ path_owned_ }(xs) => xs.push(path_owned_.clone()));
+  path_owned2 := path.clone();
+  g_loading_keys.with_mut({ path_owned2 }(xs) => xs.push(path_owned2.clone()));
   g_loading_envs.with_mut(xs => xs.push(env));
   _sync_registration_owner();
 });
@@ -304,8 +304,8 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
     eprintln(`[warmcache] register ${path.clone()}`);
   });
   if(!module_cache_has(path.clone()), {
-    path_owned__ := path.clone();
-    g_module_cache_keys.with_mut({ path_owned__ }(xs) => xs.push(path_owned__.clone()));
+    path_owned := path.clone();
+    g_module_cache_keys.with_mut({ path_owned }(xs) => xs.push(path_owned.clone()));
     g_module_cache_vals.with_mut(xs => xs.push(module_value));
     g_module_cache_types.with_mut({ module_type : Rc.clone(module_type) }(xs) => xs.push(Rc.clone(module_type)));
   });

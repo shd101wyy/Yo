@@ -95,9 +95,9 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
               .Some(_) => full_key.clone(),
               .None => {
                 adopted := match(g_enum_bare_unclaimed.with(m => m.get_cloned(bare)), .Some(k) => k.clone(), .None => full_key.clone());
-                bare_owned_ := bare.clone();
+                bare_owned2 := bare.clone();
                 adopted_owned := adopted.clone();
-                g_enum_bare_claims.with_mut({ bare_owned_, adopted_owned }(m) => m.insert(bare_owned_.clone(), adopted_owned));
+                g_enum_bare_claims.with_mut({ bare_owned2, adopted_owned }(m) => m.insert(bare_owned2.clone(), adopted_owned));
                 adopted
               }
             )
@@ -429,9 +429,9 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
                 bump_type_key_epoch();
               }),
               .None => {
-                sid_owned_ := sid.clone();
+                sid_owned2 := sid.clone();
                 key_owned := key.clone();
-                g_struct_cfid_keys.with_mut({ sid_owned_, key_owned }(m) => m.insert(sid_owned_.clone(), key_owned));
+                g_struct_cfid_keys.with_mut({ sid_owned2, key_owned }(m) => m.insert(sid_owned2.clone(), key_owned));
                 bump_type_key_epoch();
               }
             );
@@ -952,8 +952,8 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
         return(out_cyc);
       });
       if(sid.len() > usize(0), {
-        sid_owned__ := sid.clone();
-        g_sti_visited.with_mut({ sid_owned__ }(xs) => xs.push(sid_owned__.clone()));
+        sid_owned := sid.clone();
+        g_sti_visited.with_mut({ sid_owned }(xs) => xs.push(sid_owned.clone()));
       });
       out := pfx;
       out.push_string(&sid);

@@ -65,8 +65,8 @@ register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
 (g_prelude_enum_decls : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 register_prelude_enum_decl :: (fn(decl : &String) -> unit)({
   if(decl.len() > usize(0), {
-    decl_owned_ := decl.clone();
-    g_prelude_enum_decls.with_mut({ decl_owned_ }(m) => m.insert(decl_owned_.clone(), true));
+    decl_owned := decl.clone();
+    g_prelude_enum_decls.with_mut({ decl_owned }(m) => m.insert(decl_owned.clone(), true));
   });
   ()
 });
@@ -809,7 +809,8 @@ is_rc_type :: (fn(t : &TypeValue) -> bool)(
       _ => is_ref
     ),
     Rc(.DynT(required_trait_types : _)) => true,
-    Rc(.SomeT(bounds : req_traits_bnd)) => { req_traits := req_traits_bnd.required(); 
+    Rc(.SomeT(bounds : req_traits_bnd)) => {
+      req_traits := req_traits_bnd.required();
       // Check if any required trait is a Future trait
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -863,7 +864,8 @@ is_c_compatible_type :: (fn(t : &TypeValue) -> bool)(
 _some_type_implements_future :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT({ bounds : sf_rtts_bnd })) => { sf_rtts := sf_rtts_bnd.required(); 
+    Rc(.SomeT({ bounds : sf_rtts_bnd })) => {
+      sf_rtts := sf_rtts_bnd.required();
       (sf_found : bool) = false;
       (sf_i : usize) = usize(0);
       while((sf_i < sf_rtts.len()) && !sf_found, {

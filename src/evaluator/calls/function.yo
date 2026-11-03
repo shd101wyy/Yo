@@ -3499,11 +3499,11 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // codegen lowers it as before), carries the assumed borrows.
     assumed_ty := match(
       &info.ty,
-      Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bnd2, kind_function_type : skft })) => {
-        srtt := srtt_bnd2.required();
-        srtl := srtt_bnd2.required_levels();
-        sntt := srtt_bnd2.negative();
-        sntl := srtt_bnd2.negative_levels();
+      Rc(.SomeT({ name : sn, frame_level : sfl, parent_type : spt, bounds : srtt_bounds, kind_function_type : skft })) => {
+        srtt := srtt_bounds.required();
+        srtl := srtt_bounds.required_levels();
+        sntt := srtt_bounds.negative();
+        sntl := srtt_bounds.negative_levels();
         Rc.new(
           TypeValueNode.SomeT(
             generate_some_type_id(),
@@ -6522,8 +6522,8 @@ _rre_binder_ids :: (
         somes.get(si),
         .Some(sv) => match(
           sv,
-          Rc(.SomeT({ id : sid, name : snm, bounds : srt_bnd2 })) => {
-            srt := srt_bnd2.required();
+          Rc(.SomeT({ id : sid, name : snm, bounds : srt_bounds })) => {
+            srt := srt_bounds.required();
             (ni : usize) = usize(0);
             while(ni < forall_names.len(), {
               match(
@@ -6613,8 +6613,8 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
         somes.get(si),
         .Some(sv) => match(
           sv,
-          Rc(.SomeT({ name : sn, bounds : srt_bnd3 })) => {
-            srt := srt_bnd3.required();
+          Rc(.SomeT({ name : sn, bounds : srt_bounds })) => {
+            srt := srt_bounds.required();
             (ni : usize) = usize(0);
             while((ni < ids.len()) && !found, {
               match(

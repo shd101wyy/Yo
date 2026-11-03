@@ -2952,8 +2952,8 @@ take_copying_accessor_sites :: (fn() -> ArrayList(CopyingAccessorSite))({
 });
 /// Print one audit line, once per line.
 audit_print_copying_accessor :: (fn(line : &String) -> unit)({
-  line_owned_ := line.clone();
-  if(g_audit_copying_accessor && g_copying_accessor_printed.with_mut({ line_owned_ }(s) => s.insert(line_owned_.clone())), {
+  line_owned := line.clone();
+  if(g_audit_copying_accessor && g_copying_accessor_printed.with_mut({ line_owned }(s) => s.insert(line_owned.clone())), {
     eprintln(line);
   });
 });
@@ -3178,10 +3178,10 @@ _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool
       .Some(v) => {
         src := _ic_decl_key(&v.token);
         if(src != dest_decl, {
-          dest_decl_owned_ := dest_decl.clone();
+          dest_decl_owned2 := dest_decl.clone();
           src_owned := src.clone();
-          at_module_owned_ := at_module.clone();
-          g_copy_flows.with_mut({ dest_decl_owned_, src_owned, at_module_owned_, at : at.clone() }(xs) => xs.push(CopyFlow(src : src_owned, dst : dest_decl_owned_.clone(), at_module : at_module_owned_, at_offset : at.byte_offset)));
+          at_module_owned2 := at_module.clone();
+          g_copy_flows.with_mut({ dest_decl_owned2, src_owned, at_module_owned2, at : at.clone() }(xs) => xs.push(CopyFlow(src : src_owned, dst : dest_decl_owned2.clone(), at_module : at_module_owned2, at_offset : at.byte_offset)));
         });
       },
       .None => ()
@@ -3533,8 +3533,8 @@ audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(Implicit
 audit_print_implicit_copy :: (fn(line : &String) -> unit)({
   // An empty line is a site held for the migration only, whose audit line
   // already printed (`audit_record_implicit_copy`'s `temp-payload`).
-  line_owned__ := line.clone();
-  if((g_audit_implicit_copy || audit_copy_trait_enabled()) && !line.is_empty() && g_implicit_copy_printed.with_mut({ line_owned__ }(s) => s.insert(line_owned__.clone())), {
+  line_owned := line.clone();
+  if((g_audit_implicit_copy || audit_copy_trait_enabled()) && !line.is_empty() && g_implicit_copy_printed.with_mut({ line_owned }(s) => s.insert(line_owned.clone())), {
     eprintln(line);
   });
 });
@@ -3918,7 +3918,8 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
     Rc(.Func({ result : _ })) => String.from("closure"),
     // An open type parameter in a definition-time trial: each instantiation
     // reports its concrete type, so this is the generic body itself.
-    Rc(.SomeT({ bounds : st_traits_bnd })) => { st_traits := st_traits_bnd.required(); 
+    Rc(.SomeT({ bounds : st_traits_bnd })) => {
+      st_traits := st_traits_bnd.required();
       (sti : usize) = usize(0);
       (is_future : bool) = false;
       while(sti < st_traits.len(), {
@@ -5558,7 +5559,10 @@ _drop_in_arms_that_keep :: (
   });
   if(match(
     &v.ty,
-    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => { s_rtt := s_rtt_bnd.required(); (s_rc.is_none() && (s_rtt.len() == usize(0))) },
+    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
+      s_rtt := s_rtt_bnd.required();
+      (s_rc.is_none() && (s_rtt.len() == usize(0)))
+    },
     _ => false
   ), {
     return(false);
@@ -8236,13 +8240,13 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
 local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
   last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => return(()));
   end := _lb_region_end(body, name.clone(), decl);
-  name_owned_ := name.clone();
+  name_owned := name.clone();
   // Owned captures (`with_mut`'s callback is a sink parameter).
   lbmp_decl := decl.clone();
   lbmp_last := last.clone();
   lbmp_end := end.clone();
   lbmp_borrow := borrow.clone();
-  g_local_borrow_match_places.with_mut({ name_owned_, lbmp_decl, lbmp_last, lbmp_end, lbmp_borrow }(xs) => xs.push(LocalBorrowMatchPlace(name : name_owned_.clone(), decl : lbmp_decl, last_use : lbmp_last, end : lbmp_end, borrow : lbmp_borrow)));
+  g_local_borrow_match_places.with_mut({ name_owned, lbmp_decl, lbmp_last, lbmp_end, lbmp_borrow }(xs) => xs.push(LocalBorrowMatchPlace(name : name_owned.clone(), decl : lbmp_decl, last_use : lbmp_last, end : lbmp_end, borrow : lbmp_borrow)));
 });
 // ---------------------------------------------------------------------------
 // Direct projection calls (plans/VALUES_BY_DEFAULT.md decision 24, V2b)
