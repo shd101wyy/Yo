@@ -3,6 +3,7 @@
 // Type reflection via TypeInfo and Type methods
 // ============================================================
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 PointR :: struct(x : i32, y : i32);
 test("type reflection is_struct via TypeInfo", {
   comptime_assert(Type.get_info(PointR).is_struct(), "PointR is a struct");
@@ -245,6 +246,18 @@ test("TypeInfo compound : Type.Struct kind - AtomicObject", {
   comptime_assert(info.is_struct(), "atomic object should be struct");
   is_atomic_kind :: match(info, .Struct(_, k) => match(k, .AtomicObject => true, _ => false), _ => false);
   comptime_assert(is_atomic_kind, "should be AtomicObject kind");
+});
+// A compile-time `TypeInfo` binding in a runtime function body has a scope
+// end the evaluator tracks like any owning local; its drop must lower to
+// nothing, since `TypeInfo` has no C form
+// (issues/fixed/2026-11-04-a-comptime-typeinfo-local-s-scope-end-drop-lowers-an-unregistered-enum.md).
+_ti_point_field_count :: (fn() -> usize)({
+  info :: Type.get_info(TIPoint);
+  n :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
+  n
+});
+test("TypeInfo local in a runtime function compiles and runs", {
+  assert(_ti_point_field_count() == usize(2), "TIPoint has 2 fields at runtime");
 });
 test("TypeInfo compound: ComptimeList element type", {
   CLType :: ComptimeList(i32);

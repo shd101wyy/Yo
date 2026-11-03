@@ -63,7 +63,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, is_origin_kind, t_origin_kind, t_origin_named, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -100,7 +100,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
+{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_holds_counted_handle_ignoring_migration, type_lacks_clone } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { trait_impl_epoch, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -179,7 +179,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), &env.module_path.*);
   create_runtime_unknown_val_with_name(ty, &nm)
 });
-{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject, _without_primary_help_text } :: import("../../error.yo");
 { E_EXPLICIT_DESTRUCTOR_CALL, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
@@ -411,7 +411,7 @@ _reject_dyn_uncallable_method_call :: (
                 (j : usize) = usize(0);
                 while(j < fls.len(), {
                   if(match(fls.get_cloned(j), .Some(l) => (l == name_tok.value.*), .None => false), {
-                    ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                    ft := match(fts.get_cloned(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                     if(dyn_member_is_method(&ft), {
                       match(
                         dyn_member_unsafe_reason(&ft),
@@ -1295,6 +1295,7 @@ _SaiOutcome :: enum(
 derive(_SaiOutcome, Clone);
 /// One binder's binding so far: its type and the argument that gave it.
 _SaiBinding :: struct(ty : TypeValue, arg : usize);
+derive(_SaiBinding, Clone);
 /// A method called through an UNAPPLIED generic type constructor,
 /// `G.m(a1, …, an)` (plans/VALUES_BY_DEFAULT.md decision 32, widened by
 /// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2), is `G(A1, …, Ak).m(a1, …,
@@ -1527,7 +1528,7 @@ _infer_unapplied_ctor_receiver :: (
           uc_keys := ArrayList(Option(String)).new();
           (uc_ki : usize) = usize(0);
           while(uc_ki < uc_tys.len(), uc_ki = (uc_ki + usize(1)), {
-            uc_keys.push(match(uc_tys.get(uc_ki), .Some(.Some(uc_kt)) => Option(String).Some(type_key(&uc_kt)), _ => Option(String).None));
+            uc_keys.push(match(uc_tys.get_cloned(uc_ki), .Some(.Some(uc_kt)) => Option(String).Some(type_key(&uc_kt)), _ => Option(String).None));
           });
           uc_entry := _SaiMemo(epoch : trait_impl_epoch(), arg_keys : uc_keys, receiver : Rc.clone(uc_bt));
           g_sai_memo.with_mut({ uc_memo_id, uc_entry }(m) => m.insert(uc_memo_id, uc_entry));
@@ -1583,7 +1584,7 @@ _sai_arg_type :: (
   fn(args : &ArrayList(AstExpr), i : usize, nodes : &mut ArrayList(Option(AstExpr)), tys : &mut ArrayList(Option(TypeValue)), env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue)
 )({
   match(
-    tys.get(i),
+    tys.get_cloned(i),
     .Some(.Some(t)) => {
       return(Option(TypeValue).Some(t));
     },
@@ -1696,7 +1697,7 @@ _sai_bind_receiver :: (
     match(
       nodes.get(ni),
       .Some(.Some(n)) => match(
-        tys.get(ni),
+        tys.get_cloned(ni),
         .Some(.Some(n_ty)) => if(are_types_compatible_exact(&convert_comptime_type_to_runtime_type(&n_ty, env), &n_ty), {
           pre.push(ast_expr_id(&n));
         }),
@@ -1718,12 +1719,12 @@ _sai_normalize_binder_levels :: (fn(ty : &TypeValue, names : &ArrayList(String),
   (bi : usize) = usize(0);
   while(bi < names.len(), bi = (bi + usize(1)), {
     b_name := match(names.get_cloned(bi), .Some(n) => n, .None => String.new());
-    b_some := match(somes.get(bi), .Some(t) => t, .None => t_unit());
+    b_some := match(somes.get_cloned(bi), .Some(t) => t, .None => t_unit());
     b_lvl := match(&b_some, Rc(.SomeT({ frame_level : l })) => l, _ => usize(0));
     (ai : usize) = usize(0);
     while(ai < all.len(), ai = (ai + usize(1)), {
       match(
-        all.get(ai),
+        all.get_cloned(ai),
         .Some(Rc(.SomeT({ name : a_name, frame_level : a_lvl }))) => if((a_name == b_name) && (a_lvl != b_lvl), {
           subst_add(&s, &b_name, a_lvl, &b_some);
           added = true;
@@ -1769,7 +1770,7 @@ _sai_try_candidate :: (
   (ai : usize) = usize(0);
   while(ai < args.len(), ai = (ai + usize(1)), {
     match(
-      pts.get(ai),
+      pts.get_cloned(ai),
       .Some(pt_raw) => {
         // A parameter's type is its slot (`&T` is `Reference(T)`); the
         // argument binds the pointee.
@@ -1783,9 +1784,9 @@ _sai_try_candidate :: (
                 (gi : usize) = usize(0);
                 while(gi < got.len(), gi = (gi + usize(1)), {
                   match(
-                    got.get(gi),
+                    got.get_cloned(gi),
                     .Some(.Some(now)) => match(
-                      binds.get(gi),
+                      binds.get_cloned(gi),
                       .Some(.Some(prev)) => cond(
                         _forall_types_conflict(&prev.ty, &now) => {
                           return(
@@ -1833,7 +1834,7 @@ _sai_try_candidate :: (
     b_name := match(c.binder_names.get_cloned(bi), .Some(n) => n, .None => String.new());
     needed := _sai_mentions_binder_named(&c.receiver_pattern, &b_name);
     match(
-      binds.get(bi),
+      binds.get_cloned(bi),
       .Some(.Some(b)) => bindings.push(Option(TypeValue).Some(convert_comptime_type_to_runtime_type(&b.ty, env))),
       _ => {
         if(needed, {
@@ -1875,9 +1876,9 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   while(bi < c.binder_names.len(), bi = (bi + usize(1)), {
     b_name := match(c.binder_names.get_cloned(bi), .Some(n) => n, .None => String.new());
     match(
-      bindings.get(bi),
+      bindings.get_cloned(bi),
       .Some(.Some(bty)) => match(
-        c.binder_types.get(bi),
+        c.binder_types.get_cloned(bi),
         .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &b_name, lvl, &bty),
         _ => ()
       ),
@@ -1889,7 +1890,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   (ti : usize) = usize(0);
   while(ti < targs.len(), ti = (ti + usize(1)), {
     match(
-      targs.get(ti),
+      targs.get_cloned(ti),
       .Some(ta) => {
         arg_ty := substitute(&s, &ta);
         aid := alloc_global_expr_id();
@@ -1952,7 +1953,7 @@ _sai_decide :: (
         (dup : bool) = false;
         (di : usize) = usize(0);
         while((di < bound_tys.len()) && !dup, di = (di + usize(1)), {
-          dup = match(bound_tys.get(di), .Some(t) => are_types_compatible_exact(&t, &r), .None => false);
+          dup = match(bound_tys.get_cloned(di), .Some(t) => are_types_compatible_exact(&t, &r), .None => false);
         });
         if(!dup, {
           bound_tys.push(r);
@@ -1963,7 +1964,7 @@ _sai_decide :: (
     );
   });
   if(bound_tys.len() == usize(1), {
-    chosen := match(bound_tys.get(usize(0)), .Some(t) => t, .None => t_unit());
+    chosen := match(bound_tys.get_cloned(usize(0)), .Some(t) => t, .None => t_unit());
     return(_sai_bind_receiver(recv, &chosen, nodes, tys, env, ctx));
   });
   if(!may_throw, {
@@ -1978,7 +1979,7 @@ _sai_decide :: (
       if(li > usize(0), {
         listing.push_str(cond(((li + usize(1)) == bound_tys.len()) => " and ", true => ", "));
       });
-      listing.push_string(`\`${match(bound_tys.get(li), .Some(t) => type_to_string(&t), .None => String.new())}\` (the impl at ${match(bound_sites.get_cloned(li), .Some(s) => s, .None => String.new())})`);
+      listing.push_string(`\`${match(bound_tys.get_cloned(li), .Some(t) => type_to_string(&t), .None => String.new())}\` (the impl at ${match(bound_sites.get_cloned(li), .Some(s) => s, .None => String.new())})`);
     });
     exn.throw(
       dyn(
@@ -2820,7 +2821,7 @@ _try_expand_call_overload :: (
   (cand_i : usize) = usize(0);
   while(cand_i < cand_vals.len(), {
     cv2 := match(cand_vals.get(cand_i), .Some(v) => v, .None => EvalValue.UnitVal);
-    ct2 := match(cand_tys.get(cand_i), .Some(t) => t, .None => t_unit());
+    ct2 := match(cand_tys.get_cloned(cand_i), .Some(t) => t, .None => t_unit());
     ok_out := ArrayList(bool).new();
     _trial_call_overload_candidate(&cv2, &ct2, call_expr, &func_expr, args, env, ctx, &mut ok_out);
     if(ok_out.len() > usize(0), {
@@ -2884,7 +2885,7 @@ ${ast_expr_to_string(call_expr)}`
     (csi : usize) = usize(0);
     while(csi < successes.len(), {
       s_ct_idx := match(successes.get(csi), .Some(i) => i, .None => usize(0));
-      s_ct_ty := match(cand_tys.get(s_ct_idx), .Some(t) => t, .None => t_unit());
+      s_ct_ty := match(cand_tys.get_cloned(s_ct_idx), .Some(t) => t, .None => t_unit());
       if(match(s_ct_ty, Rc(.Func({ meta : __sm1 })) => __sm1.*.result_is_comptime_only, _ => false), {
         ct_successes.push(s_ct_idx);
       });
@@ -2901,7 +2902,7 @@ ${ast_expr_to_string(call_expr)}`
     (si : usize) = usize(0);
     while(si < successes.len(), {
       sidx := match(successes.get(si), .Some(i) => i, .None => usize(0));
-      sty := match(cand_tys.get(sidx), .Some(t) => t, .None => t_unit());
+      sty := match(cand_tys.get_cloned(sidx), .Some(t) => t, .None => t_unit());
       has_ct_param := match(
         sty,
         Rc(.Func({ param_types : s_pts })) => {
@@ -2928,7 +2929,7 @@ ${ast_expr_to_string(call_expr)}`
     });
   }));
   winner_val := match(cand_vals.get(winner_idx), .Some(v) => v, .None => EvalValue.UnitVal);
-  winner_ty := match(cand_tys.get(winner_idx), .Some(t) => t, .None => t_unit());
+  winner_ty := match(cand_tys.get_cloned(winner_idx), .Some(t) => t, .None => t_unit());
   // Overwrite the callee's ExprInfo with the winner so the FuncVal arm of
   // `evaluate_function_call` performs the real call.
   out := new_expr_info(&info.env, &winner_ty);
@@ -3039,7 +3040,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
       (i : usize) = usize(0);
       while(i < fw_rtt.len(), {
         match(
-          fw_rtt.get(i),
+          fw_rtt.get_cloned(i),
           .Some(rt) => new_rtt.push(
             match(
               &rt,
@@ -3070,7 +3071,7 @@ _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
       (found : Option(String)) = Option(String).None;
       while((i < rtts.len()) && found.is_none(), {
         match(
-          rtts.get(i),
+          rtts.get_cloned(i),
           .Some(rt) => match(
             rt,
             Rc(.FutureTraitT({ output : o })) => match(
@@ -4996,7 +4997,7 @@ _gc_collect_binder_sites :: (
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
-        somes.get(si),
+        somes.get_cloned(si),
         .Some(sv) => match(
           &sv,
           Rc(.SomeT({ id : sid, name : snm, frame_level : slvl, bounds : srt_bnd })) => {
@@ -5029,7 +5030,7 @@ _gc_collect_binder_sites :: (
             });
             (ri : usize) = usize(0);
             while(ri < srt.len(), {
-              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              match(srt.get_cloned(ri), .Some(rt) => work.push(rt), .None => ());
               ri = (ri + usize(1));
             });
           },
@@ -5111,7 +5112,7 @@ _gc_freshen_all_sites :: (
       // Dropping `required_trait_types` would silently discard a
       // `where(R <: (Send, Acyclic))` bound — the freshened binder must be the
       // same type variable, only with a per-call identity.
-      g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => Rc.new(TypeValueNode.Unit));
+      g_proto := match(site_protos.get_cloned(gi), .Some(pv) => pv, .None => Rc.new(TypeValueNode.Unit));
       g_made := match(
         &g_proto,
         Rc(.SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, bounds : g_prtt_bnd, kind_function_type : g_pkft })) => {
@@ -5162,7 +5163,7 @@ _gc_freshen_all_sites :: (
       while(sk < fresh_ids.len(), {
         if(match(fresh_ids.get_cloned(sk), .Some(x) => x, .None => String.new()) == s_id, {
           match(
-            fresh_types.get(sk),
+            fresh_types.get_cloned(sk),
             .Some(s_rep) => {
               subst_add(&gs, s_nm.clone(), s_lvl, &s_rep);
             },
@@ -5380,7 +5381,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           new_rtt := ArrayList(TypeValue).new();
           (rf_i : usize) = usize(0);
           while(rf_i < rf_rtt.len(), {
-            match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
+            match(rf_rtt.get_cloned(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
           Rc.new(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, Rc.clone(rf_pt), some_t_bounds(new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone()), rf_kft.clone(), rf_rc.clone()))
@@ -5513,7 +5514,7 @@ _fv_type_vars_are_callers_binders :: (fn(env : &Environment, t : &TypeValue) -> 
   (any_open : bool) = false;
   (si : usize) = usize(0);
   while(si < somes.len(), {
-    st := match(somes.get(si), .Some(s) => s, .None => t_unit());
+    st := match(somes.get_cloned(si), .Some(s) => s, .None => t_unit());
     si = (si + usize(1));
     if(!type_contains_some_type(&st), {
       continue;
@@ -5745,7 +5746,7 @@ _fv_refine_closure_expected :: (
           while(sq < info_arg_idx.len(), {
             sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
             s_info := match(infos.get(sq), .Some(i) => i, .None => new_expr_info(env, t_unit()));
-            s_dpt := match(declared_param_types.get(sp), .Some(t) => t_slot_pointee(&t), .None => t_unit());
+            s_dpt := match(declared_param_types.get_cloned(sp), .Some(t) => t_slot_pointee(&t), .None => t_unit());
             // Function-typed arguments are provisional here (see the
             // composite cross-check); only value arguments inform.
             if(!(is_function_type(&s_info.ty) || is_fn_trait_type(&s_info.ty) || is_some_type(&s_info.ty)), {
@@ -5768,7 +5769,7 @@ _fv_refine_closure_expected :: (
         (ms_i : usize) = usize(0);
         while(ms_i < mentioned.len(), {
           match(
-            mentioned.get(ms_i),
+            mentioned.get_cloned(ms_i),
             .Some(Rc(.SomeT({ name : sg_n, frame_level : sg_l }))) => if(sg_n == f_name, {
               subst_add(&sb, &sg_n, sg_l, &ft);
               any = true;
@@ -5860,7 +5861,7 @@ _fv_bind_unbound_forall_placeholders :: (
         wsomes := collect_somes_with_fn_sigs(match(wts.get(wi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
         (wj : usize) = usize(0);
         while(wj < wsomes.len(), {
-          match(wsomes.get(wj), .Some(x) => sig_somes.push(x), .None => ());
+          match(wsomes.get_cloned(wj), .Some(x) => sig_somes.push(x), .None => ());
           wj = (wj + usize(1));
         });
         wi = (wi + usize(1));
@@ -5887,7 +5888,7 @@ _fv_bind_unbound_forall_placeholders :: (
     (si : usize) = usize(0);
     while((si < sig_somes.len()) && sig_st.is_none(), {
       match(
-        sig_somes.get(si),
+        sig_somes.get_cloned(si),
         .Some(st) => match(
           &st,
           Rc(.SomeT({ name : sn })) => if(sn == fname, {
@@ -6033,7 +6034,7 @@ _funcval_bind_foralls :: (
         pf_name := match(pre_forall_names.get_cloned(pfa_i), .Some(n) => n, .None => String.from(""));
         if(pf_name == fa_name, {
           pf_val := match(pre_forall_vals.get(pfa_i), .Some(v) => v, .None => EvalValue.UnitVal);
-          pf_ty := match(pre_forall_types.get(pfa_i), .Some(t) => t, .None => t_unit());
+          pf_ty := match(pre_forall_types.get_cloned(pfa_i), .Some(t) => t, .None => t_unit());
           // A TYPE argument binds as a `TypeVal` at `Type` (the same shape the
           // name-match arm below produces); a VALUE argument for a
           // value-generic (`generic(N : usize)`) keeps its own declared type.
@@ -6059,7 +6060,7 @@ _funcval_bind_foralls :: (
     };
     // The binder's first binding (explicit or from an argument) and the
     // argument that made it, for the per-call consistency check below.
-    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.last(), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
+    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.last_cloned(), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
     (fa_first_arg : Option(usize)) = Option(usize).None;
     while(ptn_i < n_ptn, {
       ptn := match(param_type_names.get_cloned(ptn_i), .Some(n) => n, .None => String.from(""));
@@ -6075,7 +6076,7 @@ _funcval_bind_foralls :: (
             later_info := match(evaled_arg_infos.get(ptn_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             later_ty := _funcval_infer_forall_ty(
               &later_info.ty,
-              match(expected_param_types.get(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
+              match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
               match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
               env
             );
@@ -6097,7 +6098,7 @@ _funcval_bind_foralls :: (
         // `_funcval_infer_forall_ty`'s.
         fa_infer_ty := _funcval_infer_forall_ty(
           &arg_info.ty,
-          match(expected_param_types.get(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
+          match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
           match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
           env
         );
@@ -6138,7 +6139,7 @@ _funcval_bind_foralls :: (
             _phantom_binder_args(&pp_decl, &pp_arg, fa_name.clone(), &mut pp_found);
             (pp_k : usize) = usize(0);
             while(pp_k < pp_found.len(), {
-              pp_ty := match(pp_found.get(pp_k), .Some(t) => t, .None => t_unit());
+              pp_ty := match(pp_found.get_cloned(pp_k), .Some(t) => t, .None => t_unit());
               if(_forall_types_conflict(&fa_prev, &pp_ty), {
                 fa_conflicts.push(_forall_conflict_message(fa_name.clone(), &fa_prev, match(fa_first_arg, .Some(i) => _forall_arg_phrase(i), .None => String.from("the explicit generic(...) argument")), &pp_ty, pp_i));
                 fa_conflict_args.push(pp_i);
@@ -6201,7 +6202,7 @@ _funcval_bind_foralls :: (
               while((sn_k < se_seen_names.len()) && !sn_found, {
                 if(match(se_seen_names.get_cloned(sn_k), .Some(n) => (n == sn_name), .None => false), {
                   sn_found = true;
-                  sn_prev := match(se_seen_tys.get(sn_k), .Some(t) => t, .None => t_unit());
+                  sn_prev := match(se_seen_tys.get_cloned(sn_k), .Some(t) => t, .None => t_unit());
                   sn_prev_len := match(se_seen_lens.get_cloned(sn_k), .Some(l) => l, .None => String.new());
                   sn_prev_arg := match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0));
                   if((sn_len.len() > usize(0)) && (sn_prev_len.len() > usize(0)) && (sn_len != sn_prev_len), {
@@ -6474,7 +6475,7 @@ _funcval_bind_foralls :: (
       (cx_b : usize) = usize(0);
       while(cx_b < fa_bound_names.len(), {
         cx_name := match(fa_bound_names.get_cloned(cx_b), .Some(n) => n, .None => String.new());
-        cx_prev := match(fa_bound_types.get(cx_b), .Some(t) => t, .None => t_unit());
+        cx_prev := match(fa_bound_types.get_cloned(cx_b), .Some(t) => t, .None => t_unit());
         cx_b = (cx_b + usize(1));
         match(
           _scratch_concrete_binding(&cx_env, cx_name.clone()),
@@ -6520,7 +6521,7 @@ _rre_binder_ids :: (
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
-        somes.get(si),
+        somes.get_cloned(si),
         .Some(sv) => match(
           sv,
           Rc(.SomeT({ id : sid, name : snm, bounds : srt_bounds })) => {
@@ -6538,7 +6539,7 @@ _rre_binder_ids :: (
             });
             (ri : usize) = usize(0);
             while(ri < srt.len(), {
-              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              match(srt.get_cloned(ri), .Some(rt) => work.push(rt), .None => ());
               ri = (ri + usize(1));
             });
           },
@@ -6611,7 +6612,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
     (si : usize) = usize(0);
     while((si < somes.len()) && !found, {
       match(
-        somes.get(si),
+        somes.get_cloned(si),
         .Some(sv) => match(
           sv,
           Rc(.SomeT({ name : sn, bounds : srt_bounds })) => {
@@ -6629,7 +6630,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
             });
             (ri : usize) = usize(0);
             while(ri < srt.len(), {
-              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              match(srt.get_cloned(ri), .Some(rt) => work.push(rt), .None => ());
               ri = (ri + usize(1));
             });
           },
@@ -6843,7 +6844,7 @@ _evaluate_funcval_runtime_call :: (
       (s_ret_any : bool) = false;
       (rsi : usize) = usize(0);
       while(rsi < ret_somes.len(), {
-        rst := match(ret_somes.get(rsi), .Some(t) => t, .None => t_unit());
+        rst := match(ret_somes.get_cloned(rsi), .Some(t) => t, .None => t_unit());
         match(
           rst,
           Rc(.SomeT(_, rst_name, rst_lvl, _, _, _, _)) => {
@@ -6851,7 +6852,7 @@ _evaluate_funcval_runtime_call :: (
             while(bni < fa_bound_names.len(), {
               bn := match(fa_bound_names.get_cloned(bni), .Some(x) => x, .None => String.from(""));
               if(bn == rst_name, {
-                bt := match(fa_bound_types.get(bni), .Some(t) => t, .None => t_unit());
+                bt := match(fa_bound_types.get_cloned(bni), .Some(t) => t, .None => t_unit());
                 subst_add(&s_ret, rst_name.clone(), rst_lvl, &bt);
                 s_ret_any = true;
               });
@@ -6897,7 +6898,7 @@ _evaluate_funcval_runtime_call :: (
     (hkt_i : usize) = usize(0);
     while((hkt_i < hkt_somes.len()) && !hkt_ret_binder, {
       match(
-        hkt_somes.get(hkt_i),
+        hkt_somes.get_cloned(hkt_i),
         .Some(hkt_st) => match(
           hkt_st,
           Rc(.SomeT({ kind_function_type : hkt_kft })) => match(
@@ -6981,13 +6982,13 @@ _evaluate_funcval_runtime_call :: (
         _trial_eval_ret_type_expr(clone_expr_fresh_ids(&hkt_expr), fresh_env, ctx, &mut hkt_out);
         if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
           rre_dbg_self := match(&ctx.self_type, .Some(st) => type_to_string(&st), .None => String.from("<none>"));
-          rre_dbg_out := match(hkt_out.get(usize(0)), .Some(t) => type_to_string(&t), .None => String.from("<none>"));
+          rre_dbg_out := match(hkt_out.get_cloned(usize(0)), .Some(t) => type_to_string(&t), .None => String.from("<none>"));
           eprintln(`[rre] callee=${ast_expr_to_string(func_expr)} old=${rre_old_wanted.to_string()} era=${rre_era_suspect.to_string()} self=${rre_dbg_self} hkt=${rre_dbg_out} resolved_ret=${type_to_string(&resolved_ret)}`);
         });
         ctx.is_evaluating_function_type = hkt_prev_fnty;
         ctx.self_type = hkt_prev_self;
         match(
-          hkt_out.get(usize(0)),
+          hkt_out.get_cloned(usize(0)),
           // Accept a SomeT-free result, OR one whose SomeTs ALL resolve
           // concretely through their resolutions (the closure-`F` family:
           // `IterFilter(Self, F)` with the per-call `F → __impl_fn →
@@ -7332,7 +7333,7 @@ _evaluate_funcval_runtime_call :: (
     spec_forall_args := ArrayList(ArgEntry).new();
     (sfa_i : usize) = usize(0);
     while(sfa_i < fa_bound_names.len(), {
-      fbt := match(fa_bound_types.get(sfa_i), .Some(t) => t, .None => t_unit());
+      fbt := match(fa_bound_types.get_cloned(sfa_i), .Some(t) => t, .None => t_unit());
       // Use the binding's ACTUAL env value: a VALUE-level generic
       // (`generic(N : usize)`) is bound to an IntLit — the spec cache key
       // (compile_time_args in the mint) must carry the VALUE so distinct
@@ -7896,14 +7897,18 @@ _generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, c
 /// `evaluate_function_call` reports at the user's call.
 STD_RAISE_NOTE :: "raised here, inside the standard library";
 /// What the decision-20 accessor lookup found at a method call `r.m(args)`
-/// (`_copying_accessor_info`): the two registry names and whether the
-/// receiver reads in place (`Index`) and writes through (`with`).
+/// (`_copying_accessor_info`): the two registry names, the receiver's type
+/// (the reader the re-anchored subject names), whether the receiver reads in
+/// place (`Index`) and writes through (`with`), and whether the element has
+/// no `Clone` (so the `_cloned` sibling is registered nowhere).
 AccessorCallInfo :: struct(
   method : String,
   cloned : String,
   recv_text : String,
+  recv_ty_text : String,
   has_index : bool,
-  has_with : bool
+  has_with : bool,
+  (element_lacks_clone : bool) ?= false
 );
 /// `call` is a method call `r.m(args)` whose receiver type has an `m_cloned`
 /// sibling in the impl registry (B6-b; plans/VALUES_BY_DEFAULT.md decision
@@ -7915,6 +7920,13 @@ AccessorCallInfo :: struct(
 /// compiler keeps no accessor name list. `.None` for any other shape, an
 /// infix call, a receiver whose type carries no registry id, or a name the
 /// registry holds no sibling for.
+///
+/// A reader whose element has no `Clone` registers NO sibling
+/// (`where(T <: Clone)`), so the lookup also accepts the method itself when
+/// its declared result is not implicitly copyable (resolved through its
+/// registry entry's function type): that is a copying accessor whose
+/// `_cloned` spelling does not resolve, and the help says so instead of
+/// naming it (`_accessor_help_sentence`).
 _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AccessorCallInfo))({
   (ca_infix : bool) = true;
   ca_callee := match(
@@ -7947,33 +7959,74 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   if(ca_rid == "", {
     return(Option(AccessorCallInfo).None);
   });
-  ca_cloned := `${ca_name_tok.value.*}_cloned`;
-  if(get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() == usize(0), {
-    return(Option(AccessorCallInfo).None);
+  ca_method := ca_name_tok.value.*.clone();
+  ca_cloned := `${ca_method}_cloned`;
+  ca_has_cloned := (get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() > usize(0));
+  // The sibling can be registered for an element without `Clone` (its
+  // `where(T <: Clone)` is asked at the call): the help must not name it
+  // then (VERDICTS-8 Q1).
+  (ca_res_lacks_clone : bool) = false;
+  if(ca_has_cloned, {
+    ca_plain0 := get_type_trait_methods_by_name_from_env(env, &ca_method, &ca_recv_ty);
+    if(!ca_plain0.is_empty(), {
+      ca_res_lacks_clone = type_lacks_clone(&_resolve_some_types_deep(&fn_result_slot(&ca_plain0(usize(0)).ty), env));
+    });
+  });
+  if(!ca_has_cloned, {
+    ca_plain := get_type_trait_methods_by_name_from_env(env, &ca_method, &ca_recv_ty);
+    if(ca_plain.is_empty(), {
+      return(Option(AccessorCallInfo).None);
+    });
+    // The method's declared result, its SomeTs resolved at this
+    // instantiation: a copying accessor's result IS the element it copies.
+    ca_res := _resolve_some_types_deep(&fn_result_slot(&ca_plain(usize(0)).ty), env);
+    if(!type_requires_explicit_copy(&ca_res), {
+      return(Option(AccessorCallInfo).None);
+    });
+    // An accessor copies an ELEMENT out of its receiver: a method whose
+    // result is the receiver's own type (`p.clone()`) copies the whole
+    // receiver and is no accessor.
+    if(are_types_compatible_exact(&ca_res, &ca_recv_ty), {
+      return(Option(AccessorCallInfo).None);
+    });
   });
   Option(AccessorCallInfo).Some(
     AccessorCallInfo(
-      method : ca_name_tok.value.*.clone(),
-      cloned : ca_cloned,
+      method : ca_method,
+      cloned : if(ca_has_cloned, ca_cloned, String.new()),
       recv_text : ast_expr_to_string(&ca_recv),
+      recv_ty_text : type_to_string(&ca_recv_ty),
       has_index : (get_type_trait_methods_by_name_from_env(env, String.from("index"), &ca_recv_ty).len() > usize(0)),
-      has_with : (get_type_trait_methods_by_name_from_env(env, String.from("with"), &ca_recv_ty).len() > usize(0))
+      has_with : (get_type_trait_methods_by_name_from_env(env, String.from("with"), &ca_recv_ty).len() > usize(0)),
+      element_lacks_clone : (!ca_has_cloned || ca_res_lacks_clone)
     )
   )
 });
 /// Decision 20's guidance for a copying accessor, as a help sentence:
-/// "read it in place with `r(i)`, copy it with `r.m_cloned(...)`, or write
-/// through it with `r.with(i, ...)`" — the in-place read only where the
+/// "Read it in place with `r(i)`, copy it with `r.m_cloned(...)`, or write
+/// through it with `r.with(i, ...)`." — the in-place read only where the
 /// receiver is index-addressed, `with` only where the receiver has it, and
-/// every name from the registry (`_copying_accessor_info`).
+/// every name from the registry (`_copying_accessor_info`). It is appended
+/// to the help sentence before it (`_with_primary_help`), so it starts with a
+/// capital and ends with a period. Where the element has no `Clone` the
+/// `_cloned` spelling does not resolve (`where(T <: Clone)`), so the sentence
+/// names the in-place reads and the `derive` instead of it.
 _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
   parts := ArrayList(String).new();
   if(info.has_index, {
-    parts.push(`read it in place with \`${info.recv_text}(i)\``);
+    parts.push(`Read it in place with \`${info.recv_text}(i)\``);
   });
-  parts.push(`copy it with \`${info.recv_text}.${info.cloned}(...)\``);
-  if(info.has_with, {
-    parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
+  if(info.element_lacks_clone, {
+    if(info.has_with, {
+      parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
+    });
+    parts.push(`give the element \`Clone\` (a \`derive\`) to copy it`);
+  }, {
+    copy_verb := if(parts.is_empty(), String.from("Copy"), String.from("copy"));
+    parts.push(`${copy_verb} it with \`${info.recv_text}.${info.cloned}(...)\``);
+    if(info.has_with, {
+      parts.push(`write through it with \`${info.recv_text}.with(i, ...)\``);
+    });
   });
   out := String.new();
   (pi : usize) = usize(0);
@@ -7989,6 +8042,7 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
     out.push_string(&parts(pi));
     pi = (pi + usize(1));
   });
+  out.push_str(".");
   out
 });
 /// An error raised inside the standard library while evaluating a call
@@ -7997,18 +8051,34 @@ _accessor_help_sentence :: (fn(info : &AccessorCallInfo) -> String)({
 /// the same treatment, since the definition-time re-raise throws the flag
 /// rather than the error this frame sees. A re-anchored E0901/E0910 at a
 /// method call whose receiver type has an `<name>_cloned` sibling carries
-/// decision 20's guidance in the primary's help (`_accessor_help_sentence`).
+/// decision 20's guidance in the primary's help (`_accessor_help_sentence`),
+/// and a re-anchored E0901's subject names the std READER that copied
+/// (`ArrayList(Rc(i32)).get`) instead of std's own place inside it
+/// (`(_ptr.add)(index).*` — `_with_primary_subject`).
 _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token, env : &Environment, ctx : &EvalContext) -> AnyError)({
   err_in_std := match(primary_diagnostic_path(&err), .Some(ep) => is_std_module_path(&ep, ctx.std_path.clone()), .None => false);
   if(!err_in_std, {
     return(err);
   });
+  ai := _copying_accessor_info(call, env, ctx);
   accessor_help := match(
     primary_diagnostic_code(&err),
     .Some(code) => cond(
       ((code == E_USE_OF_MOVED_VALUE) || (code == E_BORROW_CONFLICT)) => match(
-        _copying_accessor_info(call, env, ctx),
-        .Some(ai) => Option(String).Some(_accessor_help_sentence(&ai)),
+        &ai,
+        .Some(a) => Option(String).Some(_accessor_help_sentence(&a)),
+        .None => Option(String).None
+      ),
+      true => Option(String).None
+    ),
+    .None => Option(String).None
+  );
+  accessor_subject := match(
+    primary_diagnostic_code(&err),
+    .Some(code) => cond(
+      (code == E_USE_OF_MOVED_VALUE) => match(
+        &ai,
+        .Some(a) => Option(String).Some(`what \`${a.recv_ty_text}.${a.method}\` copies (its element)`),
         .None => Option(String).None
       ),
       true => Option(String).None
@@ -8024,7 +8094,8 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
         // the PENDING copy (`reraise_flow_violation`), so the decision-20
         // help must ride this one as well.
         fv_anchored := reanchor_primary_at(&fv, call_tok, String.from(STD_RAISE_NOTE));
-        flag_flow_violation(match(&accessor_help, .Some(h) => _with_primary_help(&fv_anchored, &h), .None => fv_anchored));
+        fv_shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&fv_anchored, &s), .None => fv_anchored);
+        flag_flow_violation(match(&accessor_help, .Some(h) => _with_primary_help(&_without_primary_help_text(&fv_shown, &String.from(RC_CLONE_MIGRATE_HINT)), &h), .None => fv_shown));
       }),
       .None => ()
     ),
@@ -8034,7 +8105,8 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
     downcast(err, YoError),
     .Some(ye) => {
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
-      dyn(match(&accessor_help, .Some(h) => _with_primary_help(&anchored, &h), .None => anchored))
+      shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&anchored, &s), .None => anchored);
+      dyn(match(&accessor_help, .Some(h) => _with_primary_help(&_without_primary_help_text(&shown, &String.from(RC_CLONE_MIGRATE_HINT)), &h), .None => shown))
     },
     .None => err
   )
@@ -8085,7 +8157,7 @@ _instantiate_struct_over_closure_args :: (
       (fi : usize) = usize(0);
       while(fi < fields.len(), {
         match(
-          arg_types.get(fi),
+          arg_types.get_cloned(fi),
           .Some(ic_arg_opt) => match(
             ic_arg_opt,
             .Some(ic_arg) => if(is_bound_closure_identity(&ic_arg), {
@@ -8129,7 +8201,7 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
   (i : usize) = usize(0);
   while(i < tys.len(), {
     match(
-      tys.get(i),
+      tys.get_cloned(i),
       .Some(t) => {
         (r : TypeValue) = Rc.clone(t);
         match(
@@ -8138,7 +8210,7 @@ _replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), 
             (k : usize) = usize(0);
             while(k < ids.len(), {
               if(match(ids.get_cloned(k), .Some(x) => (x == t_id), .None => false), {
-                r = match(with.get(k), .Some(w) => w, .None => Rc.clone(t));
+                r = match(with.get_cloned(k), .Some(w) => w, .None => Rc.clone(t));
               });
               k = (k + usize(1));
             });
@@ -8775,7 +8847,7 @@ _evaluate_function_call_unanchored :: (
         // Only refine when the 2nd operand evaluated to a concrete type; a
         // shorthand operand left `snd_ty_holder` empty → keep the first overload.
         match(
-          snd_ty_holder.get(usize(0)),
+          snd_ty_holder.get_cloned(usize(0)),
           .Some(snd_ty) => {
             (osi : usize) = usize(0);
             (osel : bool) = false;
@@ -10713,7 +10785,7 @@ Fix: wrap the call:
                         _trial_eval_ret_type_expr(clone_expr_fresh_ids(&vs_e), env, ctx, &mut vs_out);
                         ctx.is_evaluating_function_type = vs_prev_fnty;
                         match(
-                          vs_out.get(usize(0)),
+                          vs_out.get_cloned(usize(0)),
                           .Some(vs_t) => if((get_all_some_types(&vs_t).len() == usize(0)) && !is_unit_type(&vs_t) && !_type_has_array_len_var(&vs_t), {
                             vs_override = Option(TypeValue).Some(vs_t);
                           }),
@@ -11375,7 +11447,7 @@ Fix: wrap the call:
         (fve_i : usize) = usize(0);
         while(fve_i < fv_exp_forall_names.len(), {
           fve_name := match(fv_exp_forall_names.get_cloned(fve_i), .Some(n) => n, .None => String.new());
-          fve_ty := match(fv_exp_forall_types.get(fve_i), .Some(t) => t, .None => t_unit());
+          fve_ty := match(fv_exp_forall_types.get_cloned(fve_i), .Some(t) => t, .None => t_unit());
           fve_i = (fve_i + usize(1));
           (fve_bound : bool) = false;
           (fve_j : usize) = usize(0);
@@ -11524,7 +11596,7 @@ Fix: wrap the call:
               while(rk < rn, {
                 bn := match(fa_bound_names.get_cloned(rk), .Some(s) => s, .None => String.from(""));
                 if((sname.len() > usize(0)) && (bn == sname), {
-                  rt = match(fa_bound_types.get(rk), .Some(t) => t, .None => Rc.clone(bind_decl_pt));
+                  rt = match(fa_bound_types.get_cloned(rk), .Some(t) => t, .None => Rc.clone(bind_decl_pt));
                   rk = rn;
                 }, {
                   rk = (rk + usize(1));
@@ -12058,7 +12130,7 @@ Fix: wrap the call:
               (s_ct_any : bool) = false;
               (ctsi : usize) = usize(0);
               while(ctsi < ct_ret_somes.len(), {
-                ct_rst := match(ct_ret_somes.get(ctsi), .Some(t) => t, .None => t_unit());
+                ct_rst := match(ct_ret_somes.get_cloned(ctsi), .Some(t) => t, .None => t_unit());
                 match(
                   ct_rst,
                   Rc(.SomeT(_, ct_rst_name, ct_rst_lvl, _, _, _, _)) => {
@@ -12066,7 +12138,7 @@ Fix: wrap the call:
                     while(ct_bni < fa_bound_names.len(), {
                       ct_bn := match(fa_bound_names.get_cloned(ct_bni), .Some(x) => x, .None => String.from(""));
                       if(ct_bn == ct_rst_name, {
-                        ct_bt := match(fa_bound_types.get(ct_bni), .Some(t) => t, .None => t_unit());
+                        ct_bt := match(fa_bound_types.get_cloned(ct_bni), .Some(t) => t, .None => t_unit());
                         subst_add(&s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
                         s_ct_any = true;
                       });

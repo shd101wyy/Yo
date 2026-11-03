@@ -345,7 +345,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
   // may pass the other (AGENTS.md), and both must find the same anchors.
   owner := _stable_type_id_owner_key(module_path);
   match(
-    g_top_level_anchors.with(m => m.get(&owner.*)),
+    g_top_level_anchors.with(m => m.get_cloned(&owner.*)),
     .Some(list) => {
       (lo : usize) = usize(0);
       (hi : usize) = list.len();
@@ -430,7 +430,7 @@ stable_type_id :: (
   (suffix : usize) = usize(1);
   while(true, {
     match(
-      g_stable_type_id_owner.with(m => m.get(&candidate)),
+      g_stable_type_id_owner.with(m => m.get_cloned(&candidate)),
       .Some(prev) => {
         if(prev.* == owner.*, {
           // A clone: the loop body's closure owns `candidate` for its next
@@ -453,7 +453,7 @@ stable_type_id :: (
 });
 _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
   match(
-    g_stable_type_id_owner_memo.with(m => m.get(module_path)),
+    g_stable_type_id_owner_memo.with(m => m.get_cloned(module_path)),
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(module_path));

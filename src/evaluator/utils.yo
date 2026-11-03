@@ -127,7 +127,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -649,12 +649,17 @@ _clone_hint :: (fn(name : &String, ty : &TypeValue) -> String)(
 /// `Arc` (decision 17: `Rc.clone(h)`, which no payload method can shadow,
 /// decision 32).
 _counted_handle_ctor :: (fn(ty : &TypeValue) -> String)(cond(is_arc_type(&t_refine_inner(ty)) => String.from("Arc"), true => String.from("Rc")));
+/// The migration sentence that ends a counted handle's E0901 help. An
+/// accessor site's help drops it: there std's reader makes the copy, which
+/// `--migrate rc-clone` cannot spell, and the help names `get_cloned`
+/// instead (VERDICTS-8 Q1).
+RC_CLONE_MIGRATE_HINT :: " `yo fix <path> --migrate rc-clone` spells the clones.";
 /// The E0901 note for a named value of a type decision 17 copies only
 /// explicitly (`type_holds_counted_handle`): a handle's `Rc.clone(h)` /
 /// `Arc.clone(h)`, or the `.clone()` of a value holding one.
 _counted_handle_help :: (fn(name : &String, ty : &TypeValue) -> String)(
   cond(
-    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${name}\` is a counted handle (\`${type_to_string(ty)}\`), and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): write \`${_counted_handle_ctor(ty)}.clone(${name})\` for a second handle, move it (its last use moves it), or lend it with \`&${name}\` to a \`&T\` parameter. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${name}\` is a counted handle (\`${type_to_string(ty)}\`), and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): write \`${_counted_handle_ctor(ty)}.clone(${name})\` for a second handle, move it (its last use moves it), or lend it with \`&${name}\` to a \`&T\` parameter.${RC_CLONE_MIGRATE_HINT}`,
     type_lacks_clone(ty) => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, whose clone copies each handle, or move it (\`sink(${name})\`).`,
     true => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): write \`${name}.clone()\` for a copy (it copies each handle), move it (\`sink(${name})\`), or lend it with \`&${name}\` to a \`&T\` parameter.`
   )
@@ -662,7 +667,7 @@ _counted_handle_help :: (fn(name : &String, ty : &TypeValue) -> String)(
 /// `_counted_handle_help` for a value with no name of its own.
 _counted_handle_type_help :: (fn(ty : &TypeValue) -> String)(
   cond(
-    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${type_to_string(ty)}\` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in \`${_counted_handle_ctor(ty)}.clone(...)\` for a second handle, lend it to a \`&T\` parameter, or move its whole owner. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${type_to_string(ty)}\` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in \`${_counted_handle_ctor(ty)}.clone(...)\` for a second handle, lend it to a \`&T\` parameter, or move its whole owner.${RC_CLONE_MIGRATE_HINT}`,
     type_lacks_clone(ty) => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, lend it to a \`&T\` parameter, or move its whole owner.`,
     true => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): call \`.clone()\` on it for a copy (it copies each handle), lend it to a \`&T\` parameter, or move its whole owner.`
   )
@@ -2816,7 +2821,7 @@ take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
   g_explicit_copy_site_keys.with_mut(s => s.clear());
   out
 });
-export(owning_param_binding_beside, move_through_sink_shadow, ExplicitCopySite, ICMigrateCtx, _rc_clone_spelling, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites);
+export(owning_param_binding_beside, move_through_sink_shadow, ExplicitCopySite, ICMigrateCtx, _rc_clone_spelling, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, RC_CLONE_MIGRATE_HINT);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -2965,9 +2970,6 @@ _ic_migrate_site :: (
   cond(
     !g_migrate_rc_clone => Option(ExplicitCopySite).None,
     !type_holds_counted_handle_ignoring_migration(ty) => Option(ExplicitCopySite).None,
-    // A std generic body's copies are not judged by the rule (B6 gives them
-    // their spelling), so the migration does not spell them either.
-    counted_handle_std_generic_on() => Option(ExplicitCopySite).None,
     // A copy inside a `comptime_expect_error` argument is the error the
     // program expects.
     propagate_def_time_errors() => Option(ExplicitCopySite).None,
@@ -3041,7 +3043,7 @@ derive(PendingScrutineeBorrow, Clone);
 /// The driver spells a `borrow` as `&mut` when an arm wrote through one of
 /// its bindings (`note_migrate_mut_scrutinee`).
 migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
-  if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
+  if(!g_migrate_rc_clone || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
   });
   lt := _ic_leftmost_token(scr);
@@ -3087,7 +3089,7 @@ _implicit_copy_first_member :: (fn(members : &ArrayList(TypeValue), depth : u32)
   (mi : usize) = usize(0);
   while(mi < members.len(), {
     match(
-      members.get(mi),
+      members.get_cloned(mi),
       .Some(m) => if(type_contains_rc_type(&m), {
         return(Option(String).Some(_implicit_copy_category_at(&m, depth + u32(1))));
       }),
@@ -3102,7 +3104,7 @@ _implicit_copy_plain_members :: (fn(members : &ArrayList(TypeValue)) -> bool)({
   (pi : usize) = usize(0);
   while(pi < members.len(), {
     match(
-      members.get(pi),
+      members.get_cloned(pi),
       .Some(m) => if(type_contains_rc_type(&m), {
         return(false);
       }),
@@ -3203,7 +3205,7 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
       (is_future : bool) = false;
       while(sti < st_traits.len(), {
         match(
-          st_traits.get(sti),
+          st_traits.get_cloned(sti),
           .Some(st) => if(is_future_trait_type(&st), {
             is_future = true;
           }),
@@ -5248,12 +5250,12 @@ merge_and_check_envs :: (
               cb_i = (cb_i + usize(1));
             });
             if(cb_tys.len() > usize(1), {
-              cb_first_ty := match(cb_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-              cb_first_cap := match(cb_caps.get(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
+              cb_first_ty := match(cb_tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              cb_first_cap := match(cb_caps.get_cloned(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
               (cb_k : usize) = usize(1);
               while(cb_k < cb_tys.len(), {
-                cb_cur_ty := match(cb_tys.get(cb_k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-                cb_cur_cap := match(cb_caps.get(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
+                cb_cur_ty := match(cb_tys.get_cloned(cb_k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                cb_cur_cap := match(cb_caps.get_cloned(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
                 cb_tok := match(
                   bodies.get(match(cb_body_idx.get(usize(0)), .Some(x) => x, .None => usize(0))),
                   .Some(cb_b0) => ast_expr_token(&cb_b0),

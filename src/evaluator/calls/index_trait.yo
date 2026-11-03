@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   VarArgEntry,
   set_promote_index_places_fn,
   set_is_index_place_fn,
-  sync_counted_handle_std_generic,
+  sync_mut_decl_census_untrusted,
   SpecializingFunctionInfo,
   _clone_captured_variables
 } :: import("../context.yo");
@@ -181,7 +181,7 @@ _resolve_prelude_range_type :: (
     );
     vi = (vi + usize(1));
   });
-  out.get(usize(0))
+  out.get_cloned(usize(0))
 });
 /// The type constructor a struct type came from (`""` when it was not built
 /// by one). See `_check_range_type`.
@@ -215,7 +215,7 @@ _cached_range_type :: (
   fn(inclusive : bool, env : &Environment, ctx : &EvalContext) -> Option(TypeValue)
 )(
   match(
-    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get(usize(0))), g_range_ty_cache.with(xs => xs.get(usize(0)))),
+    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get_cloned(usize(0))), g_range_ty_cache.with(xs => xs.get_cloned(usize(0)))),
     .Some(hit) => Option(TypeValue).Some(hit),
     .None => {
       name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));
@@ -395,7 +395,7 @@ _find_all_index_methods :: (
       (i : usize) = usize(0);
       while(i < n, {
         lbl_opt := field_labels.get_cloned(i);
-        ty_opt := field_types.get(i);
+        ty_opt := field_types.get_cloned(i);
         match(
           lbl_opt,
           .Some(lbl) => {
@@ -1176,7 +1176,7 @@ _specialize_index_method :: (
   ctx.self_type = saved_self;
   ctx.enclosing_function_return_type = saved_enclosing;
   ctx.currently_specializing_function = saved_spec;
-  sync_counted_handle_std_generic(ctx);
+  sync_mut_decl_census_untrusted(ctx);
   // Taken out and stored back: a `match` binding is a copy of the stack
   // once collections are values.
   spec_stack := replace(&mut ctx.currently_specializing_function_stack, Option(ArrayList(SpecializingFunctionInfo)).None);
@@ -1239,7 +1239,7 @@ _find_comptime_index_method :: (
   (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
   while((i < n) && found.is_none(), {
     match(
-      methods.get(i),
+      methods.get_cloned(i),
       .Some(m) => {
         match(
           &m.method_type,
