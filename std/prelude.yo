@@ -325,42 +325,6 @@ drop_in_place :: (fn(generic(T : Type), p : *T) -> unit)(
   unsafe(___drop(p.*))
 );
 export(drop_in_place);
-/// === Cycle-GC tracing ===
-/// `GcTracer` carries the cycle collector's edge-registration callback (an opaque
-/// raw pointer). A `Trace` impl calls `tracer.visit(slot)` once per outgoing edge,
-/// passing a POINTER to where the child lives (a struct field or a container buffer
-/// element). The raw callback is never touched directly.
-GcTracer :: newtype(_callback : *u8);
-export(GcTracer);
-extern(
-  "Yo",
-  /// Per-slot edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
-  __yo_gc_trace_child : (fn(generic(T : Type), tracer : GcTracer, slot : &*T) -> unit)
-);
-impl(
-  GcTracer,
-  /// Trace one outgoing edge. `slot` points at where the child lives; the collector
-  /// reads `*slot` WITHOUT touching its reference count — registering the edge if it
-  /// is a managed handle and recursing inline through value structure otherwise.
-  /// Passing the slot pointer (not the element by value) keeps tracing RC-neutral: a
-  /// by-value managed handle would be dup'd then dropped, freeing a live element
-  /// mid-collection.
-  visit : (fn(generic(T : Type), self : Self, slot : &*T) -> unit)(
-    __yo_gc_trace_child(self, slot)
-  )
-);
-/// Trace trait — mandatory for every reference type that can transitively hold a
-/// managed reference. Auto-derived by the compiler for structs/enums (incl.
-/// `Option` and all value types); hand-implemented for containers whose elements
-/// live in a heap buffer (`ArrayList`, `HashMap`, …). The constructor wires
-/// `header.traverse_fn` to this `trace`.
-/// Like `Drop`, only a reference type may implement it (checked at the
-/// `impl`).
-Trace :: trait(
-  id := "Trace",
-  trace : (fn(self : &Self, tracer : GcTracer) -> unit)
-);
-export(Trace);
 // === Explicit allocators ===
 // `Allocator` and `AllocatorVTable` live here so prelude signatures can name
 // them; `std/allocator.yo` holds their methods (`Allocator.global()`,
@@ -9616,7 +9580,6 @@ impl(generic(T : Type, E : Type), where(T <: Copy, E <: Copy), Result(T, E), Cop
 // `Option`'s and `Result`'s `Clone` impls (`Allocator.ctx` is a `?*void`).
 derive(Pragma, Copy, Clone);
 derive(AllocatorVTable, Copy, Clone);
-derive(GcTracer, Copy, Clone);
 derive(Allocator, Copy, Clone);
 derive(Ordering, Copy, Clone);
 derive(generic(T : Type), where(T <: Clone), Range(T), Clone);

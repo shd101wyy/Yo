@@ -545,33 +545,6 @@ impl(
     })
   )
 );
-impl(
-  generic(T : Type),
-  Deque(T),
-  Trace(
-    /// Cycle-GC tracing. The elements live in a malloc'd ring buffer the
-    /// compiler's auto-derived field walk cannot reach, so trace each live
-    /// element's buffer slot. Logical element `k` (0 = front) sits at
-    /// physical slot `(_head + k) % _capacity`. `tracer.visit` takes the slot
-    /// POINTER and reads it WITHOUT touching the element's reference count (a
-    /// by-value managed handle would be dup'd then dropped, freeing a live
-    /// element mid-collection). Mirrors the ArrayList `Trace` impl.
-    trace : (fn(self : &Self, tracer : GcTracer) -> unit)({
-      match(
-        self._buf,
-        .Some(base) => {
-          (mut(k) : usize) = usize(0);
-          while(k < self._len, {
-            slot := ((self._head + k) % self._cap());
-            tracer.visit(base.add(slot));
-            k = (k + usize(1));
-          });
-        },
-        .None => ()
-      );
-    })
-  )
-);
 /// Build a `Deque(T)` from any iterator of `T` — the target of
 /// `it.collect(Deque(T))`. Elements arrive at the BACK, so iteration order is
 /// preserved.
