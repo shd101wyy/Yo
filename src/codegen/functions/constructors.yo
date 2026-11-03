@@ -209,11 +209,11 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
     .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
-  // A cell primitive's constructor takes the allocation scope as its first
+  // A cell primitive's constructor takes the allocator as its first
   // parameter (`__yo_cell(V)(v, alloc)`, plans/VALUES_BY_DEFAULT.md §3.5):
   // the call site passes the explicit allocator's `{ctx, vtable}`, or the
-  // current scope for `.None`. Every other object is placed by the current
-  // allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5).
+  // global one for `.None`. Every other object is global
+  // (plans/backlog/ALLOCATOR_PLACEMENT.md: there is no allocation scope).
   is_cell := is_cell_primitive_type(type);
   // Signature + malloc.
   mut(sig) := String.from("static ");
@@ -230,19 +230,22 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   sig.push_string(&params);
   sig.push_str(") {");
   em.emit_string_line(&sig);
-  if(!is_cell, {
-    em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
-  });
   mut(alloc) := String.from("  ");
   alloc.push_string(c_name.clone());
   alloc.push_str("* obj = (");
   alloc.push_string(c_name.clone());
   alloc.push_str("*)");
-  alloc.push_string(context.base.rc_alloc_scoped_call(&String.from("__yo_sc"), c_name));
+  alloc.push_string(if(is_cell, context.base.rc_alloc_in_call(&String.from("__yo_sc"), c_name), `__yo_rc_alloc(sizeof(${c_name}))`));
   alloc.push_str(";");
   em.emit_string_line(&alloc);
   // RC header.
-  em.emit_string_line(String.from("  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block"));
+  em.emit_string_line(
+    if(
+      is_cell,
+      String.from("  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block"),
+      String.from("  obj->header.ref_count = 1u;  // One reference")
+    )
+  );
   em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
   is_atomic := is_atomic_reference_struct_type(type);
   small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
@@ -780,9 +783,8 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
         });
         // Signature + malloc.
         em.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
-        em.emit_string_line(`  __yo_alloc_scope_t __yo_sc = __yo_scope_current();`);
-        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)${context.base.rc_alloc_scoped_call(&String.from("__yo_sc"), c_name)};`);
-        em.emit_string_line(`  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block`);
+        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
+        em.emit_string_line(`  obj->header.ref_count = 1u;  // One reference`);
         em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
         if(context.base.needs_cycle_gc && !is_atomic, {
           // Shared packed word always initialized; GC list pointers exist

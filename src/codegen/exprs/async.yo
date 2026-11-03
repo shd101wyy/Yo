@@ -93,8 +93,7 @@
   inline_await_result_field_of,
   inline_await_local_result_type,
   generate_async_block_resume_function_inline,
-  generate_async_block_cancel_pending_function_inline,
-  resume_scope_wrapper
+  generate_async_block_cancel_pending_function_inline
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_sm_move_flag_field, sm_move_flag_of, sm_capture_move_flag_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
@@ -1393,17 +1392,16 @@ generate_async_block_state_dispose_function :: (
   }, em.emit_line("  (void)sm_ptr;"));
   em.emit_line("}");
 });
-/// The allocation of a future of type `struct_name` in the allocation scope
-/// held by the C variable `scope`: an explicit allocator's block when one is
-/// current (plans/archive/EXPLICIT_ALLOCATORS.md §3.5), else one from its type's pool
+/// The allocation of a future of type `struct_name`: one from its type's pool
 /// under lightweight RC (phase 7; the dispose dispatch gives released ones
-/// back), else a fresh RC block. A pooled block never carries an owner
-/// prefix, so the pool is consulted only for the global allocator. The
-/// caller zeroes it either way.
-_sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, scope : &String, context : &FunctionGenerationContext) -> String)(
-  if(context.base.needs_cycle_gc, context.base.rc_alloc_scoped_call(scope, struct_name), {
+/// back), else a fresh RC block. A task is never placed: it is global, as
+/// every creation without an `alloc` argument is
+/// (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). The caller zeroes it
+/// either way.
+_sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, context : &FunctionGenerationContext) -> String)(
+  if(context.base.needs_cycle_gc, `__yo_rc_alloc(sizeof(${struct_name}))`, {
     pid := context.base.sm_pool_id_for(dispose_function_name);
-    `(${scope.clone()}.vtable ? ${context.base.rc_alloc_scoped_call(scope, struct_name)} : __yo_sm_take(${pid.to_string()}, sizeof(${struct_name})))`
+    `__yo_sm_take(${pid.to_string()}, sizeof(${struct_name}))`
   })
 );
 /// Generate the constructor for an async block: heap-allocates + zero-inits the
@@ -1430,13 +1428,12 @@ generate_async_block_constructor :: (
   );
   // Allocate + zero-init the state machine.
   em.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
-  em.emit_string_line(`  __yo_alloc_scope_t __yo_sc = __yo_scope_current();`);
-  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), String.from("__yo_sc"), context)};`);
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   em.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
   em.emit_line("");
   // Reference-counting header.
   em.emit_line("  // Initialize reference counting header");
-  em.emit_line("  sm->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // Caller owns initial reference; the tag marks an explicit allocator's block");
+  em.emit_line("  sm->header.ref_count = 1u;  // Caller owns initial reference");
   em.emit_string_line(`  GC_DEBUG("AsyncBlock ${struct_name.clone()}: Created ptr=%p RC=1\\n", (void*)sm);`);
   if(context.base.needs_cycle_gc, {
     em.emit_line("  sm->header.gc_flags = 0;");
@@ -3880,7 +3877,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   context.state_machine_field_aliases = sync_saved_smfa;
   em.emit_declaration_line("");
   // Resume function — calls the closure with the embedded capture data.
-  em.emit_declaration_string_line(`static void ${resume_function_name.clone()}__body(void* ptr) {`);
+  em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* ptr) {`);
   em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
   if(!is_unit_type(&result_type), {
     em.emit_declaration_string_line(`  sm->result = ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
@@ -3912,7 +3909,6 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   em.emit_declaration_line("  }");
   em.emit_declaration_line("  __yo_decr_rc(ptr);");
   em.emit_declaration_line("}");
-  em.emit_declaration_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_declaration_line("");
   // Dispose function.
   capture_drop_fn := match(&eff_capture_type, .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(&cap_ty), get_drop_function_for_type(&cap_ty, context), Option(String).None), .None => Option(String).None);
@@ -4044,10 +4040,9 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // Allocation + initialization (body code).
   result_var := sanitize_for_c_identifier(match(&ei.variable_name, .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &context.base);
-  em.emit_string_line(`${indent.clone()}__yo_alloc_scope_t ${result_var.clone()}__sc = __yo_scope_current();`);
-  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);
+  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u | __yo_rc_tag_of(${result_var.clone()}__sc);`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_flags = 0;`);
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_mark = __YO_GC_UNMARKED;`);

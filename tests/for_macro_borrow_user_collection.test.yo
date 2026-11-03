@@ -492,11 +492,11 @@ test("borrowed for: boxing the object through an alias does not trip the flag", 
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });
 // Moving the object into an `Rc` cell only stores it too. `rc` and `Rc.new`
-// save, set and restore the thread's allocation scope in their `.Some(a)` arm
-// (`__yo_scope_ctx`/`__yo_scope_vtable`/`__yo_scope_set`); the analysis
-// counted `__yo_scope_set` as writing through its arguments, which it read as
-// unknown storage, so `keep_rc`/`keep_rc_new` asserted `b` unborrowed and
-// panicked through the second handle
+// once saved, set and restored the thread's allocation scope in their
+// `.Some(a)` arm through three runtime externs (deleted with the scope, V5
+// cells Gen B and B2b); the analysis counted the setter as writing through
+// its arguments, which it read as unknown storage, so `keep_rc`/`keep_rc_new`
+// asserted `b` unborrowed and panicked through the second handle
 // (issues/fixed/2026-10-28-rc-of-a-ref-object-parameter-asserts-it-unborrowed.md).
 keep_rc :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 keep_rc_new :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));

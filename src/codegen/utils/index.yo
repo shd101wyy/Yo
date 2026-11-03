@@ -486,14 +486,15 @@ impl(
       }
     )
   }),
-  /// The C expression allocating one RC block of C type `c_type` in the
-  /// allocation scope held by the C expression `scope`. Interface version 2
+  /// The C expression allocating one cell of C type `c_type` with the
+  /// allocator held by the C expression `alloc` (a cell constructor's first
+  /// parameter; a NULL vtable is the global allocator). Interface version 2
   /// passes the block's alignment, so an allocator places an over-aligned
   /// object correctly and records the extent its sized `free` is handed.
-  rc_alloc_scoped_call : (fn(self : &Self, scope : &String, c_type : &String) -> String)(
+  rc_alloc_in_call : (fn(self : &Self, alloc : &String, c_type : &String) -> String)(
     cond(
-      self.alloc_abi_v2 => `__yo_rc_alloc_scoped(${scope}, sizeof(${c_type}), _Alignof(${c_type}))`,
-      true => `__yo_rc_alloc_scoped(${scope}, sizeof(${c_type}))`
+      self.alloc_abi_v2 => `__yo_rc_alloc_in(${alloc}, sizeof(${c_type}), _Alignof(${c_type}))`,
+      true => `__yo_rc_alloc_in(${alloc}, sizeof(${c_type}))`
     )
   ),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.

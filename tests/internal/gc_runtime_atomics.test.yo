@@ -314,11 +314,12 @@ test("allocator interface version 1 keeps the 16-byte prefix and the unsized vta
   assert(c.contains("void* (*alloc)(void* ctx, size_t size);"), "v1: alloc(ctx, size)");
   assert(c.contains("void (*free)(void* ctx, void* ptr);"), "v1: free(ctx, ptr)");
   assert(c.contains("((const __yo_alloc_vtable_t*)pre->vtable)->free(pre->ctx, raw);"), "v1: the release passes the raw block only");
-  assert(c.contains("static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {"), "v1: the scoped allocation takes no alignment");
+  assert(c.contains("static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size) {"), "v1: the placed allocation takes no alignment");
+  assert(!c.contains("__yo_current_allocator"), "no thread allocation scope (B2b)");
   assert(!c.contains("__yo_alloc_extent_t"), "v1: no extent record");
   ctx := mk_context(false);
-  call := ctx.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &String.from("T"));
-  assert(call == "__yo_rc_alloc_scoped(__yo_sc, sizeof(T))", "v1: the call passes the size only");
+  call := ctx.base.rc_alloc_in_call(&String.from("__yo_sc"), &String.from("T"));
+  assert(call == "__yo_rc_alloc_in(__yo_sc, sizeof(T))", "v1: the call passes the size only");
 });
 /// Pin: version 2 passes the alignment to `alloc`, records the extent in
 /// the 16 bytes before the owner, and hands `free` the size and alignment
@@ -333,13 +334,14 @@ test("allocator interface version 2 aligns, records the extent and frees by size
   assert(c.contains("return align > __YO_ALLOC_MIN_ALIGN ? align : __YO_ALLOC_MIN_ALIGN;"), "v2: the block is at least 16-aligned");
   assert(c.contains("->alloc(s.ctx, span + size, __yo_rc_cell_block_align(align));"), "v2: alloc is told the block's alignment");
   assert(c.contains("->free(pre->ctx, (char*)ptr - span, block_size, block_align);"), "v2: free is told the block's size and alignment");
-  assert(c.contains("static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size, size_t align) {"), "v2: the scoped allocation takes the alignment");
-  // The owner stays where version 1 keeps it, so the scope lookup is shared.
+  assert(c.contains("static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size, size_t align) {"), "v2: the placed allocation takes the alignment");
+  assert(!c.contains("__yo_scope_set") && !c.contains("__yo_scopes_ever_entered"), "no scope setter, no scope flag (B2b)");
+  // The owner stays where version 1 keeps it, so the owner lookup is shared.
   assert(c.contains("return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);"), "v2: the owner is the 16 bytes before the object");
   ctx := mk_context(false);
   ctx.base.alloc_abi_v2 = true;
-  call := ctx.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &String.from("T"));
-  assert(call == "__yo_rc_alloc_scoped(__yo_sc, sizeof(T), _Alignof(T))", "v2: the call passes the alignment");
+  call := ctx.base.rc_alloc_in_call(&String.from("__yo_sc"), &String.from("T"));
+  assert(call == "__yo_rc_alloc_in(__yo_sc, sizeof(T), _Alignof(T))", "v2: the call passes the alignment");
 });
 /// Pin: both interface versions emit the owner hooks the prelude reads for
 /// `make_mut` (plans/backlog/SEED_VERSION_AUTOMATION.md, "make_mut reuses the
