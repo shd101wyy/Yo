@@ -91,6 +91,21 @@ carry small characters in a different `input` cell. `_first_token_of` and
 takes that fallback only when the body origin is missing or does not match
 the text, and no case of it is known in source files.
 
+## Seed caveat
+
+The fix takes effect in code compiled by a compiler that carries it. A tree
+binary built by the v0.2.73 seed has its own code, including
+`resolve_module_path_ex`, lowered by the seed's parser, so that binary still
+leaks once per resolve until `SEED_VERSION` carries the fix. Code it compiles
+(user programs, `tests/internal` test binaries) is fixed. The companion double
+drop has the same caveat, which is why its `evaluate_panic` workaround stays
+(`issues/fixed/2026-11-03-a-local-moved-by-a-match-inside-a-throw-argument-is-dropped-again-on-unwind.md`).
+
+Measured on the fixed tree binary (`yo-tree-tplfix-97eaae7e9`):
+- the reproducer is clean under ASan;
+- `tests/internal/parser.test.yo` passes 93/93;
+- `tests/internal/verifier_loops.test.yo` passes 14/14 (12/14 before).
+
 ## Regression test
 
 `tests/internal/parser.test.yo`, "a template's lowered tokens sit at the
