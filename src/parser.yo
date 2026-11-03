@@ -324,17 +324,6 @@ impl(
     self.next_expr_id = (self.next_expr_id + usize(1));
     id
   }),
-  make_syn_tok : (fn(self : &mut Self, kind : TokenKind, value : &String) -> Token)(
-    Token(
-      kind : kind,
-      value : intern_token_str(value),
-      row : u32(0),
-      column : u32(0),
-      character : u32(0),
-      module_path : Rc.clone(self.module_path),
-      input : Rc.clone(self.input_string)
-    )
-  ),
   make_unit_call : (fn(self : &mut Self, ref_tok : &Token) -> AstExpr)({
     unit_tok := Token(
       kind : TokenKind.Identifier,
@@ -587,10 +576,17 @@ impl(
       part_is_expr.push(false);
       part_content.push(String.from(""));
     });
-    // Synthetic tokens for building the expression chain
-    dot_tok := self.make_syn_tok(TokenKind.Dot, String.from("."));
-    to_str_tok := self.make_syn_tok(TokenKind.Identifier, String.from("to_string"));
-    fmt_tok := self.make_syn_tok(TokenKind.Identifier, String.from("format"));
+    // Synthetic tokens for building the expression chain, positioned at the
+    // template like the builder's own (`_template_syn_tok`). A token at
+    // row 0 / character 0 in the module's own stream is still comparable with
+    // every real token there, so it read as the earliest token of the
+    // function: an arm holding `${p}` then "began" before an early return
+    // above it, and the arm's undone-drop record swallowed that return's exit
+    // drop of `p`
+    // (issues/fixed/2026-11-03-a-template-string-in-a-later-arm-skips-an-early-returns-drop-of-the-interpolated-local.md).
+    dot_tok := _template_syn_tok(tok, TokenKind.Dot, &String.from("."));
+    to_str_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("to_string"));
+    fmt_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("format"));
     // Helper: build `e.to_string()` — takes explicit params since local fns
     // can't capture outer values. The four synthetic sub-expressions need
     // UNIQUE expr ids (passed in via `id_*`): hardcoding `usize(0)` made
