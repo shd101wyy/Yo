@@ -85,7 +85,7 @@ the documented behaviour.
 
 A control with the recursion spelled through a non-atomic cell
 (`Option(Rc(RefCell(Self)))`) is the separate
-`issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`.
+`issues/retired/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`.
 
 ## Root cause (hypothesis)
 

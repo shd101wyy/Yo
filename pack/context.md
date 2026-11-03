@@ -10,8 +10,8 @@ Yo; every example parses, and complete examples compile.
 ## What Yo is
 
 A statically-typed, expression-oriented language that compiles to C11 and
-lets the system C compiler finish the job. Memory is compile-time RC with a
-cycle collector — no borrow checker, no GC pauses. Async is single-threaded
+lets the system C compiler finish the job. Memory is compile-time RC with
+no collector — no borrow checker, no GC pauses. Async is single-threaded
 event-loop (C#-style); threads are a separate explicit runtime. Yo is
 designed for LLM authorship: regular syntax, no precedence table, no
 overloading, fast checker (`yo check`), errors that carry repairs.
@@ -247,8 +247,8 @@ read :: (fn(p : Path, io : Io) -> String)({
 ## Ownership and references
 
 - Values are reference-counted at compile time (dup/drop inserted by the
-  compiler); a cycle collector reclaims `ref` cycles. You do not write
-  refcounts.
+  compiler). You do not write refcounts. A reference cycle leaks, as with
+  Rust's `Rc`: put a `Weak(T)` on the back edge (`Rc.downgrade(&h)`).
 - A plain parameter `x : T` takes its argument BY VALUE: a `Copy` value is
   copied, a move-only or explicit-copy value is MOVED (using it afterwards
   is a `use of moved value` error), and a still implicitly copyable kind

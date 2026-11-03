@@ -370,7 +370,6 @@ The `Type` type provides static methods for compile-time type analysis:
 | `Type.is_compatible_with(A, B)`   | Loose type compatibility (allows coercion)               |
 | `Type.impls(T, Marker)`           | Checks if type `T` implements a marker trait             |
 | `Type.contains_rc_type(T)`        | Checks if type contains reference-counted fields         |
-| `Type.can_form_rc_cycle(T)`       | Checks if type can form reference counting cycles        |
 
 ### Type Equality vs Compatibility
 

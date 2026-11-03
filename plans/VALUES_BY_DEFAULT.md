@@ -4697,7 +4697,7 @@ and in git, not a silent edit.
     - **Why.** Under decision 46 a cycle needs a write through
       `RefCell`/`Mutex`/`RwLock`, so the collector covers one shape, and
       it was not even covering that shape when the decision was made
-      (`issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`,
+      (`issues/retired/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`,
       S1). Its cost is the 56-byte header, `traverse_fn` per tracked
       type, the possible-roots buffer on every decrement, the
       resurrection rule, `Trace` on every buffer-owning collection, the
@@ -9558,7 +9558,10 @@ release placement is the VBD session's call in
    cell-recursion answer). It
    needs a seed carrying W3/W4 and Z11, and it is best placed with V5
    Generation B or later, when `ref(...)` is gone and the header is
-   rewritten once.
+   rewritten once. **Built 2026-11-03** (`vbd/w6b-delete-collector`, for
+   v0.2.75; one PR, no seed split): the declared form became an error
+   rather than a no-op (`WEAK_AND_UNCOLLECTED_RC.md` §4 and §6 "As built
+   (W6b)").
 
 ### Decision 47: immutable bindings
 

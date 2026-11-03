@@ -311,7 +311,7 @@ check that the type's constructor stamps a dispose id and that
 - Parallelism: `docs/en-US/PARALLELISM.md`
 - Low-level sys module: `docs/en-US/STD_SYS_MODULE.md`
 - Algebraic Effects: `docs/en-US/ALGEBRAIC_EFFECTS.md`
-- Thread-local cycle collector: `docs/en-US/CYCLE_COLLECTION.md`
+- Reference cycles (they leak; `Weak` breaks them): `docs/en-US/MEMORY_SAFETY.md`, `docs/en-US/WEAK.md`
 
 ## VS Code extension
 

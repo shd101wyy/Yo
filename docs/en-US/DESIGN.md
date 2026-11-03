@@ -202,7 +202,7 @@ is visible at the call site, so what you see is what runs.
 
 - **No operator precedence** (same-operator chains left-associate; adjacent different operators require explicit parentheses)
 - **No variable shadowing** (similar to Zig)
-- **No stop-the-world GC** (optional thread-local cycle collector for reference-semantics types)
+- **No garbage collector** (reference counting frees every cell at its last handle; a reference cycle leaks unless a `Weak` breaks it, as in Rust)
 
 ## Inspiration
 
@@ -482,7 +482,7 @@ A type can have the following **Kind**:
 **Reference-Semantics Types** (heap-allocated, reference-counted):
 
 - Types defined with `ref(struct(...))` or `ref(enum(...))` (and their atomic variants `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`)
-- Automatic cycle detection and collection
+- Freed at the last handle; a reference cycle leaks unless a `Weak` breaks it
 - Thread-affinity for performance (objects stay on the thread that created them)
 
 ```yo
@@ -1496,7 +1496,7 @@ For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers t
 
 Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
 
-- **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
+- **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed at their last handle (a cycle leaks unless a `Weak` breaks it). Memory-safe by construction.
 - **`Arc(T)`** provides atomic-RC ownership for thread-shared cases; a `Send` value is transferred to another thread by moving it.
 - **`*(T)` raw pointers** are available only in a file that declares `pragma(Pragma.AllowUnsafe);`. Inside such a file the `unsafe(...)` wrap is the per-operation AUDIT MARKER that `yo unsafe-report` keys on — and the convention `std/`, `src/` and `tests/` follow — not a second compiler gate: a bare `p.*` in a pragma'd file compiles. In a file WITHOUT the pragma the whole raw-pointer surface is rejected, including the `*(T)` type itself.
 
@@ -3457,9 +3457,9 @@ assert(sum(&t) == 3);
   without `alloc`, the cell is on the global allocator. The cell is freed through its owner, and `Box.clone(b)`
   lands where `b` lives (a box placed by an explicit allocator clones into that allocator).
   `Box.allocator(b)` reads the owner back (`.None` for the global allocator).
-- **Cycles.** A `Box` is part of its owner's value: the cycle collector
-  traces its payload in place, so an `Rc` cycle closed through a `Box` is
-  collected like any other.
+- **Cycles.** A `Box` is part of its owner's value, so an `Rc` cycle closed
+  through a `Box` is a cycle of the `Rc` cells: it leaks like any other
+  unless a `Weak` breaks it.
 
 ## Rc and Reference-Counted Cells
 
@@ -3683,7 +3683,7 @@ cell that does not keep the payload alive, and `w.upgrade()` is
 `.Some(handle)` while an `Rc` to it exists, `.None` after the last one. The
 last `Rc` drops the payload; the last handle of either kind frees the cell.
 A `Weak` has no `Deref`, is explicit-copy (`Weak.clone(&w)`), and is not an
-edge for the cycle collector, so a parent pointer `Weak(RefCell(Node))`
+edge of the ownership graph, so a parent pointer `Weak(RefCell(Node))`
 closes no cycle. See [WEAK.md](./WEAK.md).
 
 ```yo
@@ -4204,8 +4204,8 @@ a compiler built-in; it is defined in `std/prelude.yo` as a thin
 `atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: (Send, Sync)`: `Sync` because every handle reads the payload
 from its own thread, and `Send` because the last handle may be dropped (and the payload disposed) on
 any thread. So it only wraps thread-shareable values, and `Arc(T)` is itself `Send` and `Sync`
-under that bound. As in Rust, the payload need not be `Acyclic`: atomic RC is not
-cycle-collected, so a cycle of `Arc` handles leaks unless a back edge is cleared first or is an
+under that bound. As in Rust, the payload need not be `Acyclic`: there is no
+cycle collector, so a cycle of `Arc` handles leaks unless a back edge is cleared first or is an
 `ArcWeak` (`Arc.downgrade(&h)`, [WEAK.md](./WEAK.md#arcweakt-the-thread-safe-form);
 [ARC.md](./ARC.md#cycles)). Use `Arc(T)` when you want to share a single value.
 Use `atomic(ref(struct(...)))` when defining your own shared types.

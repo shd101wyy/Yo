@@ -2,7 +2,7 @@
 
 **Severity:** S3. A conservative memory leak (never memory unsafety), bounded by what `dispose` code does while a collection runs.
 
-**Status:** OPEN (filed 2026-10-06, surfaced while fixing
+**Status:** RETIRED 2026-11-03: decision 48 W6b deleted the cycle collector (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6), so no collection runs a `dispose` and there is nothing to track. Was: open (filed 2026-10-06, surfaced while fixing
 `issues/fixed/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`).
 
 ## Reproducer
