@@ -2268,13 +2268,16 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
         if(!simple || !arm_is_classic(&_unwrap_rc_pattern(&arm.pattern_expr), &sub, false, false), {
           return(.None);
         });
-        k := type_key(&bt);
+        // Not `k`: the inner loop's `k` above shares the C name, and an
+        // unwind drop of this String would land on that `usize`
+        // (issues/2026-11-03-an-unwind-drop-names-a-shadowing-local-of-another-type.md).
+        bt_key := type_key(&bt);
         cond(
           cell.is_none() => {
             cell = .Some(Rc.clone(bt));
-            cell_key = k;
+            cell_key = bt_key;
           },
-          !(k == cell_key) => return(.None),
+          !(bt_key == cell_key) => return(.None),
           true => ()
         );
       },
