@@ -1,0 +1,81 @@
+//! Regression tests: a tuple or array literal that copies an RC handle out of
+//! a value takes its own reference to it, as a struct literal or a binding
+//! does. Before the fix `(i32(1), s.h)` shared the handle with `s` without a
+//! reference, and the two scope-end drops released it twice (a heap
+//! use-after-free under AddressSanitizer;
+//! issues/fixed/2026-10-25-a-tuple-literal-copying-a-field-out-of-a-value-skips-the-dup.md).
+//! An indexed element `xs(i)` is the same inlined read as a field. The
+//! handles are `ref` objects, which stay copyable once the collections are
+//! values: a tuple copying an `ArrayList` field is then E0901.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+(mut(g_tfc_dropped) : i32) = i32(0);
+TfcHandle :: ref(struct(n : i32));
+impl(
+  TfcHandle,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_tfc_dropped = (g_tfc_dropped + i32(1));
+    })
+  )
+);
+TfcS :: struct(h : TfcHandle, k : i32);
+_tfc_from_borrow :: (fn(s : &TfcS) -> Tuple(i32, TfcHandle))(
+  (i32(1), s.h)
+);
+_tfc_from_value :: (fn(s : TfcS) -> Tuple(i32, TfcHandle))(
+  (i32(2), s.h)
+);
+test("A tuple literal copying a handle field out of a local value", {
+  before := g_tfc_dropped;
+  {
+    s := TfcS(h : TfcHandle(n : i32(7)), k : i32(3));
+    r := (i32(1), s.h);
+    assert(r.1.n == i32(7), "the tuple's copy reads the handle");
+    assert(s.h.n == i32(7), "the value keeps its handle");
+  };
+  assert((g_tfc_dropped - before) == i32(1), "the handle is disposed once, after both owners");
+});
+test("A tuple literal copying a handle field out of a borrowed value", {
+  before := g_tfc_dropped;
+  {
+    s := TfcS(h : TfcHandle(n : i32(7)), k : i32(3));
+    r := _tfc_from_borrow(&s);
+    assert(r.0 == i32(1), "the scalar element");
+    assert(r.1.n == i32(7), "the tuple's copy reads the handle");
+    assert(s.h.n == i32(7), "the borrowed value keeps its handle");
+  };
+  assert((g_tfc_dropped - before) == i32(1), "the handle is disposed once, after both owners");
+});
+test("A tuple literal copying a handle field out of a by-value parameter", {
+  before := g_tfc_dropped;
+  {
+    s := TfcS(h : TfcHandle(n : i32(7)), k : i32(3));
+    r := _tfc_from_value(s);
+    assert(r.0 == i32(2), "the scalar element");
+    assert(r.1.n == i32(7), "the tuple outlives the parameter");
+  };
+  assert((g_tfc_dropped - before) == i32(1), "the handle is disposed once");
+});
+test("An array literal copying a handle field out of a local value", {
+  before := g_tfc_dropped;
+  {
+    s := TfcS(h : TfcHandle(n : i32(7)), k : i32(3));
+    a := Array(TfcHandle, 2)(s.h, s.h);
+    assert(a(usize(0)).n == i32(7), "the array's first copy reads the handle");
+    assert(a(usize(1)).n == i32(7), "the array's second copy reads the handle");
+    assert(s.h.n == i32(7), "the value keeps its handle");
+  };
+  assert((g_tfc_dropped - before) == i32(1), "the handle is disposed once, after all three owners");
+});
+test("A tuple literal copying an indexed element out of a list", {
+  before := g_tfc_dropped;
+  {
+    mut(xs) := ArrayList(TfcHandle).new();
+    xs.push(TfcHandle(n : i32(9)));
+    q := (xs(usize(0)), i32(2));
+    assert(q.0.n == i32(9), "the tuple's copy reads the handle");
+    assert(xs(usize(0)).n == i32(9), "the list keeps its element");
+  };
+  assert((g_tfc_dropped - before) == i32(1), "the handle is disposed once, after both owners");
+});

@@ -17,7 +17,7 @@
 { should_skip_function_codegen, generate_function_prototype } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
-{ is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
+{ is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
@@ -382,7 +382,11 @@ _emit_dyn_clone_function :: (
       em.emit_declaration_line("  __yo_scope_set(__yo_owner_scope.ctx, (void*)__yo_owner_scope.vtable);");
       if(is_boxed, {
         boxed_cname := _boxed_c_name(data_type.clone(), context);
-        em.emit_declaration_string_line(`  ${boxed_cname}* out = __yo_new_${boxed_cname}(${entry.c_name}(${receiver}));`);
+        // A cell primitive's constructor (a cell handle's box, V5's `Rc`/`Arc`)
+        // takes the allocation scope first (`__yo_cell(V)(v, alloc)`,
+        // functions/constructors.yo): the fresh box lands in the source's owner.
+        scope_arg := if(is_cell_primitive_type(&_dyn_data_object_type(data_type)), String.from("__yo_owner_scope, "), String.new());
+        em.emit_declaration_string_line(`  ${boxed_cname}* out = __yo_new_${boxed_cname}(${scope_arg}${entry.c_name}(${receiver}));`);
       }, {
         concrete_str := get_type_string(concrete_type.clone(), &context.base);
         em.emit_declaration_string_line(`  ${concrete_str} out = ${entry.c_name}(${receiver});`);

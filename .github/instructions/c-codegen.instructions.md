@@ -287,7 +287,13 @@ source order.
   await in the same statement can suspend before the result is consumed
   (`f(await a, await b)`); any other result is a C local
   (`g_local_await_results`, consulted by the struct emitter and by
-  `emit_inline_await`).
+  `emit_inline_await`). A C-local result that owns an RC or move-only value
+  is declared under the await's owning temp's name, and stored into the
+  temp's slot when it has one (`_bind_await_result_to_temp`): the temp's
+  scheduled drop is skipped while the temp is undeclared, so a consumer that
+  only reads a field (`match(await(f).s, …)`, a `while` condition) leaked
+  the whole value
+  (issues/fixed/2026-10-25-an-await-result-read-by-a-while-condition-or-a-field-reading-scrutinee-is-never-released.md).
 - **The prefix points at a per-type vtable** (`__yo_future_vtable_t`:
   `resume`, `set_effect`, `cancel_pending`, `bundle_offset`, `bundle_size`),
   not three pointers per instance. A raw I/O future's `vt` is NULL; every
@@ -317,6 +323,17 @@ source order.
   `is_owning_the_same_rc_value_as`, and NAMED RC locals (next item) never
   share. Two RC locals of ONE scope always overlap (both live to its end);
   sibling scopes are what share.
+- **A zeroed move-only slot is not empty.** Zeroing makes an RC handle NULL,
+  whose release is skipped, but a move-only value (`type_is_move_only`: a
+  value type with a `Drop` impl, or an aggregate holding one) is still a
+  value when zeroed, and its drop runs the user's `Drop` on it. A dispose
+  that relies on "a finished region's fields are zeroed, so releasing them
+  is a no-op" must gate the release on a flag instead: a fused await site's
+  fields are released only under its `<prefix>live` flag
+  (`_emit_fused_sites_dispose`,
+  issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
+  The abort dispose of a slot that was never stored is still open
+  (issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md).
 - **A moved-from name still reads its value.** `(cur : T) = t` moves `t`
   without a dup, and `t` may still be read while `cur` holds the value (sync
   code keeps the C local as it is). So a named local's slot is NOT emptied by

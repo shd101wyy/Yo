@@ -201,3 +201,48 @@ test("members after a failing impl member do not exist", {
   // Reached only if both expectations above held at check time.
   assert(true, "abandoned impl left no members behind");
 });
+// ---------- A `&x` first argument to a member still being evaluated ----------
+//
+// A static call `T.m(&x, ...)` to a member that is mid-evaluation (it calls
+// itself, or a sibling above forced it early) is dispatched through the
+// receiver-method path, whose argument 0 is a call-site argument and is
+// peeled against the first parameter
+// (issues/fixed/2026-11-02-an-impl-method-calling-itself-or-a-sibling-forced-early-rejects-a-borrow-argument.md).
+_BorrowWalk :: struct(_d : i32);
+impl(
+  _BorrowWalk,
+  walk : (fn(s : &String, d : usize) -> usize)({
+    x := String.from("ab");
+    if(d > usize(0), {
+      return(s.len() + _BorrowWalk.walk(&x, d - usize(1)));
+    });
+    s.len()
+  }),
+  fill : (fn(out : &mut String, d : usize) -> unit)({
+    if(d > usize(0), {
+      out.push_str("x");
+      _BorrowWalk.fill(&mut out, d - usize(1));
+    });
+  })
+);
+test("a self-recursive impl method lends a local to its own first parameter", {
+  t := String.from("xyz");
+  assert(_BorrowWalk.walk(&t, usize(2)) == usize(7), "3 + 2 + 2");
+  (mut(o) : String) = String.from("");
+  _BorrowWalk.fill(&mut o, usize(3));
+  assert(o.len() == usize(3), "three pushes through the recursive &mut lend");
+});
+_BorrowForced :: struct(_d : i32);
+impl(
+  _BorrowForced,
+  first : (fn(s : &String) -> usize)(_BorrowForced.walk(s, usize(1))),
+  leaf : (fn(s : &String) -> usize)(s.len()),
+  walk : (fn(s : &String, d : usize) -> usize)({
+    x := String.from("abcd");
+    _BorrowForced.leaf(&x) + s.len() + d
+  })
+);
+test("an impl method a sibling forces early lends a local to a call", {
+  t := String.from("xy");
+  assert(_BorrowForced.first(&t) == usize(7), "4 + 2 + 1");
+});
