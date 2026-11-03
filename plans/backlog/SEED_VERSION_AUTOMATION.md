@@ -418,6 +418,14 @@ the spelled bound reports (`_check_counted_cell_payload`,
 cli-cases and tests that pin the message keep passing. W6b's amendment of
 O9/O10 (the collector's removal) is not pre-empted by either half.
 
+**Generation B built on `vbd/v5-cells-gen-b` (v0.2.75, 2026-11-03)**, as the
+last commit of V5 cells Generation B, whose edit owns the same four prelude
+lines: `Rc` and `__yo_rc_cell` carry `where(V <: Escapable)`, `Arc` and
+`__yo_arc_cell` carry it after their `where(V <: (Send, Sync))`, and the
+compiler's check is deleted. W6b amends O9/O10 for `Rc`/`Arc` payloads to
+Rust's rule later in the same release, so the bound may be rewritten again
+there.
+
 ## Seed-gated follow-up (2026-11-02): std and src read references with `.*` (decision 43 N3)
 
 Decision 43 step 2's N1e-1 (v0.2.74, VERDICTS-13 §11 and §14) makes a
@@ -475,6 +483,11 @@ constructor bodies).
 - Re-baseline the allocation ratchet.
 - The make_mut owner entry below declares its two hooks "beside `__yo_scope_ctx`"; it keeps them in that
   `extern` block after the three scope externs leave.
+
+**Generation B built on `vbd/v5-cells-gen-b` (v0.2.75, 2026-11-03)**, regenerated on the flip frontier: the prelude
+retype, the three externs, `migrate_rc_ctor.py` (205 direct constructions), the reuse row in
+`tests/explicit_allocators.test.yo`. Its gate is "the v0.2.74 seed builds this tree"; the branch's STATE
+(`vbd-logs/v5-cells-gen-b/STATE.md`) records the seed emulation.
 
 ## Seed-gated follow-up (2026-10-30): make_mut reuses the owner (Rc/Arc.allocator)
 

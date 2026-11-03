@@ -9763,12 +9763,16 @@ export(Result);
 /// `Rc.make_mut` / `Rc.try_unwrap` reach the payload of a handle that is the
 /// only one.
 ///
+/// The payload is `Escapable` (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md
+/// O9): its drop runs when the last handle goes, where no borrow it holds
+/// could be checked, so a type that holds a reference is E0909.
+///
 /// ```yo
 /// a := Rc.new(i32(42));
 /// b := Rc.clone(a); // a second handle to the same value
 /// assert(b.* == a.*, "a and b name the same value");
 /// ```
-Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
+Rc :: (fn(comptime(V) : Type, where(V <: Escapable)) -> comptime(Type))(
   newtype(_cell : __yo_cell(V))
 );
 /// The constructor of `Rc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
@@ -10382,7 +10386,7 @@ export(Box);
 /// a := Arc.new(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync)), where(V <: Escapable)) -> comptime(Type))(
   newtype(_cell : __yo_atomic_cell(V))
 );
 /// The constructor of `Arc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
@@ -13629,7 +13633,7 @@ impl(
 /// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a); Fable
 /// consultation #7). Its body builds through `__yo_cell`, as `Rc.new`'s does
 /// (V5 cells Generation B); the constructor itself stays until that S3 is fixed.
-__yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
+__yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: Escapable)) -> Rc(V))({
   // `Rc.new`'s body, kept as `dyn(...)`'s own constructor: a closure
   // literal's payload type is the `Dyn`'s open payload wrapper, and only a
   // generic FUNCTION's binder resolves it to the capture struct
@@ -13641,7 +13645,7 @@ __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocato
 /// `dyn(...)`'s atomically counted cell constructor, for a `Dyn(..., Send)`
 /// target (and a recognized `dyn(Arc.new(<closure>, alloc : a))`):
 /// `__yo_rc_cell`'s twin. Compiler-internal, not exported.
-__yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))({
+__yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync)), where(V <: Escapable)) -> Arc(V))({
   // `Arc.new`'s body, kept as `dyn(...)`'s constructor for a Send target, for
   // `__yo_rc_cell`'s reason.
   cell := Arc(V)(__yo_atomic_cell(V)(value, alloc));
