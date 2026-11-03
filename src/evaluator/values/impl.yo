@@ -2064,6 +2064,35 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), recei
     );
   });
 });
+/// `Acyclic` is derived from a type's structure and never implemented by hand
+/// (decision 48 W6b, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4): a positive
+/// `impl(T, Acyclic())`, concrete or generic, is an error, like `Escapable`'s.
+/// The trusted declaration's one consumer, the cycle collector's tracking
+/// exemption, is deleted, and a claim the walk took on trust would let
+/// `where(T <: Acyclic)` hold for a type that can leak a cycle. The negative
+/// `impl(T, !Acyclic)` stays: it only removes the marker. Checked on the
+/// RESOLVED trait, so an alias is caught too.
+_throw_if_acyclic_impl :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env : &Environment, exn : Exception) -> unit)({
+  is_acyclic := match(
+    trait_ty,
+    .Some(tt) => match(
+      get_trait_type_from_env(env, String.from("Acyclic")),
+      .Some(acy_tt) => (get_trait_key(&tt) == get_trait_key(&acy_tt)),
+      .None => false
+    ),
+    .None => false
+  );
+  if(is_acyclic, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `\`Acyclic\` is derived from a type's structure and is never implemented by hand: a type is \`Acyclic\` exactly when no cycle of strong edges is reachable from its values, a \`Weak\`/\`ArcWeak\` edge excluded (docs/en-US/WEAK.md). Break the back edge with \`Weak\` or drop the bound; \`impl(T, !Acyclic)\` still opts out (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4).`
+        )
+      )
+    );
+  });
+});
 /// Does the generic entry's trait, with the forall BINDINGS a receiver match
 /// produced substituted in, name the same trait instantiation as `concrete`?
 /// Traits carry no argument list, so the instantiations are compared by
@@ -5507,6 +5536,7 @@ evaluate_module_value :: (
         );
         g_trait_ty_opt := _try_lookup_trait_type(&trait_fn_expr2, &forall_env, ctx, exn);
         _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, &receiver_type_pattern, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
+        _throw_if_acyclic_impl(&g_trait_ty_opt, ast_expr_token(&mf_expr), &forall_env, exn);
         g_trait_ty := match(&g_trait_ty_opt, .Some(t) => Rc.clone(t), .None => t_unit());
         // `Drop` only on the receivers it accepts, as
         // Case 3 checks through `g_check_self_constraints_fn`; a blanket
@@ -5988,9 +6018,8 @@ evaluate_module_value :: (
         });
         // Phase A (THREAD_SAFETY): a manual `impl(T, Send())` / `impl(T, Sync())`
         // requires `pragma(Pragma.AllowUnsafe)`: a wrong claim is a data race.
-        // A manual `impl(T, Acyclic())` does not (decision 48 W5,
-        // plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4): a wrong claim leaks,
-        // it never dangles.
+        // A manual `impl(T, Acyclic())` is rejected outright
+        // (`_throw_if_acyclic_impl`, decision 48 W6b).
         if(!is_negative_field && (ast_expr_is_fn_call(&field_expr) && !ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2)))), {
           pos_trait_name := match(
             field_expr,
@@ -6046,6 +6075,7 @@ evaluate_module_value :: (
           );
           current_trait_ty = _try_lookup_trait_type(&trait_fn_expr, &local_env, ctx, exn);
           _throw_if_deref_impl_outside_prelude(&current_trait_ty, &receiver_ty, ast_expr_token(&field_expr), &local_env, ctx, exn);
+          _throw_if_acyclic_impl(&current_trait_ty, ast_expr_token(&field_expr), &local_env, exn);
           // Record that this type implements the trait (by its base id) in the
           // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
           // trait-checking step 4 — the impl'd trait is pushed onto the
