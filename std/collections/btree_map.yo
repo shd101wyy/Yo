@@ -210,6 +210,21 @@ impl(
     self._entries.last_cloned()
   )
 );
+/// A deep copy: the clone copies the entries — every key and value is cloned
+/// into a new map that shares nothing with this one. That is the value meaning
+/// B10 keeps when `BTreeMap` becomes a value. Until then a copy of the handle
+/// still aliases the map, so this is the spelling of an independent copy, the
+/// one `yo fix --migrate explicit-copy` inserts at an implicit copy.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: Clone, V <: Clone),
+  BTreeMap(K, V),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      Self(_entries : self._entries.clone())
+    )
+  )
+);
 /// Value iterator over a BTreeMap — yields each `MapEntry(K, V)` BY VALUE in
 /// KEY ORDER. This is what `into_iter()`, and therefore `for(map, ...)`,
 /// returns; `iter()` yields pointers.
