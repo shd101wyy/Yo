@@ -30,6 +30,7 @@
 //! `get_header` among its D2 violations. Removing the pair is breaking, so
 //! it waits for a window; the multimap and `StatusCode` themselves are
 //! expected to stay.
+pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { ToString } :: import("../fmt");
@@ -73,7 +74,9 @@ impl(
   )
 );
 /// An HTTP header as a name-value pair.
-HttpHeader :: ref(struct(name : String, value : String));
+HttpHeader :: struct(name : String, value : String);
+// A value since B11 (plans/VALUES_BY_DEFAULT.md D26): both fields are values.
+derive(HttpHeader, Clone);
 impl(
   HttpHeader,
   /// Create a new header with the given name and value.
@@ -95,7 +98,10 @@ impl(
 /// `insert` replaces every existing value for a name, `append` adds one — the
 /// same split Rust draws, and the reason `set_header` on a request used to
 /// silently accumulate duplicates.
-HeaderMap :: ref(struct(_entries : ArrayList(HttpHeader)));
+HeaderMap :: struct(_entries : ArrayList(HttpHeader));
+// A value since B11 (plans/VALUES_BY_DEFAULT.md D26): cloning clones every
+// field line, through `ArrayList(HttpHeader)`'s `Clone`.
+derive(HeaderMap, Clone);
 impl(
   HeaderMap,
   /// An empty header section.
@@ -115,7 +121,7 @@ impl(
     lower := name.to_lowercase();
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
-      h := self._entries(i);
+      h := self._entries(i).clone();
       cond(
         (h.name.to_lowercase() == lower) => {
           return(.Some(h.value.clone()));
@@ -132,7 +138,7 @@ impl(
     mut(out) := ArrayList(String).new();
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
-      h := self._entries(i);
+      h := self._entries(i).clone();
       cond(
         (h.name.to_lowercase() == lower) => {
           out.push(h.value.clone());
@@ -167,7 +173,7 @@ impl(
     (mut(removed) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
-      h := self._entries(i);
+      h := self._entries(i).clone();
       cond(
         (h.name.to_lowercase() == lower) => {
           removed = (removed + usize(1));
@@ -180,16 +186,11 @@ impl(
     self._entries = kept;
     removed
   }),
-  /// The field lines in order — for serialization and iteration. The list is a
-  /// snapshot: pushing to it does not change the map.
-  entries : (fn(self : &Self) -> ArrayList(HttpHeader))({
-    mut(out) := ArrayList(HttpHeader).new();
-    (mut(i) : usize) = usize(0);
-    while(i < self._entries.len(), i = (i + usize(1)), {
-      out.push(self._entries(i));
-    });
-    out
-  })
+  /// The field lines in order — for serialization and iteration. A BORROW of
+  /// the map's own list (D26): pushing to it changes the map, and the borrow
+  /// lives only while the map is not otherwise touched. Before B11 the list
+  /// was a detached snapshot — a copy is now spelled `entries().clone()`.
+  entries : (fn(self : &Self) -> &ArrayList(HttpHeader))(addr_of(self._entries))
 );
 impl(
   HeaderMap,
@@ -201,7 +202,7 @@ impl(
       mut(out) := String.new();
       (mut(i) : usize) = usize(0);
       while(i < self._entries.len(), i = (i + usize(1)), {
-        h := self._entries(i);
+        h := self._entries.get_cloned(i).unwrap();
         out = `${out}${h.name}: ${h.value}\r\n`;
       });
       out
