@@ -797,3 +797,16 @@ comptime_expect_error(
   }),
   "A borrow capture cannot reach through"
 );
+// issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md:
+// the holder stores the place's address, and the list is still dropped at
+// its own scope end (the runner's leak check sees a miss).
+BsListView :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(i32), p), n : usize));
+test("A place lent into a reference field is dropped at its own scope end", {
+  (mut(i) : usize) = usize(0);
+  while(i < usize(3), i = (i + usize(1)), {
+    mut(l) := ArrayList(i32).new();
+    l.push(i32(7));
+    v := BsListView(l)(xs : &l, n : usize(1));
+    assert(v.n == l.len(), "the list is still readable beside its holder");
+  });
+});
