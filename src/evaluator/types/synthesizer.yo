@@ -576,7 +576,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       });
       res
     },
-    Rc(.FutureTraitT(_, out_box, _, ets)) => {
+    Rc(.FutureTraitT(_, out_box, _, ets, _)) => {
       if(recur(some_type_id, some_type_name, &out_box, visited, exn), {
         return(true);
       });
@@ -874,16 +874,16 @@ _synthesize_future_traits :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_out := match(expected_ty, Rc(.FutureTraitT(_, out, _, _)) => Rc.clone(out), _ => Rc.new(TypeValueNode.Unit));
-  giv_out := match(given_ty, Rc(.FutureTraitT(_, out, _, _)) => Rc.clone(out), _ => Rc.new(TypeValueNode.Unit));
+  exp_out := match(expected_ty, Rc(.FutureTraitT(_, out, _, _, _)) => Rc.clone(out), _ => Rc.new(TypeValueNode.Unit));
+  giv_out := match(given_ty, Rc(.FutureTraitT(_, out, _, _, _)) => Rc.clone(out), _ => Rc.new(TypeValueNode.Unit));
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   res := _synthesize_types_impl(&exp_out, &ee, &giv_out, &ge, checked, opts, exn);
   ee = res.expected_env;
   ge = res.given_env;
   // Synthesize effects
-  exp_et := match(expected_ty, Rc(.FutureTraitT(_, _, _, ets)) => Rc.clone(ets), _ => no_types());
-  giv_et := match(given_ty, Rc(.FutureTraitT(_, _, _, ets)) => Rc.clone(ets), _ => no_types());
+  exp_et := match(expected_ty, Rc(.FutureTraitT(_, _, _, ets, _)) => Rc.clone(ets), _ => no_types());
+  giv_et := match(given_ty, Rc(.FutureTraitT(_, _, _, ets, _)) => Rc.clone(ets), _ => no_types());
   _synthesize_implicit_params(&exp_et.items, &giv_et.items, &ee, &ge, checked, opts, exn);
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
@@ -1595,7 +1595,7 @@ _synthesize_types_impl :: (
         same_kind := match(
           &et,
           Rc(.FnTraitT(eb, _, _, _, _, _)) => match(&gt, Rc(.FnTraitT(gb, _, _, _, _, _)) => (eb == gb), _ => false),
-          Rc(.FutureTraitT(_, _, _, _)) => is_future_trait_type(&gt),
+          Rc(.FutureTraitT(_, _, _, _, _)) => is_future_trait_type(&gt),
           Rc(.TraitT(_, _, _, _, eid, _, _, _, _, _)) => match(&gt, Rc(.TraitT(_, _, _, _, gid, _, _, _, _, _)) => (eid == gid), _ => false),
           _ => false
         );

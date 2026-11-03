@@ -791,9 +791,9 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           new_its := _subst_list(s, &its);
           Rc.new(TypeValueNode.FnTraitT(base_name : bn.clone(), call_param_labels : Rc.clone(cpls), call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : Rc.clone(ils), implicit_types : new_its))
         },
-        Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets)) => {
+        Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, origin : fog)) => {
           new_ets := _subst_list(s, &ets);
-          Rc.new(TypeValueNode.FutureTraitT(base_name : bn.clone(), output : _substitute_at(s, &out, false), effect_labels : Rc.clone(els), effect_types : new_ets))
+          Rc.new(TypeValueNode.FutureTraitT(base_name : bn.clone(), output : _substitute_at(s, &out, false), effect_labels : Rc.clone(els), effect_types : new_ets, origin : _substitute_at(s, &fog, false)))
         },
         // Primitives and leaves — return unchanged.
         _ => Rc.clone(ty)

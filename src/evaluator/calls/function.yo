@@ -3037,9 +3037,9 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
           .Some(rt) => new_rtt.push(
             match(
               &rt,
-              Rc(.FutureTraitT(fb, fo, fel, fet)) => match(
+              Rc(.FutureTraitT(fb, fo, fel, fet, fog)) => match(
                 fo,
-                Rc(.SomeT({ id : _ })) => Rc.new(TypeValueNode.FutureTraitT(fb, t_with_resolution(&fo, concrete), Rc.clone(fel), Rc.clone(fet))),
+                Rc(.SomeT({ id : _ })) => Rc.new(TypeValueNode.FutureTraitT(fb, t_with_resolution(&fo, concrete), Rc.clone(fel), Rc.clone(fet), Rc.clone(fog))),
                 _ => Rc.clone(rt)
               ),
               _ => Rc.clone(rt)
@@ -5034,7 +5034,7 @@ _gc_collect_binder_sites :: (
               gi = (gi + usize(1));
             });
           },
-          Rc(.FutureTraitT(_, fo, _, fet)) => {
+          Rc(.FutureTraitT(_, fo, _, fet, _)) => {
             work.push(Rc.clone(fo));
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
@@ -6538,7 +6538,7 @@ _rre_binder_ids :: (
               gi = (gi + usize(1));
             });
           },
-          Rc(.FutureTraitT(_, fo, _, fet)) => {
+          Rc(.FutureTraitT(_, fo, _, fet, _)) => {
             work.push(Rc.clone(fo));
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
@@ -6628,7 +6628,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
               gi = (gi + usize(1));
             });
           },
-          Rc(.FutureTraitT(_, fo, _, fet)) => {
+          Rc(.FutureTraitT(_, fo, _, fet, _)) => {
             work.push(Rc.clone(fo));
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
