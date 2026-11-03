@@ -233,7 +233,7 @@ _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> boo
       (dbr_found : bool) = false;
       while((dbr_i < dbr_rtts.len()) && !dbr_found, {
         match(
-          dbr_rtts.get(dbr_i),
+          dbr_rtts.get_cloned(dbr_i),
           .Some(dbr_t) => if(type_to_string(&dbr_t) == want, {
             dbr_found = true;
           }),
@@ -440,7 +440,7 @@ _declares_marker :: (fn(ty : &TypeValue, marker : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       while((i < rtts.len()) && !found, {
         match(
-          rtts.get(i),
+          rtts.get_cloned(i),
           .Some(t) => if(type_to_string(&t) == want, {
             found = true;
           }),
@@ -1161,7 +1161,7 @@ create_capture_type_and_value :: (
       while(csi < field_labels.len(), {
         cap_key.push_string(match(field_labels.get_cloned(csi), .Some(l) => l, .None => String.from("")));
         cap_key.push_str(":");
-        cap_key.push_string(match(field_types.get(csi), .Some(t) => type_to_string(&t), .None => String.from("")));
+        cap_key.push_string(match(field_types.get_cloned(csi), .Some(t) => type_to_string(&t), .None => String.from("")));
         // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
         // `type_to_string` whether abstract (def-era eval — the captured
         // closure param is unbound, field lowers to void*) or resolved
@@ -1172,7 +1172,7 @@ create_capture_type_and_value :: (
         // tests/closure_param_forwarding.test.yo arm 2). Append the resolved
         // identity so the two eras mint DISTINCT capture structs.
         match(
-          field_types.get(csi),
+          field_types.get_cloned(csi),
           .Some(ck_t) => match(
             ck_t,
             Rc(.SomeT({ id : ck_sid, resolution : ck_rc })) => {
