@@ -395,7 +395,14 @@ try_to_call_type_with_arguments :: (
     // Decision 44: a callable into a `Dyn(Fn(...))` field is `dyn(f)`.
     reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty, &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
     reject_second_class_escape(&arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
-    set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
+    // A reference field stores the place's address (T9): no ownership is
+    // copied, so no dup. One recorded here paired with the place's own
+    // scope-end drop, and the pair optimizer cancelled both as a move into
+    // the holder, whose drop never drops a reference: the place leaked
+    // (issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md).
+    if(!t9_field_is_reference, {
+      set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
+    });
     env_adopt(&env, &arg_info.env);
     // Convert comptime type → runtime type unless the field type is comptime-only.
     // A comptime numeric bound for a numeric FIELD coerces to the field's
