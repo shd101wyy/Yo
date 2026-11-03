@@ -53,7 +53,7 @@ test("an outer variable's slot follows the context's capture slot (a fused await
 });
 test("an outer variable ignores a field alias keyed by its id", {
   v := mk_variable("count");
-  aliases := HashMap(String, String).new();
+  mut(aliases) := HashMap(String, String).new();
   aliases.insert(v.id.to_string(), String.from("slot_0"));
   got := slot_of(&v, CapturedVariableKind.Outer, Option(HashMap(String, String)).Some(aliases), "__capture");
   assert(got == "sm->__capture.__yo_v_count", `got ${got}`);
@@ -62,7 +62,7 @@ test("controls: a local's slot is its own field or its alias, a variable not in 
   v := mk_variable("count");
   local := slot_of(&v, CapturedVariableKind.Local, Option(HashMap(String, String)).None, "__capture");
   assert(local == `sm->var_${v.id.to_string()}`, `local: got ${local}`);
-  aliases := HashMap(String, String).new();
+  mut(aliases) := HashMap(String, String).new();
   aliases.insert(v.id.to_string(), String.from("slot_0"));
   aliased := slot_of(&v, CapturedVariableKind.Local, Option(HashMap(String, String)).Some(aliases), "__capture");
   assert(aliased == "sm->slot_0", `aliased: got ${aliased}`);
