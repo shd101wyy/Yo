@@ -1,6 +1,6 @@
 # A call missing its closing `)` before `;`, `}`, `]` or the end of the file parses as if it were closed
 
-**Severity:** S3 — invalid source is accepted: a missing `)` goes unreported by `check`, `compile`, `test` and `yo fmt --check` (the formatter writes the unbalanced text back unchanged), so it survives in a repository until the parser is fixed and then breaks it.
+**Severity:** S2 — invalid source is accepted: a missing `)` goes unreported by `check`, `compile`, `test` and `yo fmt --check` (the formatter writes the unbalanced text back unchanged), so it survives in a repository until the parser is fixed and then breaks it.
 
 Found by the README example-project rehearsal for v0.2.75: raylib_yo's and tetris_yo's `tests/main.test.yo` end in `};` instead of `});`, and both pass `yo test` and `yo fmt --check` on the v0.2.74 seed and on develop d76eac577.
 
