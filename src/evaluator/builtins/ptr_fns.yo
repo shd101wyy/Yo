@@ -505,7 +505,7 @@ evaluate_address_call :: (
   // element accesses dispatch `IndexMut` (decision 34, V2b); a `&`
   // projection's result only reads it.
   if(match(projection_tail_mode(expr), .Some(ptm) => ptm, .None => true), {
-    call_promote_index_places_for_write(&eval_arg, env, ctx, exn);
+    call_promote_index_places_for_write(&eval_arg, env, ctx, exn, is_addr_of : true);
   });
   // A projection's result (`rewrite_projection_tails`): the place must be
   // rooted at the projection's own borrow parameters.

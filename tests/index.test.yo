@@ -1146,6 +1146,13 @@ comptime_expect_error(
   }),
   "is a read-only borrow"
 );
+// `addr_of(xs(i))` with `xs` a `&` borrow: the `*T` it yields can write the
+// element, and the diagnostic says so instead of naming `IndexMut`
+// (issues/fixed/2026-11-05-addr-of-an-element-through-a-read-only-borrow-is-reported-as-a-write.md).
+comptime_expect_error(
+  _v2b_addr_of_elem_through_shared :: (fn(xs : &ArrayList(i32)) -> *i32)(addr_of(xs(usize(0)))),
+  "Cannot take `addr_of(xs(usize(0)))`: it yields a `*T`, which can write the element, and `xs` is a read-only borrow."
+);
 // A `&mut` projection call needs a `&mut` root.
 comptime_expect_error(
   _v2b_mut_projection_of_shared :: (fn(t : &Trio) -> unit)({
